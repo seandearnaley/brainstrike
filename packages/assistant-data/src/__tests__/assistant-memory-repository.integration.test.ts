@@ -3331,6 +3331,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     await repository.updateThreadMetadata(thread.id, {
       checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'root-local',
       checkoutMode: 'worktree',
       checkoutWorktreeId: 'w-1',
       checkoutWorktreePath: '/managed/repo/bright-fox',
@@ -3339,10 +3340,41 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const [reloaded] = await repository.listThreads('r');
     expect(reloaded?.metadata).toMatchObject({
       checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'root-local',
       checkoutMode: 'worktree',
       checkoutWorktreeId: 'w-1',
       checkoutWorktreePath: '/managed/repo/bright-fox',
     });
+
+    await repository.updateThreadMetadata(thread.id, { checkoutMode: 'local' });
+
+    const [local] = await repository.listThreads('r');
+    expect(local?.metadata).toMatchObject({ checkoutMode: 'local' });
+    expect(local?.metadata?.checkoutBranch).toBeUndefined();
+    expect(local?.metadata?.checkoutLocalRootId).toBeUndefined();
+    expect(local?.metadata?.checkoutWorktreeId).toBeUndefined();
+    expect(local?.metadata?.checkoutWorktreePath).toBeUndefined();
+  });
+
+  it('loads a legacy persisted worktree checkout with no durable Local root id', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-legacy-worktree-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+    const legacyMetadata = {
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-legacy',
+      checkoutWorktreePath: '/managed/repo/legacy-worktree',
+    } as const;
+
+    await db.query('UPDATE mastra_threads SET metadata = $2::jsonb WHERE id = $1', [
+      thread.id,
+      JSON.stringify(legacyMetadata),
+    ]);
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata).toEqual(legacyMetadata);
+    expect(reloaded?.metadata?.checkoutLocalRootId).toBeUndefined();
   });
 
   it('persists a local checkout with no worktree keys', async () => {
@@ -3366,6 +3398,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     await expect(
       repository.updateThreadMetadata(thread.id, {
+        checkoutLocalRootId: 'root-local',
         checkoutMode: 'worktree',
         checkoutWorktreePath: '/managed/repo/bright-fox',
       })

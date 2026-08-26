@@ -103,6 +103,20 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // timeline / duration pairings while the tool is still suspended.
   'tool.resume.unsupported',
   'tool.started',
+  // Managed-worktree lifecycle (BST-1390). Standalone breadcrumbs, emitted
+  // `status: 'info'` (or `'failed'` for a failed setup) — deliberately NOT
+  // `.started` kinds: a worktree create/archive is atomic from the timeline's
+  // point of view and has no terminal to pair against, so a `.started`
+  // spelling would leave a row spinning for the rest of the run.
+  //
+  // They exist ONLY for operations that happen inside a run. A worktree created
+  // before the thread's first request has no run row to attach to, and no
+  // orphan event is invented for it: the create sheet reports the outcome and
+  // `brainstrike_worktrees` is the durable record. See
+  // docs/agents/assistant-persistence.md.
+  'worktree.archived',
+  'worktree.created',
+  'worktree.setup',
 ] as const;
 
 export type AssistantRunEventKind = (typeof ASSISTANT_RUN_EVENT_KINDS)[number];

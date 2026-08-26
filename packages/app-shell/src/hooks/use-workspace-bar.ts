@@ -24,7 +24,13 @@ import {
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
+import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
+import type {
+  ThreadCheckoutFolders,
+  ThreadCheckoutRoot,
+  ThreadCheckoutWrite,
+} from './use-thread-folders-write';
 import { useWorkspaceBarForge } from './use-workspace-bar-forge';
 import { useWorkspaceBarMode } from './use-workspace-bar-mode';
 import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
@@ -62,37 +68,13 @@ const NO_RECENT_ENTRIES: readonly RecentRootEntry[] = [];
 // and must change with it.)
 const SECONDARY_ID_SEPARATOR = ' ';
 
-/** The thread folder set a queued write derives its next value from. */
-interface ThreadFolders {
-  /**
-   * The selected thread's row has not reached the store yet, so
-   * `secondaryRootIds` below reads as EMPTY for a reason that has nothing to do
-   * with the thread's actual folders. Deriving a write from it would persist
-   * that emptiness.
-   */
-  readonly metadataPending: boolean;
-  readonly primaryRootId: string | undefined;
-  readonly secondaryRootIds: readonly string[];
-  readonly threadId: string | undefined;
-}
-
-/** One queued metadata write, or `null` to skip it (already satisfied/stale). */
-interface ThreadFoldersWrite {
-  readonly binding?: Record<string, string>;
-  readonly ids: readonly string[];
-  /**
-   * The primary in effect AFTER this write — unchanged for every write except
-   * "Make primary", which installs a new one. The next queued write chains on
-   * BOTH fields, so a second Make primary demotes the primary the first one
-   * just installed rather than the one the render still shows.
-   */
-  readonly primaryRootId: string | undefined;
-}
-
 /** What a queued write persisted, for the next write in the queue to chain on. */
 interface ThreadFoldersWriteTail {
+  readonly checkoutLocalRootId: string | undefined;
   readonly ids: readonly string[];
+  readonly primaryRoot: ThreadCheckoutRoot | undefined;
   readonly primaryRootId: string | undefined;
+  readonly secondaryRoots: readonly ThreadCheckoutRoot[];
   /** The thread the ids belong to — they are meaningless for any other. */
   readonly threadId: string;
 }
@@ -167,15 +149,18 @@ function refuseWriteBeforeThreadMetadata(): void {
  * describes a write that already landed.
  */
 function writeStartingPoint(
-  live: ThreadFolders,
+  live: ThreadCheckoutFolders,
   tail: ThreadFoldersWriteTail | null,
   startedForThreadId: string
-): ThreadFolders {
+): ThreadCheckoutFolders {
   return tail?.threadId === startedForThreadId
     ? {
+        checkoutLocalRootId: tail.checkoutLocalRootId,
         metadataPending: false,
+        primaryRoot: tail.primaryRoot,
         primaryRootId: tail.primaryRootId,
         secondaryRootIds: tail.ids,
+        secondaryRoots: tail.secondaryRoots,
         threadId: live.threadId,
       }
     : live;
@@ -351,6 +336,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const selectedThread = selectedMemoryThreadId
     ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
     : undefined;
+  const checkoutLocalRootId = selectedThread?.metadata?.checkoutLocalRootId;
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
   // Watching is opt-out. This matches useForgeRunEvents, so a thread created
   // before the metadata field existed still receives forge observations.
@@ -610,20 +596,34 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // in between would be undone). Read the CURRENT set through this ref instead.
   // It carries the thread it describes, so a queued write can prove it is still
   // deriving from the thread it was started for.
-  const threadFoldersRef = useRef<ThreadFolders>({
+  const threadFoldersRef = useRef<ThreadCheckoutFolders>({
+    checkoutLocalRootId,
     metadataPending: selectedThreadMetadataPending,
+    primaryRoot,
     primaryRootId,
     secondaryRootIds,
+    secondaryRoots,
     threadId: selectedMemoryThreadId,
   });
   useEffect(() => {
     threadFoldersRef.current = {
+      checkoutLocalRootId,
       metadataPending: selectedThreadMetadataPending,
+      primaryRoot,
       primaryRootId,
       secondaryRootIds,
+      secondaryRoots,
       threadId: selectedMemoryThreadId,
     };
-  }, [primaryRootId, secondaryRootIds, selectedMemoryThreadId, selectedThreadMetadataPending]);
+  }, [
+    checkoutLocalRootId,
+    primaryRoot,
+    primaryRootId,
+    secondaryRootIds,
+    secondaryRoots,
+    selectedMemoryThreadId,
+    selectedThreadMetadataPending,
+  ]);
 
   /**
    * Serializes thread-folder writes. Two Add-folder clicks whose lookups settle
@@ -653,7 +653,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const enqueueThreadFoldersWrite = useCallback(
     (
       startedForThreadId: string | undefined,
-      derive: (current: ThreadFolders) => ThreadFoldersWrite | null
+      // Contract for every derive passed to this queue: returning null is a
+      // deliberate no-op only for a write that was never asked for by the user
+      // this tick (an idempotent dedup or a thread-switch/unmount race). A
+      // refusal of an explicit click must throw: null resolves the caller's
+      // promise successfully, while a rejection is visible to its catch.
+      derive: (current: ThreadCheckoutFolders) => ThreadCheckoutWrite | null
     ): Promise<void> => {
       const previous = writeTailRef.current;
       pendingWriteCountRef.current += 1;
@@ -688,8 +693,11 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
         await writeThreadFolders(request.ids, request.binding);
         return {
+          checkoutLocalRootId: request.checkoutLocalRootId,
           ids: request.ids,
+          primaryRoot: request.primaryRoot,
           primaryRootId: request.primaryRootId,
+          secondaryRoots: request.secondaryRoots,
           threadId: startedForThreadId,
         };
       })();
@@ -709,6 +717,32 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       return settled.then(() => undefined);
     },
     [writeThreadFolders]
+  );
+
+  const resolveRootIdForPath = useCallback(
+    async (path: string, displayName: string): Promise<string> => {
+      if (!database) {
+        throw new Error('Cannot resolve a worktree root before the workspace database is ready.');
+      }
+      const startedForThreadId = selectedMemoryThreadId;
+      const isCancelled = () =>
+        unmountedRef.current || activeThreadIdRef.current !== startedForThreadId;
+      const lookup = await resolveRootIdAfterReconciliation(
+        database,
+        { displayName, path },
+        isCancelled
+      );
+      if (lookup.kind === 'cancelled' || isCancelled()) {
+        throw new Error(
+          'Worktree root resolution was cancelled because the active thread changed.'
+        );
+      }
+      if (lookup.kind === 'unresolved') {
+        throw lookup.error;
+      }
+      return lookup.rootId;
+    },
+    [database, selectedMemoryThreadId]
   );
 
   const recordAddedAsSecondary = useCallback(
@@ -761,8 +795,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           return null;
         }
         return {
+          checkoutLocalRootId: current.checkoutLocalRootId,
           ids: [...current.secondaryRootIds, lookup.rootId],
+          primaryRoot: current.primaryRoot,
           primaryRootId: current.primaryRootId,
+          secondaryRoots: [
+            ...current.secondaryRoots,
+            { displayName: handle.name, path: handle.path, rootId: lookup.rootId },
+          ],
         };
       });
     },
@@ -812,12 +852,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const onMakePrimary = useCallback(
     (rootId: string) => {
-      const next = secondaryRoots.find((root) => root.rootId === rootId);
-      const nextPath = next?.path;
-      if (!(next && nextPath)) {
-        logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
-        return;
-      }
       // ONE metadata write: the thread binding keys and the secondary set move
       // together, so the store never shows an intermediate state with the new
       // primary still listed as a secondary. These are the same three
@@ -825,16 +859,57 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       // all-or-nothing rule), through the same store action — the global MAIN
       // root is deliberately untouched.
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
+        const next = current.secondaryRoots.find((root) => root.rootId === rootId);
+        const nextPath = next?.path;
+        if (!(next && nextPath)) {
+          logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
+          throw new Error(
+            `Could not make primary: secondary root ${rootId} is unknown or has no path.`
+          );
+        }
+        const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
+        const currentPrimaryPath = current.primaryRoot?.path;
+        if (
+          demotesPrimary &&
+          (!current.primaryRoot ||
+            current.primaryRoot.rootId !== current.primaryRootId ||
+            !currentPrimaryPath)
+        ) {
+          logger.error('Make primary: current primary root is unknown or has no path', {
+            rootId: current.primaryRootId,
+          });
+          throw new Error(
+            `Could not make primary: current primary root ${current.primaryRootId ?? '(unknown)'} is unknown or has no path.`
+          );
+        }
         const demoted =
-          current.primaryRootId && current.primaryRootId !== rootId ? [current.primaryRootId] : [];
+          demotesPrimary && current.primaryRoot && currentPrimaryPath
+            ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
+            : [];
+        const secondaryRoots = [
+          ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
+          ...demoted,
+        ];
+        // TODO(BST-1390): if the thread is currently in worktree checkout mode
+        // (metadata.checkoutMode === 'worktree'), promoting a plain secondary
+        // root to primary here leaves checkoutMode stuck at 'worktree' while
+        // the primary is no longer the worktree — a state-consistency bug.
+        // Deferred: fixing it needs either an implicit hand-off folded into
+        // this same write, or disabling "Make primary" for non-worktree
+        // secondaries while in worktree mode with a visible reason. Needs a
+        // decision, not just a patch — see the BST-1390 Task 17 reviewer
+        // addendum, item (a).
         return {
           binding: {
             operatingRootDisplayName: next.displayName,
             operatingRootId: rootId,
             operatingRootPath: nextPath,
           },
-          ids: [...current.secondaryRootIds.filter((id) => id !== rootId), ...demoted],
+          checkoutLocalRootId: current.checkoutLocalRootId,
+          ids: secondaryRoots.map((root) => root.rootId),
+          primaryRoot: { ...next, path: nextPath },
           primaryRootId: rootId,
+          secondaryRoots,
         };
       }).catch((error: unknown) => {
         logger.error('Make primary failed', { error, rootId });
@@ -845,14 +920,23 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         });
       });
     },
-    [enqueueThreadFoldersWrite, secondaryRoots, selectedMemoryThreadId]
+    [enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
 
   const onRemoveSecondary = useCallback(
     (rootId: string) => {
+      // TODO(BST-1390): this can remove the tracked Local root while the
+      // thread is checked out into a worktree (the row a later "Hand off to
+      // Local" would return to). Deferred: either disable that row in the UI
+      // with a visible reason ("This folder is where Hand off returns to") or
+      // clear-and-warn on removal. See the BST-1390 Task 17 reviewer
+      // addendum, item (b).
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => ({
+        checkoutLocalRootId: current.checkoutLocalRootId,
         ids: current.secondaryRootIds.filter((id) => id !== rootId),
+        primaryRoot: current.primaryRoot,
         primaryRootId: current.primaryRootId,
+        secondaryRoots: current.secondaryRoots.filter((root) => root.rootId !== rootId),
       })).catch((error: unknown) => {
         logger.error('Remove secondary failed', { error, rootId });
         toast({
@@ -899,15 +983,24 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
       : null
   );
+  const {
+    checkout: worktreeCheckout,
+    handOffToLocal: onHandOffToLocal,
+    selectWorktree: onSelectWorktree,
+  } = useThreadCheckout({
+    enqueueThreadFoldersWrite,
+    resolveRootIdForPath,
+    selectedMemoryThreadId,
+    threadMetadata: selectedThread?.metadata,
+  });
   const { branchSwitcher, mode } = useWorkspaceBarMode({
-    assistantThreadRepository,
     checkout,
-    memoryResourceId,
+    onHandOffToLocal,
+    onSelectWorktree,
     primaryRootId,
     primaryRootPath,
-    selectedMemoryThreadId,
     selectedThread,
-    updateThreadMetadata,
+    worktreeCheckout,
   });
   const forge = useWorkspaceBarForge({
     assistantThreadRepository,

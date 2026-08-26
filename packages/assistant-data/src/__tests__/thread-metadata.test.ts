@@ -52,6 +52,7 @@ describe('checkout metadata', () => {
 
     await repository.updateThreadMetadata(thread.id, {
       checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'r-local',
       checkoutMode: 'worktree',
       checkoutWorktreeId: 'w-1',
       checkoutWorktreePath: '/managed/repo/bright-fox',
@@ -60,6 +61,8 @@ describe('checkout metadata', () => {
 
     const [reloaded] = await repository.listThreads('workspace-a');
     expect(reloaded?.metadata).toMatchObject({ checkoutMode: 'local' });
+    expect(reloaded?.metadata?.checkoutBranch).toBeUndefined();
+    expect(reloaded?.metadata?.checkoutLocalRootId).toBeUndefined();
     expect(reloaded?.metadata?.checkoutWorktreeId).toBeUndefined();
     expect(reloaded?.metadata?.checkoutWorktreePath).toBeUndefined();
   });
@@ -67,12 +70,14 @@ describe('checkout metadata', () => {
   it('keeps a complete worktree checkout through the sanitizer', () => {
     const metadata = sanitizeThreadMetadataForTest({
       checkoutBranch: 'feature/x',
+      checkoutLocalRootId: 'r-local',
       checkoutMode: 'worktree',
       checkoutWorktreeId: '0198f6a0-0000-7000-8000-000000000001',
       checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',
     });
     expect(metadata).toEqual({
       checkoutBranch: 'feature/x',
+      checkoutLocalRootId: 'r-local',
       checkoutMode: 'worktree',
       checkoutWorktreeId: '0198f6a0-0000-7000-8000-000000000001',
       checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',
@@ -87,6 +92,70 @@ describe('checkout metadata', () => {
         checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',
       })
     ).toThrow('Assistant thread checkout metadata is inconsistent.');
+  });
+
+  it('throws on a local checkout carrying a durable Local root id', () => {
+    expect(() =>
+      sanitizeThreadMetadataForTest({
+        checkoutLocalRootId: 'r-local',
+        checkoutMode: 'local',
+      })
+    ).toThrow('Assistant thread checkout metadata is inconsistent.');
+  });
+
+  it('loads a legacy worktree checkout with no durable Local root id', () => {
+    const metadata = sanitizeThreadMetadataForTest({
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: '0198f6a0-0000-7000-8000-000000000001',
+      checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',
+    });
+
+    expect(metadata).toEqual({
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: '0198f6a0-0000-7000-8000-000000000001',
+      checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',
+    });
+    expect(metadata?.checkoutLocalRootId).toBeUndefined();
+  });
+
+  it('rejects persistence of a worktree checkout missing its durable Local root id', () => {
+    expect(() =>
+      assertPersistableThreadMetadataForTest({
+        checkoutMode: 'worktree',
+        checkoutWorktreeId: '0198f6a0-0000-7000-8000-000000000001',
+        checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',
+      })
+    ).toThrow('Assistant thread checkout metadata is incomplete.');
+  });
+
+  it('removes a stale branch on a detached worktree-to-worktree transition', async () => {
+    pgliteDataDir = `memory://thread-metadata-worktree-transition-${crypto.randomUUID()}`;
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await repository.updateThreadMetadata(thread.id, {
+      checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'r-local',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/repo/bright-fox',
+    });
+    await repository.updateThreadMetadata(thread.id, {
+      checkoutLocalRootId: 'r-local',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-2',
+      checkoutWorktreePath: '/managed/repo/detached',
+    });
+
+    const [reloaded] = await repository.listThreads('workspace-a');
+    expect(reloaded?.metadata).toMatchObject({
+      checkoutLocalRootId: 'r-local',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-2',
+      checkoutWorktreePath: '/managed/repo/detached',
+    });
+    expect(reloaded?.metadata?.checkoutBranch).toBeUndefined();
   });
 
   it('throws on a mode-less worktree id instead of guessing a mode', () => {

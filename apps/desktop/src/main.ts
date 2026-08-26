@@ -37,6 +37,7 @@ import {
 } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
+import { recordDesktopAssistantRunEvent } from './assistant-server/run-persistence';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
@@ -1622,6 +1623,7 @@ if (singleInstanceLockAcquired) {
       worktreeService = createWorktreeService({
         getDatabase,
         readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
+        recordRunEvent: (runId, event) => recordDesktopAssistantRunEvent(runId, event, getDatabase),
         resolveInventory: async () => {
           if (!gitInventoryService) {
             throw new Error('worktrees: gitInventoryService is not running');

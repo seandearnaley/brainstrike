@@ -87,6 +87,12 @@ export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number]
 export interface AssistantThreadMetadata {
   /** Last observed branch of the thread's checkout. Display only — live from git. */
   readonly checkoutBranch?: string;
+  /**
+   * The `roots.id` a worktree hand-off returns to — the durable Local root,
+   * recorded when the thread enters worktree mode so hand-off never guesses
+   * from the position of an id in `secondaryRootIds`.
+   */
+  readonly checkoutLocalRootId?: string;
   /** Where this thread works: the folder's own checkout, or an isolated worktree. */
   readonly checkoutMode?: 'local' | 'worktree';
   /** `brainstrike_worktrees.id` — the AUTHORITY when `checkoutMode === 'worktree'`. */
@@ -1344,6 +1350,7 @@ const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
 const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
   'checkoutBranch',
+  'checkoutLocalRootId',
   'checkoutMode',
   'checkoutWorktreeId',
   'checkoutWorktreePath',
@@ -1621,26 +1628,39 @@ function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined 
  * `assertCompleteOperatingRootMetadata`.
  *
  * `checkoutWorktreeId` is the AUTHORITY in worktree mode (exactly like
- * `operatingRootId` is for the folder binding) and `checkoutWorktreePath` is
- * the display hint the chip's tooltip renders, so a worktree checkout needs
- * both: an id with no path renders a chip with nothing to show, and a path
- * with no id has no durable identity to resolve. A LOCAL checkout carrying
- * either is not "mostly right" — it is two contradictory statements about
- * where the thread works, and it is rejected rather than silently pruned.
+ * `operatingRootId` is for the folder binding), `checkoutWorktreePath` is the
+ * display hint the chip's tooltip renders, and `checkoutLocalRootId` is the
+ * durable root a later hand-off restores. New worktree writes need all three:
+ * an id with no path renders a chip with nothing to show, a path with no id has
+ * no durable identity to resolve, and a missing Local root would lose the
+ * durable hand-off target. Reads tolerate only that last omission for legacy
+ * rows, allowing the explicit warn/toast hand-off path to retain the current
+ * primary folder. A LOCAL checkout carrying any of those keys is not "mostly
+ * right" — it is two contradictory statements about where the thread works,
+ * and it is rejected rather than silently pruned.
  *
- * `updateThreadMetadata` owns the one key-removal transition this shape needs:
- * a `{ checkoutMode: 'local' }` patch removes both worktree keys in the same
- * SQL update before merging the patch. Every other metadata patch keeps the
+ * `updateThreadMetadata` owns the key-removal transitions this shape needs.
+ * Every checkout-mode patch removes the per-checkout branch before merging, so
+ * a detached worktree cannot inherit the previous checkout's branch. A patch
+ * specifically to Local also removes both worktree keys and the durable Local
+ * root in the same SQL update. Every non-checkout metadata patch keeps the
  * repository's ordinary JSONB-merge semantics.
  */
-function assertCompleteCheckoutMetadata(metadata: {
+interface CheckoutMetadataShape {
   readonly checkoutBranch?: string | undefined;
+  readonly checkoutLocalRootId?: string | undefined;
   readonly checkoutMode?: 'local' | 'worktree' | undefined;
   readonly checkoutWorktreeId?: string | undefined;
   readonly checkoutWorktreePath?: string | undefined;
-}): void {
+}
+
+function assertCompleteCheckoutMetadata(
+  metadata: CheckoutMetadataShape,
+  requireLocalRootId: boolean
+): void {
   const hasAnyCheckoutMetadata = Boolean(
     metadata.checkoutBranch ||
+      metadata.checkoutLocalRootId ||
       metadata.checkoutMode ||
       metadata.checkoutWorktreeId ||
       metadata.checkoutWorktreePath
@@ -1652,33 +1672,54 @@ function assertCompleteCheckoutMetadata(metadata: {
     throw new Error('Assistant thread checkout metadata is incomplete.');
   }
   if (metadata.checkoutMode === 'worktree') {
-    if (!(metadata.checkoutWorktreeId && metadata.checkoutWorktreePath)) {
+    if (
+      !(metadata.checkoutWorktreeId && metadata.checkoutWorktreePath) ||
+      (requireLocalRootId && !metadata.checkoutLocalRootId)
+    ) {
       throw new Error('Assistant thread checkout metadata is incomplete.');
     }
     return;
   }
-  if (metadata.checkoutWorktreeId || metadata.checkoutWorktreePath) {
+  if (
+    metadata.checkoutLocalRootId ||
+    metadata.checkoutWorktreeId ||
+    metadata.checkoutWorktreePath
+  ) {
     throw new Error('Assistant thread checkout metadata is inconsistent.');
   }
+}
+
+function assertCompleteCheckoutMetadataForRead(metadata: CheckoutMetadataShape): void {
+  assertCompleteCheckoutMetadata(metadata, false);
+}
+
+function assertCompleteCheckoutMetadataForWrite(metadata: CheckoutMetadataShape): void {
+  assertCompleteCheckoutMetadata(metadata, true);
 }
 
 function sanitizeCheckoutMetadata(
   value: Record<string, unknown>
 ): Pick<
   AssistantThreadMetadata,
-  'checkoutBranch' | 'checkoutMode' | 'checkoutWorktreeId' | 'checkoutWorktreePath'
+  | 'checkoutBranch'
+  | 'checkoutLocalRootId'
+  | 'checkoutMode'
+  | 'checkoutWorktreeId'
+  | 'checkoutWorktreePath'
 > {
+  const checkoutBranch = optionalString(value['checkoutBranch']);
+  const checkoutLocalRootId = optionalString(value['checkoutLocalRootId']);
   const checkoutMode = optionalCheckoutMode(value['checkoutMode']);
   const checkoutWorktreeId = optionalString(value['checkoutWorktreeId']);
   const checkoutWorktreePath = optionalString(value['checkoutWorktreePath']);
-  const checkoutBranch = optionalString(value['checkoutBranch']);
   const checkoutMetadata = {
     ...(checkoutBranch ? { checkoutBranch } : {}),
+    ...(checkoutLocalRootId ? { checkoutLocalRootId } : {}),
     ...(checkoutMode ? { checkoutMode } : {}),
     ...(checkoutWorktreeId ? { checkoutWorktreeId } : {}),
     ...(checkoutWorktreePath ? { checkoutWorktreePath } : {}),
   };
-  assertCompleteCheckoutMetadata(checkoutMetadata);
+  assertCompleteCheckoutMetadataForRead(checkoutMetadata);
   return checkoutMetadata;
 }
 
@@ -1778,8 +1819,9 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
     throw new Error('Invalid assistant thread metadata color.');
   }
   optionalCheckoutMode(metadata.checkoutMode);
-  assertCompleteCheckoutMetadata(metadata);
+  assertCompleteCheckoutMetadataForWrite(metadata);
   assertOptionalThreadMetadataString(metadata.checkoutBranch, 'checkout branch');
+  assertOptionalThreadMetadataString(metadata.checkoutLocalRootId, 'checkout local root id');
   assertOptionalThreadMetadataString(metadata.checkoutWorktreeId, 'checkout worktree id');
   assertOptionalThreadMetadataString(metadata.checkoutWorktreePath, 'checkout worktree path');
   assertOptionalThreadMetadataString(metadata.forgePrUrl, 'forge pull request URL');
@@ -3894,10 +3936,14 @@ export function createPgliteAssistantThreadRepository(
       assertPersistableThreadMetadata(metadata);
       const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
-      const currentMetadata =
-        metadata.checkoutMode === 'local'
-          ? "COALESCE(metadata, '{}'::jsonb) - 'checkoutWorktreeId' - 'checkoutWorktreePath'"
-          : "COALESCE(metadata, '{}'::jsonb)";
+      // Setting any checkout mode is a checkout transition, so its branch is
+      // per-checkout. Only a transition to Local also drops the three keys
+      // whose authority has no meaning after the hand-off.
+      const currentMetadata = metadata.checkoutMode
+        ? metadata.checkoutMode === 'local'
+          ? "COALESCE(metadata, '{}'::jsonb) - 'checkoutBranch' - 'checkoutWorktreeId' - 'checkoutWorktreePath' - 'checkoutLocalRootId'"
+          : "COALESCE(metadata, '{}'::jsonb) - 'checkoutBranch'"
+        : "COALESCE(metadata, '{}'::jsonb)";
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
          SET metadata = (${currentMetadata}) || $2::jsonb

@@ -3,14 +3,26 @@ import type { WorkspaceBarMode } from '@brainstrike/assistant-ui';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { branchSwitcherSpy, toastSpy, worktreeModeSpy } = vi.hoisted(() => ({
+const { branchSwitcherSpy, loggerErrorSpy, toastSpy, worktreeModeSpy } = vi.hoisted(() => ({
   branchSwitcherSpy: vi.fn(),
+  loggerErrorSpy: vi.fn(),
   toastSpy: vi.fn(),
   worktreeModeSpy: vi.fn(),
 }));
 
 vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
 vi.mock('../hooks/use-worktree-mode', () => ({ useWorktreeMode: worktreeModeSpy }));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({
+    debug: vi.fn(),
+    error: loggerErrorSpy,
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  }),
+}));
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   toast: toastSpy,
@@ -60,14 +72,13 @@ const thread = {
 function renderComposition() {
   return renderHook(() =>
     useWorkspaceBarMode({
-      assistantThreadRepository: {} as never,
       checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
-      memoryResourceId: 'workspace-1',
+      onHandOffToLocal: vi.fn(),
+      onSelectWorktree: vi.fn(),
       primaryRootId: 'r-1',
       primaryRootPath: '/work/app',
-      selectedMemoryThreadId: 'thread-1',
       selectedThread: thread,
-      updateThreadMetadata: vi.fn(),
+      worktreeCheckout: { mode: 'local', worktreeId: null, worktreePath: null },
     })
   );
 }
@@ -78,7 +89,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     branchSwitcherSpy.mockReturnValue(undefined);
   });
 
-  it('supplies the escape only when creation is enabled and toasts a rejection', async () => {
+  it('supplies the escape only when creation is enabled and only logs a rejection', async () => {
     const onCreate = vi.fn(() => Promise.reject(new Error('bridge create failed')));
     worktreeModeSpy.mockReturnValue(mode({ onCreate }));
     renderComposition();
@@ -88,12 +99,11 @@ describe('useWorkspaceBarMode branch escape', () => {
     act(() => branchEscape?.('feature/alpha'));
 
     await waitFor(() =>
-      expect(toastSpy).toHaveBeenCalledWith({
-        description: 'bridge create failed',
-        title: 'Switch in a new worktree failed',
-        variant: 'destructive',
+      expect(loggerErrorSpy).toHaveBeenCalledWith('Switch in a new worktree failed', {
+        error: expect.any(Error),
       })
     );
+    expect(toastSpy).not.toHaveBeenCalled();
     expect(onCreate).toHaveBeenCalledWith({
       baseRef: 'feature/alpha',
       branch: { detached: true },

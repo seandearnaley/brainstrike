@@ -287,11 +287,20 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           args.runId
         );
         await mountWorktree(addRootDirectoryByPath, worktree.path);
-        await args.onSelectWorktree({
-          branch: worktree.branch,
-          path: worktree.path,
-          worktreeId: worktree.id,
-        });
+        try {
+          await args.onSelectWorktree({
+            branch: worktree.branch,
+            path: worktree.path,
+            worktreeId: worktree.id,
+          });
+        } catch (error) {
+          const message = errorMessage(error);
+          toastFailure(
+            'Worktree created, but binding failed',
+            `Created the worktree, but binding the thread failed: ${message}`
+          );
+          throw error instanceof Error ? error : new Error(message);
+        }
         if (setup.status === 'failed' || setup.status === 'skipped') {
           toastFailure(
             `Worktree created — setup ${setup.status}`,
@@ -427,6 +436,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     if (!(bridge && args.primaryRootId)) {
       throw new Error('Worktrees are not available here.');
     }
+    if (args.hasSentFirstRequest) {
+      rejectWithToast('Could not open worktree creation', FIRST_REQUEST_CREATE_REASON);
+    }
     let result: Awaited<ReturnType<WorktreesBridge['createContext']>>;
     try {
       result = await bridge.createContext({ rootId: args.primaryRootId });
@@ -439,7 +451,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       rejectWithToast('Could not prepare worktree creation', result.error);
     }
     setCreateSheetContext(result.value);
-  }, [args.primaryRootId, bridge]);
+  }, [args.hasSentFirstRequest, args.primaryRootId, bridge]);
 
   const managedParentPath =
     createSheetContext?.managedParentPath ??

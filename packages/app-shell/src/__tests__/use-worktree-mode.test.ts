@@ -202,7 +202,26 @@ describe('useWorktreeMode', () => {
       title: 'Worktree creation failed',
       variant: 'destructive',
     });
+    expect(toastSpy).toHaveBeenCalledTimes(1);
     expect(onSelectWorktree).not.toHaveBeenCalled();
+  });
+
+  it('rejects and toasts exactly once when binding fails after creation', async () => {
+    onSelectWorktree.mockRejectedValueOnce(new Error('bind boom'));
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
+
+    await act(async () => {
+      await expect(result.current?.onCreate(CREATE_REQUEST)).rejects.toThrow('bind boom');
+    });
+
+    expect(addRootByPathSpy).toHaveBeenCalledWith('/managed/app/bright-fox');
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Created the worktree, but binding the thread failed: bind boom',
+      title: 'Worktree created, but binding failed',
+      variant: 'destructive',
+    });
+    expect(toastSpy).toHaveBeenCalledTimes(1);
   });
 
   it('rejects and toasts when the created worktree cannot be mounted', async () => {
@@ -259,6 +278,25 @@ describe('useWorktreeMode', () => {
     });
     expect(createContextSpy).toHaveBeenCalledTimes(2);
     expect(result.current?.defaultName).toBe('quiet-otter');
+  });
+
+  it('refuses to open the create sheet after the first request, with a toast (BST-1390)', async () => {
+    const { result, rerender } = renderHook(
+      ({ hasSentFirstRequest }) => useWorktreeMode({ ...ARGS, hasSentFirstRequest }),
+      { initialProps: { hasSentFirstRequest: false } }
+    );
+    await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
+    rerender({ hasSentFirstRequest: true });
+
+    await expect(result.current?.onOpenCreateSheet()).rejects.toThrow(
+      'Create a worktree before sending the first request.'
+    );
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Create a worktree before sending the first request.',
+      title: 'Could not open worktree creation',
+      variant: 'destructive',
+    });
+    expect(createContextSpy).not.toHaveBeenCalled();
   });
 
   it('rejects a create-context failure, toasts it, and keeps the last good context', async () => {

@@ -963,6 +963,31 @@ carries the weight here rather than error surfacing. If provenance is ever
 broken, expect partial silence, not a clean failure. Paired test (clean-stream
 path only): `apps/desktop/src/__tests__/assistant-server/run-event-schema-provenance.integration.test.ts`.
 
+### WORKTREE LIFECYCLE KINDS (BST-1390)
+
+`worktree.created`, `worktree.archived` and `worktree.setup` are additive
+`ASSISTANT_RUN_EVENT_KINDS` members, emitted by `worktree-service.ts` through
+the SAME `recordDesktopAssistantRunEvent` writer (exported for this purpose —
+do not add a second INSERT) and therefore under the same documented `if (runId)`
+gate as every other main-process writer.
+
+They are emitted ONLY for an operation that happens inside a run. A worktree
+created from the Mode chip before the thread's first request has no
+`brainstrike_assistant_thread_runs` row to reference (`run_id` is `NOT NULL`
+with an FK), and NO orphan row is invented for it: the create sheet reports the
+outcome inline, a toast confirms it, and `brainstrike_worktrees` is the durable
+record. Writing the same fact into both tables would be a second source of
+truth — the argument that kept `tool.approval.resolved` out of the contract.
+
+All three are `NEVER_RUNNING` (status `info`, or `failed` for a failed setup),
+so none declares a terminal. `AssistantRunTimeline` needs no change: it renders
+`label`/`detail`/`status` and derives only a `lifecycle` colour from the kind
+prefix (via `classifyRunEvent` in `tool-visual-classification.ts`, which falls
+through to `'lifecycle'` for any kind that isn't `memory.*`/`tool.*`). A kind
+missing from `ASSISTANT_RUN_EVENT_KINDS` is REJECTED by `readAssistantRunEvent`
+and the row disappears — which is why the contract entry is the first thing to
+add.
+
 ### Threads-panel active-run projection (BST-1244)
 
 The Threads panel derives its running indicators directly from
