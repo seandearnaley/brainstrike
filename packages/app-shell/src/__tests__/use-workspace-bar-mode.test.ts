@@ -78,7 +78,12 @@ function renderComposition() {
       primaryRootId: 'r-1',
       primaryRootPath: '/work/app',
       selectedThread: thread,
-      worktreeCheckout: { mode: 'local', worktreeId: null, worktreePath: null },
+      worktreeCheckout: {
+        branch: null,
+        mode: 'local',
+        worktreeId: null,
+        worktreePath: null,
+      },
     })
   );
 }
@@ -87,6 +92,31 @@ describe('useWorkspaceBarMode branch escape', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     branchSwitcherSpy.mockReturnValue(undefined);
+  });
+
+  it('treats an unhydrated selected thread as loading, never as pre-first-request', () => {
+    worktreeModeSpy.mockReturnValue(mode({ createDisabledReason: 'Thread is still loading.' }));
+    renderHook(() =>
+      useWorkspaceBarMode({
+        checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        onHandOffToLocal: vi.fn(),
+        onSelectWorktree: vi.fn(),
+        primaryRootId: 'r-1',
+        primaryRootPath: '/work/app',
+        selectedThread: undefined,
+        worktreeCheckout: {
+          branch: null,
+          mode: 'local',
+          worktreeId: null,
+          worktreePath: null,
+        },
+      })
+    );
+
+    expect(worktreeModeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ firstRequestState: 'loading' })
+    );
+    expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toBeUndefined();
   });
 
   it('supplies the escape only when creation is enabled and only logs a rejection', async () => {

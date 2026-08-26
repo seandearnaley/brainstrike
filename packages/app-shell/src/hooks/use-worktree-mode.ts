@@ -40,10 +40,12 @@ type SettingsState =
 
 export interface UseWorktreeModeArgs {
   readonly checkout: {
+    readonly branch: string | null;
     readonly mode: 'local' | 'worktree';
     readonly worktreeId: string | null;
+    readonly worktreePath: string | null;
   };
-  readonly hasSentFirstRequest: boolean;
+  readonly firstRequestState: 'loading' | 'sent' | 'unsent';
   readonly isRepository: boolean;
   readonly onHandOffToLocal: () => Promise<void>;
   readonly onSelectWorktree: (worktree: {
@@ -172,10 +174,13 @@ function describeSetup(settings: SettingsState): string {
 }
 
 function createDisabledReason(
-  hasSentFirstRequest: boolean,
+  firstRequestState: UseWorktreeModeArgs['firstRequestState'],
   settings: SettingsState
 ): string | null {
-  if (hasSentFirstRequest) {
+  if (firstRequestState === 'loading') {
+    return 'Thread is still loading.';
+  }
+  if (firstRequestState === 'sent') {
     return FIRST_REQUEST_CREATE_REASON;
   }
   if (settings.kind === 'loading') {
@@ -200,7 +205,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [createSheetContext, setCreateSheetContext] = useState<WorktreeCreateContext | null>(null);
-  const retriedAfterListErrorRef = useRef(false);
+  const [listRevision, setListRevision] = useState(0);
+  const retriedAfterListErrorRef = useRef<string | null>(null);
+  const refreshedMissingWorktreeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!bridge) {
@@ -260,6 +267,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       } finally {
         if (!isCancelled?.()) {
           setListing(false);
+          setListRevision((revision) => revision + 1);
         }
       }
     },
@@ -293,30 +301,50 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
 
   const currentWorktreeId = args.checkout.mode === 'worktree' ? args.checkout.worktreeId : null;
 
-  useEffect(() => {
-    if (listError === null || currentWorktreeId === null || retriedAfterListErrorRef.current) {
-      return;
-    }
-    retriedAfterListErrorRef.current = true;
-    let cancelled = false;
-    void refreshList(() => cancelled);
-    return () => {
-      cancelled = true;
-    };
-  }, [currentWorktreeId, listError, refreshList]);
-
   const currentEntry = useMemo(
     () => entries.find((entry) => entry.id !== null && entry.id === currentWorktreeId) ?? null,
     [currentWorktreeId, entries]
   );
 
+  useEffect(() => {
+    if (currentWorktreeId === null || listRevision === 0) {
+      return;
+    }
+    const retryingListError =
+      listError !== null && retriedAfterListErrorRef.current !== currentWorktreeId;
+    const refreshingMissingEntry =
+      listError === null &&
+      currentEntry === null &&
+      refreshedMissingWorktreeIdRef.current !== currentWorktreeId;
+    if (!(retryingListError || refreshingMissingEntry)) {
+      return;
+    }
+    if (retryingListError) {
+      retriedAfterListErrorRef.current = currentWorktreeId;
+      // This retry also refreshes the missing-id evidence; a successful empty
+      // result must not trigger a redundant third inventory read.
+      refreshedMissingWorktreeIdRef.current = currentWorktreeId;
+    }
+    if (refreshingMissingEntry) {
+      refreshedMissingWorktreeIdRef.current = currentWorktreeId;
+    }
+    let cancelled = false;
+    void refreshList(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentEntry, currentWorktreeId, listError, listRevision, refreshList]);
+
   const onCreate = useCallback(
     async (request: WorkspaceBarCreateWorktreeRequest): Promise<void> => {
       if (!(bridge && args.primaryRootId)) {
-        throw new Error('Worktrees are not available here.');
+        rejectWithToast('Could not create a worktree', 'Worktrees are not available here.');
       }
-      if (args.hasSentFirstRequest) {
-        throw new Error(FIRST_REQUEST_CREATE_REASON);
+      if (args.firstRequestState === 'loading') {
+        rejectWithToast('Could not create a worktree', 'Thread is still loading.');
+      }
+      if (args.firstRequestState === 'sent') {
+        rejectWithToast('Could not create a worktree', FIRST_REQUEST_CREATE_REASON);
       }
       setPending(true);
       try {
@@ -337,7 +365,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           const message = errorMessage(error);
           toastFailure(
             'Worktree created, but binding failed',
-            `Created the worktree, but binding the thread failed: ${message}`
+            `Created the worktree at ${worktree.path}, but binding the thread failed: ${message} Use "Use existing worktree…" to reconnect this thread to it.`
           );
           throw error instanceof Error ? error : new Error(message);
         }
@@ -354,7 +382,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     },
     [
       addRootDirectoryByPath,
-      args.hasSentFirstRequest,
+      args.firstRequestState,
       args.onSelectWorktree,
       args.primaryRootId,
       args.runId,
@@ -367,12 +395,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     (option: WorkspaceBarWorktreeOption): void => {
       const { worktreeId } = option;
       if (!worktreeId) {
-        toast({
-          description:
-            'This worktree was created outside BrainStrike. Adopting one is coming with the Worktree Map.',
-          title: 'Not a managed worktree yet',
-        });
-        return;
+        throw new Error(
+          'Unreachable worktree picker state: a usable worktree must have a managed ledger id.'
+        );
       }
       setPending(true);
       void Promise.resolve(addRootDirectoryByPath?.(option.path))
@@ -414,7 +439,11 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           toastFailure('Worktree not archived', result.error);
           return;
         }
-        await args.onHandOffToLocal();
+        try {
+          await args.onHandOffToLocal();
+        } catch (error) {
+          toastFailure('Worktree archived — thread not handed off', errorMessage(error));
+        }
         await refreshList();
       })
       .catch((error: unknown) => {
@@ -476,7 +505,10 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     if (!(bridge && args.primaryRootId)) {
       throw new Error('Worktrees are not available here.');
     }
-    if (args.hasSentFirstRequest) {
+    if (args.firstRequestState === 'loading') {
+      rejectWithToast('Could not open worktree creation', 'Thread is still loading.');
+    }
+    if (args.firstRequestState === 'sent') {
       rejectWithToast('Could not open worktree creation', FIRST_REQUEST_CREATE_REASON);
     }
     let result: Awaited<ReturnType<WorktreesBridge['createContext']>>;
@@ -491,7 +523,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       rejectWithToast('Could not prepare worktree creation', result.error);
     }
     setCreateSheetContext(result.value);
-  }, [args.hasSentFirstRequest, args.primaryRootId, bridge]);
+  }, [args.firstRequestState, args.primaryRootId, bridge]);
 
   const managedParentPath =
     createSheetContext?.managedParentPath ??
@@ -501,12 +533,27 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     currentEntry?.id && currentEntry.managed && currentEntry.detached
       ? onCreateBranchHere
       : undefined;
+  const missingWorktreePath =
+    currentWorktreeId && currentEntry === null ? args.checkout.worktreePath : null;
+  const missingWorktreeName = missingWorktreePath
+    ? (missingWorktreePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? missingWorktreePath)
+    : null;
+  const missingWorktreeReason =
+    missingWorktreeName &&
+    listRevision > 0 &&
+    !listing &&
+    (refreshedMissingWorktreeIdRef.current === currentWorktreeId ||
+      retriedAfterListErrorRef.current === currentWorktreeId)
+      ? listError
+        ? `Could not verify the bound worktree because the worktree list is unavailable: ${listError}`
+        : `The bound worktree ${currentWorktreeId ?? '(unknown)'} is missing from the refreshed worktree list.`
+      : null;
 
   return useMemo(() => {
     if (!(bridge && args.primaryRootId)) {
       return;
     }
-    const disabled = createDisabledReason(args.hasSentFirstRequest, settings);
+    const disabled = createDisabledReason(args.firstRequestState, settings);
     if (!args.isRepository) {
       return {
         baseRefs: BASE_REFS,
@@ -542,7 +589,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       createDisabledReason: disabled,
       defaultBranchPrefix: 'bs/',
       defaultName,
-      disabledReason: null,
+      disabledReason: missingWorktreeReason,
       localPath: args.primaryRootPath,
       managedParentPath,
       onArchive: currentWorktreeId ? onArchive : undefined,
@@ -579,10 +626,21 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
               setupStatus: currentEntry.setupStatus,
               worktreeId: currentEntry.id,
             }
-          : null,
+          : missingWorktreeName && missingWorktreePath && currentWorktreeId
+            ? {
+                branch: args.checkout.branch,
+                detached: args.checkout.branch === null,
+                name: missingWorktreeName,
+                path: missingWorktreePath,
+                setupReason: missingWorktreeReason,
+                setupStatus: 'none',
+                worktreeId: currentWorktreeId,
+              }
+            : null,
     };
   }, [
-    args.hasSentFirstRequest,
+    args.checkout.branch,
+    args.firstRequestState,
     args.isRepository,
     args.primaryRootId,
     args.primaryRootPath,
@@ -595,6 +653,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     listError,
     listing,
     managedParentPath,
+    missingWorktreeName,
+    missingWorktreePath,
+    missingWorktreeReason,
     onArchive,
     onCreate,
     onGrantAccess,

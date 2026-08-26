@@ -1,6 +1,9 @@
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { UseWorktreeModeArgs } from '../hooks/use-worktree-mode';
+
+type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
 
 const {
   addRootByPathSpy,
@@ -64,14 +67,21 @@ const onHandOffToLocal = vi.fn(() => Promise.resolve());
 const onSelectWorktree = vi.fn(() => Promise.resolve());
 
 const ARGS = {
-  checkout: { mode: 'local' as const, worktreeId: null },
-  hasSentFirstRequest: false,
+  checkout: { branch: null, mode: 'local' as const, worktreeId: null, worktreePath: null },
+  firstRequestState: 'unsent' as const,
   isRepository: true,
   onHandOffToLocal,
   onSelectWorktree,
   primaryRootId: 'r-1',
   primaryRootPath: '/work/app',
   runId: null,
+};
+
+const WORKTREE_CHECKOUT = {
+  branch: 'bs/bright-fox',
+  mode: 'worktree' as const,
+  worktreeId: 'w-1',
+  worktreePath: '/managed/app/bright-fox',
 };
 
 const CREATE_REQUEST = {
@@ -92,6 +102,7 @@ describe('useWorktreeMode', () => {
       },
     });
     listSpy.mockResolvedValue({ ok: true, value: [] });
+    archiveSpy.mockResolvedValue({ ok: true, value: null });
     createBranchHereSpy.mockResolvedValue({ ok: true, value: null });
     createContextSpy.mockResolvedValue({
       ok: true,
@@ -147,17 +158,17 @@ describe('useWorktreeMode', () => {
 
   it('disables creation after the first request while leaving handoff available', async () => {
     const { result, rerender } = renderHook(
-      ({ hasSentFirstRequest }) =>
+      ({ firstRequestState }) =>
         useWorktreeMode({
           ...ARGS,
-          checkout: { mode: 'worktree', worktreeId: 'w-1' },
-          hasSentFirstRequest,
+          checkout: WORKTREE_CHECKOUT,
+          firstRequestState,
         }),
-      { initialProps: { hasSentFirstRequest: false } }
+      { initialProps: { firstRequestState: 'unsent' as FirstRequestState } }
     );
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
-    rerender({ hasSentFirstRequest: true });
+    rerender({ firstRequestState: 'sent' });
 
     expect(result.current?.createDisabledReason).toContain('first request');
     expect(result.current?.onHandOffToLocal).toBeDefined();
@@ -217,11 +228,32 @@ describe('useWorktreeMode', () => {
 
     expect(addRootByPathSpy).toHaveBeenCalledWith('/managed/app/bright-fox');
     expect(toastSpy).toHaveBeenCalledWith({
-      description: 'Created the worktree, but binding the thread failed: bind boom',
+      description:
+        'Created the worktree at /managed/app/bright-fox, but binding the thread failed: bind boom Use "Use existing worktree…" to reconnect this thread to it.',
       title: 'Worktree created, but binding failed',
       variant: 'destructive',
     });
     expect(toastSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('toasts a hand-off failure truthfully after archive and still refreshes the list', async () => {
+    onHandOffToLocal.mockRejectedValueOnce(new Error('handoff boom'));
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
+
+    act(() => result.current?.onArchive?.());
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'handoff boom',
+        title: 'Worktree archived — thread not handed off',
+        variant: 'destructive',
+      })
+    );
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(3));
+    expect(toastSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Worktree not archived' })
+    );
   });
 
   it('rejects and toasts when the created worktree cannot be mounted', async () => {
@@ -282,11 +314,11 @@ describe('useWorktreeMode', () => {
 
   it('refuses to open the create sheet after the first request, with a toast (BST-1390)', async () => {
     const { result, rerender } = renderHook(
-      ({ hasSentFirstRequest }) => useWorktreeMode({ ...ARGS, hasSentFirstRequest }),
-      { initialProps: { hasSentFirstRequest: false } }
+      ({ firstRequestState }) => useWorktreeMode({ ...ARGS, firstRequestState }),
+      { initialProps: { firstRequestState: 'unsent' as FirstRequestState } }
     );
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
-    rerender({ hasSentFirstRequest: true });
+    rerender({ firstRequestState: 'sent' });
 
     await expect(result.current?.onOpenCreateSheet()).rejects.toThrow(
       'Create a worktree before sending the first request.'
@@ -389,9 +421,7 @@ describe('useWorktreeMode', () => {
         },
       ],
     });
-    const { result } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, checkout: { mode: 'worktree', worktreeId: 'w-1' } })
-    );
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
     act(() => {
       result.current?.onOpenPicker();
     });
@@ -433,9 +463,7 @@ describe('useWorktreeMode', () => {
         },
       ],
     });
-    const { result } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, checkout: { mode: 'worktree', worktreeId: 'w-1' } })
-    );
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
     await waitFor(() =>
       expect(result.current?.worktree).toMatchObject({ name: 'bright-fox', worktreeId: 'w-1' })
     );
@@ -470,7 +498,7 @@ describe('useWorktreeMode', () => {
       ],
     });
     const { result, rerender } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, checkout: { mode: 'worktree', worktreeId: 'w-1' } })
+      useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT })
     );
 
     await waitFor(() =>
@@ -481,6 +509,30 @@ describe('useWorktreeMode', () => {
     rerender();
     await act(async () => {
       await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(listSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes a missing bound id once and renders its persisted basename with a diagnostic', async () => {
+    const { result, rerender } = renderHook(() =>
+      useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT })
+    );
+
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(result.current).toMatchObject({
+        disabledReason: 'The bound worktree w-1 is missing from the refreshed worktree list.',
+        worktree: {
+          name: 'bright-fox',
+          path: '/managed/app/bright-fox',
+          worktreeId: 'w-1',
+        },
+      })
+    );
+
+    rerender();
+    await act(async () => {
       await Promise.resolve();
     });
     expect(listSpy).toHaveBeenCalledTimes(2);
@@ -514,7 +566,7 @@ describe('useWorktreeMode', () => {
         listSpy.mockResolvedValue({ ok: true, value: [entry] });
         return useWorktreeMode({
           ...ARGS,
-          checkout: { mode: 'worktree', worktreeId: 'w-1' },
+          checkout: WORKTREE_CHECKOUT,
         });
       },
       { initialProps: { entry: detached } }
@@ -575,9 +627,7 @@ describe('useWorktreeMode', () => {
       ],
     });
     createBranchHereSpy.mockResolvedValue({ error: 'branch already exists', ok: false });
-    const { result } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, checkout: { mode: 'worktree', worktreeId: 'w-1' } })
-    );
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
     act(() => result.current?.onOpenPicker());
     await waitFor(() => expect(result.current?.onCreateBranchHere).toEqual(expect.any(Function)));
 

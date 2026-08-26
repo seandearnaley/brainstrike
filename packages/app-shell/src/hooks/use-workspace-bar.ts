@@ -57,6 +57,12 @@ interface RootRow {
   readonly path: string | null;
 }
 
+interface ResolvedSecondaryRoots {
+  readonly error: boolean;
+  readonly key: string;
+  readonly roots: readonly WorkspaceBarRoot[];
+}
+
 const EMPTY_SECONDARY_ROOT_IDS: readonly string[] = [];
 // Shared empty results: `setState` with a fresh `[]` would defeat React's
 // Object.is bail-out and re-render on every settle.
@@ -106,6 +112,17 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function areSecondaryRootsPending(
+  secondaryRootIds: readonly string[],
+  secondaryRootIdsKey: string,
+  resolvedSecondaries: ResolvedSecondaryRoots | null
+): boolean {
+  if (secondaryRootIds.length === 0) {
+    return false;
+  }
+  return resolvedSecondaries?.key !== secondaryRootIdsKey || resolvedSecondaries.error;
+}
+
 /**
  * Electron's `ipcRenderer.invoke` re-throws a main-process rejection in the
  * renderer with its own envelope prepended — `Error invoking remote method
@@ -132,13 +149,14 @@ function describeFailure(error: unknown): string {
  * folder set is indistinguishable from an empty one — but unlike a thread
  * switch the user asked for this, so it is both logged and surfaced.
  */
-function refuseWriteBeforeThreadMetadata(): void {
+function refuseWriteBeforeThreadMetadata(): never {
   logger.error('Cannot update thread folders before the selected thread metadata is loaded');
   toast({
     description: "This thread's folders have not loaded yet — try again in a moment.",
     title: 'Thread is still loading',
     variant: 'destructive',
   });
+  throw new Error("This thread's folders have not loaded yet — try again in a moment.");
 }
 
 /**
@@ -161,6 +179,7 @@ function writeStartingPoint(
         primaryRootId: tail.primaryRootId,
         secondaryRootIds: tail.ids,
         secondaryRoots: tail.secondaryRoots,
+        secondaryRootsPending: false,
         threadId: live.threadId,
       }
     : live;
@@ -336,7 +355,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const selectedThread = selectedMemoryThreadId
     ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
     : undefined;
-  const checkoutLocalRootId = selectedThread?.metadata?.checkoutLocalRootId;
+  const checkoutLocalRootId =
+    selectedThread?.metadata?.checkoutMode === 'worktree'
+      ? selectedThread.metadata.checkoutLocalRootId
+      : undefined;
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
   // Watching is opt-out. This matches useForgeRunEvents, so a thread created
   // before the metadata field existed still receives forge observations.
@@ -457,14 +479,18 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // Id-list-tagged, for the same reason `mainRootRow` is path-tagged: a
   // resolution for one id list is never rendered under another, and a bail-out
   // needs no clearing setState (react-hooks/set-state-in-effect).
-  const [resolvedSecondaries, setResolvedSecondaries] = useState<{
-    readonly key: string;
-    readonly roots: readonly WorkspaceBarRoot[];
-  } | null>(null);
+  const [resolvedSecondaries, setResolvedSecondaries] = useState<ResolvedSecondaryRoots | null>(
+    null
+  );
   const secondaryRoots =
     database && resolvedSecondaries?.key === secondaryRootIdsKey
       ? resolvedSecondaries.roots
       : NO_ROOTS;
+  const secondaryRootsPending = areSecondaryRootsPending(
+    secondaryRootIds,
+    secondaryRootIdsKey,
+    resolvedSecondaries
+  );
   useEffect(() => {
     if (!(database && secondaryRootIds.length > 0)) {
       return;
@@ -481,6 +507,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
         const byId = new Map(result.rows.map((row) => [row.id, row]));
         setResolvedSecondaries({
+          error: false,
           key: secondaryRootIdsKey,
           roots: secondaryRootIds.flatMap((id) => {
             const row = byId.get(id);
@@ -503,7 +530,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           logger.error('failed to load the thread secondary roots', { error });
           // Tagged with the key it failed for, so the failure is not retried on
           // every render and no other id list inherits an empty result.
-          setResolvedSecondaries({ key: secondaryRootIdsKey, roots: NO_ROOTS });
+          setResolvedSecondaries({ error: true, key: secondaryRootIdsKey, roots: NO_ROOTS });
         }
       });
     return () => {
@@ -603,6 +630,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     primaryRootId,
     secondaryRootIds,
     secondaryRoots,
+    secondaryRootsPending,
     threadId: selectedMemoryThreadId,
   });
   useEffect(() => {
@@ -613,6 +641,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       primaryRootId,
       secondaryRootIds,
       secondaryRoots,
+      secondaryRootsPending,
       threadId: selectedMemoryThreadId,
     };
   }, [
@@ -621,6 +650,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     primaryRootId,
     secondaryRootIds,
     secondaryRoots,
+    secondaryRootsPending,
     selectedMemoryThreadId,
     selectedThreadMetadataPending,
   ]);
@@ -670,7 +700,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         // makes "the folder did not attach" look like a UI glitch.
         if (!startedForThreadId) {
           logger.error('Cannot update thread folders without an active thread');
-          return tail;
+          throw new Error('Cannot update thread folders without an active thread.');
         }
         // A thread switch or an unmount, by contrast, is the ordinary reason a
         // queued write no longer applies — the state it would derive from is no
@@ -685,7 +715,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         // asked for this and has to be told it did not happen.
         if (live.metadataPending) {
           refuseWriteBeforeThreadMetadata();
-          return tail;
         }
         const request = derive(writeStartingPoint(live, tail, startedForThreadId));
         if (!request) {
@@ -862,6 +891,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         const next = current.secondaryRoots.find((root) => root.rootId === rootId);
         const nextPath = next?.path;
         if (!(next && nextPath)) {
+          if (current.secondaryRootsPending) {
+            throw new Error('Folders are still loading — try again in a moment.');
+          }
           logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
           throw new Error(
             `Could not make primary: secondary root ${rootId} is unknown or has no path.`
@@ -906,7 +938,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
             operatingRootPath: nextPath,
           },
           checkoutLocalRootId: current.checkoutLocalRootId,
-          ids: secondaryRoots.map((root) => root.rootId),
+          ids: [
+            ...current.secondaryRootIds.filter((id) => id !== rootId),
+            ...demoted.map((root) => root.rootId),
+          ],
           primaryRoot: { ...next, path: nextPath },
           primaryRootId: rootId,
           secondaryRoots,

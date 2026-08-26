@@ -994,6 +994,13 @@ function resolveUsability(
   if (descriptor.lockedReason !== null) {
     return { disabledReason: `Locked: ${descriptor.lockedReason}`, remedy: null, usable: false };
   }
+  if (row === null && descriptor.containment !== 'outside-roots') {
+    return {
+      disabledReason: 'Created outside BrainStrike — adopting it is coming with the Worktree Map.',
+      remedy: null,
+      usable: false,
+    };
+  }
   if (descriptor.containment !== 'outside-roots' || row !== null) {
     return { disabledReason: null, remedy: null, usable: true };
   }

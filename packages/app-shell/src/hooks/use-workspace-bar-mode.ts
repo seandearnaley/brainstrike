@@ -48,13 +48,19 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     worktreeCheckout,
   } = args;
   // `latestRun` is populated from the durable run ledger after the first request.
-  const hasSentFirstRequest = selectedThread?.latestRun !== undefined;
+  // An absent thread is still hydrating, not evidence that no request was sent.
+  const firstRequestState =
+    selectedThread === undefined
+      ? 'loading'
+      : selectedThread.latestRun === undefined
+        ? 'unsent'
+        : 'sent';
   const activeRunId =
     selectedThread?.latestRun?.status === 'running' ? selectedThread.latestRun.id : null;
 
   const mode = useWorktreeMode({
     checkout: worktreeCheckout,
-    hasSentFirstRequest,
+    firstRequestState,
     isRepository: checkout !== undefined,
     onHandOffToLocal,
     onSelectWorktree,

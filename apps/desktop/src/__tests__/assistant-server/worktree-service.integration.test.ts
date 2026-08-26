@@ -619,6 +619,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     const externalPath = path.join(tmpdir(), '.codex', 'worktrees', 'external-one');
     const prunablePath = path.join(tmpdir(), 'prunable-one');
     const lockedPath = path.join(repo, 'locked-one');
+    const unmanagedInRootPath = path.join(managedDirectory, 'unmanaged-in-root');
     const untrustedPath = path.join(tmpdir(), 'untrusted-one');
     const descriptor = (
       overrides: Partial<GitInventory['repositories'][number]['worktrees'][number]>
@@ -664,6 +665,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
               path: lockedPath,
             }),
             descriptor({
+              name: 'unmanaged-in-root',
+              path: unmanagedInRootPath,
+            }),
+            descriptor({
               containment: 'outside-roots',
               name: 'untrusted-one',
               path: untrustedPath,
@@ -706,6 +711,12 @@ describe('WorktreeService (real git + real PGlite)', () => {
     });
     expect(listed.value.find((entry) => entry.path === lockedPath)).toMatchObject({
       disabledReason: 'Locked: maintenance',
+      usable: false,
+    });
+    expect(listed.value.find((entry) => entry.path === unmanagedInRootPath)).toMatchObject({
+      disabledReason: 'Created outside BrainStrike — adopting it is coming with the Worktree Map.',
+      managed: false,
+      remedy: null,
       usable: false,
     });
     expect(listed.value.find((entry) => entry.path === untrustedPath)).toMatchObject({
