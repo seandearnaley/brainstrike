@@ -443,9 +443,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
 
   const onSelectExisting = useCallback(
     (option: WorkspaceBarWorktreeOption): void => {
-      if (!bridge) {
-        return;
-      }
       setPending(true);
       void Promise.resolve(addRootDirectoryByPath?.(option.path))
         .then((mounted) => {
@@ -478,7 +475,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           setPending(false);
         });
     },
-    [addRootDirectoryByPath, args.onSelectWorktree, bridge, refreshList]
+    [addRootDirectoryByPath, args.onSelectWorktree, refreshList]
   );
 
   const onArchive = useCallback((): void => {
