@@ -38,6 +38,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './user-commands-bridge',
         './worktree-map',
         './worktrees/availability',
+        './workspace-connect/workspace-connect-bridge',
       ].sort()
     );
   });

@@ -10,6 +10,7 @@ import {
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
 import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
+import { WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
 import { WORKTREES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/worktrees/availability';
 import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
@@ -350,6 +351,8 @@ describe('preload runtime contract', () => {
       STORAGE_GET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getItem,
       STORAGE_REMOVE_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.removeItem,
       STORAGE_SET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.setItem,
+      WORKSPACE_OPEN_FOLDER_PICKER_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.workspace.openFolderPicker,
+      WORKSPACE_OPEN_PATH_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.workspace.openPath,
       WORKTREES_ADOPT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.adopt,
       WORKTREES_ARCHIVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.archive,
       WORKTREES_CHECKOUT_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.checkoutStatus,
@@ -393,6 +396,7 @@ describe('preload runtime contract', () => {
       skills: SKILLS_BRIDGE_REQUIRED_METHODS,
       terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
       userCommands: USER_COMMANDS_BRIDGE_REQUIRED_METHODS,
+      workspace: WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS,
       worktrees: WORKTREES_BRIDGE_REQUIRED_METHODS,
     };
 
