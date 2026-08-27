@@ -26,6 +26,7 @@ export interface WorktreeMapCardProps {
   readonly onHandOffToLocal?: (() => void) | undefined;
   readonly onNewThread: (card: WorktreeMapCardModel) => void;
   readonly onOpenPullRequest: (url: string) => void;
+  readonly onOpenTerminal: (card: WorktreeMapCardModel) => void;
   readonly onOpenThread: (threadId: string) => void;
   readonly onReveal: (path: string) => void;
   readonly onToggleIndexing: (rootId: string, enabled: boolean) => void;
@@ -71,6 +72,7 @@ export function WorktreeMapCard({
   onHandOffToLocal,
   onNewThread,
   onOpenPullRequest,
+  onOpenTerminal,
   onOpenThread,
   onReveal,
   onToggleIndexing,
@@ -195,14 +197,19 @@ export function WorktreeMapCard({
               <DropdownMenuItem onSelect={() => onAdopt(card)}>Adopt</DropdownMenuItem>
             )}
             <DropdownMenuItem onSelect={() => onReveal(entry.path)}>Reveal</DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="worktree-map-open-terminal"
+              disabled={entry.rootId === null}
+              onSelect={() => onOpenTerminal(card)}
+              title={
+                entry.rootId === null ? 'Add this checkout as a workspace root first.' : undefined
+              }
+            >
+              Open in Terminal
+            </DropdownMenuItem>
             {entry.managed ? (
               <DropdownMenuItem onSelect={() => onArchive(card)}>Archive…</DropdownMenuItem>
             ) : null}
-            {/*
-              NO "Open in Terminal" ITEM. W3 ruling A6 defers the
-              terminal-session seam to W6 and records "absent, not stubbed"; the
-              Step-4 tripwire fails if this comment stops being true.
-            */}
           </DropdownMenuContent>
         </DropdownMenu>
       </footer>

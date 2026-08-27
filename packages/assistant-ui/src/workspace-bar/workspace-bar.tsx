@@ -114,6 +114,7 @@ export interface WorkspaceBarMode {
   readonly onOpenCreateSheet: () => Promise<void>;
   /** Asks the caller to open the controlled "Use an existing worktree…" picker. */
   readonly onOpenPicker: () => void;
+  readonly onOpenTerminal: (() => void) | undefined;
   readonly onReveal: (() => void) | undefined;
   readonly pending: boolean;
   readonly picker: WorkspaceBarWorktreePicker;

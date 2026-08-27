@@ -92,6 +92,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({ addRootDirectoryByPath: addRootDirectoryByPathMock }),
 }));
 
+import { useTerminalTargetStore } from '../../terminal-panel/terminal-target-store';
 import { WorktreeMapSurface } from '../worktree-map-surface';
 
 function card(overrides: Record<string, unknown> = {}) {
@@ -609,21 +610,11 @@ describe('WorktreeMapSurface', () => {
     expect(screen.queryByRole('menuitem', { name: /^adopt$/iu })).not.toBeInTheDocument();
   });
 
-  // TRIPWIRE (coordinator ruling, 2026-08-26). W3's A6 ruling deferred the
-  // terminal-session seam to W6 and recorded "absent, not stubbed"; W5's Map
-  // is exactly where a well-meaning edit would reintroduce it, because spec
-  // §10 lists the action. This test states the omission as a CONTRACT so the
-  // ruling cannot be quietly reversed: the item must not appear in any form —
-  // enabled, disabled, or "coming soon". When W6 lands the terminal seam, this
-  // test is DELETED in that PR, not weakened here.
-  it('offers no "Open in Terminal" action anywhere on a card (W6 owns the seam)', async () => {
+  it('pins the card exact checkout path when opening it in Terminal', async () => {
     render(<WorktreeMapSurface />);
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByTestId('worktree-map-open-terminal'));
 
-    expect(screen.queryByText(/open in terminal/iu)).not.toBeInTheDocument();
-    // Also assert the DISABLED shape is absent: a disabled stub would satisfy
-    // a naive queryByRole({ name, disabled: false }) check while still being
-    // the exact thing the ruling forbids.
-    expect(screen.queryByRole('menuitem', { name: /terminal/iu })).not.toBeInTheDocument();
+    expect(useTerminalTargetStore.getState().target).toEqual({ cwd: '/wt', rootId: 'root-1' });
   });
 });

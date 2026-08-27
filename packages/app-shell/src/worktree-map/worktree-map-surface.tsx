@@ -20,6 +20,7 @@ import type { ReactElement } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
+import { openTerminalAtTarget } from '../terminal-panel/terminal-target-store';
 import { useActiveAssistantThreadIds } from '../use-active-assistant-thread-ids';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
 import { useWorktreeMap } from './use-worktree-map';
@@ -331,6 +332,17 @@ export function WorktreeMapSurface(): ReactElement {
                 onNewThread={onNewThread}
                 onOpenPullRequest={(url) => {
                   void platform?.openExternal(url);
+                }}
+                onOpenTerminal={(targetCard) => {
+                  if (!targetCard.entry.rootId) {
+                    setActionError(`"${targetCard.entry.name}" is not inside a workspace root.`);
+                    return;
+                  }
+                  setActionError(null);
+                  openTerminalAtTarget({
+                    cwd: targetCard.entry.path,
+                    rootId: targetCard.entry.rootId,
+                  });
                 }}
                 onOpenThread={(threadId) => selectThread(resourceId, threadId)}
                 onReveal={(path) => {

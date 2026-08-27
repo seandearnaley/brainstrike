@@ -15,6 +15,7 @@ import {
   Home,
   Layers,
   Plus,
+  TerminalSquare,
 } from 'lucide-react';
 import { type ReactElement, useLayoutEffect, useRef, useState } from 'react';
 import type { WorkspaceBarMode, WorkspaceBarWorktreeSummary } from './workspace-bar';
@@ -218,6 +219,15 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
             </span>
           ) : null}
           <ModeMenuBody mode={mode} />
+          {mode.onOpenTerminal ? (
+            <DropdownMenuItem
+              data-testid="workspace-bar-mode-open-terminal"
+              onSelect={mode.onOpenTerminal}
+            >
+              <TerminalSquare aria-hidden="true" className="size-3.5" />
+              Open in Terminal
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             data-testid="workspace-bar-mode-pick-worktree"

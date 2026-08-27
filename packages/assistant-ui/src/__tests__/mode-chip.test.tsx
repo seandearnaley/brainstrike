@@ -34,6 +34,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   onHandOffToLocal: undefined,
   onOpenCreateSheet: vi.fn(() => Promise.resolve()),
   onOpenPicker: vi.fn(),
+  onOpenTerminal: vi.fn(),
   onReveal: vi.fn(),
   pending: false,
   picker: {
@@ -501,8 +502,7 @@ describe('ModeChip', () => {
     expect(await screen.findByTestId('workspace-bar-mode-handoff')).toBeVisible();
     expect(screen.getByTestId('workspace-bar-mode-create-branch-here')).toBeVisible();
     expect(screen.getByTestId('workspace-bar-mode-archive')).toBeVisible();
-    // "Open in Terminal" is deferred to W6 — ABSENT, never a disabled stub.
-    expect(screen.queryByTestId('workspace-bar-mode-open-terminal')).toBeNull();
+    expect(screen.getByTestId('workspace-bar-mode-open-terminal')).toBeVisible();
     expect(screen.getByTestId('workspace-bar-mode-pick-worktree')).toBeVisible();
   });
 

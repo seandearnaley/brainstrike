@@ -31,6 +31,7 @@ import type {
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { openTerminalAtTarget } from '../terminal-panel/terminal-target-store';
 import { resolveWorktreesBridge, type WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 const logger = createLogger('WorktreeMode');
@@ -70,6 +71,18 @@ export interface UseWorktreeModeArgs {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function createOpenTerminalHandler(
+  rootId: string,
+  checkoutPath: string | undefined,
+  primaryRootPath: string | null
+): (() => void) | undefined {
+  const cwd = checkoutPath ?? primaryRootPath;
+  if (!cwd) {
+    return;
+  }
+  return () => openTerminalAtTarget({ cwd, rootId });
 }
 
 function toastFailure(title: string, description: string): void {
@@ -787,11 +800,11 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         ? `Could not verify the bound worktree because the worktree list is unavailable: ${listError}`
         : `The bound worktree ${currentWorktreeId ?? '(unknown)'} is missing from the refreshed worktree list.`
       : null;
-
   return useMemo(() => {
     if (!(bridge && args.primaryRootId)) {
       return;
     }
+    const primaryRootId = args.primaryRootId;
     const disabled = createDisabledReason(args.firstRequestState, settings);
     if (!args.isRepository) {
       return {
@@ -808,6 +821,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         onHandOffToLocal: undefined,
         onOpenCreateSheet: () => Promise.resolve(),
         onOpenPicker: () => undefined,
+        onOpenTerminal: undefined,
         onReveal: undefined,
         pending: false,
         picker: {
@@ -838,6 +852,11 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       onHandOffToLocal: currentWorktreeId ? onHandOffToLocal : undefined,
       onOpenCreateSheet,
       onOpenPicker: () => onPickerOpenChange(true),
+      onOpenTerminal: createOpenTerminalHandler(
+        primaryRootId,
+        currentEntry?.path,
+        args.primaryRootPath
+      ),
       onReveal:
         platform && currentEntry
           ? () => {
