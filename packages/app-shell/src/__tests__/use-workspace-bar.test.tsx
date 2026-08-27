@@ -258,6 +258,13 @@ function installWorktreesBridge(): void {
 }
 
 interface BarProps {
+  // Optional: a `rerender` call omitting it keeps using the value `setup`
+  // closed over (every caller except the collision test below). Present so a
+  // test CAN pass a fresh reference across a rerender — the collision guard
+  // is keyed on `[rootDescriptors]` identity, so re-passing the SAME object
+  // reference would never re-run that effect at all, making a "warns only
+  // once" assertion pass vacuously regardless of the guard's own logic.
+  readonly rootDescriptors?: typeof rootDescriptors;
   readonly selectedMemoryThreadId: string | undefined;
 }
 
@@ -273,7 +280,7 @@ async function setup(
         currentMainRoot,
         database,
         memoryResourceId: RESOURCE_ID,
-        rootDescriptors: rootDescriptorsOverride,
+        rootDescriptors: props.rootDescriptors ?? rootDescriptorsOverride,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
       }),
     { initialProps: { selectedMemoryThreadId: THREAD_ID } as BarProps }
@@ -593,7 +600,16 @@ describe('useWorkspaceBar', () => {
   // map. Whichever descriptor loses that collision never gets its
   // working-tree refresh registered, and until this fix nothing logged why.
   it('warns once per path on a collision, never for distinct paths', async () => {
-    const noCollision = await setup(); // default rootDescriptors: one path, no collision.
+    // TWO descriptors, DIFFERENT paths — not the default one-descriptor
+    // fixture (BST-1400 item 13 review fold-in): an implementation keyed on
+    // `Object.keys(rootDescriptors).length > 1` rather than genuine path
+    // equality would pass a one-entry fixture unchanged, since there is only
+    // one path to (not) collide with either way.
+    const distinctDescriptors = {
+      ...rootDescriptors,
+      'adapter-other': { displayName: 'other', path: '/ws/other', rootId: 'adapter-other' },
+    };
+    const noCollision = await setup({}, distinctDescriptors);
     expect(loggerMock.warn).not.toHaveBeenCalledWith(
       expect.stringContaining('share a path'),
       expect.anything()
@@ -613,10 +629,18 @@ describe('useWorkspaceBar', () => {
       })
     );
 
-    // A re-render with the SAME collision must not warn again.
+    // A re-render with the SAME collision, but a FRESH object reference
+    // (BST-1400 item 13 review fold-in), must not warn again. The guard's
+    // effect is keyed on `[rootDescriptors]` identity — re-passing the SAME
+    // reference (the bug in the original version of this test) never
+    // re-runs the effect at all, so "does not warn again" would pass even
+    // with the once-guard deleted. A fresh reference with the same
+    // collision is the shape a live re-mount loop actually produces (the
+    // store rebuilds the descriptors map via `Object.fromEntries(...)` on
+    // every mount/unmount), which is exactly what the guard exists for.
     const warnCallsAfterMount = loggerMock.warn.mock.calls.length;
     await act(async () => {
-      rerender({ selectedMemoryThreadId: THREAD_ID });
+      rerender({ rootDescriptors: { ...dupeDescriptors }, selectedMemoryThreadId: THREAD_ID });
     });
     expect(loggerMock.warn.mock.calls.length).toBe(warnCallsAfterMount);
   });
