@@ -302,6 +302,43 @@ describe('WorktreeMapSurface', () => {
     expect(publishMock).not.toHaveBeenCalled();
   });
 
+  it('states the real remedy, not the generic "Add Folder" copy, when an adopted-but-unmanaged mount is refused', async () => {
+    // BST-1392 review: a worktree inside a granted root but outside
+    // BrainStrike's managed worktrees directory adopts fine (a live ledger
+    // row exists — `worktreeId` is non-null, or this callback couldn't even
+    // be reached) but then can't be mounted, because neither of
+    // `resolveGrantedRootHandle`'s two picker-less grants (exact-path
+    // recents match, or managed-directory containment + ledger row) fires
+    // for it. The generic refusal text is reused VERBATIM here on purpose —
+    // it is the actual string `resolveGrantedRootHandle` throws
+    // (`workspace-recent-roots.ts`'s `NEVER_GRANTED_MESSAGE`), duplicated
+    // rather than imported since `apps/desktop` isn't a dependency this
+    // package can reach.
+    addRootDirectoryByPathMock.mockRejectedValueOnce(
+      new Error('Folder was never granted in this app; use Add Folder to grant it.')
+    );
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await screen.findByText(
+      '"bright-fox" was adopted, but it sits outside BrainStrike\'s managed worktrees folder, so it can\'t be mounted automatically. Use the workspace bar\'s "Add Folder" to grant this worktree\'s folder directly, then try "New thread here" again.'
+    );
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(selectThreadMock).not.toHaveBeenCalled();
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it('passes an UNRELATED addRootDirectoryByPath failure through verbatim, not the managed-worktree remedy', async () => {
+    addRootDirectoryByPathMock.mockRejectedValueOnce(new Error('disk is full'));
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await screen.findByText('disk is full');
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
   it('states a loud error and never calls createThread when the workspace database is not ready', async () => {
     // (corrected at execution: onNewThread's repository guard, added beside
     // the existing !worktreeId guard, must fail LOUD — a stated actionError,
