@@ -270,6 +270,35 @@ describe('WorktreeMapSurface', () => {
     expect(showItemInFolderMock).not.toHaveBeenCalled();
   });
 
+  // BST-1392 W5 follow-up (live CDT finding, scripts/probe-worktree-map.mjs):
+  // mounting creates the `roots` row the card model resolves `rootId` from,
+  // but the Map never re-reads on its own — without an explicit refresh the
+  // card's `indexing` stays 'not-a-root' (no badge at all) until an UNRELATED
+  // changes-invalidation happens to refresh the Map. Mirror onAdopt: refresh
+  // on a successful mount, never on a failed one.
+  it('refreshes the Map after onNewThread mounts the checkout, so indexing re-resolves', async () => {
+    const refreshMock = vi.fn();
+    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refresh the Map when the onNewThread mount fails', async () => {
+    const refreshMock = vi.fn();
+    addRootDirectoryByPathMock.mockResolvedValueOnce(null);
+    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await screen.findByText('Could not add "bright-fox" as a workspace root.');
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
   it('states a failure and never creates a thread when mounting the checkout as a root fails', async () => {
     addRootDirectoryByPathMock.mockResolvedValueOnce(null);
     render(<WorktreeMapSurface />);
@@ -409,14 +438,16 @@ describe('WorktreeMapSurface', () => {
     await screen.findByText('Worktree not archived: worktree has uncommitted changes');
   });
 
-  it('adds the checkout as a workspace root through the by-path seam', async () => {
+  it('adds the checkout as a workspace root through the by-path seam and refreshes the Map', async () => {
     // (corrected at execution: the canonical fixture's shared `card()`
     // default is `rootId: 'root-1'` — already a mounted root, so the card
     // correctly never offers "Add as root" for it. This is the ONE test that
     // exercises the unmounted case; every other test keeps the shared
     // default.)
+    const refreshMock = vi.fn();
     useWorktreeMapMock.mockReturnValue({
       ...BASE_STATE,
+      refresh: refreshMock,
       repositories: [
         {
           ...BASE_STATE.repositories[0],
@@ -431,6 +462,9 @@ describe('WorktreeMapSurface', () => {
 
     expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
     expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
+    // Same staleness as onNewThread's mount: without a refresh the card keeps
+    // rendering no indexing badge until an unrelated invalidation.
+    expect(refreshMock).toHaveBeenCalledTimes(1);
     // Falsifier: adding a root never archives or mutates indexing.
     expect(archiveMock).not.toHaveBeenCalled();
     expect(setIndexingMock).not.toHaveBeenCalled();
