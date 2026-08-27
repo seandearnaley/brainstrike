@@ -243,6 +243,13 @@ describe('WorktreeMapSurface', () => {
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
+    // BST-1392 W5 e2e finding: Adopt only inserts the ledger row, it never
+    // mounts a `roots` row, and use-workspace-bar.ts's bind waits up to 5s
+    // for one and then fails ("no unique live workspace identity") — so
+    // "New thread here" must mount BEFORE creating/selecting/publishing,
+    // exactly like use-worktree-mode.ts's mountWorktree/onSelectExisting do.
+    expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
+    expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
     expect(createThreadMock).toHaveBeenCalledTimes(1);
     // Falsifiable for BOTH arguments: `SENTINEL_REPOSITORY` proves the real
     // repository (derived from `database` via
@@ -261,6 +268,18 @@ describe('WorktreeMapSurface', () => {
     // Falsifier: the Map must not reach for any other seam to do this.
     expect(setIndexingMock).not.toHaveBeenCalled();
     expect(showItemInFolderMock).not.toHaveBeenCalled();
+  });
+
+  it('states a failure and never creates a thread when mounting the checkout as a root fails', async () => {
+    addRootDirectoryByPathMock.mockResolvedValueOnce(null);
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await screen.findByText('Could not add "bright-fox" as a workspace root.');
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(selectThreadMock).not.toHaveBeenCalled();
+    expect(publishMock).not.toHaveBeenCalled();
   });
 
   it('states a loud error and never calls createThread when the workspace database is not ready', async () => {
