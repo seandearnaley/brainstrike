@@ -65,3 +65,54 @@ export async function resolveRootCwd(
     return { error: error instanceof Error ? error.message : String(error), ok: false };
   }
 }
+
+/**
+ * Narrow an already-resolved root cwd to a REQUESTED subdirectory.
+ *
+ * `resolveRootCwd` answers "which open folder", this answers "where inside it".
+ * The two are separate because the root answer is the authorization (an unknown
+ * rootId is a hard refusal) while this is a containment narrowing: `requested`
+ * must be absolute, must exist, must be a directory, and — after `realpath` on
+ * BOTH sides — must be the root itself or lie beneath it.
+ *
+ * The containment test is SEPARATOR-ANCHORED (`${rootCwd}${path.sep}`), never a
+ * bare `startsWith`: `/work/repo-evil` starts with `/work/repo` as a string and
+ * is not inside it. Both sides are canonical before comparison, so a symlink
+ * pointing out of the root cannot smuggle a path past the check.
+ *
+ * Error strings never embed a filesystem path (`platform-contracts.md`: cwd is
+ * not something this layer hands back or logs at warn+).
+ */
+export async function resolveContainedCwd(
+  rootCwd: string,
+  requested: string | undefined,
+  domain: string
+): Promise<RootCwdResult> {
+  if (requested === undefined) {
+    return { ok: true, value: rootCwd };
+  }
+  if (typeof requested !== 'string' || requested.trim().length === 0) {
+    return { error: `${domain} requires a non-empty cwd string when one is supplied.`, ok: false };
+  }
+  if (!path.isAbsolute(requested)) {
+    return { error: `${domain} requires an absolute cwd path.`, ok: false };
+  }
+  let canonical: string;
+  try {
+    canonical = await fsPromises.realpath(requested);
+    const stats = await fsPromises.stat(canonical);
+    if (!stats.isDirectory()) {
+      return { error: 'The requested working directory is not a directory.', ok: false };
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return { error: 'The requested working directory no longer exists on disk.', ok: false };
+    }
+    return { error: error instanceof Error ? error.message : String(error), ok: false };
+  }
+  if (canonical !== rootCwd && !canonical.startsWith(`${rootCwd}${path.sep}`)) {
+    return { error: 'The requested working directory is outside the open folder.', ok: false };
+  }
+  return { ok: true, value: canonical };
+}

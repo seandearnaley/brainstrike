@@ -184,6 +184,100 @@ describe('terminal IPC handlers — cwd containment', () => {
     }
     expect(spawn).not.toHaveBeenCalled();
   });
+
+  it('spawns in a subdirectory of the root when a contained cwd is supplied', async () => {
+    const dir = await makeDir();
+    const nested = path.join(dir, '.claude', 'worktrees', 'bright-fox');
+    await fsPromises.mkdir(nested, { recursive: true });
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+    });
+    const owner = new FakeWebContents(1);
+
+    const created = await handlers.create(castOwner(owner), { cwd: nested, rootId: 'root-id' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      throw new Error(created.error);
+    }
+    // The REPORTED cwd is the nested checkout, not the containing root — the
+    // whole point of the parameter (a nested worktree must not get the parent
+    // repo's shell).
+    expect(created.value.cwd).toBe(await fsPromises.realpath(nested));
+    handlers.destroy({ terminalId: created.value.terminalId }, owner.id);
+  });
+
+  it('rejects a cwd outside the root without spawning', async () => {
+    const dir = await makeDir();
+    const outside = await makeDir();
+    const spawn = vi.fn();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+      spawn: spawn as never,
+    });
+
+    const result = await handlers.create(castOwner(new FakeWebContents(1)), {
+      cwd: outside,
+      rootId: 'root-id',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/outside the open folder/);
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a sibling-prefix cwd that only looks contained', async () => {
+    // `<root>-evil` starts with `<root>` as a STRING but is not inside it. A
+    // naive `startsWith(rootCwd)` check passes this; the separator-anchored
+    // check does not. This is the falsifier for the containment predicate.
+    const dir = await makeDir();
+    const sibling = `${dir}-evil`;
+    await fsPromises.mkdir(sibling, { recursive: true });
+    createdDirs.push(sibling);
+    const spawn = vi.fn();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+      spawn: spawn as never,
+    });
+
+    const result = await handlers.create(castOwner(new FakeWebContents(1)), {
+      cwd: sibling,
+      rootId: 'root-id',
+    });
+    expect(result.ok).toBe(false);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a relative, empty or non-directory cwd without spawning', async () => {
+    const dir = await makeDir();
+    const file = path.join(dir, 'hello.ts');
+    await fsPromises.writeFile(file, 'export const value = 1;\n');
+    const spawn = vi.fn();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+      spawn: spawn as never,
+    });
+    const owner = new FakeWebContents(1);
+
+    const relative = await handlers.create(castOwner(owner), { cwd: 'sub', rootId: 'root-id' });
+    expect(relative.ok).toBe(false);
+    if (!relative.ok) {
+      expect(relative.error).toMatch(/absolute/);
+    }
+    const empty = await handlers.create(castOwner(owner), { cwd: '   ', rootId: 'root-id' });
+    expect(empty.ok).toBe(false);
+    const notDir = await handlers.create(castOwner(owner), { cwd: file, rootId: 'root-id' });
+    expect(notDir.ok).toBe(false);
+    if (!notDir.ok) {
+      expect(notDir.error).toMatch(/not a directory/);
+    }
+    const missing = await handlers.create(castOwner(owner), {
+      cwd: path.join(dir, 'nope'),
+      rootId: 'root-id',
+    });
+    expect(missing.ok).toBe(false);
+    expect(spawn).not.toHaveBeenCalled();
+  });
 });
 
 describe('terminal IPC handlers — real pty lifecycle', () => {
