@@ -53,6 +53,18 @@ export interface WorktreeMapCardActions {
   readonly onAddAsRoot: (card: WorktreeMapCardModel) => void;
   readonly onAdopt: (card: WorktreeMapCardModel) => void;
   readonly onArchive: (card: WorktreeMapCardModel) => void;
+  /**
+   * Precondition: the caller must pass the card holding the SELECTED
+   * thread's checkout — this guard only checks that `card.thread` is
+   * present, not that it's the selected one. Called with a non-selected
+   * card, it would still publish a well-formed hand-off intent, just for
+   * the wrong thread. The enforcing gate is `worktree-map-surface.tsx`'s
+   * render, which only ever wires this prop onto the card where
+   * `card.thread.threadId === selectedThreadId` (hide-never-disable idiom)
+   * — deliberately not re-checked here; widening this hook's input to
+   * enforce identity itself is a design change outside this pure-move
+   * extraction.
+   */
   readonly onHandOffToLocal: (card: WorktreeMapCardModel) => void;
   readonly onNewThread: (card: WorktreeMapCardModel) => void;
   readonly onOpenTerminal: (card: WorktreeMapCardModel) => void;
@@ -243,16 +255,18 @@ export function useWorktreeMapCardActions(
   // was dead until this surface actually supplied the prop. Bound to the
   // SELECTED thread's id, not the card's own thread field: the card only
   // renders this item when its `thread` IS the selected thread (see the
-  // render below), so `card.thread.threadId` and `selectedThreadId` agree by
-  // construction, but reading `card.thread` keeps this callback correct even
-  // if a future caller wires it differently.
+  // render in worktree-map-surface.tsx, `onHandOffToLocal` prop), so
+  // `card.thread.threadId` and `selectedThreadId` agree by construction, but
+  // reading `card.thread` keeps this callback correct even if a future
+  // caller wires it differently.
   const onHandOffToLocal = useCallback(
     (card: WorktreeMapCardModel) => {
       const threadId = card.thread?.threadId;
       if (!threadId) {
         // The card only renders "Hand off to Local" when it has a bound
-        // thread (see the render below), so reaching here is a wiring bug
-        // worth stating, never a silent no-op.
+        // thread (see the render in worktree-map-surface.tsx, `onHandOffToLocal`
+        // prop), so reaching here is a wiring bug worth stating, never a
+        // silent no-op.
         setActionError(`"${card.entry.name}" has no thread bound to hand off.`);
         return;
       }
