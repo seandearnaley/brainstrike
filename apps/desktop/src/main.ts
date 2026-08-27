@@ -1530,6 +1530,7 @@ if (singleInstanceLockAcquired) {
         workspaceOpenQueue,
         filterDirectoryOpenCandidates(
           resolveFolderCandidatesFromArgv({
+            appPath: app.getAppPath(),
             argv: secondInstanceArgv,
             isPackaged: app.isPackaged,
             workingDirectory,
@@ -2607,6 +2608,7 @@ if (singleInstanceLockAcquired) {
         workspaceOpenQueue,
         filterDirectoryOpenCandidates(
           resolveFolderCandidatesFromArgv({
+            appPath: app.getAppPath(),
             argv: process.argv,
             isPackaged: app.isPackaged,
             workingDirectory: process.cwd(),
