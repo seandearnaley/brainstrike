@@ -193,6 +193,11 @@ enforces the identity assumption at runtime: it throws if that parent
 directory is not literally named `dist`, rather than silently pointing at the
 wrong directory if the bundle output is ever restructured or renamed. Pinned
 by `apps/desktop/src/__tests__/main/python-runtime-resources-dir.test.ts`.
+Downstream, `resolvePythonBinary` classifies unsupported platforms BEFORE any
+manifest I/O — off darwin no target triple exists, so the manifest is never
+read and the result is the typed `python_unsupported_platform` condition with
+no PATH-Python fallback (pinned by the fixture-less unsupported-platform case
+in `apps/desktop/src/__tests__/main/resolve-python-binary.test.ts`).
 
 Desktop MAIN-PROCESS storage (`ElectronStorageAdapter`, one
 `electron-storage.json` under `app.getPath('userData')`) is covered by the same

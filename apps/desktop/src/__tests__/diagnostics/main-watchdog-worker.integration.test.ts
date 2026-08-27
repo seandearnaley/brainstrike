@@ -5,8 +5,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { Worker } from 'node:worker_threads';
 import * as esbuild from 'esbuild';
 import { describe, expect, it } from 'vitest';
+import { resolveMainWatchdogWorkerPath } from '../../diagnostics/main-watchdog-path';
 
 const execFileAsync = promisify(execFile);
 
@@ -72,6 +74,34 @@ async function buildAcceleratedWatchdogWorker(outputPath: string): Promise<void>
 }
 
 describe('main watchdog worker stderr', () => {
+  it('launches the flat worker path resolved for a directly launched development build', async () => {
+    const temporaryDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'brainstrike-main-watchdog-worker-path-')
+    );
+    const distDirectory = path.join(temporaryDirectory, 'dist');
+    await fs.mkdir(distDirectory);
+    const workerPath = path.join(distDirectory, 'main-watchdog-worker.js');
+    let worker: Worker | undefined;
+
+    try {
+      await buildAcceleratedWatchdogWorker(workerPath);
+      const resolvedPath = resolveMainWatchdogWorkerPath(
+        distDirectory,
+        false,
+        path.join(distDirectory, 'main.js')
+      );
+
+      worker = new Worker(resolvedPath);
+      await new Promise<void>((resolve, reject) => {
+        worker?.once('error', reject);
+        worker?.once('online', resolve);
+      });
+    } finally {
+      await worker?.terminate();
+      await fs.rm(temporaryDirectory, { force: true, recursive: true });
+    }
+  });
+
   it('emits a freeze diagnostic before the blocked parent main thread resumes', async () => {
     const temporaryDirectory = await fs.mkdtemp(
       path.join(os.tmpdir(), 'brainstrike-main-watchdog-worker-')
