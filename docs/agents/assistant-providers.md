@@ -2697,7 +2697,7 @@ without interrupting the user, while `manageWorktree` is `execute`-risk with
 union — every mutation still gates through the permission engine exactly as
 three separate ids would have, since `create`/`archive` are the only actions
 that write. Both tools share ONE `workspace` discovery namespace entry (the
-same namespace `manageCanvas`/`queryDiagnostics` register under), not two,
+same namespace `manageCanvas`/`manageTaskList` register under), not two,
 because they operate on the same client-local capability surface a model
 should discover together.
 
