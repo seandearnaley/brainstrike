@@ -176,12 +176,27 @@ export class WorkspaceRootRegistry {
           await writeLastFolderBestEffort(this.storage, entry.path);
         }
         if (recordInRecentRoots) {
+          // recentRootEntries is populated whenever recordInRecentRoots is
+          // true (see the read above) — TypeScript just can't narrow that
+          // correlation across the two separate checks. NO SILENT
+          // FALLBACKS (review fold-in, BST-1400 item 4): a `?? []` here
+          // would read as "the ledger is empty" and recordRecentRoot writes
+          // `[newEntry, ...existing]` unconditionally, so if these two
+          // conditions ever drifted, the fallback would silently overwrite
+          // the user's entire recents ledger with a single entry. An
+          // invariant violation must fail loud, the same as any other
+          // ledger problem this function already surfaces before mutating.
+          if (recentRootEntries === null) {
+            throw new Error(
+              'Invariant violated: recentRootEntries must be populated when recordInRecentRoots is true.'
+            );
+          }
           // The grant happened whether or not rootsList persistence succeeded,
           // so the ledger records it either way. Passes the entries read
           // above rather than letting recordRecentRoot re-read them — the
           // hoist's whole point is that this write can no longer fail on an
           // I/O problem the read above would already have surfaced.
-          await recordRecentRoot(this.storage, entry.path, undefined, recentRootEntries ?? []);
+          await recordRecentRoot(this.storage, entry.path, undefined, recentRootEntries);
           // Same gate as the ledger write above (BST-1393 review finding): a
           // managed-worktree mount passes recordInRecentRoots: false and must
           // not reach the OS recent-documents list either — the registry
