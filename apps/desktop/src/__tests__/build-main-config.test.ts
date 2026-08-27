@@ -7,7 +7,16 @@ import {
 } from '../../scripts/build-main-config.mjs';
 
 interface DesktopPackageConfig {
-  build?: { asarUnpack?: readonly string[] };
+  build?: {
+    asarUnpack?: readonly string[];
+    mac?: {
+      extraResources?: readonly {
+        filter?: readonly string[];
+        from?: string;
+        to?: string;
+      }[];
+    };
+  };
   dependencies?: Record<string, string>;
 }
 
@@ -67,6 +76,21 @@ describe('main-process bundle config', () => {
     expect(packageJson.build?.asarUnpack).toEqual(
       expect.arrayContaining(['dist/main-log-transport.js', 'dist/main-watchdog-worker.js'])
     );
+  });
+
+  it('packages the bundled Python manifest and target archives as macOS resources', () => {
+    const packageJson = readDesktopPackageConfig();
+
+    expect(packageJson.build?.mac?.extraResources).toContainEqual({
+      filter: ['manifest.json', '*.tar.gz'],
+      from: 'resources/python-runtime',
+      to: 'python-runtime',
+    });
+    expect(
+      fs.existsSync(
+        path.resolve(import.meta.dirname, '../../resources/python-runtime/manifest.json')
+      )
+    ).toBe(true);
   });
 
   it('ships and unpacks the classic TypeScript server used by LSP diagnostics', () => {

@@ -164,6 +164,16 @@ dedicated wiring. That coverage is pinned by the BST-1061 regression test in
 `apps/desktop/src/__tests__/main/desktop-factory-reset.test.ts` — if the
 unpack dir ever moves outside userData, it needs explicit reset wiring plus an
 update here.
+The input resources are a separate build-layout contract: packaged macOS apps
+read electron-builder's `<Resources>/python-runtime`, while directly launched
+development/E2E builds derive `resources/python-runtime` from the emitted
+`dist/main.js` module path. `app.getAppPath()` is not a development resource
+root when Electron is launched with that file directly (it resolves to
+`dist/`); appending `resources/python-runtime` there produces a nonexistent
+`dist/resources/python-runtime/manifest.json`. Unexpected development entry
+layouts throw instead of probing alternate roots. Unsupported platforms are
+classified before manifest I/O and remain the typed
+`python_unsupported_platform` condition with no PATH-Python fallback.
 
 Desktop reset order:
 1. Dispose embeddings.
@@ -1343,7 +1353,11 @@ Pino worker target `apps/desktop/src/diagnostics/main-log-transport.ts`, bundled
 as the flat main-process entry `dist/main-log-transport.js`. Packaged builds
 explicitly put that entry in `app.asar.unpacked`, and
 `resolveMainLogTransportPath` rejects an unexpected packaged layout rather than
-depending on worker-thread ASAR loading or silently trying another target. The
+depending on worker-thread ASAR loading or silently trying another target.
+Development resolves it beside the executing `dist/main.js`, using the same
+validated flat-entry layout as the watchdog and Python-resource resolvers;
+`app.getAppPath()` may already be `dist/` during a direct-file launch and must
+not receive another `dist/` segment. The
 target passes Pino's already-delimited bytes unchanged to the same
 `RotatingFileSink` used by the diagnostic backstop: 10 MB × 5 files,
 drop-oldest slot math, encoded-byte accounting, short-write failure, and
@@ -1369,7 +1383,11 @@ main-process output `dist/main-watchdog-worker.js`. It is never constructed from
 an inline string or with `eval`. Packaged builds explicitly put the entry in
 `app.asar.unpacked`, and `resolveMainWatchdogWorkerPath` rejects an unexpected
 packaged layout instead of trying an ASAR path or another target. Development
-resolves the same emitted filename under the desktop `dist/` directory.
+resolves the same emitted filename as a sibling of the executing
+`dist/main.js`. It must not append another `dist/` to `app.getAppPath()`:
+direct-file Electron launches report that app path as the existing `dist/`
+directory. Unexpected development entry layouts throw rather than trying a
+fallback candidate.
 
 The independently-tested `main-watchdog-core.ts` owns the typed config,
 heartbeat, suspend/resume protocol and diagnostic calculation. The worker uses

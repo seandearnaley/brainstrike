@@ -521,7 +521,11 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
     `python_checksum_mismatch`, `python_unpack_failed`) kept disjoint from
     the seam's and fence's codes, so `run_python` can distinguish "no
     interpreter" from "no sandbox". There is no PATH-python fallback in any
-    state.
+    state. In development the desktop composition root locates the checked-in
+    manifest and archive directory from the emitted `dist/main.js` module path,
+    not `app.getAppPath()` (which is already `dist/` for direct-file E2E
+    launches); packaged macOS builds use electron-builder's
+    `<Resources>/python-runtime` resource.
 - **Always-deny-read** (`ALWAYS_DENY_READ_PATHS`, applied on top of every
   policy): `.ssh`, `.aws`, `.gnupg`, `.config/gcloud`, `.config/gh`, `.kube`,
   `.docker`, `.netrc`, `.npmrc`, `.pypirc` — resolved to ABSOLUTE paths from
