@@ -661,6 +661,11 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   );
   const recentRoots = useMemo<readonly WorkspaceBarRecentRoot[]>(
     () =>
+      // Exact-string, unlike main's platform-aware `pathsEqual` (case-folds on
+      // macOS/Windows) — negligible here (BST-1400 item 9): both sides of this
+      // comparison are produced by the SAME renderer, from the SAME adapter,
+      // so `entry.path`/`descriptor.path` never disagree on casing the way a
+      // user-typed or cross-process path could. Note only, not a bug to fix.
       recentEntries.flatMap((entry) =>
         mountedPaths.has(entry.path) ? [] : [{ displayName: entry.displayName, path: entry.path }]
       ),
