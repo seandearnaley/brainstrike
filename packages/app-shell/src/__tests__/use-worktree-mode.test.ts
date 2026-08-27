@@ -676,6 +676,7 @@ describe('useWorktreeMode', () => {
     await waitFor(() =>
       expect(result.current).toMatchObject({
         disabledReason: null,
+        picker: { options: [{ current: true, worktreeId: 'w-1' }] },
         worktree: { name: 'bright-fox', worktreeId: 'w-1' },
       })
     );
