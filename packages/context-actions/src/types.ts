@@ -128,10 +128,15 @@ export type ContextTarget =
    * in this union it is commonly a UUID and MUST NOT be treated as a path.
    *
    * `path` is `null` when the root has no absolute path distinct from its
-   * name — a browser File-System-Access root. That is the same condition the
-   * header already uses to suppress its own path tooltip, so path-shaped
-   * actions gate on the DATA (`isVisible`) and web hides them without any
-   * platform check.
+   * name — a browser File-System-Access root, whose `DirectoryHandle.path` IS
+   * its `name` (`packages/types/src/file-system.ts`: "on web `path` is only
+   * the directory name"). Correction: this name-equality check is NEW
+   * normalization logic in `workspaceRootToTarget`, not a rule reused from
+   * `RootSectionHeader` — that component's own `path` prop is a plain
+   * truthiness check (`{path ? ... : name}`) and its doc says callers must
+   * omit the prop for FSA roots; nothing in the header itself compares
+   * `path` against a display name. Path-shaped actions gate on the DATA
+   * (`isVisible`) and web hides them without any platform check.
    *
    * `isMain` is the workspace-wide MAIN role (`activeRootIds[0]`) the header
    * renders as its "Main" badge — deliberately NOT the workspace bar's

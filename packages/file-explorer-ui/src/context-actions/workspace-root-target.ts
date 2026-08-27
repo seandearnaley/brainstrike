@@ -18,10 +18,16 @@ export interface WorkspaceRootTargetInput {
  * live store lookups).
  *
  * The ONE normalization: a `path` equal to the display name is reported as
- * `null`. `RootSectionHeader` already applies exactly that test before
- * rendering its path tooltip, because a web FSA root's `path` IS its name.
- * Without it, "Copy Path" on web would copy a bare folder name and "Reveal"
- * would hand the shell a non-path.
+ * `null`. Correction: this is NEW logic, not a rule reused from
+ * `RootSectionHeader` — that component's own `path` prop is a plain
+ * truthiness check (`{path ? ... : name}`) and its doc says callers must
+ * omit the prop for FSA roots; nothing in the header itself compares `path`
+ * against a display name. The comparison lives here because a web FSA
+ * root's `DirectoryHandle.path` reports its NAME (`packages/types/src/
+ * file-system.ts`: "on web `path` is only the directory name" — there is no
+ * absolute filesystem path to give). Without this normalization, "Copy
+ * Path" on web would copy a bare folder name and "Reveal" would hand the
+ * shell a non-path.
  */
 export function workspaceRootToTarget({
   displayName,

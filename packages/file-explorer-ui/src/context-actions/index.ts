@@ -15,6 +15,11 @@ export {
   fileViewerToTarget,
 } from './file-surface-target';
 export {
+  copyWorkspaceRootPathAction,
+  revealWorkspaceRootAction,
+  workspaceRootActions,
+} from './workspace-root-actions';
+export {
   type WorkspaceRootTargetInput,
   workspaceRootToTarget,
 } from './workspace-root-target';

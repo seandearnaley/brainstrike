@@ -20,8 +20,10 @@ describe('workspaceRootToTarget', () => {
   });
 
   it('reports path: null when the root has no path distinct from its name (web FSA)', () => {
-    // The exact condition `RootSectionHeader` already uses to suppress its own
-    // path tooltip: an FSA handle's `path` IS its name. Passing that through as
+    // NEW normalization, not a rule borrowed from `RootSectionHeader` (whose
+    // `path` prop is a plain truthiness check — callers omit it for FSA
+    // roots; the header itself never compares `path` to a display name). A
+    // web FSA `DirectoryHandle.path` IS its `name`; passing that through as
     // a "path" would make Copy Path copy a folder NAME on web.
     expect(
       workspaceRootToTarget({

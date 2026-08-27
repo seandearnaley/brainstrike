@@ -188,9 +188,12 @@ describe('workspaceRootToTarget', () => {
   });
 
   it('reports path: null when the root has no path distinct from its name (web FSA)', () => {
-    // The exact condition `RootSectionHeader` already uses to suppress its own
-    // path tooltip: an FSA handle's `path` IS its name. Passing that through as
-    // a "path" would make Copy Path copy a folder NAME on web.
+    // [CORRECTED post-Task-1 review, folded into Task 2: this is NOT a rule
+    // `RootSectionHeader` already applies — that component's own `path` prop
+    // is a plain truthiness check and its doc says callers omit it for FSA
+    // roots. The comparison is NEW logic in `workspaceRootToTarget`.]
+    // A web FSA `DirectoryHandle.path` IS its `name`; passing that through
+    // as a "path" would make Copy Path copy a folder NAME on web.
     expect(
       workspaceRootToTarget({
         displayName: 'notes',
@@ -243,10 +246,16 @@ Append to the `ContextTarget` union in `packages/context-actions/src/types.ts`, 
    * in this union it is commonly a UUID and MUST NOT be treated as a path.
    *
    * `path` is `null` when the root has no absolute path distinct from its
-   * name — a browser File-System-Access root. That is the same condition the
-   * header already uses to suppress its own path tooltip, so path-shaped
-   * actions gate on the DATA (`isVisible`) and web hides them without any
-   * platform check.
+   * name — a browser File-System-Access root, whose `DirectoryHandle.path` IS
+   * its `name` (`packages/types/src/file-system.ts`: "on web `path` is only
+   * the directory name"). [CORRECTED post-Task-1 review, folded into Task 2:
+   * this name-equality check is NEW normalization logic in
+   * `workspaceRootToTarget`, not a rule reused from `RootSectionHeader` —
+   * that component's own `path` prop is a plain truthiness check
+   * (`{path ? ... : name}`) and its doc says callers must omit the prop for
+   * FSA roots; nothing in the header itself compares `path` against a
+   * display name.] Path-shaped actions gate on the DATA (`isVisible`) and
+   * web hides them without any platform check.
    *
    * `isMain` is the workspace-wide MAIN role (`activeRootIds[0]`) the header
    * renders as its "Main" badge — deliberately NOT the workspace bar's
@@ -285,10 +294,16 @@ export interface WorkspaceRootTargetInput {
  * live store lookups).
  *
  * The ONE normalization: a `path` equal to the display name is reported as
- * `null`. `RootSectionHeader` already applies exactly that test before
- * rendering its path tooltip, because a web FSA root's `path` IS its name.
- * Without it, "Copy Path" on web would copy a bare folder name and "Reveal"
- * would hand the shell a non-path.
+ * `null`. [CORRECTED post-Task-1 review, folded into Task 2: this is NEW
+ * logic, not a rule reused from `RootSectionHeader` — that component's own
+ * `path` prop is a plain truthiness check (`{path ? ... : name}`) and its
+ * doc says callers must omit the prop for FSA roots; nothing in the header
+ * itself compares `path` against a display name.] The comparison lives here
+ * because a web FSA root's `DirectoryHandle.path` reports its NAME
+ * (`packages/types/src/file-system.ts`: "on web `path` is only the
+ * directory name" — there is no absolute filesystem path to give). Without
+ * this normalization, "Copy Path" on web would copy a bare folder name and
+ * "Reveal" would hand the shell a non-path.
  */
 export function workspaceRootToTarget({
   displayName,
@@ -852,8 +867,23 @@ Inside `RootSectionInner` (the component that today renders `<RootSectionHeader 
       workspaceRootToTarget({
         displayName: rootDirectoryHandle.name,
         isMain: rest.mainRootId !== undefined && rest.mainRootId === rootIdentity,
-        // The header's own tooltip rule, reused: an FSA handle's `path` IS its
-        // name, and the adapter normalizes that to `null`.
+        // [CORRECTED post-Task-1 review, folded into Task 2: NOT "the
+        // header's own tooltip rule, reused" — RootSectionHeader has no such
+        // rule (see workspace-root-target.ts). This is the adapter's OWN
+        // `path !== displayName` normalization doing the work: we pass the
+        // raw handle path through whenever truthy, WITHOUT the equality
+        // pre-filter file-explorer-sidebar.tsx applies for the header's
+        // `path` prop, and rely on `workspaceRootToTarget` to null it out.
+        // LIVE-vs-DEAD determination: `DirectoryHandle.path` on web IS
+        // `DirectoryHandle.name` by construction (packages/types/src/
+        // file-system.ts: "on web `path` is only the directory name"), so
+        // for a web FSA root this branch DOES reach the adapter with
+        // path === displayName and the normalization fires — it is LIVE,
+        // not dead code. Task 3 MUST add a test in
+        // root-section-context-menu.test.tsx pinning this: claim the
+        // context menu on a web FSA root section and assert the resulting
+        // target (or a claimed-target spy) has `path: null`, not the raw
+        // handle name.
         ...(rootDirectoryHandle.path ? { path: rootDirectoryHandle.path } : {}),
         rootId: rootIdentity,
       })
