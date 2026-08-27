@@ -26,7 +26,7 @@ export interface WorktreeMapCardProps {
   readonly onHandOffToLocal?: (() => void) | undefined;
   readonly onNewThread: (card: WorktreeMapCardModel) => void;
   readonly onOpenPullRequest: (url: string) => void;
-  readonly onOpenTerminal: (card: WorktreeMapCardModel) => void;
+  readonly onOpenTerminal?: ((card: WorktreeMapCardModel) => void) | undefined;
   readonly onOpenThread: (threadId: string) => void;
   readonly onReveal: (path: string) => void;
   readonly onToggleIndexing: (rootId: string, enabled: boolean) => void;
@@ -64,6 +64,22 @@ function StatusGlyphs({ status }: { readonly status: WorktreeCheckoutStatusState
   );
 }
 
+function getTerminalDisabledReason(
+  card: WorktreeMapCardModel,
+  onOpenTerminal: WorktreeMapCardProps['onOpenTerminal']
+): string | null {
+  if (!onOpenTerminal) {
+    return 'Terminal is unavailable in this build.';
+  }
+  if (!card.entry.usable) {
+    return card.disabledReason ?? 'This checkout is unavailable.';
+  }
+  if (card.entry.rootId === null) {
+    return 'Add this checkout as a workspace root first.';
+  }
+  return null;
+}
+
 export function WorktreeMapCard({
   card,
   onAddAsRoot,
@@ -80,6 +96,7 @@ export function WorktreeMapCard({
 }: WorktreeMapCardProps): ReactElement {
   const { entry } = card;
   const indexingEnabled = card.indexing === 'included';
+  const terminalDisabledReason = getTerminalDisabledReason(card, onOpenTerminal);
   return (
     <article
       className="flex w-64 shrink-0 flex-col gap-2 rounded-md border border-border bg-card p-3"
@@ -199,11 +216,9 @@ export function WorktreeMapCard({
             <DropdownMenuItem onSelect={() => onReveal(entry.path)}>Reveal</DropdownMenuItem>
             <DropdownMenuItem
               data-testid="worktree-map-open-terminal"
-              disabled={entry.rootId === null}
-              onSelect={() => onOpenTerminal(card)}
-              title={
-                entry.rootId === null ? 'Add this checkout as a workspace root first.' : undefined
-              }
+              disabled={terminalDisabledReason !== null}
+              onSelect={() => onOpenTerminal?.(card)}
+              title={terminalDisabledReason ?? undefined}
             >
               Open in Terminal
             </DropdownMenuItem>

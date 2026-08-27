@@ -436,7 +436,9 @@ singleton Terminal workspace app. It does not add `openInTerminal` to
 `window.worktrees`: the existing `terminal:create` bridge owns PTY creation and
 main independently realpaths, directory-checks, and containment-checks the
 optional cwd before spawn. The card test pins the exact `{cwd, rootId}` handoff;
-missing-root cards keep the action present but disabled with a stated reason.
+missing-root and unusable/ghost cards keep the action present but disabled with
+a stated reason. The action is also disabled when the terminal bridge capability
+is absent, so it cannot pin a target for an unregistered Terminal app.
 
 Mounting is a SEPARATE step from adoption and does not happen automatically:
 adopting a worktree only inserts the `brainstrike_worktrees` ledger row, it

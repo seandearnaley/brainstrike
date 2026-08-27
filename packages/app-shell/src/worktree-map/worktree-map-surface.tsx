@@ -20,6 +20,7 @@ import type { ReactElement } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
+import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 import { openTerminalAtTarget } from '../terminal-panel/terminal-target-store';
 import { useActiveAssistantThreadIds } from '../use-active-assistant-thread-ids';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
@@ -73,6 +74,7 @@ export function WorktreeMapSurface(): ReactElement {
   );
   const platform = useMemo(() => resolvePlatformBridge(), []);
   const worktrees = useMemo(() => resolveWorktreesBridge(), []);
+  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
   // Desktop-only, `undefined` on web (`use-workspace-bar.ts:918` is the precedent).
   const addRootDirectoryByPath = useFileSystem().addRootDirectoryByPath;
   const { threadIds: runningThreadIds } = useActiveAssistantThreadIds({
@@ -333,17 +335,23 @@ export function WorktreeMapSurface(): ReactElement {
                 onOpenPullRequest={(url) => {
                   void platform?.openExternal(url);
                 }}
-                onOpenTerminal={(targetCard) => {
-                  if (!targetCard.entry.rootId) {
-                    setActionError(`"${targetCard.entry.name}" is not inside a workspace root.`);
-                    return;
-                  }
-                  setActionError(null);
-                  openTerminalAtTarget({
-                    cwd: targetCard.entry.path,
-                    rootId: targetCard.entry.rootId,
-                  });
-                }}
+                onOpenTerminal={
+                  terminalAvailable
+                    ? (targetCard) => {
+                        if (!(targetCard.entry.rootId && targetCard.entry.usable)) {
+                          setActionError(
+                            `"${targetCard.entry.name}" is not available as a terminal target.`
+                          );
+                          return;
+                        }
+                        setActionError(null);
+                        openTerminalAtTarget({
+                          cwd: targetCard.entry.path,
+                          rootId: targetCard.entry.rootId,
+                        });
+                      }
+                    : undefined
+                }
                 onOpenThread={(threadId) => selectThread(resourceId, threadId)}
                 onReveal={(path) => {
                   void platform?.showItemInFolder(path);

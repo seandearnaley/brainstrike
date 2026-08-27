@@ -45,13 +45,13 @@ export type TerminalSessionState =
   | { kind: 'starting' }
   | { kind: 'ready'; cwd: string }
   | { kind: 'exited'; exitCode: number; signal: number | null }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; code?: 'invalid-cwd' };
 
 /** The async outcome the effect records, tagged with its session id. */
 type SessionOutcome =
   | { kind: 'ready'; cwd: string }
   | { kind: 'exited'; exitCode: number; signal: number | null }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; code?: 'invalid-cwd' };
 
 interface TaggedOutcome {
   readonly outcome: SessionOutcome;
@@ -138,9 +138,9 @@ export function useTerminalSession(
   // value. A stale outcome (sessionId mismatch) is ignored during render.
   const [tagged, setTagged] = useState<TaggedOutcome | null>(null);
 
-  useEffect(() => {
+  const startSession = useCallback((): (() => void) => {
     if (!(bridge && activeRootId && container)) {
-      return;
+      return () => undefined;
     }
 
     let cancelled = false;
@@ -206,7 +206,11 @@ export function useTerminalSession(
             return;
           }
           setTagged({
-            outcome: { kind: 'error', message: result.error },
+            outcome: {
+              ...(result.code ? { code: result.code } : {}),
+              kind: 'error',
+              message: result.error,
+            },
             sessionId,
             targetKey,
           });
@@ -324,6 +328,8 @@ export function useTerminalSession(
       term.dispose();
     };
   }, [bridge, activeRootId, container, sessionId, targetCwd, targetKey, toast]);
+
+  useEffect(startSession, [startSession]);
 
   // Derive the displayed state during render (no effect mirror):
   //  - no bridge/root → idle;

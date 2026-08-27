@@ -1196,7 +1196,10 @@ additional explorer/status chrome):
     chip's git-status read above — eagerly on mount, and again after every
     create/select/archive mutation. Its "Open in Terminal" action pins the
     exact current checkout `{cwd, rootId}` in the session-only terminal target
-    store and activates the singleton Terminal app. That pin survives focus
+    store and activates the singleton Terminal app. A bound worktree uses its
+    own containing `WorktreeListEntry.rootId`; a missing/unusable entry suppresses
+    the action instead of pairing its cwd with the primary root. Both checkout
+    entry points are gated on the terminal bridge capability. That pin survives focus
     changes until the Terminal header's "Follow focused folder" action releases
     it; no target is persisted across reload or factory reset. The
     existing-worktree picker

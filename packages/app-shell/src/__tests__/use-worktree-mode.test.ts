@@ -18,6 +18,7 @@ const {
   listSpy,
   loggerErrorSpy,
   restoreSpy,
+  terminalBridgeAvailableSpy,
   toastSpy,
 } = vi.hoisted(() => ({
   addRootByPathSpy: vi.fn(),
@@ -31,6 +32,7 @@ const {
   listSpy: vi.fn(),
   loggerErrorSpy: vi.fn(),
   restoreSpy: vi.fn(),
+  terminalBridgeAvailableSpy: vi.fn(() => true),
   toastSpy: vi.fn(),
 }));
 
@@ -67,8 +69,12 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   }),
 }));
 vi.mock('@brainstrike/ui', () => ({ toast: toastSpy }));
+vi.mock('../terminal-panel/terminal-bridge', () => ({
+  isTerminalBridgeAvailable: terminalBridgeAvailableSpy,
+}));
 
 import { useWorktreeMode } from '../hooks/use-worktree-mode';
+import { useTerminalTargetStore } from '../terminal-panel/terminal-target-store';
 
 const onHandOffToLocal = vi.fn(() => Promise.resolve());
 const onSelectWorktree = vi.fn(() => Promise.resolve());
@@ -129,6 +135,8 @@ function entry(overrides: Partial<WorktreeListEntry> = {}): WorktreeListEntry {
 describe('useWorktreeMode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    terminalBridgeAvailableSpy.mockReturnValue(true);
+    useTerminalTargetStore.setState({ target: null });
     __resetWorktreeSetupConsentStoreForTests();
     getSettingsSpy.mockResolvedValue({
       ok: true,
@@ -632,6 +640,52 @@ describe('useWorktreeMode', () => {
       expect(result.current?.worktree).toMatchObject({ name: 'bright-fox', worktreeId: 'w-1' })
     );
     expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens a bound worktree with its containing root id, not the primary root id', async () => {
+    listSpy.mockResolvedValue({
+      ok: true,
+      value: [entry({ containment: ['worktree-root'], rootId: 'worktree-root' })],
+    });
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    await waitFor(() => expect(result.current?.onOpenTerminal).toEqual(expect.any(Function)));
+
+    act(() => result.current?.onOpenTerminal?.());
+
+    expect(useTerminalTargetStore.getState().target).toEqual({
+      cwd: '/managed/app/bright-fox',
+      rootId: 'worktree-root',
+    });
+  });
+
+  it('opens Local mode with the primary root path and id', async () => {
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await waitFor(() => expect(result.current?.onOpenTerminal).toEqual(expect.any(Function)));
+
+    act(() => result.current?.onOpenTerminal?.());
+
+    expect(useTerminalTargetStore.getState().target).toEqual({ cwd: '/work/app', rootId: 'r-1' });
+  });
+
+  it.each([entry({ rootId: null }), entry({ disabledReason: 'missing on disk', usable: false })])(
+    'suppresses terminal targeting for an unusable bound checkout',
+    async (currentEntry) => {
+      listSpy.mockResolvedValue({ ok: true, value: [currentEntry] });
+      const { result } = renderHook(() =>
+        useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT })
+      );
+
+      await waitFor(() => expect(result.current?.worktree?.worktreeId).toBe('w-1'));
+      expect(result.current?.onOpenTerminal).toBeUndefined();
+    }
+  );
+
+  it('suppresses terminal targeting when the terminal bridge is unavailable', async () => {
+    terminalBridgeAvailableSpy.mockReturnValue(false);
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+
+    await waitFor(() => expect(result.current).toBeDefined());
+    expect(result.current?.onOpenTerminal).toBeUndefined();
   });
 
   it('retries a failed mount list once for a bound worktree and stops after success', async () => {

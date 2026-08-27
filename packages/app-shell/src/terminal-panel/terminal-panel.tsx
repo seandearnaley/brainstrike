@@ -44,15 +44,20 @@ function HumanTerminal({ activeRootId, targetCwd }: HumanTerminalProps): ReactEl
             {state.kind === 'ready' ? state.cwd : 'Terminal'}
           </span>
         </div>
-        {targetCwd ? (
-          <Button onClick={releaseTarget} size="sm" type="button" variant="outline">
-            Follow focused folder
-          </Button>
-        ) : isExited || isError ? (
-          <Button onClick={restart} size="sm" type="button" variant="outline">
-            <RotateCw aria-hidden="true" className="mr-1" />
-            Restart
-          </Button>
+        {targetCwd || isExited || isError ? (
+          <div className="flex items-center gap-2">
+            {isExited || isError ? (
+              <Button onClick={restart} size="sm" type="button" variant="outline">
+                <RotateCw aria-hidden="true" className="mr-1" />
+                Restart
+              </Button>
+            ) : null}
+            {targetCwd ? (
+              <Button onClick={releaseTarget} size="sm" type="button" variant="outline">
+                Follow focused folder
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -93,6 +98,12 @@ function HumanTerminal({ activeRootId, targetCwd }: HumanTerminalProps): ReactEl
           >
             <p className="text-destructive">Could not start the terminal.</p>
             <p className="max-w-md text-muted-foreground text-xs">{state.message}</p>
+            {state.code === 'invalid-cwd' ? (
+              <p className="max-w-md text-muted-foreground text-xs">
+                The selected terminal folder is unavailable. Follow the focused folder or choose
+                another checkout.
+              </p>
+            ) : null}
             <Button onClick={restart} size="sm" type="button" variant="outline">
               <RotateCw aria-hidden="true" className="mr-1" />
               Retry

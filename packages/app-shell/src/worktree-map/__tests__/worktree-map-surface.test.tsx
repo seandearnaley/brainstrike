@@ -92,6 +92,11 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({ addRootDirectoryByPath: addRootDirectoryByPathMock }),
 }));
 
+const terminalBridgeAvailableMock = vi.hoisted(() => vi.fn(() => true));
+vi.mock('../../terminal-panel/terminal-bridge', () => ({
+  isTerminalBridgeAvailable: terminalBridgeAvailableMock,
+}));
+
 import { useTerminalTargetStore } from '../../terminal-panel/terminal-target-store';
 import { WorktreeMapSurface } from '../worktree-map-surface';
 
@@ -153,6 +158,7 @@ describe('WorktreeMapSurface', () => {
     createPgliteAssistantThreadRepositoryMock.mockReturnValue(SENTINEL_REPOSITORY);
     mockDatabase = SENTINEL_DATABASE;
     mockSelectedThreadByResourceId = {};
+    terminalBridgeAvailableMock.mockReturnValue(true);
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
     adoptMock.mockResolvedValue({ ok: true, value: {} });
     archiveMock.mockResolvedValue({ ok: true, value: {} });
@@ -616,5 +622,50 @@ describe('WorktreeMapSurface', () => {
     await userEvent.click(screen.getByTestId('worktree-map-open-terminal'));
 
     expect(useTerminalTargetStore.getState().target).toEqual({ cwd: '/wt', rootId: 'root-1' });
+  });
+
+  it('disables Open in Terminal when the terminal bridge is unavailable', async () => {
+    terminalBridgeAvailableMock.mockReturnValue(false);
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+
+    expect(screen.getByTestId('worktree-map-open-terminal')).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    expect(screen.getByTestId('worktree-map-open-terminal')).toHaveAttribute(
+      'title',
+      'Terminal is unavailable in this build.'
+    );
+  });
+
+  it('disables Open in Terminal for an unusable ghost checkout even when a stale root id remains', async () => {
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [
+            card({
+              disabledReason: 'missing on disk',
+              entry: { ...card().entry, usable: false },
+            }),
+          ],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+
+    expect(screen.getByTestId('worktree-map-open-terminal')).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    expect(screen.getByTestId('worktree-map-open-terminal')).toHaveAttribute(
+      'title',
+      'missing on disk'
+    );
   });
 });

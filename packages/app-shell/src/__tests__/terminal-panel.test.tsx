@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -121,6 +121,7 @@ vi.mock('@xterm/addon-web-links', () => {
 });
 
 import { TerminalPanel } from '../terminal-panel/terminal-panel';
+import { useTerminalTargetStore } from '../terminal-panel/terminal-target-store';
 
 // ── Bridge fixtures ───────────────────────────────────────────────────────────
 // `TerminalResult<T>` is a conditional type (void → no `value`), so build the
@@ -221,6 +222,7 @@ describe('TerminalPanel', () => {
     dataCallback = null;
     exitCallback = null;
     toastSpy.mockReset();
+    useTerminalTargetStore.setState({ target: null });
     offData.mockReset();
     offExit.mockReset();
     // jsdom has no ResizeObserver — stub it so the session effect can observe.
@@ -325,6 +327,21 @@ describe('TerminalPanel', () => {
     expect(screen.getByRole('button', { name: 'Restart terminal' })).toBeInTheDocument();
   });
 
+  it('keeps restart and follow-focused-folder actions available after a pinned shell exits', async () => {
+    useTerminalTargetStore.setState({
+      target: { cwd: '/abs/repo/nested', rootId: 'root-1' },
+    });
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(exitCallback).not.toBeNull());
+
+    act(() => exitCallback?.({ exitCode: 1, signal: null, terminalId: 'pty-1' }));
+
+    await screen.findByTestId('terminal-panel-exited');
+    expect(screen.getByRole('button', { name: 'Restart' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow focused folder' })).toBeInTheDocument();
+  });
+
   it('shows an error state (not a blank panel) when create returns { ok:false }', async () => {
     installBridge({
       create: vi.fn(
@@ -341,6 +358,28 @@ describe('TerminalPanel', () => {
     expect(toastSpy).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Terminal failed to start', variant: 'destructive' })
     );
+  });
+
+  it('uses the invalid-cwd code to explain recovery for an unusable pinned target', async () => {
+    useTerminalTargetStore.setState({
+      target: { cwd: '/abs/repo/missing', rootId: 'root-1' },
+    });
+    installBridge({
+      create: vi.fn(
+        async (): Promise<TerminalResult<{ terminalId: string; cwd: string }>> => ({
+          code: 'invalid-cwd',
+          error: 'Terminal cwd does not exist.',
+          ok: false,
+        })
+      ),
+    });
+    render(<TerminalPanel />);
+
+    expect(
+      await screen.findByText(/selected terminal folder is unavailable/iu)
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow focused folder' })).toBeInTheDocument();
   });
 
   it('silently retries create while the workspace root has not reconciled into the DB yet', async () => {

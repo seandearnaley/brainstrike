@@ -31,6 +31,7 @@ import type {
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 import { openTerminalAtTarget } from '../terminal-panel/terminal-target-store';
 import { resolveWorktreesBridge, type WorktreesBridge } from '../worktrees/worktrees-bridge';
 
@@ -74,15 +75,26 @@ function errorMessage(error: unknown): string {
 }
 
 function createOpenTerminalHandler(
-  rootId: string,
-  checkoutPath: string | undefined,
-  primaryRootPath: string | null
+  primaryRootId: string,
+  primaryRootPath: string | null,
+  currentEntry: WorktreeListEntry | null,
+  worktreeBound: boolean,
+  terminalAvailable: boolean
 ): (() => void) | undefined {
-  const cwd = checkoutPath ?? primaryRootPath;
-  if (!cwd) {
+  if (!terminalAvailable) {
     return;
   }
-  return () => openTerminalAtTarget({ cwd, rootId });
+  if (worktreeBound) {
+    if (!(currentEntry?.rootId && currentEntry.usable)) {
+      return;
+    }
+    const rootId = currentEntry.rootId;
+    return () => openTerminalAtTarget({ cwd: currentEntry.path, rootId });
+  }
+  if (!primaryRootPath) {
+    return;
+  }
+  return () => openTerminalAtTarget({ cwd: primaryRootPath, rootId: primaryRootId });
 }
 
 function toastFailure(title: string, description: string): void {
@@ -359,6 +371,7 @@ function computeRepositorySetupConsent(
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
   const bridge = useMemo(() => resolveWorktreesBridge(), []);
   const platform = useMemo(() => resolvePlatformBridge(), []);
+  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
   const fileSystem = useFileSystem();
   const addRootDirectory = fileSystem.addRootDirectory;
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
@@ -854,8 +867,10 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       onOpenPicker: () => onPickerOpenChange(true),
       onOpenTerminal: createOpenTerminalHandler(
         primaryRootId,
-        currentEntry?.path,
-        args.primaryRootPath
+        args.primaryRootPath,
+        currentEntry,
+        currentWorktreeId !== null,
+        terminalAvailable
       ),
       onReveal:
         platform && currentEntry
@@ -920,5 +935,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     repositorySetup,
     repositorySetupDecision,
     settings,
+    terminalAvailable,
   ]);
 }
