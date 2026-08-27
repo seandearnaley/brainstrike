@@ -4,6 +4,7 @@ import { type ReactElement, useMemo, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { isCommandSessionBridgeAvailable } from './command-session-bridge';
 import { CommandSessionInventory } from './command-session-inventory';
+import { useTerminalTargetStore } from './terminal-target-store';
 import { useActiveRootId } from './use-active-root-id';
 import { useTerminalSession } from './use-terminal-session';
 
@@ -24,10 +25,12 @@ import { useTerminalSession } from './use-terminal-session';
  */
 interface HumanTerminalProps {
   readonly activeRootId: string;
+  readonly targetCwd?: string;
 }
 
-function HumanTerminal({ activeRootId }: HumanTerminalProps): ReactElement {
-  const { containerRef, restart, state } = useTerminalSession(activeRootId);
+function HumanTerminal({ activeRootId, targetCwd }: HumanTerminalProps): ReactElement {
+  const { containerRef, restart, state } = useTerminalSession(activeRootId, targetCwd);
+  const releaseTarget = useTerminalTargetStore((store) => store.release);
 
   const isExited = state.kind === 'exited';
   const isError = state.kind === 'error';
@@ -41,7 +44,11 @@ function HumanTerminal({ activeRootId }: HumanTerminalProps): ReactElement {
             {state.kind === 'ready' ? state.cwd : 'Terminal'}
           </span>
         </div>
-        {isExited || isError ? (
+        {targetCwd ? (
+          <Button onClick={releaseTarget} size="sm" type="button" variant="outline">
+            Follow focused folder
+          </Button>
+        ) : isExited || isError ? (
           <Button onClick={restart} size="sm" type="button" variant="outline">
             <RotateCw aria-hidden="true" className="mr-1" />
             Restart
@@ -99,10 +106,12 @@ function HumanTerminal({ activeRootId }: HumanTerminalProps): ReactElement {
 
 export function TerminalPanel(): ReactElement {
   const activeRootId = useActiveRootId();
+  const target = useTerminalTargetStore((store) => store.target);
+  const terminalRootId = target?.rootId ?? activeRootId;
   const commandSessionsAvailable = useMemo(() => isCommandSessionBridgeAvailable(), []);
   const [surface, setSurface] = useState<'command-sessions' | 'shell'>('shell');
 
-  if (!activeRootId) {
+  if (!terminalRootId) {
     return (
       <div
         className="flex h-full items-center justify-center bg-background p-6 text-center text-muted-foreground text-sm"
@@ -141,11 +150,14 @@ export function TerminalPanel(): ReactElement {
         </nav>
       ) : null}
       <div className="min-h-0 flex-1" hidden={surface !== 'shell'}>
-        <HumanTerminal activeRootId={activeRootId} />
+        <HumanTerminal
+          activeRootId={terminalRootId}
+          {...(target ? { targetCwd: target.cwd } : {})}
+        />
       </div>
       {commandSessionsAvailable ? (
         <div className="min-h-0 flex-1" hidden={surface !== 'command-sessions'}>
-          <CommandSessionInventory key={activeRootId} rootId={activeRootId} />
+          <CommandSessionInventory key={terminalRootId} rootId={terminalRootId} />
         </div>
       ) : null}
     </div>

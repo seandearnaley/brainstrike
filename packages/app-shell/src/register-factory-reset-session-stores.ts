@@ -18,6 +18,7 @@ import { useChangesStore } from './changes/changes-store';
 import { useRewindStore } from './changes/rewind-store';
 import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-health-store';
 import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
+import { useTerminalTargetStore } from './terminal-panel/terminal-target-store';
 import { resetThreadSearchStore } from './thread-search-store';
 
 /**
@@ -50,6 +51,10 @@ registerFactoryResetSessionStore(() => {
 registerFactoryResetSessionStore(() => {
   // Queued-but-unsent follow-up messages must never survive a reset.
   resetFollowUpQueueStore();
+});
+
+registerFactoryResetSessionStore(() => {
+  useTerminalTargetStore.getState().release();
 });
 
 registerFactoryResetSessionStore(() => {
