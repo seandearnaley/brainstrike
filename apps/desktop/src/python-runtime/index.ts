@@ -4,13 +4,29 @@ import { resolvePythonBinary } from './resolve-python-binary';
 
 export * from './resolve-python-binary';
 
-function desktopPythonRuntimeResourcesDir(): string {
+export function resolveDesktopPythonRuntimeResourcesDir(
+  isPackaged: boolean,
+  resourcesPath: string,
+  currentModuleFilename: string = module.filename
+): string {
   // Packaged: electron-builder's extraResources copies
-  // resources/python-runtime/ to <Resources>/python-runtime. Dev/unpacked:
-  // the fetched tarballs live in the repo's apps/desktop/resources/.
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'python-runtime')
-    : path.join(app.getAppPath(), 'resources', 'python-runtime');
+  // resources/python-runtime/ to <Resources>/python-runtime.
+  if (isPackaged) {
+    return path.join(resourcesPath, 'python-runtime');
+  }
+
+  // BST-1459: app.getAppPath() changes with Electron's launch mode and can
+  // already be dist/. The running CommonJS module reliably identifies dist/;
+  // development resources are rooted in its parent apps/desktop directory.
+  const moduleFilename =
+    typeof currentModuleFilename === 'string' && currentModuleFilename.length > 0
+      ? currentModuleFilename
+      : path.join(process.cwd(), 'dist', 'main.js');
+  return path.join(path.dirname(path.dirname(moduleFilename)), 'resources', 'python-runtime');
+}
+
+function desktopPythonRuntimeResourcesDir(): string {
+  return resolveDesktopPythonRuntimeResourcesDir(app.isPackaged, process.resourcesPath);
 }
 
 /**
