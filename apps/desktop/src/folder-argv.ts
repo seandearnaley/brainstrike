@@ -5,12 +5,13 @@ import path from 'node:path';
  * (BST-1393, spec §7 [D10]).
  *
  * CANDIDATES, emphatically: this function performs no I/O, asserts nothing
- * about the filesystem, and authorizes nothing. main stats each result to
- * confirm it is a directory, and the renderer routes it through
- * `fs:addRootByPath`, whose two gates decide whether it may be mounted at all
- * (ruling S1). argv is attacker-influencable — another process can launch this
- * app with any argument — so nothing downstream of here treats a candidate as
- * consent.
+ * about the filesystem, and authorizes nothing. `main.ts` stats each result
+ * (`filterDirectoryOpenCandidates` in `workspace-open-queue.ts`) to confirm it
+ * is a real, readable directory before it ever reaches the queue, and the
+ * renderer routes a survivor through `fs:addRootByPath`, whose two gates
+ * decide whether it may be MOUNTED at all (ruling S1). argv is
+ * attacker-influencable — another process can launch this app with any
+ * argument — so nothing downstream of here treats a candidate as consent.
  *
  * The unpackaged skip mirrors Electron's own argv convention: `electron .`
  * puts the app directory at argv[1]. Without the skip, every dev launch would

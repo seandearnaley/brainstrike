@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 // Import the union rather than duplicating it: a fifth origin added to
 // WorkspaceOpenOrigin (packages/app-shell/src/workspace-connect/workspace-connect-bridge.ts)
 // must not silently miss this queue's contract.
@@ -59,6 +60,17 @@ export function createWorkspaceOpenQueue(channel: string) {
       target = next;
       flush();
     },
+    /**
+     * The current target can no longer receive deliveries (a reload or
+     * navigation has torn down the document that had `WorkspaceConnectHost`
+     * mounted, before the new one re-subscribes). Call from `did-start-loading`
+     * so a request arriving mid-reload buffers instead of being `send` into a
+     * page with no listener — the following `did-finish-load` re-attach
+     * delivers it. Idempotent; safe to call with no target attached.
+     */
+    detach(): void {
+      target = null;
+    },
     enqueue(request: WorkspaceOpenRequest): void {
       if (pending.length >= MAX_PENDING_OPEN_REQUESTS) {
         const dropped = pending.shift();
@@ -95,4 +107,45 @@ export function enqueueFolderCandidates(
   for (const candidate of candidates) {
     queue.enqueue({ origin, path: candidate });
   }
+}
+
+/**
+ * Filters argv/open-file/second-instance candidates down to real, readable
+ * DIRECTORIES before they ever reach the queue.
+ *
+ * macOS `open-file` routinely delivers FILE paths as a matter of course
+ * ("Open With…" on a document), so a non-directory candidate is the expected
+ * case here, not an edge one. Forwarding one through to `fs:addRootByPath`
+ * would describe a wiring mismatch as a permission problem (the same
+ * match-the-failure-to-the-remedy reasoning as ruling S2). A stat failure
+ * (ENOENT, EACCES, a dangling symlink) is treated the same as "not a
+ * directory": loudly skipped via `logger.warn`, never enqueued, never
+ * silently coerced or retried.
+ *
+ * This is a data-shape filter, not a new authorization gate — it decides
+ * nothing about whether a directory may be MOUNTED (that is still
+ * `fs:addRootByPath`'s two ordered gates, ruling S1); it only keeps a request
+ * that can never succeed off the IPC channel.
+ */
+export function filterDirectoryOpenCandidates(
+  candidates: readonly string[],
+  origin: WorkspaceOpenOrigin
+): readonly string[] {
+  const directories: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      if (fs.statSync(candidate).isDirectory()) {
+        directories.push(candidate);
+      } else {
+        logger.warn('Skipped a non-directory folder-open candidate', { candidate, origin });
+      }
+    } catch (error) {
+      logger.warn('Skipped an unreadable folder-open candidate', {
+        candidate,
+        error: error instanceof Error ? error.message : String(error),
+        origin,
+      });
+    }
+  }
+  return directories;
 }

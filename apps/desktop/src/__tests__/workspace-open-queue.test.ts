@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createWorkspaceOpenQueue,
+  filterDirectoryOpenCandidates,
   MAX_PENDING_OPEN_REQUESTS,
   type WorkspaceOpenDeliveryTarget,
 } from '../workspace-open-queue';
@@ -118,5 +122,68 @@ describe('createWorkspaceOpenQueue', () => {
     queue.attach(target);
 
     expect(target.send).not.toHaveBeenCalled();
+  });
+
+  it('detach() clears the target so a mid-reload enqueue buffers instead of sending into a listener-less page', () => {
+    const target = makeTarget();
+    queue.attach(target);
+
+    queue.detach();
+    queue.enqueue({ origin: 'open-file', path: '/work/repo-g' });
+
+    // The request must NOT have been sent into the (now presumed reloading)
+    // page — that would be exactly the mid-reload loss the review flagged.
+    expect(target.send).not.toHaveBeenCalled();
+
+    // The following did-finish-load re-attach delivers it.
+    queue.attach(target);
+    expect(target.send).toHaveBeenCalledExactlyOnceWith(CHANNEL, {
+      origin: 'open-file',
+      path: '/work/repo-g',
+    });
+  });
+
+  it('detach() with no target attached is a safe no-op', () => {
+    expect(() => queue.detach()).not.toThrow();
+  });
+});
+
+describe('filterDirectoryOpenCandidates', () => {
+  let tempDir: string;
+  let tempFile: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-open-queue-test-'));
+    tempFile = path.join(tempDir, 'not-a-directory.txt');
+    fs.writeFileSync(tempFile, 'content');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { force: true, recursive: true });
+  });
+
+  it('keeps a real, readable directory', () => {
+    expect(filterDirectoryOpenCandidates([tempDir], 'open-file')).toEqual([tempDir]);
+  });
+
+  it('skips a FILE path — the routine macOS "Open With…" case, never enqueued', () => {
+    expect(filterDirectoryOpenCandidates([tempFile], 'open-file')).toEqual([]);
+  });
+
+  it('skips a path that does not exist, without throwing', () => {
+    const missing = path.join(tempDir, 'does-not-exist');
+    expect(() => filterDirectoryOpenCandidates([missing], 'argv')).not.toThrow();
+    expect(filterDirectoryOpenCandidates([missing], 'argv')).toEqual([]);
+  });
+
+  it('filters a mixed batch, preserving order of the survivors', () => {
+    const secondDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-open-queue-test-'));
+    try {
+      expect(
+        filterDirectoryOpenCandidates([tempFile, tempDir, secondDir], 'second-instance')
+      ).toEqual([tempDir, secondDir]);
+    } finally {
+      fs.rmSync(secondDir, { force: true, recursive: true });
+    }
   });
 });

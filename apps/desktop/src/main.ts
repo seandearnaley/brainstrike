@@ -176,7 +176,11 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
-import { createWorkspaceOpenQueue, enqueueFolderCandidates } from './workspace-open-queue';
+import {
+  createWorkspaceOpenQueue,
+  enqueueFolderCandidates,
+  filterDirectoryOpenCandidates,
+} from './workspace-open-queue';
 import { resolveRootCwd } from './workspace-root-cwd';
 import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
@@ -1480,7 +1484,11 @@ if (singleInstanceLockAcquired) {
   // way this entry point is observable end to end.
   app.on('open-file', (event, openedPath) => {
     event.preventDefault();
-    workspaceOpenQueue.enqueue({ origin: 'open-file', path: openedPath });
+    enqueueFolderCandidates(
+      workspaceOpenQueue,
+      filterDirectoryOpenCandidates([openedPath], 'open-file'),
+      'open-file'
+    );
   });
 
   // REMOVED: enable-gpu-rasterization + enable-zero-copy
@@ -1502,11 +1510,14 @@ if (singleInstanceLockAcquired) {
     app.on('second-instance', (_event, secondInstanceArgv, workingDirectory) => {
       enqueueFolderCandidates(
         workspaceOpenQueue,
-        resolveFolderCandidatesFromArgv({
-          argv: secondInstanceArgv,
-          isPackaged: app.isPackaged,
-          workingDirectory,
-        }),
+        filterDirectoryOpenCandidates(
+          resolveFolderCandidatesFromArgv({
+            argv: secondInstanceArgv,
+            isPackaged: app.isPackaged,
+            workingDirectory,
+          }),
+          'second-instance'
+        ),
         'second-instance'
       );
 
@@ -2235,6 +2246,38 @@ if (singleInstanceLockAcquired) {
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
 
+        // `createWindow`'s `loadFile`/`loadURL` call RESOLVES at `did-finish-load`
+        // (Electron's own contract), so by the time `win` exists here the initial
+        // load's `did-finish-load` has already fired — a listener registered only
+        // AFTER this point would never see it, and the queue would never attach on
+        // a normal launch. Attach immediately when nothing is currently loading
+        // (covers the initial load) and keep listening for every future one.
+        // Wired HERE, inside `createMainWindow`, rather than at each call site, so
+        // the SAME attach point serves the initial launch and every
+        // `app.on('activate')` recreation — macOS's Dock-drop path with no window
+        // open is the primary way `open-file` arrives, and a window built without
+        // this wiring would strand the queue's target forever (BST-1393 L3 review).
+        const attachWorkspaceOpenQueue = () => {
+          workspaceOpenQueue.attach({
+            isDestroyed: () => win.webContents.isDestroyed(),
+            send: (channel, payload) => {
+              win.webContents.send(channel, payload);
+            },
+          });
+        };
+        // A reload/navigation destroys the renderer's `WorkspaceConnectHost`
+        // subscription before the new document re-mounts it; detaching on
+        // `did-start-loading` stops mid-reload requests from being sent into a
+        // page with no listener (they buffer instead, and the following
+        // `did-finish-load` re-attach delivers them).
+        win.webContents.on('did-start-loading', () => {
+          workspaceOpenQueue.detach();
+        });
+        win.webContents.on('did-finish-load', attachWorkspaceOpenQueue);
+        if (!win.webContents.isLoading()) {
+          attachWorkspaceOpenQueue();
+        }
+
         // Embedded browser pane (BST-1174): each window owns its OWN pane host
         // + IPC registration, so a macOS close→dock-reopen cycle (which calls
         // createMainWindow again without quitting) rebinds the pane to the new
@@ -2402,28 +2445,21 @@ if (singleInstanceLockAcquired) {
       const mainWindow = await createMainWindow();
       logger.debug('Main window created successfully');
 
+      // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
+      // never re-enqueued by `app.on('activate')`'s later `createMainWindow()`
+      // calls (which only need the attach wiring above, not a re-read of argv).
       enqueueFolderCandidates(
         workspaceOpenQueue,
-        resolveFolderCandidatesFromArgv({
-          argv: process.argv,
-          isPackaged: app.isPackaged,
-          workingDirectory: process.cwd(),
-        }),
+        filterDirectoryOpenCandidates(
+          resolveFolderCandidatesFromArgv({
+            argv: process.argv,
+            isPackaged: app.isPackaged,
+            workingDirectory: process.cwd(),
+          }),
+          'argv'
+        ),
         'argv'
       );
-
-      // `did-finish-load` is the renderer-is-listening signal: the preload has
-      // run and React has mounted `WorkspaceConnectHost`'s subscriptions by the
-      // time it fires. Attaching on `ready-to-show` would deliver into a
-      // renderer with no listener and lose the request in silence.
-      mainWindow.webContents.on('did-finish-load', () => {
-        workspaceOpenQueue.attach({
-          isDestroyed: () => mainWindow.webContents.isDestroyed(),
-          send: (channel, payload) => {
-            mainWindow.webContents.send(channel, payload);
-          },
-        });
-      });
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
