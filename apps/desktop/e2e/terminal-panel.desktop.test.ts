@@ -10,7 +10,7 @@
  * Isolation: each test gets its OWN temp root dir (tracked + removed in
  * `afterAll`). Root setup matches git-panel.desktop.test.ts.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -91,6 +91,79 @@ test.describe('Terminal panel (desktop)', () => {
     // The header swaps the 'Terminal' placeholder for the resolved cwd; the temp
     // dir's basename survives realpath (e.g. /var → /private/var on macOS).
     await waitForShellReady(page, dir);
+  });
+
+  test('spawns at an exact nested checkout cwd through the preload bridge', async ({
+    window: page,
+  }) => {
+    test.setTimeout(90_000);
+    const dir = freshRootDir('nested-checkout');
+    const checkout = path.join(dir, '.worktrees', 'nested');
+    mkdirSync(checkout, { recursive: true });
+    await seedRoot(page, dir);
+    // Wait for renderer root restoration to populate the DB-backed resolver
+    // used by terminal:create before exercising an exact nested target.
+    await openTerminalPanel(page);
+
+    const result = await page.evaluate(
+      async ({ cwd, rootId }) => {
+        const bridge = (
+          globalThis as typeof globalThis & {
+            terminal?: {
+              create: (params: {
+                cwd: string;
+                rootId: string;
+              }) => Promise<
+                | { ok: true; value: { cwd: string; terminalId: string } }
+                | { ok: false; error: string }
+              >;
+              destroy: (params: { terminalId: string }) => Promise<unknown>;
+              onData: (
+                callback: (event: { data: string; terminalId: string }) => void
+              ) => () => void;
+              write: (params: { data: string; terminalId: string }) => Promise<unknown>;
+            };
+          }
+        ).terminal;
+        if (!bridge) {
+          throw new Error('terminal bridge unavailable');
+        }
+        const created = await bridge.create({ cwd, rootId });
+        if (!created.ok) {
+          return created;
+        }
+
+        const { terminalId } = created.value;
+        const output = await new Promise<string>((resolve, reject) => {
+          let observed = '';
+          const timeout = setTimeout(() => {
+            unsubscribe();
+            reject(new Error(`Timed out waiting for nested terminal pwd output: ${observed}`));
+          }, 10_000);
+          const unsubscribe = bridge.onData((event) => {
+            if (event.terminalId !== terminalId) {
+              return;
+            }
+            observed += event.data;
+            if (observed.includes(created.value.cwd)) {
+              clearTimeout(timeout);
+              unsubscribe();
+              resolve(observed);
+            }
+          });
+          void bridge.write({ data: 'pwd\r', terminalId });
+        });
+        await bridge.destroy({ terminalId });
+        return { cwd: created.value.cwd, ok: true as const, output };
+      },
+      { cwd: checkout, rootId: ROOT_ID }
+    );
+
+    expect(result).toMatchObject({
+      cwd: expect.stringContaining(path.join('.worktrees', 'nested')),
+      ok: true,
+      output: expect.stringContaining(path.join('.worktrees', 'nested')),
+    });
   });
 
   test('runs a command and renders its output in the xterm surface', async ({ window: page }) => {

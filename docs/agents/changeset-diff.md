@@ -429,20 +429,14 @@ invalidation; N status subprocesses behind an orientation surface is the cost
 this seam exists to avoid. Until a card's status resolves it renders
 "checking…", never a clean glyph.
 
-**"Open in Terminal" is deferred to W6 — settled, do not relitigate.** Spec §10
-lists the action on a Worktree Map card and §6.1 lists `openInTerminal` on
-`window.worktrees`; neither is built. There is no terminal-session seam a
-worktree path can be handed to yet (W1 deferred it, W3 ruling A6 recorded it,
-W5 re-affirmed it 2026-08-26), and the omit-don't-stub convention forbids a
-disabled placeholder. The bridge exact set therefore has no `openInTerminal`
-member and the card menu has no such item; the durable enforcement is an
-absence-assertion test in
-`packages/app-shell/src/worktree-map/__tests__/worktree-map-surface.test.tsx`
-("offers no 'Open in Terminal' action anywhere on a card"), which W6 deletes in
-the same PR that adds the real action. This sits beside the A5 run-scoped
-`git worktree lock` deferral above for the same reason: both are capabilities
-the spec named that no seam yet supports, and both are recorded here rather
-than living only in a review thread.
+**"Open in Terminal" is a renderer-owned target seam (BST-1457).** A Worktree
+Map card passes its exact canonical checkout path plus its containing validated
+`rootId` to the session-only terminal target store, which activates the
+singleton Terminal workspace app. It does not add `openInTerminal` to
+`window.worktrees`: the existing `terminal:create` bridge owns PTY creation and
+main independently realpaths, directory-checks, and containment-checks the
+optional cwd before spawn. The card test pins the exact `{cwd, rootId}` handoff;
+missing-root cards keep the action present but disabled with a stated reason.
 
 Mounting is a SEPARATE step from adoption and does not happen automatically:
 adopting a worktree only inserts the `brainstrike_worktrees` ledger row, it

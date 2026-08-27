@@ -1194,7 +1194,12 @@ additional explorer/status chrome):
     `apps/desktop/src/assistant-server/worktree-service.ts`), NOT from
     `window.git` inventory, so it refreshes independently of the Branch
     chip's git-status read above — eagerly on mount, and again after every
-    create/select/archive mutation. The existing-worktree picker
+    create/select/archive mutation. Its "Open in Terminal" action pins the
+    exact current checkout `{cwd, rootId}` in the session-only terminal target
+    store and activates the singleton Terminal app. That pin survives focus
+    changes until the Terminal header's "Follow focused folder" action releases
+    it; no target is persisted across reload or factory reset. The
+    existing-worktree picker
     (`worktree-picker-dialog.tsx`) lists EVERY worktree the ledger reports —
     including ones another tool created (`~/.codex/worktrees`,
     `~/.cursor/worktrees`), labelled by tool — each usable or disabled with
