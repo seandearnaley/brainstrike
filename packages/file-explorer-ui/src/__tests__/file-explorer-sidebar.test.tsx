@@ -149,8 +149,13 @@ describe('FileExplorerSidebar', () => {
     expect(screen.getByText('No matching files found')).toBeInTheDocument();
   });
 
-  // Single-root regression: rootDirectoryHandles with one entry → no section headers
-  it('renders single-root layout (no section headers) when rootDirectoryHandles has one entry', () => {
+  // Single-root regression: rootDirectoryHandles with one entry → no forest
+  // section headers. "No section headers" is NOT the same claim as "no
+  // workspace-root context menu" — BST-1393 review fold-in: the single-root
+  // branch previously had no trigger for the menu at all (the primary,
+  // one-folder scenario), so this pin now also asserts the menu row IS
+  // present, distinguishing the two.
+  it('renders single-root layout (no forest section headers, but a menu trigger row) when rootDirectoryHandles has one entry', () => {
     act(() => {
       renderWithProviders(
         <FileExplorerSidebar
@@ -161,13 +166,16 @@ describe('FileExplorerSidebar', () => {
       );
     });
 
-    // Single-root: no section headers, just the tree
+    // Single-root: no FOREST section headers, just the tree…
     expect(screen.queryByTestId('root-section-header')).toBeNull();
     expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
+    // …but the single-root header ROW (the workspace-root menu's trigger)
+    // is present — this is the gap the fold-in closes.
+    expect(screen.getByTestId('single-root-header-row')).toBeInTheDocument();
   });
 
   // Single-root regression: undefined rootDirectoryHandles → original layout
-  it('renders single-root layout (no section headers) when rootDirectoryHandles is undefined', () => {
+  it('renders single-root layout (no forest section headers, but a menu trigger row) when rootDirectoryHandles is undefined', () => {
     act(() => {
       renderWithProviders(
         <FileExplorerSidebar
@@ -180,6 +188,7 @@ describe('FileExplorerSidebar', () => {
 
     expect(screen.queryByTestId('root-section-header')).toBeNull();
     expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
+    expect(screen.getByTestId('single-root-header-row')).toBeInTheDocument();
   });
 
   it('shows the indexing control for an excluded single worktree root', () => {

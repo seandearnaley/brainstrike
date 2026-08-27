@@ -3345,10 +3345,11 @@ Attach and report **computed values**, not impressions. Minimum evidence for the
 3. `getComputedStyle` of the composer drop zone before and during a `dragover` carrying `Files` — report the actual `box-shadow`/ring values in BOTH themes (`prefers-color-scheme` light and dark).
 4. The refusal toast: its rendered `title`, `description` and the action button's accessible name, captured from a real never-granted `open-file`.
 5. **The one manual step: drag a real folder from Finder onto the composer.** Record the resulting root id and the mounted path, or the refusal toast if the folder was never granted. This is the single behaviour with no automated proof (see the coverage table) — record the outcome, do not assert it from the code.
+6. **(Added during PR #2676 review) Disconnect… dialog-focus ordering.** `ActionContextMenu`'s `onCloseAutoFocus` skips its own focus restoration while `isDisconnectDialogOpen` is true (both `RootSectionInner` and the single-root layout's `useSingleRootHeaderMenu`), specifically to avoid a possible race: `ContextMenuContent` exits via `data-[state=closed]:animate-out`, so under Radix `Presence` the real unmount — and `onCloseAutoFocus` — can fire AFTER `DisconnectRootDialog` has already mounted and autofocused. jsdom has no animation (synchronous unmount), so no unit test can observe this ordering; the guard is a defensive skip, not a confirmed fix. Right-click a root header (forest AND single-root), choose Disconnect…, and confirm the dialog keeps focus with no visible flicker to the header toggle button. Report what you observed, not just that the dialog opened.
 
 Paste the computed values and screenshots into the PR.
 
-- [ ] **Step 2: `docs/agents/workspace-context.md`**
+- [x] **Step 2: `docs/agents/workspace-context.md`** — **LANDED EARLY** during PR #2676 review (a P1 finding: the DEFERRED bullet still contradicted shipped behavior after Task 3/4 merged). The replacement text below reflects the ORIGINAL plan draft; the actual landed text also covers the single-root fold-in (Task 1 above) and the Set-as-Main/Disconnect gating fixes, so it differs from this draft — read the live doc rather than reapplying this block verbatim. `docs/agents/ui-conventions.md`'s CONTEXT ACTION SYSTEM section also gained a paired bullet (the "target kind with more than one trigger surface" pattern) — verify it's still current rather than adding a second one.
 
 Replace the DEFERRED bullet:
 

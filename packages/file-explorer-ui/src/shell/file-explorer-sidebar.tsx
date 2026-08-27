@@ -1,22 +1,14 @@
 import type { AnyContextAction } from '@brainstrike/context-actions';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
-import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import {
-  ActionContextMenu,
-  EmptyState,
-  LightweightCheckbox,
-  useContextMenuTarget,
-} from '@brainstrike/ui';
+import { ActionContextMenu, EmptyState, LightweightCheckbox } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
 import { WatcherHealthChip } from '../components/watcher-health-chip';
 import { WorktreeIndexingControl } from '../components/worktree-indexing-control';
-import { buildWorkspaceRootLocalActions } from '../context-actions/workspace-root-local-actions';
-import { workspaceRootToTarget } from '../context-actions/workspace-root-target';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
@@ -35,9 +27,11 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { useOptionalForestTreeActions } from './forest-tree-actions-context';
+import {
+  useRootSectionContextMenu,
+  useSingleRootHeaderMenu,
+} from './use-root-section-context-menu';
 import { useSelectionManager } from './use-selection-manager-context';
-
-const logger = createLogger('FileExplorerSidebar');
 
 // Shown when the workspace has no active roots. Multi-root: the workspace can
 // hold many folders, so this prompts adding one rather than "selecting a root".
@@ -573,9 +567,6 @@ const RootSectionInner = ({
 }: Omit<RootSectionInnerProps, 'rootIdByPath'>) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
-  const setMainRoot = useFileExplorerStoreSelector((s) => s.setMainRoot);
-  const rootMenuController = useContextMenuTarget();
-  const { setTarget: setRootMenuTarget } = rootMenuController;
   const treeContext = useFileTreeContext();
   const deferredFileTree = useDeferredValue(treeContext.fileTree);
   const viewFilteredTree = useGlobalFilteredTree(deferredFileTree);
@@ -701,96 +692,37 @@ const RootSectionInner = ({
     setIsCollapsed((v) => !v);
   }, [setFocusedRoot, rootIdentity]);
 
-  const claimRootTarget = useCallback(() => {
-    setRootMenuTarget(
-      workspaceRootToTarget({
-        // Refinement A (post-Task-2 review): the adapter compares
-        // `path !== displayName`; this file's `<RootSectionHeader path={…}>`
-        // prop (below) is built by a SEPARATE equality check comparing
-        // `path !== rootDirectoryHandle.name`. Those two independently
-        // written checks only agree because we pass `handle.name` as
-        // `displayName` here — pinned explicitly by the surface test
-        // 'claims path: null for a web FSA root, proving displayName ===
-        // handle.name (Refinement A)' in root-section-context-menu.test.tsx.
-        displayName: rootDirectoryHandle.name,
-        isMain: rest.mainRootId !== undefined && rest.mainRootId === rootIdentity,
-        // This is the adapter's OWN `path !== displayName` normalization
-        // doing the null-out work — NOT a rule reused from
-        // `RootSectionHeader` (that component's `path` prop is a plain
-        // truthiness check; see workspace-root-target.ts for the full
-        // correction). We pass the raw handle path through whenever
-        // truthy, WITHOUT the equality pre-filter used for the header's
-        // `path` prop below, and rely on `workspaceRootToTarget` to null it
-        // out when it equals `displayName`.
-        //
-        // LIVE-vs-DEAD: `DirectoryHandle.path` on web IS
-        // `DirectoryHandle.name` by construction (packages/types/src/
-        // file-system.ts: "on web `path` is only the directory name"), so
-        // for a web FSA root this branch reaches the adapter with
-        // `path === displayName` and the normalization fires — it is LIVE.
-        //
-        // Refinement B (post-Task-2 review): `DirectoryHandle.path` is a
-        // REQUIRED `string` (packages/types/src/file-system.ts:134), so the
-        // `: {}` branch below (omitting `path`) is DEFENSIVE-ONLY — it
-        // exists to satisfy `WorkspaceRootTargetInput`'s genuinely-optional
-        // `path`, but no real `DirectoryHandle` reaching this call site is
-        // ever expected to have a falsy `path`. The name-equality branch
-        // above is the SOLE live path-nulling mechanism here; the
-        // "no path at all" case is covered generically by the adapter's own
-        // unit test, not by anything reachable through this call site.
-        ...(rootDirectoryHandle.path ? { path: rootDirectoryHandle.path } : {}),
-        rootId: rootIdentity,
-      })
-    );
-  }, [
-    rootDirectoryHandle.name,
-    rootDirectoryHandle.path,
-    rest.mainRootId,
-    rootIdentity,
-    setRootMenuTarget,
-  ]);
-
-  const resetRootTarget = useCallback(() => {
-    setRootMenuTarget(null);
-  }, [setRootMenuTarget]);
-
-  const rootMenuActions = useMemo<readonly AnyContextAction[]>(
-    () => [
-      ...buildWorkspaceRootLocalActions({
-        onDisconnect: () => {
-          setIsDisconnectDialogOpen(true);
-        },
-        onSetAsMain: (target) => {
-          setMainRoot(target.rootId);
-        },
-      }),
-      ...(rootActions ?? []),
-    ],
-    [rootActions, setMainRoot]
-  );
-
-  const toggleButtonRef = useRef<HTMLButtonElement | null>(null);
-  const focusRootHeader = useCallback(() => {
-    // Radix's delayed trigger restoration is prevented by supplying this
-    // callback at all, so it must land focus somewhere real. A forwarded ref
-    // to the header's own toggle button — never a testid-keyed
-    // `querySelector`, which would silently no-op on a rename (NO SILENT
-    // FALLBACKS) and, because `onCloseAutoFocus` already suppresses Radix's
-    // own trigger-focus restoration, leave focus on nothing with no failing
-    // test.
-    const button = toggleButtonRef.current;
-    if (!button) {
-      logger.error('focusRootHeader: toggle button ref is unset; focus restoration failed', {
-        rootIdentity,
-      });
-      return;
-    }
-    button.focus();
-  }, [rootIdentity]);
-
   const handleDisconnectRequest = useCallback(() => {
     setIsDisconnectDialogOpen(true);
   }, []);
+
+  // A web FSA handle's `path` IS its `name` (packages/types/src/
+  // file-system.ts: "on web `path` is only the directory name") — there is
+  // no absolute path to report. Hoisted ONCE so the claimed target and the
+  // header's tooltip `path` prop share this single comparison instead of two
+  // independently-written checks that could drift apart.
+  const rootPath =
+    rootDirectoryHandle.path && rootDirectoryHandle.path !== rootDirectoryHandle.name
+      ? rootDirectoryHandle.path
+      : null;
+
+  const toggleButtonRef = useRef<HTMLButtonElement | null>(null);
+  const {
+    claim: claimRootTarget,
+    controller: rootMenuController,
+    localActions: rootMenuActions,
+    onCloseAutoFocus: focusRootHeader,
+    reset: resetRootTarget,
+  } = useRootSectionContextMenu({
+    displayName: rootDirectoryHandle.name,
+    isDisconnectDialogOpen,
+    isMain: rest.mainRootId !== undefined && rest.mainRootId === rootIdentity,
+    ...(onRemoveRoot ? { onDisconnect: handleDisconnectRequest } : {}),
+    path: rootPath,
+    restoreFocusRef: toggleButtonRef,
+    rootActions,
+    rootId: rootIdentity,
+  });
 
   const handleDisconnectConfirm = useCallback(
     (options: { deleteData: boolean }) => {
@@ -835,12 +767,9 @@ const RootSectionInner = ({
             onDisconnect={onRemoveRoot ? handleDisconnectRequest : undefined}
             onToggleCollapse={handleToggle}
             // Web FSA handles carry no absolute path distinct from the name —
-            // suppress the tooltip when the path adds nothing.
-            path={
-              rootDirectoryHandle.path && rootDirectoryHandle.path !== rootDirectoryHandle.name
-                ? rootDirectoryHandle.path
-                : undefined
-            }
+            // suppress the tooltip when the path adds nothing (same hoisted
+            // normalization the claimed target uses).
+            path={rootPath ?? undefined}
             reserveFloatingActionsClearance={isFirstSection}
             selectionControl={
               <RootSelectAllCheckbox
@@ -959,6 +888,31 @@ const FileExplorerSidebar = memo(
 
     const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
 
+    // SINGLE-ROOT root-context-menu wiring (BST-1393). Unconditional hook —
+    // single-root is a render-time branch below, same reasoning as
+    // `forestScrollRef` above. Forest mode's `RootSectionInner` claims the
+    // SAME `workspace-root` target through its own `RootSectionHeader`
+    // trigger; a single-connected-root workspace has no equivalent header at
+    // all, so — without this — the primary (one-folder) scenario had NO
+    // trigger for any of the five workspace-root actions.
+    const {
+      claim: claimSingleRootTarget,
+      controller: singleRootMenuController,
+      isDisconnectDialogOpen: isSingleRootDisconnectDialogOpen,
+      localActions: singleRootMenuActions,
+      onCloseAutoFocus: focusSingleRootMenuAnchor,
+      onDisconnectConfirm: handleSingleRootDisconnectConfirm,
+      reset: resetSingleRootTarget,
+      restoreFocusRef: singleRootMenuAnchorRef,
+      setIsDisconnectDialogOpen: setIsSingleRootDisconnectDialogOpen,
+    } = useSingleRootHeaderMenu({
+      mainRootId,
+      onRemoveRoot,
+      rootActions,
+      rootDirectoryHandle,
+      rootIdByPath,
+    });
+
     // FOREST MODE: render one collapsible section per root when multiple roots are active.
     // When rootDirectoryHandles.length <= 1, fall through to the original single-tree layout.
     const forestHandles = rootDirectoryHandles ?? [];
@@ -1032,14 +986,42 @@ const FileExplorerSidebar = memo(
       <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
         {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
         {/* Per-root status must surface in the DEFAULT one-folder workspace
-            too, not only in forest sections. Both controls render nothing
-            when healthy/eligible, so this row stays invisible on the golden
-            path. */}
+            too, not only in forest sections. Both status controls render
+            nothing when healthy/eligible, so the folder-name label is what
+            keeps this row a REAL, discoverable right-click target on the
+            golden path — not an invisible click zone. This is the
+            `workspace-root` menu's only trigger outside forest mode. */}
         {rootDirectoryHandle && (
-          <div className="flex items-center gap-1 px-2">
-            <WorktreeIndexingControl rootId={singleRootFolderId} />
-            <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
-          </div>
+          <ActionContextMenu
+            controller={singleRootMenuController}
+            localActions={singleRootMenuActions}
+            onCloseAutoFocus={focusSingleRootMenuAnchor}
+          >
+            {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: claims the workspace-root ContextTarget for this single-root workspace, mirroring the forest header row */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: see above — the row is the trigger, there is no separate header component in single-root mode */}
+            <div
+              className="flex items-center gap-1 px-2"
+              data-testid="single-root-header-row"
+              onContextMenu={claimSingleRootTarget}
+              onContextMenuCapture={resetSingleRootTarget}
+              ref={singleRootMenuAnchorRef}
+              tabIndex={-1}
+            >
+              <span className="truncate text-muted-foreground text-xs">
+                {rootDirectoryHandle.name}
+              </span>
+              <WorktreeIndexingControl rootId={singleRootFolderId} />
+              <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
+            </div>
+          </ActionContextMenu>
+        )}
+        {rootDirectoryHandle && (
+          <DisconnectRootDialog
+            displayName={rootDirectoryHandle.name}
+            onConfirm={handleSingleRootDisconnectConfirm}
+            onOpenChange={setIsSingleRootDisconnectDialogOpen}
+            open={isSingleRootDisconnectDialogOpen}
+          />
         )}
         {rootDirectoryHandle ? (
           <div className="relative flex min-h-0 flex-1 flex-col">

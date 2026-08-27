@@ -104,10 +104,75 @@ function renderRootSections(options: { rootActions?: readonly AnyContextAction[]
     );
   });
   act(() => {
-    storeRef.current?.setState({ setMainRoot: setMainRootMock });
+    // activeRootIds must include the rendered roots' ids — Set as Main's
+    // `!activeRootIds.includes(target.rootId)` gate (BST-1393 review
+    // fold-in) would otherwise reject every claim in this harness, since the
+    // store's default is `[]` and nothing here goes through the normal
+    // addActiveRoot flow.
+    storeRef.current?.setState({
+      activeRootIds: [ROOT_ID_A, ROOT_ID_B, ROOT_ID_FSA],
+      setMainRoot: setMainRootMock,
+    });
   });
 
   return { removeRootMock, setMainRootMock };
+}
+
+/**
+ * The single-root layout's own equivalent of `renderRootSections` (BST-1393
+ * review fold-in): that branch has no `RootSectionHeader`/forest sections at
+ * all, so it needs its own render helper rather than reusing the
+ * three-handle forest harness above. `onRemoveRoot` defaults to a mock (so
+ * Disconnect… is present, matching the golden-path call site in
+ * file-explorer-panel.tsx) but can be omitted per-test to prove the gating
+ * fix applies here too.
+ */
+function renderSingleRoot(
+  options: {
+    onRemoveRoot?: ((rootId: string, opts?: { deleteData?: boolean }) => Promise<void>) | null;
+    rootActions?: readonly AnyContextAction[];
+  } = {}
+) {
+  const adapter = new MockFileSystemAdapter();
+  vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+    async (_handle, onBatch, _options) => {
+      onBatch([], { done: true, total: 0 });
+    }
+  );
+  const storageAdapter = new MemoryStorageAdapter();
+  const Wrapper = composeWrappers(({ children }) => (
+    <FileExplorerTestWrapper mockFileSystemAdapter={adapter} mockStorageAdapter={storageAdapter}>
+      {children}
+    </FileExplorerTestWrapper>
+  ));
+  const renderWithProviders = makeRenderWithProviders(Wrapper);
+  const removeRootMock = vi.fn().mockResolvedValue(undefined);
+  const onRemoveRoot =
+    options.onRemoveRoot === null ? undefined : (options.onRemoveRoot ?? removeRootMock);
+
+  act(() => {
+    renderWithProviders(
+      <div data-testid="explorer-scroll-root">
+        <FileExplorerSidebar
+          currentFolderId={ROOT_ID_A}
+          filterError={null}
+          isInitialLoad={false}
+          isLoading={false}
+          loadingFiles={new Set<string>()}
+          mainRootId={ROOT_ID_B}
+          onRemoveRoot={onRemoveRoot}
+          quickFilteredTree={[]}
+          rootActions={options.rootActions}
+          rootDirectoryHandle={handleA}
+          rootIdByPath={new Map([[handleA.path, ROOT_ID_A]])}
+          setFocusedRoot={vi.fn()}
+          treeError={null}
+        />
+      </div>
+    );
+  });
+
+  return { removeRootMock };
 }
 
 describe('root section context menu', () => {
@@ -198,23 +263,20 @@ describe('root section context menu', () => {
     });
   });
 
-  it('claims path: null for a web FSA root, proving displayName === handle.name (Refinement A)', async () => {
-    // Post-Task-2-review requirement. The adapter compares
-    // `path !== displayName` (workspace-root-target.ts); this file's OWN
-    // `<RootSectionHeader path={…}>` prop is built elsewhere by comparing
-    // `path !== handle.name`. Those two independently-written equality
-    // checks only agree because `claimRootTarget` passes
-    // `displayName: rootDirectoryHandle.name` — this test is the falsifier
-    // for a future edit that passes a DIFFERENT displayName (e.g. a
-    // localized label) and silently breaks the null result. Reuse the
-    // `rootActions` spy seam (same pattern as the previous test) to observe
-    // the claimed target rather than reaching into internal state.
+  it('claims path: null for a web FSA root — a web FSA handle path IS its name', async () => {
+    // Durable invariant (packages/types/src/file-system.ts: "on web `path`
+    // is only the directory name"): a web FSA handle has no absolute path
+    // distinct from its name, so the claimed target's `path` must be `null`.
+    // `claimRootTarget` hoists ONE `rootPath` normalization
+    // (file-explorer-sidebar.tsx) shared by both the claimed target and the
+    // header's tooltip `path` prop, so this is the single source of that
+    // behavior, not two independently-written checks that happen to agree.
+    // Reuse the `rootActions` spy seam to observe the claimed target rather
+    // than reaching into internal state.
     //
     // This root section's `rootDirectoryHandle` is a real web FSA shape:
     // `{ name: 'notes', path: 'notes', platform: 'web' }` — name and path
-    // IDENTICAL, per DirectoryHandle's documented web contract
-    // (packages/types/src/file-system.ts: "on web `path` is only the
-    // directory name"). It deliberately does not reuse the existing
+    // IDENTICAL. It deliberately does not reuse the existing
     // file-explorer-sidebar.test.tsx fixture, whose path and name differ.
     const run = vi.fn().mockResolvedValue({ ok: true });
     renderRootSections({
@@ -237,20 +299,116 @@ describe('root section context menu', () => {
     await waitFor(() => {
       expect(run).toHaveBeenCalledTimes(1);
     });
-    // path: null is ONLY possible if displayName reached the adapter equal
-    // to the handle's path ('notes' === 'notes') — this assertion IS the
-    // Refinement-A pin, not a restatement of it.
     expect(run.mock.calls[0]?.[0]).toMatchObject({ kind: 'workspace-root', path: null });
   });
 
-  it('opens NO menu when a right-click claims nothing', async () => {
-    renderRootSections();
-    await waitFor(() => {
-      expect(screen.getAllByText('No files in this folder')).toHaveLength(3);
+  it('reset-then-claim: a stale claimed target never leaks into a different section', async () => {
+    // The real falsifier for the capture-phase reset protocol. The prior
+    // version of this test (`fireEvent.contextMenu` on `explorer-scroll-root`,
+    // an ANCESTOR of every trigger) could never fail: that event dispatches
+    // on the ancestor and never propagates through any trigger's
+    // `onContextMenu`, so no root menu could open regardless of whether
+    // `resetRootTarget` exists at all — deleting `claimRootTarget` entirely
+    // left it green. This version claims A, closes without a fresh claim
+    // (Escape), then claims B and asserts the injected action receives B's
+    // `rootId` — which fails if the capture-phase reset is removed AND
+    // proves stale targets don't leak between sections.
+    const run = vi.fn().mockResolvedValue({ ok: true });
+    renderRootSections({
+      rootActions: [
+        defineContextAction({
+          appliesTo: ['workspace-root'],
+          group: 'navigate',
+          id: 'test.probe',
+          label: 'Probe',
+          run,
+        }),
+      ],
     });
-    // The reset-then-claim protocol's falsifier: right-click the tree
-    // container (outside any header) and assert no root menu items appear.
-    fireEvent.contextMenu(screen.getByTestId('explorer-scroll-root'));
+    const headerA = screen.getAllByTestId('root-section-header-row')[0];
+    const headerB = screen.getAllByTestId('root-section-header-row')[1];
+    if (!(headerA && headerB)) {
+      throw new Error('expected two root header rows');
+    }
+
+    fireEvent.contextMenu(headerA);
+    expect(await screen.findByText('Probe')).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByText('Probe')).not.toBeInTheDocument();
+    });
+
+    fireEvent.contextMenu(headerB);
+    fireEvent.click(await screen.findByText('Probe'));
+    await waitFor(() => {
+      expect(run).toHaveBeenCalledTimes(1);
+    });
+    expect(run.mock.calls[0]?.[0]).toMatchObject({ kind: 'workspace-root', rootId: ROOT_ID_B });
+  });
+});
+
+describe('single-root header menu (BST-1393 review fold-in)', () => {
+  // The primary (one-folder) workspace scenario had NO trigger for any of
+  // the five workspace-root actions: `RootSectionInner` and its
+  // `ActionContextMenu` are instantiated only when `isForestMode`
+  // (rootDirectoryHandles.length > 1). This suite proves the single-root
+  // layout's own header row is a real, working trigger for the same menu.
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    __resetBackgroundIndexingPreferencesStoreForTests();
+  });
+
+  afterEach(async () => {
+    await closeMenuAndFlushFocusRestore();
+  });
+
+  it('opens a root menu whose items reflect the claimed target', async () => {
+    renderSingleRoot();
+    const header = screen.getByTestId('single-root-header-row');
+    fireEvent.contextMenu(header);
+    expect(await screen.findByText('Set as Main')).toBeInTheDocument();
+    expect(screen.getByText('Disconnect…')).toBeInTheDocument();
+  });
+
+  it('OMITS Disconnect… when onRemoveRoot is absent, mirroring the forest gating fix', async () => {
+    renderSingleRoot({ onRemoveRoot: null });
+    const header = screen.getByTestId('single-root-header-row');
+    fireEvent.contextMenu(header);
+    expect(await screen.findByText('Set as Main')).toBeInTheDocument();
     expect(screen.queryByText('Disconnect…')).not.toBeInTheDocument();
+  });
+
+  it('renders injected host actions on the single-root trigger, receiving the claimed target', async () => {
+    const run = vi.fn().mockResolvedValue({ ok: true });
+    renderSingleRoot({
+      rootActions: [
+        defineContextAction({
+          appliesTo: ['workspace-root'],
+          group: 'navigate',
+          id: 'test.injected',
+          label: 'Injected',
+          run,
+        }),
+      ],
+    });
+    const header = screen.getByTestId('single-root-header-row');
+    fireEvent.contextMenu(header);
+    fireEvent.click(await screen.findByText('Injected'));
+    await waitFor(() => {
+      expect(run).toHaveBeenCalledTimes(1);
+    });
+    expect(run.mock.calls[0]?.[0]).toMatchObject({
+      kind: 'workspace-root',
+      rootId: ROOT_ID_A,
+    });
+  });
+
+  it('Disconnect… STAGES the dialog and removes nothing', async () => {
+    const { removeRootMock } = renderSingleRoot();
+    const header = screen.getByTestId('single-root-header-row');
+    fireEvent.contextMenu(header);
+    fireEvent.click(await screen.findByText('Disconnect…'));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(removeRootMock).not.toHaveBeenCalled();
   });
 });

@@ -1230,9 +1230,60 @@ additional explorer/status chrome):
     with Escape leaves focus on `document.body` rather than returning it to
     the Mode chip trigger — confirmed against the running app, not assumed;
     fix or file before relying on keyboard flow through this chip.
-- DEFERRED (v1 ruling): a root-header right-click context action ("Set as
-  main" / Disconnect / Copy path / Reveal) — root headers have no
-  ContextTarget kind yet; it is a coherent follow-up surface.
+- **Root-header context menu (BST-1393, spec §7) — SHIPPED, the v1 DEFERRED
+  ruling above is CLOSED.** `packages/context-actions/src/types.ts` carries a
+  `workspace-root` ContextTarget kind (`displayName` · `isMain` · `path | null`
+  · `rootId`), adapted by `workspaceRootToTarget`
+  (`packages/file-explorer-ui/src/context-actions/workspace-root-target.ts`),
+  which normalizes a web FSA handle's name-as-path to `null` so path-shaped
+  actions hide by DATA rather than by platform. Both the forest sidebar's
+  `RootSectionInner` and the SINGLE-ROOT layout's own header row wrap ONLY
+  their header in `ActionContextMenu` — never the tree pane, which owns its
+  own — so the two menus stay siblings rather than nesting. A single-root
+  workspace (the primary, one-folder scenario) has its own trigger row
+  (`data-testid="single-root-header-row"`), not just the forest sections; the
+  claim/reset/local-actions/focus-restoration protocol is shared by both
+  through `packages/file-explorer-ui/src/shell/use-root-section-context-menu.ts`
+  (`useRootSectionContextMenu` / `useSingleRootHeaderMenu`) rather than two
+  independently-maintained copies.
+  - Six items, three owners. GLOBAL registry: `workspace-root.copy-path`
+    (`clipboard`) and `workspace-root.reveal` (`fs.reveal`). SURFACE-LOCAL in
+    `file-explorer-ui` (`workspace-root-local-actions.ts`):
+    `workspace-root.set-as-main` and a STAGED `workspace-root.disconnect`.
+    Disconnect… is present only when the surface actually has a way to
+    disconnect (`onDisconnect` is optional and OMITS the action when absent —
+    mirrors the header's own X button, never a silently-inert visible item).
+    Set as Main's dep returns an `ActionOutcome`: `setMainRoot` warn-and-no-ops
+    for an id `activeRootIds` doesn't recognize (a legacy path-identity root),
+    so the surface checks `activeRootIds.includes(target.rootId)` first and
+    reports `{ ok: false }` rather than the click silently doing nothing.
+    INJECTED by app-shell through `FileExplorerPanel`'s `rootActions` prop
+    (the `selectionActions` precedent): `workspace-root.open-in-terminal` (the
+    BST-1457 `terminal-target-store` seam — a mounted root IS its own cwd, so
+    `cwd` and `rootId` name the same folder here) and
+    `workspace-root.new-thread-here`.
+  - **"Set as Main", not "Make primary" (BST-1393 ruling R1).** This surface
+    changes the workspace-wide MAIN root (`setMainRoot`, `activeRootIds[0]`) —
+    the role this same header already renders as its "Main" badge. The
+    workspace bar's "Make primary" is a DIFFERENT operation with a different
+    writer (the thread's `operatingRoot*` metadata triple) and is untouched.
+    Do not merge the two vocabularies.
+  - "New thread here" goes through `useCreateThreadInFolder`
+    (`packages/app-shell/src/hooks/use-create-thread-in-folder.ts`), which is
+    the threads panel's own folder-bound creation extracted so BOTH surfaces
+    keep ONE writer of the `operatingRoot*` triple: one `createThread`, then
+    ONE metadata write (the repository rejects a partial triple).
+  - **Live-verified gap, not yet checked against a real build:** `Disconnect…`
+    stages a modal (`DisconnectRootDialog`) from inside `ActionContextMenu`'s
+    `onCloseAutoFocus`. In jsdom the menu unmounts synchronously so the
+    ordering is benign, but Radix's exit animation means the REAL unmount (and
+    this focus-restoration callback) can fire AFTER the staged dialog has
+    already mounted and autofocused — `onCloseAutoFocus` now skips restoring
+    focus while the dialog is open specifically to avoid fighting that race,
+    but the live ordering itself is unconfirmed. Verify against the running
+    desktop app (`pnpm --filter @brainstrike/desktop dev:agent-debug`) before
+    relying on keyboard flow through Disconnect…, same precedent as the Mode
+    chip gap above.
 
 **Known issue (out of scope here, filed separately):** nothing ever
 transitions `roots.status` off `'live'` (`reconcileRoots` never UPDATEs), so
