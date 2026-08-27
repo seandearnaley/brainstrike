@@ -275,6 +275,36 @@ describe('WorkspaceBar', () => {
     expect(onAddRecent).toHaveBeenCalledWith('/ws/alpha');
   });
 
+  // PR #2685 review: the shared DisableableMenuItem label span lost its
+  // `truncate` class in the folder-chip refactor — a long basename widened
+  // the dropdown instead of ellipsising. Root-action labels are fixed short
+  // strings, so only Recent rows regress; pinned here directly.
+  it('truncates a long Recent row basename instead of widening the dropdown', async () => {
+    const user = setup();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          onAddRecent: vi.fn(),
+          recentRoots: [
+            {
+              displayName: 'a-very-long-folder-basename-that-should-ellipsize-not-widen',
+              path: '/ws/a-very-long-folder-basename-that-should-ellipsize-not-widen',
+            },
+          ],
+        })}
+      />
+    );
+
+    await openFolderMenu(user);
+    const row = await screen.findByTestId(
+      'workspace-bar-recent-/ws/a-very-long-folder-basename-that-should-ellipsize-not-widen'
+    );
+    const label = within(row).getByText(
+      'a-very-long-folder-basename-that-should-ellipsize-not-widen'
+    );
+    expect(label.className.split(' ')).toContain('truncate');
+  });
+
   it('hides recents that are already mounted in this thread', async () => {
     const user = setup();
     render(

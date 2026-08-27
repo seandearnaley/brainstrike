@@ -171,7 +171,9 @@ const DisableableMenuItem = ({
         className={disabledReason ? 'size-3.5 text-muted-foreground' : 'size-3.5'}
       />
       <span className="flex min-w-0 flex-col">
-        <span className={disabledReason ? 'text-muted-foreground' : undefined}>{label}</span>
+        <span className={disabledReason ? 'truncate text-muted-foreground' : 'truncate'}>
+          {label}
+        </span>
         {disabledReason ? (
           <span className="text-foreground text-xs" id={disabledReasonId}>
             {disabledReason}
