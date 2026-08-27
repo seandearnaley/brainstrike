@@ -1,4 +1,5 @@
 import {
+  defaultBackgroundIndexingEnabled,
   ensureBackgroundIndexingPreferencesHydrated,
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
@@ -900,6 +901,9 @@ function orderTargetsByIndexedCoverage(
 
 function publishNoSyncableTargetStatus(args: {
   collectionId: string;
+  deferredRootPaths: readonly string[];
+  excludedRootPaths: readonly string[];
+  mountedSyncableTargetCount: number;
   orderedTargets: readonly ResolvedSyncLoopTarget[];
   resolvedTargets: readonly ResolvedSyncLoopTargetCandidate[];
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
@@ -908,17 +912,44 @@ function publishNoSyncableTargetStatus(args: {
     return;
   }
   const unresolvedTarget = args.resolvedTargets.find((target) => target.dbRootId === null);
-  if (!unresolvedTarget) {
+  if (unresolvedTarget) {
+    args.setStatus(
+      createCoverageStatusPatch({
+        activeRootPath: unresolvedTarget.handle.path,
+        collectionId: args.collectionId,
+        lastError: createUnresolvedRootCoverageMessage(unresolvedTarget.handle.path),
+        state: 'waiting',
+      })
+    );
     return;
   }
-  args.setStatus(
-    createCoverageStatusPatch({
-      activeRootPath: unresolvedTarget.handle.path,
-      collectionId: args.collectionId,
-      lastError: createUnresolvedRootCoverageMessage(unresolvedTarget.handle.path),
-      state: 'waiting',
-    })
-  );
+  const deferredRootPath = args.deferredRootPaths[0];
+  if (deferredRootPath) {
+    args.setStatus(
+      createCoverageStatusPatch({
+        activeRootPath: deferredRootPath,
+        collectionId: args.collectionId,
+        lastError: createUnresolvedRootCoverageMessage(deferredRootPath),
+        state: 'waiting',
+      })
+    );
+    return;
+  }
+  if (args.mountedSyncableTargetCount > 0) {
+    return;
+  }
+  const excludedRootPath = args.excludedRootPaths[0];
+  if (excludedRootPath) {
+    args.setStatus(
+      createCoverageStatusPatch({
+        activeRootPath: excludedRootPath,
+        collectionId: args.collectionId,
+        lastError:
+          'No mounted roots are currently indexed. Managed worktrees are excluded by default to avoid duplicate corpus indexing.',
+        state: 'waiting',
+      })
+    );
+  }
 }
 
 // Read each root's actual indexed file count, then order least-covered-first.
@@ -1157,6 +1188,85 @@ function buildSyncLoopTargets(args: {
     rootIds: args.scope.roots.map((root) => root.rootId),
   });
   return buildFullSyncTargets(allHandles);
+}
+
+interface SyncTargetSelection {
+  deferredRootPaths: string[];
+  excludedRootPaths: string[];
+  targets: SyncLoopTarget[];
+}
+
+interface ExcludedRootLogState {
+  loggedRootPaths: Set<string>;
+  rootSetKey: string;
+}
+
+function filterSyncTargetsByIndexingDefault(
+  targets: readonly SyncLoopTarget[],
+  dbRootKindByAdapterRootId: ReadonlyMap<string, string>,
+  dbRootIdByAdapterRootId: ReadonlyMap<string, string>,
+  worktreeRootIndexingOptInById: Readonly<Record<string, true>>,
+  rootsReconciliationSettled: boolean
+): SyncTargetSelection {
+  if (!rootsReconciliationSettled) {
+    return {
+      deferredRootPaths: targets.map((target) => target.handle.path),
+      excludedRootPaths: [],
+      targets: [],
+    };
+  }
+  const deferredRootPaths: string[] = [];
+  const excludedRootPaths: string[] = [];
+  const selectedTargets: SyncLoopTarget[] = [];
+  for (const target of targets) {
+    const rootPath = target.handle.path;
+    const rootId = target.handle.rootId;
+    if (!rootId) {
+      selectedTargets.push(target);
+      continue;
+    }
+    const kind = dbRootKindByAdapterRootId.get(rootId);
+    if (kind === undefined) {
+      deferredRootPaths.push(rootPath);
+      logger.debug('Deferring sync target with unknown root kind pending registration', {
+        rootId,
+        rootPath,
+      });
+      continue;
+    }
+    // This deliberately throws for a future/invalid persisted kind, even from
+    // an effect or event path: NO SILENT FALLBACKS forbids guessing whether an
+    // unrecognized root should be indexed.
+    const dbRootId = dbRootIdByAdapterRootId.get(rootId);
+    if (
+      defaultBackgroundIndexingEnabled(kind) ||
+      (kind === 'worktree' && dbRootId !== undefined && worktreeRootIndexingOptInById[dbRootId])
+    ) {
+      selectedTargets.push(target);
+      continue;
+    }
+    excludedRootPaths.push(rootPath);
+  }
+  return { deferredRootPaths, excludedRootPaths, targets: selectedTargets };
+}
+
+function logExcludedRootsOncePerRootSet(args: {
+  excludedRootPaths: readonly string[];
+  previous: ExcludedRootLogState;
+  rootSetKey: string;
+}): ExcludedRootLogState {
+  const next =
+    args.previous.rootSetKey === args.rootSetKey
+      ? args.previous
+      : { loggedRootPaths: new Set<string>(), rootSetKey: args.rootSetKey };
+  for (const rootPath of args.excludedRootPaths) {
+    if (next.loggedRootPaths.has(rootPath)) {
+      continue;
+    }
+    next.loggedRootPaths.add(rootPath);
+    logger.info('Excluded worktree root from background indexing by default', { rootPath });
+  }
+  return next;
 }
 
 function createWaitForBackgroundPermit(
@@ -1402,11 +1512,20 @@ export function WorkspaceCollectionSyncProvider({
   // Errors are logged and swallowed — must never block boot.
   // The returned callbacks are ref-stable: identity does not change when the
   // reconciliation map resolves, so the service useMemo is not reconstructed.
-  const { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId } = useRootsReconciliation({
-    adapter: fileSystemAdapter,
-    db,
+  const {
+    registerRoot,
+    resolveDbRootId,
+    dbRootIdByAdapterRootId,
+    dbRootKindByAdapterRootId,
+    rootsReconciliationSettled,
+  } = useRootsReconciliation({ adapter: fileSystemAdapter, db });
+  // Unlike focus-only handle changes, a genuine kind-map change MUST recreate
+  // triggerSync so the owning effect restarts a pass that deferred an unknown
+  // root while its registration was in flight.
+  const excludedRootLogStateRef = useRef<ExcludedRootLogState>({
+    loggedRootPaths: new Set(),
+    rootSetKey,
   });
-
   // Mid-session root registration (phase 5): roots added via Add Folder get
   // their DB roots row at add time, so their imports write real root_id values
   // immediately instead of NULL-until-next-boot. registerRoot awaits the boot
@@ -1506,8 +1625,52 @@ export function WorkspaceCollectionSyncProvider({
     (state) => state.setIndexingPolicyPreset
   );
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
+  const worktreeRootIndexingOptInById = useBackgroundIndexingPreferencesStore(
+    (state) => state.worktreeRootIndexingOptInById
+  );
+  const setWorktreeRootIndexingState = useBackgroundIndexingPreferencesStore(
+    (state) => state.setWorktreeRootIndexingState
+  );
   const setSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.setStatus);
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
+
+  useEffect(() => {
+    if (!(hasHydrated && rootsReconciliationSettled)) {
+      setWorktreeRootIndexingState([]);
+      return;
+    }
+    const mountedHandles = getActiveRootHandles({
+      rootDirectoryHandle: rootDirectoryHandleRef.current,
+      rootDirectoryHandles: rootDirectoryHandlesRef.current,
+    });
+    setWorktreeRootIndexingState(
+      mountedHandles.flatMap((handle) => {
+        const adapterRootId = handle.rootId ?? rootIdByPathRef.current.get(handle.path);
+        if (!(adapterRootId && dbRootKindByAdapterRootId.get(adapterRootId) === 'worktree')) {
+          return [];
+        }
+        const dbRootId = dbRootIdByAdapterRootId.get(adapterRootId);
+        if (!dbRootId) {
+          return [];
+        }
+        return [
+          {
+            adapterRootId,
+            dbRootId,
+            indexed: worktreeRootIndexingOptInById[dbRootId] === true,
+          },
+        ];
+      })
+    );
+  }, [
+    dbRootIdByAdapterRootId,
+    dbRootKindByAdapterRootId,
+    hasHydrated,
+    rootSetKey,
+    rootsReconciliationSettled,
+    setWorktreeRootIndexingState,
+    worktreeRootIndexingOptInById,
+  ]);
   const selectedDevicePreference = useVectorPreferencesStore((state) => ({
     devicePref: state.devicePref,
     devicePrefConfigured: state.devicePrefConfigured,
@@ -2064,16 +2227,35 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
 
-      const targets = buildSyncLoopTargets({
-        rootDirectoryHandle,
-        rootDirectoryHandles,
-        rootIdByPath,
-        scope,
-      });
+      const selection = filterSyncTargetsByIndexingDefault(
+        buildSyncLoopTargets({
+          rootDirectoryHandle,
+          rootDirectoryHandles,
+          rootIdByPath,
+          scope,
+        }),
+        dbRootKindByAdapterRootId,
+        dbRootIdByAdapterRootId,
+        worktreeRootIndexingOptInById,
+        rootsReconciliationSettled
+      );
       const mountedHandles = getActiveRootHandles({
         rootDirectoryHandle,
         rootDirectoryHandles,
       });
+      const workspaceSelection = filterSyncTargetsByIndexingDefault(
+        buildFullSyncTargets(mountedHandles),
+        dbRootKindByAdapterRootId,
+        dbRootIdByAdapterRootId,
+        worktreeRootIndexingOptInById,
+        rootsReconciliationSettled
+      );
+      excludedRootLogStateRef.current = logExcludedRootsOncePerRootSet({
+        excludedRootPaths: selection.excludedRootPaths,
+        previous: excludedRootLogStateRef.current,
+        rootSetKey,
+      });
+      const { targets } = selection;
       if (
         handleActiveSyncLoopRequest({
           options,
@@ -2196,6 +2378,9 @@ export function WorkspaceCollectionSyncProvider({
 
         publishNoSyncableTargetStatus({
           collectionId: managedCollectionId,
+          deferredRootPaths: workspaceSelection.deferredRootPaths,
+          excludedRootPaths: workspaceSelection.excludedRootPaths,
+          mountedSyncableTargetCount: workspaceSelection.targets.length,
           orderedTargets,
           resolvedTargets,
           setStatus: setSyncStatus,
@@ -2280,8 +2465,13 @@ export function WorkspaceCollectionSyncProvider({
           }
         });
     },
+    // BST-1268: rootSetKey deliberately replaces the focused handle, handles
+    // array, and path map identities so focus-only changes cannot recreate and
+    // cancel this callback while an import is active.
     [
       backgroundDb,
+      dbRootIdByAdapterRootId,
+      dbRootKindByAdapterRootId,
       enabled,
       hasHydrated,
       indexingPolicyPreset,
@@ -2290,12 +2480,13 @@ export function WorkspaceCollectionSyncProvider({
       reportAsyncError,
       resetSyncStatus,
       resolveDbRootId,
-      // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not recreate this callback (BST-1268); the live values are read through render-synced refs.
       rootSetKey,
+      rootsReconciliationSettled,
       service,
       setSyncStatus,
       treeRestorationSettled,
       triggerWorkspaceIndexBootstrap,
+      worktreeRootIndexingOptInById,
     ]
   );
   useEffect(() => {
@@ -2440,6 +2631,9 @@ export function WorkspaceCollectionSyncProvider({
       disposed = true;
       unsubscribe();
     };
+    // BST-1268: rootSetKey deliberately replaces the focused handle, handles
+    // array, and path map identities so focus-only changes do not recreate this
+    // coverage subscription or fire its immediate recovery audit.
   }, [
     backgroundDb,
     enabled,
@@ -2447,7 +2641,6 @@ export function WorkspaceCollectionSyncProvider({
     indexingPolicyPreset,
     managedCollectionId,
     resolveDbRootId,
-    // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not re-run the audit (BST-1268); live values are read through render-synced refs.
     rootSetKey,
     setSyncStatus,
   ]);

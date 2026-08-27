@@ -28,6 +28,7 @@ import type {
   GitAheadBehind,
   GitCommitFile,
   GitCommitResult,
+  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitHistoryPage,
@@ -38,8 +39,18 @@ import type {
   GitStatus,
   GitSwitchBranchResult,
   IFileNode,
+  ManagedWorktreePathEntry,
+  ManagedWorktreeRow,
   StructuredFileDiff,
   StructuredFileDiffParams,
+  WorktreeAdoptParams,
+  WorktreeArchiveResult,
+  WorktreeCheckoutStatus,
+  WorktreeCreateContext,
+  WorktreeCreateParams,
+  WorktreeCreateResult,
+  WorktreeListEntry,
+  WorktreeSettings,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -390,6 +401,10 @@ declare global {
         rootId: string,
         params: { commit: string }
       ) => Promise<GitResult<readonly GitCommitFile[]>>;
+      createBranch: (
+        rootId: string,
+        params: { branch: string; startPoint?: string }
+      ) => Promise<GitResult<GitCreateBranchResult>>;
       aheadBehind: (rootId: string) => Promise<GitResult<GitAheadBehind>>;
       fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
       history: (
@@ -609,6 +624,8 @@ declare global {
     terminal?: {
       create: (params: {
         rootId: string;
+        /** Absolute path inside the root; omitted ⇒ the root itself. */
+        cwd?: string;
         cols?: number;
         rows?: number;
       }) => Promise<TerminalResult<TerminalCreateResult>>;
@@ -648,6 +665,45 @@ declare global {
      */
     userCommands?: {
       list: () => Promise<UserSlashCommandsListResult>;
+    };
+    /**
+     * Low-friction folder connection (BST-1393). Absent on web — consumers
+     * capability-check it via `resolveWorkspaceConnectBridge()`. The exposed
+     * key set is pinned to `WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS` by the
+     * preload-runtime contract test.
+     */
+    workspace?: import('@brainstrike/app-shell/workspace-connect/workspace-connect-bridge').WorkspaceConnectBridge;
+    /**
+     * Desktop-only managed-worktree bridge (BST-1390).
+     *
+     * ⚠️ MUST stay in sync with `WorktreesBridge` in
+     * `packages/app-shell/src/worktrees/worktrees-bridge.ts`.
+     * `resolveWorktreesBridge()` rejects a bridge missing any method, so a
+     * method declared here but absent from the preload — or vice versa —
+     * disables worktree mode at runtime.
+     */
+    worktrees?: {
+      adopt: (params: WorktreeAdoptParams) => Promise<GitResult<ManagedWorktreeRow>>;
+      archive: (params: {
+        force?: boolean;
+        runId?: string;
+        worktreeId: string;
+      }) => Promise<GitResult<WorktreeArchiveResult>>;
+      checkoutStatus: (params: { path: string }) => Promise<GitResult<WorktreeCheckoutStatus>>;
+      create: (params: WorktreeCreateParams) => Promise<GitResult<WorktreeCreateResult>>;
+      createBranchHere: (params: {
+        branch: string;
+        worktreeId: string;
+      }) => Promise<GitResult<ManagedWorktreeRow>>;
+      createContext: (params: { rootId: string }) => Promise<GitResult<WorktreeCreateContext>>;
+      getSettings: () => Promise<GitResult<WorktreeSettings>>;
+      list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
+      listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
+      restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;
+      setSettings: (params: {
+        managedDirectory: string | null;
+        setupCommand: readonly string[] | null | 'disabled';
+      }) => Promise<GitResult<WorktreeSettings>>;
     };
   }
 }

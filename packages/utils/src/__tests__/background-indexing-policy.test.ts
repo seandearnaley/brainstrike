@@ -5,6 +5,7 @@ import {
   DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE,
   FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES,
   isUnconditionalExcludedNativePath,
+  UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES,
   UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
 } from '../background-indexing-policy.js';
 
@@ -13,7 +14,7 @@ describe('background-indexing-policy', () => {
     vi.restoreAllMocks();
   });
 
-  // BST-1342: the watcher must drop `.claude/worktrees` events with the SAME
+  // BST-1342/BST-1390: the watcher must drop managed-worktree events with the SAME
   // exclusion the index policy already applies — but watcher event paths are
   // NATIVE (absolute, either separator), unlike the root-relative
   // `/`-separated contract of isExcludedBackgroundIndexingPath.
@@ -24,6 +25,7 @@ describe('background-indexing-policy', () => {
       ).toBe(true);
       expect(isUnconditionalExcludedNativePath('/repo/.claude/worktrees')).toBe(true);
       expect(isUnconditionalExcludedNativePath('.claude/worktrees/file')).toBe(true);
+      expect(isUnconditionalExcludedNativePath('/repo/.brainstrike/worktrees/app/a.ts')).toBe(true);
     });
 
     it('matches windows separators and mixed case', () => {
@@ -46,8 +48,14 @@ describe('background-indexing-policy', () => {
       expect(UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS).toEqual([
         '**/.claude/worktrees',
         '**/.claude/worktrees/**',
+        '**/.brainstrike/worktrees',
+        '**/.brainstrike/worktrees/**',
       ]);
     });
+  });
+
+  it('keeps BrainStrike managed worktrees in the unconditional exclusion floor', () => {
+    expect(UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES).toContain('.brainstrike/worktrees');
   });
 
   it('defaults to the balanced preset metadata', () => {
@@ -110,6 +118,12 @@ describe('background-indexing-policy', () => {
       policy.shouldTraverseDirectory({
         directoryName: 'coverage',
         relativePath: 'coverage',
+      })
+    ).toBe(false);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: 'worktrees',
+        relativePath: '.brainstrike/worktrees',
       })
     ).toBe(false);
     expect(

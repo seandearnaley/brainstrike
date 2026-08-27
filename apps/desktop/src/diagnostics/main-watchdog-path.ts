@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { resolveDevelopmentMainOutputDir } from '../main-entry-path';
+import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 
 const WATCHDOG_WORKER_FILE_NAME = 'main-watchdog-worker.js';
 
@@ -7,12 +7,15 @@ const WATCHDOG_WORKER_FILE_NAME = 'main-watchdog-worker.js';
 export function resolveMainWatchdogWorkerPath(
   appPath: string,
   isPackaged: boolean,
-  mainModulePath: string
+  currentModuleFilename?: string
 ): string {
   if (!isPackaged) {
-    return path.join(
-      resolveDevelopmentMainOutputDir(mainModulePath, 'Main watchdog worker'),
-      WATCHDOG_WORKER_FILE_NAME
+    // BST-1459: see bundled-sibling-path.ts for the full launch-mode
+    // rationale and NO SILENT FALLBACKS reasoning (PR #2680 review).
+    return resolveBundledSiblingPath(
+      'Main watchdog worker',
+      WATCHDOG_WORKER_FILE_NAME,
+      currentModuleFilename
     );
   }
   if (path.basename(appPath) !== 'app.asar') {

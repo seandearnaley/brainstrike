@@ -5,7 +5,8 @@ import {
   getFileSizeConfig,
   isFullyQualifiedFileSystemPath,
 } from '@brainstrike/file-system';
-import type { SecureWorkspaceRoot } from './workspace-root-registry';
+import { isContained, pathsEqual } from './workspace-root-paths';
+import type { SecureWorkspaceRoot } from './workspace-root-types';
 
 /** Native secure-fs reads cap one operation at 16MB. */
 const NATIVE_MAX_READ_BYTES = 16 * 1024 * 1024;
@@ -21,22 +22,6 @@ export interface ResolvedWorkspaceRead {
   readonly mounted: MountedWorkspaceRootReadAuthority;
   readonly relativePath: string;
   readonly traversedSymlink: boolean;
-}
-
-export function isContained(rootPath: string, candidatePath: string): boolean {
-  const relative = path.relative(rootPath, candidatePath);
-  return (
-    relative === '' ||
-    !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-  );
-}
-
-export function pathsEqual(left: string, right: string): boolean {
-  const normalizedLeft = path.normalize(left);
-  const normalizedRight = path.normalize(right);
-  return process.platform === 'win32'
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
 }
 
 export function assertNativeAbsoluteReadPath(

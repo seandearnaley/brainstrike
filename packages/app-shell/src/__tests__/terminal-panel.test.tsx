@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -120,6 +120,7 @@ vi.mock('@xterm/addon-web-links', () => {
   return { WebLinksAddon };
 });
 
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { TerminalPanel } from '../terminal-panel/terminal-panel';
 
 // ── Bridge fixtures ───────────────────────────────────────────────────────────
@@ -133,6 +134,7 @@ let dataCallback: ((event: TerminalDataEvent) => void) | null = null;
 let exitCallback: ((event: TerminalExitEvent) => void) | null = null;
 const offData = vi.fn();
 const offExit = vi.fn();
+const resizeObserverDisconnect = vi.fn();
 
 function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
   const full: TerminalBridge = {
@@ -221,15 +223,20 @@ describe('TerminalPanel', () => {
     dataCallback = null;
     exitCallback = null;
     toastSpy.mockReset();
+    useTerminalTargetStore.getState().reset();
     offData.mockReset();
     offExit.mockReset();
+    resizeObserverDisconnect.mockReset();
     // jsdom has no ResizeObserver — stub it so the session effect can observe.
+    // `disconnect` is a spy (not a no-op) so unmount tests can prove the
+    // observer this effect creates is actually torn down, not just replaced
+    // by a fresh one next render.
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
       observe() {
         /* no-op */
       }
       disconnect() {
-        /* no-op */
+        resizeObserverDisconnect();
       }
       unobserve() {
         /* no-op */
@@ -384,6 +391,10 @@ describe('TerminalPanel', () => {
     expect(offData).toHaveBeenCalled();
     expect(offExit).toHaveBeenCalled();
     expect(lastTerminal().dispose).toHaveBeenCalled();
+    // The resize ResizeObserver this session's effect created is disconnected
+    // on unmount too — not left subscribed to a container the component no
+    // longer owns.
+    expect(resizeObserverDisconnect).toHaveBeenCalled();
   });
 
   it('restarts a fresh pty after an exit', async () => {
@@ -683,5 +694,125 @@ describe('TerminalPanel', () => {
       rootId: 'root-1',
       sessionId: 'command-session-1234567890',
     });
+  });
+
+  it('creates the session at the FOCUSED root when nothing is pinned', async () => {
+    const bridge = installBridge();
+    render(<TerminalPanel />);
+
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(1));
+    const params = vi.mocked(bridge.create).mock.calls[0]?.[0];
+    expect(params?.rootId).toBe('root-1');
+    // No pin ⇒ no cwd key at all, so main takes its original root-cwd path.
+    expect(params && 'cwd' in params).toBe(false);
+  });
+
+  it('creates the session at the PINNED checkout, carrying both rootId and cwd', async () => {
+    const bridge = installBridge({
+      create: vi.fn(async () =>
+        ok({ cwd: '/abs/repo/.claude/worktrees/bright-fox', terminalId: 'pty-2' })
+      ),
+    });
+    useTerminalTargetStore
+      .getState()
+      .openTerminalAt({ cwd: '/abs/repo/.claude/worktrees/bright-fox', rootId: 'root-1' });
+    render(<TerminalPanel />);
+
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(1));
+    expect(bridge.create).toHaveBeenCalledWith({
+      cols: 80,
+      cwd: '/abs/repo/.claude/worktrees/bright-fox',
+      rootId: 'root-1',
+      rows: 24,
+    });
+    // The header reports the cwd main actually resolved, not the request.
+    expect(await screen.findByText('/abs/repo/.claude/worktrees/bright-fox')).toBeInTheDocument();
+  });
+
+  it('offers "Follow focused folder" only while a target is pinned, and releasing it restarts at the root', async () => {
+    const bridge = installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('terminal-panel-clear-target')).not.toBeInTheDocument();
+
+    await act(async () => {
+      useTerminalTargetStore.getState().openTerminalAt({ cwd: '/abs/repo/sub', rootId: 'root-1' });
+    });
+    const release = await screen.findByTestId('terminal-panel-clear-target');
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(bridge.create).mock.calls[1]?.[0]).toMatchObject({ cwd: '/abs/repo/sub' });
+
+    await userEvent.click(release);
+
+    expect(screen.queryByTestId('terminal-panel-clear-target')).not.toBeInTheDocument();
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(3));
+    const third = vi.mocked(bridge.create).mock.calls[2]?.[0];
+    expect(third?.rootId).toBe('root-1');
+    expect(third && 'cwd' in third).toBe(false);
+  });
+
+  it('does not surface the previous target’s outcome after the pin changes within one root', async () => {
+    // The freshness gate must key on the (rootId, cwd) PAIR: the lifecycle
+    // effect re-runs on a cwd change WITHOUT bumping sessionId, so a gate that
+    // keyed on rootId alone would leak the previous checkout's `exited`
+    // overlay onto the freshly-starting one. This is the same bug class the
+    // existing rootId note in use-terminal-session.ts describes.
+    const bridge = installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      exitCallback?.({ exitCode: 0, signal: null, terminalId: 'pty-1' });
+    });
+    expect(await screen.findByTestId('terminal-panel-exited')).toBeInTheDocument();
+
+    await act(async () => {
+      useTerminalTargetStore.getState().openTerminalAt({ cwd: '/abs/repo/sub', rootId: 'root-1' });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('terminal-panel-exited')).not.toBeInTheDocument()
+    );
+  });
+
+  it('selects the shell surface on an explicit Open in Terminal, even if command-sessions was active', async () => {
+    // PR #2675 review: `openTerminalAt` changes rootId/cwd and reopens the
+    // Terminal tab, but before this fix nothing forced `surface` back to
+    // 'shell' — the requested PTY started invisibly behind the
+    // command-sessions view whenever that tab was last selected.
+    installBridge();
+    installCommandSessionBridge();
+    const user = userEvent.setup();
+    render(<TerminalPanel />);
+    await user.click(screen.getByRole('button', { name: 'Command sessions' }));
+    await screen.findByText('server ready');
+    expect(screen.getByTestId('terminal-host')).not.toBeVisible();
+
+    await act(async () => {
+      useTerminalTargetStore.getState().openTerminalAt({ cwd: '/abs/repo/sub', rootId: 'root-1' });
+    });
+
+    await waitFor(() => expect(screen.getByTestId('terminal-host')).toBeVisible());
+    expect(screen.getByRole('button', { name: 'Shell' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it("scopes CommandSessionInventory's rootId to the FOCUSED root, never the pin", async () => {
+    // PR #2675 review: a pin is a SHELL pin by design — its destructive
+    // stop/remove/write actions must never silently retarget onto whatever
+    // root a shell happens to be pinned to. Pin a DIFFERENT root than the
+    // one actually focused (mockRoot stays 'root-1') and assert the
+    // inventory still queries the focused root.
+    installBridge();
+    const commandSessions = installCommandSessionBridge();
+    const user = userEvent.setup();
+    useTerminalTargetStore.getState().openTerminalAt({ cwd: '/other/repo/sub', rootId: 'root-2' });
+    render(<TerminalPanel />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Shell' })).toHaveAttribute('aria-current', 'page')
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Command sessions' }));
+
+    await waitFor(() => expect(commandSessions.list).toHaveBeenCalledWith({ rootId: 'root-1' }));
+    expect(commandSessions.list).not.toHaveBeenCalledWith({ rootId: 'root-2' });
   });
 });

@@ -11,10 +11,12 @@ import type { DesktopEnvLoadFailure } from '../desktop-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { AssistantServerAuth } from './auth';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { ForgeService } from './forge-service';
 import type { OpenRouterModelMetadataService } from './openrouter-model-metadata';
 import type { ProviderVerificationService } from './provider-verification';
 import type { SnapshotRepository } from './snapshot-repository';
 import type { SnapshotService } from './snapshot-service';
+import type { WorktreeService } from './worktree-service';
 
 /**
  * Shadow-git snapshot deps for the run-persistence seam (BST-1164 W7 T1).
@@ -52,6 +54,17 @@ export interface AssistantServerOptions {
   openRouterModelMetadataService?: OpenRouterModelMetadataService;
   /** BST-1357 credential-verification probes; module-level default when unset. */
   providerVerificationService?: ProviderVerificationService;
+  /**
+   * Lazily resolved because `main.ts` constructs the ForgeService at
+   * `app.whenReady()` while the assistant server starts from the same phase.
+   */
+  resolveForgeService?: (() => ForgeService | null) | undefined;
+  /**
+   * Lazily resolved because `main.ts` constructs the WorktreeService at
+   * `app.whenReady()` while the assistant server starts from the same phase —
+   * the same laziness `worktrees-ipc-handlers.ts` uses for its `resolveService`.
+   */
+  resolveWorktreeService?: (() => WorktreeService | null) | undefined;
   /** See {@link DesktopWorkspaceSnapshotDependencies} — T1 injection point. */
   snapshots?: DesktopWorkspaceSnapshotDependencies | null | undefined;
 }

@@ -33,6 +33,7 @@ import {
   createSearchIndexingSettingsCategory,
   createSubagentPersonasSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
+  createWorkspaceSettingsCategory,
   type HookReviewRoot,
 } from '@brainstrike/settings-ui/settings-category-factories';
 import {
@@ -42,6 +43,7 @@ import {
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
+import { useWorktreeSettings } from './use-worktree-settings';
 
 configureModelRuntimeServices({
   downloadEmbeddingModel: async (modelId, options) => {
@@ -82,6 +84,7 @@ function getToolDescription(toolId: string): string {
 
 export default function SettingsPageContent() {
   const assistantAvailability = useAssistantAvailability();
+  const worktreeSettings = useWorktreeSettings();
   // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
   const tokenCache = useOptionalTokenCacheContext();
   const devInlineFixtureEnabled = useFileExplorerStoreSelector((s) => s.devInlineFixtureEnabled);
@@ -391,6 +394,11 @@ export default function SettingsPageContent() {
       createSkillsSettingsCategory(),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
       createWorkspaceInstructionsSettingsCategory(),
+      createWorkspaceSettingsCategory({
+        onSave: worktreeSettings.save,
+        settings: worktreeSettings.settings,
+        status: worktreeSettings.status,
+      }),
       createSelfImprovementSignalSettingsCategory(),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
@@ -413,6 +421,9 @@ export default function SettingsPageContent() {
     revealEnvFile,
     setDevInlineFixtureEnabled,
     toolOperations,
+    worktreeSettings.save,
+    worktreeSettings.settings,
+    worktreeSettings.status,
   ]);
 
   return (

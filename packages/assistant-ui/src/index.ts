@@ -88,3 +88,21 @@ export {
   useToolApprovalGrants,
 } from './tool-approval-grant-context';
 export * from './tool-fallback';
+export { PrChip, type WorkspaceBarForge } from './workspace-bar/pr-chip';
+export {
+  WorkspaceBar,
+  type WorkspaceBarBaseRefOption,
+  type WorkspaceBarBranchMenu,
+  type WorkspaceBarBranchRow,
+  type WorkspaceBarCheckout,
+  type WorkspaceBarCreateWorktreeRequest,
+  type WorkspaceBarMode,
+  type WorkspaceBarProps,
+  type WorkspaceBarRecentRoot,
+  type WorkspaceBarRepositorySetupConsent,
+  type WorkspaceBarReveal,
+  type WorkspaceBarRoot,
+  type WorkspaceBarWorktreeOption,
+  type WorkspaceBarWorktreePicker,
+  type WorkspaceBarWorktreeSummary,
+} from './workspace-bar/workspace-bar';

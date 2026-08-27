@@ -530,6 +530,51 @@ are prohibited. Paired pins:
 reset-registry membership) plus the pinned counts in
 `packages/db/__tests__/reset-table-registry.test.tsx`.
 
+Migration 110 owns the FK-less `brainstrike_forge_prs` cache (BST-1391): one
+normalized GitHub pull-request observation per realpath'd git common directory
+and branch. Register it in both migration runners and every table-enumerating
+factory-reset path. It is not a thread-delete sidecar because pull requests
+outlive individual threads and are shared by threads on the same branch. The
+thread-row PR pill reads it through ONE list-wide, unparameterized PGlite
+live query (`use-forge-pr-cache.ts`) rather than a per-thread lookup, so it
+renders instantly on boot and offline; the composer's live status instead
+reads the capability-gated `window.forge` bridge, which is the only surface
+that needs the transient in-flight/error state this table does not carry.
+
+## MANAGED WORKTREE LEDGER (migration 109, BST-1390)
+
+`brainstrike_worktrees` records every linked git worktree BrainStrike itself
+created (`created_by IN ('agent','user')`), keyed by its `path` (UNIQUE) and
+its realpath'd `repo_common_dir`. It is the authorization source for the ONE
+sanctioned picker-less root mount besides recents (`isManagedWorktreePath`,
+`workspace-recent-roots.ts`) and the provenance source the git inventory joins
+to produce `'both'` / `'agent-reported'`. Setup outcomes persist their closed
+status, bounded output, and nullable user-facing reason so later inventory
+reads can explain failed or skipped setup without reconstructing create-time
+state.
+
+Boot-time root reconciliation reads active ledger identities through
+`WorktreeService.listManagedPaths()`, which returns only `{ id, path }` and
+deliberately does not resolve git inventory or workspace-root containment.
+`WorktreeService.list()` remains the full inventory-joined UI surface.
+
+Deliberate omissions, all load-bearing:
+
+- **No `root_id`.** The durable `roots.id` is derived by path from the live
+  `roots` table in `WorktreeService.list`; a stored copy goes stale the moment
+  the folder is disconnected.
+- **No foreign keys, and NOT in `THREAD_DELETE_SIDECAR_TABLES`.** A worktree
+  outlives its thread on purpose — cascading it would orphan a directory of
+  uncommitted work. Thread delete offers "also archive its worktree" instead.
+- **Not mirrored in `buildAssistantThreadRunsSchemaSql`.** That mirror exists
+  only for registered thread-delete sidecars.
+
+Registered in both runners and in `BRAINSTRIKE_RESET_TABLES`. Factory reset
+clears the ROWS; deleting the worktree DIRECTORIES is a separate, explicitly
+confirmed step (see `platform-contracts.md`).
+
+Any migration merged to a long-lived branch counts as shipped and must never be amended in place, because execution on a shared branch cannot be disproven even if no production profile is known to have run it. Corrections must use a new, additive, forward-only migration; `112-worktree-setup-reason.ts` is the concrete example.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

@@ -17,10 +17,11 @@ import {
   LogLevel,
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { ChangesInvalidationEvent } from '@brainstrike/types';
+import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike/types';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import {
@@ -29,18 +30,25 @@ import {
 } from './assistant-server/command-session-manager';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
+import { execFileGhRunner } from './assistant-server/forge-gh-client';
+import { createForgeService, type ForgeService } from './assistant-server/forge-service';
 import {
   createGitInventoryService,
   type GitInventoryService,
 } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
+import { recordDesktopAssistantRunEvent } from './assistant-server/run-persistence';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
 import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
 import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-reaper';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
+import { isPathWithin } from './assistant-server/worktree-paths';
+import { createWorktreeService } from './assistant-server/worktree-service';
+import { readWorktreeSettings, writeWorktreeSettings } from './assistant-server/worktree-settings';
+import { runWorktreeSetup } from './assistant-server/worktree-setup';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
@@ -98,7 +106,10 @@ import {
   createDesktopDimensionIndexMaintenanceScheduler,
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
+import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { resolveFolderCandidatesFromArgv } from './folder-argv';
+import { createForgeIpcHandlers, createForgeRepositoryResolver } from './forge-ipc-handlers';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -110,9 +121,11 @@ import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
+import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
+import { registerForgeIpcHandlers } from './ipc-forge';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
@@ -139,6 +152,7 @@ import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
+import { registerWorktreesIpcHandlers } from './ipc-worktrees';
 import { LlmHostManager } from './llm-host-manager';
 import {
   cloneLoggingPreferences,
@@ -146,7 +160,6 @@ import {
   registerLoggingIpcHandlers,
 } from './logging-ipc';
 import type { LoggingSettingsPayload } from './logging-shared';
-import { getMainModulePath } from './main-module-path';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { ParserHostManager } from './parser-host-manager';
@@ -163,6 +176,14 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
+import {
+  createWorkspaceOpenQueue,
+  enqueueFolderCandidates,
+  filterDirectoryOpenCandidates,
+} from './workspace-open-queue';
+import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ipc';
+import { resolveRootCwd } from './workspace-root-cwd';
+import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
 const desktopEnvLoadResult = getDesktopEnvironmentBootstrapResult();
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
@@ -180,10 +201,6 @@ const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
 // schemes: Electron honors a single registerSchemesAsPrivileged call per
 // launch (see privileged-schemes.ts).
 registerPrivilegedSchemes();
-
-function isElectronE2ETestMode(): boolean {
-  return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
-}
 
 function readExplicitE2eUserDataDir(): string | null {
   const candidate = process.env[E2E_USER_DATA_DIR_ENV]?.trim();
@@ -255,7 +272,7 @@ function createMainLogTransportConfig(): Pick<FileTransportConfig, 'options' | '
       maxBytes: DEFAULT_MAX_BYTES,
       maxFiles: DEFAULT_MAX_FILES,
     },
-    target: resolveMainLogTransportPath(app.getAppPath(), app.isPackaged, getMainModulePath()),
+    target: resolveMainLogTransportPath(app.getAppPath(), app.isPackaged),
   };
 }
 
@@ -767,6 +784,16 @@ let stopAssistantServer: null | (() => Promise<void>) = null;
 // BST-1330: gates the developer-menu database reset so a repeat accelerator
 // press surfaces "already in progress" instead of the reset barrier's throw.
 let developerDatabaseResetInFlight = false;
+// NOT a replay buffer, despite the name's "pending" framing: a grant recorded
+// before this is assigned (inside app.whenReady()'s menu block) is a silent
+// no-op for THIS subscriber specifically — it never queues and never fires
+// late. That's safe because the grant itself is durable regardless (the
+// ledger write in workspace-recent-roots.ts happens unconditionally, and the
+// next application-menu rebuild reads the ledger fresh), so the only thing a
+// pre-assignment grant misses is that one mount's app.addRecentDocument call
+// — relevant only to a renderer-less/background window mounting before the
+// visible-UI menu block runs, which does not happen in the normal boot path.
+let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterParserHostIpcHandlers: null | (() => void) = null;
@@ -788,6 +815,7 @@ let unregisterFileExportsIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterChangesIpcHandlers: null | (() => void) = null;
+let unregisterWorktreesIpcHandlers: null | (() => void) = null;
 let unregisterBrowserIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
@@ -796,6 +824,8 @@ let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
 let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
+let forgeService: ForgeService | undefined;
+let unregisterForgeIpc: (() => void) | undefined;
 // BST-1112: cross-workspace git worktree inventory. Constructed and started
 // inside `app.whenReady()` (NOT at module scope): its `start()` call performs
 // an eager build whose first step reads the database, which in turn spawns a
@@ -803,6 +833,7 @@ let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
 // Stopped as a graceful-shutdown step, before the `database` step, since its
 // `loadRoots` dependency reads from the DB.
 let gitInventoryService: GitInventoryService | null = null;
+let worktreeService: ReturnType<typeof createWorktreeService> | null = null;
 // BST-1164 (W7 T1): the ONE app-lifetime shadow-git SnapshotService.
 // Constructed inside `app.whenReady()` (never at module scope — the
 // gitInventoryService incident class: a module-scope construction would also
@@ -956,6 +987,33 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       })
     );
 
+    // Its own step, deliberately NOT nested inside 'git-inventory' above:
+    // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
+    // unguarded, and `runShutdownStep` catches a rejection at the step
+    // boundary — nesting forge teardown after it would silently skip these
+    // three lines on a throwing watcher disposer, leaving `ipcMain` handlers
+    // registered and a live `forgeService` heading into 'database' below.
+    // forge has the same DB dependency as git-inventory (`getDatabase` ->
+    // `readForgePrCacheEntry`/`writeForgePrCacheEntry`) but is otherwise
+    // unrelated to git-inventory's success, so it gets its own
+    // failure-isolated step, BEFORE 'database' for the same reason.
+    //
+    // `unregisterForgeIpc()` only removes IPC handlers — it does not drain.
+    // An `invalidation` refresh in flight (0 ms floor, so one can be running
+    // right up to quit) keeps going and will call `getDatabase()` after
+    // `closeDatabase()` runs below; its `gh` child (20 s timeout) is never
+    // killed because no `AbortSignal` is threaded into
+    // `createForgeService`/`createGitService`. The resulting failure is
+    // structured (`ForgeResult`), never a silent fallback, so this is a
+    // latency/resource-cleanliness gap, not a correctness one.
+    recordFailure(
+      await runShutdownStep('forge', async () => {
+        unregisterForgeIpc?.();
+        unregisterForgeIpc = undefined;
+        forgeService = undefined;
+      })
+    );
+
     recordFailure(
       await runShutdownStep('database', async () => {
         desktopDimensionIndexMaintenanceScheduler?.stop();
@@ -1054,6 +1112,18 @@ function registerShutdownSignalHandlers(): void {
 
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
+
+const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
+  try {
+    return (await listRecentRootEntries(storage)).map((entry) => entry.path);
+  } catch (error) {
+    // A menu that cannot list recents still opens folders; a boot that dies
+    // on a storage read does not. Logged, never silent.
+    logger.warn('Could not read the recent workspace folders for the File menu', { error });
+    return [];
+  }
+};
+
 const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
@@ -1258,8 +1328,20 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
   chunkingHostManager,
   embeddingHostManager,
   getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
+  managedWorktreeAuthorizer: async (candidate) => {
+    if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
+      return 'authorized';
+    }
+    const settings = await readWorktreeSettings(storage, app.getPath('home'));
+    return isPathWithin(candidate, settings.managedDirectory)
+      ? 'managed-but-unauthorized'
+      : 'unmanaged';
+  },
   onResetLocal: handleResetLocal,
   onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
+  onWorkspaceRootGranted: (grantedPath: string) => {
+    pendingRootGrantSubscriber?.(grantedPath);
+  },
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
 unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);
@@ -1330,6 +1412,19 @@ unregisterChangesIpcHandlers = registerChangesIpcHandlers(
     resolveSnapshotService: () => snapshotService,
   })
 );
+unregisterWorktreesIpcHandlers = registerWorktreesIpcHandlers(
+  createWorktreesIpcHandlers({
+    readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
+    resolveService: () => worktreeService,
+    // Apply BST-1342 containment at save time so the user learns immediately,
+    // rather than only when a worktree create later targets the saved path.
+    writeSettings: (next) =>
+      writeWorktreeSettings(storage, app.getPath('home'), next, async () => {
+        const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+        return roots.map((root) => root.path);
+      }),
+  })
+);
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
@@ -1380,6 +1475,40 @@ const singleInstanceLockAcquired = isElectronE2ETestMode()
 if (singleInstanceLockAcquired) {
   const e2eTestMode = isElectronE2ETestMode();
 
+  const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
+
+  // Renderer→main ready ping (`WorkspaceConnectHost`, immediately after it
+  // subscribes via `onOpenPath`). Registered ONCE here, at module scope,
+  // through `workspace-open-ready-ipc.ts`'s registrar — `main.ts` itself must
+  // never register a raw Electron IPC event/handle listener directly
+  // (`runtime-host-boundary.test.ts`'s "keeps main process startup free of ad
+  // hoc IPC registration"). `createMainWindow` runs again on every
+  // `app.on('activate')` recreation, so per-window routing happens via this
+  // Map (keyed by `webContents.id`, populated/cleaned up per window below)
+  // rather than by registering the channel a second time, which the registry
+  // rejects.
+  const workspaceOpenReadyCallbacksByWebContentsId = new Map<number, () => void>();
+  registerWorkspaceOpenReadyIpcHandlers({
+    onOpenPathReady: (senderWebContentsId) => {
+      workspaceOpenReadyCallbacksByWebContentsId.get(senderWebContentsId)?.();
+    },
+  });
+
+  // macOS delivers this before `whenReady` (Dock drop, "Open With", a click in
+  // the Dock's recent-documents list that `app.addRecentDocument` populates),
+  // so the listener is registered at module scope and the queue holds the
+  // request until a renderer is listening. Registered in E2E mode too — the
+  // desktop e2e drives it with `app.emit('open-file', …)`, which is the only
+  // way this entry point is observable end to end.
+  app.on('open-file', (event, openedPath) => {
+    event.preventDefault();
+    enqueueFolderCandidates(
+      workspaceOpenQueue,
+      filterDirectoryOpenCandidates([openedPath], 'open-file'),
+      'open-file'
+    );
+  });
+
   // REMOVED: enable-gpu-rasterization + enable-zero-copy
   // These push rasterization onto the same GPU command queue that ONNX/Dawn
   // uses for WebGPU inference. Under sustained background embedding load,
@@ -1391,7 +1520,25 @@ if (singleInstanceLockAcquired) {
   app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
 
   if (!e2eTestMode) {
-    app.on('second-instance', () => {
+    // Honest coverage note (BST-1393 ruling L3): this listener is registered
+    // only in non-e2e mode, and E2E cannot launch a second process against
+    // the harness's app. Its argv parse is covered by folder-argv.test.ts and
+    // its delivery path is the SAME queue + channel the open-file e2e
+    // exercises end to end. No e2e is invented for it.
+    app.on('second-instance', (_event, secondInstanceArgv, workingDirectory) => {
+      enqueueFolderCandidates(
+        workspaceOpenQueue,
+        filterDirectoryOpenCandidates(
+          resolveFolderCandidatesFromArgv({
+            argv: secondInstanceArgv,
+            isPackaged: app.isPackaged,
+            workingDirectory,
+          }),
+          'second-instance'
+        ),
+        'second-instance'
+      );
+
       const existingWindow =
         BrowserWindow.getAllWindows().find(
           (window) =>
@@ -1487,12 +1634,52 @@ if (singleInstanceLockAcquired) {
           window.webContents.send(DESKTOP_IPC_CHANNELS.changes.invalidated, payload);
         }
       };
+      // BST-1391 (W4): forge PR awareness. ONE instance, never at module
+      // scope, same posture as GitInventoryService above. It reads the DB
+      // through db-main's provider and spawns `gh` only inside a resolved,
+      // containment-checked workspace root.
+      let forgePrUpdatedGeneration = 0;
+      // Kept as its own binding (not inlined into `resolveRepository` below)
+      // so the git-metadata watcher's `onInvalidate` callback below can also
+      // clear this resolver's per-rootId cache on the SAME commonDir signal
+      // that already drives `forgeService.onRepositoryInvalidated`.
+      const forgeRepositoryResolver = createForgeRepositoryResolver(
+        createDatabaseRootResolver(getDatabase)
+      );
+      forgeService = createForgeService({
+        getDatabase,
+        onPrUpdated: (event) => {
+          forgePrUpdatedGeneration += 1;
+          const payload: ForgePrUpdatedEvent = {
+            ...event,
+            generation: forgePrUpdatedGeneration,
+          };
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (window.isDestroyed()) {
+              continue;
+            }
+            window.webContents.send(DESKTOP_IPC_CHANNELS.forge.prUpdated, payload);
+          }
+        },
+        resolveRepository: forgeRepositoryResolver,
+        run: execFileGhRunner,
+      });
+      unregisterForgeIpc = registerForgeIpcHandlers(
+        createForgeIpcHandlers({ service: forgeService })
+      );
       gitInventoryService = createGitInventoryService({
         loadRoots: async () => {
           const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
           return roots.map((root) => ({ id: root.rootId, path: root.path }));
         },
-        onInvalidate: broadcastChangesInvalidation,
+        // The refs watcher moving `refs/remotes/<remote>/<branch>` is the
+        // "a push happened" signal §8 asks for: broadcast to renderers AND
+        // let the forge service refresh the repositories it already tracks.
+        onInvalidate: (event) => {
+          broadcastChangesInvalidation(event);
+          forgeService?.onRepositoryInvalidated(event.gitCommonDir);
+          forgeRepositoryResolver.invalidateResolverCache(event.gitCommonDir);
+        },
         run: execFileGitRunner,
         // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
         // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —
@@ -1516,6 +1703,33 @@ if (singleInstanceLockAcquired) {
           ),
       });
       gitInventoryService.start();
+      worktreeService = createWorktreeService({
+        getDatabase,
+        readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
+        recordRunEvent: (runId, event) => recordDesktopAssistantRunEvent(runId, event, getDatabase),
+        resolveInventory: async (options) => {
+          if (!gitInventoryService) {
+            throw new Error('worktrees: gitInventoryService is not running');
+          }
+          // `maxAgeMs: 0` is FORCED (git-inventory-service.ts's own doc
+          // comment): it guarantees a build that started after this call, not
+          // merely a cache-bust — what reconcileWorktreesFromShell's
+          // post-command read needs to reliably see a worktree the agent's
+          // shell command just created.
+          const snapshot = await gitInventoryService.getSnapshot(
+            options?.forceFresh ? { maxAgeMs: 0 } : undefined
+          );
+          return { errors: snapshot.errors, repositories: snapshot.repositories };
+        },
+        resolveRootCwd: (rootId) =>
+          resolveRootCwd(createDatabaseRootResolver(getDatabase), rootId, 'worktrees', logger),
+        resolveRootPaths: async () => {
+          const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+          return roots.map((root) => ({ id: root.rootId, path: root.path }));
+        },
+        run: execFileGitRunner,
+        runSetup: (setupInput) => runWorktreeSetup(setupInput),
+      });
 
       // BST-1164 (W7 T1): shadow-git snapshot backbone. Constructed HERE,
       // inside app.whenReady() — `app.getPath('userData')` is the storage
@@ -1919,7 +2133,65 @@ if (singleInstanceLockAcquired) {
           ],
         },
       ];
-      Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
+      const pushToFocusedWindow = (channel: string, payload?: unknown): void => {
+        // Menu clicks from application-file-menu.ts don't carry Electron's
+        // click-handler browserWindow through (FileMenuDeps' callbacks are
+        // plain () => void / (path: string) => void) — this always targets
+        // the focused window, same as the Cmd+K / Cmd+P items above.
+        const targetWindow = BrowserWindow.getFocusedWindow();
+        if (!targetWindow || targetWindow.isDestroyed()) {
+          return;
+        }
+        targetWindow.webContents.send(channel, payload);
+      };
+
+      let applicationMenuRebuildScheduled = false;
+      const rebuildApplicationMenu = async (): Promise<void> => {
+        const recents = await listWorkspaceRecentRootPaths();
+        const template = [...menuTemplate];
+        template.splice(
+          1,
+          template[1]?.label === 'File' ? 1 : 0,
+          buildFileMenuTemplate({
+            onOpenFolder: () => {
+              pushToFocusedWindow(DESKTOP_IPC_CHANNELS.workspace.openFolderPicker);
+            },
+            onOpenRecentPath: (recentPath) => {
+              pushToFocusedWindow(DESKTOP_IPC_CHANNELS.workspace.openPath, {
+                origin: 'menu-recent',
+                path: recentPath,
+              });
+            },
+            recentPaths: recents,
+          })
+        );
+        Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+      };
+
+      const scheduleApplicationMenuRebuild = (): void => {
+        // Coalesced: a restore mounts many roots in a burst, and rebuilding
+        // the whole application menu per root would thrash the menu bar.
+        if (applicationMenuRebuildScheduled) {
+          return;
+        }
+        applicationMenuRebuildScheduled = true;
+        setTimeout(() => {
+          applicationMenuRebuildScheduled = false;
+          rebuildApplicationMenu().catch((error: unknown) => {
+            logger.warn('Failed to rebuild the application menu', { error });
+          });
+        }, 250);
+      };
+
+      pendingRootGrantSubscriber = (grantedPath: string) => {
+        // Spec §7's explicit ask. This feeds the macOS Dock menu and the
+        // Windows jump list, whose clicks arrive back as `open-file` / argv —
+        // the entry points Layer 3 handles.
+        app.addRecentDocument(grantedPath);
+        scheduleApplicationMenuRebuild();
+      };
+
+      await rebuildApplicationMenu();
 
       // Start local data stream server for desktop assistant-ui
       let assistantUrl = '';
@@ -1931,6 +2203,8 @@ if (singleInstanceLockAcquired) {
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
+          resolveForgeService: () => forgeService ?? null,
+          resolveWorktreeService: () => worktreeService,
           // T1 injection point (BST-1164): the run-persistence seam's snapshot
           // deps — threaded, not yet consumed (T2's turn-boundary triggers
           // consume them without editing main.ts).
@@ -1989,6 +2263,151 @@ if (singleInstanceLockAcquired) {
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
+        // Between `win.close()` being initiated and the webContents actually being
+        // destroyed, `isDestroyed()` still reports `false` — so without this, a
+        // request enqueued in that same tick would be spliced out of `pending` and
+        // `send` into a dying webContents (lost, or an uncaught "Object has been
+        // destroyed" escaping through `enqueue`). Detaching explicitly on `closed`
+        // removes that gap instead of leaving it an emergent property of
+        // `isDestroyed()` timing; `activate`'s later `createMainWindow()` call
+        // re-attaches to the new window through the same wiring above.
+        win.once('closed', () => {
+          workspaceOpenQueue.detach();
+        });
+
+        // `createWindow`'s `loadFile`/`loadURL` call RESOLVES at `did-finish-load`
+        // (Electron's own contract), so by the time `win` exists here the initial
+        // load's main-frame document has already finished — a listener registered
+        // only AFTER this point would never see THAT particular event. Attach is
+        // gated on TWO independent conditions below (`loadFinished` AND
+        // `rendererReady`), each with its own catch-up path, so neither being
+        // already-true by the time this code runs is a problem.
+        // Wired HERE, inside `createMainWindow`, rather than at each call site, so
+        // the SAME attach point serves the initial launch and every
+        // `app.on('activate')` recreation — macOS's Dock-drop path with no window
+        // open is the primary way `open-file` arrives, and a window built without
+        // this wiring would strand the queue's target forever (BST-1393 L3 review).
+        let loadFinished = false;
+        // `did-finish-load` alone is NOT proof the renderer can receive a
+        // delivery: it fires when the DOCUMENT finishes loading, before React
+        // has mounted `WorkspaceConnectHost` and that component's passive
+        // `useEffect` has subscribed via `onOpenPath`. A flush in that gap
+        // sends into a renderer with no `ipcRenderer.on` listener, and
+        // Electron does not retain or replay the event — silent loss, the
+        // exact failure class this queue exists to prevent. `rendererReady`
+        // is the renderer's own explicit ack (`notifyOpenPathReady`, sent the
+        // instant `WorkspaceConnectHost` subscribes) — attach requires BOTH.
+        let rendererReady = false;
+        const attachWorkspaceOpenQueue = () => {
+          workspaceOpenQueue.attach({
+            isDestroyed: () => win.webContents.isDestroyed(),
+            send: (channel, payload) => {
+              win.webContents.send(channel, payload);
+            },
+          });
+        };
+        const maybeAttachWorkspaceOpenQueue = () => {
+          if (loadFinished && rendererReady) {
+            attachWorkspaceOpenQueue();
+          }
+        };
+        // A reload/navigation destroys the renderer's `WorkspaceConnectHost`
+        // subscription before the new document re-mounts it; detaching on
+        // `did-start-loading` stops mid-reload requests from being sent into a
+        // page with no listener (they buffer instead, and the matching
+        // re-attach below delivers them once loading settles again).
+        // `loadFinished` resets here UNCONDITIONALLY (any frame, including a
+        // subframe) — fail-safe: a request enqueued mid-load would be lost
+        // into a possibly-reloading page anyway, and the paired
+        // `did-stop-loading` below self-heals it regardless of which frame
+        // navigated.
+        //
+        // `rendererReady` is deliberately NOT reset here — see
+        // `did-start-navigation` below for why resetting it on EVERY
+        // `did-start-loading` is a second Critical bug, not a fix (PR #2682
+        // re-review).
+        win.webContents.on('did-start-loading', () => {
+          loadFinished = false;
+          workspaceOpenQueue.detach();
+        });
+        // `rendererReady` resets ONLY on a real MAIN-FRAME navigation that
+        // replaces the current document (`isMainFrame && !isInPlace` — the
+        // same guard `browser-pane-host.ts`'s `onHostNavigation` already uses
+        // for an identical "did the top-level document just get replaced?"
+        // question). This is deliberately a DIFFERENT, narrower event than
+        // `did-start-loading` above: that one is WebContents-level and fires
+        // for ANY frame, including the canvas surface's `<iframe>`
+        // (`canvas-frame.tsx`) whose `src` changes with the nonce every time
+        // an artifact opens or re-keys. `WorkspaceConnectHost`'s ready-ping
+        // effect depends only on `[connectPath]`, so it NEVER re-fires for a
+        // subframe navigation — resetting `rendererReady` on
+        // `did-start-loading` (as an earlier version of this fix did) would
+        // clear it on a canvas-artifact open and nothing would ever set it
+        // back: `did-stop-loading` would restore `loadFinished`, but with no
+        // second ready ping ever coming, the queue would stay permanently
+        // detached — the ORIGINAL Critical 2 bug, reproduced through the new
+        // flag instead of the old attach listener. A subframe navigation
+        // (`isMainFrame === false`) and a same-document one (`isInPlace`,
+        // e.g. a hash change or `pushState`) both leave the existing
+        // `WorkspaceConnectHost` subscription — and its already-sent ready
+        // ping — intact, so neither should reset readiness.
+        win.webContents.on(
+          'did-start-navigation',
+          (_event: Electron.Event, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
+            if (isMainFrame && !isInPlace) {
+              rendererReady = false;
+            }
+          }
+        );
+        // `did-stop-loading`, NOT `did-finish-load`: the latter is main-frame
+        // ONLY (Electron guards `WebContents::DidFinishLoad` on
+        // `!render_frame_host->GetParent()`; a subframe's completion fires
+        // `did-frame-finish-load` instead), while `did-start-loading` above is
+        // WebContents-level and fires for ANY frame, including `<iframe>`
+        // navigations (e.g. the canvas surface's artifact frame). Pairing
+        // `did-start-loading` with `did-finish-load` is asymmetric: a
+        // subframe-only load would detach with nothing ever re-attaching for
+        // the lifetime of the window. `did-stop-loading` is documented as the
+        // WebContents-level counterpart of `did-start-loading` — it always
+        // fires, for main-frame and subframe loads alike, keeping the pair
+        // symmetric (BST-1393 PR #2682 review).
+        win.webContents.on('did-stop-loading', () => {
+          loadFinished = true;
+          maybeAttachWorkspaceOpenQueue();
+        });
+        // Renderer→main ready ping (`WorkspaceConnectHost`, immediately after
+        // it subscribes via `onOpenPath`). The channel itself is registered
+        // ONCE, globally, by `workspace-open-ready-ipc.ts` (see the module
+        // comment above `workspaceOpenReadyCallbacksByWebContentsId`) — this
+        // just plugs THIS window's callback into that shared dispatch map,
+        // keyed by `webContents.id` so a ping from a different window (or a
+        // stale one from a previous, now-destroyed window, after `activate`
+        // recreates it) never attaches this one prematurely. Removed on
+        // `closed` so the map doesn't accumulate entries across recreations.
+        workspaceOpenReadyCallbacksByWebContentsId.set(win.webContents.id, () => {
+          rendererReady = true;
+          maybeAttachWorkspaceOpenQueue();
+        });
+        win.once('closed', () => {
+          workspaceOpenReadyCallbacksByWebContentsId.delete(win.webContents.id);
+        });
+        // LOAD-BEARING: this whole block, from the `did-start-loading`
+        // registration above through the `isLoading()` check below, MUST stay
+        // one synchronous run with NO `await` between any of the statements.
+        // Node/Electron main is single-threaded, so as written nothing can
+        // interleave; an inserted `await` would let a real `did-stop-loading`
+        // (or ready ping) land between a registration and this check, silently
+        // re-opening Critical 1 (the initial attach never fires again) in a
+        // way no test can express — this is a property of the CALLER's code
+        // shape, not something a mock can pin.
+        if (!win.webContents.isLoading()) {
+          loadFinished = true;
+          // `rendererReady` is still false here — WorkspaceConnectHost's
+          // effect has not run yet. This just catches up `loadFinished`;
+          // `maybeAttachWorkspaceOpenQueue` stays a no-op until the ready
+          // ping arrives, which is the correct order for a fresh window.
+          maybeAttachWorkspaceOpenQueue();
+        }
 
         // Embedded browser pane (BST-1174): each window owns its OWN pane host
         // + IPC registration, so a macOS close→dock-reopen cycle (which calls
@@ -2100,11 +2519,7 @@ if (singleInstanceLockAcquired) {
       // ---------------------------------------------------------------
       attemptMainWatchdogBootstrap(
         () => {
-          const workerPath = resolveMainWatchdogWorkerPath(
-            app.getAppPath(),
-            app.isPackaged,
-            getMainModulePath()
-          );
+          const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
           const watchdog = new Worker(workerPath);
           let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -2160,6 +2575,22 @@ if (singleInstanceLockAcquired) {
       logger.debug('Creating main window...');
       const mainWindow = await createMainWindow();
       logger.debug('Main window created successfully');
+
+      // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
+      // never re-enqueued by `app.on('activate')`'s later `createMainWindow()`
+      // calls (which only need the attach wiring above, not a re-read of argv).
+      enqueueFolderCandidates(
+        workspaceOpenQueue,
+        filterDirectoryOpenCandidates(
+          resolveFolderCandidatesFromArgv({
+            argv: process.argv,
+            isPackaged: app.isPackaged,
+            workingDirectory: process.cwd(),
+          }),
+          'argv'
+        ),
+        'argv'
+      );
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
@@ -2319,6 +2750,9 @@ app.on('will-quit', () => {
   }
   unregisterChangesIpcHandlers?.();
   unregisterChangesIpcHandlers = null;
+  unregisterWorktreesIpcHandlers?.();
+  unregisterWorktreesIpcHandlers = null;
+  worktreeService = null;
   unregisterBrowserIpcHandlers?.();
   unregisterBrowserIpcHandlers = null;
   if (unregisterHooksIpcHandlers) {

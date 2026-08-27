@@ -67,8 +67,8 @@ import {
   runInspectCommandSessions,
   runManageCommandSession,
 } from './command-session-tools';
+import { runExecuteCommandWithShellCorrelation } from './execute-command-correlation';
 import { projectExecuteCommandModelOutput } from './execute-command-model-projection';
-import { runExecuteCommand } from './execute-command-tool';
 import {
   runDeleteWorkspaceFile,
   runRenameWorkspaceFile,
@@ -94,6 +94,7 @@ import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runSkillScript } from './run-skill-script-tool';
+import type { ShellCorrelationCapability } from './shell-worktree-correlation';
 import { withRepeatedCallGuard } from './tool-call-loop-guards';
 import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import {
@@ -131,6 +132,7 @@ import {
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,
 } from './workspace-search-model-projections';
+import { buildWorktreeMastraTools, type WorktreeToolCapability } from './worktree-tools';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
@@ -147,6 +149,12 @@ export interface DesktopAssistantToolDependencies {
    * bounded by the tool call's own timeout/Stop (PR #2205 review).
    */
   resolvePythonExecutable?: ((signal?: AbortSignal) => Promise<string>) | undefined;
+  /**
+   * Request-scoped shell correlation (BST-1392). Absent means no correlation,
+   * which is the honest state for a session with no worktree/forge service:
+   * the command still runs and its result is unchanged.
+   */
+  shellCorrelation?: ShellCorrelationCapability | undefined;
   skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
   /**
@@ -158,6 +166,12 @@ export interface DesktopAssistantToolDependencies {
   /** Same injection seam as `webSearch`, for the webExtract tool. */
   webExtract?: WebExtractToolDependencies | undefined;
   webSearch?: WebSearchToolDependencies | undefined;
+  /**
+   * Request-scoped worktree capability (BST-1392). Built in
+   * `assistant-server.ts`, where the run id is in scope, so the ledger records
+   * `created_by='agent'` and the originating `run_id` by construction.
+   */
+  worktreeTools?: WorktreeToolCapability | undefined;
 }
 
 const logger = createLogger('DesktopAssistantTools');
@@ -848,6 +862,10 @@ export function buildDesktopAssistantTools(
             inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
             transform: INSPECT_COMMAND_SESSIONS_TRANSFORM,
           },
+          // BST-1392. Gated with its neighbours: both worktree ids are absent
+          // from LOCAL_DESKTOP_NATIVE_TOOL_IDS, and this gate is what makes
+          // that exclusion real at runtime rather than only in the catalog.
+          ...buildWorktreeMastraTools(runtimeData, dependencies.worktreeTools),
         }),
   };
 
@@ -906,10 +924,14 @@ export function buildDesktopAssistantTools(
         logToolFailure('executeCommand output streaming failed', error, resolvedInput);
       });
       try {
-        return await runExecuteCommand(resolvedInput, runtimeData, {
-          signal: options?.abortSignal,
-          ...(stream ? { stream } : {}),
-        });
+        // Mis-attribution guard (BST-1392 review) lives in
+        // execute-command-correlation.ts (this file's own 1000-line ceiling).
+        return await runExecuteCommandWithShellCorrelation(
+          resolvedInput,
+          runtimeData,
+          { signal: options?.abortSignal, ...(stream ? { stream } : {}) },
+          dependencies
+        );
       } catch (error) {
         logToolFailure('executeCommand failed', error, resolvedInput);
         throw error;

@@ -828,7 +828,8 @@ fallback.
   root-level invalidation with log-once semantics while the subscription
   stays alive. The 150ms/500-item batcher and root-relative default segment
   classifier apply, plus (BST-1342) the background-indexing policy's unconditional
-  excluded-path prefixes (`.claude/worktrees`) checked ROOT-RELATIVELY via
+  excluded-path prefixes (`.claude/worktrees` and `.brainstrike/worktrees`)
+  checked ROOT-RELATIVELY via
   `isExcludedBackgroundIndexingPath` — a subscription root opened inside an
   excluded tree watches normally; only nested excluded trees are silenced.
   Deliberate consequence: a NESTED worktree subtree stays VISIBLE in the
@@ -864,8 +865,8 @@ fallback.
   cost one trailing/max-wait Git view refresh per affected repository, not per
   raw event and not for unrelated repositories. User-configured Explorer `excludeFilters` are later display
   projection, not watcher inputs, so those paths continue through the normal
-  detailed event path. The `.claude/worktrees` exclusion remains the explicit
-  exception: no detailed event and no boundary evidence, preserving its documented
+  detailed event path. The managed-worktree exclusions remain the explicit
+  exception: no detailed event and no boundary evidence, preserving their documented
   deliberate staleness. `.git` also remains natively ignored here because it is
   metadata rather than a working-tree path; the private git-metadata watcher
   owns its bounded HEAD/index/refs signal and deliberately excludes objects

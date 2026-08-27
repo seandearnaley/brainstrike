@@ -84,14 +84,11 @@ import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { UserMessage } from './user-message';
 
+export type { ComposerAttachmentsAvailability } from './composer-input';
 // Re-exported for the suites that mount these against a real runtime
 // (user-action-bar-copy, assistant-chat-polish.browser) — extraction moved the
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
-
-import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
-
-export type { ComposerAttachmentsAvailability } from './composer-input';
 
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
@@ -398,12 +395,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   /** Called with the provider's exact token counts from a finish-message chunk. */
   onUsage?: (usage: AssistantUsage) => void;
   openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
-  /**
-   * The assistant's operating root (MAIN root — activeRootIds[0]), shown as a
-   * compact chip above the composer. App-shell passes it ONLY when 2+
-   * workspace roots are mounted; absent renders no chip (single-root/web).
-   */
-  operatingRoot?: OperatingRootInfo;
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
@@ -435,6 +426,19 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   slashCommands?: readonly SlashCommand[];
   threadKey?: string;
   toolMenu?: AssistantToolMenuConfig;
+  /**
+   * Composer workspace bar (folder · branch) SLOT. App-shell renders the bar
+   * host and passes the element; absent = no bar (storybook / bare embeds).
+   *
+   * A ReactNode, deliberately NOT `WorkspaceBarProps`: the bar's state comes
+   * from two live-refresh subscriptions, and composing its props in app-shell's
+   * panel wrapper made every git push re-render that ~1800-line component.
+   * Owning the subscriptions in a small app-shell host and handing this package
+   * the finished element keeps assistant-ui store-free AND keeps the re-render
+   * scoped to the bar. `WorkspaceBar` + its prop types stay exported for the
+   * host to use.
+   */
+  workspaceBar?: ReactNode;
 }
 
 export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
@@ -748,8 +752,6 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   onUsage?: ((usage: AssistantUsage) => void) | undefined;
-  /** Assistant operating root chip (multi-root only); absent → no chip. */
-  operatingRoot?: OperatingRootInfo | undefined;
   pickerModels: ModelPickerModel[];
   /** Composer plan-mode toggle; absent → no toggle rendered. */
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
@@ -768,6 +770,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   selectedProvider: string | undefined;
   slashCommands: readonly SlashCommand[];
   toolMenu?: AssistantToolMenuConfig | undefined;
+  /** Composer workspace bar (folder · branch) slot; absent → no bar. */
+  workspaceBar?: ReactNode | undefined;
 }
 
 /**
@@ -806,7 +810,7 @@ const LocalRuntimeChat = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
-  operatingRoot,
+  workspaceBar,
   planMode,
   toolMenu,
   requestData,
@@ -898,7 +902,7 @@ const LocalRuntimeChat = ({
           onRunFinished={onRunFinished}
           onThreadRunStart={onThreadRunStart}
           onToolApprovalRequired={onToolApprovalRequired}
-          {...(operatingRoot ? { operatingRoot } : {})}
+          {...(workspaceBar ? { workspaceBar } : {})}
           pickerModels={pickerModels}
           {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
@@ -961,7 +965,7 @@ const DataStreamRuntimeChat = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
-  operatingRoot,
+  workspaceBar,
   planMode,
   attachmentsAvailability,
   toolMenu,
@@ -1094,7 +1098,7 @@ const DataStreamRuntimeChat = ({
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
             {...(onSteerActiveRun ? { onSteerActiveRun } : {})}
-            {...(operatingRoot ? { operatingRoot } : {})}
+            {...(workspaceBar ? { workspaceBar } : {})}
             pickerModels={pickerModels}
             {...(planMode ? { planMode } : {})}
             {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
@@ -1158,7 +1162,7 @@ const ChatThreadUI = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
-  operatingRoot,
+  workspaceBar,
   planMode,
   attachmentsAvailability,
   threadKey,
@@ -1171,7 +1175,6 @@ const ChatThreadUI = ({
   effectiveInputBudget?: number | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   onSteerActiveRun?: (() => Promise<boolean>) | undefined;
-  operatingRoot?: OperatingRootInfo | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -1199,6 +1202,7 @@ const ChatThreadUI = ({
   onComposerTextChange?: ((text: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
+  workspaceBar?: ReactNode | undefined;
 }) => {
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const composerDisabled = isComposerDisabled || isHistoryLoading;
@@ -1299,11 +1303,11 @@ const ChatThreadUI = ({
            * This required aggressive CSS overrides (see overrides.css).
            */}
           <div className="bs-composer-shell" data-testid="assistant-composer-shell">
-            {/* Multi-root operating-root chip ("in {main root}") — its own module,
-            a SIBLING at the top of the composer stack (never nested inside
-            ThreadContextMeter, which is being reworked separately). Renders
-            nothing unless app-shell passes operatingRoot (2+ roots). */}
-            <OperatingRootChip operatingRoot={operatingRoot} />
+            {/* Composer workspace bar (folder · branch) — an app-shell-rendered
+            SLOT, a SIBLING at the top of the composer stack (never nested
+            inside ThreadContextMeter, which is being reworked separately).
+            app-shell renders the bar host; assistant-ui stays store-free. */}
+            {workspaceBar ?? null}
             <ThreadContextMeter
               contextWindow={contextWindow}
               cumulativeUsage={cumulativeUsage}
@@ -1423,7 +1427,7 @@ export const AssistantUiPanel = ({
   onStepUsage,
   onUsage,
   attachmentsAvailability,
-  operatingRoot,
+  workspaceBar,
   planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
@@ -1507,7 +1511,7 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
-            operatingRoot={operatingRoot}
+            workspaceBar={workspaceBar}
             {...(onUsage ? { onUsage } : {})}
             fileMentions={fileMentions}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
@@ -1553,8 +1557,8 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
-            operatingRoot={operatingRoot}
             prepareLocalModel={prepareLocalModel}
+            workspaceBar={workspaceBar}
             {...(onContextBreakdown ? { onContextBreakdown } : {})}
             onChildRunUsage={onChildRunUsage}
             onSteerActiveRun={onSteerActiveRun}

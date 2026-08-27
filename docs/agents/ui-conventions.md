@@ -497,6 +497,20 @@ Rules:
 - Known limitation: Radix touch/pen long-press (~700ms) bypasses the
   contextmenu claiming protocol — desktop-first tradeoff, documented in
   action-context-menu.tsx.
+- **A target kind with more than one trigger surface shares ONE claim/reset/
+  local-actions hook, not per-surface copies.** The `workspace-root` kind
+  (BST-1393; see `docs/agents/workspace-context.md`'s "Root-header context
+  menu" paragraph) is the reference example: the forest sidebar's
+  `RootSectionInner` and the single-root layout's own header row are
+  structurally different (one has a collapsible `RootSectionHeader`, the
+  other a plain status row with no such component), but both claim/reset the
+  SAME target kind and share the SAME local actions (Set as Main, staged
+  Disconnect…). `packages/file-explorer-ui/src/shell/use-root-section-context-menu.ts`
+  centralizes that wiring — including the reset-then-claim protocol,
+  capability-gated Disconnect (hidden when the caller has no removal
+  callback, never a silently-inert visible item), and focus restoration on
+  close — so the two surfaces cannot drift apart the way they did before
+  review caught the single-root branch shipping with no trigger at all.
 
 When changing this flow, update this section and the related tests.
 

@@ -9,7 +9,10 @@ import {
 // Subpath imports keep the heavy db-explorer/file-explorer-ui root barrels out
 // of this always-mounted module so their lazy-loaded graphs stay code-split.
 import { collectionActions } from '@brainstrike/db-explorer/context-actions';
-import { fileEntryActions } from '@brainstrike/file-explorer-ui/context-actions';
+import {
+  fileEntryActions,
+  workspaceRootActions,
+} from '@brainstrike/file-explorer-ui/context-actions';
 import { assistantThreadActions } from './assistant-thread-context-actions';
 import { changesActions } from './changes/changes-context-actions';
 import { resolvePlatformBridge } from './platform-bridge';
@@ -52,6 +55,7 @@ export function buildAppActionRegistryParts(): AppActionRegistryParts {
   return {
     actions: [
       ...fileEntryActions,
+      ...workspaceRootActions,
       ...collectionActions,
       ...assistantThreadActions,
       ...changesActions,

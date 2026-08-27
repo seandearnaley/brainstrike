@@ -23,8 +23,10 @@ export function registerChangesIpcHandlers(
     (_event, rootId: unknown, changeset: unknown, path: unknown) =>
       handlers.fileDiff(rootId, changeset, path)
   );
-  registry.registerInvoke('changes', DESKTOP_IPC_CHANNELS.changes.inventory, () =>
-    handlers.inventory()
+  registry.registerInvoke(
+    'changes',
+    DESKTOP_IPC_CHANNELS.changes.inventory,
+    (_event, options: unknown) => handlers.inventory(options)
   );
   // Conversation Rewind (BST-1115 W5 T4). Every payload arrives as `unknown`
   // and is narrowed inside the handler, same as the two above.

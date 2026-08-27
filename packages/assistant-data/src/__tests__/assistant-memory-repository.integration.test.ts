@@ -2103,6 +2103,118 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('persists secondaryRootIds as a deduped string array', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.updateThreadMetadata('thread-1', {
+      secondaryRootIds: ['db-root-b', 'db-root-c', 'db-root-b'],
+    });
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const persisted = JSON.parse(String(update?.[1]?.[1])) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual(['db-root-b', 'db-root-c']);
+  });
+
+  it('accepts an empty secondaryRootIds array as "no secondaries" and persists []', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: [],
+      })
+    ).resolves.toBeUndefined();
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const persisted = JSON.parse(String(update?.[1]?.[1])) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual([]);
+  });
+
+  it('persists a deduped secondaryRootIds array for the bulk metadata update path', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('UPDATE mastra_threads')) {
+        return { rows: [{ allFound: true, updatedThreadCount: 2 }] };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.updateThreadsMetadata(['thread-1', 'thread-2'], {
+      secondaryRootIds: ['a', 'b', 'a'],
+    });
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const params = update?.[1] as unknown[] | undefined;
+    const persisted = JSON.parse(String(params?.at(-1))) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual(['a', 'b']);
+  });
+
+  it('rejects secondaryRootIds that are not an array of non-empty strings', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: ['db-root-b', ''],
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: 'db-root-b' as never,
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('rejects whitespace-only secondaryRootIds entries', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: ['a', '   '],
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('throws on a malformed persisted secondaryRootIds while loading instead of coercing it', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (!sql.includes('FROM mastra_threads')) {
+        return { rows: [] };
+      }
+      return {
+        rows: [
+          {
+            createdAt: new Date('2026-08-21T09:00:00Z'),
+            id: 'thread-bad-secondaries',
+            metadata: JSON.stringify({ secondaryRootIds: [42] }),
+            resourceId: 'workspace-a',
+            title: 'Bad secondaries',
+            updatedAt: new Date('2026-08-21T09:00:00Z'),
+          },
+        ],
+      };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(repository.listThreads('workspace-a')).rejects.toThrow(
+      'Invalid assistant thread metadata secondary root ids.'
+    );
+  });
+
   it('rejects an incomplete operating-root binding while loading persisted metadata', async () => {
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
@@ -2801,8 +2913,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
   it('hydrates a persisted tool.resume.unsupported row (survives a thread reload)', async () => {
     // BST-558 finding C: the `brainstrike.tool-suspend` data part is transient
-    // (aui-data, never persisted), so the live notice is gone after a reload.
-    // The durable surface is this run event — it has to survive the read path.
+    // (aui-data, never persisted). Since BST-1084 `appendSuspendedPauseMessages`
+    // re-appends that notice on reload for pauses that are STILL suspended, but
+    // only at the END of the thread and only while one is pending. The durable
+    // IN-TRANSCRIPT surface is this run event — it has to survive the read path.
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM brainstrike_assistant_run_events')) {
@@ -2842,6 +2956,73 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       toolCallId: 'call-future-tool',
       toolName: 'brainstrike.someFutureSuspendingTool',
     });
+  });
+
+  it('sorts a forge pr.* row after every real stream row on the same run (BST-1391 M3)', async () => {
+    // Real PGlite, not `createMockDb()` (which just returns whatever `rows`
+    // array a test hard-codes — it never executes an `ORDER BY`). This pins
+    // the actual DB-level fact `use-forge-run-events.ts`'s
+    // `FORGE_OBSERVATION_SEQUENCE` (1_000_000_000, well under the `sequence
+    // integer` column's int4 ceiling) relies on: a large `sequence` sorts
+    // after the run's own small, monotonic stream-counter values under
+    // `ORDER BY sequence ASC, occurred_at ASC, id ASC`. The forge row's
+    // `occurred_at` is deliberately set BEFORE the run's own rows, to prove
+    // the ordering is driven by `sequence`, not `occurred_at`.
+    const dataDir = createPgliteTestDataDir('forge-observation-sequence-order');
+    const db = await wasmLoader.createPGlite(dataDir);
+    try {
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      const thread = await repository.createThread('workspace-a');
+      await repository.createThreadRun({
+        id: 'run-forge-order',
+        model: 'gpt-test',
+        provider: 'openai',
+        resourceId: 'workspace-a',
+        runtimeKind: 'hosted',
+        startedAt: new Date('2026-04-24T12:00:00Z'),
+        status: 'running',
+        threadId: thread.id,
+      });
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-run-started',
+        kind: 'run.started',
+        label: 'Assistant run started',
+        sequence: 1,
+        status: 'running',
+        timestamp: '2026-04-24T12:00:01.000Z',
+      } satisfies AssistantRunEvent);
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-run-finished',
+        kind: 'run.finished',
+        label: 'Assistant run finished',
+        sequence: 2,
+        status: 'completed',
+        timestamp: '2026-04-24T12:00:02.000Z',
+      } satisfies AssistantRunEvent);
+      // Mirrors `FORGE_OBSERVATION_SEQUENCE` from
+      // `packages/app-shell/src/hooks/use-forge-run-events.ts` — kept as a
+      // literal here rather than an import because assistant-data must not
+      // depend on app-shell (the dependency runs the other way).
+      const FORGE_OBSERVATION_SEQUENCE = 1_000_000_000;
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-pr-opened',
+        kind: 'pr.opened',
+        label: 'Opened pull request #1',
+        sequence: FORGE_OBSERVATION_SEQUENCE,
+        status: 'info',
+        timestamp: '2026-04-24T11:59:00.000Z',
+      } satisfies AssistantRunEvent);
+
+      const events = await repository.listThreadRunEvents(thread.id, 'workspace-a');
+
+      expect(events.map((event) => event.id)).toEqual([
+        'event-run-started',
+        'event-run-finished',
+        'event-pr-opened',
+      ]);
+    } finally {
+      await wasmLoader.closeCached(dataDir);
+    }
   });
 
   it('completes assistant run records without mutating thread metadata', async () => {
@@ -3140,6 +3321,127 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       operatingRootPath: '/Users/me/ProjectA',
       source: 'brainstrike',
     });
+  });
+
+  it('persists and reloads a worktree checkout', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-worktree-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await repository.updateThreadMetadata(thread.id, {
+      checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'root-local',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/repo/bright-fox',
+    });
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata).toMatchObject({
+      checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'root-local',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/repo/bright-fox',
+    });
+
+    await repository.updateThreadMetadata(thread.id, { checkoutMode: 'local' });
+
+    const [local] = await repository.listThreads('r');
+    expect(local?.metadata).toMatchObject({ checkoutMode: 'local' });
+    expect(local?.metadata?.checkoutBranch).toBeUndefined();
+    expect(local?.metadata?.checkoutLocalRootId).toBeUndefined();
+    expect(local?.metadata?.checkoutWorktreeId).toBeUndefined();
+    expect(local?.metadata?.checkoutWorktreePath).toBeUndefined();
+  });
+
+  it('loads a legacy persisted worktree checkout with no durable Local root id', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-legacy-worktree-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+    const legacyMetadata = {
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-legacy',
+      checkoutWorktreePath: '/managed/repo/legacy-worktree',
+    } as const;
+
+    await db.query('UPDATE mastra_threads SET metadata = $2::jsonb WHERE id = $1', [
+      thread.id,
+      JSON.stringify(legacyMetadata),
+    ]);
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata).toEqual(legacyMetadata);
+    expect(reloaded?.metadata?.checkoutLocalRootId).toBeUndefined();
+  });
+
+  it('persists a local checkout with no worktree keys', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-local-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await repository.updateThreadMetadata(thread.id, { checkoutMode: 'local' });
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata?.checkoutMode).toBe('local');
+    expect(reloaded?.metadata?.checkoutWorktreeId).toBeUndefined();
+  });
+
+  it('rejects a worktree checkout missing its authority id', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-incomplete-worktree-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutLocalRootId: 'root-local',
+        checkoutMode: 'worktree',
+        checkoutWorktreePath: '/managed/repo/bright-fox',
+      })
+    ).rejects.toThrow('Assistant thread checkout metadata is incomplete.');
+  });
+
+  it('rejects a worktree id with no mode', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-modeless-worktree-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, { checkoutWorktreeId: 'w-1' })
+    ).rejects.toThrow('Assistant thread checkout metadata is incomplete.');
+  });
+
+  it('rejects a local checkout that still carries worktree keys', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-inconsistent-local-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutMode: 'local',
+        checkoutWorktreeId: 'w-1',
+        checkoutWorktreePath: '/managed/repo/bright-fox',
+      })
+    ).rejects.toThrow('Assistant thread checkout metadata is inconsistent.');
+  });
+
+  it('rejects an unknown checkout mode rather than coercing it', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-unknown-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutMode: 'cloud' as unknown as 'local',
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata checkout mode.');
   });
 
   it('persists carousel topology before Mastra content and hydrates the selected edit branch', async () => {
@@ -3999,6 +4301,17 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         updatedAt: firstUpdatedAt,
       }),
     ]);
+  });
+
+  it('rejects checkout transitions through the bulk metadata writer', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-checkout-metadata');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await expect(
+      repository.updateThreadsMetadata([thread.id], { checkoutMode: 'local' })
+    ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout state.');
   });
 
   it('rejects an unknown bulk metadata id without changing known threads', async () => {

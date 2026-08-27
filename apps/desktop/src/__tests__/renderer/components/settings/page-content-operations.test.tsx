@@ -211,6 +211,11 @@ vi.mock('@brainstrike/settings-ui/settings-category-factories', () => ({
       id: 'token-counting',
       title: 'Token Counting',
     })),
+  createWorkspaceSettingsCategory: vi.fn((options: unknown) => ({
+    content: <div data-options={JSON.stringify(options)} data-testid="workspace-category" />,
+    id: 'workspace',
+    title: 'Workspace',
+  })),
 }));
 
 vi.mock('@brainstrike/app-state/automation-overrides', () => ({

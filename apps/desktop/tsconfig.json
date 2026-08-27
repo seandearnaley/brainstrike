@@ -154,6 +154,9 @@
       "@brainstrike/app-shell/user-commands-bridge": [
         "../../packages/app-shell/src/user-commands-bridge.ts"
       ],
+      "@brainstrike/app-shell/worktrees/availability": [
+        "../../packages/app-shell/src/worktrees/availability.ts"
+      ],
       "@brainstrike/notes-vault/desktop-contract": [
         "../../packages/notes-vault/src/desktop/bridge-contract.ts"
       ],

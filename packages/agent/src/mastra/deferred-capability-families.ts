@@ -50,6 +50,7 @@ export const DEFERRED_CAPABILITY_FAMILIES: readonly DeferredCapabilityFamily[] =
     ids: [NATIVE_TOOL_ID.inspectCommandSessions, NATIVE_TOOL_ID.manageCommandSession],
     phrase: 'command sessions',
   },
+  { ids: [NATIVE_TOOL_ID.listWorktrees, NATIVE_TOOL_ID.manageWorktree], phrase: 'git worktrees' },
   {
     ids: [NATIVE_TOOL_ID.deleteWorkspaceFile, NATIVE_TOOL_ID.renameWorkspaceFile],
     phrase: 'file delete/rename',

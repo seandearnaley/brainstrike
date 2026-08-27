@@ -87,6 +87,10 @@
       "types": "./dist/diagnostics/index.d.ts",
       "import": "./dist/diagnostics/index.js"
     },
+    "./forge/availability": {
+      "types": "./dist/forge/availability.d.ts",
+      "import": "./dist/forge/availability.js"
+    },
     "./git-panel": {
       "types": "./dist/git-panel/index.d.ts",
       "import": "./dist/git-panel/index.js"
@@ -107,6 +111,14 @@
       "types": "./dist/user-commands-bridge.d.ts",
       "import": "./dist/user-commands-bridge.js"
     },
+    "./worktree-map": {
+      "types": "./dist/worktree-map/index.d.ts",
+      "import": "./dist/worktree-map/index.js"
+    },
+    "./worktrees/availability": {
+      "types": "./dist/worktrees/availability.d.ts",
+      "import": "./dist/worktrees/availability.js"
+    },
     "./notes-page-content": {
       "types": "./dist/notes-page-content.d.ts",
       "import": "./dist/notes-page-content.js"
@@ -122,6 +134,10 @@
     "./terminal-panel/availability": {
       "types": "./dist/terminal-panel/availability.d.ts",
       "import": "./dist/terminal-panel/availability.js"
+    },
+    "./workspace-connect/workspace-connect-bridge": {
+      "types": "./dist/workspace-connect/workspace-connect-bridge.d.ts",
+      "import": "./dist/workspace-connect/workspace-connect-bridge.js"
     },
     "./canvas/canvas-panel": {
       "types": "./dist/canvas/canvas-panel.d.ts",

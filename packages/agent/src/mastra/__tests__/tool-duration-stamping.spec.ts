@@ -27,6 +27,7 @@ describe('terminal tool run events carry the measured duration', () => {
       sawModelContribution: true,
       sawStepBilledCost: false,
       sawStepWithoutBilledCost: false,
+      startedToolCallIds: new Set(),
       stepBilledCostUsd: 0,
       stepCount: 0,
       steppedCompletionTokens: 0,

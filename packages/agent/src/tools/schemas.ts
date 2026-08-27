@@ -52,6 +52,7 @@ import {
   UpdateWorkspaceTapestrySelectionsInputSchema,
   WriteWorkspaceFileInputSchema,
 } from './schemas-workspace';
+import { ListWorktreesInputSchema, ManageWorktreeInputSchema } from './schemas-worktrees';
 
 export * from './schemas-browser';
 export * from './schemas-diagnostics';
@@ -59,6 +60,7 @@ export * from './schemas-execution';
 export * from './schemas-search';
 export * from './schemas-tasks';
 export * from './schemas-workspace';
+export * from './schemas-worktrees';
 
 export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.askUser]: AskUserInputSchema,
@@ -74,10 +76,12 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.inspectCommandSessions]: InspectCommandSessionsInputSchema,
   [NATIVE_TOOL_ID.listEmbeddingSpaces]: ListEmbeddingSetsInputSchema,
   [NATIVE_TOOL_ID.listWorkspaceContext]: ListWorkspaceContextInputSchema,
+  [NATIVE_TOOL_ID.listWorktrees]: ListWorktreesInputSchema,
   [NATIVE_TOOL_ID.lspInspect]: LspInspectInputSchema,
   [NATIVE_TOOL_ID.manageCanvas]: ManageCanvasInputSchema,
   [NATIVE_TOOL_ID.manageCommandSession]: ManageCommandSessionInputSchema,
   [NATIVE_TOOL_ID.manageTaskList]: ManageTaskListInputSchema,
+  [NATIVE_TOOL_ID.manageWorktree]: ManageWorktreeInputSchema,
   [NATIVE_TOOL_ID.queryDiagnostics]: QueryDiagnosticsInputSchema,
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: QueryEmbeddingSpaceInputSchema,
   [NATIVE_TOOL_ID.querySelf]: QuerySelfInputSchema,

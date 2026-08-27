@@ -138,7 +138,9 @@ Implementation:
   - Ensure clearPersistentUiState() includes:
     - All new persistent UI store keys (e.g. `hook-trust-store` — the
       security-sensitive per-root hook approvals; reset drops every approval so a
-      re-mounted repo's hooks require fresh review — see TOOL-LIFECYCLE HOOKS).
+      re-mounted repo's hooks require fresh review — see TOOL-LIFECYCLE HOOKS;
+      and `worktree-setup-consent.v1` — per-repository approvals and denials for
+      `.brainstrike/worktree-setup.sh`, keyed by Git common directory).
     - Electron renderer storage bridge.
     - IndexedDB (enumerated + fallback list).
     - CacheStorage.
@@ -164,16 +166,99 @@ dedicated wiring. That coverage is pinned by the BST-1061 regression test in
 `apps/desktop/src/__tests__/main/desktop-factory-reset.test.ts` — if the
 unpack dir ever moves outside userData, it needs explicit reset wiring plus an
 update here.
-The input resources are a separate build-layout contract: packaged macOS apps
-read electron-builder's `<Resources>/python-runtime`, while directly launched
-development/E2E builds derive `resources/python-runtime` from the emitted
-`dist/main.js` module path. `app.getAppPath()` is not a development resource
-root when Electron is launched with that file directly (it resolves to
-`dist/`); appending `resources/python-runtime` there produces a nonexistent
-`dist/resources/python-runtime/manifest.json`. Unexpected development entry
-layouts throw instead of probing alternate roots. Unsupported platforms are
-classified before manifest I/O and remain the typed
-`python_unsupported_platform` condition with no PATH-Python fallback.
+
+`resolveDesktopPythonRuntimeResourcesDir` (`apps/desktop/src/python-runtime/
+index.ts`) resolves the SOURCE directory the archive/manifest ship in — a
+different, unrelated path from the unpack dir above — and is where BST-1459
+found a real bug: it used to derive this from `app.getAppPath()`, which
+returns a launch-mode-dependent value (the project root under `electron .`,
+but `dist/` itself when Electron is launched with a direct path to
+`dist/main.js`, as Playwright's desktop e2e harness does), silently pointing
+at `dist/resources/python-runtime/manifest.json` instead of the real
+`apps/desktop/resources/python-runtime/manifest.json`. It now resolves via
+the running bundled module's own `__filename` instead (same invariant as the
+two entries below — deliberately NOT `module.filename`, a synthetic shim
+with no `.filename` under Vitest, or `import.meta.filename`, empty in this
+file's esbuild `cjs` output; see `bundled-sibling-path.ts`'s docblock),
+taking `path.dirname()` TWICE — once to `dist/` (the module's immediate
+parent), once more to its parent `apps/desktop/` — because these resources
+are a sibling of `dist/`, not of `main.js` itself. This resolver additionally
+depends on that immediate parent directory being literally NAMED `dist` — an
+IDENTITY check on that one path segment, not a depth check (e.g.
+`out/dist/main.js` still resolves correctly; only the parent's basename is
+compared, not how many levels it sits below the app root) — which is still
+more fragile than the sibling-of-`main.js` pattern the watchdog/log-transport
+resolvers use below, since those need no name assumption at all. This one
+enforces the identity assumption at runtime: it throws if that parent
+directory is not literally named `dist`, rather than silently pointing at the
+wrong directory if the bundle output is ever restructured or renamed. Pinned
+by `apps/desktop/src/__tests__/main/python-runtime-resources-dir.test.ts`.
+Downstream, `resolvePythonBinary` classifies unsupported platforms BEFORE any
+manifest I/O — off darwin no target triple exists, so the manifest is never
+read and the result is the typed `python_unsupported_platform` condition with
+no PATH-Python fallback (pinned by the fixture-less unsupported-platform case
+in `apps/desktop/src/__tests__/main/resolve-python-binary.test.ts`).
+
+Desktop MAIN-PROCESS storage (`ElectronStorageAdapter`, one
+`electron-storage.json` under `app.getPath('userData')`) is covered by the same
+wholesale userData wipe — no per-key wiring. The keys it owns that MATTER for a
+fresh start:
+
+- `rootsList` — the connected workspace roots, owned only by
+  `apps/desktop/src/ipc-domains/workspace-root-registry.ts` (see
+  workspace-context.md, MAIN vs FOCUSED).
+- `rootsList.corrupt` — quarantined bytes from a malformed `rootsList`, written
+  once alongside an ERROR log by `readStoredRootsOrQuarantine` so a corrupt
+  list self-heals instead of bricking root restore. It still holds the paths
+  the user had granted, so reset must take it too.
+- `recentRootsList` (BST-1395) — the ledger of folders the user has ALREADY
+  granted this app (`workspace-recent-roots.ts`). Deliberately SEPARATE from
+  `rootsList`: disconnecting a root must not revoke the grant, because the
+  grant is what points the picker-less `fs:addRootByPath` — driven by the
+  composer workspace bar's Recents list — at a previously granted folder. It
+  sits in the SAME trust class as `rootsList` + `fs:restoreRoots`, not above
+  it. Reset therefore has to clear it — a surviving ledger would keep offering
+  picker-less mounts of folders a "true fresh start" says were never granted.
+- `recentRootsList.corrupt` — quarantined bytes from a malformed
+  `recentRootsList`, the exact counterpart of `rootsList.corrupt`. Written once
+  alongside an ERROR log so a corrupt ledger self-heals instead of bricking
+  Recents; covered by the same wholesale userData wipe.
+- `notesVaultRoots` (`NOTES_VAULT_ROOTS_STORAGE_KEY`,
+  `apps/desktop/src/notes-vault-ipc-handlers.ts`) — the notes-vault sibling of
+  `rootsList`: granted vault folders, re-opened without a picker. Same
+  reasoning, same wipe.
+- `worktreeSettings` (`WORKTREE_SETTINGS_STORAGE_KEY`,
+  `apps/desktop/src/assistant-server/worktree-settings.ts`) — the user-chosen
+  managed-worktree directory path plus the setup command executed on worktree
+  creation. Reset must not leave either a stale custom directory or command.
+
+Managed worktree DIRECTORIES themselves (BST-1390) live OUTSIDE `userData` —
+the default is `~/.brainstrike/worktrees` [D3] — so the wholesale userData
+wipe above does not cover them, and neither does clearing `worktreeSettings`
+(that only clears the STORED preference, not the directory it names). Factory
+reset does clear the `brainstrike_worktrees` LEDGER: it is one of the 21
+`brainstrike_*` relations in `BRAINSTRIKE_RESET_TABLES`
+(`packages/db/src/reset-table-registry.ts`), the set every table-enumerating
+reset path clears (see the reset-table registry section below). It does NOT
+delete the worktree directories on disk: they can hold uncommitted work, and a
+reset silently removing a folder full of it is exactly the failure mode
+`archive`'s snapshot gate exists to prevent. Deleting them is a separate,
+explicitly confirmed action — and today's reset result carries no path or
+count for them either way: `DesktopFactoryResetResult`
+(`apps/desktop/src/desktop-reset-platform.ts`) is just `{ success, message? }`,
+so a caller who wants to know what happened to the managed directory has to
+read it themselves, not read the reset result.
+- `lastFolderPath` — presentation-only.
+
+That coverage is pinned by
+`apps/desktop/src/__tests__/main/desktop-factory-reset-storage-ledgers.test.ts`,
+which seeds a REAL `electron-storage.json` (all of the keys above, including
+both `.corrupt` quarantines) into a REAL temp userData dir and asserts the file
+is gone and `logs` is the only surviving entry.
+
+If main-process storage ever moves outside `userData` (or gains a preserved
+entry name), every one of these needs explicit reset wiring plus an update
+here.
 
 Desktop reset order:
 1. Dispose embeddings.
@@ -230,6 +315,37 @@ It also includes `brainstrike_assistant_compaction_ranges` (migration 088), the
 FK-less exact-message conversation-compaction overlay. All three
 table-enumerating reset paths clear it explicitly, and thread deletion derives
 its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
+It also includes `brainstrike_forge_prs` (migration 110, BST-1391), the
+main-process-written pull-request cache keyed on `(repo_common_dir, branch)`.
+It is deliberately NOT a thread sidecar (a PR outlives the thread that opened
+it, and two threads on one branch share its status), so it has no FK and no
+`THREAD_DELETE_SIDECAR_TABLES` entry. All three table-enumerating reset paths
+clear it explicitly (`db-ipc.ts`'s `db:clearAll`, `clearViaPGlite`, and
+`purgeTablesTx`), because it names remote repositories and branch topology — a
+"true fresh start" must not carry that forward. It rebuilds from `gh` on the
+next observation. A row may itself represent an OBSERVED ABSENCE (every
+PR-specific column NULL, enforced by the migration's own CHECK constraint) —
+that is still cleared the same way as a PR row; there is no separate
+delete-vs-clear distinction for the two row shapes.
+
+BST-1391's two new notification-preference toggles (`prOpened`, `prChecks` on
+`notification-preferences.v1`) need no new reset wiring — they're additional
+keys inside the SAME persisted store
+`resetNotificationPreferencesStoreToDefaults` already resets from
+`clearBrowserStorage` (FACTORY RESET CONTRACT), covered by construction since
+`defaultEvents()` sets every key in `NOTIFICATION_EVENT_KINDS`.
+
+`background-indexing-preferences-store` (`background-indexing-preferences.v1`,
+owning the per-root `worktreeRootIndexingOptInById` opt-in map PR #2655 /
+BST-1453 added) was persisted and purged from storage, but its LIVE in-memory
+copy was never in `clearPersistentUiState`'s re-default list — a reset without
+a reload (the web path) left a stale opt-in in memory, so the BST-1392 Worktree
+Map could render "Indexing enabled" for a root the user just wiped. Fixed by
+BST-1392 Layer 2 Step 0: `resetBackgroundIndexingPreferencesStoreToDefaults()`
+(mirrors `resetHookTrustStoreToDefaults` / `resetWorkspaceInstructionsPreferencesStoreToDefaults`
+— clears persisted storage, then resets the live store via its own `reset()`
+action) is now called from `clearPersistentUiState`, covered by
+`packages/app-state/src/__tests__/factory-reset-background-indexing-preferences.test.ts`.
 
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
@@ -721,7 +837,8 @@ indexed state only.
   main-owned git-metadata watcher that needs `.git/HEAD` events the default
   patterns would drop. `undefined` selects the default layers: the
   `fileFilter.shouldIgnorePath` guard PLUS (BST-1342) the background-indexing
-  policy's unconditional excluded-path prefixes (`.claude/worktrees`),
+  policy's unconditional excluded-path prefixes (`.claude/worktrees` and
+  `.brainstrike/worktrees`),
   applied root-relatively and skipped entirely when the subscription root
   itself sits inside an excluded tree. `StartParcelWatchOptions` and concrete
   Electron `WatchDirectoryOptions` also expose
@@ -730,8 +847,8 @@ indexed state only.
   callback receives no filtered-boundary evidence. Only `ipc-handlers.ts`'s
   MAIN-owned Explorer `fs:watch` dependency passes `true`; this broadens only
   `dist`, `build`, and `.DS_Store` while keeping `.git`, `node_modules`,
-  `.pnpm-store`, `.next`, `.turbo`, plus the hard `.claude/worktrees`
-  exclusion native. The JS guard emits root-relative boundaries without
+  `.pnpm-store`, `.next`, `.turbo`, plus the hard `.claude/worktrees` and
+  `.brainstrike/worktrees` exclusions native. The JS guard emits root-relative boundaries without
   exposing detailed Explorer changes. Both watcher and renderer batching cap
   retained boundaries at 64 and surface explicit overflow. Tracked files in
   the retained high-cardinality trees require a future bounded Git-aware
@@ -1354,10 +1471,16 @@ as the flat main-process entry `dist/main-log-transport.js`. Packaged builds
 explicitly put that entry in `app.asar.unpacked`, and
 `resolveMainLogTransportPath` rejects an unexpected packaged layout rather than
 depending on worker-thread ASAR loading or silently trying another target.
-Development resolves it beside the executing `dist/main.js`, using the same
-validated flat-entry layout as the watchdog and Python-resource resolvers;
-`app.getAppPath()` may already be `dist/` during a direct-file launch and must
-not receive another `dist/` segment. The
+Development resolves `main-log-transport.js` as a sibling of the running
+bundled module's own `__filename` (BST-1459) — not `app.getAppPath()`, which
+is launch-mode-dependent and can already point at `dist/` itself (see the
+watchdog entry below and the Python-runtime entry above for the same
+invariant and the bug it replaced), and deliberately not `module.filename`
+(a synthetic shim with no `.filename` under Vitest) or `import.meta.filename`
+(empty in this file's esbuild `cjs` output) either — see
+`bundled-sibling-path.ts`'s docblock. An empty/missing `__filename` throws
+rather than falling back to a `process.cwd()`-relative guess. Pinned by
+`apps/desktop/src/__tests__/diagnostics/main-log-transport-path.test.ts`. The
 target passes Pino's already-delimited bytes unchanged to the same
 `RotatingFileSink` used by the diagnostic backstop: 10 MB × 5 files,
 drop-oldest slot math, encoded-byte accounting, short-write failure, and
@@ -1383,11 +1506,15 @@ main-process output `dist/main-watchdog-worker.js`. It is never constructed from
 an inline string or with `eval`. Packaged builds explicitly put the entry in
 `app.asar.unpacked`, and `resolveMainWatchdogWorkerPath` rejects an unexpected
 packaged layout instead of trying an ASAR path or another target. Development
-resolves the same emitted filename as a sibling of the executing
-`dist/main.js`. It must not append another `dist/` to `app.getAppPath()`:
-direct-file Electron launches report that app path as the existing `dist/`
-directory. Unexpected development entry layouts throw rather than trying a
-fallback candidate.
+resolves `main-watchdog-worker.js` as a sibling of the running bundled
+module's own `__filename` (BST-1459), not `app.getAppPath()` — see the
+Python-runtime and log-transport entries above for the same invariant and the
+`dist/dist/` doubling bug it replaced, and deliberately not `module.filename`
+or `import.meta.filename` either (see `bundled-sibling-path.ts`'s docblock:
+one is empty under Vitest, the other empty in this file's esbuild `cjs`
+output). An empty/missing `__filename` throws rather than falling back to a
+`process.cwd()`-relative guess. Pinned
+by `apps/desktop/src/__tests__/diagnostics/main-watchdog-path.test.ts`.
 
 The independently-tested `main-watchdog-core.ts` owns the typed config,
 heartbeat, suspend/resume protocol and diagnostic calculation. The worker uses

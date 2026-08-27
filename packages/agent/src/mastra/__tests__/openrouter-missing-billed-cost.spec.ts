@@ -28,6 +28,7 @@ describe('OpenRouter finish without a provider-reported cost', () => {
       sawModelContribution: true,
       sawStepBilledCost: false,
       sawStepWithoutBilledCost: false,
+      startedToolCallIds: new Set(),
       stepBilledCostUsd: 0,
       stepCount: 1,
       steppedCompletionTokens: 0,

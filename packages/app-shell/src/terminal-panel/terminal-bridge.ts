@@ -45,6 +45,12 @@ export interface TerminalExitEvent {
 export interface TerminalBridge {
   create: (params: {
     rootId: string;
+    /**
+     * Absolute path inside the root to pin the shell to; omitted ⇒ the root
+     * itself. Mirrors `TerminalCreateParams` in
+     * `apps/desktop/src/terminal-ipc-handlers.ts`.
+     */
+    cwd?: string;
     cols?: number;
     rows?: number;
   }) => Promise<TerminalResult<TerminalCreateResult>>;

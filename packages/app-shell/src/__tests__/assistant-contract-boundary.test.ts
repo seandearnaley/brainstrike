@@ -63,8 +63,8 @@ describe('app-shell assistant contract boundary', () => {
     // PRs landed together: the universal-grant wiring (#1736,
     // grantAllToolsForSession), the context-breakdown stale-clear (#1738,
     // handleUsage → clearBreakdown), and multi-root main-vs-focused clarity
-    // (#1735: the wrapper derives mainRootId/mainRootPath and the ≥2-roots
-    // operatingRoot chip payload; the chip UI lives in operating-root-chip.tsx).
+    // (#1735: the wrapper derives mainRootId/mainRootPath and the operating-root
+    // chip payload; the chip UI lives in assistant-ui's workspace-bar/).
     // The merged wrapper measures 1614 lines; budget carries modest headroom.
     // Bumped 1620 → 1625 for Anthropic cache-token usage persistence (BST-587):
     // the wrapper only spreads pickCacheTokenFields(usage) into recordRunUsage;
@@ -127,7 +127,24 @@ describe('app-shell assistant contract boundary', () => {
     // wiring (finalization seam, historyGeneration, standing identity, the
     // throttled live refresh) moved into changes/use-wrapper-rewind-wiring.ts;
     // the wrapper is back to one hook call plus seam forwarding.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1850);
+    // Bumped 1850 → 1865 for the composer workspace bar (BST-1397): the wrapper
+    // adds ONE `useWorkspaceBar` call and forwards its result as ONE prop, and
+    // drops the `activeRootCount` selector the retired chip gate needed. The
+    // primary/secondary/recents resolution, the thread-metadata writes and the
+    // checkout read all live in hooks/use-workspace-bar.ts and
+    // hooks/use-thread-checkout-status.ts.
+    // BST-1391 mounts the out-of-band forge trigger source at this composition
+    // boundary, plus its deferred branch-lookup activation (BST-1116 W6
+    // finding 4 — must not run an eager repo/worktree scan on every mount);
+    // keep both inside this narrowly raised budget.
+    // Bumped 1890 → 1905 for BST-1391 M2 (fix round): the wrapper now
+    // threads `available`/`loaded` from `useThreadBranchByRootPath` through
+    // to `forgeBranchLookup` instead of discarding them — two extra
+    // destructured fields, two extra memo inputs, and a doc comment
+    // explaining why. The buffering/draining decision itself lives entirely
+    // in `hooks/use-forge-run-events.ts`; the wrapper only stops throwing
+    // away readiness facts it already had.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1905);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

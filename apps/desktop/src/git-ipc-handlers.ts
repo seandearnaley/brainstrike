@@ -59,6 +59,19 @@ const PRESERVED_GIT_ENV_KEYS = new Set([
 ]);
 
 /**
+ * Caller overrides win for ordinary environment entries, but these values are
+ * part of the runner's safety contract and are re-applied after every merge.
+ */
+export const SAFETY_PINNED_GIT_ENVIRONMENT: readonly (readonly [string, string])[] = [
+  // An interactive credential prompt would wedge a headless main-process call.
+  ['GIT_TERMINAL_PROMPT', '0'],
+  // Git path arguments assembled by services must remain literal pathspecs.
+  ['GIT_LITERAL_PATHSPECS', '1'],
+  // Structured error classification depends on stable, parseable Git wording.
+  ['LC_ALL', 'C'],
+];
+
+/**
  * Remove inherited `GIT_*` variables case-insensitively, then restore the
  * audited controls that carry explicit identity, authentication, protocol, and
  * Git LFS safety intent. Everything capable of redirecting repositories,
@@ -93,6 +106,18 @@ export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.Pr
   // stderr wording is stable regardless of the host's configured locale.
   environment['LC_ALL'] = 'C';
   environment['LANG'] = 'C';
+  return environment;
+}
+
+/** Merge ordinary per-command overrides, then restore non-overridable safety pins. */
+export function createGitCommandEnvironment(
+  source: NodeJS.ProcessEnv,
+  envOverride?: Readonly<Record<string, string>>
+): NodeJS.ProcessEnv {
+  const environment = { ...createPinnedGitEnvironment(source), ...envOverride };
+  for (const [key, value] of SAFETY_PINNED_GIT_ENVIRONMENT) {
+    environment[key] = value;
+  }
   return environment;
 }
 
@@ -145,12 +170,11 @@ export const execFileGitRunner: GitCommandRunner = ({
   args,
   binaryStdout,
   cwd,
+  env: envOverride,
   signal,
   timeoutMs,
 }) => {
-  // Discourage interactive credential prompts that would hang a push/pull in a
-  // headless main process; surface an auth error instead of blocking.
-  const env = createPinnedGitEnvironment(process.env);
+  const env = createGitCommandEnvironment(process.env, envOverride);
 
   if (binaryStdout) {
     return new Promise<GitCommandRun>((resolve) => {
@@ -264,6 +288,16 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
       ),
     commitFiles: (rootId: unknown, params: { commit: string }) =>
       withService(rootId, (service) => service.commitFiles({ commit: params?.commit })),
+    createBranch: (rootId: unknown, params: { branch: string; startPoint?: string }) =>
+      withService(rootId, (service) =>
+        service.createBranch({
+          branch: params?.branch,
+          // Forward on `!== undefined`, not truthiness: an explicit '' must
+          // reach the service and hit ITS stated refusal, not get silently
+          // dropped here and treated as "no start point supplied".
+          ...(params?.startPoint === undefined ? {} : { startPoint: params.startPoint }),
+        })
+      ),
     diff: (rootId: unknown, params: unknown) =>
       withService(rootId, (service) => service.diff(params as GitDiffParams)),
     fetch: (rootId: unknown, params: { remote: string }) =>

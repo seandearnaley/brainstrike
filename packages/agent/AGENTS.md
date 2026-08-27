@@ -183,6 +183,68 @@ Limitations / invariants:
 - Risk category is `edit` — durable writes must not be available in plan mode
   or default-allowed under permission enforcement.
 
+### `brainstrike.listWorktrees` / `brainstrike.manageWorktree` tools (schema here, executed in desktop)
+
+Two tools over ONE code path (BST-1392, spec §6.4): both call the SAME
+`WorktreeService` the Worktree Map / Mode chip calls, never `git worktree`
+directly. `listWorktrees` is read-only; `manageWorktree` creates or archives.
+The Zod schemas live in `src/tools/schemas-worktrees.ts`
+(`ListWorktreesInputSchema`, `ManageWorktreeInputSchema` — the latter is a
+strict root object with a `superRefine` delegating to a `create`/`archive`
+discriminated union, same shape as `manageCanvas`: a raw discriminated union
+serializes as a root `oneOf`, rejected by the provider contract), both
+entries in `NATIVE_TOOL_INPUT_SCHEMAS` (`src/tools/schemas.ts`). Execution
+lives in `apps/desktop/src/assistant-server/worktree-tools.ts`, registered by
+`assistant-tools.ts` inside the same local-provider gate `inspectCommandSessions`
+occupies (both ids are absent from `LOCAL_DESKTOP_NATIVE_TOOL_IDS`).
+
+Purpose and semantics:
+
+- `listWorktrees {root?}` returns every worktree the inventory ⋈ ledger knows
+  about — `branch`, `path`, whether BrainStrike manages it, `usable`, and
+  `disabledReason` when it is not. Omit `root` to list every open root;
+  otherwise the tool resolves `root` to its repository identity
+  (`repoCommonDir`, the realpath'd git-common-dir every worktree of one
+  repository shares) and returns every entry sharing it — the primary
+  checkout included, regardless of which specific checkout is the granted
+  root. Scoping by path equality or by the granted root's own `rootId` is
+  deliberately NOT used: managed worktrees are created outside every granted
+  root by policy, so only the one checkout that IS the granted root ever
+  carries a matching `rootId`, and `root.path` is not realpath'd while
+  inventory paths are — both would silently return the wrong (or an empty)
+  set for a thread bound to a worktree checkout, the tool's primary scenario.
+- `manageWorktree {action: 'create', branch, baseRef?, name?, root?}` creates
+  an isolated worktree; `baseRef` defaults to `HEAD`, `name` defaults to the
+  branch's last path segment. `{action: 'archive', worktreeId, force?}`
+  archives one, always capturing a restorable snapshot first; `force`
+  overrides a dirty/unpushed refusal but never an active-run refusal.
+
+Limitations / invariants:
+
+- Desktop-only (excluded from `WebNativeToolId` and `WEB_NATIVE_TOOL_IDS` —
+  git worktrees are a filesystem capability the web assistant server has no
+  bridge to). Also absent from `LOCAL_DESKTOP_NATIVE_TOOL_IDS`: the built-in
+  on-device model's prefill budget cannot afford an approval-gated mutation
+  surface it will never see reflected back.
+- `listWorktrees` is `read` risk, no approval; `manageWorktree` is `execute`
+  risk and approval-gated (spec §6.4) — the model is asking the host to run
+  git against the user's checkout. Keeping the read-only listing in its own
+  tool is what lets that classification stay strict.
+- Provenance (`created_by='agent'`, the originating `run_id`/`thread_id`) is
+  bound in `assistant-server.ts`, where the request's run id is in scope —
+  never taken from tool input, since provenance the model can set is
+  provenance the model can forge.
+- A missing capability THROWS a stated reason
+  (`"Worktree management is not available in this session."`) rather than
+  returning an empty list; an unresolvable `root` throws naming the root
+  rather than returning `{ worktrees: [] }` — both would otherwise present
+  "the service is not wired" or "root didn't resolve" as the different,
+  honest fact "this workspace has no worktrees" (`WorktreeListEntry`'s own
+  NO SILENT HIDING contract, spec §13).
+- Service refusals (a dirty worktree without `force`, an active run blocking
+  archive, a name collision) surface to the model VERBATIM as the thrown
+  error's message — never re-worded or swallowed.
+
 ### `brainstrike.runPython` tool
 
 Desktop-only deferred tool (BST-1067; Gate B network escalation BST-1070)

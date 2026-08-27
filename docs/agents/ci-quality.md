@@ -893,6 +893,19 @@ flags, 2026-08-18). Do not "fix" BST-1221 by lowering worker counts; the
 evidence says it is not concurrency-driven. The crash itself remains upstream
 (Node/V8); this reporter only guarantees it can never read as success.
 
+**Trigger and in-repo mitigation (2026-08-26).** The dominant trigger was
+`embedding-queue-load.integration.test.ts` allocating and closing a fresh
+`memory://` PGlite per scenario (five WASM instantiate/teardown cycles per
+run). PGlite `close()` does not tear the WASM instance down synchronously —
+finalization is GC-driven and lands during the NEXT scenario's instantiation
+and load churn, which is exactly the window where V8's PKU-gated
+`ThreadIsolation` jit-page bookkeeping fatal fires on Linux x64 (macOS/arm64
+has no PKU, which is why it never reproduced locally). The spec now shares one
+instance across scenarios (closed once in `afterAll`); sibling integration
+specs that churn per-test `memory://` instances (e.g. model-resolution, ~10
+cycles) carry the same residual risk. `--no-memory-protection-keys` was tried
+and disproven (BST-1221, 2026-08-22).
+
 The required Unit test and integration steps additionally run through
 `scripts/run-test-command.mjs`. The wrapper streams stdout/stderr unchanged,
 preserves the command's exit status except that a classified fatal fails the

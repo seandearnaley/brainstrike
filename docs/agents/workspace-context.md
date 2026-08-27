@@ -851,12 +851,39 @@ one" comment):
     calling `setActiveRoots(storedDescriptors)` after hydration would silently
     re-derive `activeRootIds[0]` from the rootsList's add-order and demote the
     user's declared Main root on every restart.
-- **FOCUSED root** = SELECTION state (`currentFolderId`). Drives terminal
-  cwd, selection scoping, and the selection write-back default
+- **FOCUSED root** = SELECTION state (`currentFolderId`). Drives the Terminal
+  panel's DEFAULT cwd, selection scoping, and the selection write-back default
   (`resolveWriteBackTarget` untouched). It flips on any incidental click
   (`handleTreeInteraction` in `file-explorer-sidebar.tsx`), so it must NEVER
   drive hooks/model cwd. Surfaced visually, never described as the
   assistant's root.
+
+**The Terminal's cwd is FOCUSED-by-default, PINNED-when-asked, and the pin is
+SHELL-ONLY (BST-1457).** `TerminalPanel` follows the focused root until a
+surface publishes a `terminal-target-store` pin — "Open in Terminal" on a
+Worktree Map card, the Mode chip's worktree menu, or a Folder chip root row. A
+pin carries `{ cwd, rootId }` because the two differ for a nested checkout,
+survives focus changes on purpose, and is released by the panel's own "Follow
+focused folder" control or by factory reset. This is the ONE place a
+FOCUSED-root default is deliberately overridable: unlike hooks/model cwd
+(which must never follow focus), a terminal is something the user aims
+explicitly. The pin scopes ONLY the shell (`HumanTerminal`) — the panel's
+Command sessions surface (`CommandSessionInventory`) always takes the FOCUSED
+root, never the pin, so its destructive `stop`/`remove`/`write` actions can
+never silently retarget onto a checkout pinned in a different root. An
+explicit "Open in Terminal" also forces the panel back to the shell surface
+even if Command sessions was last selected — the requested PTY must never
+start invisibly behind another tab.
+
+**Forge identity (BST-1391) follows MAIN, never FOCUSED.** The workspace
+bar's `PrChip` and the BranchChip's forge diagnostic both resolve their
+`gh`-backed pull-request status from the MAIN root's repository (the bar's
+`primaryRoot`, `activeRootIds[0]`) — the same root that drives hooks/model
+cwd. A FOCUSED selection must never drive which repository's remote gets
+parsed or which branch's PR gets fetched, for the identical reason it must
+never drive cwd: it flips on incidental clicks, and a forge lookup silently
+following it would attribute a PR to the wrong repository the instant the
+user clicks around the tree.
 
 **Request fields** (`packages/assistant-contract/src/runtime-data.ts`): the
 wrapper attaches `mainRootId` (= adapter `activeRootIds[0]`) and `mainRootPath`
@@ -950,8 +977,9 @@ enrichment. Only the DB result may populate the trusted manifest/tool inventory;
 renderer fields can order or focus roots but can never substitute adapter ids
 for the durable selectors accepted by native tools.
 
-**Surfaced UI** (all forest-mode/multi-root only; single root shows ZERO new
-chrome):
+**Surfaced UI** (the composer WORKSPACE BAR below is always visible; every
+OTHER surface here is forest-mode/multi-root only, so a single root shows no
+additional explorer/status chrome):
 - Root section headers (`root-section-header.tsx` + sidebar wiring): "Main"
   badge on the main root (exactly one; the badge MOVES when main changes —
   sections never reorder), persistent focused affordance (`data-focused`
@@ -960,14 +988,384 @@ chrome):
   left, beside the database item): main root name (+N), popover listing every
   mounted root (path or "browser folder", Main badge, Focused marker) with a
   per-row "Set as main" → `setMainRoot`.
-- Composer chip (`packages/assistant-ui/src/operating-root-chip.tsx`):
-  "in {thread root}" at the top of the composer stack — a SIBLING of
-  ThreadContextMeter (never nest it there; the meter is being reworked), fed
-  by the wrapper's `operatingRoot` prop only at 2+ roots. Before a thread's first
-  request it previews the current Main root; after binding it remains stable.
-- DEFERRED (v1 ruling): a root-header right-click context action ("Set as
-  main" / Disconnect / Copy path / Reveal) — root headers have no
-  ContextTarget kind yet; it is a coherent follow-up surface.
+- **`roots.kind = 'worktree'` (BST-1390).** A root mounted for a BrainStrike-
+  managed worktree carries its own kind, set at INSERT by `reconcileRoots` from
+  the ledger-only `window.worktrees.listManagedPaths()` path set. This boot-
+  critical read never builds git inventory or resolves workspace-root joins.
+  Until the first successful desktop ledger read, reconciliation updates
+  existing rows but defers new inserts so a transient bridge failure cannot
+  durably misclassify a managed worktree as `path`.
+  `kind` is never modified on an existing row, so a worktree root registered
+  before W3 keeps its old kind — visible, not silently rewritten. The DB
+  column has a real CHECK constraint (migration 039, widened by migration 111
+  to add `'worktree'`) — this is NOT type-level-only, unlike an earlier draft
+  of this plan assumed. Background indexing defaults to OFF for this kind
+  [D8] (see `defaultBackgroundIndexingEnabled` in
+  `packages/app-state/src/stores/background-indexing-preferences-store.ts`,
+  consumed by the one sync-target filter in
+  `workspace-collection-sync-provider.tsx`) until the hash-reuse cost is
+  measured against the BST-393 benchmark. The Explorer root surfaces (forest
+  root headers and the single-root status row) and the workspace-root status
+  popover surface this as `Not indexed`, explain that
+  managed worktrees are excluded by default to avoid duplicate corpus
+  indexing, and offer a per-root opt-in. The durable DB root id keys that
+  persisted preference; the adapter root id keys only the transient mounted-
+  root status consumed by those UI surfaces. Opting one root in never changes
+  another worktree or suppresses eligible non-worktree roots. If every mounted
+  root is excluded, the sync status remains visibly `waiting` with the same
+  explanation rather than silently publishing no work. A mounted root with a
+  durable id but no published kind is deferred from the current sync pass;
+  publishing its reactive kind map restarts the pass, so mid-session Add Folder
+  cannot race the D8 exclusion.
+- **The second (and last) sanctioned picker-less mount.** `fs:addRootByPath`
+  now accepts a path authorized by EITHER the recent-roots ledger (BST-1395)
+  OR the managed-worktree authorizer (BST-1390): a live `brainstrike_worktrees`
+  row whose realpath sits under the realpath'd managed directory. The ledger is
+  checked first so a broken authorizer cannot take the recents path down with
+  it. Managed worktrees are deliberately NOT written into `recentRootsList` at
+  grant time — that list is the user's folders, not the app's scratch
+  directories — and (BST-1390 Task 10) `restoreRoots` now also skips recording
+  a `kind='worktree'` entry into recents on relaunch, closing the leak the
+  grant-time suppression alone left open across a restart.
+- Composer **workspace bar** (`packages/assistant-ui/src/workspace-bar/`,
+  wired by `packages/app-shell/src/hooks/use-workspace-bar.ts` +
+  `use-thread-checkout-status.ts`, mounted in the composer stack as a SIBLING
+  of ThreadContextMeter — never nest it there; the meter is being reworked).
+  It replaced `operating-root-chip.tsx` (retired in BST-1396) and is ALWAYS
+  visible, single root included: BST-1396 removed the >=2-roots gate because
+  the bar's job is ORIENTATION, not disambiguation. Zero roots render the
+  "Choose a folder" CTA rather than nothing.
+  - Folder chip: this thread's PRIMARY (= persisted `operatingRootId`, else
+    the current MAIN root) plus `metadata.secondaryRootIds` as a `+N` badge
+    and per-root rows. The primary's `rootId` is ALWAYS a durable `roots.id`
+    — with no persisted binding, the MAIN root's row is resolved BY PATH
+    (never an adapter id), and an unresolvable path leaves the chip's primary
+    undefined rather than inventing one.
+  - **"Make primary" re-binds the THREAD** through the same three
+    `operatingRoot*` metadata keys `persistThreadRootBinding` writes, in ONE
+    metadata write together with the secondary set. It NEVER calls
+    `setMainRoot` — the global MAIN root is a workspace-wide ordering choice
+    and stays untouched. "Remove from thread" likewise only edits
+    `secondaryRootIds`; it never disconnects the folder from the workspace.
+    While checkout mode is Worktree, making a secondary primary includes the
+    Local checkout transition in that SAME write, so the operating root and
+    checkout record never disagree. The selected secondary becomes primary,
+    every existing secondary except that selected root remains attached, and
+    the former worktree primary is removed from the thread. That removal keeps
+    a stale action from re-promoting a managed worktree while the checkout mode
+    remains Local; re-entering it goes through the worktree picker. A success
+    toast makes the implicit Local transition and worktree removal explicit. The secondary named by
+    `checkoutLocalRootId` keeps its Remove action visibly disabled with “This
+    folder is where Hand off returns to.”; other secondary actions are unchanged.
+    A failed write retains the prior folder set and checkout record. The
+    disabled return action remains keyboard-focusable and exposes its
+    full-contrast reason as an accessible description.
+  - "Add folder…" adds the folder GLOBALLY (the existing multi-root
+    `addRootDirectory` flow) AND records it as a thread secondary. The durable
+    `roots` row is written by the roots-reconciliation effect, so the id
+    lookup polls on a BOUNDED budget (20 x 250 ms, ~5 s). Exhaustion is not a
+    silent no-op: it logs and raises a "Folder added, but not attached to this
+    thread" toast. The canonical fix — an awaitable "root registered" seam on
+    `roots/use-roots-reconciliation.ts` — is a recorded follow-up.
+  - Mode-chip checkout metadata is owned by `use-thread-checkout.ts`. Selecting
+    a worktree first resolves its mounted path to a durable live `roots.id`, then
+    uses the workspace bar's serialized folder-write queue to persist the
+    `checkout*` fields, full `operatingRoot*` triple, and secondary-root demotion
+    in ONE metadata write. `checkoutLocalRootId` durably records the Local
+    `roots.id` at entry; secondary-list position has no semantic meaning. The
+    queue tail carries that id plus resolved primary and secondary root objects,
+    so an overlapping hand-off can promote the remembered Local root without
+    using stale render state or writing an incomplete binding. A reconciliation
+    failure rejects before enqueueing. Hand-off promotes the tracked Local root
+    when it has a complete roots row; a disconnected tracked root is logged and
+    refused, while legacy partial state with no tracked Local root clears checkout
+    mode, warns/toasts that the folder did not follow, and keeps its current
+    primary. The repository read sanitizer preserves that legacy worktree shape
+    without weakening the complete-metadata requirement for new writes. Every
+    checkout-mode transition atomically strips `checkoutBranch`;
+    the Local transition also removes both worktree keys and
+    `checkoutLocalRootId`, so no stale checkout authority survives the hand-off.
+  - The Worktree Map tab (BST-1392, `packages/app-shell/src/worktree-map/`)
+    is capability-gated the same way Changes/Canvas/Terminal are:
+    `apps/desktop/src/renderer/components/root-layout-content.tsx` resolves
+    `isWorktreesBridgeAvailable()` once via `useMemo` and conditionally spreads
+    `worktreeMapPageContent` into `buildWorkspaceApps`, never an `isElectron()`
+    check — web omits the tab entirely (no `window.worktrees`, no registration).
+    Its `onNewThread`/`onHandOffToLocal` handlers do NOT write checkout
+    metadata directly: they call
+    `useWorktreeCheckoutIntentStore().publish({branch, path, threadId,
+    worktreeId})`, a ONE-SHOT request the intent-consumer
+    (`use-workspace-bar-mode.ts`) applies to the SELECTED thread exactly once —
+    `consume(threadId)` clears the entry so a re-render cannot re-apply it —
+    by calling the SAME `onSelectWorktree`/`onHandOffToLocal` callbacks the
+    Mode chip's own picker and create-sheet call. `use-thread-checkout.ts`
+    remains the ONLY writer of `mastra_threads.metadata.checkout*`; the intent
+    store is a cross-component REQUEST queue, never a second write path. A
+    failed apply surfaces through the same `logger.error` + toast path the
+    chip uses and is not retried.
+  - Recents come from main's `recentRootsList` ledger
+    (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
+    `fs:listRecentRoots`), minus folders already mounted in this workspace.
+    Every supported flow that may write the ledger through the shared file-system
+    instance increments its `recentRootsRevision`, including grants, startup
+    multi-root restore, and restore-access registration; the workspace bar reloads
+    the ledger from that canonical signal, so Explorer Add Folder and future grant
+    or restore callers need no bar-specific refresh wiring. The signal is an honest
+    superset: managed-worktree mounts may also increment it because the renderer's
+    descriptor does not expose main's grant source, while main deliberately keeps
+    managed worktrees out of Recents. Recents loads use a monotonic request generation,
+    and an older overlapping response cannot replace a newer snapshot.
+    `fs:addRootByPath` has TWO ordered gates: first that ledger (BST-1395), then
+    the server-owned managed-worktree authorizer (BST-1390, spec §6.2), which
+    requires realpath containment plus a live ledger row and fails closed on
+    every authorizer error. A recents-ledger grant is re-recorded; a managed
+    worktree grant is not recorded into Recents at grant time, and `restoreRoots`
+    now batch-reads persisted root kinds and skips `kind='worktree'` entries on
+    relaunch (BST-1390 Task 10), so that suppression survives relaunch when the
+    kind query succeeds and the row exists; it deliberately fails open to ordinary
+    Recents behavior if the kind query throws or the root row was never written. Thus **the BAR** cannot
+    mount an arbitrary path: a stray or stale path string is rejected. This is
+    NOT a hardening boundary against a
+    compromised renderer: main-process storage is itself renderer-writable
+    through the unrestricted `storage:setItem` bridge, which puts the ledger in
+    the SAME trust class as `rootsList` + `fs:restoreRoots`. A renderer that can
+    call `storage:setItem` can write its own grant and then "re-mount" it. So
+    this is a correctness gate, not a security boundary. Hardening `storage:*`
+    with a main-owned key allowlist would raise the floor for every main-owned
+    key at once and is a separate follow-up. Paths are keyed with a stripped
+    trailing separator, so `/ws/alpha/` and `/ws/alpha` are one slot. A CORRUPT
+    ledger is quarantined to `recentRootsList.corrupt`, logged at ERROR, and
+    reset (mirroring `readStoredRootsOrQuarantine`) rather than left permanently
+    unrecoverable; until the next grant re-populates it, `addRootByPath` rejects
+    with the normal "never granted" remedy. The cap (`RECENT_ROOTS_LIMIT`, 50)
+    is storage hygiene, deliberately far above realistic mount counts so
+    connected roots cannot evict disconnected grants. Desktop-only — web has no
+    ledger and therefore no `onAddRecent` affordance (capability gating, not an
+    `isElectron()` check).
+  - **Finder folder drop (BST-1393, spec §4.1 [D7]) — the bar's THIRD add
+    gesture**, alongside Add folder… and Add recent…, and the only one that
+    routes through the desktop `window.workspace` bridge rather than
+    `@brainstrike/file-explorer-ui/shell`'s `useFileSystem()` directly.
+    - **`useConnectFolder` (`workspace-connect/use-connect-folder.tsx`) is the
+      ONE seam every W6 entry point converges on**: File menu, `brainstrike
+      <path>` argv, macOS `open-file`, `second-instance` argv, File ▸ Open
+      Recent, AND a Finder drop — five `WorkspaceOpenOrigin` values (`argv` ·
+      `open-file` · `second-instance` · `menu-recent` · `drop`), all logged on
+      refusal so a "why did this folder mount / not mount" question always
+      names its real gesture. **Security posture (ruling S1): a path from any
+      of these is a REQUEST, never a grant.** `open-file` and argv are
+      attacker-influencable (any process can run `open -a BrainStrike
+      <path>`), so `connectPath` calls the SAME picker-less `addRootDirectoryByPath`
+      Add Recent uses (never a new grant door) and renders the SAME
+      "never granted, use Add folder…" remedy toast on refusal. `connectPath`
+      resolves to the mounted `DirectoryHandle` on success and `null` on
+      every refusal/failure path (each already toasted here) — a caller that
+      needs to react to success, rather than just fire-and-forget like
+      `workspace-connect-host.tsx` does for the other four origins, can.
+    - **`extractDroppedFolderPaths` (`workspace-connect/extract-dropped-folder-paths.ts`)**
+      turns a drop's `DataTransferItem`s into absolute paths, synchronously:
+      a `DataTransferItem` goes invalid the instant the drop event settles
+      (the same contract `packages/notes-vault/src/core/drop.ts` established),
+      so `webkitGetAsEntry()`/`getAsFile()` must both run inside the drop
+      tick. Files vs. folders are told apart by ASKING THE DOM
+      (`entry.isDirectory`), never guessed from `size`/`type` and never
+      forwarded blind to `connectPath` (ruling D1) — a plain file sent there
+      would come back with a GRANTS-flavored refusal that misdescribes the
+      problem. Every non-outcome is counted, not swallowed, in three SEPARATE
+      buckets so the notice never names the wrong noun: `skippedFileCount`
+      (confirmed plain files), `unreadableCount` (items whose kind
+      `webkitGetAsEntry()` threw before revealing — never confirmed to BE a
+      folder), and `unresolvedCount` (confirmed folders whose `File` yielded
+      no disk path). Resolved paths are deduped in drop order.
+    - **`WorkspaceBarDropZone` (`packages/assistant-ui/src/workspace-bar/`)**
+      wraps the bar's existing chips ONLY when `onDropItems` is supplied
+      (app-shell's `useFolderDrop` decides that from the bridge + `connectPath`
+      capabilities) — no wrapper, no ring, no listeners on web. The `'Files'`
+      MIME-type gate (`dragCarriesFiles`, checked BEFORE `preventDefault()`)
+      is byte-identical to `notes-vault-panel.tsx`'s copy of the same name —
+      intentionally not shared into a module for one function, but both sites
+      carry a cross-reference comment because that gate is the
+      security-relevant part of both surfaces (it is what keeps an internal
+      pragmatic-drag-and-drop thread-tab drag from being consumed): if one
+      copy is ever hardened, check the other. The drag-leave ring guard reads
+      `event.relatedTarget` rather than the vault panel's
+      `currentTarget === target` check: that check only holds up because the
+      vault panel's drop surface has few children, but the bar is full of
+      chips, and a dragleave bubbling off any one of them would otherwise
+      flicker the ring. The wrapper is a bare `<div>` with TWO a11y
+      suppressions, deliberately not a labelled `<section>`/landmark: chips
+      already carry their own accessible names, this exact bar already
+      rejects an extra grouping level for that reason (see the composer bar's
+      own container comment, `workspace-bar.tsx`), and the wrapper exists
+      only to catch a pointer gesture AT users cannot perform — the keyboard
+      path is the Folder chip's Add folder… action.
+    - **`useFolderDrop` (`workspace-connect/use-folder-drop.ts`) chains the
+      SAME thread-attachment step Add folder…/Add recent… run after their own
+      successful mount** (`recordAddedAsSecondary`, injected in from
+      `use-workspace-bar.ts` since this hook has no thread/database context
+      of its own) — a review finding: routing a drop through `connectPath`
+      alone mounts the folder globally but leaves the bar showing no trace of
+      it, on either outcome. Multiple dropped folders connect ONE AT A TIME,
+      not concurrently: `addRootDirectoryByPath` shares a loading flag and a
+      "most recently mounted becomes focused" outcome across calls, so firing
+      them concurrently makes both non-deterministic (order stops matching
+      drop order). A refused connect (`connectPath` resolves `null`) records
+      nothing and chains no `recordAddedAsSecondary` call — `connectPath`
+      already toasted its own refusal reason, so nothing here fires a second,
+      differently-flavored notice on top of it. A drop that mounted
+      everything cleanly toasts NOTHING, matching Add folder/Add recent's own
+      silence on success — the chip appearing IS the feedback.
+  - Reveal: the chip NEVER hardcodes an OS name. `WorkspaceBarProps.reveal`
+    pairs `{ label, onReveal }` so supplying a handler without a label is a
+    type error, and app-shell feeds it the platform-aware `revealLabel()`
+    exported from `@brainstrike/file-explorer-ui/context-actions`.
+  - Branch chip: `window.git.status` supplies the primary root's
+    branch/detached, ahead/behind, and dirty-dot state — no polling. The dot's
+    checkout-status read refetches on BOTH live-refresh signals: every accepted
+    `changes:invalidated` git-metadata push AND the primary root's own git-scope
+    nonce (`selectGitScopeRefreshNonce`), which is what carries WORKING-TREE
+    edits. Metadata pushes report topology only, so on that nonce alone the
+    dirty dot went stale the moment a file changed without a branch operation.
+    The interactive menu also reads `window.git.repository` and its own
+    `window.git.status`, then reuses the Git workbench's
+    `buildBranchSwitchModel`: local branches stay in repository recency order,
+    the current branch remains identified, and a branch held by another
+    worktree shows `Worktree: <name>` and an explicit disabled reason. The
+    shared switch gate derives dirty state only from tracked porcelain entries,
+    so an untracked-only checkout remains switchable while staged or modified
+    tracked files disable direct switching. The chip's dirty dot still reflects
+    all porcelain entries. A disabled dirty row offers a separate `Switch in a
+    new worktree` menu item only when `onSwitchInNewWorktree` is supplied; the
+    later W3 Mode-Chip/worktree-service layer will supply that optional
+    capability. Until then app-shell omits the callback, so the disabled reason
+    stands alone with no worktree action. Direct switching and branch creation
+    call the existing `switchBranch` / `createBranch` bridge paths without a
+    fresh client-side status pre-check; the bridge result is the source of truth,
+    and a returned or thrown mutation failure is logged and surfaced as a
+    destructive toast. Fetch is offered only for a discovered default remote,
+    and the call names that remote explicitly rather than relying on git's
+    default. After a successful mutation, the hook
+    refreshes the git inventory and advances its own reload nonce so it re-reads
+    repository and status topology. Unlike the dot, the switcher's own
+    repository/status load is keyed only on `anyInvalidationNonce` plus that
+    post-mutation reload nonce — NOT on the root's git-scope nonce. An external
+    working-tree edit to a tracked file can therefore leave the switch gate's
+    tracked-dirty read stale until the next metadata push or successful
+    mutation. The load is self-contained (BST-1452 M2): it fires its own
+    `window.git.status` read unconditionally, concurrently with the
+    workspace-bar dot's independent status read, rather than waiting on that
+    other hook to resolve first. When that status read reports a non-repository
+    primary root, the switcher stops there — it performs the status probe
+    only, issues no `window.git.repository` read, and logs no warning, since
+    "this folder isn't a repository" is an expected outcome, not a failure.
+    There is no empty-list fallback: a failed menu repository/status
+    read is logged and leaves the status chip non-interactive. The chip remains
+    desktop-only and is absent for a non-repository root or a failed checkout-
+    status read; that failure is logged and NEVER rendered as "clean". It is
+    withheld whenever `primaryRoot` is absent, so a branch never renders with
+    no folder beside it. Both live-refresh signals depend on the main-process
+    git inventory having ARMED a watcher for that root's repository, which only
+    happens inside an inventory build — so roots registered after app-ready are
+    nudged into discovery by `use-roots-reconciliation.ts` calling
+    `changes.inventory({ maxAgeMs: 0 })` once per registration (BST-1397; see
+    "Discovery refresh on root registration" in
+    `docs/agents/changeset-diff.md` § REFRESH SEAMS). The forced option is what
+    makes the nudge reliable: it guarantees a build that started after the
+    registration, so the TTL cache and in-flight coalescing cannot serve back a
+    snapshot that predates the new `roots` row. Without that nudge a mid-session
+    Add Folder / Recents root gets no metadata push at all and the chip only
+    updates on reload.
+  - **Mode chip (W3, BST-1390): Local / Worktree [D1].** Local means the
+    thread works in the primary root's own checkout; Worktree means an
+    isolated linked worktree BrainStrike created, recorded in
+    `brainstrike_worktrees`, mounted as a `kind='worktree'` root through the
+    managed-worktree grant (see `roots.kind = 'worktree'` above), and bound as
+    the thread's PRIMARY through the same `operatingRoot*` metadata triple
+    `persistThreadRootBinding` writes — which is what makes the server's
+    existing `boundWorkspaceRootId`-first ordering
+    (`orderWorkspaceRootsForRuntime`) resolve hooks, tools and the terminal
+    into the worktree with NO server change. "Cloud" is deliberately omitted,
+    not stubbed — there is no environment story to explain. A non-repository
+    primary root gets a DISABLED chip stating "Not a git repository", never an
+    absent one (`packages/app-shell/src/hooks/use-worktree-mode.ts`). The
+    chip's own list of worktrees comes from the `window.worktrees` bridge's
+    `list()` (the ledger + a live `git worktree list` merge in
+    `apps/desktop/src/assistant-server/worktree-service.ts`), NOT from
+    `window.git` inventory, so it refreshes independently of the Branch
+    chip's git-status read above — eagerly on mount, and again after every
+    create/select/archive mutation. The existing-worktree picker
+    (`worktree-picker-dialog.tsx`) lists EVERY worktree the ledger reports —
+    including ones another tool created (`~/.codex/worktrees`,
+    `~/.cursor/worktrees`), labelled by tool — each usable or disabled with
+    its reason and, where remediable, a "Grant access…" button that opens the
+    OS folder picker. "New worktree…" opens a create sheet
+    (`worktree-create-dialog.tsx`) with a read-only Location, a `bs/<name>`
+    branch default (editable, or "Detached — name the branch later"), and a
+    Setup summary; a creation failure renders IN the sheet and leaves the
+    thread on Local rather than partially switching it. Both dialogs are
+    written INSIDE `ModeChip`'s own JSX rather than hoisted, so their
+    `<Dialog>` nesting depth stays 1 and their panel paints at `z-[51]`
+    (`packages/ui/src/layers.ts`) — above nothing else the chip owns, since
+    the dropdown menu that opens them (`z-[70]`, `POPUP_LAYER_CLASS`) has
+    already closed by the time either one mounts. **Live-verified gap
+    (BST-1390, not yet filed as its own follow-up):** closing either dialog
+    with Escape leaves focus on `document.body` rather than returning it to
+    the Mode chip trigger — confirmed against the running app, not assumed;
+    fix or file before relying on keyboard flow through this chip.
+- **Root-header context menu (BST-1393, spec §7) — SHIPPED, the v1 DEFERRED
+  ruling above is CLOSED.** `packages/context-actions/src/types.ts` carries a
+  `workspace-root` ContextTarget kind (`displayName` · `isMain` · `path | null`
+  · `rootId`), adapted by `workspaceRootToTarget`
+  (`packages/file-explorer-ui/src/context-actions/workspace-root-target.ts`),
+  which normalizes a web FSA handle's name-as-path to `null` so path-shaped
+  actions hide by DATA rather than by platform. Both the forest sidebar's
+  `RootSectionInner` and the SINGLE-ROOT layout's own header row wrap ONLY
+  their header in `ActionContextMenu` — never the tree pane, which owns its
+  own — so the two menus stay siblings rather than nesting. A single-root
+  workspace (the primary, one-folder scenario) has its own trigger row
+  (`data-testid="single-root-header-row"`), not just the forest sections; the
+  claim/reset/local-actions/focus-restoration protocol is shared by both
+  through `packages/file-explorer-ui/src/shell/use-root-section-context-menu.ts`
+  (`useRootSectionContextMenu` / `useSingleRootHeaderMenu`) rather than two
+  independently-maintained copies.
+  - Six items, three owners. GLOBAL registry: `workspace-root.copy-path`
+    (`clipboard`) and `workspace-root.reveal` (`fs.reveal`). SURFACE-LOCAL in
+    `file-explorer-ui` (`workspace-root-local-actions.ts`):
+    `workspace-root.set-as-main` and a STAGED `workspace-root.disconnect`.
+    Disconnect… is present only when the surface actually has a way to
+    disconnect (`onDisconnect` is optional and OMITS the action when absent —
+    mirrors the header's own X button, never a silently-inert visible item).
+    Set as Main's dep returns an `ActionOutcome`: `setMainRoot` warn-and-no-ops
+    for an id `activeRootIds` doesn't recognize (a legacy path-identity root),
+    so the surface checks `activeRootIds.includes(target.rootId)` first and
+    reports `{ ok: false }` rather than the click silently doing nothing.
+    INJECTED by app-shell through `FileExplorerPanel`'s `rootActions` prop
+    (the `selectionActions` precedent): `workspace-root.open-in-terminal` (the
+    BST-1457 `terminal-target-store` seam — a mounted root IS its own cwd, so
+    `cwd` and `rootId` name the same folder here) and
+    `workspace-root.new-thread-here`.
+  - **"Set as Main", not "Make primary" (BST-1393 ruling R1).** This surface
+    changes the workspace-wide MAIN root (`setMainRoot`, `activeRootIds[0]`) —
+    the role this same header already renders as its "Main" badge. The
+    workspace bar's "Make primary" is a DIFFERENT operation with a different
+    writer (the thread's `operatingRoot*` metadata triple) and is untouched.
+    Do not merge the two vocabularies.
+  - "New thread here" goes through `useCreateThreadInFolder`
+    (`packages/app-shell/src/hooks/use-create-thread-in-folder.ts`), which is
+    the threads panel's own folder-bound creation extracted so BOTH surfaces
+    keep ONE writer of the `operatingRoot*` triple: one `createThread`, then
+    ONE metadata write (the repository rejects a partial triple).
+  - **Live-verified gap, not yet checked against a real build:** `Disconnect…`
+    stages a modal (`DisconnectRootDialog`) from inside `ActionContextMenu`'s
+    `onCloseAutoFocus`. In jsdom the menu unmounts synchronously so the
+    ordering is benign, but Radix's exit animation means the REAL unmount (and
+    this focus-restoration callback) can fire AFTER the staged dialog has
+    already mounted and autofocused — `onCloseAutoFocus` now skips restoring
+    focus while the dialog is open specifically to avoid fighting that race,
+    but the live ordering itself is unconfirmed. Verify against the running
+    desktop app (`pnpm --filter @brainstrike/desktop dev:agent-debug`) before
+    relying on keyboard flow through Disconnect…, same precedent as the Mode
+    chip gap above.
 
 **Known issue (out of scope here, filed separately):** nothing ever
 transitions `roots.status` off `'live'` (`reconcileRoots` never UPDATEs), so
@@ -989,11 +1387,39 @@ zero/unavailable state, exact ids, Main/Focused priority) +
 `mastra-tool-execution.integration.spec.ts` (turn-one qualified read),
 `apps/desktop/src/__tests__/assistant-server/agent-stream-init-and-memory.integration.test.ts`
 (client root inventory replacement),
-`packages/assistant-ui/src/__tests__/operating-root-chip.test.tsx`,
+`packages/assistant-ui/src/__tests__/workspace-bar.test.tsx` +
+`packages/app-shell/src/__tests__/use-workspace-bar.test.tsx` +
+`packages/app-shell/src/__tests__/use-thread-checkout-status.test.ts` +
+`apps/desktop/src/__tests__/ipc-domains/workspace-root-registry-recent-roots.test.ts`
+(ledger + `addRootByPath` authorization) +
+`apps/desktop/e2e/workspace-bar.desktop.test.ts` +
+`apps/web/e2e/workspace-bar.test.ts` (chips, recents re-mount, web omission),
+`packages/assistant-ui/src/__tests__/mode-chip.test.tsx` +
+`worktree-picker-dialog.test.tsx` (Mode chip rendering, picker rows) +
+`packages/app-shell/src/__tests__/use-worktree-mode.test.ts` (bridge wiring,
+create/select/archive, disabled reasons) +
+`apps/desktop/e2e/worktree-mode.desktop.test.ts` (real git worktrees, real
+ledger, create/use/archive against the built app),
 `apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
 (orderWorkspaceRoots + enrichment reorder), and the
 `hooks primaryCwd follows the declared main root` describe in
 `apps/desktop/src/__tests__/assistant-server/hooks/server-composition.integration.test.ts`.
+**The W6 connect-folder seam + Finder drop** (BST-1393, spec §7 / §4.1 [D7]):
+`packages/app-shell/src/__tests__/workspace-connect-bridge.test.ts` (bridge
+capability resolution + the exact-set `WorkspaceOpenOrigin`/required-method
+proofs) + `use-connect-folder.test.tsx` (S1 refusal remedy, IPC-envelope
+stripping, the FSA-capability `openPicker` gate) +
+`workspace-connect-host.test.tsx` (malformed-request rejection, subscription
+wiring) + `application-file-menu.test.ts` (File menu → `connectPath`),
+`packages/app-shell/src/__tests__/extract-dropped-folder-paths.test.ts`
+(drop-tick synchronicity falsifier, the three separately-counted
+non-outcomes, dedup) + `use-folder-drop.test.tsx` (sequential connect +
+`recordAddedAsSecondary` chaining, the refused-connect-records-nothing case,
+skip/unreadable/unresolved toast copy) +
+`packages/assistant-ui/src/__tests__/workspace-bar-drop.test.tsx` (the Files
+MIME gate, the relatedTarget leave guard, capability gating by omission on
+web) + `apps/desktop/src/__tests__/preload-runtime-contract.test.ts`
+(`window.workspace` preload surface).
 
 When changing this flow, update this section and the paired tests.
 
@@ -1005,7 +1431,8 @@ Distinct from the MAIN/FOCUSED concept above: this is the durable `RootId`
 UUID stamped on a `DirectoryHandle` (`DirectoryHandle.rootId?: RootId`,
 `packages/types/src/file-system.ts`) when a folder becomes a registered root.
 It self-identifies the handle for capability/mount resolution
-(`apps/desktop/src/ipc-domains/workspace-root-registry.ts` `resolveMountedRoot`)
+(`apps/desktop/src/ipc-domains/workspace-root-mounts.ts`
+`WorkspaceRootMountTable.resolveForRead`)
 and collision-proof folder-state keys — two same-named web roots share a
 `path` (the FSA API hides the absolute path) but never a `rootId`.
 
@@ -1047,11 +1474,12 @@ imported by `apps/desktop` or `apps/web`; `processDirectoryEntry` had only
 test callers) but both are public package exports. **Before adding a seventh
 rebuild site, check this list — the class has recurred four times.**
 
-**Behavior decision (pinned, desktop):** `resolveMountedRoot` short-circuits
-to `this.mounted.get(rootId)` before ever consulting path containment. With
+**Behavior decision (pinned, desktop):** `WorkspaceRootMountTable.resolveForRead`
+(`apps/desktop/src/ipc-domains/workspace-root-mounts.ts`) short-circuits to its
+own `this.mounted.get(rootId)` before ever consulting path containment. With
 nested mounted roots, a read whose `rootId` was inherited from an outer
 traversal anchor therefore resolves against the OUTER mount, not the
-innermost path-matched one `findMountedRootForAbsolutePath` would otherwise
+innermost path-matched one `findForAbsolutePath` would otherwise
 pick. This is the intended behavior, not a side effect: reads made during a
 traversal started from root R are authorized and attributed under R's
 capability. A self-identifying nested root still wins, because the caller

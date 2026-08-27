@@ -12,6 +12,13 @@ export interface GlobalCommandHandlers {
   /** Start a fresh assistant thread. */
   readonly newThread?: () => void | Promise<void>;
   /**
+   * Open a folder without hunting for a picker (BST-1393, spec §7). Wired
+   * from `useConnectFolder()`'s `openPicker` — the SAME call the Folder
+   * chip's "Add folder…" and the File menu's "Open Folder…" make. Works on
+   * web too (the FSA picker), so this command is never desktop-gated.
+   */
+  readonly openFolder?: () => void | Promise<void>;
+  /**
    * Open the ⌘P quick-open palette. Wired in PR-6.3; until the app supplies
    * this handler the command stays hidden (capability-gated out, not faked).
    */
@@ -50,7 +57,7 @@ async function runHandler(
  * never offers an action the app cannot perform.
  */
 export function createGlobalCommands(handlers: GlobalCommandHandlers): readonly Command[] {
-  const { newThread, openSettings, toggleTheme, openQuickOpen } = handlers;
+  const { newThread, openFolder, openQuickOpen, openSettings, toggleTheme } = handlers;
 
   return [
     {
@@ -85,6 +92,14 @@ export function createGlobalCommands(handlers: GlobalCommandHandlers): readonly 
       keywords: ['file', 'goto', 'jump'],
       label: 'Quick Open…',
       run: () => runHandler('Quick Open', openQuickOpen ?? noop),
+    },
+    {
+      group: 'navigate',
+      id: 'global.open-folder',
+      isAvailable: () => openFolder !== undefined,
+      keywords: ['connect', 'folder', 'workspace'],
+      label: 'Open folder…',
+      run: () => runHandler('Open folder', openFolder ?? noop),
     },
   ];
 }

@@ -83,9 +83,37 @@ export const ASSISTANT_THREAD_COLOR_IDS = [
 export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
 export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number];
 
+// biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
+  /** Last observed branch of the thread's checkout. Display only — live from git. */
+  readonly checkoutBranch?: string;
+  /**
+   * The `roots.id` a worktree hand-off returns to — the durable Local root,
+   * recorded when the thread enters worktree mode so hand-off never guesses
+   * from the position of an id in `secondaryRootIds`.
+   */
+  readonly checkoutLocalRootId?: string;
+  /** Where this thread works: the folder's own checkout, or an isolated worktree. */
+  readonly checkoutMode?: 'local' | 'worktree';
+  /** `brainstrike_worktrees.id` — the AUTHORITY when `checkoutMode === 'worktree'`. */
+  readonly checkoutWorktreeId?: string;
+  /** Absolute worktree path retained for tooltips; never used as authority. */
+  readonly checkoutWorktreePath?: string;
   readonly color?: AssistantThreadColorId;
   readonly icon?: AssistantThreadIconId;
+  /**
+   * The pull request this thread is driving, kept so "jump to the PR" works
+   * offline and after `gh` is uninstalled. Display + navigation only: the
+   * AUTHORITY for PR state is `brainstrike_forge_prs`, refreshed from gh.
+   */
+  readonly forgePrUrl?: string;
+  /**
+   * Whether check-transition notifications fire for this thread's PR
+   * (spec §4.4's Watch toggle). ABSENT means watching: the user opted into
+   * notifications globally, and a thread that has never touched the toggle
+   * should not be quieter than one that has. Only an explicit `false` mutes.
+   */
+  readonly forgePrWatch?: boolean;
   readonly model?: string;
   readonly modelSettings?: Record<string, unknown>;
   /** Human-readable label retained for a stable historical thread scope chip. */
@@ -96,6 +124,12 @@ export interface AssistantThreadMetadata {
   readonly operatingRootPath?: string;
   readonly provider?: string;
   readonly providerOptions?: Record<string, unknown>;
+  /**
+   * Durable DB `roots.id` values of the thread's SECONDARY folders (the
+   * primary is `operatingRootId`). Display + per-thread folder set only:
+   * tool scope still follows the server's workspace-root inventory.
+   */
+  readonly secondaryRootIds?: readonly string[];
   readonly source?: string;
 }
 
@@ -1013,6 +1047,47 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
   ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
 
+-- Threads-panel "needs you" projection (BST-1404). Both indexes above lead with
+-- thread_id or run_id, so that query — which is resource-scoped and kind-scoped
+-- — full-scanned the largest assistant table on BOTH sides of its anti-join, on
+-- every run_events notify. These two partial indexes cover the two sides. They
+-- live HERE and only here: this table is created solely by this bootstrap and
+-- must never get a numbered migration (see docs/agents/assistant-persistence.md,
+-- RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP), and IF NOT EXISTS re-runs on every
+-- handle init, so existing installs pick them up — the same upgrade path as the
+-- turn_message_id ADD COLUMN above.
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_pause_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id)
+  WHERE kind = 'tool.approval.requested';
+
+-- The anti-join side. Keyed additionally on the extracted toolCallId, which is
+-- the equality the NOT EXISTS pairs on; jsonb ->> is immutable, so it is
+-- indexable as an expression. occurred_at trails it because the anti-join also
+-- requires the answer to POSTDATE the pause: an answer kind can be emitted
+-- before the pause it would otherwise resolve (Mastra gates inside
+-- toolCallStep, and its foreach is sequential, so one leg can stream
+-- tool.started for a call whose own gate — and pause row — comes a leg later).
+-- Carrying the timestamp here keeps that comparison on the index rather than
+-- sending every candidate row to a heap fetch. It replaced a trailing run_id,
+-- which encoded the FALSE premise that a call's pre-pause start always shares
+-- its pause's run; that holds only when a step gates exactly one call (BST-1440).
+--
+-- RENAMED, and the rename IS the upgrade mechanism. CREATE INDEX IF NOT EXISTS
+-- keys off the NAME, not the definition: reusing the old
+-- ..._approval_answer_idx name would silently no-op on every database created
+-- before this change, leaving it on the run_id shape forever while the query
+-- still returned correct rows and heap-filtered timestamps on every
+-- run_events notify. A fresh-PGlite test cannot see that, because it never has
+-- the old index to begin with. So the new shape gets a new name, and the old
+-- one is dropped explicitly — cheap on every later init, since a DROP INDEX IF
+-- EXISTS on an absent index is just a catalog check. The upgrade path itself is
+-- covered in use-threads-awaiting-approval.integration.test.ts.
+DROP INDEX IF EXISTS brainstrike_assistant_run_events_approval_answer_idx;
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_answer_at_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id, (metadata->>'toolCallId'), occurred_at)
+  WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported');
+
 -- Terminal provider forensics (Flight Recorder P3). Bootstrapped here and
 -- created by migration 076; keep the table/index shape byte-identical to that
 -- migration. There is intentionally no FK because the numbered runner has no
@@ -1274,7 +1349,14 @@ const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>()
 const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
 const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
+  'checkoutBranch',
+  'checkoutLocalRootId',
+  'checkoutMode',
+  'checkoutWorktreeId',
+  'checkoutWorktreePath',
   'color',
+  'forgePrUrl',
+  'forgePrWatch',
   'icon',
   'model',
   'modelSettings',
@@ -1283,6 +1365,7 @@ const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
   'operatingRootPath',
   'provider',
   'providerOptions',
+  'secondaryRootIds',
   'source',
 ]);
 
@@ -1443,6 +1526,10 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
 function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
@@ -1479,6 +1566,29 @@ function optionalOperatingRootMetadataString(
   return value;
 }
 
+function optionalSecondaryRootIds(value: unknown): readonly string[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant thread metadata secondary root ids.');
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    // Trim-empty matches `optionalString`'s semantics: a whitespace-only id is
+    // no id at all, so it is rejected rather than silently persisted.
+    if (typeof entry !== 'string' || !entry.trim()) {
+      throw new Error('Invalid assistant thread metadata secondary root ids.');
+    }
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      ids.push(entry);
+    }
+  }
+  return ids;
+}
+
 function assertOptionalThreadMetadataString(value: string | undefined, label: string): void {
   if (value !== undefined && !optionalString(value)) {
     throw new Error(`Invalid assistant thread metadata ${label}.`);
@@ -1501,13 +1611,128 @@ function assertCompleteOperatingRootMetadata(metadata: {
   }
 }
 
+const CHECKOUT_MODES = new Set(['local', 'worktree']);
+
+function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== 'string' || !CHECKOUT_MODES.has(value)) {
+    throw new Error('Invalid assistant thread metadata checkout mode.');
+  }
+  return value as 'local' | 'worktree';
+}
+
+/**
+ * All-or-nothing validation for the thread's checkout, mirroring
+ * `assertCompleteOperatingRootMetadata`.
+ *
+ * `checkoutWorktreeId` is the AUTHORITY in worktree mode (exactly like
+ * `operatingRootId` is for the folder binding), `checkoutWorktreePath` is the
+ * display hint the chip's tooltip renders, and `checkoutLocalRootId` is the
+ * durable root a later hand-off restores. New worktree writes need all three:
+ * an id with no path renders a chip with nothing to show, a path with no id has
+ * no durable identity to resolve, and a missing Local root would lose the
+ * durable hand-off target. Reads tolerate only that last omission for legacy
+ * rows, allowing the explicit warn/toast hand-off path to retain the current
+ * primary folder. A LOCAL checkout carrying any of those keys is not "mostly
+ * right" — it is two contradictory statements about where the thread works,
+ * and it is rejected rather than silently pruned.
+ *
+ * `updateThreadMetadata` owns the key-removal transitions this shape needs.
+ * Every checkout-mode patch removes the per-checkout branch before merging, so
+ * a detached worktree cannot inherit the previous checkout's branch. A patch
+ * specifically to Local also removes both worktree keys and the durable Local
+ * root in the same SQL update. Every non-checkout metadata patch keeps the
+ * repository's ordinary JSONB-merge semantics.
+ */
+interface CheckoutMetadataShape {
+  readonly checkoutBranch?: string | undefined;
+  readonly checkoutLocalRootId?: string | undefined;
+  readonly checkoutMode?: 'local' | 'worktree' | undefined;
+  readonly checkoutWorktreeId?: string | undefined;
+  readonly checkoutWorktreePath?: string | undefined;
+}
+
+function assertCompleteCheckoutMetadata(
+  metadata: CheckoutMetadataShape,
+  requireLocalRootId: boolean
+): void {
+  const hasAnyCheckoutMetadata = Boolean(
+    metadata.checkoutBranch ||
+      metadata.checkoutLocalRootId ||
+      metadata.checkoutMode ||
+      metadata.checkoutWorktreeId ||
+      metadata.checkoutWorktreePath
+  );
+  if (!hasAnyCheckoutMetadata) {
+    return;
+  }
+  if (!metadata.checkoutMode) {
+    throw new Error('Assistant thread checkout metadata is incomplete.');
+  }
+  if (metadata.checkoutMode === 'worktree') {
+    if (
+      !(metadata.checkoutWorktreeId && metadata.checkoutWorktreePath) ||
+      (requireLocalRootId && !metadata.checkoutLocalRootId)
+    ) {
+      throw new Error('Assistant thread checkout metadata is incomplete.');
+    }
+    return;
+  }
+  if (
+    metadata.checkoutLocalRootId ||
+    metadata.checkoutWorktreeId ||
+    metadata.checkoutWorktreePath
+  ) {
+    throw new Error('Assistant thread checkout metadata is inconsistent.');
+  }
+}
+
+function assertCompleteCheckoutMetadataForRead(metadata: CheckoutMetadataShape): void {
+  assertCompleteCheckoutMetadata(metadata, false);
+}
+
+function assertCompleteCheckoutMetadataForWrite(metadata: CheckoutMetadataShape): void {
+  assertCompleteCheckoutMetadata(metadata, true);
+}
+
+function sanitizeCheckoutMetadata(
+  value: Record<string, unknown>
+): Pick<
+  AssistantThreadMetadata,
+  | 'checkoutBranch'
+  | 'checkoutLocalRootId'
+  | 'checkoutMode'
+  | 'checkoutWorktreeId'
+  | 'checkoutWorktreePath'
+> {
+  const checkoutBranch = optionalString(value['checkoutBranch']);
+  const checkoutLocalRootId = optionalString(value['checkoutLocalRootId']);
+  const checkoutMode = optionalCheckoutMode(value['checkoutMode']);
+  const checkoutWorktreeId = optionalString(value['checkoutWorktreeId']);
+  const checkoutWorktreePath = optionalString(value['checkoutWorktreePath']);
+  const checkoutMetadata = {
+    ...(checkoutBranch ? { checkoutBranch } : {}),
+    ...(checkoutLocalRootId ? { checkoutLocalRootId } : {}),
+    ...(checkoutMode ? { checkoutMode } : {}),
+    ...(checkoutWorktreeId ? { checkoutWorktreeId } : {}),
+    ...(checkoutWorktreePath ? { checkoutWorktreePath } : {}),
+  };
+  assertCompleteCheckoutMetadataForRead(checkoutMetadata);
+  return checkoutMetadata;
+}
+
 function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undefined {
   if (!isRecord(value)) {
     return;
   }
   const metadata: MutableAssistantThreadMetadata = {};
+  Object.assign(metadata, sanitizeCheckoutMetadata(value));
   const icon = optionalThreadIconId(value['icon']);
   const color = optionalThreadColorId(value['color']);
+  const forgePrUrl = optionalString(value['forgePrUrl']);
+  const forgePrWatch = optionalBoolean(value['forgePrWatch']);
   const provider = optionalString(value['provider']);
   const model = optionalString(value['model']);
   const modelSettings = optionalRecord(value['modelSettings']);
@@ -1528,6 +1753,7 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   );
   const providerOptions = optionalRecord(value['providerOptions']);
   const source = optionalString(value['source']);
+  const secondaryRootIds = optionalSecondaryRootIds(value['secondaryRootIds']);
   assertCompleteOperatingRootMetadata({
     ...(operatingRootDisplayName ? { operatingRootDisplayName } : {}),
     ...(operatingRootId ? { operatingRootId } : {}),
@@ -1539,6 +1765,12 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   }
   if (color) {
     metadata.color = color;
+  }
+  if (forgePrUrl) {
+    metadata.forgePrUrl = forgePrUrl;
+  }
+  if (forgePrWatch !== undefined) {
+    metadata.forgePrWatch = forgePrWatch;
   }
   if (provider) {
     metadata.provider = provider;
@@ -1557,6 +1789,9 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   }
   if (operatingRootPath) {
     metadata.operatingRootPath = operatingRootPath;
+  }
+  if (secondaryRootIds) {
+    metadata.secondaryRootIds = secondaryRootIds;
   }
   if (providerOptions) {
     metadata.providerOptions = providerOptions;
@@ -1583,6 +1818,16 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   if (metadata.color !== undefined && !ASSISTANT_THREAD_COLOR_ID_SET.has(metadata.color)) {
     throw new Error('Invalid assistant thread metadata color.');
   }
+  optionalCheckoutMode(metadata.checkoutMode);
+  assertCompleteCheckoutMetadataForWrite(metadata);
+  assertOptionalThreadMetadataString(metadata.checkoutBranch, 'checkout branch');
+  assertOptionalThreadMetadataString(metadata.checkoutLocalRootId, 'checkout local root id');
+  assertOptionalThreadMetadataString(metadata.checkoutWorktreeId, 'checkout worktree id');
+  assertOptionalThreadMetadataString(metadata.checkoutWorktreePath, 'checkout worktree path');
+  assertOptionalThreadMetadataString(metadata.forgePrUrl, 'forge pull request URL');
+  if (metadata.forgePrWatch !== undefined && typeof metadata.forgePrWatch !== 'boolean') {
+    throw new Error('Invalid assistant thread metadata forge watch flag.');
+  }
   assertCompleteOperatingRootMetadata(metadata);
   assertOptionalThreadMetadataString(metadata.provider, 'provider');
   assertOptionalThreadMetadataString(metadata.model, 'model');
@@ -1593,12 +1838,55 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   assertOptionalThreadMetadataString(metadata.operatingRootId, 'operating root id');
   assertOptionalThreadMetadataString(metadata.operatingRootPath, 'operating root path');
   assertOptionalThreadMetadataString(metadata.source, 'source');
+  optionalSecondaryRootIds(metadata.secondaryRootIds);
   if (metadata.modelSettings !== undefined && !optionalRecord(metadata.modelSettings)) {
     throw new Error('Invalid assistant thread metadata model settings.');
   }
   if (metadata.providerOptions !== undefined && !optionalRecord(metadata.providerOptions)) {
     throw new Error('Invalid assistant thread metadata provider options.');
   }
+}
+
+/** Checkout transitions are single-thread writes because their key projection is atomic. */
+export function assertBulkThreadMetadataPatch(metadata: AssistantThreadMetadata): void {
+  if (
+    'checkoutBranch' in metadata ||
+    'checkoutLocalRootId' in metadata ||
+    'checkoutMode' in metadata ||
+    'checkoutWorktreeId' in metadata ||
+    'checkoutWorktreePath' in metadata
+  ) {
+    throw new Error('Bulk assistant thread metadata updates cannot change checkout state.');
+  }
+}
+
+/** Test-only seam for the sanitizer — see thread-metadata.test.ts. */
+export function sanitizeThreadMetadataForTest(value: unknown): AssistantThreadMetadata | undefined {
+  return sanitizeThreadMetadata(value);
+}
+
+/** Test-only seam for the persistence assertion — see thread-metadata.test.ts. */
+export function assertPersistableThreadMetadataForTest(metadata: AssistantThreadMetadata): void {
+  assertPersistableThreadMetadata(metadata);
+}
+
+/**
+ * Narrows metadata for persistence: `secondaryRootIds`, when present, is
+ * replaced with its deduped form (see `optionalSecondaryRootIds`) so every
+ * write path — single-thread or bulk — serializes the same normalized shape.
+ * Callers must validate the metadata first (`assertPersistableThreadMetadata`
+ * / `requireNonemptyThreadMetadata`); this does not re-validate.
+ */
+function normalizeThreadMetadataForPersistence(
+  metadata: AssistantThreadMetadata
+): AssistantThreadMetadata {
+  const dedupedSecondaryRootIds = metadata.secondaryRootIds
+    ? optionalSecondaryRootIds(metadata.secondaryRootIds)
+    : undefined;
+  return {
+    ...metadata,
+    ...(dedupedSecondaryRootIds ? { secondaryRootIds: dedupedSecondaryRootIds } : {}),
+  };
 }
 
 function requireAssistantThreadIds(threadIds: readonly string[]): readonly string[] {
@@ -3659,12 +3947,21 @@ export function createPgliteAssistantThreadRepository(
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);
+      const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
+      // Setting any checkout mode is a checkout transition, so its branch is
+      // per-checkout. Only a transition to Local also drops the three keys
+      // whose authority has no meaning after the hand-off.
+      const currentMetadata = metadata.checkoutMode
+        ? metadata.checkoutMode === 'local'
+          ? "COALESCE(metadata, '{}'::jsonb) - 'checkoutBranch' - 'checkoutWorktreeId' - 'checkoutWorktreePath' - 'checkoutLocalRootId'"
+          : "COALESCE(metadata, '{}'::jsonb) - 'checkoutBranch'"
+        : "COALESCE(metadata, '{}'::jsonb)";
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+         SET metadata = (${currentMetadata}) || $2::jsonb
          WHERE id = $1`,
-        [threadId, JSON.stringify(metadata)]
+        [threadId, JSON.stringify(normalized)]
       );
     },
     async updateThreadsMetadata(
@@ -3673,6 +3970,14 @@ export function createPgliteAssistantThreadRepository(
     ): Promise<void> {
       requireAssistantThreadIds(threadIds);
       requireNonemptyThreadMetadata(metadata);
+      // `assertBulkThreadMetadataPatch` first: it names the SPECIFIC reason
+      // (checkout state is a single-thread, atomic write) for the class of
+      // rejection a generic "invalid key" from the broader validator below
+      // would not explain. Both run — the second stays load-bearing beyond
+      // checkout keys (key whitelist, icon/color, string-shape checks).
+      assertBulkThreadMetadataPatch(metadata);
+      assertPersistableThreadMetadata(metadata);
+      const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
       const metadataParameter = threadIds.length + 1;
       const result = await database.query<Record<string, unknown>>(
@@ -3695,7 +4000,7 @@ export function createPgliteAssistantThreadRepository(
          SELECT
           (SELECT all_found FROM validation) AS "allFound",
           (SELECT count(*) FROM updated_threads) AS "updatedThreadCount"`,
-        [...threadIds, JSON.stringify(metadata)]
+        [...threadIds, JSON.stringify(normalized)]
       );
       assertAllBulkThreadsFound(result.rows[0]);
     },

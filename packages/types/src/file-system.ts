@@ -176,6 +176,22 @@ export interface RootDescriptor {
   readonly rootId: RootId;
 }
 
+/**
+ * One entry in the DESKTOP main-process ledger of folders the user has already
+ * granted this app (picker grants and successful restores). It is a grant
+ * record, not a mount: an entry may be currently connected, disconnected, or
+ * temporarily unavailable. It is the sole authorization source for the
+ * picker-less `FileSystemAdapter.addRootByPath`.
+ */
+export interface RecentRootEntry {
+  /** Folder basename, for display only — never an identity. */
+  readonly displayName: string;
+  /** Epoch ms of the most recent grant of this path. */
+  readonly lastGrantedAt: number;
+  /** Absolute, normalized folder path. */
+  readonly path: string;
+}
+
 export interface FileHandle {
   _internal?: unknown;
   kind: 'file';
@@ -327,7 +343,20 @@ export interface FileSystemAdapter {
    * RootId. requestDirectoryAccess() is the legacy single-root shim over this.
    */
   addRoot?(): Promise<RootDescriptor>;
+  /**
+   * Desktop-only: re-mount a PREVIOUSLY GRANTED folder by absolute path, with
+   * no OS picker. Main's recent-roots ledger is the authorization — an unknown
+   * path rejects visibly. Absent on adapters without that ledger (web); the
+   * capability check IS the platform gate (never `isElectron()`).
+   */
+  addRootByPath?(path: string): Promise<RootDescriptor>;
   exists(path: string): Promise<boolean>;
+  /**
+   * Desktop-only: newest-first ledger of previously granted folders (capped in
+   * main). Nothing is filtered out — currently-mounted roots are still recents,
+   * and the caller owns the "already open" presentation decision.
+   */
+  listRecentRoots?(): Promise<readonly RecentRootEntry[]>;
   /**
    * Watcher health capability (BST-568 slice 3, desktop only today).
    * Subscribe to per-root health transitions; the adapter replays the latest

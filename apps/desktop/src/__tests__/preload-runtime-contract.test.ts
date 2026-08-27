@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { BROWSER_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/browser-pane/availability';
 import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
+import { FORGE_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/forge/availability';
 import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
 import { PLATFORM_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/platform-bridge';
 import {
@@ -9,6 +10,8 @@ import {
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
 import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
+import { WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
+import { WORKTREES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/worktrees/availability';
 import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
 import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
@@ -265,7 +268,9 @@ describe('preload runtime contract', () => {
         DESKTOP_PRELOAD_IPC_CHANNELS.diagnostics.getSnapshot,
       FILE_EXPORTS_SAVE_TO_DOWNLOADS_CHANNEL:
         DESKTOP_PRELOAD_IPC_CHANNELS.fileExports.saveToDownloads,
+      FILE_SYSTEM_ADD_ROOT_BY_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.addRootByPath,
       FILE_SYSTEM_EXISTS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.exists,
+      FILE_SYSTEM_LIST_RECENT_ROOTS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.listRecentRoots,
       FILE_SYSTEM_READ_DIRECTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readDirectory,
       FILE_SYSTEM_READ_FILE_BY_ABSOLUTE_PATH_CHANNEL:
         DESKTOP_PRELOAD_IPC_CHANNELS.files.readFileByAbsolutePath,
@@ -278,9 +283,14 @@ describe('preload runtime contract', () => {
       FILE_SYSTEM_UNWATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.unwatch,
       FILE_SYSTEM_WATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.watch,
       FILE_SYSTEM_WATCH_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.files.watchEvent,
+      FORGE_IDENTITY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.identity,
+      FORGE_PR_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.prStatus,
+      FORGE_PR_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.forge.prUpdated,
+      FORGE_REFRESH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.refresh,
       GIT_AHEAD_BEHIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.aheadBehind,
       GIT_COMMIT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commit,
       GIT_COMMIT_FILES_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commitFiles,
+      GIT_CREATE_BRANCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.createBranch,
       GIT_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.diff,
       GIT_FETCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.fetch,
       GIT_HISTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.history,
@@ -341,6 +351,20 @@ describe('preload runtime contract', () => {
       STORAGE_GET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getItem,
       STORAGE_REMOVE_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.removeItem,
       STORAGE_SET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.setItem,
+      WORKSPACE_OPEN_FOLDER_PICKER_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.workspace.openFolderPicker,
+      WORKSPACE_OPEN_PATH_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.workspace.openPath,
+      WORKSPACE_OPEN_PATH_READY_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.workspace.openPathReady,
+      WORKTREES_ADOPT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.adopt,
+      WORKTREES_ARCHIVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.archive,
+      WORKTREES_CHECKOUT_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.checkoutStatus,
+      WORKTREES_CREATE_BRANCH_HERE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.createBranchHere,
+      WORKTREES_CREATE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.create,
+      WORKTREES_CREATE_CONTEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.createContext,
+      WORKTREES_GET_SETTINGS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.getSettings,
+      WORKTREES_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.list,
+      WORKTREES_MANAGED_PATHS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.managedPaths,
+      WORKTREES_RESTORE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.restore,
+      WORKTREES_SET_SETTINGS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.setSettings,
     } as const;
 
     for (const [constantName, channel] of Object.entries(expectedConstants)) {
@@ -364,6 +388,7 @@ describe('preload runtime contract', () => {
       changes: CHANGES_BRIDGE_REQUIRED_METHODS,
       commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
       envBootstrap: ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS,
+      forge: FORGE_BRIDGE_REQUIRED_METHODS,
       git: GIT_BRIDGE_REQUIRED_METHODS,
       notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
@@ -372,6 +397,8 @@ describe('preload runtime contract', () => {
       skills: SKILLS_BRIDGE_REQUIRED_METHODS,
       terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
       userCommands: USER_COMMANDS_BRIDGE_REQUIRED_METHODS,
+      workspace: WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS,
+      worktrees: WORKTREES_BRIDGE_REQUIRED_METHODS,
     };
 
     for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {

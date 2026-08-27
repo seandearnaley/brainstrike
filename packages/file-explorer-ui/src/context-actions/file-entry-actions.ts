@@ -23,7 +23,12 @@ async function copyToClipboard(
   return outcome.ok ? { message: successMessage, ok: true } : outcome;
 }
 
-function revealLabel(): string {
+/**
+ * The platform's name for its file manager. Exported so surfaces outside the
+ * context-action system (the composer workspace bar) label their own reveal
+ * affordance the same way instead of hardcoding an OS name.
+ */
+export function revealLabel(): string {
   const platform = typeof navigator === 'undefined' ? '' : navigator.platform;
   return platform.toLowerCase().startsWith('mac') ? 'Reveal in Finder' : 'Reveal in File Explorer';
 }

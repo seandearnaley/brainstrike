@@ -576,7 +576,15 @@ export async function recordDesktopAssistantHookRunOutcome(
   });
 }
 
-async function recordDesktopAssistantRunEvent(
+/**
+ * EXPORTED for the worktree service (BST-1390), which emits its lifecycle rows
+ * through this same writer and therefore inherits the documented `if (runId)`
+ * gate and the "missing parent row ⇒ 0 rows, silent no-op" behavior (the INSERT
+ * is an `INSERT ... SELECT ... FROM brainstrike_assistant_thread_runs WHERE id
+ * = $runId`, so an unknown/absent runId writes nothing). Do not add a second
+ * INSERT for run events.
+ */
+export async function recordDesktopAssistantRunEvent(
   runId: string,
   event: AssistantRunEvent,
   getDatabase: RunPersistenceDatabaseProvider

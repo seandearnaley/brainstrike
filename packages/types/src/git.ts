@@ -118,3 +118,23 @@ export interface GitCommitFile {
 export interface GitSwitchBranchResult {
   readonly branch: string;
 }
+
+export interface GitCreateBranchResult {
+  readonly branch: string;
+}
+
+/**
+ * The three facts a forge lookup needs from a repository, read in one git
+ * round trip (see `createGitService().forgeRepositoryContext`).
+ *
+ * `remoteReason` is non-null EXACTLY when `remoteUrl` is null: a repository
+ * with no usable remote must say why, never present as "no pull request".
+ */
+export interface GitForgeRepositoryContext {
+  /** `null` on a detached HEAD — a detached checkout drives no branch PR. */
+  readonly branch: string | null;
+  /** Realpath'd git common dir — the repository identity the PR cache keys on. */
+  readonly commonDir: string;
+  readonly remoteReason: string | null;
+  readonly remoteUrl: string | null;
+}

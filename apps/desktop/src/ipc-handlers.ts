@@ -17,6 +17,7 @@ import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
 import type { RuntimeDatabaseCorruptionHandler } from './ipc-domains/runtime-database-corruption';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
+import type { ManagedWorktreeAuthorizer } from './ipc-domains/workspace-recent-roots';
 import { getDesktopDatabaseWorkScheduler } from './platform/desktop-database-work';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
@@ -38,8 +39,10 @@ interface RegisterIpcHandlerOptions {
   readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   /** Explicit test-harness seam for synthetic filesystem adapters. */
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
+  readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
+  readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
 }
 
 /**
@@ -68,6 +71,12 @@ export function registerIpcHandlers(
     getRootsDatabase: async () => (await import('./db-main')).getDatabase(),
     ...(options?.isSyntheticFileSystemPath
       ? { isSyntheticFileSystemPath: options.isSyntheticFileSystemPath }
+      : {}),
+    ...(options?.managedWorktreeAuthorizer
+      ? { managedWorktreeAuthorizer: options.managedWorktreeAuthorizer }
+      : {}),
+    ...(options?.onWorkspaceRootGranted
+      ? { onWorkspaceRootGranted: options.onWorkspaceRootGranted }
       : {}),
     storage,
   });

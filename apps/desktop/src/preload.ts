@@ -1,10 +1,11 @@
 // Electron preload script - must use CommonJS syntax
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 type EmbeddingTelemetrySnapshot =
   import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
 type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
 type Changeset = import('@brainstrike/types').Changeset;
+type WorktreeAdoptParams = import('@brainstrike/types').WorktreeAdoptParams;
 type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
@@ -34,8 +35,10 @@ const DB_QUERY_CHANNEL = 'db:query' as const;
 const DB_RESET_LOCAL_CHANNEL = 'db:resetLocal' as const;
 const DB_TEST_CHANNEL = 'db:test' as const;
 const DB_TRANSACTION_CHANNEL = 'db:transaction' as const;
+const FILE_SYSTEM_ADD_ROOT_BY_PATH_CHANNEL = 'fs:addRootByPath' as const;
 const FILE_SYSTEM_ADD_ROOT_CHANNEL = 'fs:addRoot' as const;
 const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
+const FILE_SYSTEM_LIST_RECENT_ROOTS_CHANNEL = 'fs:listRecentRoots' as const;
 const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
 const FILE_SYSTEM_READ_FILE_BY_ABSOLUTE_PATH_CHANNEL = 'fs:readFileByAbsolutePath' as const;
 const FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL = 'fs:readFileByPath' as const;
@@ -80,6 +83,9 @@ const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
 const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
 const QUICK_OPEN_OPEN_EVENT = 'quick-open:open' as const;
+const WORKSPACE_OPEN_FOLDER_PICKER_EVENT = 'workspace:open-folder-picker' as const;
+const WORKSPACE_OPEN_PATH_EVENT = 'workspace:open-path' as const;
+const WORKSPACE_OPEN_PATH_READY_EVENT = 'workspace:open-path-ready' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
 const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
@@ -109,6 +115,7 @@ const GIT_HISTORY_CHANNEL = 'git:history' as const;
 const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
 const GIT_REPOSITORY_CHANNEL = 'git:repository' as const;
+const GIT_CREATE_BRANCH_CHANNEL = 'git:createBranch' as const;
 const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
 const GIT_STRUCTURED_FILE_DIFF_CHANNEL = 'git:structuredFileDiff' as const;
 const CHANGES_RESOLVE_VIEW_CHANNEL = 'changes:resolveView' as const;
@@ -119,6 +126,21 @@ const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
 const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
 const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
 const CHANGES_INVALIDATED_EVENT = 'changes:invalidated' as const;
+const WORKTREES_ADOPT_CHANNEL = 'worktrees:adopt' as const;
+const WORKTREES_ARCHIVE_CHANNEL = 'worktrees:archive' as const;
+const WORKTREES_CHECKOUT_STATUS_CHANNEL = 'worktrees:checkoutStatus' as const;
+const WORKTREES_CREATE_CHANNEL = 'worktrees:create' as const;
+const WORKTREES_CREATE_BRANCH_HERE_CHANNEL = 'worktrees:createBranchHere' as const;
+const WORKTREES_CREATE_CONTEXT_CHANNEL = 'worktrees:createContext' as const;
+const WORKTREES_GET_SETTINGS_CHANNEL = 'worktrees:getSettings' as const;
+const WORKTREES_LIST_CHANNEL = 'worktrees:list' as const;
+const WORKTREES_MANAGED_PATHS_CHANNEL = 'worktrees:managedPaths' as const;
+const WORKTREES_RESTORE_CHANNEL = 'worktrees:restore' as const;
+const WORKTREES_SET_SETTINGS_CHANNEL = 'worktrees:setSettings' as const;
+const FORGE_IDENTITY_CHANNEL = 'forge:identity' as const;
+const FORGE_PR_STATUS_CHANNEL = 'forge:prStatus' as const;
+const FORGE_REFRESH_CHANNEL = 'forge:refresh' as const;
+const FORGE_PR_UPDATED_EVENT = 'forge:prUpdated' as const;
 // Embedded browser pane (BST-1174).
 const BROWSER_CREATE_TAB_CHANNEL = 'browser:createTab' as const;
 const BROWSER_CLOSE_TAB_CHANNEL = 'browser:closeTab' as const;
@@ -650,8 +672,11 @@ if (shouldExposeBridge('electronAPI')) {
     },
     fileSystem: {
       addRoot: () => ipcRenderer.invoke(FILE_SYSTEM_ADD_ROOT_CHANNEL),
+      addRootByPath: (path: string) =>
+        ipcRenderer.invoke(FILE_SYSTEM_ADD_ROOT_BY_PATH_CHANNEL, path),
       exists: (path: string) => ipcRenderer.invoke(FILE_SYSTEM_EXISTS_CHANNEL, path),
       getWatcherTelemetry: () => ipcRenderer.invoke(FILE_SYSTEM_WATCH_TELEMETRY_CHANNEL),
+      listRecentRoots: () => ipcRenderer.invoke(FILE_SYSTEM_LIST_RECENT_ROOTS_CHANNEL),
       // One-way main→renderer watch pushes (fs:watch-event). Mirrors the other
       // subscribe-returns-unsubscribe bridges (e.g. power.onPowerState).
       onWatchEvent: (
@@ -1054,6 +1079,45 @@ contextBridge.exposeInMainWorld('quickOpen', {
   },
 });
 
+// Low-friction folder connection (BST-1393, spec §7): the app menu's
+// Open Folder… / Open Recent, `brainstrike <path>` argv, macOS open-file, and
+// resolving a Finder-dropped folder to an absolute path. The two `on*` members
+// mirror commandPalette/quickOpen; `getDroppedPath` is preload-local.
+if (shouldExposeBridge('workspace')) {
+  contextBridge.exposeInMainWorld('workspace', {
+    getDroppedPath: (file: File): string => {
+      try {
+        return webUtils.getPathForFile(file);
+      } catch {
+        // Documented throw: the argument was not a File. Reported as "no
+        // path", which the renderer counts and states — never a silent skip.
+        return '';
+      }
+    },
+    // The one renderer→main member of this bridge: fire-and-forget, no
+    // response expected. `WorkspaceConnectHost` calls this the instant it
+    // subscribes to `onOpenPath`, so main can gate delivery on the renderer
+    // actually being ready to receive rather than merely having loaded.
+    notifyOpenPathReady: (): void => {
+      ipcRenderer.send(WORKSPACE_OPEN_PATH_READY_EVENT);
+    },
+    onOpenFolderPicker: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(WORKSPACE_OPEN_FOLDER_PICKER_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(WORKSPACE_OPEN_FOLDER_PICKER_EVENT, listener);
+      };
+    },
+    onOpenPath: (callback: (request: unknown) => void) => {
+      const listener = (_event: unknown, request: unknown) => callback(request);
+      ipcRenderer.on(WORKSPACE_OPEN_PATH_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(WORKSPACE_OPEN_PATH_EVENT, listener);
+      };
+    },
+  });
+}
+
 contextBridge.exposeInMainWorld('embeddingHost', {
   cancelAllBackfills: (): Promise<void> =>
     ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL),
@@ -1274,6 +1338,8 @@ if (shouldExposeBridge('git')) {
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
     commitFiles: (rootId: string, params: { commit: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
+    createBranch: (rootId: string, params: { branch: string; startPoint?: string }) =>
+      ipcRenderer.invoke(GIT_CREATE_BRANCH_CHANNEL, rootId, params),
     diff: (rootId: string, params: GitDiffParams) =>
       ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params),
     fetch: (rootId: string, params: { remote: string }) =>
@@ -1321,7 +1387,11 @@ if (shouldExposeBridge('changes')) {
     finalizeRewinds: (payload: { threadId: string }) =>
       ipcRenderer.invoke(CHANGES_FINALIZE_REWINDS_CHANNEL, payload),
     // Repository/worktree topology for the Changes surface (BST-1114 T0).
-    inventory: () => ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL),
+    // `{ maxAgeMs: 0 }` forces a rebuild that started after the call — the
+    // seam a renderer that just registered a root uses to get its repository
+    // discovered and watched (BST-1397).
+    inventory: (options?: { maxAgeMs?: number }) =>
+      ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL, options),
     // One-way main→renderer live-refresh pushes (changes:invalidated,
     // BST-1161 spec §6): external git activity on a repository. Returns the
     // unsubscribe function (terminal onData precedent).
@@ -1343,6 +1413,63 @@ if (shouldExposeBridge('changes')) {
       ipcRenderer.invoke(CHANGES_RESOLVE_VIEW_CHANNEL, rootId, changeset),
     rewindPreview: (payload: { threadId: string } & ({ messageId: string } | { runId: string })) =>
       ipcRenderer.invoke(CHANGES_REWIND_PREVIEW_CHANNEL, payload),
+  });
+}
+
+// Managed-worktree bridge (desktop-only, BST-1390): create / list / archive /
+// restore linked worktrees and read the managed-directory settings. Web never
+// constructs this bridge, so `window.worktrees` is simply absent there;
+// consumers capability-check it rather than `isElectron()`.
+if (shouldExposeBridge('worktrees')) {
+  contextBridge.exposeInMainWorld('worktrees', {
+    adopt: (params: WorktreeAdoptParams) => ipcRenderer.invoke(WORKTREES_ADOPT_CHANNEL, params),
+    archive: (params: { force?: boolean; runId?: string; worktreeId: string }) =>
+      ipcRenderer.invoke(WORKTREES_ARCHIVE_CHANNEL, params),
+    checkoutStatus: (params: { path: string }) =>
+      ipcRenderer.invoke(WORKTREES_CHECKOUT_STATUS_CHANNEL, params),
+    create: (params: unknown) => ipcRenderer.invoke(WORKTREES_CREATE_CHANNEL, params),
+    createBranchHere: (params: { branch: string; worktreeId: string }) =>
+      ipcRenderer.invoke(WORKTREES_CREATE_BRANCH_HERE_CHANNEL, params),
+    createContext: (params: { rootId: string }) =>
+      ipcRenderer.invoke(WORKTREES_CREATE_CONTEXT_CHANNEL, params),
+    getSettings: () => ipcRenderer.invoke(WORKTREES_GET_SETTINGS_CHANNEL),
+    list: () => ipcRenderer.invoke(WORKTREES_LIST_CHANNEL),
+    listManagedPaths: () => ipcRenderer.invoke(WORKTREES_MANAGED_PATHS_CHANNEL),
+    restore: (params: { worktreeId: string }) =>
+      ipcRenderer.invoke(WORKTREES_RESTORE_CHANNEL, params),
+    setSettings: (params: {
+      managedDirectory: string | null;
+      setupCommand: readonly string[] | null | 'disabled';
+    }) => ipcRenderer.invoke(WORKTREES_SET_SETTINGS_CHANNEL, params),
+  });
+}
+
+// Forge (pull request) bridge (desktop-only, BST-1391): PR identity + status
+// for a workspace root, backed by the main-process ForgeService and the `gh`
+// CLI. Web never constructs this bridge (there is no preload), so
+// `window.forge` is simply absent there; consumers must capability-check
+// `window.forge` rather than `isElectron()`.
+if (shouldExposeBridge('forge')) {
+  contextBridge.exposeInMainWorld('forge', {
+    identity: (rootId: string) => ipcRenderer.invoke(FORGE_IDENTITY_CHANNEL, rootId),
+    // One-way main→renderer pushes (forge:prUpdated): a forge observation
+    // changed. Returns the unsubscribe function (changes.onInvalidated
+    // precedent).
+    onPrUpdated: (callback: (event: import('@brainstrike/types').ForgePrUpdatedEvent) => void) => {
+      const listener = (
+        _event: unknown,
+        payload: import('@brainstrike/types').ForgePrUpdatedEvent
+      ) => callback(payload);
+      ipcRenderer.on(FORGE_PR_UPDATED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(FORGE_PR_UPDATED_EVENT, listener);
+      };
+    },
+    prStatus: (rootId: string) => ipcRenderer.invoke(FORGE_PR_STATUS_CHANNEL, rootId),
+    refresh: (
+      rootId: string,
+      params: { readonly reason: import('@brainstrike/types').ForgeRendererRefreshReason }
+    ) => ipcRenderer.invoke(FORGE_REFRESH_CHANNEL, rootId, params),
   });
 }
 
@@ -1461,7 +1588,7 @@ if (shouldExposeBridge('assistantPersonas')) {
 // `window.terminal`. The xterm UI lands in the next PR.
 if (shouldExposeBridge('terminal')) {
   contextBridge.exposeInMainWorld('terminal', {
-    create: (params: { rootId: string; cols?: number; rows?: number }) =>
+    create: (params: { rootId: string; cwd?: string; cols?: number; rows?: number }) =>
       ipcRenderer.invoke(TERMINAL_CREATE_CHANNEL, params),
     destroy: (params: { terminalId: string }) =>
       ipcRenderer.invoke(TERMINAL_DESTROY_CHANNEL, params),

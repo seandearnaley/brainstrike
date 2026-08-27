@@ -517,6 +517,41 @@ describe('useAssistantThreadGroupsStore', () => {
     });
   });
 
+  // The symmetric half of `deleteGroup`'s prune: folder sections mint their own
+  // collapse keys (`folder:${rootId}`), and nothing deletes them when the root
+  // behind one is gone.
+  it('prunes folder collapse keys for roots that no longer have a section', () => {
+    useAssistantThreadGroupsStore.setState({
+      collapsedGroupIds: {
+        'folder-unassigned': true,
+        'folder:root-gone': true,
+        'folder:root-live': true,
+        'group-1': true,
+      },
+    });
+
+    useAssistantThreadGroupsStore.getState().pruneFolderCollapseIds(['root-live']);
+
+    expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({
+      // The "No folder" sentinel is not keyed by a root and always exists.
+      'folder-unassigned': true,
+      'folder:root-live': true,
+      // A GROUP key is not this action's business — `deleteGroup` owns those.
+      'group-1': true,
+    });
+  });
+
+  it('leaves the collapse record untouched when nothing needs pruning', () => {
+    useAssistantThreadGroupsStore.setState({
+      collapsedGroupIds: { 'folder:root-live': true, 'group-1': true },
+    });
+    const before = useAssistantThreadGroupsStore.getState().collapsedGroupIds;
+
+    useAssistantThreadGroupsStore.getState().pruneFolderCollapseIds(['root-live']);
+
+    expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toBe(before);
+  });
+
   it('toggles group collapse and updates independent view preferences', () => {
     const store = useAssistantThreadGroupsStore.getState();
 
@@ -542,6 +577,7 @@ describe('useAssistantThreadGroupsStore', () => {
     ).toEqual({
       collapsedGroupIds: { 'group-1': true },
       flatSortBy: 'name',
+      folderSortBy: 'recency',
       groupBy: 'none',
       groupedSortBy: 'name',
     });
@@ -553,12 +589,104 @@ describe('useAssistantThreadGroupsStore', () => {
     ).toThrow('Invalid persisted thread sort: oldest.');
   });
 
+  it('adds the default folder sort to a version-2 blob and keeps folder grouping', () => {
+    expect(
+      migrateAssistantThreadGroupsPersistedState(
+        {
+          collapsedGroupIds: {},
+          flatSortBy: 'recency',
+          groupBy: 'folder',
+          groupedSortBy: 'name',
+        },
+        2
+      )
+    ).toEqual({
+      collapsedGroupIds: {},
+      flatSortBy: 'recency',
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      groupedSortBy: 'name',
+    });
+  });
+
+  it('rejects a malformed persisted folder sort instead of guessing', () => {
+    expect(() =>
+      migrateAssistantThreadGroupsPersistedState(
+        {
+          collapsedGroupIds: {},
+          flatSortBy: 'recency',
+          folderSortBy: 'custom',
+          groupBy: 'folder',
+          groupedSortBy: 'recency',
+        },
+        3
+      )
+    ).toThrow('Invalid persisted thread folder sort: custom.');
+  });
+
+  it('persists the folder sort but keeps session filters out of storage', () => {
+    const store = useAssistantThreadGroupsStore.getState();
+
+    expect(useAssistantThreadGroupsStore.getState().folderSortBy).toBe('recency');
+    store.setFolderSortBy('name');
+    store.setGroupBy('folder');
+    expect(useAssistantThreadGroupsStore.getState().folderSortBy).toBe('name');
+    expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('folder');
+
+    const partialize = useAssistantThreadGroupsStore.persist.getOptions().partialize;
+    if (!partialize) {
+      throw new Error('expected a partialize');
+    }
+    expect(partialize(useAssistantThreadGroupsStore.getState())).toEqual({
+      collapsedGroupIds: {},
+      flatSortBy: 'recency',
+      folderSortBy: 'name',
+      groupBy: 'folder',
+      groupedSortBy: 'recency',
+    });
+  });
+
+  it('toggles session thread filters and clears them wholesale', () => {
+    const store = useAssistantThreadGroupsStore.getState();
+
+    expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      hasPr: false,
+      needsYou: false,
+      running: false,
+      unseen: false,
+    });
+
+    store.setThreadFilter('hasPr', true);
+    store.setThreadFilter('running', true);
+    store.setThreadFilter('unseen', true);
+    expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      hasPr: true,
+      needsYou: false,
+      running: true,
+      unseen: true,
+    });
+
+    store.setThreadFilter('running', false);
+    expect(useAssistantThreadGroupsStore.getState().threadFilters.running).toBe(false);
+
+    store.setThreadFilter('needsYou', true);
+    useAssistantThreadGroupsStore.getState().clearThreadFilters();
+    expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      hasPr: false,
+      needsYou: false,
+      running: false,
+      unseen: false,
+    });
+  });
+
   it('reset restores defaults', async () => {
     const repository = makeRepository({ groups: [makeGroup({ id: 'group-1', rank: 'a0' })] });
     const store = useAssistantThreadGroupsStore.getState();
     await store.ensureGroups(repository, RESOURCE_ID);
     store.setSortBy('flat', 'name');
     store.setSortBy('grouped', 'custom');
+    store.setFolderSortBy('name');
+    store.setThreadFilter('running', true);
     store.toggleGroupCollapsed('group-1');
 
     useAssistantThreadGroupsStore.getState().reset();
@@ -568,7 +696,14 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(state.placementsByThreadId).toEqual({});
     expect(state.flatSortBy).toBe('recency');
     expect(state.groupedSortBy).toBe('recency');
+    expect(state.folderSortBy).toBe('recency');
     expect(state.groupBy).toBe('custom-groups');
     expect(state.collapsedGroupIds).toEqual({});
+    expect(state.threadFilters).toEqual({
+      hasPr: false,
+      needsYou: false,
+      running: false,
+      unseen: false,
+    });
   });
 });

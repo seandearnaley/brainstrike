@@ -260,6 +260,22 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     loadingTier: 'deferred',
     requiresApproval: false,
   },
+  // Read-only orientation. Deliberately NOT execute-risk even though its
+  // siblings mutate: an agent must be able to answer "which worktrees exist"
+  // while plan mode is suspending mutations, and `resolveToolRiskCategory`
+  // derives 'read' from `category: 'analysis'` + no approval only when the
+  // classification is honest. It touches no worktree and runs no git mutation —
+  // WorktreeService.list() is inventory ⋈ ledger.
+  [NATIVE_TOOL_ID.listWorktrees]: {
+    category: 'analysis',
+    // Measured 113 authored definition tokens (native-tool-prompt-budget.test.ts,
+    // BST-1392) — matching neighbours are honest about the real cost since the
+    // settings Tools page renders this verbatim (unified-tools-settings.tsx).
+    estimatedTokens: 115,
+    loadingTier: 'deferred',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   // Semantic code inspection at a cursor (report R2 Phase B): hover type,
   // line diagnostics, definition, and implementation via a bundled language
   // server. Read-only (no mutation), so 'read' risk + no approval like the
@@ -308,6 +324,23 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
+  },
+  // Creates and archives real linked worktrees on disk (spec §6.4: "execute-risk
+  // → permission engine"). `create` forks a `git worktree add` and may run the
+  // repository's setup command; `archive` removes a directory after capturing a
+  // restorable snapshot. Both are approval-gated for the same reason
+  // `manageCommandSession` is: the model is asking the host to run git against
+  // the user's checkout. The read-only listing lives in its OWN tool
+  // (`listWorktrees`) precisely so this classification can stay strict.
+  [NATIVE_TOOL_ID.manageWorktree]: {
+    category: 'action',
+    // Measured 278 authored definition tokens (native-tool-prompt-budget.test.ts,
+    // BST-1392) — matching neighbours are honest about the real cost since the
+    // settings Tools page renders this verbatim (unified-tools-settings.tsx).
+    estimatedTokens: 280,
+    loadingTier: 'deferred',
+    requiresApproval: true,
+    riskCategory: 'execute',
   },
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: {
     category: 'retrieval',

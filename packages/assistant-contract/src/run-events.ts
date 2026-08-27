@@ -19,6 +19,23 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'memory.semantic.started',
   'memory.working.loaded',
   'memory.working.updated',
+  // Forge (pull request) observations (BST-1391, W4). These are the ONLY run
+  // events not produced by the agent stream: the main-process ForgeService
+  // observes them out of band and the renderer appends them to the thread's
+  // MOST RECENT run — the run whose push produced the pull request.
+  //
+  // `run_id` is NOT NULL with an FK to the renderer-bootstrapped thread-runs
+  // table, so a thread with no runs gets no row: there is no turn to attach
+  // the observation to, and `appendThreadRunEvent`'s INSERT … SELECT no-ops.
+  // The chip and the thread pill still show the PR — only the timeline row is
+  // absent, and the writer logs that it was.
+  //
+  // Deliberately three kinds rather than one `pr.updated`: the timeline reads
+  // as a history ("Opened #2574", "Checks failed", "Merged"), and the
+  // notification gate is per-kind.
+  'pr.checks',
+  'pr.merged',
+  'pr.opened',
   'run.cancelled',
   'run.database.retried',
   'run.failed',
@@ -44,6 +61,37 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'subagent.tool.completed',
   'subagent.tool.failed',
   'subagent.tool.started',
+  // The approval PAUSE itself, as a durable event (BST-1402). The pause is NOT
+  // otherwise unrecorded: a STILL-PENDING one is rediscovered on load from the
+  // Mastra suspended-workflow snapshot (`listSuspendedMastraRuns` +
+  // `appendSuspendedPauseMessages`), which re-appends the real actionable
+  // `brainstrike.tool-approval` notice. This row exists for the two things that
+  // rediscovery cannot do:
+  //   1. It is a CHEAP CROSS-THREAD PROJECTION SURFACE. The Threads panel's
+  //      "needs you" column is one SQL query over
+  //      `brainstrike_assistant_run_events`; rediscovery is a per-thread round
+  //      trip through workflow storage and cannot be run for every thread in a
+  //      list.
+  //   2. It records pauses that were LATER ANSWERED. Rediscovery only ever
+  //      surfaces snapshots that are still suspended, so without this row the
+  //      history of "this run stopped and asked" disappears the moment the user
+  //      answers.
+  //
+  // Deliberately NOT spelled `.started`, and deliberately WITHOUT a resolution
+  // counterpart. No tool ran: a `.started` spelling would make
+  // `collectToolDurations` clock the USER's deliberation as tool execution and
+  // would pair the pause against `tool.completed` as if a call had run, while
+  // `RUN_LEDGER_AGGREGATION_SQL` counts only `tool.completed`/`tool.failed`, so
+  // this is never a tool call in the Task Ledger either. Resolution is DERIVED
+  // from events that already exist — the next event for the SAME
+  // `metadata.toolCallId` (approve => the resumed stream re-yields the tool
+  // start and eventually `tool.completed`; decline => `tool.failed`, "Tool call
+  // declined"; unanswerable => `tool.resume.unsupported`). The run status is
+  // NOT a resolution signal: the paused leg is recorded `completed` (it returns
+  // `finished` at the pause), so "the run left `status = 'running'`" is true the
+  // instant the pause is written. A `tool.approval.resolved` kind would be a second
+  // source of truth for a fact those terminals already carry.
+  'tool.approval.requested',
   'tool.completed',
   'tool.failed',
   // A suspending tool paused a run this build has no registered resume UI for
@@ -55,6 +103,20 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // timeline / duration pairings while the tool is still suspended.
   'tool.resume.unsupported',
   'tool.started',
+  // Managed-worktree lifecycle (BST-1390). Standalone breadcrumbs, emitted
+  // `status: 'info'` (or `'failed'` for a failed setup) — deliberately NOT
+  // `.started` kinds: a worktree create/archive is atomic from the timeline's
+  // point of view and has no terminal to pair against, so a `.started`
+  // spelling would leave a row spinning for the rest of the run.
+  //
+  // They exist ONLY for operations that happen inside a run. A worktree created
+  // before the thread's first request has no run row to attach to, and no
+  // orphan event is invented for it: the create sheet reports the outcome and
+  // `brainstrike_worktrees` is the durable record. See
+  // docs/agents/assistant-persistence.md.
+  'worktree.archived',
+  'worktree.created',
+  'worktree.setup',
 ] as const;
 
 export type AssistantRunEventKind = (typeof ASSISTANT_RUN_EVENT_KINDS)[number];

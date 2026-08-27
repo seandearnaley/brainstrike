@@ -122,4 +122,37 @@ describe('createAppActionRegistry', () => {
       'assistant-thread.copy-id',
     ]);
   });
+
+  it('composes the workspace-root actions, gated by the platform bridge', () => {
+    const webRegistry = createAppActionRegistry();
+    const webIds = webRegistry
+      .actionsFor({
+        displayName: 'notes',
+        isMain: false,
+        kind: 'workspace-root',
+        path: null,
+        rootId: 'root-web-1',
+      })
+      .flatMap((group) => group.actions.map((action) => action.id));
+    // Web: no platform bridge (no Reveal) AND no path (no Copy Path). The
+    // menu is empty, which ActionContextMenu renders as NO menu at all.
+    expect(webIds).toEqual([]);
+
+    (window as MutableWindow).platform = {
+      openExternal: vi.fn(),
+      openPath: vi.fn(),
+      showItemInFolder: vi.fn(),
+    };
+    const desktopRegistry = createAppActionRegistry();
+    const desktopIds = desktopRegistry
+      .actionsFor({
+        displayName: 'brainstrike',
+        isMain: true,
+        kind: 'workspace-root',
+        path: '/Users/dev/GitHub/brainstrike',
+        rootId: 'root-1',
+      })
+      .flatMap((group) => group.actions.map((action) => action.id));
+    expect(desktopIds).toEqual(['workspace-root.copy-path', 'workspace-root.reveal']);
+  });
 });

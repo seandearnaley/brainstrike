@@ -519,8 +519,14 @@ export interface GitInventoryService {
    * THROWS on a malformed `maxAgeMs` (non-finite or negative). A bad TTL is a
    * caller bug, and silently coercing it would either pin the cache forever
    * (`Infinity`) or force a rebuild on every call (`NaN`) with no signal —
-   * exactly the silent degradation this codebase forbids. `maxAgeMs: 0` is
-   * valid and means "force a fresh build".
+   * exactly the silent degradation this codebase forbids.
+   *
+   * `maxAgeMs: 0` is valid and FORCED: it guarantees a build that STARTED
+   * AFTER the call, so a caller that just wrote a `roots` row can rely on the
+   * result having seen it. That means it opts out of the coalescing above —
+   * an in-flight build's `loadRoots()` already ran, so it is awaited and then
+   * ONE more build runs. At most one extra build per forced call, and forced
+   * calls arriving before that follow-up starts all share it (BST-1397).
    *
    * THROWS a typed {@link GitInventoryStoppedError} (`code: 'inventory-stopped'`)
    * for any call made after `stop()` and before the next `start()` — this
@@ -602,6 +608,12 @@ export function createGitInventoryService(
   // regardless of maxAgeMs, instead of serving a nonexistent cache.
   let dirty = true;
   let inFlightBuild: Promise<GitInventorySnapshot> | null = null;
+  // The follow-up build a forced (`maxAgeMs: 0`) call scheduled behind the
+  // build that was already in flight when it arrived, or `null` when none is
+  // scheduled (BST-1397). Every forced call that lands before that follow-up
+  // STARTS shares it — one extra build for the whole batch, not one per
+  // caller. See `awaitForcedFollowUp()`.
+  let forcedFollowUpBuild: Promise<GitInventorySnapshot> | null = null;
   // The AbortController for whichever build `inFlightBuild` currently points
   // at, if any (BST-1112 review, codex P1 3712467640). stop() aborts it so a
   // build blocked on a slow walk/git spawn unblocks (or at least stops doing
@@ -700,6 +712,71 @@ export function createGitInventoryService(
     return snapshot;
   }
 
+  /** Starts a build NOW and publishes it as the one every concurrent
+   * `getSnapshot()` coalesces onto. */
+  async function startTrackedBuild(): Promise<GitInventorySnapshot> {
+    // Whatever forced follow-up was queued is no later than this build, so it
+    // is no longer a valid thing to coalesce a NEW forced call onto: that
+    // caller needs a build starting after IT. Released here — at the one
+    // place a build begins — rather than from inside the follow-up's own
+    // continuation, which would have to compare promise identities to know
+    // whether the slot still belonged to it.
+    forcedFollowUpBuild = null;
+    const buildPromise = rebuild();
+    inFlightBuild = buildPromise;
+    try {
+      return await buildPromise;
+    } finally {
+      if (inFlightBuild === buildPromise) {
+        inFlightBuild = null;
+      }
+    }
+  }
+
+  /**
+   * Guarantees the caller a build that STARTED AFTER its call (BST-1397).
+   *
+   * The plain coalescing branch is wrong for a forced call: the in-flight
+   * build's `deps.loadRoots()` already ran, so its result cannot contain the
+   * `roots` row the caller just wrote — which is the entire reason it forced
+   * a refresh. Awaiting that build and then running ONE more is the only way
+   * to serve a snapshot that saw the change, short of cancelling and
+   * restarting the in-flight build (which would penalise its own callers).
+   *
+   * Waits for the in-flight build to SETTLE — success or failure — because
+   * the two builds share `deps` and running them concurrently would double
+   * the git spawn rate `buildInventorySnapshot` deliberately bounds.
+   */
+  function awaitForcedFollowUp(
+    current: Promise<GitInventorySnapshot>
+  ): Promise<GitInventorySnapshot> {
+    if (forcedFollowUpBuild) {
+      return forcedFollowUpBuild;
+    }
+    const myGeneration = generation;
+    const followUp = current
+      .then(
+        () => undefined,
+        () => undefined
+      )
+      .then(() => {
+        // stop() may have run while the build above was draining — either
+        // still torn down (`stopped`), or already restarted into a lifecycle
+        // this caller never asked about (`generation` moved). Same rule as
+        // getSnapshot()'s prologue: report the teardown, do not build.
+        if (stopped || generation !== myGeneration) {
+          throw new GitInventoryStoppedError();
+        }
+        // The build we just waited on cleared `dirty` when it started, so a
+        // change that landed after it began would otherwise leave the cache
+        // looking clean. Re-dirty so this build is unconditional.
+        dirty = true;
+        return startTrackedBuild();
+      });
+    forcedFollowUpBuild = followUp;
+    return followUp;
+  }
+
   async function getSnapshot(opts?: { readonly maxAgeMs?: number }): Promise<GitInventorySnapshot> {
     const maxAgeMs = opts?.maxAgeMs ?? GIT_INVENTORY_SNAPSHOT_TTL_MS;
     if (!Number.isFinite(maxAgeMs) || maxAgeMs < 0) {
@@ -718,20 +795,20 @@ export function createGitInventoryService(
       throw new GitInventoryStoppedError();
     }
     if (inFlightBuild) {
-      return withLiveHealthErrors(await inFlightBuild);
+      // `maxAgeMs: 0` is the documented "force a fresh build" value, and a
+      // caller that just wrote a `roots` row means it literally: see
+      // awaitForcedFollowUp().
+      return withLiveHealthErrors(
+        await (maxAgeMs === 0 ? awaitForcedFollowUp(inFlightBuild) : inFlightBuild)
+      );
     }
+    // `maxAgeMs: 0` can never satisfy this — `Date.now() - capturedAt` is
+    // never negative — so a forced call with no build in flight falls through
+    // to a build of its own below.
     if (!dirty && cachedSnapshot && Date.now() - cachedSnapshot.capturedAt < maxAgeMs) {
       return withLiveHealthErrors(cachedSnapshot);
     }
-    const buildPromise = rebuild();
-    inFlightBuild = buildPromise;
-    try {
-      return withLiveHealthErrors(await buildPromise);
-    } finally {
-      if (inFlightBuild === buildPromise) {
-        inFlightBuild = null;
-      }
-    }
+    return withLiveHealthErrors(await startTrackedBuild());
   }
 
   function start(): void {
@@ -846,6 +923,11 @@ export function createGitInventoryService(
     generation += 1;
     const pendingBuild = inFlightBuild;
     inFlightBuild = null;
+    // A follow-up queued behind `pendingBuild` belongs to the lifecycle being
+    // torn down: leaving it in the slot would let a forced call made after
+    // the next start() coalesce onto a build scheduled before that call ever
+    // happened. Its own continuation still runs and rejects on `stopped`.
+    forcedFollowUpBuild = null;
     const toDispose = watchers;
     watchers = null;
     if (pendingBuild) {

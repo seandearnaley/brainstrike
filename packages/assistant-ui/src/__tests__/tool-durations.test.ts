@@ -49,6 +49,21 @@ describe('collectToolDurations', () => {
     expect(collectToolDurations([{ toolCallId: 'x', type: 'tool-call' }])).toEqual({});
   });
 
+  it("never times the USER's deliberation on an approval pause (BST-1402)", () => {
+    // `tool.approval.requested` shares the paused call's `toolCallId` but is NOT
+    // a lifecycle start: no tool ran. It must neither open a duration window
+    // (which would clock the user's thinking as tool execution once the resumed
+    // call completes) nor close one. Only `tool.started` opens; only
+    // `tool.completed`/`tool.failed` close.
+    expect(
+      collectToolDurations([
+        toolEvent('tool.approval.requested', 'gated', '2026-06-16T10:00:00.000Z'),
+        toolEvent('tool.started', 'gated', '2026-06-16T10:00:30.000Z'),
+        toolEvent('tool.completed', 'gated', '2026-06-16T10:00:30.400Z'),
+      ])
+    ).toEqual({ gated: 400 });
+  });
+
   it('does NOT close out a tool that is still suspended server-side (BST-558)', () => {
     // The unanswerable-pause rejection must not be mistaken for a terminal tool
     // event: the tool is still suspended (`runStillSuspended: true`), and a
@@ -95,9 +110,23 @@ describe('collectToolDurations — producer-measured durations', () => {
   });
 
   it('does not need the start event to have survived', () => {
-    // The resume leg emits `tool.completed` FIRST and no second `tool.started`.
-    // On a reloaded thread the start event may also be outside the window.
+    // On a reloaded thread the start event may be outside the window, and a
+    // pre-BST-1440 resume leg carried no start of its own at all.
     const result = collectToolDurations([
+      measuredEvent('tool.completed', 'a', '2026-06-16T10:05:02.000Z', 2000),
+    ]);
+    expect(result).toEqual({ a: 2000 });
+  });
+
+  it('ignores the resume leg start when a measurement is present', () => {
+    // BST-1440 made the resume leg synthesise its own `tool.started` so the
+    // "needs you" signal can clear on ANSWER. This is the normal path for
+    // anything this build produces, and the extra start must stay INERT:
+    // `durationMs` wins before `startedAt` is consulted. Were that not so, a
+    // status-glyph change would have silently altered every displayed duration.
+    const result = collectToolDurations([
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      toolEvent('tool.started', 'a', '2026-06-16T10:05:00.000Z'),
       measuredEvent('tool.completed', 'a', '2026-06-16T10:05:02.000Z', 2000),
     ]);
     expect(result).toEqual({ a: 2000 });
@@ -119,6 +148,21 @@ describe('collectToolDurations — producer-measured durations', () => {
       toolEvent('tool.completed', 'a', '2026-06-16T10:00:01.200Z'),
     ]);
     expect(result).toEqual({ a: 1200 });
+  });
+
+  it('clocks the resumed execution, not the approval wait, on the fallback path', () => {
+    // The un-measured approval case, which USED to be unrepairable: the only
+    // start was the pausing leg's, so the delta swallowed the human's
+    // deliberation. Since BST-1440 the resume leg contributes its own
+    // `tool.started`, which overwrites that entry (parts are in append order),
+    // so this path is now MORE accurate than before rather than less.
+    // Five-minute approval, two-second script ⇒ two seconds.
+    const result = collectToolDurations([
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      toolEvent('tool.started', 'a', '2026-06-16T10:05:00.000Z'),
+      toolEvent('tool.completed', 'a', '2026-06-16T10:05:02.000Z'),
+    ]);
+    expect(result).toEqual({ a: 2000 });
   });
 
   it('ignores a NEGATIVE duration rather than trusting it', () => {

@@ -98,6 +98,10 @@ import { migration105EmbeddingJobInputHash } from '../migrations/105-embedding-j
 import { migration106OpenRouterMuseSpark12 } from '../migrations/106-openrouter-muse-spark-1-2.js';
 import { migration107OpenRouterOxAlpha } from '../migrations/107-openrouter-ox-alpha.js';
 import { migration108OpenRouterGlm53 } from '../migrations/108-openrouter-glm-5-3.js';
+import { migration109Worktrees } from '../migrations/109-worktrees.js';
+import { migration110ForgePrCache } from '../migrations/110-forge-pr-cache.js';
+import { migration111RootsWorktreeKind } from '../migrations/111-roots-worktree-kind.js';
+import { migration112WorktreeSetupReason } from '../migrations/112-worktree-setup-reason.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -340,6 +344,10 @@ const customMigrations: Migration[] = [
   customMigration('custom-106-openrouter-muse-spark-1-2', migration106OpenRouterMuseSpark12),
   customMigration('custom-107-openrouter-ox-alpha', migration107OpenRouterOxAlpha),
   customMigration('custom-108-openrouter-glm-5-3', migration108OpenRouterGlm53),
+  customMigration('custom-109-worktrees', migration109Worktrees),
+  customMigration('custom-110-forge-pr-cache', migration110ForgePrCache),
+  customMigration('custom-111-roots-worktree-kind', migration111RootsWorktreeKind),
+  customMigration('custom-112-worktree-setup-reason', migration112WorktreeSetupReason),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

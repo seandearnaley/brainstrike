@@ -84,6 +84,10 @@ import { recordDesktopContinuationRunTreatment } from './assistant-server/run-tr
 import { respondToSecretReadError } from './assistant-server/secret-error-responses';
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
 import type { AssistantServerOptions } from './assistant-server/server-options';
+import {
+  createShellCorrelation,
+  type ShellCorrelationCapability,
+} from './assistant-server/shell-worktree-correlation';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import {
@@ -113,6 +117,7 @@ import {
   getWorkspaceRoots,
 } from './assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
+import type { WorktreeToolCapability } from './assistant-server/worktree-tools';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
@@ -513,6 +518,70 @@ function resolveTurnBoundariesForRun(
   });
 }
 
+/**
+ * `createdBy: 'agent'` and the run/thread ids are bound HERE, never taken from
+ * tool input: provenance the model can set is provenance the model can forge.
+ */
+function buildDesktopToolDependencies(
+  options: AssistantServerOptions,
+  // `runId` matches StreamInitializer's actual param shape (ports.ts): a
+  // REQUIRED key whose value may be undefined, not an optional key — under
+  // exactOptionalPropertyTypes the two are not interchangeable, and the real
+  // `core` passed at the call site always carries the key.
+  core: { readonly runId: string | undefined; readonly runtimeData?: RuntimeData }
+): { shellCorrelation?: ShellCorrelationCapability; worktreeTools?: WorktreeToolCapability } {
+  const service = options.resolveWorktreeService?.() ?? null;
+  const forge = options.resolveForgeService?.() ?? null;
+  const runId = core.runId;
+  const threadId = core.runtimeData?.memory?.threadId;
+  const worktreeTools: WorktreeToolCapability | undefined = service
+    ? {
+        archive: (params) => service.archive({ ...params, ...(runId ? { runId } : {}) }),
+        create: (params) =>
+          service.create({
+            ...params,
+            branch: { name: params.branch },
+            createdBy: 'agent',
+            ...(runId ? { runId } : {}),
+            ...(threadId ? { threadId } : {}),
+          }),
+        list: () => service.list(),
+      }
+    : undefined;
+  const shellCorrelation: ShellCorrelationCapability | undefined =
+    service || forge
+      ? createShellCorrelation({
+          forgeRefresh: (rootId) => {
+            // `refresh` returns a Promise; `void`-ing the call alone let its
+            // rejection go unhandled. `.catch` per the same shape
+            // `onRepositoryInvalidated` already uses (forge-service.ts:626).
+            forge?.refresh(rootId, 'shell').catch((error: unknown) => {
+              logger.error('shell forge refresh threw', { error, rootId });
+            });
+          },
+          reconcile: async (rootId, precedingWorktreePaths) => {
+            if (!service) {
+              return { error: 'Worktrees are unavailable in this session.', ok: false };
+            }
+            const context = await service.repositoryContextForRoot(rootId);
+            if (!context.ok) {
+              return context;
+            }
+            return await service.reconcileFromShell({
+              precedingWorktreePaths,
+              repoCommonDir: context.value.commonDir,
+              ...(runId ? { runId } : {}),
+              ...(threadId ? { threadId } : {}),
+            });
+          },
+        })
+      : undefined;
+  return {
+    ...(shellCorrelation ? { shellCorrelation } : {}),
+    ...(worktreeTools ? { worktreeTools } : {}),
+  };
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -644,6 +713,7 @@ async function handleAssistantPost(
           toolDependencies: {
             embeddingHostManager: options.embeddingHostManager,
             llmHostManager: options.llmHostManager,
+            ...buildDesktopToolDependencies(options, core),
           },
           toolProjectionRewriteLookup,
           toolResumeAction: core.toolResumeAction,

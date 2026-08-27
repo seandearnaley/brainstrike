@@ -9,19 +9,25 @@
  * to click Approve: a two-second script behind a five-minute approval reads as
  * a five-minute tool call.
  *
- * That gap cannot be closed downstream. Measured against the real approval
- * path, the resume leg emits only:
+ * The producer is the only place that number is knowable independent of which
+ * run events survived, which is why it has to put it on the wire.
  *
- *     tool.completed, run.step.finished, run.step.started,
- *     run.step.finished, run.finished
+ * HISTORY, because this comment used to assert the opposite. It said the resume
+ * leg emits only `tool.completed, run.step.finished, run.step.started,
+ * run.step.finished, run.finished` — "no second `tool.started`", with
+ * `tool.completed` FIRST on the leg, so nothing precedes it that a consumer
+ * could treat as an execution-start marker. True when measured; FALSE since
+ * BST-1440, which makes the resume leg synthesise a `tool.started`
+ * (`makeResumedStartChunks` in `../mastra/agent-streaming.ts`) so the Threads
+ * panel's "needs you" signal clears when the user ANSWERS rather than when the
+ * tool finishes.
  *
- * — no second `tool.started`, no `run.resumed` (both approval paths run with
- * `maxAttempts: 1`, so the stall loop never reaches the attempt that emits it),
- * and no `run.started` (attempt 1 yields chunks un-deduped, so a `start` part
- * would have surfaced; Mastra's `resumeStream` does not emit one). `tool.completed`
- * is also the FIRST part on that leg, so nothing precedes it that a consumer
- * could treat as an execution-start marker. The information is simply not on
- * the wire, which is why the producer has to put it there.
+ * That does NOT make this module redundant. `durationMs` still wins outright in
+ * `collectToolDurations`, so the measured value is what users see; the resumed
+ * start only improves the fallback for events that carry no measurement. The
+ * remaining claims stand: no `run.resumed` (both approval paths run
+ * `maxAttempts: 1`, so the stall loop never reaches the attempt that emits it)
+ * and no `run.started` (Mastra's `resumeStream` emits no `start` part).
  *
  * Scope is per RUNTIME, which is per request: `initializeMastraRuntime` is the
  * single construction point and the approval resume builds its own. The guard

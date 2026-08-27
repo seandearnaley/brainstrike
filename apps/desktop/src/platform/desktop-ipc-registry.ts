@@ -15,6 +15,7 @@ export type DesktopIpcDomain =
   | 'embeddings'
   | 'fileExports'
   | 'files'
+  | 'forge'
   | 'git'
   | 'hooks'
   | 'llm-host'
@@ -31,7 +32,9 @@ export type DesktopIpcDomain =
   | 'tools'
   | 'userCommands'
   | 'userPersonas'
-  | 'vectorPreferences';
+  | 'vectorPreferences'
+  | 'workspace'
+  | 'worktrees';
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';
 

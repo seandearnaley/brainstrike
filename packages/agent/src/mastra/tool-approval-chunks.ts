@@ -269,6 +269,29 @@ export function makeApprovalRequiredChunks(
   });
 
   return [
+    // BST-1402: the DURABLE record of the pause, emitted BEFORE the transient
+    // `tool-approval-required` chunk so a consumer that tears the stream down
+    // the instant it sees the pause still persisted the fact that this run is
+    // parked on the user. It does NOT replace the notice: `tool-approval-required`
+    // is `aui-data`, and a reload rebuilds the actionable notice from the Mastra
+    // suspended-workflow snapshot instead (`listSuspendedMastraRuns`). This row
+    // is the cheap cross-thread projection the Threads panel's "needs you"
+    // column queries — one SQL read over the run-events table, where snapshot
+    // rediscovery is a per-thread round trip that only sees STILL-PENDING
+    // pauses. See the kind's contract note. Deliberately NOT a `tool.started`:
+    // no tool ran. Resolution is derived from the next event for this same
+    // `toolCallId` (approve => `tool.completed`, decline => `tool.failed`,
+    // unanswerable => `tool.resume.unsupported`); the run status is NOT a
+    // resolution signal, since the paused leg itself is recorded 'completed'.
+    // So there is no resolution event to emit here.
+    makeRunEventChunk('tool.approval.requested', 'running', 'Awaiting your approval', {
+      toolCallId,
+      toolName,
+      // Same honesty rule as the chunk below: a riskCategory is carried only
+      // when the pause really was policy-driven and attributable — never
+      // fabricated (the LOUD error above already reports an unresolved one).
+      ...(askMetadata ? { riskCategory: askMetadata.riskCategory } : {}),
+    }),
     {
       runId,
       toolCallId,

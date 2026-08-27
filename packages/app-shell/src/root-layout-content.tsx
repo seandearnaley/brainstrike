@@ -76,6 +76,7 @@ import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
+import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
 // Side-effect: register session-only stores with the factory-reset pipeline.
 import './register-factory-reset-session-stores';
 
@@ -221,6 +222,13 @@ export interface RootLayoutContentProps {
    * launcher card, or "+"-menu entry renders at all.
    */
   readonly terminalPageContent?: ReactNode;
+  /**
+   * Optional Worktree Map surface (desktop-only). Supplied by the desktop
+   * wrapper when the `window.worktrees` bridge is present; web never constructs
+   * it. Registered as a closable singleton workspace app tab (BST-1392); when
+   * absent, no Worktrees tab, launcher card, or "+"-menu entry renders at all.
+   */
+  readonly worktreeMapPageContent?: ReactNode;
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
@@ -469,6 +477,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
   terminalPageContent,
+  worktreeMapPageContent,
   visible,
 }: {
   readonly canvasPanelContent?: ReactNode;
@@ -479,6 +488,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
   readonly terminalPageContent?: ReactNode;
+  readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
@@ -503,6 +513,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           />
         ),
         ...(terminalPageContent ? { terminalPageContent } : {}),
+        ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
       }),
     [
       contextExplorerPageContent,
@@ -511,6 +522,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       changesPageContent,
       canvasPanelContent,
       terminalPageContent,
+      worktreeMapPageContent,
     ]
   );
 
@@ -585,6 +597,7 @@ export function RootLayoutContent({
   gitPageContent,
   notesPageContent,
   terminalPageContent,
+  worktreeMapPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
@@ -711,6 +724,7 @@ export function RootLayoutContent({
             visible renderer mounts RootLayoutContent, so hidden hosts never
             instantiate it (structural gating — no role check needed here). */}
             <CommandPaletteHost />
+            <WorkspaceConnectHost />
             <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
               <EmbeddingRuntimeProvider>
                 {/* One shared embedder cache for every semantic-search surface. The
@@ -739,6 +753,7 @@ export function RootLayoutContent({
                         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
                         terminalPageContent={terminalPageContent}
                         visible={shellTab === 'explorer'}
+                        worktreeMapPageContent={worktreeMapPageContent}
                       />
                     </PanelLayoutProvider>
                   </div>
