@@ -1170,7 +1170,12 @@ import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 ```bash
 pnpm --filter @brainstrike/app-shell run test
 pnpm run type-check
-pnpm run react-doctor
+# corrected at execution (Task 3 review, 2026-08-27): the bare `pnpm run
+# react-doctor` script pins --scope full (repo-wide; always non-zero on
+# pre-existing baseline debt, not a signal about THIS task's diff). Use the
+# CI-equivalent scoped form instead, comparing against the commit the
+# PREVIOUS task landed on:
+npx react-doctor . --scope changed --base <previous-task-sha> --verbose -y
 pnpm dlx ultracite fix packages/app-shell/src/worktree-map/worktree-map-card.tsx packages/app-shell/src/worktree-map/worktree-map-surface.tsx packages/app-shell/src/worktree-map/__tests__/worktree-map-surface.test.tsx
 ```
 
@@ -1357,7 +1362,12 @@ Add to `packages/app-shell/src/__tests__/use-worktree-mode.test.ts` (re-read the
 pnpm --filter @brainstrike/assistant-ui run test
 pnpm --filter @brainstrike/app-shell run test
 pnpm run type-check
-pnpm run react-doctor
+# corrected at execution (Task 3 review, 2026-08-27): the bare `pnpm run
+# react-doctor` script pins --scope full (repo-wide; always non-zero on
+# pre-existing baseline debt, not a signal about THIS task's diff). Use the
+# CI-equivalent scoped form instead, comparing against the commit the
+# PREVIOUS task landed on:
+npx react-doctor . --scope changed --base <previous-task-sha> --verbose -y
 pnpm dlx ultracite fix packages/assistant-ui/src/workspace-bar/workspace-bar.tsx packages/assistant-ui/src/workspace-bar/mode-chip.tsx packages/assistant-ui/src/__tests__/mode-chip.test.tsx packages/app-shell/src/hooks/use-worktree-mode.ts
 pnpm exec biome check packages/app-shell/src/hooks/use-worktree-mode.ts
 ```
@@ -1524,7 +1534,12 @@ import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 pnpm --filter @brainstrike/assistant-ui run test
 pnpm --filter @brainstrike/app-shell run test
 pnpm run type-check
-pnpm run react-doctor
+# corrected at execution (Task 3 review, 2026-08-27): the bare `pnpm run
+# react-doctor` script pins --scope full (repo-wide; always non-zero on
+# pre-existing baseline debt, not a signal about THIS task's diff). Use the
+# CI-equivalent scoped form instead, comparing against the commit the
+# PREVIOUS task landed on:
+npx react-doctor . --scope changed --base <previous-task-sha> --verbose -y
 pnpm dlx ultracite fix packages/assistant-ui/src/workspace-bar/workspace-bar.tsx packages/assistant-ui/src/workspace-bar/folder-chip.tsx packages/assistant-ui/src/__tests__/workspace-bar.test.tsx packages/app-shell/src/hooks/use-workspace-bar.ts
 # Verified during planning: the 1000-line cap counts CODE lines, and this file
 # sits at ~749. Run the check anyway — if it fires, extract the terminal
