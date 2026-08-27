@@ -87,6 +87,43 @@ export function writeStartingPoint(
 }
 
 /**
+ * Whether `live` (a just-resynced `threadFoldersRef` snapshot) already
+ * reflects what `tail` persisted — the write queue's signal that it is safe
+ * to retire the tail and let the NEXT write derive straight from `live`
+ * again (BST-1400 item 2).
+ *
+ * Retiring the tail as soon as the write's own promise settles — instead of
+ * waiting for this — raced React's commit: `threadFoldersRef.current` is
+ * resynced by an effect, which runs on a LATER tick than the microtask
+ * continuation on `settled`. A second write enqueued in that window found
+ * the tail already cleared and derived from a `live` ref that did not yet
+ * include the first write's change — silently dropping it, the exact bug
+ * the tail exists to prevent, just shifted to different-tick clicks instead
+ * of same-tick ones.
+ *
+ * Compares every field a chained write actually reads off the tail in
+ * `writeStartingPoint`. `secondaryRootIds`/`ids` compares as a SET: a
+ * resynced query result carries no ordering guarantee, and ordering is not
+ * part of this set's identity.
+ */
+export function tailReflectedInLiveState(
+  live: ThreadCheckoutFolders,
+  tail: ThreadFoldersWriteTail
+): boolean {
+  if (
+    live.threadId !== tail.threadId ||
+    live.primaryRootId !== tail.primaryRootId ||
+    live.checkoutMode !== tail.checkoutMode ||
+    live.checkoutLocalRootId !== tail.checkoutLocalRootId ||
+    live.secondaryRootIds.length !== tail.ids.length
+  ) {
+    return false;
+  }
+  const liveIds = new Set(live.secondaryRootIds);
+  return tail.ids.every((id) => liveIds.has(id));
+}
+
+/**
  * The `checkoutMode` a queued write actually persisted — `'local'` when the
  * write's own binding says so (an atomic make-primary-off-a-worktree switch,
  * or an explicit hand-off), otherwise unchanged from what the write started

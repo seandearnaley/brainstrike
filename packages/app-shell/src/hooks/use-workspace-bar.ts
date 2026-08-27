@@ -46,6 +46,7 @@ import {
   refuseWriteBeforeThreadMetadata,
   secondaryRootsStatus,
   type ThreadFoldersWriteTail,
+  tailReflectedInLiveState,
   writeStartingPoint,
 } from './use-workspace-bar-write-derive';
 import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
@@ -681,6 +682,58 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId, updateThreadMetadata]
   );
 
+  /**
+   * Serializes thread-folder writes. Two Add-folder clicks whose lookups settle
+   * in the same tick would otherwise both derive from the pre-click set and the
+   * second would drop the first's id. So a queued write derives from what the
+   * PREVIOUS queued write actually persisted — its ids AND the primary it
+   * installed — because the store update behind `threadFoldersRef` has not
+   * reached the render at that point in the microtask chain.
+   *
+   * The tail is thread-scoped and drainable, both deliberately:
+   *
+   * - it carries the thread it describes and is consumed ONLY by a write
+   *   started for that same thread. This hook is long-lived in the wrapper, so
+   *   the ref outlives a thread switch; consuming it unconditionally would
+   *   write thread A's folder set onto thread B.
+   * - once the queue drains (`pendingWriteCountRef` back to 0) AND
+   *   `threadFoldersRef` has caught up to reflect what the last write
+   *   persisted, the tail retires so the next write reads LIVE state rather
+   *   than a stale value from an already-settled round of writes (metadata
+   *   changed by another surface in between must not be reverted). The tail
+   *   is a hand-off between writes that overlap, never a cache of the
+   *   persisted state. Retiring the moment the queue drains, WITHOUT waiting
+   *   for the ref, raced React's commit (BST-1400 item 2): the ref is
+   *   resynced by an effect on a later tick than the write's own settle
+   *   microtask, so a second write landing in that window found the tail
+   *   already gone and derived from a ref that did not yet include the
+   *   first write's change. See `tailReflectedInLiveState`.
+   *
+   * A write whose thread is no longer selected — or that outlives the hook —
+   * is skipped rather than landed on whatever thread is current now.
+   */
+  const writeTailRef = useRef<Promise<ThreadFoldersWriteTail | null> | null>(null);
+  const pendingWriteCountRef = useRef(0);
+  // The most recently settled tail, kept even after `writeTailRef` itself
+  // might already be retired — `retireWriteTailIfCaughtUp` needs it to
+  // recognize the moment `threadFoldersRef` catches up.
+  const lastSettledTailRef = useRef<ThreadFoldersWriteTail | null>(null);
+  // Retires the tail once BOTH the queue has drained and `live` (a just
+  // resynced `threadFoldersRef` snapshot) reflects what the last write
+  // persisted. Called from the sync effect below (every resync) and from
+  // the settle handler further down (the fast path where `live` already
+  // matches, or there is nothing to wait for). A stable identity so the
+  // sync effect's dependency array does not churn on every render.
+  const retireWriteTailIfCaughtUp = useCallback((live: ThreadCheckoutFolders) => {
+    const settledTail = lastSettledTailRef.current;
+    if (
+      pendingWriteCountRef.current === 0 &&
+      (settledTail === null || tailReflectedInLiveState(live, settledTail))
+    ) {
+      writeTailRef.current = null;
+    }
+  }, []);
+
   // The reconciliation wait below can span seconds, so the folder set captured
   // when the user clicked may be stale by the time the write happens (a removal
   // in between would be undone). Read the CURRENT set through this ref instead.
@@ -699,7 +752,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     threadId: selectedMemoryThreadId,
   });
   useEffect(() => {
-    threadFoldersRef.current = {
+    const live: ThreadCheckoutFolders = {
       checkoutLocalRootId,
       checkoutMode,
       metadataPending: selectedThreadMetadataPending,
@@ -711,6 +764,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       secondaryRootsPending,
       threadId: selectedMemoryThreadId,
     };
+    threadFoldersRef.current = live;
+    // The other half of the write-queue's tail retirement (BST-1400 item 2):
+    // a write settling does not mean this ref has caught up to it yet — see
+    // `tailReflectedInLiveState`'s doc comment. This effect is the render
+    // committing that catch-up, so it re-checks on every sync rather than
+    // only at settle time.
+    retireWriteTailIfCaughtUp(live);
   }, [
     checkoutLocalRootId,
     checkoutMode,
@@ -722,33 +782,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     secondaryRootsPending,
     selectedMemoryThreadId,
     selectedThreadMetadataPending,
+    retireWriteTailIfCaughtUp,
   ]);
 
-  /**
-   * Serializes thread-folder writes. Two Add-folder clicks whose lookups settle
-   * in the same tick would otherwise both derive from the pre-click set and the
-   * second would drop the first's id. So a queued write derives from what the
-   * PREVIOUS queued write actually persisted — its ids AND the primary it
-   * installed — because the store update behind `threadFoldersRef` has not
-   * reached the render at that point in the microtask chain.
-   *
-   * The tail is thread-scoped and drainable, both deliberately:
-   *
-   * - it carries the thread it describes and is consumed ONLY by a write
-   *   started for that same thread. This hook is long-lived in the wrapper, so
-   *   the ref outlives a thread switch; consuming it unconditionally would
-   *   write thread A's folder set onto thread B.
-   * - `pendingWriteCountRef` clears the tail the moment the queue drains, so
-   *   the next write reads LIVE state rather than a stale value from an
-   *   already-settled round of writes (metadata changed by another surface in
-   *   between must not be reverted). The tail is a hand-off between writes that
-   *   overlap, never a cache of the persisted state.
-   *
-   * A write whose thread is no longer selected — or that outlives the hook —
-   * is skipped rather than landed on whatever thread is current now.
-   */
-  const writeTailRef = useRef<Promise<ThreadFoldersWriteTail | null> | null>(null);
-  const pendingWriteCountRef = useRef(0);
   const enqueueThreadFoldersWrite = useCallback(
     (
       startedForThreadId: string | undefined,
@@ -808,11 +844,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         () => null
       );
       writeTailRef.current = tailed;
-      void tailed.then(() => {
+      void tailed.then((tail) => {
         pendingWriteCountRef.current -= 1;
-        if (pendingWriteCountRef.current === 0) {
-          writeTailRef.current = null;
-        }
+        lastSettledTailRef.current = tail;
+        // Retires immediately when there is nothing to catch up to (a
+        // skipped/failed write) or `threadFoldersRef` already reflects this
+        // write (e.g. an optimistic update landed by settle time);
+        // otherwise the sync effect retires it once the ref actually
+        // catches up.
+        retireWriteTailIfCaughtUp(threadFoldersRef.current);
       });
       return settled.then(() => undefined);
     },

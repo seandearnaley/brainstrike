@@ -780,6 +780,49 @@ describe('useWorkspaceBar — write tail chaining', () => {
     });
   });
 
+  it('keeps chaining off the tail after it settles until the live ref actually reflects it (BST-1400 item 2)', async () => {
+    vi.useFakeTimers();
+    const { result } = await setup({ secondaryRootIds: ['r-docs', 'r-site'] });
+    await flush();
+    // Model the production window where a write PERSISTS but its store
+    // update never reaches this render — threadFoldersRef never resyncs on
+    // its own for the rest of this test, so the tail is the ONLY correct
+    // source for what the first write actually did.
+    await act(async () => {
+      useAssistantThreadStore.setState({
+        updateThreadMetadata: async (
+          repository: AssistantThreadRepository,
+          _resourceId: string,
+          threadId: string,
+          metadata: AssistantThreadMetadata
+        ) => {
+          await repository.updateThreadMetadata(threadId, metadata);
+        },
+      });
+    });
+    // First write settles — flushed to completion, in its OWN act(), so the
+    // write queue fully drains (pendingWriteCountRef back to 0) before the
+    // second click. A tail retired the instant the queue drains, without
+    // waiting for the live ref to catch up, would already be gone here.
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-site'],
+    });
+    // Second click, enqueued well after the first settled. Deriving from a
+    // stale live ref (unaware r-docs was just removed) would resurrect it;
+    // deriving from the tail correctly starts from ['r-site'] only.
+    await act(async () => {
+      result.current.onRemoveSecondary('r-site');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: [],
+    });
+  });
+
   it('chains two Make primary clicks so the second demotes the first, dropping and duplicating nothing', async () => {
     vi.useFakeTimers();
     const { result } = await setup({
