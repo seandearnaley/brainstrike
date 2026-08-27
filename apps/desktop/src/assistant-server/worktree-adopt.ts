@@ -373,15 +373,28 @@ export async function reconcileWorktreesFromShell(
   // worktree the command just created as "not there" on every single call,
   // making `adopted` empty for every real shell-created worktree (verified:
   // command exitCode 0, worktree present on disk, this read's own
-  // `onDiskPaths` still missing it). `snapshotWorktreePaths` (execute-
-  // command-correlation.ts), the PRE-command guard read, deliberately keeps
-  // the cached default: unlike here, its staleness risk is not a guarantee
-  // triggered by this function's own timing — it would need an UNRELATED
-  // process to create a worktree in the same narrow pre-command window,
-  // which the long-lived, watcher-warmed inventory cache is not systematically
-  // blind to (only the ~5s TTL edge is), and forcing freshness there could
-  // not close that race outright anyway (there is always some latency before
-  // "now"). No comparable, always-reproducing failure to justify the cost.
+  // `onDiskPaths` still missing it).
+  //
+  // `snapshotWorktreePaths` (execute-command-correlation.ts), the PRE-command
+  // guard read, deliberately keeps the cached default instead. Named
+  // consequence, correctly signed: `descriptor.path` IN the preceding
+  // snapshot is what SKIPS adoption below, so a snapshot that UNDER-includes
+  // (misses something that already existed) does NOT skip it — that path
+  // gets adopted and mis-attributed to this run, the bad direction.
+  // Over-inclusion only SUPPRESSES adoption of something that may be
+  // genuinely new — safe, boring. Unlike the post-command read above, this
+  // isn't a guarantee triggered by this function's own timing: it would need
+  // an UNRELATED process to create a worktree in the exact narrow pre-command
+  // window the cache hasn't yet observed. In practice that residual risk is
+  // narrowed further still — `adoptWorktree`'s own `ledger.getByPath` check
+  // (below) refuses anything with an existing ledger row, live or archived,
+  // so under-inclusion can only mis-attribute a worktree that is BOTH new to
+  // the cache AND never previously known to BrainStrike at all: a genuinely
+  // externally-created checkout that lands inside that cache window. Forcing
+  // freshness here would not close even that narrow race outright (there is
+  // always some latency before "now"), so there is no comparable, always-
+  // reproducing failure — the post-command guarantee above — to justify the
+  // cost.
   const inventory = await deps.resolveInventory({ forceFresh: true });
   const repository = inventory.repositories.find(
     (candidate) => candidate.identity.gitCommonDir === params.repoCommonDir
