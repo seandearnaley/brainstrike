@@ -80,7 +80,10 @@ async function isContainedInAnyRoot(
     } catch {
       continue;
     }
-    if (real === rootReal || real.startsWith(rootReal + path.sep)) {
+    // Filesystem/volume roots are already separator-terminated (`/`, `C:\\`).
+    // Avoid creating an impossible `//` / `C:\\\\` descendant prefix.
+    const rootPrefix = rootReal.endsWith(path.sep) ? rootReal : `${rootReal}${path.sep}`;
+    if (real === rootReal || real.startsWith(rootPrefix)) {
       return true;
     }
   }
