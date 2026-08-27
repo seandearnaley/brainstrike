@@ -945,9 +945,10 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     /**
      * The ONE sanctioned picker-less grant besides recents (spec §6.2, widened
      * in the BST-1392 follow-up): a LIVE ledger row that is reachable per
-     * `assertReachable`'s adoption rule — under the managed directory, or
-     * inside a granted workspace root. The rule itself lives in
-     * `worktree-adopt.ts` beside `assertReachable` so the two cannot drift.
+     * adoption's rule — under the managed directory, or inside a granted
+     * workspace root per a forced-fresh inventory. The shared
+     * `isReachableCheckout` predicate in `worktree-adopt.ts` backs both this
+     * and `assertReachable`, so the two cannot drift.
      */
     async isManagedWorktreePath(candidate: string): Promise<boolean> {
       return await isAuthorizedWorktreeMountPath(adoptDeps(), candidate);

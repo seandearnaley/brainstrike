@@ -1022,10 +1022,14 @@ additional explorer/status chrome):
   OR the managed-worktree authorizer (BST-1390, widened in the BST-1392
   follow-up): a live `brainstrike_worktrees` row whose realpath is REACHABLE by
   the same rule adoption's `assertReachable` applies — under the realpath'd
-  managed directory, or inside a granted workspace root per the live
-  inventory's containment (`isAuthorizedWorktreeMountPath`,
-  `worktree-adopt.ts`, kept beside `assertReachable` so the two rules cannot
-  drift). An outside-roots row — e.g. its granting root was disconnected after
+  managed directory, or inside a granted workspace root per a FORCED-FRESH
+  inventory's containment (a `roots` write never dirties the cached snapshot,
+  so a default cached read could honor a just-closed root; the shared
+  `isReachableCheckout` predicate in `worktree-adopt.ts` backs BOTH
+  `assertReachable` and `isAuthorizedWorktreeMountPath`, so the two rules
+  cannot drift). An unavailable inventory refuses only the in-root arm, at
+  WARN — the managed-directory arm is inventory-free. An outside-roots row —
+  e.g. its granting root was disconnected after
   adoption — stays refused; a ledger row alone is never a mount grant. The
   ledger is checked first so a broken authorizer cannot take the recents path
   down with it. Managed worktrees are deliberately NOT written into `recentRootsList` at
@@ -1125,8 +1129,8 @@ additional explorer/status chrome):
     the server-owned managed-worktree authorizer (BST-1390, spec §6.2; widened
     in the BST-1392 follow-up), which requires a live ledger row plus
     reachability per adoption's `assertReachable` rule (managed-directory
-    containment, or in-granted-root containment per the live inventory) and
-    fails closed on every authorizer error. A recents-ledger grant is re-recorded; a managed
+    containment, or in-granted-root containment per a forced-fresh inventory)
+    and fails closed on every authorizer error. A recents-ledger grant is re-recorded; a managed
     worktree grant is not recorded into Recents at grant time, and `restoreRoots`
     now batch-reads persisted root kinds and skips `kind='worktree'` entries on
     relaunch (BST-1390 Task 10), so that suppression survives relaunch when the

@@ -339,7 +339,7 @@ describe('WorktreeMapSurface', () => {
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
     await screen.findByText(
-      '"bright-fox" was adopted, but it isn\'t inside any open folder or BrainStrike\'s managed worktrees folder, so it can\'t be mounted automatically. Use the workspace bar\'s "Add Folder" to grant this worktree\'s folder directly, then try "New thread here" again.'
+      '"bright-fox" was adopted, but BrainStrike couldn\'t confirm it\'s inside an open folder or its managed worktrees folder, so it can\'t be mounted automatically. Use the workspace bar\'s "Add Folder" to grant this worktree\'s folder directly, then try "New thread here" again.'
     );
     expect(createThreadMock).not.toHaveBeenCalled();
     expect(selectThreadMock).not.toHaveBeenCalled();

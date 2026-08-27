@@ -13,7 +13,20 @@ import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const loggerWarnSpy = vi.hoisted(() => vi.fn());
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: (...args: Parameters<typeof actual.createLogger>) => {
+      const real = actual.createLogger(...args);
+      return { ...real, warn: loggerWarnSpy };
+    },
+  };
+});
+
 import type { createWorktreeService } from '../../assistant-server/worktree-service';
 import { buildTestService, createTestWorkspace, git } from './worktree-service.shared';
 
@@ -27,6 +40,7 @@ describe('WorktreeService mount authorization (real git + real PGlite)', () => {
     buildTestService({ db, managedDirectory, repo }, overrides);
 
   beforeEach(async () => {
+    loggerWarnSpy.mockClear();
     db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
     await runMigrations(db);
     repo = workspace.freshRepo('repo');
@@ -91,16 +105,21 @@ describe('WorktreeService mount authorization (real git + real PGlite)', () => {
       errors: [],
       repositories: [{ identity, worktrees: [descriptor] }],
     } satisfies GitInventory;
-    const service = buildService({
-      resolveInventory: () => Promise.resolve(inRootInventory),
-    });
+    const resolveInventory = vi.fn(() => Promise.resolve(inRootInventory));
+    const service = buildService({ resolveInventory });
     const adopted = await service.adopt({ createdBy: 'user', path: canonicalPath });
     expect(adopted.ok).toBe(true);
 
     // The widened grant: live ledger row + in-root containment mounts without
     // a picker — called with the RAW (un-realpath'd) path to also pin the
     // realpath normalization.
+    resolveInventory.mockClear();
     await expect(service.isManagedWorktreePath(worktreePath)).resolves.toBe(true);
+    // FORCED-FRESH (PR #2681 review): a `roots` write never dirties the
+    // cached inventory snapshot, so authorizing against the default cached
+    // read could honor a root the user closed seconds ago (or refuse one
+    // they just granted). The authorizer must demand a fresh build.
+    expect(resolveInventory).toHaveBeenCalledWith({ forceFresh: true });
 
     // Pin the refusal that must survive the widening: the SAME live row, once
     // the inventory reports it outside every root (its granting root was
@@ -123,5 +142,73 @@ describe('WorktreeService mount authorization (real git + real PGlite)', () => {
     // managed directory either) stays refused rather than fail-open.
     const unreported = buildService();
     await expect(unreported.isManagedWorktreePath(worktreePath)).resolves.toBe(false);
+  });
+
+  it('keeps the managed-directory arm inventory-free and WARNS when the inventory is unavailable (PR #2681 review)', async () => {
+    // Managed-directory candidate: created by the app, live ledger row. The
+    // managed arm must authorize even while the inventory is down — that arm
+    // reads settings + realpath only, never the inventory.
+    const broken = () => Promise.reject(new Error('inventory stopped'));
+    const service = buildService({ resolveInventory: broken });
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/inventory-down' },
+      createdBy: 'user',
+      name: 'inventory-down',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    loggerWarnSpy.mockClear();
+    await expect(service.isManagedWorktreePath(created.value.worktree.path)).resolves.toBe(true);
+
+    // An in-root candidate (adopted while the inventory was healthy) is
+    // refused while the inventory is unavailable — fail closed for the arm
+    // that NEEDS the inventory — and the failure surfaces at WARN, never a
+    // silent debug-only false (NO SILENT FALLBACKS).
+    const worktreePath = path.join(repo, '.claude', 'worktrees', 'inventory-down-nested');
+    git(repo, ['worktree', 'add', '-b', 'bs/inventory-down-nested', worktreePath, 'HEAD']);
+    const canonicalPath = realpathSync(worktreePath);
+    const canonicalRepo = realpathSync(repo);
+    const healthyInventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: {
+            gitCommonDir: path.join(canonicalRepo, '.git'),
+            repositoryRoot: canonicalRepo,
+          },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'bs/inventory-down-nested',
+              containment: ['r-1'] as readonly string[] | 'outside-roots',
+              current: false,
+              detached: false,
+              head: 'abc123',
+              lockedReason: null,
+              name: 'inventory-down-nested',
+              path: canonicalPath,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    } satisfies GitInventory;
+    const healthy = buildService({ resolveInventory: () => Promise.resolve(healthyInventory) });
+    const adopted = await healthy.adopt({ createdBy: 'user', path: canonicalPath });
+    expect(adopted.ok).toBe(true);
+
+    loggerWarnSpy.mockClear();
+    await expect(service.isManagedWorktreePath(canonicalPath)).resolves.toBe(false);
+    expect(loggerWarnSpy).toHaveBeenCalledWith(
+      'inventory unavailable during mount authorization; managed-directory arm only',
+      expect.objectContaining({ candidate: canonicalPath })
+    );
   });
 });

@@ -153,19 +153,22 @@ export function useWorktreeMapCardActions(
           // checkout the app can REACH — a live ledger row under the managed
           // directory OR inside a granted root (`isAuthorizedWorktreeMountPath`,
           // worktree-adopt.ts; the BST-1392 follow-up widening) — so the
-          // generic "never granted" refusal here can only mean the checkout is
-          // outside BOTH: e.g. its granting root was disconnected after
-          // adoption. `errorMessage` alone would surface the generic "use Add
-          // Folder to grant it" copy, which is confusing right after a
-          // successful Adopt; state the actual cause and the ONE remedy that
-          // is verified to work: the real folder picker ("Add Folder" on the
-          // workspace bar, NOT this card's "Add as root" — that item calls the
-          // exact same picker-less grant and would fail the same way) records
-          // an exact-path recents match, after which this retries
-          // successfully.
+          // generic "never granted" refusal here usually means the checkout is
+          // outside BOTH (e.g. its granting root was disconnected after
+          // adoption), but the authorizer can also refuse when it could not
+          // VERIFY reachability (inventory unavailable). The copy is hedged
+          // ("couldn't confirm") rather than asserting a cause the renderer
+          // cannot observe (PR #2681 review). `errorMessage` alone would
+          // surface the generic "use Add Folder to grant it" copy, which is
+          // confusing right after a successful Adopt; state the likely cause
+          // and the ONE remedy that is verified to work: the real folder
+          // picker ("Add Folder" on the workspace bar, NOT this card's "Add
+          // as root" — that item calls the exact same picker-less grant and
+          // would fail the same way) records an exact-path recents match,
+          // after which this retries successfully.
           setActionError(
             message === NEVER_GRANTED_MOUNT_MESSAGE
-              ? `"${card.entry.name}" was adopted, but it isn't inside any open folder or BrainStrike's managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
+              ? `"${card.entry.name}" was adopted, but BrainStrike couldn't confirm it's inside an open folder or its managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
               : message
           );
         });

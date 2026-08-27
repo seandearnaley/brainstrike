@@ -477,9 +477,10 @@ Mounting is a SEPARATE step from adoption and does not happen automatically:
 adopting a worktree only inserts the `brainstrike_worktrees` ledger row, it
 does not add a `roots` row. The picker-less mount grant matches adoption's own
 reachability rule (BST-1392 follow-up): a live ledger row that is under the
-managed directory OR inside a granted root mounts without a picker
-(`isAuthorizedWorktreeMountPath`, kept beside `assertReachable` in
-`worktree-adopt.ts` so the two rules cannot drift) — before the widening, an
+managed directory OR inside a granted root (per a forced-fresh inventory)
+mounts without a picker (`isAuthorizedWorktreeMountPath`; the shared
+`isReachableCheckout` predicate in `worktree-adopt.ts` backs it and
+`assertReachable` both, so the two rules cannot drift) — before the widening, an
 adopted in-root checkout outside the managed directory (the
 `.claude/worktrees/<name>` shape) adopted fine and then refused to mount. An
 outside-roots row stays refused. The Map's `onNewThread` mounts the checkout via
