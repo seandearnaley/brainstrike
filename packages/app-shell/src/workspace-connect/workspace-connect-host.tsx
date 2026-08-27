@@ -35,7 +35,7 @@ export function WorkspaceConnectHost(): ReactElement | null {
     if (!(bridge && connectPath)) {
       return;
     }
-    return bridge.onOpenPath((request: unknown) => {
+    const unsubscribe = bridge.onOpenPath((request: unknown) => {
       if (!isWorkspaceOpenPathRequest(request)) {
         // Dropped, not coerced: an empty path forwarded to fs:addRootByPath
         // would come back as a grant refusal and describe a wiring bug as a
@@ -45,6 +45,12 @@ export function WorkspaceConnectHost(): ReactElement | null {
       }
       void connectPath(request);
     });
+    // Tell main a listener now exists, in the SAME effect, immediately after
+    // subscribing — main gates its queued-request delivery on this ping
+    // (plus the window having finished loading) rather than treating
+    // `did-finish-load` alone as proof the renderer is listening.
+    bridge.notifyOpenPathReady();
+    return unsubscribe;
   }, [connectPath]);
 
   return null;
