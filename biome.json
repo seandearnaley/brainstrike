@@ -470,6 +470,7 @@
         "packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts",
         "packages/app-shell/src/background-indexing/workspace-index-debug-benchmark.ts",
         "packages/app-shell/src/threads-panel.tsx",
+        "packages/app-shell/src/__tests__/use-workspace-bar.test.tsx",
         "packages/app-state/src/__tests__/assistant-preferences-store.test.ts",
         "packages/app-state/src/stores/assistant-preferences-store.ts",
         "packages/assistant-contract/src/provider-registry.ts",

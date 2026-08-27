@@ -31,6 +31,10 @@ import { useAssistantThreadRootBinding } from './use-assistant-thread-root-bindi
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
+import {
+  useDuplicatePathNotice,
+  type WorkspaceBarRootDescriptor,
+} from './use-workspace-bar-duplicate-path-notice';
 import { useWorkspaceBarForge } from './use-workspace-bar-forge';
 import { useWorkspaceBarMode } from './use-workspace-bar-mode';
 import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
@@ -53,11 +57,6 @@ import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
 export { deriveMakePrimary };
 
 const logger = createLogger('WorkspaceBar');
-
-interface WorkspaceBarRootDescriptor {
-  readonly displayName: string;
-  readonly path: string;
-}
 
 export interface UseWorkspaceBarArgs {
   readonly assistantThreadRepository: AssistantThreadRepository | null;
@@ -290,6 +289,7 @@ function usePrimaryAdapterRootId(
     ? (adapterRootIdByPath.get(primaryRootPath) ?? null)
     : null;
   useUnmappedPrimaryRootNotice(primaryRootPath, primaryAdapterRootId);
+  useDuplicatePathNotice(rootDescriptors);
   return primaryAdapterRootId;
 }
 

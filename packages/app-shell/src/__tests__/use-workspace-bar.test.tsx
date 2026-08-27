@@ -264,7 +264,10 @@ interface BarProps {
   readonly selectedMemoryThreadId: string | undefined;
 }
 
-async function setup(metadata: Record<string, unknown> = {}) {
+async function setup(
+  metadata: Record<string, unknown> = {},
+  rootDescriptorsOverride: typeof rootDescriptors = rootDescriptors
+) {
   seedThread(metadata);
   const rendered = renderHook(
     (props: BarProps) =>
@@ -273,7 +276,7 @@ async function setup(metadata: Record<string, unknown> = {}) {
         currentMainRoot,
         database,
         memoryResourceId: RESOURCE_ID,
-        rootDescriptors,
+        rootDescriptors: rootDescriptorsOverride,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
       }),
     { initialProps: { selectedMemoryThreadId: THREAD_ID } as BarProps }
@@ -585,6 +588,40 @@ describe('useWorkspaceBar', () => {
       expect.stringContaining('not mounted'),
       expect.objectContaining({ path: '/ws/site' })
     );
+  });
+
+  // BST-1400 item 13: two adapter root descriptors sharing a path (a genuine
+  // duplicate mount, or a spelling divergence the adapter never normalized —
+  // e.g. a macOS case variant) collapse to one in the derived path→adapterId
+  // map. Whichever descriptor loses that collision never gets its
+  // working-tree refresh registered, and until this fix nothing logged why.
+  it('warns once per path on a collision, never for distinct paths', async () => {
+    const noCollision = await setup(); // default rootDescriptors: one path, no collision.
+    expect(loggerMock.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('share a path'),
+      expect.anything()
+    );
+    noCollision.unmount();
+
+    const dupeDescriptors = {
+      ...rootDescriptors,
+      'adapter-main-2': { displayName: 'brainstrike (2)', path: '/ws/brainstrike', rootId: '' },
+    };
+    const { rerender } = await setup({}, dupeDescriptors);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('share a path'),
+      expect.objectContaining({
+        adapterRootIds: expect.arrayContaining(['adapter-main', 'adapter-main-2']),
+        path: '/ws/brainstrike',
+      })
+    );
+
+    // A re-render with the SAME collision must not warn again.
+    const warnCallsAfterMount = loggerMock.warn.mock.calls.length;
+    await act(async () => {
+      rerender({ selectedMemoryThreadId: THREAD_ID });
+    });
+    expect(loggerMock.warn.mock.calls.length).toBe(warnCallsAfterMount);
   });
 
   it('warns and shows no primary when the MAIN root has no live roots row', async () => {
