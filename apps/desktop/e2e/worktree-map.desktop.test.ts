@@ -228,7 +228,7 @@ test.afterAll(() => {
 });
 
 test.describe('Worktree Map (desktop)', () => {
-  test('the tab exists and lists every checkout', async ({ window: page }) => {
+  test('@smoke the tab exists and lists every checkout', async ({ window: page }) => {
     test.setTimeout(180_000);
     const { repo } = freshRepo('list');
     await seedRoot(page, repo);
