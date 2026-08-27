@@ -171,3 +171,4 @@ packages/ui/src/**/__screenshots__/
 
 # Per-session scratch artifacts (other Claude sessions may hold these)
 .claude-scratch-*
+.claude-scratch/
