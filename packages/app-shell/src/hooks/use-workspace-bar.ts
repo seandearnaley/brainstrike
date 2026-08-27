@@ -20,13 +20,9 @@ import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  type AssistantOperatingRootCandidate,
-  resolveAssistantOperatingRootBinding,
-} from '../assistant-operating-root';
+import type { AssistantOperatingRootCandidate } from '../assistant-operating-root';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
-import { awaitRootRegistration, rootRegistrationSeq } from '../roots/root-registration-events';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -37,6 +33,7 @@ import {
 } from './use-workspace-bar-duplicate-path-notice';
 import { useWorkspaceBarForge } from './use-workspace-bar-forge';
 import { useWorkspaceBarMode } from './use-workspace-bar-mode';
+import { resolveRootIdAfterReconciliation } from './use-workspace-bar-root-row-lookup';
 import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
 import {
   deriveMakePrimary,
@@ -86,49 +83,6 @@ const NO_RECENT_ENTRIES: readonly RecentRootEntry[] = [];
 // and must change with it.)
 const SECONDARY_ID_SEPARATOR = ' ';
 const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off returns to.';
-
-/**
- * A folder's durable `roots` row is written by the roots-reconciliation effect
- * in `workspace-collection-sync-provider.tsx`, which runs only AFTER
- * `addRootDirectory()` has resolved and re-rendered the provider. Looking the
- * row up in the same microtask therefore loses that race, and the folder mounts
- * globally while never being attached to the thread. Re-mounting a
- * `'disconnected'` root has the same shape (the row is flipped back to 'live'
- * by the same effect).
- *
- * So the lookup AWAITS the reconciliation layer's own "root registered"
- * notification (`../roots/root-registration-events.ts`) instead of polling
- * the database for the side effect — the canonical fix, landed in BST-1400
- * item 1. The seam is EPOCH-based, not a one-shot flag, so a path registered
- * a SECOND time this session (the remove-then-re-add shape above) still wakes
- * a waiter whose first read raced it — see that module's docblock. A bounded
- * timeout is still enforced (`ROOT_ROW_WAIT_TIMEOUT_MS`, the same ~5s budget
- * the old 20×250ms retry loop had): exhaustion is not a silent no-op for any
- * caller.
- */
-const ROOT_ROW_WAIT_TIMEOUT_MS = 5000;
-
-type RootRowLookup =
-  | { readonly kind: 'cancelled' }
-  | { readonly kind: 'resolved'; readonly rootId: string }
-  | { readonly error: unknown; readonly kind: 'unresolved' };
-
-type RootRowAttempt =
-  | { readonly kind: 'miss'; readonly error: unknown }
-  | { readonly kind: 'resolved'; readonly rootId: string };
-
-/** One read of the durable `roots` row for `candidate.path`. Never throws. */
-async function tryResolveRootId(
-  database: DbHandle,
-  candidate: AssistantOperatingRootCandidate
-): Promise<RootRowAttempt> {
-  try {
-    const binding = await resolveAssistantOperatingRootBinding(database, candidate);
-    return { kind: 'resolved', rootId: binding.rootId };
-  } catch (error) {
-    return { error, kind: 'miss' };
-  }
-}
 
 /**
  * Electron's `ipcRenderer.invoke` re-throws a main-process rejection in the
@@ -322,56 +276,6 @@ function usePrimaryAdapterRootId(
   useUnmappedPrimaryRootNotice(primaryRootPath, primaryAdapterRootId);
   useDuplicatePathNotice(rootDescriptors);
   return primaryAdapterRootId;
-}
-
-/**
- * The durable `roots.id` for a path, AWAITING reconciliation's own
- * registration event when the row is not there yet (instead of polling the
- * database for it — see the docblock above `ROOT_ROW_WAIT_TIMEOUT_MS`). Never
- * rejects: every outcome — including timeout — is returned so the caller can
- * surface it. Timeout is NOT a silent no-op for any caller.
- */
-async function resolveRootIdAfterReconciliation(
-  database: DbHandle,
-  candidate: AssistantOperatingRootCandidate,
-  isCancelled: () => boolean
-): Promise<RootRowLookup> {
-  if (isCancelled()) {
-    return { kind: 'cancelled' };
-  }
-  // Captured BEFORE the first read, not after: a registration for this exact
-  // path can land concurrently with (or immediately after) that read — most
-  // commonly a remove-then-re-add, since re-adding mints a fresh adapter id
-  // and so is a genuine SECOND registration of the same path, not a no-op.
-  // Comparing against the generation observed here (rather than asking "was
-  // this path EVER registered?") is what makes a registration that beats the
-  // first read still satisfy the wait below, instead of the wait resolving
-  // instantly off a stale earlier registration while the row is still absent.
-  const since = rootRegistrationSeq(candidate.path);
-  const firstAttempt = await tryResolveRootId(database, candidate);
-  if (firstAttempt.kind === 'resolved') {
-    return { kind: 'resolved', rootId: firstAttempt.rootId };
-  }
-  if (isCancelled()) {
-    return { kind: 'cancelled' };
-  }
-  try {
-    await awaitRootRegistration(candidate.path, { since, timeoutMs: ROOT_ROW_WAIT_TIMEOUT_MS });
-  } catch (waitError) {
-    // Timed out: reconciliation never announced this path. Loud, not silent —
-    // the caller logs/toasts this outcome.
-    return isCancelled() ? { kind: 'cancelled' } : { error: waitError, kind: 'unresolved' };
-  }
-  if (isCancelled()) {
-    return { kind: 'cancelled' };
-  }
-  const secondAttempt = await tryResolveRootId(database, candidate);
-  if (secondAttempt.kind === 'resolved') {
-    return { kind: 'resolved', rootId: secondAttempt.rootId };
-  }
-  // Registration was announced but the row still fails the unique-live-row
-  // read (e.g. a genuine duplicate path) — surface THAT error, not a stale one.
-  return isCancelled() ? { kind: 'cancelled' } : { error: secondAttempt.error, kind: 'unresolved' };
 }
 
 /**
