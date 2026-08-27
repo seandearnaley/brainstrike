@@ -114,6 +114,11 @@ export function WorktreeMapSurface(): ReactElement {
             setActionError(`Could not add "${card.entry.name}" as a workspace root.`);
             return;
           }
+          // Deliberately NO refresh() here (PR #2671 review): the mount
+          // resolving does not mean the `roots` row exists yet — the row is
+          // written later by the mid-session registration, and a refresh now
+          // would race it and re-read `rootId: null`. `useWorktreeMap`
+          // re-loads itself off the root-identity context once the row lands.
           return createThread(repository, resourceId).then((thread) => {
             selectThread(resourceId, thread.id);
             publishIntent({
@@ -146,6 +151,8 @@ export function WorktreeMapSurface(): ReactElement {
           if (!handle) {
             setActionError(`Could not add "${card.entry.name}" as a workspace root.`);
           }
+          // No refresh() on success — same racy-write reason as onNewThread's
+          // mount above; the root-identity subscription re-loads the Map.
         })
         .catch((caught: unknown) => {
           logger.error('worktree map could not add a root', {
@@ -172,14 +179,21 @@ export function WorktreeMapSurface(): ReactElement {
           // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
           if (!result.ok) {
             setActionError(`Worktree not archived: ${result.error}`);
+            return;
           }
+          // Unlike the mount paths (whose `roots` write lands later, in the
+          // registration effect), the archive IPC resolves only after the
+          // ledger row is archived — this refresh observes a completed write,
+          // mirroring onAdopt below, so the removed card leaves the list now
+          // instead of on the next unrelated invalidation.
+          void refresh();
         })
         .catch((caught: unknown) => {
           logger.error('worktree map could not archive', { error: caught, worktreeId });
           setActionError(errorMessage(caught));
         });
     },
-    [worktrees]
+    [refresh, worktrees]
   );
 
   // (bot review fix, PR #2664) Hand off publishes the SAME checkout-intent

@@ -453,13 +453,28 @@ Mode chip's create/pick flows (found live during the W5 CDT pass: without this
 ordering, the bind's `resolveRootIdAfterReconciliation` retry — 20 × 250ms,
 already generous — always exhausted, because nothing else ever creates the
 `roots` row for a freshly-adopted worktree). The Map never re-reads on its own,
-so every mutation that changes what a card resolves must call `refresh()` on the
-Map's own card list on success: `onAdopt` (new ledger row), and — closed as the
-filed follow-up to the W5 CDT pass — `onNewThread`'s mount and `onAddAsRoot`
-(new `roots` row, which `rootId` and therefore `indexing` resolve from; without
-it a mounted card rendered no indexing badge until an UNRELATED
-changes-invalidation event refreshed the Map). A failed mount or refused adopt
-never refreshes. Pinned by the surface test's refresh assertions.
+so every mutation that changes what a card resolves needs a matching re-read —
+but the two mutation classes get DIFFERENT mechanisms (settled in PR #2671
+review; the W5 CDT pass filed the staleness, #2671 closed it):
+
+- **Ledger mutations** (`onAdopt`, `onArchive`) call `refresh()` on the Map's
+  own card list on success — their IPC resolves only after the ledger write, so
+  the refresh observes a completed write. A refusal never refreshes.
+- **Mount paths** (`onNewThread`'s mount-before-bind, `onAddAsRoot`) must NOT
+  call `refresh()`: `addRootDirectoryByPath` resolving does not mean the
+  `roots` row (which `rootId` and therefore `indexing` resolve from) exists —
+  the row is written later by the fire-and-forget mid-session registration
+  (`performRootRegistration`), whose completion emits no `changes:invalidated`,
+  so a caller-side refresh races the write and re-reads `rootId: null`.
+  Instead `useWorktreeMap` keys its load effect on the `useOptionalRootIdentity`
+  context value, which `RootIdentityProvider` re-memoizes exactly when a new
+  adapter→DB mapping publishes (i.e. after `reconcileRoots` wrote the row) —
+  deterministic, poll-free, and it covers mounts started from ANY surface
+  (Mode chip included), not just the Map's own actions.
+
+Both halves are pinned: the surface test pins that mount callbacks never call
+`refresh()` (and that adopt/archive do), and the `use-worktree-map` test pins
+the identity-driven re-read plus its cheapness (no extra per-card `git status`).
 
 ### SETUP HOOKS / PER-WORKTREE SETUP — granted roots only
 
