@@ -203,4 +203,59 @@ test.describe('Workspace bar (desktop)', () => {
 
     await expect(folderChip).toContainText('+1', { timeout: 60_000 });
   });
+
+  test('@smoke the composer drop zone arms only for a drag that carries files', {
+    tag: '@smoke',
+  }, async ({ window: page }) => {
+    test.setTimeout(90_000);
+    const repo = freshRepo('drop-gate');
+    await seedRoot(page, repo);
+    await openComposer(page);
+
+    const zone = page.getByTestId('workspace-bar-drop-zone');
+    await expect(zone).toBeVisible({ timeout: 30_000 });
+
+    // The gate itself is observable SYNCHRONOUSLY: handleDragOver calls
+    // preventDefault() only when 'Files' is advertised (the component's own
+    // stated contract — checked BEFORE preventDefault, so an internal
+    // pragmatic-drag-and-drop drag passes through untouched). Asserting on
+    // defaultPrevented tests the gate with no render race — a negative
+    // not.toHaveClass would pass on its first poll before React flushed a
+    // would-be setIsDragOver, making "ring absent" and "ring not rendered
+    // yet" indistinguishable (PR #2686 review). Real page-constructed
+    // DataTransfers, never serialized objects.
+    const textPrevented = await zone.evaluate((element) => {
+      const transfer = new DataTransfer();
+      transfer.setData('text/plain', 'not-a-file');
+      const event = new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(textPrevented).toBe(false);
+
+    // Positive control: a File makes the DataTransfer advertise 'Files' —
+    // the gate consumes the drag (defaultPrevented) and the ring, its
+    // rendered consequence, arms (toHaveClass retries through the React
+    // flush). NOTE (stated, per the plan): this proves the GATE and the
+    // ring only. A JS-constructed File is not OS-backed, so `getPathForFile`
+    // would return '' and no path could ever resolve from a synthetic
+    // drop — the real-Finder-folder drop is the manual CDT step in Task 14.
+    const filesPrevented = await zone.evaluate((element) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }));
+      const event = new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(filesPrevented).toBe(true);
+    await expect(zone).toHaveClass(/ring-2/);
+  });
 });

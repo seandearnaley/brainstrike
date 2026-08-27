@@ -84,6 +84,35 @@ describe('useConnectFolder', () => {
     // Real Electron wraps a main-process rejection's message exactly like
     // this before it reaches the renderer — a review finding: the exact-string
     // match never fired in production because it was only tested un-enveloped.
+    // The prefix is `AccessError:`, NOT `Error:`: main throws the refusal as
+    // an AccessError and the class NAME survives IPC serialization (BST-1393
+    // L5 live finding — a literal-`Error:`-only stripper left `AccessError: `
+    // on the message and this remedy silently degraded to the generic toast).
+    addRootDirectoryByPathMock.mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'fs:addRootByPath': AccessError: Folder was never granted in this app; use Add Folder to grant it."
+      )
+    );
+    const { result } = renderHook(() => useConnectFolder());
+
+    await act(async () => {
+      await result.current.connectPath?.({ origin: 'argv', path: '/w/enveloped' });
+    });
+
+    const [call] = toastMock.mock.calls;
+    expect(call?.[0]).toMatchObject({
+      persistent: true,
+      title: 'BrainStrike has not been granted access to this folder',
+      variant: 'destructive',
+    });
+    expect(call?.[0]?.action).toBeDefined();
+  });
+
+  it('matches the never-granted refusal through a plain-Error envelope too', async () => {
+    // Both envelope spellings must strip: `Error:` (a plain Error thrown in
+    // main) and the class-named `AccessError:` above. The name group is
+    // optional-prefix + literal `Error:`, so a regression in either
+    // direction fails one of these two cases.
     addRootDirectoryByPathMock.mockRejectedValue(
       new Error(
         "Error invoking remote method 'fs:addRootByPath': Error: Folder was never granted in this app; use Add Folder to grant it."
@@ -92,7 +121,34 @@ describe('useConnectFolder', () => {
     const { result } = renderHook(() => useConnectFolder());
 
     await act(async () => {
-      await result.current.connectPath?.({ origin: 'argv', path: '/w/enveloped' });
+      await result.current.connectPath?.({ origin: 'open-file', path: '/w/plain-enveloped' });
+    });
+
+    const [call] = toastMock.mock.calls;
+    expect(call?.[0]).toMatchObject({
+      persistent: true,
+      title: 'BrainStrike has not been granted access to this folder',
+      variant: 'destructive',
+    });
+  });
+
+  it('matches the refusal even under a prefix the stripper does NOT recognize', async () => {
+    // The falsifier for the CLASS of failure, not the instance: the stripper
+    // recognizes the envelope plus any `*Error:` class name, but a refusal
+    // surfaced through a class named WITHOUT an Error suffix leaves its
+    // prefix on the message. The behavioral match is a SUFFIX match on the
+    // canonical sentences, so it must still fire here — an
+    // equality-on-stripped-message implementation goes dark on this case
+    // (the third notch on the failure the L5 e2e caught live).
+    addRootDirectoryByPathMock.mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'fs:addRootByPath': RefusalFault: Folder was never granted in this app; use Add Folder to grant it."
+      )
+    );
+    const { result } = renderHook(() => useConnectFolder());
+
+    await act(async () => {
+      await result.current.connectPath?.({ origin: 'second-instance', path: '/w/no-suffix' });
     });
 
     const [call] = toastMock.mock.calls;

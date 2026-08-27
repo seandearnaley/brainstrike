@@ -36,8 +36,27 @@ describe('buildFileMenuTemplate', () => {
     // The full path is the tooltip, so two same-named folders stay tellable
     // apart — the exact ambiguity the workspace bar's recents also faces.
     expect(rows[0]?.toolTip).toBe('/Users/dev/GitHub/brainstrike');
-    rows[0]?.click?.({} as Electron.MenuItem, undefined, {} as Electron.KeyboardEvent);
-    expect(onOpenRecentPath).toHaveBeenCalledExactlyOnceWith('/Users/dev/GitHub/brainstrike');
+    // Electron's click handler hands the focused window through as the second
+    // callback arg; the row forwards BOTH the path and that window, so the
+    // consumer can route to the clicked window even when
+    // `BrowserWindow.getFocusedWindow()` is null (app not OS-active — the
+    // state every programmatic `getMenuItemById(...).click(...)` runs in).
+    const clickedWindow = { id: 7 } as unknown as Electron.BaseWindow;
+    rows[0]?.click?.({} as Electron.MenuItem, clickedWindow, {} as Electron.KeyboardEvent);
+    expect(onOpenRecentPath).toHaveBeenCalledExactlyOnceWith(
+      '/Users/dev/GitHub/brainstrike',
+      clickedWindow
+    );
+  });
+
+  it('forwards the click-handler window to onOpenFolder', () => {
+    const onOpenFolder = vi.fn();
+    const [openFolder] = submenuOf(
+      buildFileMenuTemplate({ onOpenFolder, onOpenRecentPath: vi.fn(), recentPaths: [] })
+    );
+    const clickedWindow = { id: 3 } as unknown as Electron.BaseWindow;
+    openFolder?.click?.({} as Electron.MenuItem, clickedWindow, {} as Electron.KeyboardEvent);
+    expect(onOpenFolder).toHaveBeenCalledExactlyOnceWith(clickedWindow);
   });
 
   it('caps the projection and keeps it newest-first', () => {

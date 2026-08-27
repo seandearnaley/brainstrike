@@ -60,6 +60,35 @@ export const WORKSPACE_ROOT_NEVER_GRANTED_MESSAGES: readonly string[] = [
   WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE,
 ] as const;
 
+/**
+ * `ipcRenderer.invoke` prefixes a main-process rejection's message with
+ * `Error invoking remote method '<channel>': <ErrorName>: ` before it reaches
+ * the renderer. The error-NAME group matches any `*Error:` class name, not
+ * just the literal `Error:` — main throws refusals as an `AccessError`
+ * (`workspace-recent-roots.ts` → `@brainstrike/file-system`'s class) and the
+ * name survives IPC serialization; a literal-only stripper left
+ * `AccessError: ` on the message in every real refusal (BST-1393 L5 live
+ * finding). A class named WITHOUT an `Error` suffix is deliberately NOT
+ * stripped — which is why behavioral matching against the refusal literals is
+ * a SUFFIX match (`use-connect-folder.tsx`), never equality on this
+ * function's output; this stripper exists for DISPLAY text, where a stale
+ * prefix is only cosmetic.
+ */
+const IPC_INVOKE_ENVELOPE =
+  /^Error invoking remote method '[^']+':\s*(?:(?:[A-Za-z][\w$]*)?Error:\s*)?/u;
+
+/**
+ * ONE exported copy, consumed by both `use-connect-folder.tsx`'s `messageOf`
+ * and `hooks/use-workspace-bar.ts`'s `describeFailure` (PR #2686 review): the
+ * defect this fixes WAS a divergence between two hand-maintained copies of
+ * this envelope contract, so it lives here — the canonical home of the
+ * refusal-message constants both sides already share — rather than as a
+ * prose-synced pair.
+ */
+export function stripIpcInvokeEnvelope(message: string): string {
+  return message.replace(IPC_INVOKE_ENVELOPE, '');
+}
+
 export interface WorkspaceOpenPathRequest {
   readonly origin: WorkspaceOpenOrigin;
   /** Absolute path main resolved. A REQUEST, never a grant (ruling S1). */
