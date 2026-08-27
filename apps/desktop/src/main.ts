@@ -1621,11 +1621,18 @@ if (singleInstanceLockAcquired) {
         getDatabase,
         readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
         recordRunEvent: (runId, event) => recordDesktopAssistantRunEvent(runId, event, getDatabase),
-        resolveInventory: async () => {
+        resolveInventory: async (options) => {
           if (!gitInventoryService) {
             throw new Error('worktrees: gitInventoryService is not running');
           }
-          const snapshot = await gitInventoryService.getSnapshot();
+          // `maxAgeMs: 0` is FORCED (git-inventory-service.ts's own doc
+          // comment): it guarantees a build that started after this call, not
+          // merely a cache-bust — what reconcileWorktreesFromShell's
+          // post-command read needs to reliably see a worktree the agent's
+          // shell command just created.
+          const snapshot = await gitInventoryService.getSnapshot(
+            options?.forceFresh ? { maxAgeMs: 0 } : undefined
+          );
           return { errors: snapshot.errors, repositories: snapshot.repositories };
         },
         resolveRootCwd: (rootId) =>
