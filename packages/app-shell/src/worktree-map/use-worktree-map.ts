@@ -67,6 +67,13 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   // no Git-scope registration, because the Map is repository-wide.
   useChangesLiveRefreshSubscription();
   const invalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
+  // The two nonce consumers deliberately see DIFFERENT triggers. The load
+  // effect keys on `invalidationNonce` only: the manual `refresh()` already
+  // gets its list read from the `load()` it awaits, so folding `manualNonce`
+  // into the effect key would issue a second concurrent `worktrees.list()`
+  // per manual refresh (PR #2671 review note 3). The status reads key on the
+  // combined nonce because they have no other manual-refresh path — the bump
+  // is what re-runs `git status` per card.
   const refreshNonce = invalidationNonce + manualNonce;
   // Third repeat trigger (PR #2671 review finding): mounting a checkout as a
   // workspace root does NOT write the `roots` row the entries' `rootId`
@@ -137,7 +144,7 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
     return () => {
       cancelled = true;
     };
-  }, [load, refreshNonce, rootIdentity]);
+  }, [load, invalidationNonce, rootIdentity]);
 
   const prCache = useForgePrCache({ database: input.database, enabled: bridge !== null });
   const threads = useAssistantThreadStore(
@@ -174,6 +181,8 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   const statusByPath = useWorktreeCheckoutStatuses({ bridge, paths, refreshNonce });
 
   const refresh = useCallback(async (): Promise<void> => {
+    // The awaited load IS the list read; the bump only re-keys the status
+    // reads (the load effect does not see `manualNonce` — see `refreshNonce`).
     setManualNonce((previous) => previous + 1);
     await load();
   }, [load]);

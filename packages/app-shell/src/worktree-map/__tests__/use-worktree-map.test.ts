@@ -148,6 +148,32 @@ describe('useWorktreeMap', () => {
     expect(listMock).toHaveBeenCalledTimes(2);
   });
 
+  // PR #2671 review note 3: `refresh()` used to bump the nonce keying the load
+  // effect AND await `load()` directly, so every manual refresh issued TWO
+  // concurrent `worktrees.list()` calls — and the surface now has three
+  // refresh call sites (adopt, archive, add-as-root). The awaited direct load
+  // is the single list read; the nonce bump survives only to re-key the
+  // per-card status reads.
+  it('manual refresh issues exactly one additional list read and re-keys the statuses', async () => {
+    const { result } = renderHook(() => useWorktreeMap(INPUT));
+    await waitFor(() => expect(result.current.statusByPath.get('/repo')?.kind).toBe('ready'));
+    expect(listMock).toHaveBeenCalledTimes(1);
+    expect(checkoutStatusMock).toHaveBeenCalledTimes(1);
+
+    // `act` flushes the post-commit effect re-run that the old double-work
+    // shape used as its second list read; without it a regression to two
+    // reads would escape the assertion below.
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(listMock).toHaveBeenCalledTimes(2);
+    // Falsifier for the other half of the contract: the manual refresh must
+    // still re-run `git status` per card, exactly once.
+    await waitFor(() => expect(checkoutStatusMock).toHaveBeenCalledTimes(2));
+    expect(checkoutStatusMock).toHaveBeenCalledTimes(2);
+  });
+
   // PR #2671 review finding: a mount's `addRootDirectoryByPath` resolving does
   // NOT mean the `roots` row exists — the row is written later by the
   // fire-and-forget mid-session registration (`performRootRegistration`), so a
