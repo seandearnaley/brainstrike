@@ -74,6 +74,17 @@ export interface WorkspaceConnectBridge {
    * extractor counts and the UI states, never a silent skip.
    */
   readonly getDroppedPath: (file: File) => string;
+  /**
+   * Renderer→main: tell main a listener now exists for `onOpenPath`. Call
+   * IMMEDIATELY after subscribing, in the SAME effect — main gates delivery
+   * on this ping (plus the window having finished loading), because
+   * `did-finish-load`/`did-stop-loading` prove the document loaded, not that
+   * `WorkspaceConnectHost`'s passive `useEffect` has run and its
+   * `ipcRenderer.on` listener exists. Electron does not retain or replay a
+   * `send` into a page with no listener — a flush in that gap is a silent
+   * loss, the exact failure class this bridge exists to prevent.
+   */
+  readonly notifyOpenPathReady: () => void;
   /** File ▸ Open Folder… — the renderer runs its ordinary picker flow. */
   readonly onOpenFolderPicker: (callback: () => void) => () => void;
   /** argv / open-file / second-instance / File ▸ Open Recent. */
@@ -84,6 +95,7 @@ export interface WorkspaceConnectBridge {
 // key is rejected, so the pin can never drift from the interface.
 const WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHOD_SET = {
   getDroppedPath: true,
+  notifyOpenPathReady: true,
   onOpenFolderPicker: true,
   onOpenPath: true,
 } as const satisfies Record<keyof WorkspaceConnectBridge, true>;

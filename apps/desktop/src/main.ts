@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike/types';
-import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { buildFileMenuTemplate } from './application-file-menu';
@@ -2259,15 +2259,27 @@ if (singleInstanceLockAcquired) {
 
         // `createWindow`'s `loadFile`/`loadURL` call RESOLVES at `did-finish-load`
         // (Electron's own contract), so by the time `win` exists here the initial
-        // load's `did-finish-load` has already fired — a listener registered only
-        // AFTER this point would never see it, and the queue would never attach on
-        // a normal launch. Attach immediately when nothing is currently loading
-        // (covers the initial load) and keep listening for every future one.
+        // load's main-frame document has already finished — a listener registered
+        // only AFTER this point would never see THAT particular event. Attach is
+        // gated on TWO independent conditions below (`loadFinished` AND
+        // `rendererReady`), each with its own catch-up path, so neither being
+        // already-true by the time this code runs is a problem.
         // Wired HERE, inside `createMainWindow`, rather than at each call site, so
         // the SAME attach point serves the initial launch and every
         // `app.on('activate')` recreation — macOS's Dock-drop path with no window
         // open is the primary way `open-file` arrives, and a window built without
         // this wiring would strand the queue's target forever (BST-1393 L3 review).
+        let loadFinished = false;
+        // `did-finish-load` alone is NOT proof the renderer can receive a
+        // delivery: it fires when the DOCUMENT finishes loading, before React
+        // has mounted `WorkspaceConnectHost` and that component's passive
+        // `useEffect` has subscribed via `onOpenPath`. A flush in that gap
+        // sends into a renderer with no `ipcRenderer.on` listener, and
+        // Electron does not retain or replay the event — silent loss, the
+        // exact failure class this queue exists to prevent. `rendererReady`
+        // is the renderer's own explicit ack (`notifyOpenPathReady`, sent the
+        // instant `WorkspaceConnectHost` subscribes) — attach requires BOTH.
+        let rendererReady = false;
         const attachWorkspaceOpenQueue = () => {
           workspaceOpenQueue.attach({
             isDestroyed: () => win.webContents.isDestroyed(),
@@ -2276,26 +2288,74 @@ if (singleInstanceLockAcquired) {
             },
           });
         };
+        const maybeAttachWorkspaceOpenQueue = () => {
+          if (loadFinished && rendererReady) {
+            attachWorkspaceOpenQueue();
+          }
+        };
         // A reload/navigation destroys the renderer's `WorkspaceConnectHost`
         // subscription before the new document re-mounts it; detaching on
         // `did-start-loading` stops mid-reload requests from being sent into a
-        // page with no listener (they buffer instead, and the following
-        // `did-finish-load` re-attach delivers them).
-        //
-        // LOAD-BEARING: the three statements below (register `did-start-loading`,
-        // register `did-finish-load`, then check `isLoading()`) MUST stay one
-        // synchronous block with NO `await` between them. Node/Electron main is
-        // single-threaded, so as written nothing can interleave; an inserted
-        // `await` would let a real `did-finish-load` land between the listener
-        // registration and the check, silently re-opening Critical 1 (the initial
-        // attach never fires again) in a way no test can express — this is a
-        // property of the CALLER's code shape, not something a mock can pin.
+        // page with no listener (they buffer instead, and the matching
+        // re-attach below delivers them once the new document is BOTH loaded
+        // and ready). Resetting both flags here, not just calling `detach()`,
+        // is what makes a reload require a FRESH ready ping rather than
+        // attaching prematurely on the stale one from the previous document.
         win.webContents.on('did-start-loading', () => {
+          loadFinished = false;
+          rendererReady = false;
           workspaceOpenQueue.detach();
         });
-        win.webContents.on('did-finish-load', attachWorkspaceOpenQueue);
+        // `did-stop-loading`, NOT `did-finish-load`: the latter is main-frame
+        // ONLY (Electron guards `WebContents::DidFinishLoad` on
+        // `!render_frame_host->GetParent()`; a subframe's completion fires
+        // `did-frame-finish-load` instead), while `did-start-loading` above is
+        // WebContents-level and fires for ANY frame, including `<iframe>`
+        // navigations (e.g. the canvas surface's artifact frame). Pairing
+        // `did-start-loading` with `did-finish-load` is asymmetric: a
+        // subframe-only load would detach with nothing ever re-attaching for
+        // the lifetime of the window. `did-stop-loading` is documented as the
+        // WebContents-level counterpart of `did-start-loading` — it always
+        // fires, for main-frame and subframe loads alike, keeping the pair
+        // symmetric (BST-1393 PR #2682 review).
+        win.webContents.on('did-stop-loading', () => {
+          loadFinished = true;
+          maybeAttachWorkspaceOpenQueue();
+        });
+        // Renderer→main ready ping (`WorkspaceConnectHost`, immediately after
+        // it subscribes via `onOpenPath`). Scoped to THIS window's webContents
+        // — `createMainWindow` runs again on every `activate` recreation, and
+        // an unscoped/global listener would let a stale ready ping from a
+        // previous, now-destroyed window attach a NEW window prematurely.
+        // Removed on `closed` so listeners don't accumulate across
+        // recreations.
+        const handleOpenPathReady = (event: Electron.IpcMainEvent) => {
+          if (event.sender !== win.webContents) {
+            return;
+          }
+          rendererReady = true;
+          maybeAttachWorkspaceOpenQueue();
+        };
+        ipcMain.on(DESKTOP_IPC_CHANNELS.workspace.openPathReady, handleOpenPathReady);
+        win.once('closed', () => {
+          ipcMain.removeListener(DESKTOP_IPC_CHANNELS.workspace.openPathReady, handleOpenPathReady);
+        });
+        // LOAD-BEARING: this whole block, from the `did-start-loading`
+        // registration above through the `isLoading()` check below, MUST stay
+        // one synchronous run with NO `await` between any of the statements.
+        // Node/Electron main is single-threaded, so as written nothing can
+        // interleave; an inserted `await` would let a real `did-stop-loading`
+        // (or ready ping) land between a registration and this check, silently
+        // re-opening Critical 1 (the initial attach never fires again) in a
+        // way no test can express — this is a property of the CALLER's code
+        // shape, not something a mock can pin.
         if (!win.webContents.isLoading()) {
-          attachWorkspaceOpenQueue();
+          loadFinished = true;
+          // `rendererReady` is still false here — WorkspaceConnectHost's
+          // effect has not run yet. This just catches up `loadFinished`;
+          // `maybeAttachWorkspaceOpenQueue` stays a no-op until the ready
+          // ping arrives, which is the correct order for a fresh window.
+          maybeAttachWorkspaceOpenQueue();
         }
 
         // Embedded browser pane (BST-1174): each window owns its OWN pane host

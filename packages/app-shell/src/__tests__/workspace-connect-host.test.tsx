@@ -30,6 +30,7 @@ interface MutableWindow {
 interface TestBridge {
   readonly bridge: {
     readonly getDroppedPath: ReturnType<typeof vi.fn>;
+    readonly notifyOpenPathReady: ReturnType<typeof vi.fn>;
     readonly onOpenFolderPicker: ReturnType<typeof vi.fn>;
     readonly onOpenPath: ReturnType<typeof vi.fn>;
   };
@@ -45,6 +46,7 @@ function createTestBridge(): TestBridge {
   return {
     bridge: {
       getDroppedPath: vi.fn(),
+      notifyOpenPathReady: vi.fn(),
       onOpenFolderPicker: vi.fn((_callback: () => void) => openFolderPickerUnsubscribe),
       onOpenPath: vi.fn((callback: (request: unknown) => void) => {
         openPathCallback = callback;
@@ -85,6 +87,21 @@ describe('WorkspaceConnectHost', () => {
     expect(testBridge.openPathUnsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it('pings notifyOpenPathReady exactly once, AFTER subscribing to onOpenPath, in the same effect', () => {
+    const testBridge = createTestBridge();
+    (window as MutableWindow).workspace = testBridge.bridge;
+
+    render(<WorkspaceConnectHost />);
+
+    expect(testBridge.bridge.notifyOpenPathReady).toHaveBeenCalledTimes(1);
+    // Ordering matters: main treats this ping as proof the subscription
+    // above already exists, so a ping sent BEFORE `onOpenPath` would be a
+    // lie main could act on.
+    const subscribeOrder = testBridge.bridge.onOpenPath.mock.invocationCallOrder[0];
+    const readyOrder = testBridge.bridge.notifyOpenPathReady.mock.invocationCallOrder[0];
+    expect(subscribeOrder).toBeLessThan(readyOrder as number);
+  });
+
   it('subscribes to nothing when the workspace bridge is absent', () => {
     const testBridge = createTestBridge();
 
@@ -92,9 +109,10 @@ describe('WorkspaceConnectHost', () => {
 
     expect(testBridge.bridge.onOpenFolderPicker).not.toHaveBeenCalled();
     expect(testBridge.bridge.onOpenPath).not.toHaveBeenCalled();
+    expect(testBridge.bridge.notifyOpenPathReady).not.toHaveBeenCalled();
   });
 
-  it('keeps picker subscription but omits path subscription without picker-less capability', () => {
+  it('keeps picker subscription but omits path subscription (and the ready ping) without picker-less capability', () => {
     connectPathCapabilityRef.current = false;
     const testBridge = createTestBridge();
     (window as MutableWindow).workspace = testBridge.bridge;
@@ -103,6 +121,7 @@ describe('WorkspaceConnectHost', () => {
 
     expect(testBridge.bridge.onOpenFolderPicker).toHaveBeenCalledTimes(1);
     expect(testBridge.bridge.onOpenPath).not.toHaveBeenCalled();
+    expect(testBridge.bridge.notifyOpenPathReady).not.toHaveBeenCalled();
   });
 
   it('logs and refuses a malformed open-path payload', () => {

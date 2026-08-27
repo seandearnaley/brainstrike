@@ -146,6 +146,45 @@ describe('createWorkspaceOpenQueue', () => {
   it('detach() with no target attached is a safe no-op', () => {
     expect(() => queue.detach()).not.toThrow();
   });
+
+  it('re-buffers the failed send and everything after it when send throws mid-drain, and never lets the exception escape', () => {
+    const target = makeTarget();
+    // repo-h's send succeeds (default mock behavior); repo-i's throws.
+    target.send
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error('webContents destroyed mid-drain');
+      });
+    queue.enqueue({ origin: 'open-file', path: '/work/repo-h' });
+    queue.enqueue({ origin: 'argv', path: '/work/repo-i' });
+    queue.enqueue({ origin: 'second-instance', path: '/work/repo-j' });
+
+    // The throw from send() must never escape attach() into the Electron
+    // event handler that called it.
+    expect(() => queue.attach(target)).not.toThrow();
+    // repo-h delivered successfully before the throw; repo-i's send is where
+    // it fired, so the drain stopped there — repo-j was never attempted.
+    expect(target.send).toHaveBeenCalledTimes(2);
+    expect(target.send).toHaveBeenNthCalledWith(1, CHANNEL, {
+      origin: 'open-file',
+      path: '/work/repo-h',
+    });
+
+    // The dead target is dropped (not retried). A fresh attach delivers the
+    // FAILED item and everything after it, in order — repo-h, which already
+    // (attemptedly) sent, is never replayed.
+    const liveTarget = makeTarget();
+    queue.attach(liveTarget);
+    expect(liveTarget.send).toHaveBeenCalledTimes(2);
+    expect(liveTarget.send).toHaveBeenNthCalledWith(1, CHANNEL, {
+      origin: 'argv',
+      path: '/work/repo-i',
+    });
+    expect(liveTarget.send).toHaveBeenNthCalledWith(2, CHANNEL, {
+      origin: 'second-instance',
+      path: '/work/repo-j',
+    });
+  });
 });
 
 describe('filterDirectoryOpenCandidates', () => {
@@ -184,6 +223,31 @@ describe('filterDirectoryOpenCandidates', () => {
       ).toEqual([tempDir, secondDir]);
     } finally {
       fs.rmSync(secondDir, { force: true, recursive: true });
+    }
+  });
+
+  it('caps candidates to MAX_PENDING_OPEN_REQUESTS BEFORE the sync stat loop, not just on the output', () => {
+    const statSpy = vi.spyOn(fs, 'statSync').mockReturnValue({
+      isDirectory: () => true,
+    } as fs.Stats);
+    try {
+      const candidates = Array.from(
+        { length: MAX_PENDING_OPEN_REQUESTS + 10 },
+        (_, i) => `/fake/path-${i}`
+      );
+
+      const result = filterDirectoryOpenCandidates(candidates, 'second-instance');
+
+      // The falsifier for "cap the output, stat everything": if the cap ran
+      // only on the RESULT, statSync would have been called
+      // MAX_PENDING_OPEN_REQUESTS + 10 times. It must run BEFORE the loop —
+      // `enqueue` would drop the extra 10 anyway, so statting them is pure
+      // main-thread stall on a runaway producer (`brainstrike *`, a
+      // `second-instance` storm from another process).
+      expect(statSpy).toHaveBeenCalledTimes(MAX_PENDING_OPEN_REQUESTS);
+      expect(result).toHaveLength(MAX_PENDING_OPEN_REQUESTS);
+    } finally {
+      statSpy.mockRestore();
     }
   });
 });

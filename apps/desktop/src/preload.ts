@@ -85,6 +85,7 @@ const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
 const QUICK_OPEN_OPEN_EVENT = 'quick-open:open' as const;
 const WORKSPACE_OPEN_FOLDER_PICKER_EVENT = 'workspace:open-folder-picker' as const;
 const WORKSPACE_OPEN_PATH_EVENT = 'workspace:open-path' as const;
+const WORKSPACE_OPEN_PATH_READY_EVENT = 'workspace:open-path-ready' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
 const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
@@ -1092,6 +1093,13 @@ if (shouldExposeBridge('workspace')) {
         // path", which the renderer counts and states — never a silent skip.
         return '';
       }
+    },
+    // The one renderer→main member of this bridge: fire-and-forget, no
+    // response expected. `WorkspaceConnectHost` calls this the instant it
+    // subscribes to `onOpenPath`, so main can gate delivery on the renderer
+    // actually being ready to receive rather than merely having loaded.
+    notifyOpenPathReady: (): void => {
+      ipcRenderer.send(WORKSPACE_OPEN_PATH_READY_EVENT);
     },
     onOpenFolderPicker: (callback: () => void) => {
       const listener = () => callback();

@@ -49,8 +49,26 @@ export function createWorkspaceOpenQueue(channel: string) {
     // Splice-then-send: a throwing `send` must not replay the whole queue on
     // the next flush, and the ordering the user typed is preserved.
     const draining = pending.splice(0, pending.length);
-    for (const request of draining) {
-      target.send(channel, request);
+    for (const [index, request] of draining.entries()) {
+      try {
+        target.send(channel, request);
+      } catch (error) {
+        // The target died mid-drain (destroyed between the isDestroyed()
+        // check above and this send). NO SILENT FALLBACK: surface the loss
+        // rather than dropping the remainder of the batch on the floor, and
+        // re-buffer the unsent remainder for the next attach instead of
+        // consuming it against a dead renderer. The exception must never
+        // escape into the Electron event handler that called enqueue()/
+        // attach() (`open-file`, `did-finish-load`, ...).
+        logger.warn('Folder-open delivery failed mid-drain; re-buffering the remainder', {
+          error: error instanceof Error ? error.message : String(error),
+          origin: request.origin,
+          remaining: draining.length - index,
+        });
+        pending.unshift(...draining.slice(index));
+        target = null;
+        return;
+      }
     }
   };
 
@@ -126,13 +144,28 @@ export function enqueueFolderCandidates(
  * nothing about whether a directory may be MOUNTED (that is still
  * `fs:addRootByPath`'s two ordered gates, ruling S1); it only keeps a request
  * that can never succeed off the IPC channel.
+ *
+ * Sliced to `MAX_PENDING_OPEN_REQUESTS` BEFORE the sync `fs.statSync` loop,
+ * not after: `enqueue` would drop anything past that ceiling anyway (oldest
+ * first), so statting extra candidates is pure main-thread stall on a
+ * runaway producer. `second-instance` argv is another PROCESS's input
+ * (attacker-influencable, same framing as `folder-argv.ts`'s docblock) —
+ * `brainstrike *` in a directory with tens of thousands of entries must not
+ * block the main thread for that many synchronous stat syscalls before a
+ * single request is enqueued.
  */
 export function filterDirectoryOpenCandidates(
   candidates: readonly string[],
   origin: WorkspaceOpenOrigin
 ): readonly string[] {
+  if (candidates.length > MAX_PENDING_OPEN_REQUESTS) {
+    logger.warn('Truncated an oversized folder-open candidate list', {
+      dropped: candidates.length - MAX_PENDING_OPEN_REQUESTS,
+      origin,
+    });
+  }
   const directories: string[] = [];
-  for (const candidate of candidates) {
+  for (const candidate of candidates.slice(0, MAX_PENDING_OPEN_REQUESTS)) {
     try {
       if (fs.statSync(candidate).isDirectory()) {
         directories.push(candidate);

@@ -25,6 +25,7 @@ describe('resolveWorkspaceConnectBridge', () => {
   it('resolves a fully-formed bridge', () => {
     (window as MutableWindow).workspace = {
       getDroppedPath: vi.fn(),
+      notifyOpenPathReady: vi.fn(),
       onOpenFolderPicker: vi.fn(),
       onOpenPath: vi.fn(),
     };
@@ -45,12 +46,13 @@ describe('resolveWorkspaceConnectBridge', () => {
     }
     expect(
       records.find((record) => record.scope === 'WorkspaceConnectBridge')?.args
-    ).toContainEqual({ missing: ['getDroppedPath', 'onOpenFolderPicker'] });
+    ).toContainEqual({ missing: ['getDroppedPath', 'notifyOpenPathReady', 'onOpenFolderPicker'] });
   });
 
   it('pins the exact required-method set', () => {
     expect([...WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS]).toEqual([
       'getDroppedPath',
+      'notifyOpenPathReady',
       'onOpenFolderPicker',
       'onOpenPath',
     ]);

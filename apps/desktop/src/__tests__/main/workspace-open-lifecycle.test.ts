@@ -8,13 +8,19 @@ import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
  * This harness mirrors `boot-order.test.ts`'s mock shape (read at HEAD) —
  * see that file's own header comment for the "Vitest 4 constructor mock"
  * pattern this reuses — with one deliberate departure documented at
- * `simulateLoad` below: `loadFile`/`loadURL` must fire `did-finish-load` to
- * the listeners registered AT THE MOMENT they are called, not to whichever
+ * `simulateLoad` below: `loadFile`/`loadURL` must fire the load events to the
+ * listeners registered AT THE MOMENT they are called, not to whichever
  * listener the test manually invokes after the fact. The first version of
  * this file did the latter and passed against code that never attached the
  * queue in production (L3 review 2026-08-27) — a mock that resolves the load
  * promise without ever emitting the event it is named for hides exactly the
  * ordering bug the review found.
+ *
+ * Attach now requires TWO independent conditions (PR #2682 review):
+ * `did-stop-loading` (NOT `did-finish-load`, which is main-frame-only and
+ * would miss a subframe-only load) AND an explicit renderer-ready ping over
+ * `ipcMain`. Every test that expects a delivery must therefore both let the
+ * window finish loading AND call `sendReadyPing` — see that helper below.
  */
 
 const mockSession = {
@@ -109,8 +115,12 @@ function createMockWindowInstance(): MockWindowInstance {
   // `loadFile`/`loadURL` resolve AT `did-finish-load` in real Electron — fire
   // it to whoever is subscribed right now, then resolve, so a listener
   // registered after this call (the ordering bug) is provably never invoked.
+  // `did-stop-loading` follows it (the WebContents-level "spinner stopped"
+  // event, always fired — main.ts's attach trigger, per the PR #2682 review:
+  // `did-finish-load` is main-frame-only and would miss a subframe load).
   const simulateLoad = () => {
     fireHandlersRegisteredSoFar(webContents.on, 'did-finish-load');
+    fireHandlersRegisteredSoFar(webContents.on, 'did-stop-loading');
     return Promise.resolve();
   };
   return {
@@ -156,16 +166,19 @@ const mockApp = {
   whenReady: vi.fn(() => Promise.resolve()),
 };
 
+const mockIpcMain = {
+  handle: vi.fn(),
+  on: vi.fn(),
+  removeAllListeners: vi.fn(),
+  removeHandler: vi.fn(),
+  removeListener: vi.fn(),
+};
+
 vi.mock('electron', () => ({
   app: mockApp,
   BrowserWindow: mockBrowserWindow,
   clipboard: { writeText: vi.fn() },
-  ipcMain: {
-    handle: vi.fn(),
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
-    removeHandler: vi.fn(),
-  },
+  ipcMain: mockIpcMain,
   Menu: {
     buildFromTemplate: vi.fn(),
     setApplicationMenu: vi.fn(),
@@ -336,6 +349,25 @@ function findLastHandler<T extends (...args: never[]) => unknown>(
 }
 
 const OPEN_PATH_CHANNEL = DESKTOP_IPC_CHANNELS.workspace.openPath;
+const OPEN_PATH_READY_CHANNEL = DESKTOP_IPC_CHANNELS.workspace.openPathReady;
+
+/**
+ * Fires EVERY registered `openPathReady` handler with `{ sender: win.webContents }`
+ * — modeling `ipcMain`'s real dispatch (every listener for the channel runs;
+ * `main.ts`'s own `event.sender !== win.webContents` guard is what decides
+ * relevance), rather than assuming which registration belongs to `win`. Every
+ * `createMainWindow()` call (initial launch, each `activate` recreation)
+ * registers its own handler and never removes it until `closed`, so more than
+ * one can be live at once.
+ */
+function sendReadyPing(win: MockWindowInstance): void {
+  const handlers = mockIpcMain.on.mock.calls
+    .filter((args) => args[0] === OPEN_PATH_READY_CHANNEL)
+    .map((args) => args[1] as (event: { sender: unknown }) => void);
+  for (const handler of handlers) {
+    handler({ sender: win.webContents });
+  }
+}
 
 describe('main workspace-open lifecycle', () => {
   beforeEach(() => {
@@ -383,17 +415,24 @@ describe('main workspace-open lifecycle', () => {
     openFileHandler({ preventDefault }, '/Users/dev/repo');
     expect(preventDefault).toHaveBeenCalledTimes(1);
 
-    // The window's `loadFile`/`loadURL` mock fires `did-finish-load` to
+    // The window's `loadFile`/`loadURL` mock fires the load events to
     // whichever listeners exist AT THAT MOMENT (see `simulateLoad`) — the
     // queue's attach listener is registered inside `createMainWindow`, AFTER
-    // that call resolves, so delivery here can ONLY happen via the
-    // `isLoading()` fallback attach. No test-driven event firing: this
+    // that call resolves, so `loadFinished` here can ONLY become true via the
+    // `isLoading()` fallback. No test-driven event firing for THIS half: this
     // proves production wiring, not the harness poking the code from outside.
     await vi.waitFor(() => {
-      expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
-        origin: 'open-file',
-        path: '/Users/dev/repo',
-      });
+      expect(mockWindowInstances).toHaveLength(1);
+    });
+    // Not delivered yet: the window finished loading, but
+    // `WorkspaceConnectHost` has not pinged ready.
+    expect(latestWindow().webContents.send).not.toHaveBeenCalled();
+
+    sendReadyPing(latestWindow());
+
+    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
+      origin: 'open-file',
+      path: '/Users/dev/repo',
     });
   });
 
@@ -420,10 +459,13 @@ describe('main workspace-open lifecycle', () => {
     );
 
     await vi.waitFor(() => {
-      expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
-        origin: 'second-instance',
-        path: '/work/second-instance-repo',
-      });
+      expect(mockWindowInstances).toHaveLength(1);
+    });
+    sendReadyPing(latestWindow());
+
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
+      origin: 'second-instance',
+      path: '/work/second-instance-repo',
     });
   });
 
@@ -433,16 +475,22 @@ describe('main workspace-open lifecycle', () => {
     await import('../../main');
 
     await vi.waitFor(() => {
-      expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
-        origin: 'argv',
-        path: '/work/argv-repo',
-      });
+      expect(mockWindowInstances).toHaveLength(1);
+    });
+    sendReadyPing(latestWindow());
+
+    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
+      origin: 'argv',
+      path: '/work/argv-repo',
     });
 
-    // A later, unrelated did-finish-load (e.g. a genuine reload) must not
-    // redeliver the same request — the queue's one-shot consume, exercised
-    // through the real wiring rather than the queue's own unit test.
-    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-finish-load');
+    // A later, unrelated reload (did-start-loading → did-stop-loading → a
+    // fresh ready ping) must not redeliver the same already-consumed
+    // request — the queue's one-shot consume, exercised through the real
+    // wiring rather than the queue's own unit test.
+    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-start-loading');
+    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
+    sendReadyPing(latestWindow());
     expect(latestWindow().webContents.send).toHaveBeenCalledTimes(1);
   });
 
@@ -473,26 +521,21 @@ describe('main workspace-open lifecycle', () => {
     );
   });
 
-  // Self-limiting: this test manually fires the event the production wiring
-  // was mis-ordered against, so it cannot discriminate that ordering — the
-  // queue's own unit tests do (`workspace-open-queue.test.ts`'s `detach()`
-  // cases, which exercise the primitive without any window-creation wiring
-  // at all). Concretely: the closing assertion below needs a `did-finish-load`
-  // to land, and this test fires that event BY HAND as its final step. Pre-fix
-  // `main.ts` DID register an attach listener for `did-finish-load` — too late
-  // to catch the one automatic firing inside `loadFile`/`loadURL` during the
-  // initial load (Critical 1), but already registered and waiting by the time
-  // THIS test fires the event manually, so delivery lands and the assertion
-  // passes regardless of whether `did-start-loading` → `detach()` exists.
-  it('a request arriving mid-reload buffers via did-start-loading detach, then delivers once the reload finishes', async () => {
+  // Self-limiting: this test manually fires the events the production wiring
+  // depends on, so it cannot discriminate their EXISTENCE — the queue's own
+  // unit tests do that in isolation (`workspace-open-queue.test.ts`'s
+  // `detach()` cases). What it DOES pin, faithfully: the ORDER and the
+  // ready-ping gate — a request enqueued between `did-start-loading` and the
+  // reload's `did-stop-loading` stays buffered, and even once the reload's
+  // document reports "stopped", delivery still waits on a FRESH ready ping
+  // (the old one was reset, not carried over from before the reload).
+  it('a request arriving mid-reload buffers via did-start-loading detach, then delivers only once the reload BOTH stops loading AND re-pings ready', async () => {
     await import('../../main');
 
     await vi.waitFor(() => {
-      expect(latestWindow().webContents.on).toHaveBeenCalledWith(
-        'did-start-loading',
-        expect.any(Function)
-      );
+      expect(mockWindowInstances).toHaveLength(1);
     });
+    sendReadyPing(latestWindow());
 
     // Simulate a reload beginning: the renderer's WorkspaceConnectHost
     // subscription is gone until the new document re-mounts it.
@@ -511,12 +554,94 @@ describe('main workspace-open lifecycle', () => {
       expect.anything()
     );
 
-    // The reload finishes.
-    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-finish-load');
+    // The reload's document stops loading — NOT enough on its own, since the
+    // reset ready flag has not been re-pinged yet.
+    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
+    expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
+      OPEN_PATH_CHANNEL,
+      expect.anything()
+    );
+
+    // The reloaded document's WorkspaceConnectHost re-subscribes and re-pings.
+    sendReadyPing(latestWindow());
 
     expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
       origin: 'open-file',
       path: '/Users/dev/mid-reload-repo',
+    });
+  });
+
+  it('a subframe-only load cycle (did-start-loading with NO did-finish-load) still re-attaches via did-stop-loading', async () => {
+    // The regression this pins: `did-start-loading` is WebContents-level and
+    // fires for ANY frame, including an `<iframe>` navigation (the canvas
+    // surface renders one whose `src` changes with the nonce). `did-finish-load`
+    // is main-frame-ONLY (Electron guards `WebContents::DidFinishLoad` on
+    // `!render_frame_host->GetParent()`) — a subframe's completion fires
+    // `did-frame-finish-load` instead, which nothing here listens for. Pairing
+    // `did-start-loading` with `did-finish-load` would detach permanently on a
+    // subframe-only load, since nothing would ever re-attach. `did-stop-loading`
+    // is the correct, symmetric WebContents-level counterpart and fires
+    // regardless of which frame navigated.
+    await import('../../main');
+
+    await vi.waitFor(() => {
+      expect(mockWindowInstances).toHaveLength(1);
+    });
+    sendReadyPing(latestWindow());
+
+    // A subframe navigation: did-start-loading fires (detaches), but the
+    // subframe's own completion would emit did-frame-finish-load — an event
+    // this file (correctly) never listens for — NOT did-finish-load.
+    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-start-loading');
+
+    const openFileHandler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
+      mockApp.on,
+      'open-file'
+    );
+    openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/subframe-repo');
+    expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
+      OPEN_PATH_CHANNEL,
+      expect.anything()
+    );
+
+    // did-stop-loading DOES fire once Chromium's overall loading state clears
+    // — the falsifier for a did-finish-load-only pairing, which would leave
+    // this request buffered forever.
+    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
+    sendReadyPing(latestWindow());
+
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
+      origin: 'open-file',
+      path: '/Users/dev/subframe-repo',
+    });
+  });
+
+  it('gates delivery on BOTH load-finished and the ready ping, independently: neither alone attaches', async () => {
+    await import('../../main');
+
+    await vi.waitFor(() => {
+      expect(mockWindowInstances).toHaveLength(1);
+    });
+
+    const openFileHandler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
+      mockApp.on,
+      'open-file'
+    );
+    openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/ready-gate-repo');
+
+    // Load already finished (via `simulateLoad` inside window creation), but
+    // no ready ping yet — must NOT deliver.
+    expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
+      OPEN_PATH_CHANNEL,
+      expect.anything()
+    );
+
+    // The ready ping alone completes the gate (load-finished was already true).
+    sendReadyPing(latestWindow());
+
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
+      origin: 'open-file',
+      path: '/Users/dev/ready-gate-repo',
     });
   });
 
@@ -588,12 +713,11 @@ describe('main workspace-open lifecycle', () => {
       'open-file'
     );
     openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/dock-drop-repo');
+    sendReadyPing(latestWindow());
 
-    await vi.waitFor(() => {
-      expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
-        origin: 'open-file',
-        path: '/Users/dev/dock-drop-repo',
-      });
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
+      origin: 'open-file',
+      path: '/Users/dev/dock-drop-repo',
     });
     // Delivery went to the NEW window, never the destroyed one — proves the
     // queue re-attached rather than merely never having been detached.
