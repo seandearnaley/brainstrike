@@ -869,6 +869,79 @@ describe('useWorkspaceBar — write tail chaining', () => {
     });
   });
 
+  // PR #2685 review, item 2 (claude[bot]): CONFIRMED EMPIRICALLY — this
+  // fails against the current fix. An identity bump on an UNRELATED field
+  // (primaryRootId, via seedThread below) retires the tail while
+  // secondaryRootIds itself is still the PRE-write value, so the next
+  // write derives from a stale live ref and resurrects r-docs instead of
+  // persisting []. Left `it.skip` (not deleted, not committed as a red
+  // assertion) pending the coordinator's chosen fix direction — reported,
+  // not yet fixed. Un-skip once the fix lands; this is the regression test
+  // for it.
+  it.skip("does not retire the tail on an UNRELATED identity bump before the ref absorbs this write's OWN result", async () => {
+    vi.useFakeTimers();
+    const { result } = await setup({
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'r-main-db',
+      operatingRootPath: '/ws/brainstrike',
+      secondaryRootIds: ['r-docs', 'r-site'],
+    });
+    await flush();
+    // Same persist-only forwarder as the sibling tests above: this write's
+    // OWN change to secondaryRootIds never reaches threadFoldersRef on its
+    // own for the rest of this test.
+    await act(async () => {
+      useAssistantThreadStore.setState({
+        updateThreadMetadata: async (
+          repository: AssistantThreadRepository,
+          _resourceId: string,
+          threadId: string,
+          metadata: AssistantThreadMetadata
+        ) => {
+          await repository.updateThreadMetadata(threadId, metadata);
+        },
+      });
+    });
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-site'],
+    });
+
+    // An UNRELATED field changes and commits — primaryRootId (via
+    // operatingRootId), NOT secondaryRootIds. secondaryRootIds in this
+    // seed is deliberately still the PRE-write value (['r-docs',
+    // 'r-site']) — nothing has touched that field; only primaryRootId
+    // moved.
+    await act(async () => {
+      seedThread({
+        operatingRootDisplayName: 'site',
+        operatingRootId: 'r-site',
+        operatingRootPath: '/ws/site',
+        secondaryRootIds: ['r-docs', 'r-site'],
+      });
+    });
+    await flush();
+
+    // If the tail incorrectly retired on the unrelated bump, this derives
+    // from the STALE live ref (['r-docs', 'r-site']) and would persist
+    // ['r-docs'] here — resurrecting r-docs. If the tail correctly held
+    // (secondaryRootIds itself never caught up), this derives from the
+    // tail (['r-site']) and persists [].
+    await act(async () => {
+      result.current.onRemoveSecondary('r-site');
+    });
+    await flush();
+    // NOTE: this assertion is the empirical probe, not a pre-judged
+    // "correct" outcome — see the coordinator dispatch for BST-1400 for
+    // what the result determines.
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: [],
+    });
+  });
+
   it('chains two Make primary clicks so the second demotes the first, dropping and duplicating nothing', async () => {
     vi.useFakeTimers();
     const { result } = await setup({
