@@ -26,11 +26,18 @@
  * `pr-pill`/`indexing-toggle`/`gh-absent` all target the worktree named
  * literally `pr-external` by directory basename.
  *
- * `--probe <name>` runs one probe; omit it to run every probe in
- * declaration order. `--repo <path>` is required for every probe except
+ * `--probe <name>` runs one probe; omit it to run every probe in the
+ * script's explicit `RUN_ORDER` (NOT the literal's alphabetical order —
+ * Biome sorts the keys). `--repo <path>` is required for every probe except
  * `empty-state` and `add-menu`, which must run BEFORE any root is seeded
  * (that is the whole point of the empty-state check) and therefore never
- * take it.
+ * take it. `RUN_ORDER` runs those two first; every seeding probe
+ * (`card-colors` included — it seeds the fixture root itself) comes after.
+ * An unknown `--probe` name, or an explicit `--probe` selection that needs
+ * `--repo` without one, exits 2 up front — a run that executed no
+ * verification must never report success. In a no-`--probe` run without
+ * `--repo`, repo-dependent probes are skipped and listed in the JSON
+ * output's `skipped` array.
  *
  * `gh-absent` needs a SEPARATE `dev:agent-debug` process launched with `gh`
  * genuinely unresolvable on PATH — Electron's own env is fixed at spawn, so
@@ -237,8 +244,11 @@ const probes = {
     await page.keyboard.press('Escape');
   },
 
-  /** Brief Step 1, computed card colors in light vs. dark — tokens, not hex. */
+  /** Brief Step 1, computed card colors in light vs. dark — tokens, not hex.
+   * Seeds the fixture root itself: reading card colors needs cards, and in a
+   * full run nothing ordered before this probe has seeded one. */
   async 'card-colors'(page) {
+    await seedRootByPath(page, repoPath);
     await openWorktreeMapTab(page);
     const colors = await readCardColorsInBothThemes(page);
     record(
@@ -251,7 +261,7 @@ const probes = {
     );
   },
 
-  /** Brief Step 2, check 1 — must run before any root is seeded. */
+  /** Brief Step 2, check 1 — RUN_ORDER runs this before any seeding probe. */
   async 'empty-state'(page) {
     await openWorktreeMapTab(page);
     const text = await page.evaluate(
@@ -536,6 +546,42 @@ async function findMainPage(context) {
   }
 }
 
+// Run order is EXPLICIT, not the literal's order: Biome's useSortedKeys keeps
+// the `probes` literal alphabetical, and alphabetical is not a valid run
+// order — `add-menu` and `empty-state` must run before any probe seeds a
+// root. The parity check below makes drift (a probe added to one list but
+// not the other) a hard exit, not a silent no-op.
+const RUN_ORDER = [
+  'add-menu',
+  'empty-state',
+  'card-colors',
+  'gh-absent',
+  'indexing-toggle',
+  'live-refresh',
+  'map-cards',
+  'narrow-pane',
+  'pr-pill',
+];
+if ([...RUN_ORDER].sort().join(',') !== Object.keys(probes).sort().join(',')) {
+  process.stderr.write('RUN_ORDER and the probes object have drifted apart; fix the script.\n');
+  process.exit(2);
+}
+
+// A selection that cannot run must fail LOUDLY before touching the browser:
+// a run that executed no verification reporting `failures: 0` reads as a
+// passing CDT check (the instrument-that-cannot-fail trap).
+const REPO_EXEMPT_PROBES = new Set(['add-menu', 'empty-state']);
+if (requested && !Object.hasOwn(probes, requested)) {
+  process.stderr.write(
+    `Unknown probe "${requested}". Known probes: ${Object.keys(probes).join(', ')}.\n`
+  );
+  process.exit(2);
+}
+if (requested && !REPO_EXEMPT_PROBES.has(requested) && !repoPath) {
+  process.stderr.write(`Probe "${requested}" requires --repo <path>.\n`);
+  process.exit(2);
+}
+
 const browser = await chromium.connectOverCDP(ENDPOINT);
 const context = browser.contexts()[0];
 const page = await findMainPage(context);
@@ -555,17 +601,23 @@ async function touchGitHead() {
   });
 }
 
-for (const [name, probe] of Object.entries(probes)) {
+const skipped = [];
+for (const name of RUN_ORDER) {
+  const probe = probes[name];
   if (requested && requested !== name) {
     continue;
   }
-  if (name !== 'empty-state' && name !== 'add-menu' && !repoPath) {
+  if (!(REPO_EXEMPT_PROBES.has(name) || repoPath)) {
+    // Only reachable in a full (no `--probe`) run — an explicit selection
+    // without `--repo` already exited 2 above. Skips stay visible in the
+    // JSON so "0 failures" cannot be mistaken for "everything ran".
     process.stderr.write(`Probe "${name}" requires --repo <path>; skipping.\n`);
+    skipped.push(name);
     continue;
   }
   await probe(page, { touchGitHead });
 }
 
-process.stdout.write(`${JSON.stringify({ failures, results }, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify({ failures, results, skipped }, null, 2)}\n`);
 await browser.close();
 process.exit(failures === 0 ? 0 : 1);
