@@ -19,7 +19,7 @@ const logger = createLogger('TerminalPanel');
 /** Discriminated result envelope returned across the IPC boundary (never throws). */
 export type TerminalResult<T = void> =
   | (T extends void ? { ok: true } : { ok: true; value: T })
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: 'invalid-cwd' };
 
 export interface TerminalCreateResult {
   /** The canonical, containment-checked absolute cwd the shell started in. */
@@ -46,6 +46,7 @@ export interface TerminalBridge {
   create: (params: {
     rootId: string;
     cols?: number;
+    cwd?: string;
     rows?: number;
   }) => Promise<TerminalResult<TerminalCreateResult>>;
   destroy: (params: { terminalId: string }) => Promise<TerminalResult>;

@@ -1546,7 +1546,7 @@ if (shouldExposeBridge('assistantPersonas')) {
 // `window.terminal`. The xterm UI lands in the next PR.
 if (shouldExposeBridge('terminal')) {
   contextBridge.exposeInMainWorld('terminal', {
-    create: (params: { rootId: string; cols?: number; rows?: number }) =>
+    create: (params: { rootId: string; cols?: number; cwd?: string; rows?: number }) =>
       ipcRenderer.invoke(TERMINAL_CREATE_CHANNEL, params),
     destroy: (params: { terminalId: string }) =>
       ipcRenderer.invoke(TERMINAL_DESTROY_CHANNEL, params),

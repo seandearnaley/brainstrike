@@ -55,6 +55,7 @@ type SessionOutcome =
 
 interface TaggedOutcome {
   readonly outcome: SessionOutcome;
+  readonly sessionId: number;
   /**
    * The root this outcome belongs to. The lifecycle effect re-runs on a root
    * switch (deps include `activeRootId`) WITHOUT bumping `sessionId`, so the
@@ -62,8 +63,7 @@ interface TaggedOutcome {
    * `exited`/`error` outcome leaks onto the freshly-starting root until its
    * `create()` resolves.
    */
-  readonly rootId: string;
-  readonly sessionId: number;
+  readonly targetKey: string;
 }
 
 export interface UseTerminalSessionResult {
@@ -96,13 +96,17 @@ const RESIZE_DEBOUNCE_MS = 100;
  * lifetime). When absent the hook is inert (`idle`) and the panel renders its
  * desktop-only empty state.
  */
-export function useTerminalSession(activeRootId: string | null): UseTerminalSessionResult {
+export function useTerminalSession(
+  activeRootId: string | null,
+  targetCwd?: string
+): UseTerminalSessionResult {
   const { toast } = useToast();
   const bridgeRef = useRef<TerminalBridge | null>(null);
   if (bridgeRef.current === null) {
     bridgeRef.current = resolveTerminalBridge();
   }
   const bridge = bridgeRef.current;
+  const targetKey = activeRootId ? `${activeRootId}\u0000${targetCwd ?? ''}` : '';
 
   // The host element is tracked in state (not a plain ref) so the lifecycle
   // effect re-runs when the node mounts/unmounts — a ref mutation would not.
@@ -127,7 +131,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
   // A different focused root starts with a fresh transient-retry budget.
   useEffect(() => {
     transientRetryCountRef.current = 0;
-  }, [activeRootId]);
+  }, [targetKey]);
 
   // The async OUTCOME of a session, tagged with the id it belongs to. The effect
   // writes only this (a subscribe-to-external-system result), never a derived
@@ -165,7 +169,12 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
     }
 
     bridge
-      .create({ cols: term.cols, rootId: activeRootId, rows: term.rows })
+      .create({
+        cols: term.cols,
+        ...(targetCwd ? { cwd: targetCwd } : {}),
+        rootId: activeRootId,
+        rows: term.rows,
+      })
       .then((result) => {
         if (cancelled) {
           // Created after teardown: reap the orphan pty rather than leak it.
@@ -198,8 +207,8 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           }
           setTagged({
             outcome: { kind: 'error', message: result.error },
-            rootId: activeRootId,
             sessionId,
+            targetKey,
           });
           logger.error('terminal create failed', { error: result.error });
           toast({
@@ -215,8 +224,8 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
         const liveId = terminalId;
         setTagged({
           outcome: { cwd: result.value.cwd, kind: 'ready' },
-          rootId: activeRootId,
           sessionId,
+          targetKey,
         });
 
         // pty output → surrogate-safe reassembly → xterm.
@@ -241,8 +250,8 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           }
           setTagged({
             outcome: { exitCode: event.exitCode, kind: 'exited', signal: event.signal },
-            rootId: activeRootId,
             sessionId,
+            targetKey,
           });
         });
         disposers.push(offExit);
@@ -296,7 +305,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           return;
         }
         const message = error instanceof Error ? error.message : String(error);
-        setTagged({ outcome: { kind: 'error', message }, rootId: activeRootId, sessionId });
+        setTagged({ outcome: { kind: 'error', message }, sessionId, targetKey });
         logger.error('terminal create threw', { error: message });
         toast({ description: message, title: 'Terminal failed to start', variant: 'destructive' });
       });
@@ -314,7 +323,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
       }
       term.dispose();
     };
-  }, [bridge, activeRootId, container, sessionId, toast]);
+  }, [bridge, activeRootId, container, sessionId, targetCwd, targetKey, toast]);
 
   // Derive the displayed state during render (no effect mirror):
   //  - no bridge/root → idle;
@@ -326,7 +335,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
   let state: TerminalSessionState;
   if (!(bridge && activeRootId)) {
     state = { kind: 'idle' };
-  } else if (tagged?.sessionId === sessionId && tagged.rootId === activeRootId) {
+  } else if (tagged?.sessionId === sessionId && tagged.targetKey === targetKey) {
     state = tagged.outcome;
   } else {
     state = { kind: 'starting' };

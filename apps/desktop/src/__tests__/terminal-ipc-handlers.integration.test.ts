@@ -184,6 +184,54 @@ describe('terminal IPC handlers — cwd containment', () => {
     }
     expect(spawn).not.toHaveBeenCalled();
   });
+
+  it('accepts an exact nested checkout cwd inside the validated root', async () => {
+    const root = await makeDir();
+    const checkout = path.join(root, '.worktrees', 'nested');
+    await fsPromises.mkdir(checkout, { recursive: true });
+    const spawn = vi.fn(() => {
+      throw new Error('spawn probe');
+    });
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: root, rootId: 'root-id' }]),
+      spawn: spawn as never,
+    });
+
+    await handlers.create(castOwner(new FakeWebContents(1)), {
+      cwd: checkout,
+      rootId: 'root-id',
+    });
+
+    expect(spawn).toHaveBeenCalledWith(
+      expect.any(String),
+      [],
+      expect.objectContaining({ cwd: await fsPromises.realpath(checkout) })
+    );
+  });
+
+  it('rejects missing, non-directory, and escaping cwd targets without spawning', async () => {
+    const root = await makeDir();
+    const outside = await makeDir();
+    const file = path.join(root, 'file.txt');
+    await fsPromises.writeFile(file, 'not a directory');
+    const spawn = vi.fn();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: root, rootId: 'root-id' }]),
+      spawn: spawn as never,
+    });
+
+    for (const cwd of [path.join(root, 'missing'), file, outside]) {
+      const result = await handlers.create(castOwner(new FakeWebContents(1)), {
+        cwd,
+        rootId: 'root-id',
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe('invalid-cwd');
+      }
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
 });
 
 describe('terminal IPC handlers — real pty lifecycle', () => {

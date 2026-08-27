@@ -38,6 +38,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
@@ -89,10 +90,12 @@ const MAX_EVENT_CHUNK_CHARS = 256 * 1024;
 /** A successful result carries a value; a failure carries a human-readable error. */
 export type TerminalResult<T = void> =
   | (T extends void ? { ok: true } : { ok: true; value: T })
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: 'invalid-cwd' };
 
 export interface TerminalCreateParams {
   readonly cols?: number;
+  /** Optional exact checkout directory; must resolve inside `rootId`. */
+  readonly cwd?: string;
   readonly rootId: string;
   readonly rows?: number;
 }
@@ -280,6 +283,58 @@ export interface TerminalIpcHandlers {
   write: (params: TerminalWriteParams, requesterId: number) => TerminalResult;
 }
 
+async function resolveTerminalCwd(
+  rootCwd: string,
+  requestedCwd: string | undefined
+): Promise<TerminalResult<string>> {
+  if (requestedCwd === undefined) {
+    return { ok: true, value: rootCwd };
+  }
+  if (typeof requestedCwd !== 'string' || requestedCwd.trim().length === 0) {
+    return {
+      code: 'invalid-cwd',
+      error: 'terminal:create cwd must be a non-empty path.',
+      ok: false,
+    };
+  }
+  if (!path.isAbsolute(requestedCwd)) {
+    return {
+      code: 'invalid-cwd',
+      error: 'terminal:create cwd must be an absolute path.',
+      ok: false,
+    };
+  }
+
+  let canonicalCwd: string;
+  try {
+    canonicalCwd = await realpath(requestedCwd);
+    if (!(await stat(canonicalCwd)).isDirectory()) {
+      return {
+        code: 'invalid-cwd',
+        error: 'terminal:create cwd must resolve to a directory.',
+        ok: false,
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      code: 'invalid-cwd',
+      error: `terminal:create cwd could not be resolved: ${message}`,
+      ok: false,
+    };
+  }
+
+  const relative = path.relative(rootCwd, canonicalCwd);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return {
+      code: 'invalid-cwd',
+      error: 'terminal:create cwd must be contained by the validated workspace root.',
+      ok: false,
+    };
+  }
+  return { ok: true, value: canonicalCwd };
+}
+
 export function createTerminalIpcHandlers({
   resolver,
   spawn = pty.spawn,
@@ -303,7 +358,11 @@ export function createTerminalIpcHandlers({
     owner: WebContents,
     params: TerminalCreateParams
   ): Promise<TerminalResult<TerminalCreateResult>> {
-    const cwd = await resolveRootCwd(resolver, params?.rootId, 'terminal', logger);
+    const rootCwd = await resolveRootCwd(resolver, params?.rootId, 'terminal', logger);
+    if (!rootCwd.ok) {
+      return rootCwd;
+    }
+    const cwd = await resolveTerminalCwd(rootCwd.value, params?.cwd);
     if (!cwd.ok) {
       return cwd;
     }

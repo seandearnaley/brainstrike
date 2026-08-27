@@ -625,6 +625,7 @@ declare global {
       create: (params: {
         rootId: string;
         cols?: number;
+        cwd?: string;
         rows?: number;
       }) => Promise<TerminalResult<TerminalCreateResult>>;
       write: (params: { terminalId: string; data: string }) => Promise<TerminalResult>;
