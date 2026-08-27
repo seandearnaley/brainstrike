@@ -511,6 +511,16 @@ Rules:
   callback, never a silently-inert visible item), and focus restoration on
   close — so the two surfaces cannot drift apart the way they did before
   review caught the single-root branch shipping with no trigger at all.
+  Three more conventions this kind pins: its `path` is `null` for a browser
+  FSA root (the adapter normalizes name-as-path to `null`), so path-shaped
+  actions gate with `isVisible` by DATA rather than by platform; its menu
+  wraps ONLY the header row — the per-root tree pane keeps its own
+  `ActionContextMenu` as a SIBLING, because nesting two Radix context menus
+  lets the outer one open against a target the inner one claimed; and a host
+  package the surface's own package cannot import contributes actions
+  through an injected prop (`FileExplorerPanel`'s `rootActions`, the same
+  seam its `selectionActions` established — app-shell injects Open in
+  Terminal and New Thread Here there).
 
 When changing this flow, update this section and the related tests.
 
