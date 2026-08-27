@@ -103,13 +103,67 @@ describe('useFolderDrop', () => {
     const { result } = renderDrop();
 
     act(() => {
-      result.current.onDropItems?.([directoryItem('/w/alpha')]);
+      result.current.onDropItems?.([directoryItem('/w/alpha'), directoryItem('/w/beta')]);
     });
 
-    await waitFor(() => expect(connectPathMock).toHaveBeenCalledTimes(1));
-    // connectPath already toasted its own refusal reason; nothing here should
-    // chain a second, unrelated "added but not attached" notice.
-    expect(onRootConnectedMock).not.toHaveBeenCalled();
+    // Gate on the SECOND path's connect starting, not on the first call
+    // count: a mock records its call the instant it's invoked, before its
+    // promise resolves, so `toHaveBeenCalledTimes(1)` would pass on the very
+    // first synchronous tick — proving nothing about whether the `if
+    // (handle)` branch (which would call onRootConnected) had run yet
+    // (review finding). The loop is sequential, so connectPath for beta
+    // cannot fire until alpha's full iteration, including that branch, has
+    // settled — THAT'S the fact that proves the chain actually finished.
+    await waitFor(() => expect(connectPathMock).toHaveBeenCalledTimes(2));
+    // connectPath already toasted its own refusal reason for alpha; nothing
+    // here should chain a second, unrelated "added but not attached" notice
+    // for it — only beta, which connected, gets recorded.
+    expect(onRootConnectedMock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ path: '/w/beta' })
+    );
+  });
+
+  it('a failed record does not abort the loop — the next path still connects and records', async () => {
+    // THE BLOCKER: recordAddedAsSecondary throws on its first line when the
+    // workspace database isn't ready yet, and the drop zone has no database
+    // dependency — it renders as soon as the bridge resolves. A boot-window
+    // drop must not let that throw escape and abort every path queued
+    // behind the one that failed.
+    const onRootConnected = vi
+      .fn<(handle: { readonly name: string; readonly path: string }) => Promise<void>>()
+      .mockRejectedValueOnce(
+        new Error('Cannot record a thread folder before the workspace database is ready.')
+      )
+      .mockResolvedValue(undefined);
+    const { result } = renderHook(() => useFolderDrop({ onRootConnected }));
+
+    act(() => {
+      result.current.onDropItems?.([directoryItem('/w/alpha'), directoryItem('/w/beta')]);
+    });
+
+    // Both paths mounted (connectPath was called for both — the throw came
+    // from the RECORD step, not the connect step).
+    await waitFor(() => expect(connectPathMock).toHaveBeenCalledTimes(2));
+    // Both paths were still handed to the record step, in order — the first
+    // failure did not stop the second from being attempted.
+    expect(onRootConnected).toHaveBeenCalledTimes(2);
+    expect(onRootConnected).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ path: '/w/alpha' })
+    );
+    expect(onRootConnected).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ path: '/w/beta' })
+    );
+    // The user hears about the one that failed, with the SAME copy
+    // recordAddedAsSecondary's own `unresolved` branch already uses.
+    expect(toastMock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        description:
+          '"alpha" is still available as a workspace folder, but this thread was not updated to include it.',
+        title: 'Folder added, but not attached to this thread',
+      })
+    );
   });
 
   it('connects and records one dropped folder at a time, never concurrently', async () => {

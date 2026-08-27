@@ -124,6 +124,18 @@ export function useFolderDrop({ onRootConnected }: UseFolderDropArgs): {
  * `UseFolderDropArgs.onRootConnected`): `connectPath` already reports each
  * outcome via its own toast, so a `null` result here needs no handling
  * beyond skipping the chained record — the failure path records nothing.
+ *
+ * The record step is wrapped IN the loop, not trailing it (review finding):
+ * `recordAddedAsSecondary` throws on its first line when the workspace
+ * database isn't ready yet, and the drop zone has no database dependency of
+ * its own — it renders as soon as the bridge resolves. A boot-window drop
+ * would otherwise mount the folder, throw on the chained record, and escape
+ * as an unhandled rejection that ABORTS this loop, silently abandoning every
+ * remaining path behind the one that threw. Catching per-path keeps the
+ * loop going and tells the user with the SAME copy
+ * `recordAddedAsSecondary`'s own `unresolved` branch already uses — from
+ * the user's point of view a thrown record and a reconciliation timeout are
+ * the same outcome: the folder mounted, but this thread was not updated.
  */
 async function connectAndRecordSequentially(
   paths: readonly string[],
@@ -140,8 +152,21 @@ async function connectAndRecordSequentially(
     // breadcrumb must name its real gesture even though a drop never
     // crosses IPC as an open-path push.
     const handle = await connectPath({ origin: 'drop', path: droppedPath });
-    if (handle) {
+    if (!handle) {
+      continue;
+    }
+    try {
       await onRootConnected(handle);
+    } catch (error: unknown) {
+      logger.error('Dropped folder connected but could not be recorded on this thread', {
+        error,
+        path: handle.path,
+      });
+      toast({
+        description: `"${handle.name}" is still available as a workspace folder, but this thread was not updated to include it.`,
+        title: 'Folder added, but not attached to this thread',
+        variant: 'destructive',
+      });
     }
   }
 }
