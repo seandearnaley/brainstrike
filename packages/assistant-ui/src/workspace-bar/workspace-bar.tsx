@@ -114,6 +114,12 @@ export interface WorkspaceBarMode {
   readonly onOpenCreateSheet: () => Promise<void>;
   /** Asks the caller to open the controlled "Use an existing worktree…" picker. */
   readonly onOpenPicker: () => void;
+  /**
+   * Opens the app's Terminal on this worktree's checkout. Present only when the
+   * platform has a terminal bridge AND the checkout resolves inside an open
+   * folder — absent otherwise, never a disabled row.
+   */
+  readonly onOpenTerminal: (() => void) | undefined;
   readonly onReveal: (() => void) | undefined;
   readonly pending: boolean;
   readonly picker: WorkspaceBarWorktreePicker;

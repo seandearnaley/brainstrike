@@ -15,6 +15,7 @@ import {
   Home,
   Layers,
   Plus,
+  TerminalSquare,
 } from 'lucide-react';
 import { type ReactElement, useLayoutEffect, useRef, useState } from 'react';
 import type { WorkspaceBarMode, WorkspaceBarWorktreeSummary } from './workspace-bar';
@@ -81,6 +82,15 @@ const WorktreeActions = ({
       >
         <GitBranchPlus aria-hidden="true" className="size-3.5" />
         Create branch here
+      </DropdownMenuItem>
+    ) : null}
+    {mode.onOpenTerminal ? (
+      <DropdownMenuItem
+        data-testid="workspace-bar-mode-open-terminal"
+        onSelect={mode.onOpenTerminal}
+      >
+        <TerminalSquare aria-hidden="true" className="size-3.5" />
+        Open in Terminal
       </DropdownMenuItem>
     ) : null}
     {mode.onReveal ? (

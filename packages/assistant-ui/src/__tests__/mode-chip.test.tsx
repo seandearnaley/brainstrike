@@ -34,6 +34,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   onHandOffToLocal: undefined,
   onOpenCreateSheet: vi.fn(() => Promise.resolve()),
   onOpenPicker: vi.fn(),
+  onOpenTerminal: undefined,
   onReveal: vi.fn(),
   pending: false,
   picker: {
@@ -501,9 +502,28 @@ describe('ModeChip', () => {
     expect(await screen.findByTestId('workspace-bar-mode-handoff')).toBeVisible();
     expect(screen.getByTestId('workspace-bar-mode-create-branch-here')).toBeVisible();
     expect(screen.getByTestId('workspace-bar-mode-archive')).toBeVisible();
-    // "Open in Terminal" is deferred to W6 — ABSENT, never a disabled stub.
+    // Still absent HERE, for the ordinary handler-presence reason this test
+    // exists to pin (no onOpenTerminal in this render) — not because the
+    // capability is deferred. BST-1457 landed the action; the case below
+    // proves it renders and fires when the handler IS supplied.
     expect(screen.queryByTestId('workspace-bar-mode-open-terminal')).toBeNull();
     expect(screen.getByTestId('workspace-bar-mode-pick-worktree')).toBeVisible();
+  });
+
+  it('renders Open in Terminal only when its handler exists and wires it to that handler alone', async () => {
+    const user = setup();
+    const onOpenTerminal = vi.fn<() => void>();
+    const value = interactiveWorktreeMode();
+    render(<WorkspaceBar {...baseBarProps} mode={{ ...value.mode, onOpenTerminal }} />);
+
+    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-open-terminal'));
+
+    expect(onOpenTerminal).toHaveBeenCalledTimes(1);
+    expect(value.onReveal).not.toHaveBeenCalled();
+    expect(value.onArchive).not.toHaveBeenCalled();
+    expect(value.onHandOffToLocal).not.toHaveBeenCalled();
+    expect(value.onOpenPicker).not.toHaveBeenCalled();
   });
 
   it('wires Use existing worktree only to its own handler', async () => {
