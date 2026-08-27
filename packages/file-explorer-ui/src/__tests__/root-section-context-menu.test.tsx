@@ -302,17 +302,31 @@ describe('root section context menu', () => {
     expect(run.mock.calls[0]?.[0]).toMatchObject({ kind: 'workspace-root', path: null });
   });
 
-  it('reset-then-claim: a stale claimed target never leaks into a different section', async () => {
-    // The real falsifier for the capture-phase reset protocol. The prior
-    // version of this test (`fireEvent.contextMenu` on `explorer-scroll-root`,
-    // an ANCESTOR of every trigger) could never fail: that event dispatches
-    // on the ancestor and never propagates through any trigger's
-    // `onContextMenu`, so no root menu could open regardless of whether
-    // `resetRootTarget` exists at all — deleting `claimRootTarget` entirely
-    // left it green. This version claims A, closes without a fresh claim
-    // (Escape), then claims B and asserts the injected action receives B's
-    // `rootId` — which fails if the capture-phase reset is removed AND
-    // proves stale targets don't leak between sections.
+  it('cross-section isolation: claiming B after A never carries a stale target between sections', async () => {
+    // (Delta-review correction: this test's PRIOR name/comment claimed to be
+    // "the real falsifier for the capture-phase reset protocol" — that
+    // overclaimed. `onContextMenu={claimRootTarget}` sits on RootSectionHeader's
+    // OWN root div, and every descendant inside it bubbles a contextmenu
+    // event up to that same div — there is no reachable non-claiming gap
+    // inside this wrapper on the current surface. Each section also owns an
+    // INDEPENDENT `useContextMenuTarget()` controller and its own separate
+    // Radix ContextMenuTrigger boundary, so right-clicking header B always
+    // calls B's own claim with B's own controller regardless of whether
+    // `resetRootTarget`'s capture-phase handler ran at all — delete the
+    // reset entirely and this test still passes. What this DOES prove, with
+    // a genuine positive control (claim A, close, claim B, assert B's own
+    // rootId is what the injected action receives): cross-section isolation
+    // — B's claimed target is never A's. `resetRootTarget` itself remains in
+    // place as the convention-mandated defense `ui-conventions.md`'s
+    // reset-then-claim protocol requires of every context-menu surface
+    // (defense-in-depth against a FUTURE structural change that introduces a
+    // non-claiming region inside a wrapper); it has no reachable failure
+    // path to falsify on THIS surface today. The prior version of this test
+    // (`fireEvent.contextMenu` on `explorer-scroll-root`, an ANCESTOR of
+    // every trigger) was worse than this: that event never even propagates
+    // through any trigger's `onContextMenu`, so no root menu could open
+    // regardless of anything — deleting `claimRootTarget` entirely left it
+    // green.
     const run = vi.fn().mockResolvedValue({ ok: true });
     renderRootSections({
       rootActions: [

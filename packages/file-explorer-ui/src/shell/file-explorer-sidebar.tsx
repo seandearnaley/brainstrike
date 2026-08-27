@@ -815,12 +815,19 @@ const RootSectionInner = ({
 };
 
 const RootSection = ({ rootDirectoryHandle, rootIdByPath, ...rest }: RootSectionProps) => {
-  // Storage v5: the canonical identity for this root. Prefer the stamped
-  // handle.rootId (collision-proof for same-named roots), then the path→rootId
-  // map, then the path itself (legacy single-root). Focus/remove/keys must all
-  // use THIS, never the raw path — two same-named web roots share a path.
+  // Storage v5: the canonical identity for this root. `resolvedRootId` is
+  // ONLY the durable-id resolution (stamped handle.rootId, then the
+  // path→rootId map) — deliberately WITHOUT the path fallback, because
+  // FileTreeProvider's `rootId` prop must stay absent rather than receive a
+  // path (see the conditional spread below). Focus/remove/keys must all use
+  // `rootIdentity`, never the raw path — two same-named web roots share a
+  // path. `rootIdentity` reuses `getRootFolderId` (its exact rootId → path→id
+  // map → path resolution order) instead of hand-rolling the same three-tier
+  // fallback a second time in this file — `getRootFolderId` only returns
+  // `null` for a null handle, which `rootDirectoryHandle` never is here.
   const resolvedRootId = rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path);
-  const rootIdentity = resolvedRootId ?? rootDirectoryHandle.path;
+  const rootIdentity =
+    getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? rootDirectoryHandle.path;
 
   return (
     <div className="flex flex-col">
