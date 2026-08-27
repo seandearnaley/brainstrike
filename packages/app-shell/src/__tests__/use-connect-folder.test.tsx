@@ -108,6 +108,30 @@ describe('useConnectFolder', () => {
     expect(call?.[0]?.action).toBeDefined();
   });
 
+  it('matches the never-granted refusal through a plain-Error envelope too', async () => {
+    // Both envelope spellings must strip: `Error:` (a plain Error thrown in
+    // main) and the class-named `AccessError:` above. The name group is
+    // optional-prefix + literal `Error:`, so a regression in either
+    // direction fails one of these two cases.
+    addRootDirectoryByPathMock.mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'fs:addRootByPath': Error: Folder was never granted in this app; use Add Folder to grant it."
+      )
+    );
+    const { result } = renderHook(() => useConnectFolder());
+
+    await act(async () => {
+      await result.current.connectPath?.({ origin: 'open-file', path: '/w/plain-enveloped' });
+    });
+
+    const [call] = toastMock.mock.calls;
+    expect(call?.[0]).toMatchObject({
+      persistent: true,
+      title: 'BrainStrike has not been granted access to this folder',
+      variant: 'destructive',
+    });
+  });
+
   it('matches the managed-but-unauthorized refusal on the same remedy', async () => {
     addRootDirectoryByPathMock.mockRejectedValue(
       new Error(

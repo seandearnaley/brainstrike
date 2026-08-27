@@ -48,7 +48,7 @@ const logger = createLogger('ConnectFolder');
  * dark, and the remedy toast silently degraded to the generic one.
  */
 const IPC_INVOKE_ENVELOPE =
-  /^Error invoking remote method '[^']+':\s*(?:[A-Za-z][\w$]*Error:\s*)?/u;
+  /^Error invoking remote method '[^']+':\s*(?:(?:[A-Za-z][\w$]*)?Error:\s*)?/u;
 
 function messageOf(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);

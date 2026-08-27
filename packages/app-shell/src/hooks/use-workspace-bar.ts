@@ -126,7 +126,7 @@ function delay(ms: number): Promise<void> {
 // `*Error:` prefix because main-side rejections arrive with their CLASS name
 // (`AccessError: …`), not the literal `Error:` — BST-1393 L5 live finding.
 const IPC_INVOKE_ENVELOPE =
-  /^Error invoking remote method '[^']+':\s*(?:[A-Za-z][\w$]*Error:\s*)?/u;
+  /^Error invoking remote method '[^']+':\s*(?:(?:[A-Za-z][\w$]*)?Error:\s*)?/u;
 
 /**
  * The text a user is shown when an action fails. Always the ORIGINATING
