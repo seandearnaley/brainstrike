@@ -22,6 +22,12 @@ export function resolveMainLogTransportPath(
     // dereferenced by a pino transport worker — masked, not absent. The
     // running CommonJS module reliably identifies the emitted worker's
     // sibling directory regardless of the entry argument.
+    // Inherited from db-host-manager.ts's resolveDefaultEntryPath(), not
+    // independently justified here: `module.filename` is set synchronously
+    // by CJS module init before this function can ever run, so this branch
+    // is unreachable in practice, and it would resolve to the wrong
+    // directory (silently) if it were ever hit. Don't treat it as real
+    // protection — it's a vestigial shape carried over, not a tested seam.
     const moduleFilename =
       typeof currentModuleFilename === 'string' && currentModuleFilename.length > 0
         ? currentModuleFilename

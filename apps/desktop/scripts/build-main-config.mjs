@@ -11,6 +11,23 @@
  * - dist/parser-host-entry.js  of the bundled main.js via module.filename
  * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
  * - dist/main-watchdog-worker.js  freeze watchdog, unpacked beside app.asar
+ *
+ * This single-file-per-entry-point (`bundle: true`) output is why
+ * `module.filename`-based sibling resolution is safe: the file that's
+ * actually running always sits directly in `dist/`, regardless of how
+ * Electron was launched. That's now load-bearing at THREE more call sites
+ * beyond db-host-entry/parser-host-entry (BST-1459 — `app.getAppPath()`
+ * returns launch-mode-dependent values and cannot substitute for this):
+ * - `resolveMainWatchdogWorkerPath` (diagnostics/main-watchdog-path.ts)
+ * - `resolveMainLogTransportPath` (diagnostics/main-log-transport-path.ts)
+ * - `resolveDesktopPythonRuntimeResourcesDir` (python-runtime/index.ts) —
+ *   takes `path.dirname()` TWICE (dist/ → its parent apps/desktop/) to
+ *   reach `resources/python-runtime`, a sibling of `dist/` rather than a
+ *   sibling of `main.js` itself. That second `dirname()` additionally
+ *   encodes dist/'s DEPTH below the app root, not just its identity — the
+ *   other two sites only need "same directory as the running module" and
+ *   are unaffected if dist/ ever moves; this one silently breaks if a
+ *   future change nests dist/ one level deeper or shallower.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
