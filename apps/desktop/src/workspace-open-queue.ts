@@ -78,3 +78,21 @@ export function createWorkspaceOpenQueue(channel: string) {
 }
 
 export type WorkspaceOpenQueue = ReturnType<typeof createWorkspaceOpenQueue>;
+
+/**
+ * Enqueue every candidate from one producer (argv, `second-instance`) under
+ * a single `origin`. Factored out of `main.ts` so the `app.whenReady()` and
+ * `second-instance` closures — both already near Biome's per-function
+ * cognitive-complexity ceiling — gain one call each instead of a second
+ * inline loop (BST-1393 plan, Global Constraints: extract rather than
+ * shrink the feature).
+ */
+export function enqueueFolderCandidates(
+  queue: WorkspaceOpenQueue,
+  candidates: readonly string[],
+  origin: WorkspaceOpenOrigin
+): void {
+  for (const candidate of candidates) {
+    queue.enqueue({ origin, path: candidate });
+  }
+}

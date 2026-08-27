@@ -108,6 +108,7 @@ import {
 } from './dimension-index-maintenance-scheduler';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createForgeIpcHandlers, createForgeRepositoryResolver } from './forge-ipc-handlers';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
@@ -175,6 +176,7 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
+import { createWorkspaceOpenQueue, enqueueFolderCandidates } from './workspace-open-queue';
 import { resolveRootCwd } from './workspace-root-cwd';
 import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
@@ -1468,6 +1470,19 @@ const singleInstanceLockAcquired = isElectronE2ETestMode()
 if (singleInstanceLockAcquired) {
   const e2eTestMode = isElectronE2ETestMode();
 
+  const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
+
+  // macOS delivers this before `whenReady` (Dock drop, "Open With", a click in
+  // the Dock's recent-documents list that `app.addRecentDocument` populates),
+  // so the listener is registered at module scope and the queue holds the
+  // request until a renderer is listening. Registered in E2E mode too — the
+  // desktop e2e drives it with `app.emit('open-file', …)`, which is the only
+  // way this entry point is observable end to end.
+  app.on('open-file', (event, openedPath) => {
+    event.preventDefault();
+    workspaceOpenQueue.enqueue({ origin: 'open-file', path: openedPath });
+  });
+
   // REMOVED: enable-gpu-rasterization + enable-zero-copy
   // These push rasterization onto the same GPU command queue that ONNX/Dawn
   // uses for WebGPU inference. Under sustained background embedding load,
@@ -1479,7 +1494,22 @@ if (singleInstanceLockAcquired) {
   app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
 
   if (!e2eTestMode) {
-    app.on('second-instance', () => {
+    // Honest coverage note (BST-1393 ruling L3): this listener is registered
+    // only in non-e2e mode, and E2E cannot launch a second process against
+    // the harness's app. Its argv parse is covered by folder-argv.test.ts and
+    // its delivery path is the SAME queue + channel the open-file e2e
+    // exercises end to end. No e2e is invented for it.
+    app.on('second-instance', (_event, secondInstanceArgv, workingDirectory) => {
+      enqueueFolderCandidates(
+        workspaceOpenQueue,
+        resolveFolderCandidatesFromArgv({
+          argv: secondInstanceArgv,
+          isPackaged: app.isPackaged,
+          workingDirectory,
+        }),
+        'second-instance'
+      );
+
       const existingWindow =
         BrowserWindow.getAllWindows().find(
           (window) =>
@@ -2371,6 +2401,29 @@ if (singleInstanceLockAcquired) {
       logger.debug('Creating main window...');
       const mainWindow = await createMainWindow();
       logger.debug('Main window created successfully');
+
+      enqueueFolderCandidates(
+        workspaceOpenQueue,
+        resolveFolderCandidatesFromArgv({
+          argv: process.argv,
+          isPackaged: app.isPackaged,
+          workingDirectory: process.cwd(),
+        }),
+        'argv'
+      );
+
+      // `did-finish-load` is the renderer-is-listening signal: the preload has
+      // run and React has mounted `WorkspaceConnectHost`'s subscriptions by the
+      // time it fires. Attaching on `ready-to-show` would deliver into a
+      // renderer with no listener and lose the request in silence.
+      mainWindow.webContents.on('did-finish-load', () => {
+        workspaceOpenQueue.attach({
+          isDestroyed: () => mainWindow.webContents.isDestroyed(),
+          send: (channel, payload) => {
+            mainWindow.webContents.send(channel, payload);
+          },
+        });
+      });
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
