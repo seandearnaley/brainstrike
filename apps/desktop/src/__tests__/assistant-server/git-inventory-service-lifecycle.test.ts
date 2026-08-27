@@ -946,5 +946,60 @@ describe('createGitInventoryService', () => {
       // build's eventual (here: never) settlement has no way back in.
       await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
     });
+
+    // BST-1400 item 10: a FORCED (maxAgeMs: 0) caller awaiting the build
+    // stop() is about to abandon has, before this fix, no OTHER settle path —
+    // its follow-up promise was a bare `.then()` chain off the abandoned
+    // build, which (as this same suite's "never settles" run fakes above)
+    // may never resolve. Without stop() explicitly rejecting it, the forced
+    // caller hangs forever even though stop() itself already returned.
+    it('rejects a forced follow-up caller instead of leaving it hanging on the build stop() abandons', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-forced-abandon-'
+      );
+      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
+
+      let resolveRunCalled: (() => void) | undefined;
+      const runCalled = new Promise<void>((resolve) => {
+        resolveRunCalled = resolve;
+      });
+      // Same "never settles" fake as the sibling test above — the forced
+      // waiter's ONLY other settle path is chained off this build, so if
+      // stop() did not settle it directly, the assertions below would hang
+      // the test rather than fail it cleanly.
+      const run: GitCommandRunner = () => {
+        resolveRunCalled?.();
+        return new Promise<GitCommandRun>(() => {
+          // Intentionally never settles.
+        });
+      };
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run,
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      await runCalled;
+
+      // Queues onto awaitForcedFollowUp(inFlightBuild) — the in-flight build
+      // (start()'s own eager getSnapshot()) is the one that never settles.
+      const forced = service.getSnapshot({ maxAgeMs: 0 });
+      const forcedOutcome = forced.then(
+        () => 'resolved' as const,
+        (error: unknown) => ({ error, kind: 'rejected' as const })
+      );
+
+      const stopPromise = service.stop();
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
+      await stopPromise;
+
+      // Settles promptly — bounded by stop()'s own drain timeout, not left to
+      // whatever "eventually, maybe never" the abandoned build does.
+      const outcome = await forcedOutcome;
+      expect(outcome).toMatchObject({ error: { code: 'inventory-stopped' }, kind: 'rejected' });
+    });
   });
 });
