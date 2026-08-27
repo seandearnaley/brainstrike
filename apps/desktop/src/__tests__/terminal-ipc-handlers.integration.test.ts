@@ -29,6 +29,10 @@ import {
 } from '../terminal-ipc-handlers';
 import type { WorkspaceRootResolver } from '../workspace-root-cwd';
 
+// chmod-based EACCES fixtures don't deny root (uid 0) — same idiom as
+// agent-ignore-boundary-holes.test.ts's `canDenyReads`.
+const canDenyReads = process.platform !== 'win32' && process.getuid?.() !== 0;
+
 const createdDirs: string[] = [];
 
 async function makeDir(prefix = 'brainstrike-terminal-ipc-'): Promise<string> {
@@ -283,6 +287,68 @@ describe('terminal IPC handlers — cwd containment', () => {
       expect(missing.error).toMatch(/no longer exists/);
     }
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  // BST-1457 PR review: a non-ENOENT realpath/stat failure (EACCES, ELOOP, …)
+  // must never embed the offending absolute path in the error returned over
+  // IPC — the module's own docblock forbids it, and use-terminal-session.ts
+  // logs this string at error level (warn+) and shows it in a toast.
+  it.skipIf(!canDenyReads)(
+    'returns a path-free, categorized error for a non-ENOENT resolution failure (EACCES)',
+    async () => {
+      const dir = await makeDir();
+      const restricted = path.join(dir, 'restricted');
+      await fsPromises.mkdir(restricted);
+      const nested = path.join(restricted, 'nested');
+      // Deny traversal into `restricted` so realpath(nested) fails EACCES,
+      // not ENOENT — the branch under test.
+      await fsPromises.chmod(restricted, 0o000);
+      const spawn = vi.fn();
+      const handlers = createTerminalIpcHandlers({
+        resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+        spawn: spawn as never,
+      });
+
+      try {
+        const result = await handlers.create(castOwner(new FakeWebContents(1)), {
+          cwd: nested,
+          rootId: 'root-id',
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error).toMatch(/EACCES/);
+          expect(result.error).not.toContain(dir);
+          expect(result.error).not.toContain(restricted);
+          expect(result.error).not.toContain(nested);
+        }
+        expect(spawn).not.toHaveBeenCalled();
+      } finally {
+        // Restore permissions so the afterEach `rm(recursive)` can clean up.
+        await fsPromises.chmod(restricted, 0o700);
+      }
+    }
+  );
+
+  // BST-1457 PR review: when the mounted root is itself a filesystem root
+  // (`/`), it is already sep-terminated. Appending another `path.sep` turns
+  // the containment prefix into `//`, which no real descendant can ever
+  // start with — every open-in-terminal request would be misreported as
+  // "outside the open folder". Root=`/` is a real fixture here (any absolute
+  // path is contained under it), not a mock.
+  it('accepts a contained cwd when the root is the filesystem root ("/")', async () => {
+    const dir = await makeDir();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: path.sep, rootId: 'root-id' }]),
+    });
+    const owner = new FakeWebContents(1);
+
+    const created = await handlers.create(castOwner(owner), { cwd: dir, rootId: 'root-id' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      throw new Error(created.error);
+    }
+    expect(created.value.cwd).toBe(await fsPromises.realpath(dir));
+    handlers.destroy({ terminalId: created.value.terminalId }, owner.id);
   });
 });
 

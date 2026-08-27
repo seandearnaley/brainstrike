@@ -25,6 +25,18 @@ export interface WorkspaceRootResolver {
 export type RootCwdResult = { ok: true; value: string } | { ok: false; error: string };
 
 /**
+ * Path-free, categorized message for a non-`ENOENT` filesystem failure.
+ * Node's own `error.message` embeds the offending absolute path (e.g.
+ * `EACCES: permission denied, realpath '/Users/me/repo/...'`), which is
+ * exactly what this module's docblock forbids returning over IPC. Only the
+ * `code` (`EACCES`, `ELOOP`, `ENOTDIR`, …) is safe to surface.
+ */
+function describeFsFailure(subject: string, error: unknown): string {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code ? `${subject} could not be resolved (${code}).` : `${subject} could not be resolved.`;
+}
+
+/**
  * Resolve a renderer-supplied `rootId` to a canonical, containment-checked
  * absolute path. `domain` names the caller (for error text); `logger` records a
  * roots-load failure.
@@ -62,7 +74,7 @@ export async function resolveRootCwd(
     if (code === 'ENOENT') {
       return { error: 'The selected folder no longer exists on disk.', ok: false };
     }
-    return { error: error instanceof Error ? error.message : String(error), ok: false };
+    return { error: describeFsFailure('The selected folder', error), ok: false };
   }
 }
 
@@ -78,7 +90,10 @@ export async function resolveRootCwd(
  * The containment test is SEPARATOR-ANCHORED (`${rootCwd}${path.sep}`), never a
  * bare `startsWith`: `/work/repo-evil` starts with `/work/repo` as a string and
  * is not inside it. Both sides are canonical before comparison, so a symlink
- * pointing out of the root cannot smuggle a path past the check.
+ * pointing out of the root cannot smuggle a path past the check. When
+ * `rootCwd` is itself a filesystem root (`/`, `C:\`) it is already
+ * sep-terminated, so the separator is NOT appended a second time — otherwise
+ * every real descendant would fail to match a `//` / `C:\\` prefix.
  *
  * Error strings never embed a filesystem path (`platform-contracts.md`: cwd is
  * not something this layer hands back or logs at warn+).
@@ -113,9 +128,13 @@ export async function resolveContainedCwd(
     if (code === 'ENOENT') {
       return { error: 'The requested working directory no longer exists on disk.', ok: false };
     }
-    return { error: error instanceof Error ? error.message : String(error), ok: false };
+    return { error: describeFsFailure('The requested working directory', error), ok: false };
   }
-  if (canonical !== rootCwd && !canonical.startsWith(`${rootCwd}${path.sep}`)) {
+  // `rootCwd` can already be sep-terminated (a filesystem root: `/`, `C:\`).
+  // Appending another separator would turn the prefix into `//` / `C:\\`,
+  // which no real descendant can ever start with — skip the append instead.
+  const rootPrefix = rootCwd.endsWith(path.sep) ? rootCwd : `${rootCwd}${path.sep}`;
+  if (canonical !== rootCwd && !canonical.startsWith(rootPrefix)) {
     return { error: 'The requested working directory is outside the open folder.', ok: false };
   }
   return { ok: true, value: canonical };
