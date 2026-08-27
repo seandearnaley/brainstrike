@@ -1329,15 +1329,44 @@ import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 
 - [ ] **Step 4 (RED→GREEN): pin the wiring**
 
-Add to `packages/app-shell/src/__tests__/use-worktree-mode.test.ts` (re-read the file's existing harness at HEAD and match its mock style; the store is mocked the same way the Map's surface test mocks it):
+**(corrected at execution: plan defect #2. The file mocks none of the three seams — `platform-bridge`, `terminal-panel/terminal-bridge`, `stores/terminal-target-store` — `rg -n "showItemInFolder|platform-bridge|resolvePlatformBridge|isTerminalBridgeAvailable|terminal-bridge|terminal-target-store" packages/app-shell/src/__tests__/use-worktree-mode.test.ts` returned zero hits at review time, so the original snippet's `showItemInFolderMock` was phantom and `isTerminalBridgeAvailable` would have resolved `terminalAvailable` to `false` in every case, silently failing the positive test. Harness added below per the Task 4 `worktree-map-surface.test.tsx` mock pattern, adapted to the `.getState()`-only call form `use-worktree-mode.ts` actually uses; the phantom assertion is dropped; a third case pins the capability gate itself, which the original two tests could never have observed failing.)**
+
+Add near the file's other `vi.hoisted`/`vi.mock` declarations, ABOVE the `import { useWorktreeMode } from '../hooks/use-worktree-mode';` line:
+
+```ts
+const { isTerminalBridgeAvailableMock, openTerminalAtMock } = vi.hoisted(() => ({
+  isTerminalBridgeAvailableMock: vi.fn(() => true),
+  openTerminalAtMock: vi.fn(),
+}));
+
+vi.mock('../terminal-panel/terminal-bridge', () => ({
+  isTerminalBridgeAvailable: isTerminalBridgeAvailableMock,
+}));
+vi.mock('../stores/terminal-target-store', () => ({
+  useTerminalTargetStore: {
+    getState: () => ({ openTerminalAt: openTerminalAtMock }),
+  },
+}));
+```
+
+`isTerminalBridgeAvailableMock` defaults `true` (its base implementation, set once — `beforeEach`'s `vi.clearAllMocks()` clears call history, not the base implementation), so every existing test in the file is unaffected; only the new negative case below overrides it, and only for that one call (`mockReturnValueOnce`).
+
+Add the three new cases, using the file's own `entry()` fixture helper (default `id: 'w-1'` already matches `WORKTREE_CHECKOUT.worktreeId`) rather than inventing a new literal:
 
 ```ts
   it('supplies onOpenTerminal with the checkout path and its containing root', async () => {
-    // Arrange the hook into worktree mode with a currentEntry whose rootId is
-    // the CONTAINING root and whose path is the checkout — the nested-worktree
-    // shape the cwd parameter exists for.
-    // …harness setup identical to the sibling 'wires createBranchHere only for the
-    // current managed detached worktree' case (~:716) — same handler-supplied-conditionally shape…
+    // A nested worktree: `path` is the checkout itself, `rootId` is the
+    // CONTAINING root — the two are DISTINCT values on purpose (Task 4's
+    // falsifier: passing the root as cwd must fail this assertion).
+    const nested = entry({
+      path: '/repo/.claude/worktrees/bright-fox',
+      rootId: 'root-1',
+      rootIdIsExactMount: false,
+    });
+    listSpy.mockResolvedValue({ ok: true, value: [nested] });
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    act(() => result.current?.onOpenPicker());
+    await waitFor(() => expect(result.current?.onOpenTerminal).toEqual(expect.any(Function)));
 
     result.current?.onOpenTerminal?.();
 
@@ -1345,16 +1374,50 @@ Add to `packages/app-shell/src/__tests__/use-worktree-mode.test.ts` (re-read the
       cwd: '/repo/.claude/worktrees/bright-fox',
       rootId: 'root-1',
     });
-    expect(showItemInFolderMock).not.toHaveBeenCalled();
+    // Falsifiers: opening a terminal touches neither archive nor create.
+    expect(archiveSpy).not.toHaveBeenCalled();
+    expect(createSpy).not.toHaveBeenCalled();
   });
 
   it('omits onOpenTerminal when the checkout has no containing root', async () => {
-    // …same harness with `rootId: null` on the entry…
+    const noRoot = entry({
+      path: '/repo/.claude/worktrees/bright-fox',
+      rootId: null,
+      rootIdIsExactMount: false,
+    });
+    listSpy.mockResolvedValue({ ok: true, value: [noRoot] });
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    act(() => result.current?.onOpenPicker());
+    // `worktree` becomes non-null exactly when `currentEntry` resolves
+    // (id match), independent of rootId — the general "entries loaded"
+    // signal this negative case needs, since onOpenTerminal never fires.
+    await waitFor(() => expect(result.current?.worktree).not.toBeNull());
+
     expect(result.current?.onOpenTerminal).toBeUndefined();
+    expect(openTerminalAtMock).not.toHaveBeenCalled();
+  });
+
+  it('omits onOpenTerminal when the terminal bridge is unavailable even with a valid containing root', async () => {
+    // Pins the capability gate itself: a valid rootId alone must not be
+    // enough. The original two-case plan could never have observed this
+    // failing, since it never varied bridge availability.
+    isTerminalBridgeAvailableMock.mockReturnValueOnce(false);
+    const nested = entry({
+      path: '/repo/.claude/worktrees/bright-fox',
+      rootId: 'root-1',
+      rootIdIsExactMount: false,
+    });
+    listSpy.mockResolvedValue({ ok: true, value: [nested] });
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    act(() => result.current?.onOpenPicker());
+    await waitFor(() => expect(result.current?.worktree).not.toBeNull());
+
+    expect(result.current?.onOpenTerminal).toBeUndefined();
+    expect(openTerminalAtMock).not.toHaveBeenCalled();
   });
 ```
 
-> **Execution note:** this file's fixtures are large and were reshaped repeatedly during W3/W5. Read `'wires createBranchHere only for the current managed detached worktree'` (~:716 — verified to exist; it has the identical handler-supplied-conditionally shape) and copy its arrange block verbatim rather than inventing one — the two ellipses above are the ONLY places in this plan where exact code is deferred, and they are deferred to a file whose harness must be read at HEAD. (Corrected at plan review: the originally-cited "supplies onReveal" case does not exist in that file.)
+> **Execution note (superseded in part, kept for provenance):** the arrange-block citation below is still accurate for the general fixture SHAPE (the `entry()` helper, `ARGS`, `WORKTREE_CHECKOUT`, and the `renderHook`/`onOpenPicker`/`waitFor` flow) — read `'wires createBranchHere only for the current managed detached worktree'` (~:716 — verified to exist) if the harness above needs adapting to a repo drift. The exact code above is no longer deferred; it was corrected and verified at execution (defect #2).
 
 - [ ] **Step 5: verify**
 
