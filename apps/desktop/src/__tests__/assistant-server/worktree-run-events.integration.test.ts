@@ -61,7 +61,7 @@ describe('worktree run events (real PGlite)', () => {
     workspace.cleanup();
   });
 
-  it('writes worktree.created when a run is active', async () => {
+  it('writes worktree.created with via app for a user-created worktree', async () => {
     await seedRunRow(db, { runId: 'run-1', threadId: 't-1' });
     const service = buildService({
       recordRunEvent: (runId, event) =>
@@ -76,11 +76,37 @@ describe('worktree run events (real PGlite)', () => {
       runId: 'run-1',
       threadId: 't-1',
     });
-    const rows = await db.query<{ kind: string; label: string }>(
-      "SELECT kind, label FROM brainstrike_assistant_run_events WHERE run_id = 'run-1' ORDER BY kind"
+    const rows = await db.query<{ kind: string; label: string; via: string }>(
+      "SELECT kind, label, metadata->>'via' AS via FROM brainstrike_assistant_run_events WHERE run_id = 'run-1' ORDER BY kind"
     );
     expect(rows.rows.map((row) => row.kind)).toEqual(['worktree.created']);
     expect(rows.rows[0]?.label).toBe('Created worktree timeline');
+    expect(rows.rows[0]?.via).toBe('app');
+  });
+
+  it('writes worktree.created with via tool for an agent-created worktree', async () => {
+    // The manageWorktree tool executor's capability binds `createdBy: 'agent'`
+    // server-side (buildDesktopToolDependencies in assistant-server.ts); this
+    // is that call site's exact params shape, and the row it inserts is what
+    // must select the 'tool' breadcrumb — not a second hardcoded 'app'.
+    await seedRunRow(db, { runId: 'run-tool', threadId: 't-tool' });
+    const service = buildService({
+      recordRunEvent: (runId, event) =>
+        recordDesktopAssistantRunEvent(runId, event, () => Promise.resolve(db)),
+    });
+    await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/agent-made' },
+      createdBy: 'agent',
+      name: 'agent-made',
+      rootId: 'r-1',
+      runId: 'run-tool',
+      threadId: 't-tool',
+    });
+    const rows = await db.query<{ kind: string; via: string }>(
+      "SELECT kind, metadata->>'via' AS via FROM brainstrike_assistant_run_events WHERE run_id = 'run-tool'"
+    );
+    expect(rows.rows).toEqual([{ kind: 'worktree.created', via: 'tool' }]);
   });
 
   it('writes NOTHING (and does not fail) with no run', async () => {
