@@ -1111,6 +1111,22 @@ additional explorer/status chrome):
     `second-instance` is registered only when NOT in E2E mode (ruling L3 —
     e2e cannot launch a competing process; its parse is `folder-argv.test.ts`'s
     and its delivery is the same queue the `open-file` e2e proves).
+    **The unpackaged app-path skip in `resolveFolderCandidatesFromArgv` is
+    by IDENTITY (`app.getAppPath()`), never by argv position** (BST-1393 L5,
+    observed live 2026-08-27): Chromium regroups the argv it delivers to the
+    first instance's `second-instance` handler as
+    `[program, ...switches, ...positionals]` — injecting its own switches —
+    so the `electron .` app-path positional lands at an arbitrary index; a
+    fixed `slice(2)` mis-parsed it into a folder-open candidate for the repo
+    checkout (and would silently mount it if the repo is in the recents
+    ledger). Only the FIRST positional matching `appPath` OR `appEntryPath`
+    (the running bundle's `__filename` — recognizes the FILE-entry spelling
+    `electron <path>/dist/main.js`, where `app.getAppPath()` is dist/
+    itself, BST-1459) is skipped: positional relative order survives the
+    regrouping, so that is the implicit app argument; a later duplicate is
+    an explicit `electron . .` request and stays a candidate. An empty
+    `appPath`/`appEntryPath` THROWS (`path.resolve('')` would silently alias
+    the cwd). Packaged parsing never consults either.
     Candidates pass `filterDirectoryOpenCandidates` first: non-directories
     and unstat-able paths are loudly skipped BEFORE the IPC channel, capped
     at `MAX_PENDING_OPEN_REQUESTS` (16, oldest dropped with a warn) before

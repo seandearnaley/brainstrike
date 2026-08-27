@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
 /**
@@ -407,6 +407,9 @@ function fireDidStartNavigation(onMock: MockOnFn, isMainFrame: boolean, isInPlac
   ]);
 }
 
+// Captured once at module load, before any test mutates it (see beforeEach).
+const REAL_PROCESS_ARGV = process.argv;
+
 describe('main workspace-open lifecycle', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -417,12 +420,19 @@ describe('main workspace-open lifecycle', () => {
     existsSyncMock.mockReturnValue(true);
     statSyncMock.mockReturnValue({ isDirectory: () => true });
     process.env['CI'] = 'false';
-    process.argv = process.argv.filter(
-      (arg) =>
-        arg !== '--test-mode' &&
-        !arg.startsWith('--brainstrike-desktop-launch-mode') &&
-        !arg.startsWith('/work/')
-    );
+    // The RUNTIME dev-launch shape (`electron <app-dir>`), not the vitest
+    // worker's own argv: the app-dir positional resolves to the mocked
+    // `app.getAppPath()` and is dropped by IDENTITY (BST-1393 L5). The old
+    // harness left the real worker argv in place and relied on the parser's
+    // former positional `slice(2)` to hide `…/vitest/dist/workers/forks.js`
+    // — a fixture accident, not a runtime shape.
+    process.argv = ['/node_modules/electron/dist/electron', '/mock/app'];
+  });
+
+  afterEach(() => {
+    // process.argv is process-global and this fork worker runs other test
+    // files after this one — never leak the mocked launch shape to them.
+    process.argv = REAL_PROCESS_ARGV;
   });
 
   it('registers the open-file listener at module scope, before app.whenReady() ever resolves', async () => {
@@ -485,14 +495,22 @@ describe('main workspace-open lifecycle', () => {
     // reaches the delivery channel.
     expect(secondInstanceHandler.length).toBeGreaterThanOrEqual(3);
 
-    // Unpackaged (`app.isPackaged === false` in this harness) skips argv[0]
-    // AND argv[1] — the same electron-binary + app-path convention as a
-    // normal dev launch (folder-argv.test.ts's "skips the app-path argument
-    // on an UNPACKAGED launch" case). Two throwaway entries are required
-    // before the real path or `resolveFolderCandidatesFromArgv` slices it away.
+    // The Chromium-REORDERED delivery shape captured live (BST-1393 L5):
+    // switches — including ones Chromium injects itself — are regrouped
+    // AHEAD of positionals, so the `electron .` app-path argument arrives at
+    // an arbitrary index. Unpackaged (`app.isPackaged === false` in this
+    // harness) drops it by IDENTITY against the mocked `app.getAppPath()`
+    // ('/mock/app'), never by position — folder-argv.test.ts pins the parse;
+    // this pins the delivery wiring.
     secondInstanceHandler(
       {},
-      ['/node_modules/electron/dist/electron', '/repo/apps/desktop', '/work/second-instance-repo'],
+      [
+        '/node_modules/electron/dist/electron',
+        '--no-sandbox',
+        '--allow-file-access-from-files',
+        '/mock/app',
+        '/work/second-instance-repo',
+      ],
       '/cwd'
     );
 

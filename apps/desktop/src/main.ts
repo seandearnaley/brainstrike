@@ -185,6 +185,13 @@ import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ip
 import { resolveRootCwd } from './workspace-root-cwd';
 import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
+// The running bundled entry's own on-disk path (dist/main.js in every real
+// launch), threaded to `resolveFolderCandidatesFromArgv` so the FILE-entry
+// launch spelling (`electron <path>/dist/main.js`, BST-1459) is recognized
+// as the implicit app argument.
+// biome-ignore lint/correctness/noGlobalDirnameFilename: esbuild's cjs output leaves import.meta EMPTY and Vitest's shim has no module.filename — __filename is the only identifier populated in both; see bundled-sibling-path.ts's docblock (BST-1459).
+const MAIN_ENTRY_PATH = __filename;
+
 const desktopEnvLoadResult = getDesktopEnvironmentBootstrapResult();
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
@@ -1530,6 +1537,8 @@ if (singleInstanceLockAcquired) {
         workspaceOpenQueue,
         filterDirectoryOpenCandidates(
           resolveFolderCandidatesFromArgv({
+            appEntryPath: MAIN_ENTRY_PATH,
+            appPath: app.getAppPath(),
             argv: secondInstanceArgv,
             isPackaged: app.isPackaged,
             workingDirectory,
@@ -2607,6 +2616,8 @@ if (singleInstanceLockAcquired) {
         workspaceOpenQueue,
         filterDirectoryOpenCandidates(
           resolveFolderCandidatesFromArgv({
+            appEntryPath: MAIN_ENTRY_PATH,
+            appPath: app.getAppPath(),
             argv: process.argv,
             isPackaged: app.isPackaged,
             workingDirectory: process.cwd(),
