@@ -603,6 +603,36 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
     );
   });
 
+  // BST-1400 item 12: the affordance disables PROACTIVELY while metadata is
+  // pending, rather than only reactively refusing the write above AFTER the
+  // OS picker already ran and mounted a folder no thread ends up owning.
+  it('exposes addFolderDisabledReason while the selected thread metadata is still loading, then clears it', async () => {
+    seedThreads([{ id: OTHER_THREAD_ID, metadata: {} }], THREAD_ID);
+    const { rerender, result } = renderHook(
+      (props: { selectedMemoryThreadId: string }) =>
+        useWorkspaceBar({
+          assistantThreadRepository,
+          currentMainRoot,
+          database,
+          memoryResourceId: RESOURCE_ID,
+          rootDescriptors,
+          selectedMemoryThreadId: props.selectedMemoryThreadId,
+        }),
+      { initialProps: { selectedMemoryThreadId: THREAD_ID } }
+    );
+    await act(async () => {});
+
+    expect(result.current.addFolderDisabledReason).toBe("This thread hasn't finished loading yet");
+
+    // The thread's row lands — metadata is no longer pending.
+    seedThreads([{ id: THREAD_ID, metadata: {} }], THREAD_ID);
+    await act(async () => {
+      rerender({ selectedMemoryThreadId: THREAD_ID });
+    });
+
+    expect(result.current.addFolderDisabledReason).toBeUndefined();
+  });
+
   it('says nothing when Copy path succeeds', async () => {
     const { result } = await setup();
     await act(async () => {

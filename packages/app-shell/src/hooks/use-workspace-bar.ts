@@ -174,6 +174,35 @@ function checkoutStateOf(checkoutSettled: boolean): 'pending' | 'resolved' {
 }
 
 /**
+ * BST-1400 item 12: disables "Add folder…" and each Recent row for the same
+ * reason `enqueueThreadFoldersWrite` already refuses the write —
+ * `refuseWriteBeforeThreadMetadata` — but proactively instead of reactively.
+ * Previously the OS picker (or a picker-less Recent re-mount) ran to
+ * completion, the folder mounted GLOBALLY, and only THEN did the thread-level
+ * write get refused — leaving a folder connected to the workspace but not to
+ * the thread, with a "try again in a moment" toast as the only explanation.
+ * Disabling the affordance while pending stops the picker from ever opening
+ * for a write that cannot land yet. The reactive guard stays in place as a
+ * backstop (e.g. a call this component didn't render the disabled state for
+ * in time) — this only prevents the common, avoidable case.
+ */
+function addFolderDisabledReasonFor(selectedThreadMetadataPending: boolean): string | null {
+  return selectedThreadMetadataPending ? "This thread hasn't finished loading yet" : null;
+}
+
+/**
+ * Ready-to-spread partial, same shape as `checkoutEntry`/`forgeEntry`/
+ * `modeEntry` above — pulled the conditional out of `useWorkspaceBar`'s
+ * return statement entirely rather than an inline ternary spread, which
+ * tipped that function's cognitive complexity over Biome's cap.
+ */
+function addFolderDisabledReasonEntry(addFolderDisabledReason: string | null): {
+  readonly addFolderDisabledReason?: string;
+} {
+  return addFolderDisabledReason ? { addFolderDisabledReason } : {};
+}
+
+/**
  * Gated on the same `primaryRoot && checkout` pair as the chip itself: an
  * interactive menu for a chip that is not rendered is unreachable state.
  * Returns a ready-to-spread partial so the call site in `useWorkspaceBar`
@@ -1058,6 +1087,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedMemoryThreadId,
     updateThreadMetadata,
   });
+  const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
 
   return {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
@@ -1068,6 +1098,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ...forgeEntry(forge),
     ...modeEntry(mode),
     ...workspaceBarTerminal,
+    ...addFolderDisabledReasonEntry(addFolderDisabledReason),
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,

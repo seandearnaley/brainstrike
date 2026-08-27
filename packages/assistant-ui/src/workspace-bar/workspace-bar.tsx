@@ -165,6 +165,14 @@ export interface WorkspaceBarBranchMenu {
 }
 
 export interface WorkspaceBarProps {
+  /**
+   * Non-null disables "Add folder…" and every Recent row instead of letting
+   * the OS picker (or a picker-less Recent re-mount) run to completion only
+   * to discover the folder cannot be attached to this thread yet (BST-1400).
+   * The reason renders the same way a disabled root action's
+   * `WorkspaceBarRoot.removeDisabledReason` does.
+   */
+  readonly addFolderDisabledReason?: string | undefined;
   /** Desktop only — makes the Branch chip an interactive switcher. */
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   /** Desktop only — read-only git state for the primary root; undefined hides the chip. */

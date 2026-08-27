@@ -125,6 +125,63 @@ const RootRowContent = ({
   </>
 );
 
+/**
+ * One dropdown item, optionally disabled with a reason rendered as a second
+ * line beneath the label (matching a disabled root action's presentation).
+ * Shared by root-row actions, "Add folder…", and each Recent row (BST-1400
+ * item 12) so all three disabled affordances look and behave identically.
+ */
+const DisableableMenuItem = ({
+  disabledReason,
+  icon: Icon,
+  label,
+  onSelect,
+  testId,
+  title,
+}: {
+  readonly disabledReason: string | null;
+  readonly icon: LucideIcon;
+  readonly label: string;
+  readonly onSelect: () => void;
+  readonly testId: string;
+  readonly title?: string | undefined;
+}): ReactElement => {
+  const disabledReasonId = useId();
+  return (
+    <DropdownMenuItem
+      {...(disabledReason
+        ? {
+            'aria-describedby': disabledReasonId,
+            'aria-disabled': true,
+            className: 'cursor-not-allowed',
+          }
+        : {})}
+      data-testid={testId}
+      onSelect={(event) => {
+        if (disabledReason) {
+          event.preventDefault();
+          return;
+        }
+        onSelect();
+      }}
+      {...(title ? { title } : {})}
+    >
+      <Icon
+        aria-hidden="true"
+        className={disabledReason ? 'size-3.5 text-muted-foreground' : 'size-3.5'}
+      />
+      <span className="flex min-w-0 flex-col">
+        <span className={disabledReason ? 'text-muted-foreground' : undefined}>{label}</span>
+        {disabledReason ? (
+          <span className="text-foreground text-xs" id={disabledReasonId}>
+            {disabledReason}
+          </span>
+        ) : null}
+      </span>
+    </DropdownMenuItem>
+  );
+};
+
 const RootRow = ({
   isPrimary,
   root,
@@ -137,7 +194,6 @@ const RootRow = ({
   'onCopyPath' | 'onMakePrimary' | 'onOpenTerminal' | 'onRemoveSecondary' | 'reveal'
 >): ReactElement => {
   const actions = rootActions(root, isPrimary, handlers);
-  const disabledReasonIdPrefix = useId();
   const testId = `workspace-bar-root-${root.rootId}`;
   const titleProps = root.path ? { title: root.path } : {};
 
@@ -159,46 +215,16 @@ const RootRow = ({
         <RootRowContent isPrimary={isPrimary} root={root} />
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
-        {actions.map(
-          ({ disabledReason, icon: Icon, label, onSelect, testId: actionTestId }, index) => {
-            const disabledReasonId = `${disabledReasonIdPrefix}-${index}`;
-            return (
-              <DropdownMenuItem
-                {...(disabledReason
-                  ? {
-                      'aria-describedby': disabledReasonId,
-                      'aria-disabled': true,
-                      className: 'cursor-not-allowed',
-                    }
-                  : {})}
-                data-testid={actionTestId}
-                key={actionTestId}
-                onSelect={(event) => {
-                  if (disabledReason) {
-                    event.preventDefault();
-                    return;
-                  }
-                  onSelect();
-                }}
-              >
-                <Icon
-                  aria-hidden="true"
-                  className={disabledReason ? 'size-3.5 text-muted-foreground' : 'size-3.5'}
-                />
-                <span className="flex min-w-0 flex-col">
-                  <span className={disabledReason ? 'text-muted-foreground' : undefined}>
-                    {label}
-                  </span>
-                  {disabledReason ? (
-                    <span className="text-foreground text-xs" id={disabledReasonId}>
-                      {disabledReason}
-                    </span>
-                  ) : null}
-                </span>
-              </DropdownMenuItem>
-            );
-          }
-        )}
+        {actions.map(({ disabledReason, icon, label, onSelect, testId: actionTestId }) => (
+          <DisableableMenuItem
+            disabledReason={disabledReason}
+            icon={icon}
+            key={actionTestId}
+            label={label}
+            onSelect={onSelect}
+            testId={actionTestId}
+          />
+        ))}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
@@ -210,6 +236,7 @@ const RootRow = ({
  * With no root connected the chip IS the call to action.
  */
 export const FolderChip = ({
+  addFolderDisabledReason,
   onAddFolder,
   onAddRecent,
   onCopyPath,
@@ -270,23 +297,26 @@ export const FolderChip = ({
               Recent
             </DropdownMenuLabel>
             {visibleRecents.map((recent) => (
-              <DropdownMenuItem
-                data-testid={`workspace-bar-recent-${recent.path}`}
+              <DisableableMenuItem
+                disabledReason={addFolderDisabledReason ?? null}
+                icon={History}
                 key={recent.path}
+                label={recent.displayName}
                 onSelect={() => onAddRecent(recent.path)}
+                testId={`workspace-bar-recent-${recent.path}`}
                 title={recent.path}
-              >
-                <History aria-hidden="true" className="size-3.5" />
-                <span className="truncate">{recent.displayName}</span>
-              </DropdownMenuItem>
+              />
             ))}
             <DropdownMenuSeparator />
           </>
         ) : null}
-        <DropdownMenuItem data-testid="workspace-bar-add-folder" onSelect={onAddFolder}>
-          <FolderPlus aria-hidden="true" className="size-3.5" />
-          Add folder…
-        </DropdownMenuItem>
+        <DisableableMenuItem
+          disabledReason={addFolderDisabledReason ?? null}
+          icon={FolderPlus}
+          label="Add folder…"
+          onSelect={onAddFolder}
+          testId="workspace-bar-add-folder"
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   );

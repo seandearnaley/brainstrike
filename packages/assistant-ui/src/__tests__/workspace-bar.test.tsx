@@ -195,6 +195,37 @@ describe('WorkspaceBar', () => {
     expect(onAddFolder).toHaveBeenCalledTimes(1);
   });
 
+  // BST-1400 item 12: disables "Add folder…" and Recent rows instead of
+  // letting the OS picker run to completion only to have the thread-level
+  // write refused afterward.
+  it('disables Add folder… and Recent rows with a reason while addFolderDisabledReason is set', async () => {
+    const user = setup();
+    const onAddFolder = vi.fn();
+    const onAddRecent = vi.fn();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          addFolderDisabledReason: "This thread hasn't finished loading yet",
+          onAddFolder,
+          onAddRecent,
+          recentRoots: [{ displayName: 'alpha', path: '/ws/alpha' }],
+        })}
+      />
+    );
+
+    await openFolderMenu(user);
+    const addFolderItem = await screen.findByTestId('workspace-bar-add-folder');
+    const recentItem = await screen.findByTestId('workspace-bar-recent-/ws/alpha');
+    expect(addFolderItem).toHaveAttribute('aria-disabled', 'true');
+    expect(recentItem).toHaveAttribute('aria-disabled', 'true');
+    expect(addFolderItem).toHaveTextContent("This thread hasn't finished loading yet");
+
+    await user.click(addFolderItem);
+    await user.click(recentItem);
+    expect(onAddFolder).not.toHaveBeenCalled();
+    expect(onAddRecent).not.toHaveBeenCalled();
+  });
+
   it('still shows mounted secondaries when there is no primary root', async () => {
     const user = setup();
     render(
