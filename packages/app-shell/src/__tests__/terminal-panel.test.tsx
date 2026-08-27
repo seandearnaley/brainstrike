@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -120,6 +120,7 @@ vi.mock('@xterm/addon-web-links', () => {
   return { WebLinksAddon };
 });
 
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { TerminalPanel } from '../terminal-panel/terminal-panel';
 
 // ── Bridge fixtures ───────────────────────────────────────────────────────────
@@ -221,6 +222,7 @@ describe('TerminalPanel', () => {
     dataCallback = null;
     exitCallback = null;
     toastSpy.mockReset();
+    useTerminalTargetStore.getState().reset();
     offData.mockReset();
     offExit.mockReset();
     // jsdom has no ResizeObserver — stub it so the session effect can observe.
@@ -683,5 +685,83 @@ describe('TerminalPanel', () => {
       rootId: 'root-1',
       sessionId: 'command-session-1234567890',
     });
+  });
+
+  it('creates the session at the FOCUSED root when nothing is pinned', async () => {
+    const bridge = installBridge();
+    render(<TerminalPanel />);
+
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(1));
+    const params = vi.mocked(bridge.create).mock.calls[0]?.[0];
+    expect(params?.rootId).toBe('root-1');
+    // No pin ⇒ no cwd key at all, so main takes its original root-cwd path.
+    expect(params && 'cwd' in params).toBe(false);
+  });
+
+  it('creates the session at the PINNED checkout, carrying both rootId and cwd', async () => {
+    const bridge = installBridge({
+      create: vi.fn(async () =>
+        ok({ cwd: '/abs/repo/.claude/worktrees/bright-fox', terminalId: 'pty-2' })
+      ),
+    });
+    useTerminalTargetStore
+      .getState()
+      .openTerminalAt({ cwd: '/abs/repo/.claude/worktrees/bright-fox', rootId: 'root-1' });
+    render(<TerminalPanel />);
+
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(1));
+    expect(bridge.create).toHaveBeenCalledWith({
+      cols: 80,
+      cwd: '/abs/repo/.claude/worktrees/bright-fox',
+      rootId: 'root-1',
+      rows: 24,
+    });
+    // The header reports the cwd main actually resolved, not the request.
+    expect(await screen.findByText('/abs/repo/.claude/worktrees/bright-fox')).toBeInTheDocument();
+  });
+
+  it('offers "Follow focused folder" only while a target is pinned, and releasing it restarts at the root', async () => {
+    const bridge = installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('terminal-panel-clear-target')).not.toBeInTheDocument();
+
+    await act(async () => {
+      useTerminalTargetStore.getState().openTerminalAt({ cwd: '/abs/repo/sub', rootId: 'root-1' });
+    });
+    const release = await screen.findByTestId('terminal-panel-clear-target');
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(bridge.create).mock.calls[1]?.[0]).toMatchObject({ cwd: '/abs/repo/sub' });
+
+    await userEvent.click(release);
+
+    expect(screen.queryByTestId('terminal-panel-clear-target')).not.toBeInTheDocument();
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(3));
+    const third = vi.mocked(bridge.create).mock.calls[2]?.[0];
+    expect(third?.rootId).toBe('root-1');
+    expect(third && 'cwd' in third).toBe(false);
+  });
+
+  it('does not surface the previous target’s outcome after the pin changes within one root', async () => {
+    // The freshness gate must key on the (rootId, cwd) PAIR: the lifecycle
+    // effect re-runs on a cwd change WITHOUT bumping sessionId, so a gate that
+    // keyed on rootId alone would leak the previous checkout's `exited`
+    // overlay onto the freshly-starting one. This is the same bug class the
+    // existing rootId note in use-terminal-session.ts describes.
+    const bridge = installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(bridge.create).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      exitCallback?.({ exitCode: 0, signal: null, terminalId: 'pty-1' });
+    });
+    expect(await screen.findByTestId('terminal-panel-exited')).toBeInTheDocument();
+
+    await act(async () => {
+      useTerminalTargetStore.getState().openTerminalAt({ cwd: '/abs/repo/sub', rootId: 'root-1' });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('terminal-panel-exited')).not.toBeInTheDocument()
+    );
   });
 });

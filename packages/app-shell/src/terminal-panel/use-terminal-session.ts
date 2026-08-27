@@ -55,15 +55,16 @@ type SessionOutcome =
 
 interface TaggedOutcome {
   readonly outcome: SessionOutcome;
-  /**
-   * The root this outcome belongs to. The lifecycle effect re-runs on a root
-   * switch (deps include `activeRootId`) WITHOUT bumping `sessionId`, so the
-   * render-time freshness gate must key on both — otherwise the previous root's
-   * `exited`/`error` outcome leaks onto the freshly-starting root until its
-   * `create()` resolves.
-   */
-  readonly rootId: string;
   readonly sessionId: number;
+  /**
+   * The (rootId, cwd) PAIR this outcome belongs to, joined by a NUL that
+   * neither component can contain. The lifecycle effect re-runs on a root
+   * switch OR a target-pin change WITHOUT bumping `sessionId`, so the
+   * render-time freshness gate must key on both — otherwise the previous
+   * checkout's `exited`/`error` outcome leaks onto the freshly-starting one
+   * until its `create()` resolves.
+   */
+  readonly sessionKey: string;
 }
 
 export interface UseTerminalSessionResult {
@@ -79,11 +80,12 @@ const RESIZE_DEBOUNCE_MS = 100;
 
 /**
  * Owns the imperative xterm Terminal + `window.terminal` pty session for ONE
- * workspace root.
+ * checkout — the focused workspace root, or a pinned target inside it
+ * (`terminal-target-store`).
  *
  * Lifecycle (a single effect keyed on the host element + rootId + a session id):
  *   1. construct an xterm `Terminal` + `FitAddon`, `open()` it on the host node;
- *   2. `bridge.create({ rootId, cols, rows })` → on `{ ok:false }` record an
+ *   2. `bridge.create({ rootId, cwd, cols, rows })` → on `{ ok:false }` record an
  *      error outcome + toast (never a blank panel);
  *   3. `bridge.onData` → surrogate-safe reassembly → `term.write()`;
  *   4. `term.onData` (keystrokes) → `bridge.write({ terminalId, data })`;
@@ -96,13 +98,20 @@ const RESIZE_DEBOUNCE_MS = 100;
  * lifetime). When absent the hook is inert (`idle`) and the panel renders its
  * desktop-only empty state.
  */
-export function useTerminalSession(activeRootId: string | null): UseTerminalSessionResult {
+export function useTerminalSession(
+  rootId: string | null,
+  cwd: string | null
+): UseTerminalSessionResult {
   const { toast } = useToast();
   const bridgeRef = useRef<TerminalBridge | null>(null);
   if (bridgeRef.current === null) {
     bridgeRef.current = resolveTerminalBridge();
   }
   const bridge = bridgeRef.current;
+  // Derived during render, never stored: the identity of the session the panel
+  // WANTS. NUL-joined because neither a rootId (uuid) nor an absolute path can
+  // contain it, so no two distinct pairs can collide into one key.
+  const sessionKey = `${rootId ?? ''}\u0000${cwd ?? ''}`;
 
   // The host element is tracked in state (not a plain ref) so the lifecycle
   // effect re-runs when the node mounts/unmounts — a ref mutation would not.
@@ -124,10 +133,11 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
     setSessionId((id) => id + 1);
   }, []);
 
-  // A different focused root starts with a fresh transient-retry budget.
+  // A different target (root or pinned checkout) starts with a fresh
+  // transient-retry budget.
   useEffect(() => {
     transientRetryCountRef.current = 0;
-  }, [activeRootId]);
+  }, [sessionKey]);
 
   // The async OUTCOME of a session, tagged with the id it belongs to. The effect
   // writes only this (a subscribe-to-external-system result), never a derived
@@ -135,7 +145,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
   const [tagged, setTagged] = useState<TaggedOutcome | null>(null);
 
   useEffect(() => {
-    if (!(bridge && activeRootId && container)) {
+    if (!(bridge && rootId && container)) {
       return;
     }
 
@@ -165,7 +175,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
     }
 
     bridge
-      .create({ cols: term.cols, rootId: activeRootId, rows: term.rows })
+      .create({ cols: term.cols, rootId, rows: term.rows, ...(cwd === null ? {} : { cwd }) })
       .then((result) => {
         if (cancelled) {
           // Created after teardown: reap the orphan pty rather than leak it.
@@ -198,8 +208,8 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           }
           setTagged({
             outcome: { kind: 'error', message: result.error },
-            rootId: activeRootId,
             sessionId,
+            sessionKey,
           });
           logger.error('terminal create failed', { error: result.error });
           toast({
@@ -215,8 +225,8 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
         const liveId = terminalId;
         setTagged({
           outcome: { cwd: result.value.cwd, kind: 'ready' },
-          rootId: activeRootId,
           sessionId,
+          sessionKey,
         });
 
         // pty output → surrogate-safe reassembly → xterm.
@@ -241,8 +251,8 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           }
           setTagged({
             outcome: { exitCode: event.exitCode, kind: 'exited', signal: event.signal },
-            rootId: activeRootId,
             sessionId,
+            sessionKey,
           });
         });
         disposers.push(offExit);
@@ -296,7 +306,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           return;
         }
         const message = error instanceof Error ? error.message : String(error);
-        setTagged({ outcome: { kind: 'error', message }, rootId: activeRootId, sessionId });
+        setTagged({ outcome: { kind: 'error', message }, sessionId, sessionKey });
         logger.error('terminal create threw', { error: message });
         toast({ description: message, title: 'Terminal failed to start', variant: 'destructive' });
       });
@@ -314,19 +324,16 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
       }
       term.dispose();
     };
-  }, [bridge, activeRootId, container, sessionId, toast]);
+  }, [bridge, rootId, cwd, container, sessionId, toast]);
 
   // Derive the displayed state during render (no effect mirror):
   //  - no bridge/root → idle;
-  //  - a fresh outcome for the CURRENT session AND root → that outcome;
+  //  - a fresh outcome for the CURRENT session AND target → that outcome;
   //  - otherwise the session is still being set up → starting.
-  // The gate keys on both `sessionId` and `activeRootId`: the lifecycle effect
-  // re-runs on a root switch without bumping `sessionId`, so an outcome tagged
-  // with the prior root must NOT surface for the newly-focused one.
   let state: TerminalSessionState;
-  if (!(bridge && activeRootId)) {
+  if (!(bridge && rootId)) {
     state = { kind: 'idle' };
-  } else if (tagged?.sessionId === sessionId && tagged.rootId === activeRootId) {
+  } else if (tagged?.sessionId === sessionId && tagged.sessionKey === sessionKey) {
     state = tagged.outcome;
   } else {
     state = { kind: 'starting' };
