@@ -26,12 +26,11 @@ describe('main log transport path', () => {
     );
   });
 
-  it('rejects an empty module filename instead of guessing from cwd (PR #2680 review)', () => {
-    // NO SILENT FALLBACKS: an unreachable-in-practice empty module.filename
-    // must fail loudly, not degrade to a plausible-but-wrong
-    // process.cwd()-relative path.
+  it('rejects an empty __filename instead of guessing from cwd (PR #2680 review)', () => {
+    // NO SILENT FALLBACKS: an empty __filename must fail loudly, not
+    // degrade to a plausible-but-wrong process.cwd()-relative path.
     expect(() => resolveMainLogTransportPath('/unused', false, '')).toThrow(
-      'module.filename unavailable'
+      '__filename unavailable'
     );
   });
 
@@ -49,7 +48,7 @@ describe('main log transport path', () => {
   });
 
   it('ignores an otherwise-invalid third argument in packaged builds (PR #2680 review)', () => {
-    // Proves the packaged branch never reads currentModuleFilename / module.filename:
+    // Proves the packaged branch never reads currentModuleFilename / __filename:
     // an empty string here WOULD throw if the unpackaged branch's guard ran
     // against it. Getting the normal packaged result instead shows the two
     // branches are structurally decoupled.

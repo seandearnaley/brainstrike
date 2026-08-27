@@ -16,7 +16,7 @@ describe('resolveDesktopPythonRuntimeResourcesDir', () => {
   it('tracks a differently-shaped module path instead of a fixed string (PR #2680 review)', () => {
     // The golden-path `toBe` above pins one exact string, so a same-string
     // `not.toContain('dist/dist')` alongside it can never fail independently
-    // — this case varies the input's directory depth so a hardcoded or
+    // — this case varies the input's directory shape so a hardcoded or
     // wrongly-derived implementation would fail here even though it happens
     // to pass the case above.
     expect(resolveDesktopPythonRuntimeResourcesDir(false, '/unused', '/a/b/c/dist/main.js')).toBe(
@@ -24,25 +24,36 @@ describe('resolveDesktopPythonRuntimeResourcesDir', () => {
     );
   });
 
-  it('rejects an empty module filename instead of guessing from cwd (PR #2680 review)', () => {
-    // NO SILENT FALLBACKS: an unreachable-in-practice empty module.filename
-    // must fail loudly, not degrade to a plausible-but-wrong
-    // process.cwd()-relative path.
+  it('rejects an empty __filename instead of guessing from cwd (PR #2680 review)', () => {
+    // NO SILENT FALLBACKS: an empty __filename must fail loudly, not
+    // degrade to a plausible-but-wrong process.cwd()-relative path.
     expect(() => resolveDesktopPythonRuntimeResourcesDir(false, '/unused', '')).toThrow(
-      'module.filename unavailable'
+      '__filename unavailable'
     );
   });
 
-  it('rejects a module path that is not directly inside dist/ (PR #2680 review)', () => {
-    // This resolver additionally depends on dist/'s DEPTH below the app
-    // root (two dirname() calls, not one), which is more fragile than the
-    // sibling-of-main.js pattern the watchdog/log-transport resolvers use.
-    // A future change that nests the bundled output somewhere other than
-    // a flat dist/ must fail loudly here, not silently resolve to the
-    // wrong resources directory.
+  it('rejects a module path whose parent directory is not literally named dist/ (PR #2680 review)', () => {
+    // This resolver additionally depends on the running module's immediate
+    // parent directory being NAMED "dist" — an identity check on that one
+    // path segment, not a depth check (delta re-review corrected this
+    // framing: out/dist/main.js would still PASS, since only the parent's
+    // basename is compared, not its depth below the app root). The
+    // watchdog/log-transport resolvers don't need this at all. A future
+    // change that renames or restructures the bundled output away from a
+    // literal dist/ directory must fail loudly here, not silently resolve
+    // to the wrong resources directory.
     expect(() =>
       resolveDesktopPythonRuntimeResourcesDir(false, '/unused', '/repo/apps/desktop/build/main.js')
-    ).toThrow('expected the running main module to live in dist/');
+    ).toThrow('parent directory to be named "dist"');
+  });
+
+  it('accepts any dist/ regardless of depth below the app root — identity, not depth (PR #2680 review)', () => {
+    // Proves the guard really is an identity check, not a depth check: a
+    // dist/ nested arbitrarily deep (or shallow) still passes as long as
+    // its own directory name is literally "dist".
+    expect(resolveDesktopPythonRuntimeResourcesDir(false, '/unused', '/out/dist/main.js')).toBe(
+      path.join('/out', 'resources', 'python-runtime')
+    );
   });
 
   it('resolves packaged resources from process.resourcesPath', () => {
@@ -57,7 +68,7 @@ describe('resolveDesktopPythonRuntimeResourcesDir', () => {
 
   it('ignores an otherwise-invalid third argument in packaged builds (PR #2680 review)', () => {
     // Proves the packaged branch never reads currentModuleFilename /
-    // module.filename: an empty string here WOULD throw if the unpackaged
+    // __filename: an empty string here WOULD throw if the unpackaged
     // branch's guards ran against it. Getting the normal packaged result
     // instead shows the two branches are structurally decoupled.
     expect(

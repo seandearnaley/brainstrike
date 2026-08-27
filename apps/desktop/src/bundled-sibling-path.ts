@@ -12,15 +12,24 @@ import path from 'node:path';
  * BST-1459: `app.getAppPath()` is launch-mode-dependent (it returns the
  * project root under `electron .`, but `dist/` itself when Electron is
  * launched with a direct path to `dist/main.js`, as Playwright's desktop
- * e2e harness does) and cannot substitute for this. `__filename` is used
- * instead of `module.filename` (PR #2680 review, codex + claude[bot]
- * independently): both hold the identical real on-disk path of the running
- * bundle in Node's actual CJS module wrapper, but Vite's Vitest module
- * transform provides only a synthetic `module = { exports }` shim with no
- * `.filename` for files that reach this code through main.ts's real
- * bootstrap path — `__filename` remains populated there too, so this stays
- * correct in both the packaged/dev Electron process AND under test, with no
- * environment-specific accommodation needed.
+ * e2e harness does) and cannot substitute for this. This helper resolves
+ * `__filename` — the real on-disk path of the running bundle, set by Node's
+ * actual CJS module wrapper. It is deliberately NOT `module.filename`
+ * (PR #2680 review, codex + claude[bot] independently): both hold the same
+ * value in the real Electron process, but Vite's Vitest module transform
+ * provides only a synthetic `module = { exports }` shim with NO `.filename`
+ * for files that reach this code through main.ts's real bootstrap path —
+ * proven empty by this ticket's own full-suite gate (12 tests across 7
+ * files broke the moment that silently-wrong value became load-bearing). It
+ * is also NOT `import.meta.filename` (PR #2680 delta re-review — ultracite's
+ * own autofix tried to rewrite this to it): esbuild's `cjs` output format
+ * leaves `import.meta` EMPTY, by esbuild's own `[empty-import-meta]` build
+ * warning, which would make this throw on every real call. `__filename`
+ * remains populated in both the esbuild CJS bundle AND under Vitest, so it
+ * is the only one of the three identifiers that is correct everywhere this
+ * code runs — anyone "correcting" this back to `module.filename` or
+ * `import.meta.filename` reintroduces one of the two failures this ticket
+ * diagnosed and fixed.
  *
  * `currentModuleFilename` is an injectable override purely for unit tests
  * (see `apps/desktop/src/__tests__/diagnostics/main-watchdog-path.test.ts`
@@ -29,28 +38,30 @@ import path from 'node:path';
  * dev-mode resolution (e.g. every packaged-mode call) provably never reads
  * `__filename` at all.
  *
- * NO SILENT FALLBACKS: an empty/missing module filename throws loudly
- * rather than degrading to a plausible-but-wrong `process.cwd()`-relative
- * guess — a prior draft of this fix did exactly that "on the record" as
- * vestigial rather than removing it, which is the exact silent-degradation
- * shape AGENTS.md forbids, and a WORSE failure than the bug this ticket
- * fixed (the old `dist/dist/` doubling at least failed loudly at `Worker`
+ * NO SILENT FALLBACKS: an empty/missing `__filename` throws loudly rather
+ * than degrading to a plausible-but-wrong `process.cwd()`-relative guess —
+ * a prior draft of this fix did exactly that "on the record" as vestigial
+ * rather than removing it, which is the exact silent-degradation shape
+ * AGENTS.md forbids, and a WORSE failure than the bug this ticket fixed
+ * (the old `dist/dist/` doubling at least failed loudly at `Worker`
  * construction).
  *
- * FOLLOW-UP (not fixed here — different ticket, flagged as debt):
- * `db-host-manager.ts`'s `resolveDefaultEntryPath()` and
- * `parser-host-manager.ts`'s equivalent predate this helper and still
- * inline their own `module.filename`-with-`process.cwd()`-fallback copy of
- * this idiom, unmodified. They should eventually consume this helper too.
+ * FOLLOW-UP (not fixed here, filed as BST-1460): `db-host-manager.ts`'s
+ * `resolveDefaultEntryPath()` and `parser-host-manager.ts`'s equivalent
+ * predate this helper and still inline their own `module.filename`-with-
+ * `process.cwd()`-fallback copy of this idiom, unmodified. They should
+ * migrate to this helper too.
  */
-export function resolveBundledDistDir(
+export function resolveBundledModuleDir(
   contextLabel: string,
   currentModuleFilename?: string
 ): string {
   // biome-ignore lint/correctness/noGlobalDirnameFilename: esbuild's cjs output format leaves import.meta EMPTY (its own [empty-import-meta] build warning) — __filename is the correct, populated choice for this bundle; see the module docblock above.
   const moduleFilename = currentModuleFilename ?? __filename;
   if (typeof moduleFilename !== 'string' || moduleFilename.length === 0) {
-    throw new Error(`${contextLabel}: module.filename unavailable; cannot resolve dist/`);
+    throw new Error(
+      `${contextLabel}: __filename unavailable (module.filename/import.meta.filename are unavailable/empty in this bundle+test matrix — see this module's docblock); cannot resolve dist/`
+    );
   }
   return path.dirname(moduleFilename);
 }
@@ -61,5 +72,5 @@ export function resolveBundledSiblingPath(
   fileName: string,
   currentModuleFilename?: string
 ): string {
-  return path.join(resolveBundledDistDir(contextLabel, currentModuleFilename), fileName);
+  return path.join(resolveBundledModuleDir(contextLabel, currentModuleFilename), fileName);
 }
