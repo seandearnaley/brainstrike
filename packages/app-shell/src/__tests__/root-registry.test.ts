@@ -43,6 +43,9 @@ describe('reconcileRoots', () => {
     expect(result.dbRootKindByAdapterRootId.get('adapter-1')).toBe('snapshot');
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE'))).toBe(false);
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+    // BST-1400 item 11: a matched root is NOT a new row — the boot discovery
+    // nudge must not fire for the ordinary "already-registered root" case.
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(false);
   });
 
   it("restores status='live' on a matched disconnected row (remount-by-path)", async () => {
@@ -64,6 +67,10 @@ describe('reconcileRoots', () => {
     expect(update?.[0]).toMatch(/status = 'live'/);
     expect(update?.[0]).toMatch(/last_verified_at = NOW\(\)/);
     expect(update?.[1]).toEqual(['db-1']);
+    // BST-1400 item 11: the exact remove-then-re-add shape the boot discovery
+    // nudge over-fired for — matched-and-restored is not a NEW row, so it must
+    // not be reported as inserted even though the row just flipped live.
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(false);
   });
 
   it.each(['needs-regrant', 'snapshot-stale'])(
@@ -203,6 +210,9 @@ describe('reconcileRoots', () => {
     expect(insertCall?.[1]).toEqual(
       expect.arrayContaining(['adapter-2', 'fsa', 'fresh-folder', 'fresh-folder'])
     );
+    // BST-1400 item 11: a genuine insert IS reported, so the boot discovery
+    // nudge still fires for the case it exists for.
+    expect(result.insertedAdapterRootIds.has('adapter-2')).toBe(true);
   });
 
   it('inserts a managed worktree path with kind worktree', async () => {
@@ -333,6 +343,10 @@ describe('reconcileRoots', () => {
     // The loop continued: the second root still registered (its own insert
     // also "converges" in this mock, proving no abort).
     expect(result.dbRootIdByAdapterRootId.has('adapter-2')).toBe(true);
+    // BST-1400 item 11: a row that landed via a concurrent writer's insert is
+    // still NEW relative to what any already-running inventory build has
+    // seen, so it counts as inserted even though THIS call converged onto it.
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(true);
   });
 
   it('rethrows non-path-race insert failures instead of swallowing them', async () => {

@@ -783,19 +783,20 @@ describe('useRootsReconciliation', () => {
       return loggerMock.warn.mock.calls.some(([message]) => message === REFRESH_FAILED);
     }
 
-    it('refreshes once after the boot reconcile and again after a mid-session registerRoot', async () => {
-      const rootPath = '/workspace/docs';
+    it('refreshes after a genuinely new boot insert, and again after a mid-session registerRoot', async () => {
       const inventory = okInventory();
       const uninstall = installChangesBridge(inventory);
 
       try {
+        // No pre-existing row for ANY path (makeDb(), not makeDbWithRootRow):
+        // the boot reconcile must INSERT this root, not match one.
         const restoreRoots = vi.fn(
           async (): Promise<RootDescriptor[]> => [
-            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+            grantedRootWithPath('adapter-root-1', 'docs', '/workspace/docs'),
           ]
         );
         const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        const { db } = makeDb();
         const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
         await waitFor(() => {
@@ -815,6 +816,39 @@ describe('useRootsReconciliation', () => {
           expect(inventory).toHaveBeenCalledTimes(2);
         });
         expect(inventory).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
+      } finally {
+        uninstall();
+      }
+    });
+
+    // BST-1400 item 11: the boot batch used to nudge whenever ANY root
+    // successfully mapped, including one that only MATCHED an already-live
+    // row — the ordinary case for every boot after the first. That row was
+    // already discovered by the inventory's own eager app-ready build, so
+    // re-nudging for it is one wasted extra build every session.
+    it('does not refresh when the boot reconcile only MATCHED an already-registered root', async () => {
+      const rootPath = '/workspace/docs';
+      const inventory = okInventory();
+      const uninstall = installChangesBridge(inventory);
+
+      try {
+        const restoreRoots = vi.fn(
+          async (): Promise<RootDescriptor[]> => [
+            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+          ]
+        );
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        // makeDbWithRootRow: the row is ALREADY there before this boot runs —
+        // reconciliation only matches and (if needed) restores it to 'live'.
+        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        // Awaits resolveDbRootId (not just restoreRoots having been CALLED) so
+        // the full boot chain — including the conditional inventory nudge —
+        // has settled before asserting it never fired; restoreRoots alone
+        // only proves the chain STARTED.
+        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('db-root-id');
+        expect(inventory).not.toHaveBeenCalled();
       } finally {
         uninstall();
       }
@@ -885,13 +919,16 @@ describe('useRootsReconciliation', () => {
           ]
         );
         const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        // makeDb() (not makeDbWithRootRow): must be a genuine INSERT — a
+        // matched root never fires the nudge at all (see the item-11 test
+        // above), which would make this failure-path test vacuous.
+        const { db } = makeDb();
         const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
         await waitFor(() => {
           expect(result.current.dbRootIdByAdapterRootId.size).toBe(1);
         });
-        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('db-root-id');
+        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('adapter-root-1');
         await waitFor(() => {
           expect(warnedRefreshFailure()).toBe(true);
         });
@@ -914,7 +951,9 @@ describe('useRootsReconciliation', () => {
           ]
         );
         const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        // Same reason as above: a genuine insert is required to trigger the
+        // nudge this test exercises the failure path of.
+        const { db } = makeDb();
         renderHook(() => useRootsReconciliation({ adapter, db }));
 
         await waitFor(() => {

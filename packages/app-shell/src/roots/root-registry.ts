@@ -33,6 +33,19 @@ export interface ReconcileRootsResult {
    * rows retain their persisted kind; this map is a read-through only.
    */
   dbRootKindByAdapterRootId: Map<string, string>;
+  /**
+   * Adapter root ids this call caused a NEW `roots` row to appear for — a
+   * genuine `insertRoot` (or the concurrent-writer race that converges onto a
+   * row another window's insert just landed; that row is equally new to
+   * `loadRoots()`'s cache). Excludes every `matched` root (line ~202 above):
+   * an already-existing row reconciliation only path-matched and possibly
+   * flipped back to `'live'`, which the git inventory has already discovered
+   * via a prior build. This is the insert-vs-match signal
+   * `use-roots-reconciliation.ts`'s boot discovery nudge gates on — an
+   * ordinary boot with only already-registered roots has nothing new for the
+   * inventory to arm a watcher for, so it must not fire the nudge.
+   */
+  insertedAdapterRootIds: Set<string>;
 }
 
 interface DbRootRow {
@@ -170,6 +183,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
   const managedWorktreePathsKnown = args.managedWorktreePathsKnown ?? true;
   const mapping = new Map<string, string>();
   const dbRootKindByAdapterRootId = new Map<string, string>();
+  const insertedAdapterRootIds = new Set<string>();
 
   const result = await query('SELECT id, kind, path, status FROM roots');
   const dbRows = result.rows.filter(isDbRootRow);
@@ -227,6 +241,9 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       mapping.set(root.rootId, existingRow.id);
       dbRootKindByAdapterRootId.set(root.rootId, existingRow.kind ?? platformKind);
       dbByPath.set(rootPath, { ...existingRow, status: 'live' });
+      // A concurrent writer's row, but still NEW relative to what any
+      // already-running inventory build has seen — counts as inserted.
+      insertedAdapterRootIds.add(root.rootId);
       logger.warn('Root path registered by a concurrent writer — converged on existing row', {
         dbRootId: existingRow.id,
         rootId: root.rootId,
@@ -242,8 +259,9 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
     });
     mapping.set(root.rootId, root.rootId);
     dbRootKindByAdapterRootId.set(root.rootId, kind);
+    insertedAdapterRootIds.add(root.rootId);
     logger.info('Registered new root', { kind, rootId: root.rootId });
   }
 
-  return { dbRootIdByAdapterRootId: mapping, dbRootKindByAdapterRootId };
+  return { dbRootIdByAdapterRootId: mapping, dbRootKindByAdapterRootId, insertedAdapterRootIds };
 }
