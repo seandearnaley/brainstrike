@@ -32,6 +32,7 @@ import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
 import { useWorkspaceBarForge } from './use-workspace-bar-forge';
 import { useWorkspaceBarMode } from './use-workspace-bar-mode';
+import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
 import {
   deriveMakePrimary,
   MakePrimaryDerivationError,
@@ -980,6 +981,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const onCopyPath = useCallback((path: string) => {
     copyWorkspaceBarValue(path, 'path');
   }, []);
+  const workspaceBarTerminal = useWorkspaceBarTerminal();
 
   const primaryRootPath = primaryRoot?.path;
   const primaryAdapterRootId = usePrimaryAdapterRootId(rootDescriptors, primaryRootPath);
@@ -1028,6 +1030,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ...checkoutEntry(primaryRoot, checkout),
     ...forgeEntry(forge),
     ...modeEntry(mode),
+    ...workspaceBarTerminal,
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,

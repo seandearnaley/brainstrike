@@ -14,6 +14,7 @@ import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { useChangesStore } from '../changes/changes-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
 
 // The real notes-vault store's default services require indexedDB (handle
 // persistence), which this vitest environment does not provide. The reset
@@ -95,6 +96,7 @@ describe('register-factory-reset-session-stores', () => {
       },
     });
     useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
+    useTerminalTargetStore.getState().openTerminalAt({ cwd: '/wt', rootId: 'r-1' });
 
     expect(useWorkspaceSearchStore.getState().query).toBe('find me');
     expect(useChunkSelectionStore.getState().selectionsByKey['root|@|src/a.ts']).toBeDefined();
@@ -124,6 +126,7 @@ describe('register-factory-reset-session-stores', () => {
     expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({});
     expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
     expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
+    expect(useTerminalTargetStore.getState().target).toBeNull();
   });
 
   // The two diagnostics session stores get their own case rather than riding

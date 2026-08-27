@@ -472,6 +472,53 @@ const probes = {
     await page.setViewportSize({ height: 900, width: 1440 });
   },
 
+  /** BST-1457 Step 1 — Open in Terminal pins the panel to the card's checkout.
+   * Requires --repo. Uses the PRIMARY card, which always has a `rootId` (it is
+   * the seeded workspace root), so the probe never depends on an adoption
+   * having happened first. Reports COMPUTED VALUES: whether the item exists,
+   * the panel's rendered header text, and the release control's rect. */
+  async 'open-terminal'(page) {
+    await seedRootByPath(page, repoPath);
+    await openWorktreeMapTab(page);
+
+    const primaryCard = page.locator('[data-testid="worktree-map-card"]').first();
+    await primaryCard.getByTestId('worktree-map-card-actions').click();
+    const item = page.getByRole('menuitem', { exact: true, name: 'Open in Terminal' });
+    const itemCount = await item.count();
+    record('open-terminal.item-present', { itemCount }, (v) => v.itemCount === 1);
+    if (itemCount !== 1) {
+      await page.keyboard.press('Escape');
+      return;
+    }
+    await item.click();
+
+    await page.waitForSelector('[data-testid="terminal-panel"]', { timeout: 30_000 });
+    const panel = await read(page, '[data-testid="terminal-panel"]');
+    const expectedBasename = repoPath.split('/').filter(Boolean).at(-1) ?? null;
+    record(
+      'open-terminal.panel-shows-checkout-cwd',
+      { expectedBasename, text: panel?.text ?? null },
+      // An unresolvable basename FAILS the check; it never falls back to a
+      // sentinel that could make an empty panel read as a pass.
+      (v) => v.expectedBasename !== null && (v.text ?? '').includes(v.expectedBasename)
+    );
+
+    const release = await read(page, '[data-testid="terminal-panel-clear-target"]');
+    record(
+      'open-terminal.release-control-is-real',
+      release,
+      (v) => v !== null && v.disabled === false && v.width > 0 && v.height > 0
+    );
+
+    await page.click('[data-testid="terminal-panel-clear-target"]');
+    const afterRelease = await read(page, '[data-testid="terminal-panel-clear-target"]');
+    record(
+      'open-terminal.release-clears-the-pin',
+      { afterRelease },
+      (v) => v.afterRelease === null
+    );
+  },
+
   /** Brief Step 2, check 4 — the PR pill vs. the thread-list pill. Requires --repo
    * (the worktree named `pr` in the seeded topology) and a `gh` on PATH primed
    * with an open PR for that branch. */
@@ -560,6 +607,7 @@ const RUN_ORDER = [
   'live-refresh',
   'map-cards',
   'narrow-pane',
+  'open-terminal',
   'pr-pill',
 ];
 if ([...RUN_ORDER].sort().join(',') !== Object.keys(probes).sort().join(',')) {

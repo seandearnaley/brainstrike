@@ -19,7 +19,9 @@ import { createLogger } from '@brainstrike/logging';
 import type { ReactElement } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
+import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 import { useActiveAssistantThreadIds } from '../use-active-assistant-thread-ids';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
 import { useWorktreeMap } from './use-worktree-map';
@@ -71,6 +73,10 @@ export function WorktreeMapSurface(): ReactElement {
     [database]
   );
   const platform = useMemo(() => resolvePlatformBridge(), []);
+  // The capability IS the gate — resolved once, not per render, exactly like
+  // the platform bridge above. Web has no `window.terminal`, so no item exists.
+  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  const openTerminalAt = useTerminalTargetStore((state) => state.openTerminalAt);
   const worktrees = useMemo(() => resolveWorktreesBridge(), []);
   // Desktop-only, `undefined` on web (`use-workspace-bar.ts:918` is the precedent).
   const addRootDirectoryByPath = useFileSystem().addRootDirectoryByPath;
@@ -200,6 +206,21 @@ export function WorktreeMapSurface(): ReactElement {
         });
     },
     [addRootDirectoryByPath]
+  );
+
+  const onOpenTerminal = useCallback(
+    (card: WorktreeMapCardModel) => {
+      const { name, path, rootId } = card.entry;
+      if (!rootId) {
+        // The card renders this item only when `rootId` is non-null, so
+        // reaching here is a wiring bug worth stating, never a silent no-op.
+        setActionError(`"${name}" is not inside an open folder, so it has no terminal to open.`);
+        return;
+      }
+      setActionError(null);
+      openTerminalAt({ cwd: path, rootId });
+    },
+    [openTerminalAt]
   );
 
   const onArchive = useCallback(
@@ -332,6 +353,7 @@ export function WorktreeMapSurface(): ReactElement {
                 onOpenPullRequest={(url) => {
                   void platform?.openExternal(url);
                 }}
+                onOpenTerminal={terminalAvailable ? onOpenTerminal : undefined}
                 onOpenThread={(threadId) => selectThread(resourceId, threadId)}
                 onReveal={(path) => {
                   void platform?.showItemInFolder(path);

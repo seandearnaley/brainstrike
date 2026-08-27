@@ -350,6 +350,67 @@ describe('WorkspaceBar', () => {
     expect(onCopyPath).toHaveBeenCalledWith('/ws/brainstrike');
   });
 
+  it('offers Open in Terminal on a root row and passes its rootId and path', async () => {
+    const user = setup();
+    const onOpenTerminal = vi.fn<(rootId: string, path: string) => void>();
+    const onCopyPath = vi.fn<(path: string) => void>();
+    render(<WorkspaceBar {...baseProps({ onCopyPath, onOpenTerminal })} />);
+
+    await openFolderMenu(user);
+    await openRootSubmenu(user, 'r-main');
+    await user.click(await screen.findByTestId('workspace-bar-open-terminal-r-main'));
+
+    expect(onOpenTerminal).toHaveBeenCalledExactlyOnceWith('r-main', '/ws/brainstrike');
+    expect(onCopyPath).not.toHaveBeenCalled();
+  });
+
+  it('omits Open in Terminal when the platform supplies no handler', async () => {
+    const user = setup();
+    const onCopyPath = vi.fn<(path: string) => void>();
+    render(<WorkspaceBar {...baseProps({ onCopyPath })} />);
+
+    await openFolderMenu(user);
+    await openRootSubmenu(user, 'r-main');
+
+    // Positive control: without it, rootActions() returns [] regardless of
+    // the onOpenTerminal gate — the row renders as an inert DropdownMenuLabel
+    // and openRootSubmenu's ArrowRight is a no-op, so the absence assertion
+    // below would pass even with the gate itself broken. Copy path proves a
+    // REAL submenu with items exists; Open in Terminal is excluded from it
+    // specifically, not merely absent because nothing rendered at all.
+    expect(await screen.findByTestId('workspace-bar-copy-path-r-main')).toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-bar-open-terminal-r-main')).not.toBeInTheDocument();
+  });
+
+  it('omits Open in Terminal for a root with no filesystem path (web FSA root)', async () => {
+    const user = setup();
+    const onMakePrimary = vi.fn();
+    const onOpenTerminal = vi.fn<(rootId: string, path: string) => void>();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          onMakePrimary,
+          onOpenTerminal,
+          secondaryRoots: [{ displayName: 'granted', rootId: 'r-fsa' }],
+        })}
+      />
+    );
+
+    await openFolderMenu(user);
+    await openRootSubmenu(user, 'r-fsa');
+
+    // Positive control: `onCopyPath`/`reveal` are themselves gated behind
+    // `path` in rootActions(), so neither can ever render for a path-less
+    // root — passing one would not distinguish a real submenu from an empty
+    // one here. `Make primary` has no path dependency (it fires for any
+    // non-primary root), so a path-less SECONDARY root is what actually
+    // proves the row "still renders its other actions rather than the whole
+    // submenu vanishing" — the claim the previous version of this comment
+    // made without a fixture that could back it up.
+    expect(await screen.findByTestId('workspace-bar-make-primary-r-fsa')).toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-bar-open-terminal-r-fsa')).not.toBeInTheDocument();
+  });
+
   it('renders the branch chip states and hides it without checkout data', () => {
     const { rerender } = render(<WorkspaceBar {...baseProps()} />);
     expect(screen.queryByTestId('workspace-bar-branch-chip')).not.toBeInTheDocument();

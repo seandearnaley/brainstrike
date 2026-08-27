@@ -851,12 +851,29 @@ one" comment):
     calling `setActiveRoots(storedDescriptors)` after hydration would silently
     re-derive `activeRootIds[0]` from the rootsList's add-order and demote the
     user's declared Main root on every restart.
-- **FOCUSED root** = SELECTION state (`currentFolderId`). Drives terminal
-  cwd, selection scoping, and the selection write-back default
+- **FOCUSED root** = SELECTION state (`currentFolderId`). Drives the Terminal
+  panel's DEFAULT cwd, selection scoping, and the selection write-back default
   (`resolveWriteBackTarget` untouched). It flips on any incidental click
   (`handleTreeInteraction` in `file-explorer-sidebar.tsx`), so it must NEVER
   drive hooks/model cwd. Surfaced visually, never described as the
   assistant's root.
+
+**The Terminal's cwd is FOCUSED-by-default, PINNED-when-asked, and the pin is
+SHELL-ONLY (BST-1457).** `TerminalPanel` follows the focused root until a
+surface publishes a `terminal-target-store` pin — "Open in Terminal" on a
+Worktree Map card, the Mode chip's worktree menu, or a Folder chip root row. A
+pin carries `{ cwd, rootId }` because the two differ for a nested checkout,
+survives focus changes on purpose, and is released by the panel's own "Follow
+focused folder" control or by factory reset. This is the ONE place a
+FOCUSED-root default is deliberately overridable: unlike hooks/model cwd
+(which must never follow focus), a terminal is something the user aims
+explicitly. The pin scopes ONLY the shell (`HumanTerminal`) — the panel's
+Command sessions surface (`CommandSessionInventory`) always takes the FOCUSED
+root, never the pin, so its destructive `stop`/`remove`/`write` actions can
+never silently retarget onto a checkout pinned in a different root. An
+explicit "Open in Terminal" also forces the panel back to the shell surface
+even if Command sessions was last selected — the requested PTY must never
+start invisibly behind another tab.
 
 **Forge identity (BST-1391) follows MAIN, never FOCUSED.** The workspace
 bar's `PrChip` and the BranchChip's forge diagnostic both resolve their

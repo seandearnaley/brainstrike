@@ -18,6 +18,7 @@ import {
   History,
   type LucideIcon,
   Star,
+  TerminalSquare,
   X,
 } from 'lucide-react';
 import { type ReactElement, useId } from 'react';
@@ -41,7 +42,10 @@ interface RootAction {
 function rootActions(
   root: WorkspaceBarRoot,
   isPrimary: boolean,
-  handlers: Pick<FolderChipProps, 'onCopyPath' | 'onMakePrimary' | 'onRemoveSecondary' | 'reveal'>
+  handlers: Pick<
+    FolderChipProps,
+    'onCopyPath' | 'onMakePrimary' | 'onOpenTerminal' | 'onRemoveSecondary' | 'reveal'
+  >
 ): readonly RootAction[] {
   const actions: RootAction[] = [];
   if (!isPrimary) {
@@ -55,7 +59,7 @@ function rootActions(
   }
   const { path } = root;
   if (path) {
-    const { onCopyPath, reveal } = handlers;
+    const { onCopyPath, onOpenTerminal, reveal } = handlers;
     if (reveal) {
       actions.push({
         disabledReason: null,
@@ -64,6 +68,15 @@ function rootActions(
         label: reveal.label,
         onSelect: () => reveal.onReveal(path),
         testId: `workspace-bar-reveal-${root.rootId}`,
+      });
+    }
+    if (onOpenTerminal) {
+      actions.push({
+        disabledReason: null,
+        icon: TerminalSquare,
+        label: 'Open in Terminal',
+        onSelect: () => onOpenTerminal(root.rootId, path),
+        testId: `workspace-bar-open-terminal-${root.rootId}`,
       });
     }
     if (onCopyPath) {
@@ -121,7 +134,7 @@ const RootRow = ({
   readonly root: WorkspaceBarRoot;
 } & Pick<
   FolderChipProps,
-  'onCopyPath' | 'onMakePrimary' | 'onRemoveSecondary' | 'reveal'
+  'onCopyPath' | 'onMakePrimary' | 'onOpenTerminal' | 'onRemoveSecondary' | 'reveal'
 >): ReactElement => {
   const actions = rootActions(root, isPrimary, handlers);
   const disabledReasonIdPrefix = useId();
@@ -201,6 +214,7 @@ export const FolderChip = ({
   onAddRecent,
   onCopyPath,
   onMakePrimary,
+  onOpenTerminal,
   onRemoveSecondary,
   primaryRoot,
   recentRoots,
@@ -220,7 +234,7 @@ export const FolderChip = ({
       .filter((path): path is string => Boolean(path))
   );
   const visibleRecents = recentRoots.filter((recent) => !mountedPaths.has(recent.path));
-  const rootHandlers = { onCopyPath, onMakePrimary, onRemoveSecondary, reveal };
+  const rootHandlers = { onCopyPath, onMakePrimary, onOpenTerminal, onRemoveSecondary, reveal };
 
   return (
     <DropdownMenu>

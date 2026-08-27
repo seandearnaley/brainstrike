@@ -18,6 +18,7 @@ import { useChangesStore } from './changes/changes-store';
 import { useRewindStore } from './changes/rewind-store';
 import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-health-store';
 import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
+import { useTerminalTargetStore } from './stores/terminal-target-store';
 import { resetThreadSearchStore } from './thread-search-store';
 
 /**
@@ -152,4 +153,11 @@ registerFactoryResetSessionStore(() => {
   // stayed open — and kept issuing chunk/coverage queries — against the
   // database the reset had just emptied.
   resetDatabaseDemoStoreToDefault();
+});
+
+registerFactoryResetSessionStore(() => {
+  // A pinned Terminal target names an absolute checkout path and a rootId the
+  // reset just wiped; leaving it would point the panel at a folder that no
+  // longer exists in this profile.
+  useTerminalTargetStore.getState().reset();
 });

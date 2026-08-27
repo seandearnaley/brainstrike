@@ -13,6 +13,20 @@ vi.mock('../../stores/worktree-checkout-intent-store', () => ({
   ),
 }));
 
+const openTerminalAtMock = vi.fn();
+vi.mock('../../stores/terminal-target-store', () => ({
+  useTerminalTargetStore: Object.assign(
+    (selector: (state: { openTerminalAt: unknown }) => unknown) =>
+      selector({ openTerminalAt: openTerminalAtMock }),
+    { getState: () => ({ openTerminalAt: openTerminalAtMock }) }
+  ),
+}));
+
+let mockTerminalAvailable = true;
+vi.mock('../../terminal-panel/terminal-bridge', () => ({
+  isTerminalBridgeAvailable: () => mockTerminalAvailable,
+}));
+
 // The context the surface resolves for itself. Distinct mocks per action so a
 // test can prove WHICH one ran.
 const createThreadMock = vi.fn();
@@ -142,6 +156,7 @@ describe('WorktreeMapSurface', () => {
       createPgliteAssistantThreadRepositoryMock,
       createThreadMock,
       openExternalMock,
+      openTerminalAtMock,
       publishMock,
       selectThreadMock,
       setIndexingMock,
@@ -152,6 +167,7 @@ describe('WorktreeMapSurface', () => {
     createPgliteAssistantThreadRepositoryMock.mockReturnValue(SENTINEL_REPOSITORY);
     mockDatabase = SENTINEL_DATABASE;
     mockSelectedThreadByResourceId = {};
+    mockTerminalAvailable = true;
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
     adoptMock.mockResolvedValue({ ok: true, value: {} });
     archiveMock.mockResolvedValue({ ok: true, value: {} });
@@ -586,8 +602,9 @@ describe('WorktreeMapSurface', () => {
 
   // (bot review fix, PR #2664) The service unconditionally refuses adopting
   // a repository's primary checkout, so offering Adopt on a primary card was
-  // a guaranteed error. Role-absent, matching the "Open in Terminal"
-  // tripwire idiom below — not disabled, not present in any form.
+  // a guaranteed error. Role-absent — not disabled, not present in any form;
+  // the same idiom the Add-as-root/Open-in-Terminal complementary pair uses
+  // below (BST-1457 replaced the old W6 tripwire this used to point at).
   it('offers no Adopt action on a primary, unmanaged card (the service always refuses it)', async () => {
     useWorktreeMapMock.mockReturnValue({
       ...BASE_STATE,
@@ -609,21 +626,52 @@ describe('WorktreeMapSurface', () => {
     expect(screen.queryByRole('menuitem', { name: /^adopt$/iu })).not.toBeInTheDocument();
   });
 
-  // TRIPWIRE (coordinator ruling, 2026-08-26). W3's A6 ruling deferred the
-  // terminal-session seam to W6 and recorded "absent, not stubbed"; W5's Map
-  // is exactly where a well-meaning edit would reintroduce it, because spec
-  // §10 lists the action. This test states the omission as a CONTRACT so the
-  // ruling cannot be quietly reversed: the item must not appear in any form —
-  // enabled, disabled, or "coming soon". When W6 lands the terminal seam, this
-  // test is DELETED in that PR, not weakened here.
-  it('offers no "Open in Terminal" action anywhere on a card (W6 owns the seam)', async () => {
+  it('opens the pinned terminal for a card that is inside an open folder', async () => {
     render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /open in terminal/iu }));
+
+    expect(openTerminalAtMock).toHaveBeenCalledExactlyOnceWith({
+      cwd: '/wt',
+      rootId: 'root-1',
+    });
+    // Falsifier: opening a terminal is not a ledger mutation and not a mount.
+    expect(adoptMock).not.toHaveBeenCalled();
+    expect(archiveMock).not.toHaveBeenCalled();
+    expect(addRootDirectoryByPathMock).not.toHaveBeenCalled();
+    expect(showItemInFolderMock).not.toHaveBeenCalled();
+  });
+
+  it('offers Add as root instead of Open in Terminal for a checkout outside every open folder', async () => {
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [card({ entry: { ...card().entry, rootId: null } })],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
 
-    expect(screen.queryByText(/open in terminal/iu)).not.toBeInTheDocument();
-    // Also assert the DISABLED shape is absent: a disabled stub would satisfy
-    // a naive queryByRole({ name, disabled: false }) check while still being
-    // the exact thing the ruling forbids.
+    // Complementary, never both, never a disabled stub: the menu always names
+    // the next step.
+    expect(screen.getByRole('menuitem', { name: /add as root/iu })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /terminal/iu })).not.toBeInTheDocument();
+  });
+
+  it('omits Open in Terminal entirely when the platform has no terminal bridge', async () => {
+    mockTerminalAvailable = false;
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+
+    // Capability gating by omission (spec §12): web renders no item, not a
+    // disabled one. Reveal still renders, proving the menu itself is fine.
+    expect(screen.queryByRole('menuitem', { name: /terminal/iu })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /reveal/iu })).toBeInTheDocument();
   });
 });

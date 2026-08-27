@@ -140,6 +140,19 @@ test.describe('Terminal panel (desktop)', () => {
     });
   });
 
+  test('has no pin control when opened from the workspace + menu', async ({ window: page }) => {
+    test.setTimeout(90_000);
+    const dir = freshRootDir('unpinned');
+    await seedRoot(page, dir);
+    await openTerminalPanel(page);
+    await waitForShellReady(page, dir);
+
+    // Opened WITHOUT a target: the panel follows the focused root, so the
+    // release control must not exist (absence is the contract, not a disabled
+    // button).
+    await expect(page.getByTestId('terminal-panel-clear-target')).toHaveCount(0);
+  });
+
   // NOTE: the `terminal-panel-no-root` state is NOT reached here — with no root
   // open the app shows a landing screen and the Terminal nav is unreachable, so
   // that defensive "root went null while mounted" state is covered by the panel

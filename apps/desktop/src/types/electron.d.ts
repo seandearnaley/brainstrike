@@ -624,6 +624,8 @@ declare global {
     terminal?: {
       create: (params: {
         rootId: string;
+        /** Absolute path inside the root; omitted ⇒ the root itself. */
+        cwd?: string;
         cols?: number;
         rows?: number;
       }) => Promise<TerminalResult<TerminalCreateResult>>;

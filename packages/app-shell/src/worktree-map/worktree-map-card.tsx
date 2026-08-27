@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@brainstrike/ui';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, TerminalSquare } from 'lucide-react';
 import type { ReactElement } from 'react';
 import type { WorktreeCheckoutStatusState } from './use-worktree-checkout-status';
 import type { WorktreeMapCardModel } from './worktree-map-model';
@@ -26,6 +26,11 @@ export interface WorktreeMapCardProps {
   readonly onHandOffToLocal?: (() => void) | undefined;
   readonly onNewThread: (card: WorktreeMapCardModel) => void;
   readonly onOpenPullRequest: (url: string) => void;
+  /**
+   * Present only when the platform HAS a terminal bridge (desktop). Absent on
+   * web, where the item must not exist in any form.
+   */
+  readonly onOpenTerminal: ((card: WorktreeMapCardModel) => void) | undefined;
   readonly onOpenThread: (threadId: string) => void;
   readonly onReveal: (path: string) => void;
   readonly onToggleIndexing: (rootId: string, enabled: boolean) => void;
@@ -71,6 +76,7 @@ export function WorktreeMapCard({
   onHandOffToLocal,
   onNewThread,
   onOpenPullRequest,
+  onOpenTerminal,
   onOpenThread,
   onReveal,
   onToggleIndexing,
@@ -194,15 +200,28 @@ export function WorktreeMapCard({
             {entry.managed || entry.primary ? null : (
               <DropdownMenuItem onSelect={() => onAdopt(card)}>Adopt</DropdownMenuItem>
             )}
+            {/*
+              Complementary with "Add as root" above, never both: a checkout
+              with no containing root has nothing to authorize a shell, and
+              "Add as root" IS the stated next step. `entry.rootId` is the
+              CONTAINING root (see `rootIdIsExactMount` in
+              packages/types/src/worktree.ts) while `entry.path` is the
+              checkout itself — main pins the shell to the path after a
+              containment check, which is why both travel.
+            */}
+            {onOpenTerminal && entry.rootId ? (
+              <DropdownMenuItem
+                data-testid="worktree-map-open-terminal"
+                onSelect={() => onOpenTerminal(card)}
+              >
+                <TerminalSquare aria-hidden="true" className="size-3.5" />
+                Open in Terminal
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem onSelect={() => onReveal(entry.path)}>Reveal</DropdownMenuItem>
             {entry.managed ? (
               <DropdownMenuItem onSelect={() => onArchive(card)}>Archive…</DropdownMenuItem>
             ) : null}
-            {/*
-              NO "Open in Terminal" ITEM. W3 ruling A6 defers the
-              terminal-session seam to W6 and records "absent, not stubbed"; the
-              Step-4 tripwire fails if this comment stops being true.
-            */}
           </DropdownMenuContent>
         </DropdownMenu>
       </footer>

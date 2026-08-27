@@ -31,6 +31,8 @@ import type {
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
+import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 import { resolveWorktreesBridge, type WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 const logger = createLogger('WorktreeMode');
@@ -346,6 +348,7 @@ function computeRepositorySetupConsent(
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
   const bridge = useMemo(() => resolveWorktreesBridge(), []);
   const platform = useMemo(() => resolvePlatformBridge(), []);
+  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
   const fileSystem = useFileSystem();
   const addRootDirectory = fileSystem.addRootDirectory;
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
@@ -792,6 +795,14 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     if (!(bridge && args.primaryRootId)) {
       return;
     }
+    // `currentEntry.rootId` is the root that CONTAINS this worktree (the
+    // managed-directory mount for a chip-created one, the parent repo for a
+    // nested external one) while `currentEntry.path` is the checkout itself.
+    // Captured into a local const so the closure below needs no re-narrowing.
+    const terminalTarget =
+      terminalAvailable && currentEntry?.rootId
+        ? { cwd: currentEntry.path, rootId: currentEntry.rootId }
+        : null;
     const disabled = createDisabledReason(args.firstRequestState, settings);
     if (!args.isRepository) {
       return {
@@ -808,6 +819,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         onHandOffToLocal: undefined,
         onOpenCreateSheet: () => Promise.resolve(),
         onOpenPicker: () => undefined,
+        onOpenTerminal: undefined,
         onReveal: undefined,
         pending: false,
         picker: {
@@ -838,6 +850,11 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       onHandOffToLocal: currentWorktreeId ? onHandOffToLocal : undefined,
       onOpenCreateSheet,
       onOpenPicker: () => onPickerOpenChange(true),
+      onOpenTerminal: terminalTarget
+        ? () => {
+            useTerminalTargetStore.getState().openTerminalAt(terminalTarget);
+          }
+        : undefined,
       onReveal:
         platform && currentEntry
           ? () => {
@@ -901,5 +918,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     repositorySetup,
     repositorySetupDecision,
     settings,
+    terminalAvailable,
   ]);
 }
