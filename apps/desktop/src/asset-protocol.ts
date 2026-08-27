@@ -30,6 +30,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createLogger } from '@brainstrike/logging';
 import { net, protocol } from 'electron';
+import { isContained } from './ipc-domains/workspace-root-paths';
 import type { WorkspaceRootResolver } from './workspace-root-cwd';
 
 const logger = createLogger('AssetProtocol');
@@ -80,10 +81,7 @@ async function isContainedInAnyRoot(
     } catch {
       continue;
     }
-    // Filesystem/volume roots are already separator-terminated (`/`, `C:\\`).
-    // Avoid creating an impossible `//` / `C:\\\\` descendant prefix.
-    const rootPrefix = rootReal.endsWith(path.sep) ? rootReal : `${rootReal}${path.sep}`;
-    if (real === rootReal || real.startsWith(rootPrefix)) {
+    if (isContained(rootReal, real)) {
       return true;
     }
   }

@@ -63,6 +63,16 @@ describe('asset protocol handler', () => {
     expect(net.fetch).toHaveBeenCalledOnce();
   });
 
+  it('rejects a sibling directory that merely shares the root path prefix', async () => {
+    const sibling = `${root}-evil`;
+    await mkdir(sibling);
+    await writeFile(path.join(sibling, 'img.png'), 'png-bytes');
+
+    const res = await makeHandler()(new Request(assetUrl(path.join(sibling, 'img.png'))));
+    expect(res.status).toBe(404);
+    expect(net.fetch).not.toHaveBeenCalled();
+  });
+
   it('rejects files outside every root with 404 (not 403 — no existence oracle)', async () => {
     const res = await makeHandler()(new Request(assetUrl(path.join(outside, 'secret.png'))));
     expect(res.status).toBe(404);
