@@ -865,6 +865,15 @@ Inside `RootSectionInner` (the component that today renders `<RootSectionHeader 
   const claimRootTarget = useCallback(() => {
     setRootMenuTarget(
       workspaceRootToTarget({
+        // Refinement A (post-Task-2 review): the adapter compares
+        // `path !== displayName`; the header's OWN `path` prop is built
+        // elsewhere in this file (line ~726-732) by comparing
+        // `path !== handle.name`. Those two independent equality checks
+        // only agree because we pass `handle.name` as `displayName` here —
+        // Task 3's surface test MUST assert this explicitly (claim a web
+        // FSA root's target and assert `path: null`, which is only true if
+        // this line is exactly `rootDirectoryHandle.name`), not just trust
+        // that passing `.name` happens to line up.
         displayName: rootDirectoryHandle.name,
         isMain: rest.mainRootId !== undefined && rest.mainRootId === rootIdentity,
         // [CORRECTED post-Task-1 review, folded into Task 2: NOT "the
@@ -884,6 +893,21 @@ Inside `RootSectionInner` (the component that today renders `<RootSectionHeader 
         // context menu on a web FSA root section and assert the resulting
         // target (or a claimed-target spy) has `path: null`, not the raw
         // handle name.
+        //
+        // Refinement B (post-Task-2 review): `DirectoryHandle.path` is a
+        // REQUIRED `string` (packages/types/src/file-system.ts:134 —
+        // `path: string`, not `path?: string`), so the `...({} )` branch
+        // below (omitting `path` entirely) is DEFENSIVE-ONLY: it exists so
+        // this spread compiles against `WorkspaceRootTargetInput`'s
+        // genuinely optional `path`, but no real `DirectoryHandle` reaching
+        // this call site is ever expected to have a falsy `path`. The
+        // name-equality branch above is the SOLE live path-nulling
+        // mechanism for this call site; do not write or imply a test that
+        // exercises "no path at all" as a real scenario reached through
+        // `rootDirectoryHandle` — that scenario is covered generically by
+        // the adapter's own unit test (`workspace-root-target.test.ts`,
+        // "reports path: null for an absent path"), not by anything this
+        // call site can produce.
         ...(rootDirectoryHandle.path ? { path: rootDirectoryHandle.path } : {}),
         rootId: rootIdentity,
       })
@@ -1003,6 +1027,41 @@ Create `packages/file-explorer-ui/src/__tests__/root-section-context-menu.test.t
       expect(run).toHaveBeenCalledTimes(1);
     });
     expect(run.mock.calls[0]?.[0]).toMatchObject({ kind: 'workspace-root', rootId: 'root-1' });
+  });
+
+  it('claims path: null for a web FSA root, proving displayName === handle.name (Refinement A)', async () => {
+    // Post-Task-2-review requirement. The adapter compares
+    // `path !== displayName` (workspace-root-target.ts); the header's OWN
+    // `path` prop is built elsewhere in this file by comparing
+    // `path !== handle.name` (file-explorer-sidebar.tsx ~726-732). Those two
+    // independently-written equality checks only agree because
+    // `claimRootTarget` passes `displayName: rootDirectoryHandle.name` — this
+    // test is the falsifier for a future edit that passes a DIFFERENT
+    // displayName (e.g. a localized label) and silently breaks the null
+    // result. Reuse the `rootActions` spy seam (same as the previous test) to
+    // observe the claimed target rather than reaching into internal state.
+    //
+    // …render a THIRD root section whose `rootDirectoryHandle` is a real web
+    // FSA shape: `{ name: 'notes', path: 'notes', platform: 'web' }` — name
+    // and path IDENTICAL, per `DirectoryHandle`'s documented web contract
+    // (packages/types/src/file-system.ts: "on web `path` is only the
+    // directory name"). Do NOT reuse the pre-existing `mockDirectoryHandle`
+    // fixture from file-explorer-sidebar.test.tsx — its `path: '/test-directory'`
+    // does not equal its `name: 'test-directory'`, so it cannot exercise this
+    // branch. Render with rootActions={[defineContextAction({
+    //   appliesTo: ['workspace-root'], group: 'navigate', id: 'test.probe',
+    //   label: 'Probe', run,
+    // })]}…
+    const run = vi.fn().mockResolvedValue({ ok: true });
+    fireEvent.contextMenu(fsaHeader);
+    fireEvent.click(await screen.findByText('Probe'));
+    await waitFor(() => {
+      expect(run).toHaveBeenCalledTimes(1);
+    });
+    // path: null is ONLY possible if displayName reached the adapter equal
+    // to the handle's path ('notes' === 'notes') — this assertion IS the
+    // Refinement-A pin, not a restatement of it.
+    expect(run.mock.calls[0]?.[0]).toMatchObject({ kind: 'workspace-root', path: null });
   });
 
   it('opens NO menu when a right-click claims nothing', () => {

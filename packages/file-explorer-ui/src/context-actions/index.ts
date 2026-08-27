@@ -20,6 +20,10 @@ export {
   workspaceRootActions,
 } from './workspace-root-actions';
 export {
+  buildWorkspaceRootLocalActions,
+  type WorkspaceRootLocalActionDeps,
+} from './workspace-root-local-actions';
+export {
   type WorkspaceRootTargetInput,
   workspaceRootToTarget,
 } from './workspace-root-target';
