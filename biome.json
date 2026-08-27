@@ -487,7 +487,7 @@
         "packages/embedding-worker/test/embedding.worker.runtime.spec.ts",
         "packages/embeddings/src/__tests__/embedding-worker-batch-optimization.integration.test.ts",
         "packages/embeddings/src/worker/embedding-worker.ts",
-        "packages/file-explorer-hooks/src/__tests__/use-file-system.test.ts",
+        "packages/file-explorer-hooks/src/__tests__/use-file-system.test.tsx",
         "packages/file-explorer-ui/src/__tests__/file-explorer-panel.test.tsx",
         "packages/file-explorer-ui/src/__tests__/file-explorer-sidebar.test.tsx",
         "packages/file-explorer-ui/src/__tests__/optimized-file-tree-selection.test.tsx",
