@@ -171,7 +171,53 @@ describe('useWorktreeMap', () => {
     // Falsifier for the other half of the contract: the manual refresh must
     // still re-run `git status` per card, exactly once.
     await waitFor(() => expect(checkoutStatusMock).toHaveBeenCalledTimes(2));
+    // Flush once more: `waitFor` resolves on the FIRST poll that sees 2, so a
+    // regression firing a third generation a microtask later would otherwise
+    // escape both assertions (PR #2673 review).
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(checkoutStatusMock).toHaveBeenCalledTimes(2);
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  // PR #2673 review: dropping `manualNonce` from the load effect's key also
+  // dropped the implicit cancellation of an in-flight effect-driven load, so
+  // without a generation guard an older invalidation-driven `list()` read that
+  // resolves AFTER a manual refresh would overwrite the fresher result — e.g.
+  // an archived card reappearing until the next unrelated invalidation.
+  it('a stale in-flight list read never clobbers a later manual refresh result', async () => {
+    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.repositories).toHaveLength(1);
+
+    // Invalidation-driven read B: held open, reading the PRE-archive world.
+    let resolveStale: (value: unknown) => void = () => undefined;
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        })
+    );
+    act(() => {
+      invalidationNonce = 1;
+    });
+    rerender();
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+
+    // Manual refresh A resolves first with the POST-archive (empty) list.
+    listMock.mockResolvedValueOnce({ ok: true, value: [] });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.repositories).toEqual([]);
+
+    // B resolves last, carrying the stale pre-archive entry: it must be
+    // discarded, not applied last-writer-wins.
+    await act(async () => {
+      resolveStale({ ok: true, value: [entry()] });
+    });
+    expect(result.current.repositories).toEqual([]);
   });
 
   // PR #2671 review finding: a mount's `addRootDirectoryByPath` resolving does
