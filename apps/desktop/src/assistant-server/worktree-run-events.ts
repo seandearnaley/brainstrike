@@ -100,7 +100,13 @@ export async function emitWorktreeShellCreatedEvent(
   }));
 }
 
-/** `worktree.created`, plus `worktree.setup` when setup ran (status !== 'none'). */
+/**
+ * `worktree.created`, plus `worktree.setup` when setup ran (status !== 'none').
+ * Serves BOTH ledger-backed create call sites; the row's `createdBy` — bound
+ * at each call site (`'user'` from the Mode chip's IPC handler, `'agent'`
+ * from the `manageWorktree` tool executor) — selects the `via` breadcrumb, so
+ * the timeline and the ledger can never disagree about who created it.
+ */
 export async function emitWorktreeCreateEvents(
   deps: WorktreeRunEventDeps,
   runId: string | null | undefined,
@@ -113,7 +119,7 @@ export async function emitWorktreeCreateEvents(
     metadata: {
       branch: worktree.branch,
       path: worktree.path,
-      via: 'app',
+      via: worktree.createdBy === 'agent' ? 'tool' : 'app',
       worktreeId: worktree.id,
     },
     status: 'info',

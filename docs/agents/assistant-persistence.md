@@ -996,28 +996,20 @@ missing from `ASSISTANT_RUN_EVENT_KINDS` is REJECTED by `readAssistantRunEvent`
 and the row disappears — which is why the contract entry is the first thing to
 add.
 
-`worktree.created` carries a `metadata.via` discriminator, emitted by exactly
-three sites in `worktree-run-events.ts`: `'app'` (`emitWorktreeCreateEvents`,
+`worktree.created` carries a `metadata.via` discriminator with a CLOSED
+vocabulary (BST-1392), emitted by exactly three sites in
+`worktree-run-events.ts`: `'app'` and `'tool'` (`emitWorktreeCreateEvents`,
 `worktree-service.ts`'s single `create()`), `'adopt'`
 (`emitWorktreeAdoptedEvent`), and `'shell'` (`emitWorktreeShellCreatedEvent`,
-the correlator). No new run-event kind was added for shell correlation: a
-second kind would need its own pairing-contract row and a second label
-vocabulary for the same fact.
-
-**Correction found while writing this doc (W5 Task 14):** the plan
-(`docs/superpowers/plans/2026-08-26-w5-worktree-map-and-agent-tools.md`)
-states a FOURTH value, `'tool'`, distinguishing a worktree the
-`brainstrike.manageWorktree` agent tool created from one the Mode chip's
-create sheet created. It is not wired: `worktree-tools.ts`'s tool executor and `ipc-worktrees.ts`'s Mode-chip
-handler both call the SAME `worktreeService.create()`, whose sole
-`emitWorktreeCreateEvents` call hardcodes `via: 'app'` with no parameter for
-the caller to override — so an agent-tool-created worktree's `worktree.created`
-row is presently indistinguishable from a Mode-chip-created one in the
-TIMELINE. The `brainstrike_worktrees` LEDGER row still distinguishes them
-correctly (`created_by: 'agent'` vs `'user'`, wired since Task 10) — this gap
-is scoped to the run-event breadcrumb only. Filed as a follow-up (thread the
-caller through `create()`/`emitWorktreeCreateEvents` and add `'tool'` to the
-type), not fixed in-band here.
+the correlator). No new run-event kind was added for any of these: a second
+kind would need its own pairing-contract row and a second label vocabulary for
+the same fact. `'app'` vs `'tool'` is not a second writer's opinion — the Mode
+chip's IPC handler and the `brainstrike.manageWorktree` tool executor both
+flow through the ONE `emitWorktreeCreateEvents` emitter, which derives the
+breadcrumb from the ledger row's `createdBy` (`'user'` → `'app'`, `'agent'` →
+`'tool'`), so the timeline can never disagree with `brainstrike_worktrees`
+about who created a worktree. Paired test:
+`apps/desktop/src/__tests__/assistant-server/worktree-run-events.test.ts`.
 
 Correlation reads the `executeCommand` TOOL RESULT, never the git-metadata
 watcher. `GitInventoryInvalidation` carries `{ gitCommonDir, repositoryRoot }`
