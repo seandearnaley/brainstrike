@@ -78,6 +78,22 @@ function freshRepoWithManagedExternalWorktree(label: string): WorktreeMapRepoFix
   return { repo, worktree };
 }
 
+/**
+ * A repo with a worktree NESTED INSIDE it, at the `.claude/worktrees/<name>`
+ * path every external tool uses. This is the topology `terminal:create`'s `cwd`
+ * parameter exists for: the nested checkout's `WorktreeListEntry.rootId` is the
+ * PARENT repo's root (it is merely CONTAINED, `rootIdIsExactMount: false`), so
+ * a terminal pinned to `rootId` alone would open in the parent repo. Verified
+ * on disk during planning: `git worktree add` into a path under the repo works
+ * and `git worktree list --porcelain` enumerates it.
+ */
+function freshRepoWithNestedWorktree(label: string): WorktreeMapRepoFixture {
+  const repo = freshGitRepo({ label, prefix: 'bst-w6-map-', tracker: tempDirs });
+  const worktree = path.join(repo, '.claude', 'worktrees', `${label}-nested`);
+  git(repo, ['worktree', 'add', '-b', `${label}/nested`, worktree, 'HEAD']);
+  return { repo, worktree };
+}
+
 async function seedRoot(page: Page, rootPath: string): Promise<void> {
   await seedWorkspaceRoot(page, rootPath, {
     disableBackgroundIndexing: true,
@@ -295,6 +311,41 @@ test.describe('Worktree Map (desktop)', () => {
     await expect(
       page.getByTestId('workspace-bar-mode-chip').filter({ visible: true })
     ).toContainText(path.basename(worktree), { timeout: 90_000 });
+  });
+
+  test('Open in Terminal pins the shell to the NESTED checkout, not the parent repo', async ({
+    window: page,
+  }) => {
+    test.setTimeout(240_000);
+    const { repo, worktree } = freshRepoWithNestedWorktree('terminal');
+    await seedRoot(page, repo);
+    await openWorktreeMap(page);
+
+    const cards = page.getByTestId('worktree-map-card');
+    await expect(cards).toHaveCount(2, { timeout: 30_000 });
+    const nestedCard = cards.filter({ hasText: path.basename(worktree) });
+    await nestedCard.getByTestId('worktree-map-card-actions').click();
+    await page
+      .getByRole('menu')
+      .getByRole('menuitem', { exact: true, name: 'Open in Terminal' })
+      .click();
+
+    // The Terminal app tab opened itself (no '+' menu click) and the panel's
+    // header reports the cwd MAIN resolved — the assertion that fails if the
+    // shell landed in the parent repo instead.
+    await expect(page.getByTestId('terminal-panel')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('terminal-panel')).toContainText(path.basename(worktree), {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId('terminal-panel-clear-target')).toBeVisible();
+
+    // And it is a REAL shell in that directory, not just a label: `pwd` is the
+    // falsifier a header-only assertion cannot provide.
+    await page.getByTestId('terminal-host').click();
+    await page.keyboard.type('pwd\r');
+    await expect(page.locator('.xterm-rows')).toContainText(path.basename(worktree), {
+      timeout: 30_000,
+    });
   });
 
   test.describe('real native-tool execution', () => {
