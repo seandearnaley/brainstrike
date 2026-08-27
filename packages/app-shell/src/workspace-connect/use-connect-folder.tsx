@@ -22,6 +22,7 @@
  * `noExcessiveCognitiveComplexity`, pre-authorized remedy).
  */
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { ToastAction, toast } from '@brainstrike/ui';
 import { useCallback } from 'react';
@@ -52,8 +53,17 @@ export interface ConnectFolderApi {
   /**
    * Present only when the platform can mount a previously granted path
    * without a picker (desktop). Web omits it — no dead entry points.
+   *
+   * Resolves to the mounted handle on success, `null` on refusal or failure
+   * (every failure path already toasts its own reason here) — mirrors
+   * `addRootDirectoryByPath`'s own `DirectoryHandle | null` contract so a
+   * caller that needs to react to a successful connect (e.g. recording it as
+   * a thread secondary, BST-1393 review finding) can, without duplicating
+   * this hook's refusal-toast logic.
    */
-  readonly connectPath?: ((request: WorkspaceOpenPathRequest) => Promise<void>) | undefined;
+  readonly connectPath?:
+    | ((request: WorkspaceOpenPathRequest) => Promise<DirectoryHandle | null>)
+    | undefined;
   /**
    * The ordinary OS picker — the same call the Folder chip's Add folder…
    * makes. Present only when `isFileSystemAccessSupported()` says so
@@ -85,7 +95,7 @@ export function useConnectFolder(): ConnectFolderApi {
   }, [addRootDirectory]);
 
   const connectPath = useCallback(
-    async ({ origin, path }: WorkspaceOpenPathRequest): Promise<void> => {
+    async ({ origin, path }: WorkspaceOpenPathRequest): Promise<DirectoryHandle | null> => {
       if (!addRootDirectoryByPath) {
         // Structurally unreachable: the caller only exists behind the desktop
         // bridge. Loud rather than a silent no-op.
@@ -93,7 +103,7 @@ export function useConnectFolder(): ConnectFolderApi {
           origin,
           path,
         });
-        return;
+        return null;
       }
       try {
         const handle = await addRootDirectoryByPath(path);
@@ -103,7 +113,9 @@ export function useConnectFolder(): ConnectFolderApi {
             title: 'Could not open that folder',
             variant: 'destructive',
           });
+          return null;
         }
+        return handle;
       } catch (error: unknown) {
         const message = messageOf(error);
         logger.warn('Folder connection refused', { message, origin, path });
@@ -125,13 +137,14 @@ export function useConnectFolder(): ConnectFolderApi {
             title: 'BrainStrike has not been granted access to this folder',
             variant: 'destructive',
           });
-          return;
+          return null;
         }
         toast({
           description: message,
           title: 'Could not open that folder',
           variant: 'destructive',
         });
+        return null;
       }
     },
     [addRootDirectoryByPath, openPicker]
