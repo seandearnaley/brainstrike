@@ -27,6 +27,10 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
 }));
 
 import { CHANGES_BRIDGE_REQUIRED_METHODS, type ChangesBridge } from '../changes/changes-bridge';
+import {
+  awaitRootRegistration,
+  resetRootRegistrationEventsForTests,
+} from '../roots/root-registration-events';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
@@ -123,6 +127,7 @@ describe('useRootsReconciliation', () => {
     installWorktreesBridge([]);
     loggerMock.error.mockClear();
     loggerMock.warn.mockClear();
+    resetRootRegistrationEventsForTests();
   });
 
   afterEach(() => {
@@ -541,6 +546,37 @@ describe('useRootsReconciliation', () => {
     expect(resolved).toBe(dbId);
   });
 
+  // BST-1400: the await-root-registration seam. `useWorkspaceBar` cannot read
+  // this hook's own callbacks (it renders as a React sibling of the provider
+  // that owns this hook instance — see `root-identity-context.tsx`), so boot
+  // reconciliation must announce a successful mapping through the decoupled
+  // `root-registration-events.ts` bus, keyed by BOTH identities a caller might
+  // wait on.
+  it('announces a boot-reconciled root through the root-registration seam', async () => {
+    const rootPath = '/workspace/docs';
+    const dbId = 'db-root-id';
+    const restoreRoots = vi.fn(
+      async (): Promise<RootDescriptor[]> => [
+        grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+      ]
+    );
+    const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+    const { db } = makeDbWithRootRow(rootPath, dbId);
+
+    renderHook(() => useRootsReconciliation({ adapter, db }));
+
+    await waitFor(() => {
+      expect(restoreRoots).toHaveBeenCalledTimes(1);
+    });
+
+    // Already announced by the time this waiter subscribes — resolves without
+    // ever starting its bounded timeout.
+    await expect(awaitRootRegistration(rootPath, { timeoutMs: 100 })).resolves.toBeUndefined();
+    await expect(
+      awaitRootRegistration('adapter-root-1', { timeoutMs: 100 })
+    ).resolves.toBeUndefined();
+  });
+
   describe('registerRoot (mid-session registration)', () => {
     function countRootInserts(query: ReturnType<typeof vi.fn>): number {
       return query.mock.calls.filter(([sql]) => (sql as string).includes('INSERT INTO roots'))
@@ -561,6 +597,27 @@ describe('useRootsReconciliation', () => {
       });
 
       await expect(result.current.resolveDbRootId('/workspace/new')).resolves.toBe('root-new');
+    });
+
+    // BST-1400: this is the exact seam `useWorkspaceBar`'s "Add folder /
+    // Recent" path now awaits instead of polling the database.
+    it('announces a mid-session registerRoot through the root-registration seam', async () => {
+      const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+      const { db } = makeDb();
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      // Subscribed BEFORE registerRoot resolves, unlike the boot test above —
+      // proves the seam wakes an already-waiting caller, not just a late one.
+      const waiter = awaitRootRegistration('/workspace/new', { timeoutMs: 1000 });
+
+      await act(async () => {
+        await result.current.registerRoot(
+          grantedRootWithPath('root-new', 'docs', '/workspace/new')
+        );
+      });
+
+      await expect(waiter).resolves.toBeUndefined();
     });
 
     it('tags a managed worktree listed by the bridge during mid-session registration', async () => {

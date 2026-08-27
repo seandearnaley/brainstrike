@@ -8,6 +8,10 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useWorkspaceBar } from '../hooks/use-workspace-bar';
+import {
+  notifyRootRegistered,
+  resetRootRegistrationEventsForTests,
+} from '../roots/root-registration-events';
 
 // `fs` is only dereferenced when the mocked useFileSystem() is CALLED (render
 // time), so vitest's vi.mock hoisting above these imports is safe.
@@ -302,6 +306,7 @@ beforeEach(() => {
   currentFs = fs;
   liveRootMisses.clear();
   liveRootGate = null;
+  resetRootRegistrationEventsForTests();
   useChangesLiveRefreshStore.getState().reset();
   clipboardWriteText.mockReset();
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
@@ -748,21 +753,43 @@ describe('useWorkspaceBar', () => {
   });
 
   it('waits for roots reconciliation before attaching a just-added folder', async () => {
-    vi.useFakeTimers();
     // The registration effect has not written the row yet when the add resolves.
-    liveRootMisses.set('/ws/docs', 3);
+    liveRootMisses.set('/ws/docs', 1);
     const { result } = await setup();
     await act(async () => {
       result.current.onAddFolder();
     });
     expect(updateThreadMetadata).not.toHaveBeenCalled();
+    // Reconciliation writes the row and announces it — no more polling for it.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      notifyRootRegistered(['/ws/docs']);
     });
-    expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
-      secondaryRootIds: ['r-docs'],
-    });
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
+        secondaryRootIds: ['r-docs'],
+      })
+    );
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not poll the database while awaiting root registration (no interval churn)', async () => {
+    vi.useFakeTimers();
+    // Never notified in this test — models reconciliation taking a while.
+    liveRootMisses.set('/ws/docs', Number.POSITIVE_INFINITY);
+    const { result } = await setup();
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    const singleRootLookup = (call: unknown[]) =>
+      typeof call[0] === 'string' && call[0].includes('FROM roots') && !call[0].includes('= ANY');
+    const lookupsAfterAdd = query.mock.calls.filter(singleRootLookup).length;
+    await act(async () => {
+      // The old 20x250ms retry loop would have issued ~16 more queries across
+      // this window; the event-based wait issues none until notified or timed
+      // out — there is no interval driving it.
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(query.mock.calls.filter(singleRootLookup).length).toBe(lookupsAfterAdd);
   });
 
   it('surfaces a folder that never reconciles instead of silently dropping it', async () => {

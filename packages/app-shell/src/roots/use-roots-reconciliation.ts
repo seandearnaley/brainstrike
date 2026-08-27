@@ -4,6 +4,7 @@ import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type ChangesBridge, resolveChangesBridge } from '../changes/changes-bridge';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
+import { notifyRootRegistered } from './root-registration-events';
 import { reconcileRoots } from './root-registry';
 
 const logger = createLogger('useRootsReconciliation');
@@ -194,6 +195,10 @@ function applyBootReconciliationResult({
     if (kind !== undefined) {
       publishCanonicalKind(descriptor.rootId, kind);
     }
+    // Wakes any `awaitRootRegistration` waiter outside this component subtree
+    // (e.g. `useWorkspaceBar`'s MAIN-root resolution) — see
+    // `root-registration-events.ts` for why this can't be a React context read.
+    notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
     registeredAny = true;
   }
   return { dbRootIdMap, registeredAny };
@@ -267,6 +272,9 @@ async function performRootRegistration({
       if (kind !== undefined) {
         publishCanonicalKind(descriptor.rootId, kind);
       }
+      // Same wake-up as the boot batch above — this is the mid-session Add
+      // Folder / Recent path `useWorkspaceBar` used to poll the database for.
+      notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
       // The root is now in the `roots` table the inventory's loadRoots() reads.
       refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
     }

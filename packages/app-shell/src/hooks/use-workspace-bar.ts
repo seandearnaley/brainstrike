@@ -26,6 +26,7 @@ import {
 } from '../assistant-operating-root';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { awaitRootRegistration } from '../roots/root-registration-events';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -92,24 +93,37 @@ const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off return
  * row up in the same microtask therefore loses that race, and the folder mounts
  * globally while never being attached to the thread. Re-mounting a
  * `'disconnected'` root has the same shape (the row is flipped back to 'live'
- * by the same effect). So the lookup polls on a bounded budget, mirroring the
- * transient-root retry in `git-panel/use-git-panel.ts`.
+ * by the same effect).
  *
- * FOLLOW-UP (deliberately out of scope here): the canonical fix is a
- * promise-based "await root registration" seam exported by the reconciliation
- * layer (`roots/use-roots-reconciliation.ts`), so a caller can await the
- * registration its own action triggered instead of polling for the side effect.
+ * So the lookup AWAITS the reconciliation layer's own "root registered"
+ * notification (`../roots/root-registration-events.ts`) instead of polling
+ * the database for the side effect — the canonical fix recorded as a BST-1400
+ * follow-up. A bounded timeout is still enforced (`ROOT_ROW_WAIT_TIMEOUT_MS`,
+ * the same ~5s budget the old 20×250ms retry loop had): exhaustion is not a
+ * silent no-op for any caller.
  */
-const ROOT_ROW_RETRY_LIMIT = 20;
-const ROOT_ROW_RETRY_DELAY_MS = 250;
+const ROOT_ROW_WAIT_TIMEOUT_MS = 5000;
 
 type RootRowLookup =
   | { readonly kind: 'cancelled' }
   | { readonly kind: 'resolved'; readonly rootId: string }
   | { readonly error: unknown; readonly kind: 'unresolved' };
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+type RootRowAttempt =
+  | { readonly kind: 'miss'; readonly error: unknown }
+  | { readonly kind: 'resolved'; readonly rootId: string };
+
+/** One read of the durable `roots` row for `candidate.path`. Never throws. */
+async function tryResolveRootId(
+  database: DbHandle,
+  candidate: AssistantOperatingRootCandidate
+): Promise<RootRowAttempt> {
+  try {
+    const binding = await resolveAssistantOperatingRootBinding(database, candidate);
+    return { kind: 'resolved', rootId: binding.rootId };
+  } catch (error) {
+    return { error, kind: 'miss' };
+  }
 }
 
 /**
@@ -266,32 +280,44 @@ function usePrimaryAdapterRootId(
 }
 
 /**
- * The durable `roots.id` for a path, waiting a bounded window for
- * reconciliation to insert (or re-flip to `'live'`) the row. Never rejects:
- * every outcome — including exhaustion — is returned so the caller can surface
- * it. Exhaustion is NOT a silent no-op for any caller.
+ * The durable `roots.id` for a path, AWAITING reconciliation's own
+ * registration event when the row is not there yet (instead of polling the
+ * database for it — see the docblock above `ROOT_ROW_WAIT_TIMEOUT_MS`). Never
+ * rejects: every outcome — including timeout — is returned so the caller can
+ * surface it. Timeout is NOT a silent no-op for any caller.
  */
 async function resolveRootIdAfterReconciliation(
   database: DbHandle,
   candidate: AssistantOperatingRootCandidate,
   isCancelled: () => boolean
 ): Promise<RootRowLookup> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < ROOT_ROW_RETRY_LIMIT; attempt += 1) {
-    if (attempt > 0) {
-      await delay(ROOT_ROW_RETRY_DELAY_MS);
-    }
-    if (isCancelled()) {
-      return { kind: 'cancelled' };
-    }
-    try {
-      const binding = await resolveAssistantOperatingRootBinding(database, candidate);
-      return { kind: 'resolved', rootId: binding.rootId };
-    } catch (error) {
-      lastError = error;
-    }
+  if (isCancelled()) {
+    return { kind: 'cancelled' };
   }
-  return isCancelled() ? { kind: 'cancelled' } : { error: lastError, kind: 'unresolved' };
+  const firstAttempt = await tryResolveRootId(database, candidate);
+  if (firstAttempt.kind === 'resolved') {
+    return { kind: 'resolved', rootId: firstAttempt.rootId };
+  }
+  if (isCancelled()) {
+    return { kind: 'cancelled' };
+  }
+  try {
+    await awaitRootRegistration(candidate.path, { timeoutMs: ROOT_ROW_WAIT_TIMEOUT_MS });
+  } catch (waitError) {
+    // Timed out: reconciliation never announced this path. Loud, not silent —
+    // the caller logs/toasts this outcome.
+    return isCancelled() ? { kind: 'cancelled' } : { error: waitError, kind: 'unresolved' };
+  }
+  if (isCancelled()) {
+    return { kind: 'cancelled' };
+  }
+  const secondAttempt = await tryResolveRootId(database, candidate);
+  if (secondAttempt.kind === 'resolved') {
+    return { kind: 'resolved', rootId: secondAttempt.rootId };
+  }
+  // Registration was announced but the row still fails the unique-live-row
+  // read (e.g. a genuine duplicate path) — surface THAT error, not a stale one.
+  return isCancelled() ? { kind: 'cancelled' } : { error: secondAttempt.error, kind: 'unresolved' };
 }
 
 /**
@@ -303,9 +329,11 @@ async function resolveRootIdAfterReconciliation(
  *   MAIN root's row is resolved by PATH, never borrowed from the file-system
  *   adapter's own id space (`window.git.status` and `secondaryRootIds` both
  *   speak the DB space). Re-resolving that row on `anyInvalidationNonce` is
- *   OPPORTUNISTIC — a row written with no accompanying changes invalidation
- *   stays unseen until the next one — and remains so until the await-root-
- *   registration seam below exists.
+ *   OPPORTUNISTIC — a row registered after this hook's own bounded wait
+ *   (`ROOT_ROW_WAIT_TIMEOUT_MS`, via `../roots/root-registration-events.ts`)
+ *   already gave up stays unseen until the next invalidation re-triggers the
+ *   effect from scratch. That outer retrigger is a separate, still-open
+ *   concern from the inner wait itself (BST-1400).
  * - SECONDARIES = `metadata.secondaryRootIds` resolved against the `roots`
  *   table for display. The assistant panel renders as a sibling of the
  *   RootIdentityProvider subtree, so there is no root-identity context to read
