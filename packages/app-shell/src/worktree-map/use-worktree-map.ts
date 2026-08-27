@@ -14,7 +14,7 @@ import { type AssistantMemoryThread, useAssistantThreadStore } from '@brainstrik
 import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeListEntry } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
 import { useForgePrCache } from '../hooks/use-forge-pr-cache';
@@ -67,6 +67,15 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   // no Git-scope registration, because the Map is repository-wide.
   useChangesLiveRefreshSubscription();
   const invalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
+  // The two nonce consumers deliberately see DIFFERENT triggers. The load
+  // effect keys on `invalidationNonce` only: the manual `refresh()` already
+  // gets its list read from the `load()` it awaits, so folding `manualNonce`
+  // into the effect key would issue a second concurrent `worktrees.list()`
+  // per manual refresh (PR #2671 review note 3). The status reads key on the
+  // combined nonce because they have no other manual-refresh path — the bump
+  // is what re-runs `git status` per card. Known cost (PR #2673 review): the
+  // bump re-keys against the PRE-refresh path set; if the awaited list then
+  // changes the paths, the status effect runs once more on the new content.
   const refreshNonce = invalidationNonce + manualNonce;
   // Third repeat trigger (PR #2671 review finding): mounting a checkout as a
   // workspace root does NOT write the `roots` row the entries' `rootId`
@@ -82,6 +91,14 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   // no provider above) is honest absence: no extra trigger, never a stub.
   const rootIdentity = useOptionalRootIdentity();
 
+  // Superseded-read guard (PR #2673 review): with `manualNonce` out of the
+  // load effect's key, a manual refresh no longer tears down an in-flight
+  // effect-driven read via the effect cleanup, so an older `list()` resolving
+  // late could overwrite a fresher result last-writer-wins. Every `load()`
+  // claims a generation at call time; a resolution whose generation is no
+  // longer current discards itself, making the ordering last-STARTED-wins.
+  const listGeneration = useRef(0);
+
   const load = useCallback(
     // A `.then()` chain, not `async`/`await`: an `async` function's body runs
     // SYNCHRONOUSLY up to its first `await`, so `setLoading(true)` would fire
@@ -92,8 +109,12 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
     // `refreshList` shape (this hook's other caller, the manual `refresh()`
     // below, is an event handler, where the one-microtask delay is
     // unobservable either way).
-    (isCancelled?: () => boolean): Promise<void> =>
-      Promise.resolve()
+    (isCancelled?: () => boolean): Promise<void> => {
+      // Claimed synchronously, before the deferred chain: a later load() call
+      // from EITHER caller supersedes this one the moment it starts.
+      const mine = ++listGeneration.current;
+      const stale = (): boolean => mine !== listGeneration.current || isCancelled?.() === true;
+      return Promise.resolve()
         .then(() => {
           if (!bridge) {
             setLoading(false);
@@ -103,7 +124,7 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
           return bridge.list();
         })
         .then((result) => {
-          if (result === null || isCancelled?.()) {
+          if (result === null || stale()) {
             return;
           }
           if (result.ok) {
@@ -118,16 +139,17 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
         })
         .catch((caught: unknown) => {
           logger.error('worktree map list threw', { error: caught });
-          if (!isCancelled?.()) {
+          if (!stale()) {
             setEntries([]);
             setError(errorMessage(caught));
           }
         })
         .finally(() => {
-          if (!isCancelled?.()) {
+          if (!stale()) {
             setLoading(false);
           }
-        }),
+        });
+    },
     [bridge]
   );
 
@@ -137,7 +159,7 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
     return () => {
       cancelled = true;
     };
-  }, [load, refreshNonce, rootIdentity]);
+  }, [load, invalidationNonce, rootIdentity]);
 
   const prCache = useForgePrCache({ database: input.database, enabled: bridge !== null });
   const threads = useAssistantThreadStore(
@@ -174,6 +196,8 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   const statusByPath = useWorktreeCheckoutStatuses({ bridge, paths, refreshNonce });
 
   const refresh = useCallback(async (): Promise<void> => {
+    // The awaited load IS the list read; the bump only re-keys the status
+    // reads (the load effect does not see `manualNonce` — see `refreshNonce`).
     setManualNonce((previous) => previous + 1);
     await load();
   }, [load]);
