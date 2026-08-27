@@ -40,7 +40,7 @@ Every task's requirements implicitly include this section.
   ```
   Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
   ```
-- **Gates before each PR:** touched packages' `test`, root `pnpm run type-check`, `pnpm run lint:eslint`, `pnpm dlx ultracite fix <files>`, `pnpm run react-doctor` (no NEW error-severity findings in touched files). Pristine output — no `act()` warnings, no unasserted logger lines.
+- **Gates before each PR:** touched packages' `test`, root `pnpm run type-check`, `pnpm run lint:eslint`, `pnpm dlx ultracite fix <files>`, `npx react-doctor . --scope changed --base <previous-task-sha> --verbose -y` (no NEW error-severity findings in touched files — corrected at execution, Task 3 review, 2026-08-27: the bare `pnpm run react-doctor` script pins `--scope full`, which is repo-wide and always non-zero on pre-existing baseline debt). Pristine output — no `act()` warnings, no unasserted logger lines.
 - **Docs in-band**, in the same PR as the code: `docs/agents/changeset-diff.md` (replace the A6 deferral paragraph), `docs/agents/workspace-context.md` (the FOCUSED-root/terminal-cwd contract).
 - `@mastra/core` stays Node-only/externalized; local inference stays renderer-only. Nothing here touches either.
 
@@ -1840,7 +1840,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] The panel shows the pinned checkout's cwd, offers "Follow focused folder", and returns to the focused root when released.
 - [ ] Desktop E2E proves `pwd` inside the spawned shell is the nested checkout, not the parent repo.
 - [ ] `node scripts/probe-worktree-map.mjs --probe open-terminal --repo <repo>` reports `failures: 0` with non-empty `results`; JSON pasted into the PR.
-- [ ] `pnpm run type-check`, `pnpm run lint:eslint`, `pnpm dlx ultracite check`, `pnpm run react-doctor`, and every touched package's `test` green **in one run**.
+- [ ] `pnpm run type-check`, `pnpm run lint:eslint`, `pnpm dlx ultracite check`, `npx react-doctor . --scope changed --base <previous-task-sha> --verbose -y` (corrected at execution, Task 3 review, 2026-08-27 — see the Global Constraints gate line above), and every touched package's `test` green **in one run**.
 - [ ] `docs/agents/changeset-diff.md` and `docs/agents/workspace-context.md` updated in-band.
 
 ---
