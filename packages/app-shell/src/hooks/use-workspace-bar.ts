@@ -26,6 +26,7 @@ import {
 } from '../assistant-operating-root';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -836,6 +837,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       });
   }, [addRootDirectory, recordAddedAsSecondary]);
 
+  const folderDropEntry = useFolderDrop();
+
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
   // Always defined; the CAPABILITY decides whether the prop is supplied (see
   // the return). Gating the spread on `addRootDirectoryByPath` rather than on
@@ -1017,6 +1020,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,
+    ...folderDropEntry,
     onMakePrimary,
     onRemoveSecondary,
     ...(primaryRoot ? { primaryRoot } : {}),
