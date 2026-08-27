@@ -366,22 +366,32 @@ describe('WorkspaceBar', () => {
 
   it('omits Open in Terminal when the platform supplies no handler', async () => {
     const user = setup();
-    render(<WorkspaceBar {...baseProps()} />);
+    const onCopyPath = vi.fn<(path: string) => void>();
+    render(<WorkspaceBar {...baseProps({ onCopyPath })} />);
 
     await openFolderMenu(user);
     await openRootSubmenu(user, 'r-main');
 
+    // Positive control: without it, rootActions() returns [] regardless of
+    // the onOpenTerminal gate — the row renders as an inert DropdownMenuLabel
+    // and openRootSubmenu's ArrowRight is a no-op, so the absence assertion
+    // below would pass even with the gate itself broken. Copy path proves a
+    // REAL submenu with items exists; Open in Terminal is excluded from it
+    // specifically, not merely absent because nothing rendered at all.
+    expect(await screen.findByTestId('workspace-bar-copy-path-r-main')).toBeInTheDocument();
     expect(screen.queryByTestId('workspace-bar-open-terminal-r-main')).not.toBeInTheDocument();
   });
 
   it('omits Open in Terminal for a root with no filesystem path (web FSA root)', async () => {
     const user = setup();
+    const onMakePrimary = vi.fn();
     const onOpenTerminal = vi.fn<(rootId: string, path: string) => void>();
     render(
       <WorkspaceBar
         {...baseProps({
+          onMakePrimary,
           onOpenTerminal,
-          primaryRoot: { displayName: 'granted', rootId: 'r-fsa' },
+          secondaryRoots: [{ displayName: 'granted', rootId: 'r-fsa' }],
         })}
       />
     );
@@ -389,8 +399,15 @@ describe('WorkspaceBar', () => {
     await openFolderMenu(user);
     await openRootSubmenu(user, 'r-fsa');
 
-    // A path-less root cannot be a shell cwd; the row still renders its other
-    // actions rather than the whole submenu vanishing.
+    // Positive control: `onCopyPath`/`reveal` are themselves gated behind
+    // `path` in rootActions(), so neither can ever render for a path-less
+    // root — passing one would not distinguish a real submenu from an empty
+    // one here. `Make primary` has no path dependency (it fires for any
+    // non-primary root), so a path-less SECONDARY root is what actually
+    // proves the row "still renders its other actions rather than the whole
+    // submenu vanishing" — the claim the previous version of this comment
+    // made without a fixture that could back it up.
+    expect(await screen.findByTestId('workspace-bar-make-primary-r-fsa')).toBeInTheDocument();
     expect(screen.queryByTestId('workspace-bar-open-terminal-r-fsa')).not.toBeInTheDocument();
   });
 

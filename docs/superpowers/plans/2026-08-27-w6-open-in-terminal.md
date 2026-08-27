@@ -1605,7 +1605,7 @@ pnpm run type-check
 # CI-equivalent scoped form instead, comparing against the commit the
 # PREVIOUS task landed on:
 npx react-doctor . --scope changed --base <previous-task-sha> --verbose -y
-pnpm dlx ultracite fix packages/assistant-ui/src/workspace-bar/workspace-bar.tsx packages/assistant-ui/src/workspace-bar/folder-chip.tsx packages/assistant-ui/src/__tests__/workspace-bar.test.tsx packages/app-shell/src/hooks/use-workspace-bar.ts
+pnpm dlx ultracite fix packages/assistant-ui/src/workspace-bar/workspace-bar.tsx packages/assistant-ui/src/workspace-bar/folder-chip.tsx packages/assistant-ui/src/__tests__/workspace-bar.test.tsx packages/app-shell/src/hooks/use-workspace-bar.ts packages/app-shell/src/hooks/use-workspace-bar-terminal.ts
 # Verified during planning: the 1000-line cap counts CODE lines, and this file
 # sits at ~749. Run the check anyway — if it fires, extract the terminal
 # wiring into packages/app-shell/src/hooks/use-workspace-bar-terminal.ts and
