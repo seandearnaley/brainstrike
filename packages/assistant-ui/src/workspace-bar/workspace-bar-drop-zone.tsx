@@ -69,9 +69,9 @@ export function WorkspaceBarDropZone({
   );
 
   return (
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: drag-and-drop mount surface; the keyboard-accessible path is the Folder chip's Add folder… action.
-    // biome-ignore lint/a11y/noStaticElementInteractions: same as above — the same discipline notes-vault-panel.tsx's drop surface uses.
-    <div
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: drag-and-drop mount surface; the keyboard-accessible path is the Folder chip's Add folder… action — the same discipline notes-vault-panel.tsx's drop surface uses.
+    <section
+      aria-label="Folder drop zone"
       className={isDragOver ? 'ring-2 ring-primary ring-inset' : ''}
       data-testid="workspace-bar-drop-zone"
       onDragLeave={handleDragLeave}
@@ -79,7 +79,7 @@ export function WorkspaceBarDropZone({
       onDrop={handleDrop}
     >
       {children}
-    </div>
+    </section>
   );
 }
 
