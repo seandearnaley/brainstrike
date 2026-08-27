@@ -10,7 +10,7 @@
  *
  * ONE evaluate, ONE reload — deliberately. `recentRootsList` MUST be written
  * in the same evaluate as `rootsList`, because the reload boots main, which
- * runs `restoreRoots` → `recordRecentRootsIfNew`: a read-modify-write on
+ * runs `restoreRoots` → `recordRecentRootIfNew`: a read-modify-write on
  * `recentRootsList`. Seeding recents in a SECOND evaluate after that reload
  * races that write, and seeding them before a second reload would just repeat
  * the race. Both ledgers go in before the only boot that reads them.

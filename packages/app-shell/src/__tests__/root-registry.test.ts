@@ -285,6 +285,65 @@ describe('reconcileRoots', () => {
     expect(insertCall?.[1]?.[1]).toBe('fsa');
   });
 
+  it('inserts a managed worktree path with kind worktree', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [pathRoot('worktree-root', 'bright-fox', '/managed/app/bright-fox')],
+      managedWorktreePaths: new Set(['/managed/app/bright-fox']),
+      platformKind: 'path',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]).toEqual([
+      'worktree-root',
+      'worktree',
+      'bright-fox',
+      '/managed/app/bright-fox',
+    ]);
+    expect(result.dbRootKindByAdapterRootId.get('worktree-root')).toBe('worktree');
+  });
+
+  it('keeps the platform kind for an ordinary path when another path is managed', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    await reconcileRoots({
+      adapterRoots: [pathRoot('ordinary-root', 'project', '/workspace/project')],
+      managedWorktreePaths: new Set(['/managed/app/bright-fox']),
+      platformKind: 'path',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]?.[1]).toBe('path');
+  });
+
+  it('keeps the platform kind when managed worktree paths are unavailable on web', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    await reconcileRoots({
+      adapterRoots: [fsaRoot('web-root', 'project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]?.[1]).toBe('fsa');
+  });
+
   it('registers two same-name FSA roots independently', async () => {
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
       sql.includes('SELECT') ? { rows: [] } : { rows: [] }
