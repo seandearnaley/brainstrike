@@ -255,6 +255,21 @@ describe('adoptWorktree', () => {
     });
     expect(insert).not.toHaveBeenCalled();
   });
+
+  it("reads the inventory WITHOUT forcing freshness (unlike reconcileWorktreesFromShell's post-command read — this is a user-driven click, not a race against a command that just ran)", async () => {
+    const resolveInventory = vi.fn(() => Promise.resolve(inventory([{ path: '/repo/wt' }])));
+    const deps = {
+      ledger: { getByPath: vi.fn(async () => null), insert: vi.fn(async (row) => row) } as never,
+      readSettings: () => Promise.resolve(SETTINGS),
+      resolveInventory,
+      resolveRootPaths: () => Promise.resolve([{ id: 'root-1', path: '/repo' }]),
+      run: vi.fn(async () => ({ exitCode: 0, stderr: '', stdout: 'deadbeef\n', timedOut: false })),
+    };
+
+    await adoptWorktree(deps, { createdBy: 'user', path: '/repo/wt' });
+
+    expect(resolveInventory).toHaveBeenCalledWith();
+  });
 });
 
 describe('readCheckoutStatus', () => {
@@ -588,5 +603,27 @@ describe('reconcileWorktreesFromShell', () => {
     // Ledger identity is not rewritten: the original row still surfaces as a
     // vanished ghost, exactly as an actual `git worktree remove` would.
     expect(result.value.vanishedLedgerIds).toEqual(['moved-1']);
+  });
+
+  it('requests a forced-fresh inventory read (BST-1392 W5 e2e: a cached post-command read reliably misses a worktree the shell command just created)', async () => {
+    const resolveInventory = vi.fn(() => Promise.resolve(inventory([{ path: '/repo' }])));
+    const deps = {
+      ledger: {
+        getByPath: vi.fn(async () => null),
+        insert: vi.fn(async (row: ManagedWorktreeRow) => row),
+        listActive: vi.fn(async () => []),
+      } as never,
+      readSettings: () => Promise.resolve(SETTINGS),
+      resolveInventory,
+      resolveRootPaths: () => Promise.resolve([{ id: 'root-1', path: '/repo' }]),
+      run: vi.fn(),
+    };
+
+    await reconcileWorktreesFromShell(deps, {
+      precedingWorktreePaths: new Set(['/repo']),
+      repoCommonDir: '/repo/.git',
+    });
+
+    expect(resolveInventory).toHaveBeenCalledWith({ forceFresh: true });
   });
 });
