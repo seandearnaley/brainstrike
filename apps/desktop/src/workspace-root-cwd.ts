@@ -91,6 +91,10 @@ export async function resolveContainedCwd(
   if (requested === undefined) {
     return { ok: true, value: rootCwd };
   }
+  // `typeof requested !== 'string'` is unreachable per the declared
+  // `cwd?: string` type, but this is a renderer-supplied IPC boundary where
+  // TypeScript's compile-time guarantee does not hold at runtime — defensive
+  // depth, not dead code. Do not simplify this away.
   if (typeof requested !== 'string' || requested.trim().length === 0) {
     return { error: `${domain} requires a non-empty cwd string when one is supplied.`, ok: false };
   }

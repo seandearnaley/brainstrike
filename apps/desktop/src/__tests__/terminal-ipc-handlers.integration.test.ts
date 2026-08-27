@@ -266,6 +266,9 @@ describe('terminal IPC handlers — cwd containment', () => {
     }
     const empty = await handlers.create(castOwner(owner), { cwd: '   ', rootId: 'root-id' });
     expect(empty.ok).toBe(false);
+    if (!empty.ok) {
+      expect(empty.error).toMatch(/non-empty cwd/);
+    }
     const notDir = await handlers.create(castOwner(owner), { cwd: file, rootId: 'root-id' });
     expect(notDir.ok).toBe(false);
     if (!notDir.ok) {
@@ -276,6 +279,9 @@ describe('terminal IPC handlers — cwd containment', () => {
       rootId: 'root-id',
     });
     expect(missing.ok).toBe(false);
+    if (!missing.ok) {
+      expect(missing.error).toMatch(/no longer exists/);
+    }
     expect(spawn).not.toHaveBeenCalled();
   });
 });
