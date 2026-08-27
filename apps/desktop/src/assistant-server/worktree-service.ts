@@ -45,6 +45,7 @@ import {
   adoptWorktree,
   ghostListEntry,
   inventoryListEntry,
+  isAuthorizedWorktreeMountPath,
   readCheckoutStatus,
   reconcileWorktreesFromShell,
   type WorktreeAdoptDeps,
@@ -942,30 +943,14 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       }
     },
     /**
-     * The ONE sanctioned picker-less grant besides recents (spec §6.2): a path
-     * is authorized only when it is a LIVE ledger row whose realpath sits under
-     * the realpath'd managed directory. The app created it, so the app is the
-     * grantor — but only for paths it actually created.
+     * The ONE sanctioned picker-less grant besides recents (spec §6.2, widened
+     * in the BST-1392 follow-up): a LIVE ledger row that is reachable per
+     * `assertReachable`'s adoption rule — under the managed directory, or
+     * inside a granted workspace root. The rule itself lives in
+     * `worktree-adopt.ts` beside `assertReachable` so the two cannot drift.
      */
     async isManagedWorktreePath(candidate: string): Promise<boolean> {
-      try {
-        const settings = await deps.readSettings();
-        const [realCandidate, realManaged] = await Promise.all([
-          fsPromises.realpath(candidate),
-          fsPromises.realpath(settings.managedDirectory),
-        ]);
-        const within =
-          realCandidate === realManaged || realCandidate.startsWith(`${realManaged}${path.sep}`);
-        if (!within) {
-          return false;
-        }
-        const row = await ledger.getByPath(realCandidate);
-        return row !== null && row.archivedAt === null;
-      } catch (error) {
-        // A path that cannot be realpath'd is not a worktree this app created.
-        logger.debug('managed worktree authorization check failed', { candidate, error });
-        return false;
-      }
+      return await isAuthorizedWorktreeMountPath(adoptDeps(), candidate);
     },
     async list(): Promise<GitResult<readonly WorktreeListEntry[]>> {
       try {

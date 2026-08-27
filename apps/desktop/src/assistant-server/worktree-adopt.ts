@@ -111,6 +111,51 @@ async function assertReachable(
   };
 }
 
+/**
+ * Mount authorization for the picker-less `fs:addRootByPath` grant (spec §6.2,
+ * widened in the BST-1392 follow-up): a candidate is authorized exactly when a
+ * LIVE ledger row exists for its realpath AND the checkout is reachable by the
+ * SAME rule `assertReachable` applies at adoption — under the realpath'd
+ * managed directory, or inside a granted workspace root per the live
+ * inventory's containment. Kept in this file, beside `assertReachable`, so the
+ * two reachability rules cannot drift apart: before the widening, a worktree
+ * nested inside a granted root (the `.claude/worktrees/<name>` shape) adopted
+ * fine but then refused to mount, because the mount rule demanded
+ * managed-directory containment adoption never required.
+ *
+ * An outside-roots path (e.g. its granting root was disconnected after
+ * adoption) stays refused — a ledger row alone is never a mount grant.
+ */
+export async function isAuthorizedWorktreeMountPath(
+  deps: Pick<WorktreeAdoptDeps, 'ledger' | 'readSettings' | 'resolveInventory'>,
+  candidate: string
+): Promise<boolean> {
+  try {
+    const realCandidate = await fsPromises.realpath(candidate);
+    const row = await deps.ledger.getByPath(realCandidate);
+    if (row === null || row.archivedAt !== null) {
+      return false;
+    }
+    const settings = await deps.readSettings();
+    try {
+      const managed = await fsPromises.realpath(settings.managedDirectory);
+      if (isWithin(managed, realCandidate)) {
+        return true;
+      }
+    } catch (error) {
+      // A missing managed directory must not block the in-root grant below.
+      logger.debug('managed directory could not be resolved during mount authorization', { error });
+    }
+    const located = locate(await deps.resolveInventory(), realCandidate);
+    return located !== null && located.descriptor.containment !== 'outside-roots';
+  } catch (error) {
+    // A path that cannot be realpath'd — or a ledger/inventory read failure —
+    // refuses rather than becoming an implicit grant.
+    logger.debug('worktree mount authorization check failed', { candidate, error });
+    return false;
+  }
+}
+
 export async function adoptWorktree(
   deps: WorktreeAdoptDeps,
   params: WorktreeAdoptParams

@@ -18,8 +18,9 @@ const logger = createLogger('WorktreeMapSurface');
  * The exact refusal text `resolveGrantedRootHandle` throws
  * (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`'s
  * `NEVER_GRANTED_MESSAGE`) when neither of its two picker-less grants — an
- * exact-path recents match, or `managedWorktreeAuthorizer`'s managed-
- * directory containment + live ledger row — fires. Duplicated as a literal
+ * exact-path recents match, or `managedWorktreeAuthorizer`'s live-ledger-row
+ * + reachable-checkout rule (under the managed directory, or inside a
+ * granted root) — fires. Duplicated as a literal
  * rather than imported: errors cross the main↔renderer boundary as plain
  * strings, and `apps/desktop` is not a dependency this package can import
  * from. If that message ever changes, this match silently stops firing
@@ -148,25 +149,23 @@ export function useWorktreeMapCardActions(
           const message = errorMessage(caught);
           // This callback only reaches `addRootDirectoryByPath` once
           // `worktreeId` is non-null (the guard above) — i.e. the worktree is
-          // ALREADY adopted. So the picker-less grant's generic "never
-          // granted" refusal here can only mean one known, narrow gap: the
-          // worktree sits inside a granted root but outside BrainStrike's
-          // managed worktrees directory, so neither of
-          // `resolveGrantedRootHandle`'s two authorizations fires for it
-          // (BST-1392 review). Widening that authorization surface (treating
-          // any live ledger row as sufficient, regardless of managed-
-          // directory containment) is a real change, ticketed separately —
-          // not done here. `errorMessage` alone would surface the generic
-          // "use Add Folder to grant it" copy, which is confusing right after
-          // a successful Adopt; state the actual cause and the ONE remedy
-          // that is verified to work: the real folder picker ("Add Folder"
-          // on the workspace bar, NOT this card's "Add as root" — that item
-          // calls the exact same picker-less grant and would fail the same
-          // way) records an exact-path recents match, after which this
-          // retries successfully.
+          // ALREADY adopted. The picker-less grant covers every adopted
+          // checkout the app can REACH — a live ledger row under the managed
+          // directory OR inside a granted root (`isAuthorizedWorktreeMountPath`,
+          // worktree-adopt.ts; the BST-1392 follow-up widening) — so the
+          // generic "never granted" refusal here can only mean the checkout is
+          // outside BOTH: e.g. its granting root was disconnected after
+          // adoption. `errorMessage` alone would surface the generic "use Add
+          // Folder to grant it" copy, which is confusing right after a
+          // successful Adopt; state the actual cause and the ONE remedy that
+          // is verified to work: the real folder picker ("Add Folder" on the
+          // workspace bar, NOT this card's "Add as root" — that item calls the
+          // exact same picker-less grant and would fail the same way) records
+          // an exact-path recents match, after which this retries
+          // successfully.
           setActionError(
             message === NEVER_GRANTED_MOUNT_MESSAGE
-              ? `"${card.entry.name}" was adopted, but it sits outside BrainStrike's managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
+              ? `"${card.entry.name}" was adopted, but it isn't inside any open folder or BrainStrike's managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
               : message
           );
         });

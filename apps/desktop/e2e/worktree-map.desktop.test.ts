@@ -313,6 +313,49 @@ test.describe('Worktree Map (desktop)', () => {
     ).toContainText(path.basename(worktree), { timeout: 90_000 });
   });
 
+  test('adoption from the Map binds a thread for a NESTED in-root checkout outside the managed directory', async ({
+    window: page,
+  }) => {
+    test.setTimeout(240_000);
+    // The containment class the managed-external fixture above cannot
+    // exercise: a checkout INSIDE the granted root but OUTSIDE the managed
+    // directory (the `.claude/worktrees/<name>` shape every external tool
+    // uses). Adoption's reachability rule and the picker-less mount grant
+    // used to disagree exactly here (BST-1392 follow-up): Adopt succeeded —
+    // it accepts in-root containment — and "New thread here" then refused
+    // the mount, which demanded managed-directory containment. This test
+    // goes through the REAL main-process authorizer wiring the unit and
+    // integration suites stub.
+    const { repo, worktree } = freshRepoWithNestedWorktree('nestedadopt');
+    // The ledger stores the CANONICAL descriptor path (macOS tmpdir is a
+    // `/var` symlink into `/private/var`), so poll the row by realpath.
+    const canonicalWorktree = realpathSync(worktree);
+    await seedRoot(page, repo);
+    await openWorktreeMap(page);
+
+    const cards = page.getByTestId('worktree-map-card');
+    await expect(cards).toHaveCount(2, { timeout: 30_000 });
+    const nestedCard = cards.filter({ hasText: path.basename(worktree) });
+    await nestedCard.getByTestId('worktree-map-card-actions').click();
+    const actionsMenu = page.getByRole('menu');
+    await expect(actionsMenu).toBeVisible();
+    await actionsMenu.getByRole('menuitem', { exact: true, name: 'Adopt' }).click();
+
+    await expect
+      .poll(() => queryLiveWorktreeRows(page, canonicalWorktree), { timeout: 30_000 })
+      .toEqual([{ path: canonicalWorktree }]);
+
+    const newThread = nestedCard.getByTestId('worktree-map-new-thread');
+    await expect(newThread).toBeEnabled({ timeout: 30_000 });
+    await newThread.click();
+    // The mount is the step the old rule refused; a bound mode chip proves
+    // mount + thread bind both completed instead of the stated
+    // "can't be mounted automatically" action error.
+    await expect(
+      page.getByTestId('workspace-bar-mode-chip').filter({ visible: true })
+    ).toContainText(path.basename(worktree), { timeout: 90_000 });
+  });
+
   test('Open in Terminal pins the shell to the NESTED checkout, not the parent repo', async ({
     window: page,
   }) => {

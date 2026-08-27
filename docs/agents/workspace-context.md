@@ -1019,10 +1019,16 @@ additional explorer/status chrome):
   cannot race the D8 exclusion.
 - **The second (and last) sanctioned picker-less mount.** `fs:addRootByPath`
   now accepts a path authorized by EITHER the recent-roots ledger (BST-1395)
-  OR the managed-worktree authorizer (BST-1390): a live `brainstrike_worktrees`
-  row whose realpath sits under the realpath'd managed directory. The ledger is
-  checked first so a broken authorizer cannot take the recents path down with
-  it. Managed worktrees are deliberately NOT written into `recentRootsList` at
+  OR the managed-worktree authorizer (BST-1390, widened in the BST-1392
+  follow-up): a live `brainstrike_worktrees` row whose realpath is REACHABLE by
+  the same rule adoption's `assertReachable` applies — under the realpath'd
+  managed directory, or inside a granted workspace root per the live
+  inventory's containment (`isAuthorizedWorktreeMountPath`,
+  `worktree-adopt.ts`, kept beside `assertReachable` so the two rules cannot
+  drift). An outside-roots row — e.g. its granting root was disconnected after
+  adoption — stays refused; a ledger row alone is never a mount grant. The
+  ledger is checked first so a broken authorizer cannot take the recents path
+  down with it. Managed worktrees are deliberately NOT written into `recentRootsList` at
   grant time — that list is the user's folders, not the app's scratch
   directories — and (BST-1390 Task 10) `restoreRoots` now also skips recording
   a `kind='worktree'` entry into recents on relaunch, closing the leak the
@@ -1116,9 +1122,11 @@ additional explorer/status chrome):
     managed worktrees out of Recents. Recents loads use a monotonic request generation,
     and an older overlapping response cannot replace a newer snapshot.
     `fs:addRootByPath` has TWO ordered gates: first that ledger (BST-1395), then
-    the server-owned managed-worktree authorizer (BST-1390, spec §6.2), which
-    requires realpath containment plus a live ledger row and fails closed on
-    every authorizer error. A recents-ledger grant is re-recorded; a managed
+    the server-owned managed-worktree authorizer (BST-1390, spec §6.2; widened
+    in the BST-1392 follow-up), which requires a live ledger row plus
+    reachability per adoption's `assertReachable` rule (managed-directory
+    containment, or in-granted-root containment per the live inventory) and
+    fails closed on every authorizer error. A recents-ledger grant is re-recorded; a managed
     worktree grant is not recorded into Recents at grant time, and `restoreRoots`
     now batch-reads persisted root kinds and skips `kind='worktree'` entries on
     relaunch (BST-1390 Task 10), so that suppression survives relaunch when the

@@ -475,7 +475,14 @@ it remains a capability the spec named that no seam yet supports.
 
 Mounting is a SEPARATE step from adoption and does not happen automatically:
 adopting a worktree only inserts the `brainstrike_worktrees` ledger row, it
-does not add a `roots` row. The Map's `onNewThread` mounts the checkout via
+does not add a `roots` row. The picker-less mount grant matches adoption's own
+reachability rule (BST-1392 follow-up): a live ledger row that is under the
+managed directory OR inside a granted root mounts without a picker
+(`isAuthorizedWorktreeMountPath`, kept beside `assertReachable` in
+`worktree-adopt.ts` so the two rules cannot drift) — before the widening, an
+adopted in-root checkout outside the managed directory (the
+`.claude/worktrees/<name>` shape) adopted fine and then refused to mount. An
+outside-roots row stays refused. The Map's `onNewThread` mounts the checkout via
 `addRootDirectoryByPath` before binding a thread, mirroring the ordering
 `use-worktree-mode.ts`'s `mountWorktree`/`onSelectExisting` already use for the
 Mode chip's create/pick flows (found live during the W5 CDT pass: without this
