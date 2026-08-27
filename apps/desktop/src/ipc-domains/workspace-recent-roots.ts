@@ -294,12 +294,15 @@ export interface GrantedRootHandle {
  *
  * 1. the recent-roots ledger — every path in it was already granted through
  *    the OS picker or a successful restore (BST-1395);
- * 2. the managed-worktree authorizer (BST-1390, spec §6.2) — the app CREATED
- *    the path, under its own managed directory, and its ledger row proves it.
- *    This is the second and last sanctioned picker-less mount; it is
- *    deliberately NOT a general "add root by path" door, and a managed worktree
- *    is NOT recorded into the recents ledger at grant time (that list is the
- *    user's folders, not the app's scratch directories). CLOSED (BST-1390
+ * 2. the managed-worktree authorizer (BST-1390, spec §6.2; widened in the
+ *    BST-1392 follow-up) — a live `brainstrike_worktrees` ledger row that the
+ *    app can REACH per adoption's `assertReachable` rule: under the managed
+ *    directory, or inside a granted workspace root
+ *    (`isAuthorizedWorktreeMountPath`, worktree-adopt.ts). An outside-roots
+ *    row stays refused. This is the second and last sanctioned picker-less
+ *    mount; it is deliberately NOT a general "add root by path" door, and a
+ *    managed worktree is NOT recorded into the recents ledger at grant time
+ *    (that list is the user's folders, not the app's scratch directories). CLOSED (BST-1390
  *    Task 10): the mount remains persisted in `rootsList`, but `restoreRoots`
  *    batch-reads each persisted root's DB kind and skips recents recording for
  *    `kind='worktree'`; an unavailable kind query is warned and preserves the

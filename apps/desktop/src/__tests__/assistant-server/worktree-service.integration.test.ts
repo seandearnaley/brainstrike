@@ -552,26 +552,9 @@ describe('WorktreeService (real git + real PGlite)', () => {
     expect(existsSync(path.join(repo, 'wt'))).toBe(false);
   });
 
-  it('authorizes ONLY a live ledger path under the managed directory', async () => {
-    const service = buildService();
-    const created = await service.create({
-      baseRef: 'main',
-      branch: { name: 'bs/grant' },
-      createdBy: 'user',
-      name: 'grant-me',
-      rootId: 'r-1',
-    });
-    expect(created.ok).toBe(true);
-    if (!created.ok) {
-      return;
-    }
-    await expect(service.isManagedWorktreePath(created.value.worktree.path)).resolves.toBe(true);
-    await expect(service.isManagedWorktreePath(repo)).resolves.toBe(false);
-    mkdirSync(path.join(managedDirectory, 'not-a-row'), { recursive: true });
-    await expect(
-      service.isManagedWorktreePath(path.join(managedDirectory, 'not-a-row'))
-    ).resolves.toBe(false);
-  });
+  // The mount-authorization tests (`isManagedWorktreePath`) live in
+  // `worktree-mount-authorization.integration.test.ts` — extracted when the
+  // BST-1392 follow-up widening pushed this file over the 1000-line ceiling.
 
   it('reports a ledger row missing on disk as unvalidated, with the reason', async () => {
     const service = buildService();

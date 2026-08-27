@@ -83,6 +83,33 @@ function isWithin(parent: string, candidate: string): boolean {
 }
 
 /**
+ * The ONE reachability rule, shared by adoption (`assertReachable`) and the
+ * picker-less mount authorizer (`isAuthorizedWorktreeMountPath`) so the two
+ * cannot drift apart STRUCTURALLY (PR #2681 review — co-location alone left
+ * two verbatim copies): a checkout is reachable when a granted workspace root
+ * contains it, or when it sits under the realpath'd managed directory. The
+ * managed-directory arm reads settings + realpath only — never the inventory.
+ */
+async function isReachableCheckout(
+  deps: Pick<WorktreeAdoptDeps, 'readSettings'>,
+  checkoutPath: string,
+  containment: WorktreeDescriptor['containment']
+): Promise<boolean> {
+  if (containment !== 'outside-roots') {
+    return true;
+  }
+  const settings = await deps.readSettings();
+  try {
+    const managed = await fsPromises.realpath(settings.managedDirectory);
+    return isWithin(managed, checkoutPath);
+  } catch (error) {
+    // Routine: the managed directory has simply never been created.
+    logger.debug('managed directory could not be resolved during reachability check', { error });
+    return false;
+  }
+}
+
+/**
  * A worktree may be adopted only when the app can actually REACH it: inside a
  * granted workspace root, or under the managed directory. `resolveUsability`
  * treats "has a ledger row" as authorization, so adopting an unreachable path
@@ -93,22 +120,75 @@ async function assertReachable(
   deps: WorktreeAdoptDeps,
   descriptor: WorktreeDescriptor
 ): Promise<GitResult<null>> {
-  if (descriptor.containment !== 'outside-roots') {
+  if (await isReachableCheckout(deps, descriptor.path, descriptor.containment)) {
     return { ok: true, value: null };
-  }
-  const settings = await deps.readSettings();
-  try {
-    const managed = await fsPromises.realpath(settings.managedDirectory);
-    if (isWithin(managed, descriptor.path)) {
-      return { ok: true, value: null };
-    }
-  } catch (error) {
-    logger.debug('managed directory could not be resolved during adoption', { error });
   }
   return {
     error: `The worktree at "${descriptor.path}" is outside every open folder. Grant access to its folder first, then adopt it.`,
     ok: false,
   };
+}
+
+/**
+ * Mount authorization for the picker-less `fs:addRootByPath` grant (spec §6.2,
+ * widened in the BST-1392 follow-up): a candidate is authorized exactly when a
+ * LIVE ledger row exists for its realpath AND the checkout passes the SAME
+ * `isReachableCheckout` predicate adoption applies — under the realpath'd
+ * managed directory, or inside a granted workspace root per a FORCED-FRESH
+ * inventory's containment. Forced-fresh is load-bearing (PR #2681 review): a
+ * `roots` table write never dirties the inventory cache, so the default
+ * cached read could authorize against a root the user closed seconds ago (or
+ * refuse one they just granted) for up to the cache TTL. The call is
+ * user-initiated and off every latency-critical path, so the bounded rebuild
+ * is an acceptable price for the documented "live containment" rule being
+ * literally true.
+ *
+ * An outside-roots path (e.g. its granting root was disconnected after
+ * adoption) stays refused — a ledger row alone is never a mount grant. An
+ * unavailable inventory refuses only the arm that NEEDS it: the managed-
+ * directory arm stays inventory-free, and the failure surfaces at WARN
+ * (NO SILENT FALLBACKS), never a silent debug-only `false`.
+ */
+export async function isAuthorizedWorktreeMountPath(
+  deps: Pick<WorktreeAdoptDeps, 'ledger' | 'readSettings' | 'resolveInventory'>,
+  candidate: string
+): Promise<boolean> {
+  let realCandidate: string;
+  try {
+    realCandidate = await fsPromises.realpath(candidate);
+  } catch (error) {
+    // Routine: the candidate path does not exist (or a component vanished).
+    logger.debug('mount authorization refused an unresolvable candidate path', {
+      candidate,
+      error,
+    });
+    return false;
+  }
+  try {
+    const row = await deps.ledger.getByPath(realCandidate);
+    if (row === null || row.archivedAt !== null) {
+      return false;
+    }
+    let containment: WorktreeDescriptor['containment'] = 'outside-roots';
+    try {
+      const located = locate(await deps.resolveInventory({ forceFresh: true }), realCandidate);
+      containment = located?.descriptor.containment ?? 'outside-roots';
+    } catch (error) {
+      // Inventory unavailability (stopped service, failed build, DB error) is
+      // an infrastructure signal, not "not a worktree we created" — and it
+      // must not take the inventory-free managed-directory arm down with it.
+      logger.warn('inventory unavailable during mount authorization; managed-directory arm only', {
+        candidate,
+        error,
+      });
+    }
+    return await isReachableCheckout(deps, realCandidate, containment);
+  } catch (error) {
+    // A ledger or settings read failure is likewise a real signal — refuse,
+    // but never silently.
+    logger.warn('worktree mount authorization check failed', { candidate, error });
+    return false;
+  }
 }
 
 export async function adoptWorktree(

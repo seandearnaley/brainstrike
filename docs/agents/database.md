@@ -546,8 +546,10 @@ that needs the transient in-flight/error state this table does not carry.
 `brainstrike_worktrees` records every linked git worktree BrainStrike itself
 created (`created_by IN ('agent','user')`), keyed by its `path` (UNIQUE) and
 its realpath'd `repo_common_dir`. It is the authorization source for the ONE
-sanctioned picker-less root mount besides recents (`isManagedWorktreePath`,
-`workspace-recent-roots.ts`) and the provenance source the git inventory joins
+sanctioned picker-less root mount besides recents (`isManagedWorktreePath` →
+`isAuthorizedWorktreeMountPath`, `worktree-adopt.ts`; a live row must also be
+reachable per adoption's `assertReachable` rule — see
+`docs/agents/workspace-context.md`) and the provenance source the git inventory joins
 to produce `'both'` / `'agent-reported'`. Setup outcomes persist their closed
 status, bounded output, and nullable user-facing reason so later inventory
 reads can explain failed or skipped setup without reconstructing create-time

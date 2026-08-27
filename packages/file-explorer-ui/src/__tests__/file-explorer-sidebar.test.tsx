@@ -210,6 +210,25 @@ describe('FileExplorerSidebar', () => {
     expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
   });
 
+  it('shows the indexing control for an excluded single worktree root', () => {
+    useBackgroundIndexingPreferencesStore
+      .getState()
+      .setWorktreeRootIndexingState([
+        { adapterRootId: 'adapter-root', dbRootId: 'db-root', indexed: false },
+      ]);
+
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootIdByPath={new Map([['/test-directory', 'adapter-root']])}
+        />
+      );
+    });
+
+    expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
+  });
+
   // Forest mode: two roots → two section headers + two treegrids (EXACTLY 2)
   it('renders EXACTLY 2 section headers and 2 treegrids in forest mode', async () => {
     const handleA = {
