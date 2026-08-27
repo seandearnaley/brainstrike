@@ -399,6 +399,68 @@ recomputed as the home-relative default on every read. The exact bridge set,
 IPC narrowing, preload parity, and settings persistence are pinned by the
 corresponding `worktrees-*` and preload-runtime contract tests.
 
+### WORKTREE MAP + ADOPTION (BST-1392)
+
+`WorktreeListEntry` carries `primary`, `repoCommonDir` and `createdAt` so one
+`worktrees.list()` can drive both the Mode chip's picker and the Worktree Map.
+`primary` is `descriptor.path === repository.identity.repositoryRoot`; a primary
+row is deliberately `usable: false` with a stated reason, because a thread that
+operates in the user's own clone is in LOCAL mode by definition and binding
+`checkoutMode: 'worktree'` to it would produce a checkout hand-off could not
+leave. `repoCommonDir` — not `repositoryRoot` — is the key `brainstrike_forge_prs`
+joins on, so the Map's PR pill and the thread list's PR pill cannot disagree.
+
+`worktrees.adopt` records an EXISTING on-disk worktree in the ledger. It refuses
+a path that is outside every granted root AND outside the managed directory:
+`resolveUsability` treats "has a ledger row" as authorization, so an
+unreachable adopted row would read `usable: true` while every operation on it
+failed. It also refuses the repository's own primary checkout, mirroring the
+picker's primary gate. `base_ref` is the worktree's HEAD at adoption time —
+"unpushed" for an adopted worktree means "committed here since BrainStrike
+started managing it". The Mode chip's picker never calls it — every unmanaged
+row is `usable: false`, so its select button is always disabled, which makes
+adopting through the picker structurally unreachable. The Worktree Map card's
+`Adopt` action is the only UI caller; the agent tool is the only other one.
+
+`worktrees.checkoutStatus` is a LAZY, per-checkout `git status --porcelain=v2
+--branch -z` parsed by the production `parsePorcelainV2Z`. It is deliberately
+not folded into `list()`, which backs the picker and refreshes on every
+invalidation; N status subprocesses behind an orientation surface is the cost
+this seam exists to avoid. Until a card's status resolves it renders
+"checking…", never a clean glyph.
+
+**"Open in Terminal" is deferred to W6 — settled, do not relitigate.** Spec §10
+lists the action on a Worktree Map card and §6.1 lists `openInTerminal` on
+`window.worktrees`; neither is built. There is no terminal-session seam a
+worktree path can be handed to yet (W1 deferred it, W3 ruling A6 recorded it,
+W5 re-affirmed it 2026-08-26), and the omit-don't-stub convention forbids a
+disabled placeholder. The bridge exact set therefore has no `openInTerminal`
+member and the card menu has no such item; the durable enforcement is an
+absence-assertion test in
+`packages/app-shell/src/worktree-map/__tests__/worktree-map-surface.test.tsx`
+("offers no 'Open in Terminal' action anywhere on a card"), which W6 deletes in
+the same PR that adds the real action. This sits beside the A5 run-scoped
+`git worktree lock` deferral above for the same reason: both are capabilities
+the spec named that no seam yet supports, and both are recorded here rather
+than living only in a review thread.
+
+Mounting is a SEPARATE step from adoption and does not happen automatically:
+adopting a worktree only inserts the `brainstrike_worktrees` ledger row, it
+does not add a `roots` row. The Map's `onNewThread` mounts the checkout via
+`addRootDirectoryByPath` before binding a thread, mirroring the ordering
+`use-worktree-mode.ts`'s `mountWorktree`/`onSelectExisting` already use for the
+Mode chip's create/pick flows (found live during the W5 CDT pass: without this
+ordering, the bind's `resolveRootIdAfterReconciliation` retry — 20 × 250ms,
+already generous — always exhausted, because nothing else ever creates the
+`roots` row for a freshly-adopted worktree). The Map never re-reads on its own,
+so every mutation that changes what a card resolves must call `refresh()` on the
+Map's own card list on success: `onAdopt` (new ledger row), and — closed as the
+filed follow-up to the W5 CDT pass — `onNewThread`'s mount and `onAddAsRoot`
+(new `roots` row, which `rootId` and therefore `indexing` resolve from; without
+it a mounted card rendered no indexing badge until an UNRELATED
+changes-invalidation event refreshed the Map). A failed mount or refused adopt
+never refreshes. Pinned by the surface test's refresh assertions.
+
 ### SETUP HOOKS / PER-WORKTREE SETUP — granted roots only
 
 Repository code runs only while creating a worktree FROM a repository the user

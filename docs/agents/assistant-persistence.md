@@ -996,6 +996,41 @@ missing from `ASSISTANT_RUN_EVENT_KINDS` is REJECTED by `readAssistantRunEvent`
 and the row disappears — which is why the contract entry is the first thing to
 add.
 
+`worktree.created` carries a `metadata.via` discriminator, emitted by exactly
+three sites in `worktree-run-events.ts`: `'app'` (`emitWorktreeCreateEvents`,
+`worktree-service.ts`'s single `create()`), `'adopt'`
+(`emitWorktreeAdoptedEvent`), and `'shell'` (`emitWorktreeShellCreatedEvent`,
+the correlator). No new run-event kind was added for shell correlation: a
+second kind would need its own pairing-contract row and a second label
+vocabulary for the same fact.
+
+**Correction found while writing this doc (W5 Task 14):** the plan
+(`docs/superpowers/plans/2026-08-26-w5-worktree-map-and-agent-tools.md`)
+states a FOURTH value, `'tool'`, distinguishing a worktree the
+`brainstrike.manageWorktree` agent tool created from one the Mode chip's
+create sheet created. It is not wired: `worktree-tools.ts`'s tool executor and `ipc-worktrees.ts`'s Mode-chip
+handler both call the SAME `worktreeService.create()`, whose sole
+`emitWorktreeCreateEvents` call hardcodes `via: 'app'` with no parameter for
+the caller to override — so an agent-tool-created worktree's `worktree.created`
+row is presently indistinguishable from a Mode-chip-created one in the
+TIMELINE. The `brainstrike_worktrees` LEDGER row still distinguishes them
+correctly (`created_by: 'agent'` vs `'user'`, wired since Task 10) — this gap
+is scoped to the run-event breadcrumb only. Filed as a follow-up (thread the
+caller through `create()`/`emitWorktreeCreateEvents` and add `'tool'` to the
+type), not fixed in-band here.
+
+Correlation reads the `executeCommand` TOOL RESULT, never the git-metadata
+watcher. `GitInventoryInvalidation` carries `{ gitCommonDir, repositoryRoot }`
+with no worktree path, no create-vs-remove discrimination, and a 300–2000 ms
+coalescing window — attributing that to a run would be a temporal guess. The
+correlator is fire-and-forget: it runs after the result exists and can never
+delay or fail the tool call.
+
+A `git worktree remove` run in a shell is reported as a VANISHED ledger row,
+never archived: an archive carries a restorable snapshot and a shell removal
+produced none. The ghost row's "missing on disk — restore it or archive it"
+is the honest surface.
+
 ### Threads-panel active-run projection (BST-1244)
 
 The Threads panel derives its running indicators directly from
