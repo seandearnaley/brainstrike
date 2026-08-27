@@ -2133,7 +2133,7 @@ if (singleInstanceLockAcquired) {
           ],
         },
       ];
-      const pushToFocusedWindow = (
+      const pushToMenuTargetWindow = (
         channel: string,
         payload?: unknown,
         explicitWindow?: Electron.BaseWindow
@@ -2164,14 +2164,14 @@ if (singleInstanceLockAcquired) {
           template[1]?.label === 'File' ? 1 : 0,
           buildFileMenuTemplate({
             onOpenFolder: (targetWindow) => {
-              pushToFocusedWindow(
+              pushToMenuTargetWindow(
                 DESKTOP_IPC_CHANNELS.workspace.openFolderPicker,
                 undefined,
                 targetWindow
               );
             },
             onOpenRecentPath: (recentPath, targetWindow) => {
-              pushToFocusedWindow(
+              pushToMenuTargetWindow(
                 DESKTOP_IPC_CHANNELS.workspace.openPath,
                 {
                   origin: 'menu-recent',

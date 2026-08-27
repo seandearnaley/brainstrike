@@ -167,6 +167,11 @@ mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
 });
 Object.assign(mockBrowserWindow, {
   getAllWindows: vi.fn(() => []),
+  // Null on purpose: the app under a harness is never the OS-active
+  // application, so the focused-window FALLBACK must not be what routes a
+  // menu push — the explicit click-handler window is (see the
+  // File-menu routing test below).
+  getFocusedWindow: vi.fn(() => null),
 });
 
 const mockApp = {
@@ -846,5 +851,48 @@ describe('main workspace-open lifecycle', () => {
     });
 
     expect(() => fireHandlersRegisteredSoFar(win.once, 'closed')).not.toThrow();
+  });
+
+  it('routes a File-menu click to the EXPLICIT click-handler window while getFocusedWindow() is null — the wiring seam where the original silent no-op lived', async () => {
+    await import('../../main');
+
+    const { Menu } = await import('electron');
+    const buildFromTemplate = vi.mocked(Menu.buildFromTemplate);
+    // The application menu is (re)built inside app.whenReady — wait for a
+    // template that carries the File submenu's open-folder item.
+    const findOpenFolderItem = (): Electron.MenuItemConstructorOptions | null => {
+      for (const [template] of buildFromTemplate.mock.calls) {
+        for (const entry of template ?? []) {
+          const submenu = Array.isArray(entry.submenu) ? entry.submenu : [];
+          const item = submenu.find((row) => row.id === 'file-open-folder');
+          if (item) {
+            return item;
+          }
+        }
+      }
+      return null;
+    };
+    await vi.waitFor(() => {
+      expect(findOpenFolderItem()).not.toBeNull();
+    });
+
+    const win = latestWindow();
+    // `application-file-menu.test.ts` proves the menu module FORWARDS the
+    // click-handler window and the e2e proves the end-to-end effect; this
+    // pins the layer in between — main.ts's pushToMenuTargetWindow actually
+    // USES the forwarded window rather than the focused-window fallback,
+    // which the mock keeps null (exactly the harness/programmatic-click
+    // state where the original implementation was a silent no-op). The mock
+    // constructor pushes `this`, so `win instanceof BrowserWindow` holds.
+    findOpenFolderItem()?.click?.(
+      {} as Electron.MenuItem,
+      win as unknown as Electron.BaseWindow,
+      {} as Electron.KeyboardEvent
+    );
+
+    expect(win.webContents.send).toHaveBeenCalledWith(
+      DESKTOP_IPC_CHANNELS.workspace.openFolderPicker,
+      undefined
+    );
   });
 });

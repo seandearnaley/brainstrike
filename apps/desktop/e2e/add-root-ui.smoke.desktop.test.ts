@@ -269,11 +269,19 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
           labels: (item?.submenu?.items ?? []).map((entry) => entry.label),
         };
       });
+    // The poll captures its LAST successful read — asserting on that capture
+    // below, instead of an unguarded re-read, keeps the transient-evaluate
+    // flake the try/catch absorbs from re-opening three lines later (PR
+    // #2686 review).
+    let recentMenu: { enabled: boolean; labels: (string | undefined)[] } = {
+      enabled: false,
+      labels: [],
+    };
     await expect
       .poll(
         async () => {
           try {
-            return (await readRecentMenu()).labels;
+            recentMenu = await readRecentMenu();
           } catch {
             // Playwright's electronApplication.evaluate can transiently
             // fail with "Resulting promise was garbage collected" while
@@ -282,11 +290,11 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
             // retry instead of failing the test on the flake.
             return ['<evaluate-retry>'];
           }
+          return recentMenu.labels;
         },
         { timeout: 20_000 }
       )
       .toContain(path.basename(repo));
-    const recentMenu = await readRecentMenu();
     expect(recentMenu.enabled).toBe(true);
     // The just-granted folder projects too (newest-first would place it
     // ahead of the seeded entry; containment is what matters here).

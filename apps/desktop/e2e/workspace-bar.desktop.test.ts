@@ -217,28 +217,47 @@ test.describe('Workspace bar (desktop)', () => {
     const zone = page.getByTestId('workspace-bar-drop-zone');
     await expect(zone).toBeVisible({ timeout: 30_000 });
 
-    // A REAL DataTransfer (constructed in the page, not a serialized
-    // object) that carries text only: the 'Files' gate must not arm, so
-    // internal pragmatic-drag-and-drop drags pass through untouched.
-    const textDrag = await page.evaluateHandle(() => {
+    // The gate itself is observable SYNCHRONOUSLY: handleDragOver calls
+    // preventDefault() only when 'Files' is advertised (the component's own
+    // stated contract — checked BEFORE preventDefault, so an internal
+    // pragmatic-drag-and-drop drag passes through untouched). Asserting on
+    // defaultPrevented tests the gate with no render race — a negative
+    // not.toHaveClass would pass on its first poll before React flushed a
+    // would-be setIsDragOver, making "ring absent" and "ring not rendered
+    // yet" indistinguishable (PR #2686 review). Real page-constructed
+    // DataTransfers, never serialized objects.
+    const textPrevented = await zone.evaluate((element) => {
       const transfer = new DataTransfer();
       transfer.setData('text/plain', 'not-a-file');
-      return transfer;
+      const event = new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
     });
-    await zone.dispatchEvent('dragover', { dataTransfer: textDrag });
-    await expect(zone).not.toHaveClass(/ring-2/);
+    expect(textPrevented).toBe(false);
 
-    // Adding a File makes the DataTransfer advertise 'Files' — the ring
-    // arms. NOTE (stated, per the plan): this proves the GATE and the ring
-    // only. A JS-constructed File is not OS-backed, so `getPathForFile`
+    // Positive control: a File makes the DataTransfer advertise 'Files' —
+    // the gate consumes the drag (defaultPrevented) and the ring, its
+    // rendered consequence, arms (toHaveClass retries through the React
+    // flush). NOTE (stated, per the plan): this proves the GATE and the
+    // ring only. A JS-constructed File is not OS-backed, so `getPathForFile`
     // would return '' and no path could ever resolve from a synthetic
     // drop — the real-Finder-folder drop is the manual CDT step in Task 14.
-    const fileDrag = await page.evaluateHandle(() => {
+    const filesPrevented = await zone.evaluate((element) => {
       const transfer = new DataTransfer();
       transfer.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }));
-      return transfer;
+      const event = new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
     });
-    await zone.dispatchEvent('dragover', { dataTransfer: fileDrag });
+    expect(filesPrevented).toBe(true);
     await expect(zone).toHaveClass(/ring-2/);
   });
 });

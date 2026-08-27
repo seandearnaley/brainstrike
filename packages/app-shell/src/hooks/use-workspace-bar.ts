@@ -27,6 +27,7 @@ import {
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useFolderDrop } from '../workspace-connect/use-folder-drop';
+import { stripIpcInvokeEnvelope } from '../workspace-connect/workspace-connect-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -114,28 +115,18 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Electron's `ipcRenderer.invoke` re-throws a main-process rejection in the
- * renderer with its own envelope prepended — `Error invoking remote method
- * '<channel>': Error: <the real message>`. That prefix is IPC plumbing, not
- * something a user can act on, and it pushes the actual remedy off the front
- * of a toast. Stripped here, at the one place a failure becomes user-facing
- * text; the message itself is never rewritten.
- */
-// Kept byte-identical to `workspace-connect/use-connect-folder.tsx`'s copy
-// (the two are documented mirrors): the error-name group matches any
-// `*Error:` prefix because main-side rejections arrive with their CLASS name
-// (`AccessError: …`), not the literal `Error:` — BST-1393 L5 live finding.
-const IPC_INVOKE_ENVELOPE =
-  /^Error invoking remote method '[^']+':\s*(?:(?:[A-Za-z][\w$]*)?Error:\s*)?/u;
-
-/**
  * The text a user is shown when an action fails. Always the ORIGINATING
  * message — the main process explains what to do about a revoked grant, and a
- * generic "something went wrong" would throw that remedy away.
+ * generic "something went wrong" would throw that remedy away. The
+ * `ipcRenderer.invoke` envelope (and any `*Error:` class name — main-side
+ * rejections arrive as `AccessError: …`) is IPC plumbing, not something a
+ * user can act on; the ONE shared stripper lives in
+ * `workspace-connect/workspace-connect-bridge.ts` (PR #2686 review: two
+ * hand-maintained regex copies were the exact drift this fixes).
  */
 function describeFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message.replace(IPC_INVOKE_ENVELOPE, '');
+  return stripIpcInvokeEnvelope(message);
 }
 
 /**

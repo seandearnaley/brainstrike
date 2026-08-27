@@ -402,6 +402,29 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
     });
   });
 
+  it('strips a CLASS-named envelope (AccessError) too — the shape main actually throws', async () => {
+    // Main's picker-less gate throws an AccessError, and the class NAME
+    // survives IPC serialization (BST-1393 L5 live finding). This pins the
+    // SHARED stripper (`workspace-connect-bridge.ts`'s
+    // `stripIpcInvokeEnvelope`) from THIS consumer — PR #2686 review: the
+    // previous per-file regex copy was untested here, so reverting its
+    // widening was silently green while this toast showed `AccessError: …`.
+    fs.addRootDirectoryByPath.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'fs:addRootByPath': AccessError: Folder was never granted in this app; use Add Folder to grant it."
+      )
+    );
+    const { result } = await setup();
+    await act(async () => {
+      result.current.onAddRecent?.('/ws/alpha');
+    });
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Folder was never granted in this app; use Add Folder to grant it.',
+      title: "Couldn't open recent folder",
+      variant: 'destructive',
+    });
+  });
+
   it('surfaces a failed Make primary and a failed Remove folder', async () => {
     const { result } = await setup({
       operatingRootDisplayName: 'brainstrike',
