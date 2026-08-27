@@ -1,16 +1,19 @@
-import path from 'node:path';
 import { app } from 'electron';
+import { resolvePythonRuntimeResourcesDir } from './python-runtime-path';
 import { resolvePythonBinary } from './resolve-python-binary';
 
+export * from './python-runtime-path';
 export * from './resolve-python-binary';
 
 function desktopPythonRuntimeResourcesDir(): string {
   // Packaged: electron-builder's extraResources copies
   // resources/python-runtime/ to <Resources>/python-runtime. Dev/unpacked:
   // the fetched tarballs live in the repo's apps/desktop/resources/.
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'python-runtime')
-    : path.join(app.getAppPath(), 'resources', 'python-runtime');
+  return resolvePythonRuntimeResourcesDir({
+    isPackaged: app.isPackaged,
+    mainModulePath: module.filename,
+    resourcesPath: process.resourcesPath,
+  });
 }
 
 /**

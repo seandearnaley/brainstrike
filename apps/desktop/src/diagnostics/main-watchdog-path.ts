@@ -3,9 +3,19 @@ import path from 'node:path';
 const WATCHDOG_WORKER_FILE_NAME = 'main-watchdog-worker.js';
 
 /** Resolve the emitted watchdog worker from a plain filesystem path. */
-export function resolveMainWatchdogWorkerPath(appPath: string, isPackaged: boolean): string {
+export function resolveMainWatchdogWorkerPath(
+  appPath: string,
+  isPackaged: boolean,
+  mainModulePath: string
+): string {
   if (!isPackaged) {
-    return path.join(appPath, 'dist', WATCHDOG_WORKER_FILE_NAME);
+    const mainOutputDir = path.dirname(mainModulePath);
+    if (path.basename(mainModulePath) !== 'main.js' || path.basename(mainOutputDir) !== 'dist') {
+      throw new Error(
+        `Main watchdog worker: Expected development main entry to be dist/main.js, received "${mainModulePath}"`
+      );
+    }
+    return path.join(mainOutputDir, WATCHDOG_WORKER_FILE_NAME);
   }
   if (path.basename(appPath) !== 'app.asar') {
     throw new Error(

@@ -2099,7 +2099,11 @@ if (singleInstanceLockAcquired) {
       // ---------------------------------------------------------------
       attemptMainWatchdogBootstrap(
         () => {
-          const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
+          const workerPath = resolveMainWatchdogWorkerPath(
+            app.getAppPath(),
+            app.isPackaged,
+            module.filename
+          );
           const watchdog = new Worker(workerPath);
           let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
