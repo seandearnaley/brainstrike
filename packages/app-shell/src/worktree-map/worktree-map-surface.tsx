@@ -91,15 +91,37 @@ export function WorktreeMapSurface(): ReactElement {
         );
         return;
       }
+      if (!addRootDirectoryByPath) {
+        // Same desktop-only seam `onAddAsRoot` already gates on below.
+        setActionError('Adding a workspace root by path is unavailable in this build.');
+        return;
+      }
       setActionError(null);
-      void createThread(repository, resourceId)
-        .then((thread) => {
-          selectThread(resourceId, thread.id);
-          publishIntent({
-            branch: card.entry.branch,
-            path: card.entry.path,
-            threadId: thread.id,
-            worktreeId,
+      // Adoption (worktree-map-card-actions → Adopt) only inserts the
+      // brainstrike_worktrees ledger row; it does not mount the checkout as a
+      // workspace root. The intent-consumer's bind (use-workspace-bar.ts's
+      // resolveRootIdAfterReconciliation) waits up to 5s for a LIVE `roots`
+      // row to appear, but nothing ever creates one for a freshly-adopted
+      // worktree, so the wait always exhausts (BST-1392 W5 e2e finding). The
+      // OTHER two flows that bind a thread to a worktree path — creating one
+      // and picking an existing one (use-worktree-mode.ts's `mountWorktree`/
+      // `onSelectExisting`) — both mount first and select second; mirror that
+      // ordering here rather than relying on some other reconciliation to
+      // race the bind.
+      void addRootDirectoryByPath(card.entry.path)
+        .then((handle) => {
+          if (!handle) {
+            setActionError(`Could not add "${card.entry.name}" as a workspace root.`);
+            return;
+          }
+          return createThread(repository, resourceId).then((thread) => {
+            selectThread(resourceId, thread.id);
+            publishIntent({
+              branch: card.entry.branch,
+              path: card.entry.path,
+              threadId: thread.id,
+              worktreeId,
+            });
           });
         })
         .catch((caught: unknown) => {
@@ -107,7 +129,7 @@ export function WorktreeMapSurface(): ReactElement {
           setActionError(errorMessage(caught));
         });
     },
-    [createThread, publishIntent, repository, resourceId, selectThread]
+    [addRootDirectoryByPath, createThread, publishIntent, repository, resourceId, selectThread]
   );
 
   const onAddAsRoot = useCallback(
