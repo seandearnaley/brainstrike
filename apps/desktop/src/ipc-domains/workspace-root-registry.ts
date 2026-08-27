@@ -20,8 +20,9 @@ import { projectReadDenialDiagnostic, projectReadDenialError } from './read-deni
 import {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
+  readRecentRootsOrQuarantine,
   recordRecentRoot,
-  recordRecentRootIfNew,
+  recordRecentRootsIfNew,
   resolveGrantedRootHandle,
 } from './workspace-recent-roots';
 import { WorkspaceRootMountTable } from './workspace-root-mounts';
@@ -130,7 +131,21 @@ export class WorkspaceRootRegistry {
       // storage I/O failure; corruption is quarantined rather than thrown)
       // can no longer leak an already-opened probe capability.
       const entries = await readStoredRootsOrQuarantine(this.storage);
-      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store read has succeeded, so the try/finally owns it from the instant it exists.
+      // Hoisted above the mount+persist mutation below (BST-1400 item 4): a
+      // recentRootsList I/O failure must surface BEFORE anything is mounted
+      // or persisted, not after — mirroring the rootsList read above. Before
+      // this, `recordRecentRoot`'s own internal read ran AFTER
+      // reconcileAddMount/persistAddedRoot had already succeeded, so a
+      // broken ledger left addRoot() rejecting while the root was, in fact,
+      // already mounted and persisted (state divergence). Read
+      // unconditionally on `recordInRecentRoots` — the write below is what's
+      // actually gated by that flag, but the read has to run before the
+      // mutation regardless of it, not conditionally on remembering it
+      // downstream.
+      const recentRootEntries = recordInRecentRoots
+        ? await readRecentRootsOrQuarantine(this.storage)
+        : null;
+      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store reads above have succeeded, so the try/finally owns it from the instant it exists.
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
@@ -162,8 +177,11 @@ export class WorkspaceRootRegistry {
         }
         if (recordInRecentRoots) {
           // The grant happened whether or not rootsList persistence succeeded,
-          // so the ledger records it either way.
-          await recordRecentRoot(this.storage, entry.path);
+          // so the ledger records it either way. Passes the entries read
+          // above rather than letting recordRecentRoot re-read them — the
+          // hoist's whole point is that this write can no longer fail on an
+          // I/O problem the read above would already have surfaced.
+          await recordRecentRoot(this.storage, entry.path, undefined, recentRootEntries ?? []);
           // Same gate as the ledger write above (BST-1393 review finding): a
           // managed-worktree mount passes recordInRecentRoots: false and must
           // not reach the OS recent-documents list either — the registry
@@ -425,13 +443,15 @@ export class WorkspaceRootRegistry {
         await writeStoredRoots(this.storage, storedSurvivors);
       }
       const kindByRootId = await this.loadPersistedRootKinds(recentRootCandidates);
-      for (const entry of recentRootCandidates) {
-        if (kindByRootId.get(entry.rootId) === 'worktree') {
-          continue;
-        }
-        // eslint-disable-next-line react-doctor/async-await-in-loop -- ledger appends are read-modify-write on one storage key and must preserve restore order.
-        await recordRecentRootIfNew(this.storage, entry.path, entry.addedAt);
-      }
+      // BST-1400 item 4: one shared read + at most one shared write for the
+      // whole restored batch, instead of up to two ledger reads PER restored
+      // root (recordRecentRootIfNew's own read plus recordRecentRoot's).
+      const newRecentCandidates = recentRootCandidates.flatMap((entry) =>
+        kindByRootId.get(entry.rootId) === 'worktree'
+          ? []
+          : [{ lastGrantedAt: entry.addedAt, path: entry.path }]
+      );
+      await recordRecentRootsIfNew(this.storage, newRecentCandidates);
       await this.convergeDatabase();
       return descriptors;
     });
