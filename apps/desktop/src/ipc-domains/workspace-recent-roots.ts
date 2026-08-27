@@ -207,21 +207,29 @@ export async function listRecentRootEntries(
  */
 export type ManagedWorktreeAuthorization = 'authorized' | 'managed-but-unauthorized' | 'unmanaged';
 
-type WorkspaceConnectBridgeModule =
-  typeof import('@brainstrike/app-shell/workspace-connect/workspace-connect-bridge');
-
-const WORKSPACE_CONNECT_BRIDGE_MODULE =
-  '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge' as const;
-
 /**
- * Electron main is bundled as CJS while app-shell exposes this dependency-light
- * subpath through its ESM `import` condition. A native dynamic import selects
- * that real export condition; a resolution failure propagates rather than
- * falling back to a duplicated refusal string.
+ * These two messages are the CANONICAL source `use-connect-folder.tsx`'s
+ * refusal-remedy matcher checks against (`WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE(S)`
+ * in `@brainstrike/app-shell/workspace-connect/workspace-connect-bridge`).
+ * Deliberately NOT imported here: Electron main is bundled as CJS while that
+ * app-shell subpath only publishes an ESM `"import"` condition (no `"require"`),
+ * and while a native dynamic `import()` of it DOES resolve at runtime (Node's
+ * default "detect module syntax" fallback reparses the typeless file as ESM —
+ * verified empirically: built the desktop main bundle for real and drove the
+ * refusal path through the actual compiled `dist/main.js` output via the
+ * pinned Electron 43 binary's own bundled Node runtime), it's a fragile,
+ * warning-emitting mechanism for a pure string constant, and the wrong
+ * dependency direction (main should not runtime-depend on a renderer-facing
+ * UI package). Drift between this file and the canonical export is instead
+ * caught at TEST TIME — see `workspace-root-registry-recent-roots.test.ts`'s
+ * canonical-message assertions, which import the app-shell constants through
+ * Vitest's own resolver (unaffected by the Node CJS/ESM package-boundary
+ * problem) and assert this file's actual throw sites still equal them
+ * exactly.
  */
-async function loadWorkspaceConnectBridgeModule(): Promise<WorkspaceConnectBridgeModule> {
-  return import(WORKSPACE_CONNECT_BRIDGE_MODULE);
-}
+const NEVER_GRANTED_MESSAGE = 'Folder was never granted in this app; use Add Folder to grant it.';
+const MANAGED_BUT_UNAUTHORIZED_MESSAGE =
+  'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.';
 
 /**
  * Authorizes a path the app itself created under its managed worktree
@@ -276,12 +284,8 @@ export async function resolveGrantedRootHandle(
   if (granted) {
     return { grantSource: 'recents', handle };
   }
-  const {
-    WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE,
-    WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE: neverGrantedMessage,
-  } = await loadWorkspaceConnectBridgeModule();
   if (!isManagedWorktreePath) {
-    throw new AccessError(neverGrantedMessage, requestedPath, 'read');
+    throw new AccessError(NEVER_GRANTED_MESSAGE, requestedPath, 'read');
   }
 
   let authorization: ManagedWorktreeAuthorization;
@@ -291,15 +295,15 @@ export async function resolveGrantedRootHandle(
     // A broken authorizer must not become an implicit grant, and must not be
     // silent either.
     logger.error('managed-worktree authorization check threw', { error, path: normalized });
-    throw new AccessError(neverGrantedMessage, requestedPath, 'read');
+    throw new AccessError(NEVER_GRANTED_MESSAGE, requestedPath, 'read');
   }
   if (authorization === 'authorized') {
     return { grantSource: 'managed-worktree', handle };
   }
   throw new AccessError(
     authorization === 'managed-but-unauthorized'
-      ? WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE
-      : neverGrantedMessage,
+      ? MANAGED_BUT_UNAUTHORIZED_MESSAGE
+      : NEVER_GRANTED_MESSAGE,
     requestedPath,
     'read'
   );

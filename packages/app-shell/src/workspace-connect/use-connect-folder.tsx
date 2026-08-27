@@ -32,8 +32,20 @@ import {
 
 const logger = createLogger('ConnectFolder');
 
+/**
+ * `ipcRenderer.invoke` prefixes a main-process rejection's message with
+ * `Error invoking remote method '<channel>': Error: ` before it reaches this
+ * hook. Mirrors `IPC_INVOKE_ENVELOPE` in `hooks/use-workspace-bar.ts`'s
+ * `describeFailure` — stripped here too so the never-granted exact-string
+ * match below actually fires in production (a review finding: it never did,
+ * because this comparison was only ever tested against the un-enveloped
+ * message).
+ */
+const IPC_INVOKE_ENVELOPE = /^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/u;
+
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.replace(IPC_INVOKE_ENVELOPE, '');
 }
 
 export interface ConnectFolderApi {
@@ -42,14 +54,22 @@ export interface ConnectFolderApi {
    * without a picker (desktop). Web omits it — no dead entry points.
    */
   readonly connectPath?: ((request: WorkspaceOpenPathRequest) => Promise<void>) | undefined;
-  /** The ordinary OS picker — the same call the Folder chip's Add folder… makes. */
-  readonly openPicker: () => Promise<void>;
+  /**
+   * The ordinary OS picker — the same call the Folder chip's Add folder…
+   * makes. Present only when `isFileSystemAccessSupported()` says so
+   * (BST-1393 review finding: this used to be unconditional, which un-gated
+   * the ⌘K "Open folder…" command on browsers without FSA — Firefox, Safari
+   * — where invoking it always threw). Desktop is unaffected: the Electron
+   * adapter always reports supported.
+   */
+  readonly openPicker?: (() => Promise<void>) | undefined;
 }
 
 export function useConnectFolder(): ConnectFolderApi {
   const fileSystem = useFileSystem();
   const addRootDirectory = fileSystem.addRootDirectory;
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
+  const isFileSystemAccessSupported = fileSystem.isFileSystemAccessSupported;
 
   const openPicker = useCallback(async (): Promise<void> => {
     try {
@@ -119,6 +139,10 @@ export function useConnectFolder(): ConnectFolderApi {
 
   // The CAPABILITY decides whether the entry point exists — gating the spread
   // on `addRootDirectoryByPath` rather than on the callback keeps the
-  // render-time condition free of the callback's own deps.
-  return { openPicker, ...(addRootDirectoryByPath ? { connectPath } : {}) };
+  // render-time condition free of the callback's own deps. Same shape for
+  // `openPicker`, gated on the FSA capability probe.
+  return {
+    ...(isFileSystemAccessSupported().supported ? { openPicker } : {}),
+    ...(addRootDirectoryByPath ? { connectPath } : {}),
+  };
 }

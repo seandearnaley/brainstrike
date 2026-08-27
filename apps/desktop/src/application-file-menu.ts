@@ -27,7 +27,6 @@ export const FILE_MENU_IDS = {
 export const FILE_MENU_RECENT_LIMIT = 10;
 
 export interface FileMenuDeps {
-  readonly onClearRecents: () => void;
   readonly onOpenFolder: () => void;
   readonly onOpenRecentPath: (recentPath: string) => void;
   /** Newest-first, exactly as `listRecentRootEntries` orders them. */
@@ -35,33 +34,29 @@ export interface FileMenuDeps {
 }
 
 export function buildFileMenuTemplate({
-  onClearRecents,
   onOpenFolder,
   onOpenRecentPath,
   recentPaths,
 }: FileMenuDeps): Electron.MenuItemConstructorOptions {
   const visible = recentPaths.slice(0, FILE_MENU_RECENT_LIMIT);
-  const recentSubmenu: Electron.MenuItemConstructorOptions[] =
-    visible.length === 0
-      ? []
-      : [
-          ...visible.map((recentPath) => ({
-            click: () => {
-              onOpenRecentPath(recentPath);
-            },
-            // Basename reads; the full path disambiguates two same-named
-            // folders without making every row a wall of text.
-            label: path.basename(recentPath) || recentPath,
-            toolTip: recentPath,
-          })),
-          { type: 'separator' as const },
-          {
-            click: () => {
-              onClearRecents();
-            },
-            label: 'Clear Menu',
-          },
-        ];
+  // No "Clear Menu" row (BST-1393 review finding, product decision): this
+  // submenu reads main's own recentRootsList ledger, and clearing only the
+  // OS recent-documents list (the one thing this app may safely clear
+  // without silently revoking a picker-less grant) left every row visibly
+  // unchanged after the click — a button that visibly does nothing.
+  // Building real "hide from menu" presentation state to make it work would
+  // preempt "Remove from recents" ([D9]), which the plan already defers as
+  // needing its own factory-reset and corruption story. Removing the item is
+  // the honest fix until that lands for real.
+  const recentSubmenu: Electron.MenuItemConstructorOptions[] = visible.map((recentPath) => ({
+    click: () => {
+      onOpenRecentPath(recentPath);
+    },
+    // Basename reads; the full path disambiguates two same-named
+    // folders without making every row a wall of text.
+    label: path.basename(recentPath) || recentPath,
+    toolTip: recentPath,
+  }));
 
   return {
     label: 'File',

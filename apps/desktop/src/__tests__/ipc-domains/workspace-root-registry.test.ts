@@ -341,6 +341,15 @@ describe('WorkspaceRootRegistry', () => {
     expect(list).toHaveLength(1);
   });
 
+  it('notifies onRootGranted for a plain picker addRoot mount (BST-1393 review finding — fs:addRoot / fs:requestDirectoryAccess path)', async () => {
+    const onRootGranted = vi.fn();
+    const registry = createTestRegistry({ onRootGranted, storage });
+
+    await registry.addRoot(rootHandle('/workspace'));
+
+    expect(onRootGranted).toHaveBeenCalledExactlyOnceWith('/workspace');
+  });
+
   it('removeRoot quarantines a corrupt rootsList without half-deleting state', async () => {
     storage = createStorage({ rootsList: '{not json' });
     const registry = createTestRegistry({ storage });

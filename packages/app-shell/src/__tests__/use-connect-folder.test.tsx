@@ -1,13 +1,19 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { addRootDirectoryByPathMock, addRootDirectoryMock, pickerlessCapabilityRef, toastMock } =
-  vi.hoisted(() => ({
-    addRootDirectoryByPathMock: vi.fn(),
-    addRootDirectoryMock: vi.fn(),
-    pickerlessCapabilityRef: { current: true },
-    toastMock: vi.fn(),
-  }));
+const {
+  addRootDirectoryByPathMock,
+  addRootDirectoryMock,
+  fileSystemAccessSupportedRef,
+  pickerlessCapabilityRef,
+  toastMock,
+} = vi.hoisted(() => ({
+  addRootDirectoryByPathMock: vi.fn(),
+  addRootDirectoryMock: vi.fn(),
+  fileSystemAccessSupportedRef: { current: true },
+  pickerlessCapabilityRef: { current: true },
+  toastMock: vi.fn(),
+}));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({
@@ -15,6 +21,12 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     addRootDirectoryByPath: pickerlessCapabilityRef.current
       ? addRootDirectoryByPathMock
       : undefined,
+    isFileSystemAccessSupported: () => ({
+      reason: fileSystemAccessSupportedRef.current
+        ? ''
+        : 'File system access not supported in this environment',
+      supported: fileSystemAccessSupportedRef.current,
+    }),
   }),
 }));
 
@@ -28,6 +40,7 @@ import { useConnectFolder } from '../workspace-connect/use-connect-folder';
 describe('useConnectFolder', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fileSystemAccessSupportedRef.current = true;
     pickerlessCapabilityRef.current = true;
     addRootDirectoryMock.mockResolvedValue(null);
   });
@@ -64,6 +77,30 @@ describe('useConnectFolder', () => {
       variant: 'destructive',
     });
     expect(String(call?.[0]?.description)).toContain('/w/new');
+    expect(call?.[0]?.action).toBeDefined();
+  });
+
+  it('matches the never-granted refusal even through the ipcRenderer.invoke envelope', async () => {
+    // Real Electron wraps a main-process rejection's message exactly like
+    // this before it reaches the renderer — a review finding: the exact-string
+    // match never fired in production because it was only tested un-enveloped.
+    addRootDirectoryByPathMock.mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'fs:addRootByPath': Error: Folder was never granted in this app; use Add Folder to grant it."
+      )
+    );
+    const { result } = renderHook(() => useConnectFolder());
+
+    await act(async () => {
+      await result.current.connectPath?.({ origin: 'argv', path: '/w/enveloped' });
+    });
+
+    const [call] = toastMock.mock.calls;
+    expect(call?.[0]).toMatchObject({
+      persistent: true,
+      title: 'BrainStrike has not been granted access to this folder',
+      variant: 'destructive',
+    });
     expect(call?.[0]?.action).toBeDefined();
   });
 
@@ -122,11 +159,21 @@ describe('useConnectFolder', () => {
     const { result } = renderHook(() => useConnectFolder());
 
     await act(async () => {
-      await result.current.openPicker();
+      await result.current.openPicker?.();
     });
 
     expect(addRootDirectoryMock).toHaveBeenCalledTimes(1);
     expect(addRootDirectoryByPathMock).not.toHaveBeenCalled();
     expect(toastMock.mock.calls[0]?.[0]).toMatchObject({ variant: 'destructive' });
+  });
+
+  it('is ABSENT when the platform has no File System Access capability', () => {
+    // Firefox/Safari: no showDirectoryPicker, no adapter requestDirectoryAccess.
+    // openPicker must not exist rather than exist-and-always-throw (the ⌘K
+    // "Open folder…" command's isAvailable gates on this presence).
+    fileSystemAccessSupportedRef.current = false;
+    const { result } = renderHook(() => useConnectFolder());
+
+    expect(result.current.openPicker).toBeUndefined();
   });
 });

@@ -123,6 +123,21 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     );
   });
 
+  it('notifies onRootGranted for a recents-ledger picker-less addRootByPath mount (BST-1393 review finding)', async () => {
+    const onRootGranted = vi.fn();
+    const registry = createRegistry({ onRootGranted, storage });
+    await registry.addRoot(rootHandle('/ws/alpha'));
+    onRootGranted.mockClear(); // isolate the addRootByPath re-mount below
+
+    const restored = await registry.restoreRoots();
+    const restoredRootId = restored[0]?.rootId;
+    await registry.removeRoot(restoredRootId as string);
+
+    await registry.addRootByPath('/ws/alpha');
+
+    expect(onRootGranted).toHaveBeenCalledExactlyOnceWith('/ws/alpha');
+  });
+
   it('refreshes a recents-granted addRootByPath entry', async () => {
     vi.useFakeTimers();
     try {

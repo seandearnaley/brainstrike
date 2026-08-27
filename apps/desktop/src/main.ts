@@ -2074,16 +2074,12 @@ if (singleInstanceLockAcquired) {
           ],
         },
       ];
-      const pushToFocusedWindow = (
-        browserWindow: Electron.BrowserWindow | undefined,
-        channel: string,
-        payload?: unknown
-      ): void => {
-        // Same focused-window routing the Cmd+K / Cmd+P items already use:
-        // hidden host windows are never focused and never register the
-        // renderer listener, so this is a no-op there.
-        const targetWindow =
-          browserWindow instanceof BrowserWindow ? browserWindow : BrowserWindow.getFocusedWindow();
+      const pushToFocusedWindow = (channel: string, payload?: unknown): void => {
+        // Menu clicks from application-file-menu.ts don't carry Electron's
+        // click-handler browserWindow through (FileMenuDeps' callbacks are
+        // plain () => void / (path: string) => void) — this always targets
+        // the focused window, same as the Cmd+K / Cmd+P items above.
+        const targetWindow = BrowserWindow.getFocusedWindow();
         if (!targetWindow || targetWindow.isDestroyed()) {
           return;
         }
@@ -2098,19 +2094,11 @@ if (singleInstanceLockAcquired) {
           1,
           template[1]?.label === 'File' ? 1 : 0,
           buildFileMenuTemplate({
-            onClearRecents: () => {
-              // OS-level only. The app's own `recentRootsList` ledger is what
-              // authorizes the picker-less mount, and clearing it here would
-              // silently revoke grants from a menu item labelled "Clear Menu".
-              // Emptying the app ledger is "Remove from recents" — still
-              // deferred (spec §7 [D9]).
-              app.clearRecentDocuments();
-            },
             onOpenFolder: () => {
-              pushToFocusedWindow(undefined, DESKTOP_IPC_CHANNELS.workspace.openFolderPicker);
+              pushToFocusedWindow(DESKTOP_IPC_CHANNELS.workspace.openFolderPicker);
             },
             onOpenRecentPath: (recentPath) => {
-              pushToFocusedWindow(undefined, DESKTOP_IPC_CHANNELS.workspace.openPath, {
+              pushToFocusedWindow(DESKTOP_IPC_CHANNELS.workspace.openPath, {
                 origin: 'menu-recent',
                 path: recentPath,
               });

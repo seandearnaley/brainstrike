@@ -22,7 +22,7 @@ export function WorkspaceConnectHost(): ReactElement | null {
 
   useEffect(() => {
     const bridge = resolveWorkspaceConnectBridge();
-    if (!bridge) {
+    if (!(bridge && openPicker)) {
       return;
     }
     return bridge.onOpenFolderPicker(() => {

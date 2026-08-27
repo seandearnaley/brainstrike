@@ -420,6 +420,7 @@ export function registerFileSystemIpcHandlers({
     disposeCommandSessionsForRoot,
     evictLspServersForRoot: evictLspServerForRoot,
     getRootsDatabase,
+    onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
     resolveCanonicalRoot: async (rootPath) => {
       if (usesSyntheticFileSystem(rootPath)) {
@@ -607,17 +608,18 @@ export function registerFileSystemIpcHandlers({
     roots.restoreRoots()
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () => {
-    const descriptor = await addSelectedRoot();
-    if (descriptor.handle.path) {
-      notifyRootGranted(descriptor.handle.path);
-    }
-    return descriptor;
-  });
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () =>
+    addSelectedRoot()
+  );
 
   // Picker-less: main's recent-roots ledger is the only authorization, so an
   // unrecorded path is rejected there rather than granted from a renderer
   // string. The shape check stays here so a malformed payload never reaches it.
+  // The grant-notification callback (recents pushed to OS recent-documents +
+  // File-menu rebuild) fires structurally from inside WorkspaceRootRegistry.addRoot,
+  // gated on the SAME recordInRecentRoots flag that decides ledger recording —
+  // see onRootGranted on the `roots` construction above — so this handler
+  // does not need to call it itself.
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.addRootByPath,
@@ -625,11 +627,7 @@ export function registerFileSystemIpcHandlers({
       if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
         throw new Error('fs:addRootByPath requires a non-empty path.');
       }
-      const descriptor = await roots.addRootByPath(requestedPath);
-      if (descriptor.handle.path) {
-        notifyRootGranted(descriptor.handle.path);
-      }
-      return descriptor;
+      return roots.addRootByPath(requestedPath);
     }
   );
 
