@@ -3,7 +3,8 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { type ContextMenuTargetController, useContextMenuTarget } from '@brainstrike/ui';
 import { type RefObject, useCallback, useMemo, useRef, useState } from 'react';
-import { buildWorkspaceRootLocalActions, workspaceRootToTarget } from '../context-actions';
+import { buildWorkspaceRootLocalActions } from '../context-actions/workspace-root-local-actions';
+import { workspaceRootToTarget } from '../context-actions/workspace-root-target';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 
