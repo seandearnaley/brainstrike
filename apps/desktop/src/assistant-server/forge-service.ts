@@ -6,11 +6,12 @@
  * THERE IS NO TIMER IN THIS FILE, and there must never be one (pinned by a
  * source assertion in `forge-service.test.ts`). Polling is alien to main:
  * every other main-side service is watcher + debounce + TTL. Refreshes are
- * driven by three events, each with its own floor:
+ * driven by four events, each with its own floor:
  *
  * - `invalidation` (0 ms) — the git-metadata watcher saw refs move on this
  *   repository, i.e. a push/fetch actually happened. Never throttled: the one
  *   moment the remote state is known to have changed is the moment to look.
+ * - `shell` (0 ms) — the agent's own shell command created a pull request.
  * - `user` (0 ms) — the PrChip popover's explicit Refresh.
  * - `window` (60 s) — the chip mounted, or the window regained focus.
  *
@@ -54,6 +55,8 @@ export type { ForgeIdentityState, ForgeRefreshReason } from '@brainstrike/types'
 /** Minimum time since the last gh fetch for a `(repo, branch)` key, per reason. */
 export const FORGE_REFRESH_MIN_INTERVAL_MS: Readonly<Record<ForgeRefreshReason, number>> = {
   invalidation: 0,
+  // A `gh pr create` we just watched happen is the freshest possible trigger.
+  shell: 0,
   user: 0,
   window: 60_000,
 };

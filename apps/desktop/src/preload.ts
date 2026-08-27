@@ -1426,7 +1426,7 @@ if (shouldExposeBridge('forge')) {
     prStatus: (rootId: string) => ipcRenderer.invoke(FORGE_PR_STATUS_CHANNEL, rootId),
     refresh: (
       rootId: string,
-      params: { readonly reason: import('@brainstrike/types').ForgeRefreshReason }
+      params: { readonly reason: import('@brainstrike/types').ForgeRendererRefreshReason }
     ) => ipcRenderer.invoke(FORGE_REFRESH_CHANNEL, rootId, params),
   });
 }

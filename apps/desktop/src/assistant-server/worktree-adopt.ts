@@ -195,6 +195,217 @@ export async function adoptWorktree(
   return { ok: true, value: row };
 }
 
+/** One `git worktree move` inferred (never rewritten) during a shell reconcile. */
+export interface LikelyWorktreeMove {
+  readonly branch: string;
+  readonly newPath: string;
+  readonly vanishedLedgerId: string;
+  readonly vanishedPath: string;
+}
+
+export interface WorktreeShellReconcileResult {
+  readonly adopted: readonly ManagedWorktreeRow[];
+  /**
+   * New, unmanaged paths that were NOT adopted because their branch matches a
+   * ledger row that vanished from disk in this SAME delta — i.e. a
+   * `git worktree move` (reachable through composite shell commands even
+   * though the scanner does not trigger on a bare `move`). Adopting the
+   * destination as a brand-new row would fabricate a false "created" event
+   * and silently orphan the original row's identity, thread, and lineage as
+   * an unexplained ghost. This is reported loudly instead: the ledger
+   * identity is NOT rewritten here (ticket-worthy real feature, not a
+   * bounded fail-closed guard), so the vanished row still surfaces via
+   * `vanishedLedgerIds` as a "missing on disk" ghost until a human or a
+   * future move-aware reconciler resolves it.
+   */
+  readonly likelyMoves: readonly LikelyWorktreeMove[];
+  /**
+   * Live ledger rows whose directory is no longer on disk. Reported, NOT
+   * archived: an archive carries a restorable snapshot, and a `git worktree
+   * remove` run in a shell produced none. `list()` already renders these as
+   * ghost rows reading "missing on disk — restore it or archive it", which is
+   * the honest surface for a removal the app did not perform.
+   */
+  readonly vanishedLedgerIds: readonly string[];
+}
+
+type ReconcileCandidate =
+  | { readonly kind: 'attributable' }
+  | { readonly kind: 'likely-move'; readonly move: LikelyWorktreeMove }
+  | { readonly kind: 'not-attributable' };
+
+/**
+ * Pure classification of ONE on-disk worktree against the delta this
+ * reconcile pass is looking at — kept out of `reconcileWorktreesFromShell`
+ * itself so that function's own branching (repository lookup, the
+ * has-a-snapshot fork, the adopt/skip result) stays legible on its own.
+ *
+ * `'likely-move'` is the `git worktree move` guard (BST-1392 review, P1): a
+ * move is reachable through composite shell commands even though the scanner
+ * does not trigger on a bare `move`. Naively adopting the destination would
+ * create a NEW ledger row (a false "created" event) while the original row
+ * silently becomes an unexplained ghost — identity, thread, and lineage all
+ * lost. A branch match against a row that vanished in this SAME delta is the
+ * bounded, fail-closed signal for "this is probably that row's worktree,
+ * moved". Ledger identity is deliberately NOT rewritten here — that is a
+ * real, ticket-worthy feature (matching move semantics correctly needs more
+ * than a branch heuristic), not something to improvise inline.
+ */
+function classifyReconcileCandidate(
+  descriptor: WorktreeDescriptor,
+  repositoryRoot: string,
+  precedingWorktreePaths: ReadonlySet<string>,
+  vanishedRows: readonly ManagedWorktreeRow[]
+): ReconcileCandidate {
+  // The primary checkout is not a managed worktree; adopting it would put the
+  // user's own clone under archive/restore machinery.
+  if (descriptor.path === repositoryRoot) {
+    return { kind: 'not-attributable' };
+  }
+  // Existed BEFORE this command ran — not this run's doing, whatever it is.
+  // Never attribute it here, even if it is genuinely unmanaged.
+  if (precedingWorktreePaths.has(descriptor.path)) {
+    return { kind: 'not-attributable' };
+  }
+  const { branch } = descriptor;
+  const movedFrom = branch === null ? undefined : vanishedRows.find((row) => row.branch === branch);
+  if (branch !== null && movedFrom) {
+    return {
+      kind: 'likely-move',
+      move: {
+        branch,
+        newPath: descriptor.path,
+        vanishedLedgerId: movedFrom.id,
+        vanishedPath: movedFrom.path,
+      },
+    };
+  }
+  return { kind: 'attributable' };
+}
+
+/**
+ * The attributable-delta pass: classify and (unless it is a likely move)
+ * adopt every on-disk worktree that is new since `precedingWorktreePaths` was
+ * captured. Split out of `reconcileWorktreesFromShell` purely to keep that
+ * function's own branching (repository lookup, the has-a-snapshot fork)
+ * legible — this loop is the only place that needs the classification result.
+ */
+async function adoptAttributableWorktrees(
+  deps: WorktreeAdoptDeps,
+  params: {
+    readonly precedingWorktreePaths: ReadonlySet<string>;
+    readonly repository: GitInventory['repositories'][number];
+    readonly runId?: string;
+    readonly threadId?: string;
+    readonly vanishedRows: readonly ManagedWorktreeRow[];
+  }
+): Promise<{ readonly adopted: ManagedWorktreeRow[]; readonly likelyMoves: LikelyWorktreeMove[] }> {
+  const adopted: ManagedWorktreeRow[] = [];
+  const likelyMoves: LikelyWorktreeMove[] = [];
+  for (const descriptor of params.repository.worktrees) {
+    const candidate = classifyReconcileCandidate(
+      descriptor,
+      params.repository.identity.repositoryRoot,
+      params.precedingWorktreePaths,
+      params.vanishedRows
+    );
+    if (candidate.kind === 'not-attributable') {
+      continue;
+    }
+    if (candidate.kind === 'likely-move') {
+      likelyMoves.push(candidate.move);
+      logger.warn(
+        'shell reconcile skipped a likely `git worktree move`, not adopting',
+        candidate.move
+      );
+      continue;
+    }
+    const result = await adoptWorktree(deps, {
+      createdBy: 'agent',
+      path: descriptor.path,
+      ...(params.runId ? { runId: params.runId } : {}),
+      ...(params.threadId ? { threadId: params.threadId } : {}),
+    });
+    if (result.ok) {
+      adopted.push(result.value);
+      continue;
+    }
+    logger.debug('shell reconcile skipped a worktree', {
+      path: descriptor.path,
+      reason: result.error,
+    });
+  }
+  return { adopted, likelyMoves };
+}
+
+/**
+ * Re-derive the ledger for ONE repository after the agent's shell touched
+ * worktrees (spec §6.4). Nothing here trusts the command text: the live
+ * inventory is the authority for what exists, so an unparseable
+ * `git worktree add "$DIR/$(date +%s)"` reconciles exactly as well as a literal
+ * path would.
+ *
+ * Adoption is limited to the delta from a verified pre-command snapshot. A
+ * worktree that already existed before this command is not attributable to
+ * this run, even when it has no ledger row. Without that snapshot the safe
+ * result is to report vanished rows while adopting nothing.
+ */
+export async function reconcileWorktreesFromShell(
+  deps: WorktreeAdoptDeps,
+  params: {
+    readonly precedingWorktreePaths: ReadonlySet<string> | undefined;
+    readonly repoCommonDir: string;
+    readonly runId?: string;
+    readonly threadId?: string;
+  }
+): Promise<GitResult<WorktreeShellReconcileResult>> {
+  const inventory = await deps.resolveInventory();
+  const repository = inventory.repositories.find(
+    (candidate) => candidate.identity.gitCommonDir === params.repoCommonDir
+  );
+  if (!repository) {
+    return {
+      error: `No repository with common dir "${params.repoCommonDir}" is in the workspace inventory.`,
+      ok: false,
+    };
+  }
+  const onDiskPaths = new Set(repository.worktrees.map((descriptor) => descriptor.path));
+  const activeRows = await deps.ledger.listActive();
+  // A single pass (RD 6): both the ghost-row ids AND the full rows are needed
+  // below (the move guard matches on `branch`, `id`, and `path`), so a
+  // filter().map() chain would just force a second derivation from the same
+  // predicate.
+  const vanishedRows: ManagedWorktreeRow[] = [];
+  for (const row of activeRows) {
+    if (row.repoCommonDir === params.repoCommonDir && !onDiskPaths.has(row.path)) {
+      vanishedRows.push(row);
+    }
+  }
+  const vanishedLedgerIds = vanishedRows.map((row) => row.id);
+
+  if (params.precedingWorktreePaths === undefined) {
+    // Mis-attribution guard (BST-1392 review): without a verified pre-command
+    // snapshot, there is no honest way to tell "this run created it" from
+    // "this was already sitting on disk" — a scanner false positive
+    // (quote-blindness on a heredoc/quoted string) plus an unconditional
+    // adopt-everything-unmanaged pass would durably attribute a user's own
+    // externally-created checkout (Claude Code, Codex, ...) to this run.
+    // Fail closed: report what vanished (safe either way), adopt nothing.
+    logger.warn('shell reconcile skipped adoption: no pre-command worktree snapshot was captured', {
+      repoCommonDir: params.repoCommonDir,
+    });
+    return { ok: true, value: { adopted: [], likelyMoves: [], vanishedLedgerIds } };
+  }
+  const { adopted, likelyMoves } = await adoptAttributableWorktrees(deps, {
+    precedingWorktreePaths: params.precedingWorktreePaths,
+    repository,
+    ...(params.runId ? { runId: params.runId } : {}),
+    ...(params.threadId ? { threadId: params.threadId } : {}),
+    vanishedRows,
+  });
+  return { ok: true, value: { adopted, likelyMoves, vanishedLedgerIds } };
+}
+
 /**
  * The working-tree + upstream state of ONE checkout. The path must be a
  * worktree the live inventory reports — the same authority `adoptWorktree`

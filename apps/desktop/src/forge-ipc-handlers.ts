@@ -14,7 +14,7 @@ import { createLogger } from '@brainstrike/logging';
 import type {
   ForgeIdentityState,
   ForgePrStatus,
-  ForgeRefreshReason,
+  ForgeRendererRefreshReason,
   ForgeResult,
   GitForgeRepositoryContext,
 } from '@brainstrike/types';
@@ -29,12 +29,12 @@ const REFRESH_REASONS = {
   invalidation: true,
   user: true,
   window: true,
-} as const satisfies Record<ForgeRefreshReason, true>;
+} as const satisfies Record<ForgeRendererRefreshReason, true>;
 
-const REFRESH_REASON_KEYS = Object.keys(REFRESH_REASONS) as readonly ForgeRefreshReason[];
+const REFRESH_REASON_KEYS = Object.keys(REFRESH_REASONS) as readonly ForgeRendererRefreshReason[];
 
-/** Type guard so a future `ForgeRefreshReason` union member can't be silently rejected. */
-function isForgeRefreshReason(value: string): value is ForgeRefreshReason {
+/** Type guard so a future renderer refresh reason can't be silently rejected. */
+function isForgeRefreshReason(value: string): value is ForgeRendererRefreshReason {
   return Object.hasOwn(REFRESH_REASONS, value);
 }
 
@@ -60,7 +60,7 @@ function requireRootId(rootId: unknown): ForgeResult<string> {
   return { ok: true, value: rootId.trim() };
 }
 
-function requireReason(params: unknown): ForgeResult<ForgeRefreshReason> {
+function requireReason(params: unknown): ForgeResult<ForgeRendererRefreshReason> {
   const reason =
     typeof params === 'object' && params !== null
       ? (params as { reason?: unknown }).reason

@@ -11,6 +11,7 @@ import type { DesktopEnvLoadFailure } from '../desktop-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { AssistantServerAuth } from './auth';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { ForgeService } from './forge-service';
 import type { OpenRouterModelMetadataService } from './openrouter-model-metadata';
 import type { ProviderVerificationService } from './provider-verification';
 import type { SnapshotRepository } from './snapshot-repository';
@@ -53,6 +54,11 @@ export interface AssistantServerOptions {
   openRouterModelMetadataService?: OpenRouterModelMetadataService;
   /** BST-1357 credential-verification probes; module-level default when unset. */
   providerVerificationService?: ProviderVerificationService;
+  /**
+   * Lazily resolved because `main.ts` constructs the ForgeService at
+   * `app.whenReady()` while the assistant server starts from the same phase.
+   */
+  resolveForgeService?: (() => ForgeService | null) | undefined;
   /**
    * Lazily resolved because `main.ts` constructs the WorktreeService at
    * `app.whenReady()` while the assistant server starts from the same phase —

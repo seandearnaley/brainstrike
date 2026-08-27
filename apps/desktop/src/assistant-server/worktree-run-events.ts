@@ -79,6 +79,27 @@ export async function emitWorktreeAdoptedEvent(
   }));
 }
 
+/** `worktree.created` for a worktree the AGENT made in a shell (spec §6.4). */
+export async function emitWorktreeShellCreatedEvent(
+  deps: WorktreeRunEventDeps,
+  runId: string | null | undefined,
+  worktree: ManagedWorktreeRow
+): Promise<void> {
+  await emit(deps, runId, 'worktree.created', () => ({
+    detail: worktree.branch ?? 'detached HEAD',
+    // "via shell" in the label, not just the metadata: the timeline must say
+    // out loud that BrainStrike did not perform this operation, it observed it.
+    label: `Agent created worktree ${path.basename(worktree.path)} (via shell)`,
+    metadata: {
+      branch: worktree.branch,
+      path: worktree.path,
+      via: 'shell',
+      worktreeId: worktree.id,
+    },
+    status: 'info',
+  }));
+}
+
 /** `worktree.created`, plus `worktree.setup` when setup ran (status !== 'none'). */
 export async function emitWorktreeCreateEvents(
   deps: WorktreeRunEventDeps,

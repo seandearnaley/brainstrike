@@ -2052,6 +2052,7 @@ if (singleInstanceLockAcquired) {
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
+          resolveForgeService: () => forgeService ?? null,
           resolveWorktreeService: () => worktreeService,
           // T1 injection point (BST-1164): the run-persistence seam's snapshot
           // deps — threaded, not yet consumed (T2's turn-boundary triggers
