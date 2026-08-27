@@ -340,10 +340,15 @@ test.describe('Worktree Map (desktop)', () => {
     await expect(page.getByTestId('terminal-panel-clear-target')).toBeVisible();
 
     // And it is a REAL shell in that directory, not just a label: `pwd` is the
-    // falsifier a header-only assertion cannot provide.
+    // falsifier a header-only assertion cannot provide. Checked against
+    // `worktrees/<name>` rather than the bare basename — the bare basename can
+    // also appear in the shell PROMPT itself (zsh's default prompt shows the
+    // cwd's last segment), so a prompt-only match would satisfy this assertion
+    // even if `pwd`'s own output never printed. The two-segment fragment only
+    // ever appears in the real pwd output line.
     await page.getByTestId('terminal-host').click();
     await page.keyboard.type('pwd\r');
-    await expect(page.locator('.xterm-rows')).toContainText(path.basename(worktree), {
+    await expect(page.locator('.xterm-rows')).toContainText('worktrees/terminal-nested', {
       timeout: 30_000,
     });
   });
