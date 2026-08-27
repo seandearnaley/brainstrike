@@ -137,11 +137,21 @@ export class WorkspaceRootRegistry {
       // this, `recordRecentRoot`'s own internal read ran AFTER
       // reconcileAddMount/persistAddedRoot had already succeeded, so a
       // broken ledger left addRoot() rejecting while the root was, in fact,
-      // already mounted and persisted (state divergence). Read
-      // unconditionally on `recordInRecentRoots` — the write below is what's
-      // actually gated by that flag, but the read has to run before the
-      // mutation regardless of it, not conditionally on remembering it
-      // downstream.
+      // already mounted and persisted (state divergence). Positioned before
+      // the mutation regardless; gated on `recordInRecentRoots` because that
+      // flag is the only thing that can consume it (PR #2685 review: the
+      // read itself IS conditional on this flag — only its POSITION, above
+      // the mutation, is unconditional).
+      //
+      // The invariant throw below (`recentRootEntries === null`) sits AFTER
+      // reconcileAddMount/persistAddedRoot, so tripping it would reintroduce
+      // exactly the mount-succeeded-but-addRoot-rejected divergence this
+      // hoist exists to remove. Acceptable for a genuinely unreachable
+      // invariant (see that throw's own comment) — reading unconditionally
+      // instead (dropping this ternary and the `null` case entirely) would
+      // make the correlation a type-level fact rather than a runtime
+      // assertion, at the cost of one extra storage read on the
+      // managed-worktree path.
       const recentRootEntries = recordInRecentRoots
         ? await readRecentRootsOrQuarantine(this.storage)
         : null;
