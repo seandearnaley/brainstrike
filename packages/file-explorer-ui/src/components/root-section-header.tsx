@@ -62,6 +62,15 @@ export interface RootSectionHeaderProps {
    * same never-nest-interactive-elements reason as selectionControl.
    */
   statusControl?: React.ReactNode | undefined;
+  /**
+   * Forwarded ref to the toggle button, so a caller (the root context menu's
+   * `onCloseAutoFocus`) can restore focus to a REAL DOM node directly rather
+   * than a testid-keyed `querySelector`, which silently no-ops on a rename
+   * (NO SILENT FALLBACKS) and — because supplying `onCloseAutoFocus` at all
+   * suppresses Radix's own trigger-focus restoration — would leave focus on
+   * nothing with no failing test.
+   */
+  toggleButtonRef?: React.Ref<HTMLButtonElement> | undefined;
 }
 
 /**
@@ -90,6 +99,7 @@ export const RootSectionHeader = ({
   reserveFloatingActionsClearance,
   selectionControl,
   statusControl,
+  toggleButtonRef,
 }: RootSectionHeaderProps) => {
   const ChevronIcon = isCollapsed ? ChevronRight : ChevronDown;
   const chevronLabel = isCollapsed ? 'Expand section' : 'Collapse section';
@@ -124,6 +134,7 @@ export const RootSectionHeader = ({
         }`}
         data-testid="root-section-header"
         onClick={onToggleCollapse}
+        ref={toggleButtonRef}
         type="button"
       >
         <ChevronIcon aria-label={chevronLabel} className="h-3 w-3 shrink-0" />

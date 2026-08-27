@@ -1114,17 +1114,21 @@ Create `packages/app-shell/src/__tests__/use-create-thread-in-folder.test.ts` co
 
 Create `packages/app-shell/src/hooks/use-create-thread-in-folder.ts` holding the body of `handleCreateThreadInFolder` verbatim (doc comment included), parameterized as:
 
+**(corrected at execution: plan defect — `path?: string | undefined` below does NOT structurally accept `ThreadFolderRow`'s `path: string | null` under `exactOptionalPropertyTypes: true`. Verified directly with `tsc --strict --exactOptionalPropertyTypes`: assigning a `ThreadFolderRow` to a `path?: string | undefined`-shaped binding is a compile error ("Type 'string | null' is not assignable to type 'string | undefined'"), and so is assigning the resulting callback to `onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null` by parameter contravariance. `ThreadFolderRow.path` is REQUIRED `string | null` (not optional), so `ThreadFolderBinding.path` must match that shape exactly — not the `WorkspaceRootTargetInput`-style optional-key idiom Task 1 uses for a different reason (there, the key is genuinely absent for some callers). Below reflects the corrected type; the hook body is UNCHANGED because it already gates on `folder.path` by truthiness (`...(folder.path ? { operatingRootPath: folder.path } : {})`), which works identically whether `path` is `null` or `undefined`.)**
+
 ```ts
 export interface ThreadFolderBinding {
   readonly displayName: string;
-  readonly path?: string | undefined;
+  readonly path: string | null;
   readonly rootId: string;
 }
 
 export function useCreateThreadInFolder(): ((folder: ThreadFolderBinding) => void) | null;
 ```
 
-It resolves `repository`, `resourceId`, `createThread` and `updateThreadMetadata` from the same stores `threads-panel.tsx` reads them from, and returns `null` while the repository is unresolved (mirroring `onNewThreadInFolder={repository ? … : null}`). Then in `threads-panel.tsx` replace the inline `handleCreateThreadInFolder` `useCallback` with `const handleCreateThreadInFolder = useCreateThreadInFolder();` and pass it straight through — `ThreadFolderRow` structurally satisfies `ThreadFolderBinding`, so the call site at `:3440` becomes `onNewThreadInFolder={handleCreateThreadInFolder}`.
+It resolves `repository`, `resourceId`, `createThread` and `updateThreadMetadata` from the same stores `threads-panel.tsx` reads them from, and returns `null` while the repository is unresolved (mirroring `onNewThreadInFolder={repository ? … : null}`). Then in `threads-panel.tsx` replace the inline `handleCreateThreadInFolder` `useCallback` with `const handleCreateThreadInFolder = useCreateThreadInFolder();` and pass it straight through — `ThreadFolderRow` now structurally MATCHES `ThreadFolderBinding` exactly (both `path: string | null`, required), so the call site at `:3440` becomes `onNewThreadInFolder={handleCreateThreadInFolder}`.
+
+**Downstream consequence for Step 4's `run` implementation below:** because `ThreadFolderBinding.path` is REQUIRED (not optional), the "New Thread Here" action must pass `path: target.path` directly — `target.path` is already `string | null` on a `workspace-root` target, so no conditional spread is needed or correct there; a conditional spread would OMIT the key when `null`, which is now a missing-required-property error, not a permissible optional omission.
 
 > **Regression floor:** `threads-panel.tsx` is on the `noExcessiveLinesPerFile` allowlist, so this extraction is for correctness (one writer), not for the ceiling. `apps/desktop/e2e/threads-panel-folders.desktop.test.ts` already proves "New thread here" binds; run it in Layer 5 to prove the extraction changed nothing.
 
@@ -1190,6 +1194,20 @@ Cases:
   it('omits New thread here while the thread repository is unresolved', () => {
     // useCreateThreadInFolder returns null → absent, not a dead row.
   });
+
+  it('starts a thread for a pathless root, passing path: null explicitly (not omitted)', async () => {
+    // (added at execution, alongside the ThreadFolderBinding defect fix
+    // above): `target.path` on a `webRoot` is `null`, and `path` is now a
+    // REQUIRED field on `ThreadFolderBinding` — the falsifier for a
+    // regression back to the conditional-spread-away-when-null shape.
+    const newThread = renderHook(() => useWorkspaceRootActions()).result.current[1];
+    await newThread?.run(webRoot, {});
+    expect(createThreadInFolderMock).toHaveBeenCalledExactlyOnceWith({
+      displayName: 'notes',
+      path: null,
+      rootId: 'root-web-1',
+    });
+  });
 ```
 
 - [ ] **Step 4 (GREEN): the hook**
@@ -1253,9 +1271,13 @@ export function useWorkspaceRootActions(): readonly AnyContextAction[] {
           id: 'workspace-root.new-thread-here',
           label: 'New Thread Here',
           run: (target) => {
+            // (corrected at execution: `ThreadFolderBinding.path` is
+            // REQUIRED `string | null` — see the Step 2 defect note — so
+            // this passes `target.path` directly rather than conditionally
+            // spreading it away when null.)
             createThreadInFolder({
               displayName: target.displayName,
-              ...(target.path === null ? {} : { path: target.path }),
+              path: target.path,
               rootId: target.rootId,
             });
             return Promise.resolve({ ok: true });
@@ -1933,7 +1955,9 @@ export function WorkspaceConnectHost(): ReactElement | null {
 
 - [ ] **Step 4 (GREEN): mount it**
 
-In `apps/desktop/src/renderer/components/root-layout-content.tsx`, import `WorkspaceConnectHost` from `@brainstrike/app-shell` and render it as a sibling of the existing `CommandPaletteHost` / `QuickOpenHost` mounts. Export it from `packages/app-shell/src/index.ts` beside those two.
+**(corrected at execution: defect #4 — `CommandPaletteHost` and `QuickOpenHost` do NOT live in `apps/desktop/src/renderer/components/root-layout-content.tsx`; they are mounted in the SHARED `packages/app-shell/src/root-layout-content.tsx` (verified: `grep -n "CommandPaletteHost\|QuickOpenHost"` returns hits only in the app-shell file, none in the desktop one). The desktop file is a thinner wrapper OUTSIDE `FileSystemProvider`'s subtree (it wraps `AppLayout`, which is where the provider tree lives), so mounting `WorkspaceConnectHost` there as originally written would throw on first render the first time it calls `useFileSystem()`. Mount it in `packages/app-shell/src/root-layout-content.tsx` instead, as a sibling of the existing `<CommandPaletteHost />` / `<QuickOpenHost />` renders — inside the same subtree those two already rely on.)**
+
+In `packages/app-shell/src/root-layout-content.tsx`, import `WorkspaceConnectHost` and render it as a sibling of the existing `CommandPaletteHost` / `QuickOpenHost` mounts. Export it from `packages/app-shell/src/index.ts` beside those two.
 
 **Desktop-only by mounting, not by check:** `apps/web` never renders it. Even if it did, `resolveWorkspaceConnectBridge()` returns `null` there.
 

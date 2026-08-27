@@ -1,6 +1,7 @@
 import type { AnyContextAction } from '@brainstrike/context-actions';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import {
   ActionContextMenu,
@@ -35,6 +36,8 @@ import {
 } from './file-explorer-provider';
 import { useOptionalForestTreeActions } from './forest-tree-actions-context';
 import { useSelectionManager } from './use-selection-manager-context';
+
+const logger = createLogger('FileExplorerSidebar');
 
 // Shown when the workspace has no active roots. Multi-root: the workspace can
 // hold many folders, so this prompts adding one rather than "selecting a root".
@@ -766,16 +769,24 @@ const RootSectionInner = ({
     [rootActions, setMainRoot]
   );
 
-  const headerRowRef = useRef<HTMLDivElement | null>(null);
+  const toggleButtonRef = useRef<HTMLButtonElement | null>(null);
   const focusRootHeader = useCallback(() => {
     // Radix's delayed trigger restoration is prevented by supplying this
-    // callback at all, so it must land focus somewhere real. The header's
-    // toggle button is the deterministic live fallback for this surface — it
-    // is never virtualized away while the section is mounted.
-    headerRowRef.current
-      ?.querySelector<HTMLButtonElement>('[data-testid="root-section-header"]')
-      ?.focus();
-  }, []);
+    // callback at all, so it must land focus somewhere real. A forwarded ref
+    // to the header's own toggle button — never a testid-keyed
+    // `querySelector`, which would silently no-op on a rename (NO SILENT
+    // FALLBACKS) and, because `onCloseAutoFocus` already suppresses Radix's
+    // own trigger-focus restoration, leave focus on nothing with no failing
+    // test.
+    const button = toggleButtonRef.current;
+    if (!button) {
+      logger.error('focusRootHeader: toggle button ref is unset; focus restoration failed', {
+        rootIdentity,
+      });
+      return;
+    }
+    button.focus();
+  }, [rootIdentity]);
 
   const handleDisconnectRequest = useCallback(() => {
     setIsDisconnectDialogOpen(true);
@@ -810,7 +821,7 @@ const RootSectionInner = ({
         localActions={rootMenuActions}
         onCloseAutoFocus={focusRootHeader}
       >
-        <div className="contents" onContextMenuCapture={resetRootTarget} ref={headerRowRef}>
+        <div className="contents" onContextMenuCapture={resetRootTarget}>
           <RootSectionHeader
             displayName={rootDirectoryHandle.name}
             isCollapsed={isCollapsed}
@@ -846,6 +857,7 @@ const RootSectionInner = ({
                 <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
               </span>
             }
+            toggleButtonRef={toggleButtonRef}
           />
         </div>
       </ActionContextMenu>
