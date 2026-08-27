@@ -78,6 +78,45 @@ export interface UseTerminalSessionResult {
 /** Min interval (ms) between resize→fit→bridge.resize commits while dragging. */
 const RESIZE_DEBOUNCE_MS = 100;
 
+/** Every timer/subscription the lifecycle effect below can own, at the point cleanup runs. */
+interface TerminalSessionHandles {
+  readonly offData: (() => void) | null;
+  readonly offExit: (() => void) | null;
+  readonly offInput: (() => void) | null;
+  readonly resizeObserver: ResizeObserver | null;
+  readonly resizeTimer: ReturnType<typeof setTimeout> | null;
+  readonly retryTimer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * Tears down every timer/subscription the lifecycle effect below may have
+ * created, pulled out of the effect's own `return () => {...}` so THAT
+ * function stays a single, low-complexity call to this one rather than six
+ * inline null-checks. Each handle is independently nullable because the
+ * effect can unmount before any of them were ever created (e.g. `cancelled`
+ * before `bridge.create()` resolves).
+ */
+function disposeTerminalSessionHandles(handles: TerminalSessionHandles): void {
+  if (handles.retryTimer !== null) {
+    clearTimeout(handles.retryTimer);
+  }
+  if (handles.resizeTimer !== null) {
+    clearTimeout(handles.resizeTimer);
+  }
+  if (handles.resizeObserver !== null) {
+    handles.resizeObserver.disconnect();
+  }
+  if (handles.offData !== null) {
+    handles.offData();
+  }
+  if (handles.offExit !== null) {
+    handles.offExit();
+  }
+  if (handles.offInput !== null) {
+    handles.offInput();
+  }
+}
+
 /**
  * Owns the imperative xterm Terminal + `window.terminal` pty session for ONE
  * checkout — the focused workspace root, or a pinned target inside it
@@ -144,6 +183,7 @@ export function useTerminalSession(
   // value. A stale outcome (sessionId mismatch) is ignored during render.
   const [tagged, setTagged] = useState<TaggedOutcome | null>(null);
 
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- Confirmed pre-existing on the PR base tip (3d54958160, full-scope scan reproduces it there too); scope-changed's line-shift-sensitive diff misclassifies it as new whenever code above this effect moves. The rule's own docs name this exact failure mode ("descends into every nested function" to find registrations but checks only the top-level/returned function for cleanup) and its explicit skip criterion: "A returned cleanup does release the resource even if the matcher missed it" -- which this one does, for every handle (retryTimer, resizeTimer, resizeObserver, offData, offExit, offInput) via disposeTerminalSessionHandles() below. The resizeObserver branch is spy-tested: terminal-panel.test.tsx's "unsubscribes and destroys the pty on unmount" asserts resizeObserverDisconnect was called.
   useEffect(() => {
     if (!(bridge && rootId && container)) {
       return;
@@ -152,7 +192,16 @@ export function useTerminalSession(
     let cancelled = false;
     let terminalId: string | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    const disposers: Array<() => void> = [];
+    // Every subscription/timer this effect can create is hoisted to THIS
+    // scope (never declared inside the `.then()` success branch below) so
+    // the cleanup at the bottom has one textually-visible teardown call per
+    // allocation — no dynamically-built array of closures for a static
+    // reader (human or tool) to trace through.
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let offData: (() => void) | null = null;
+    let offExit: (() => void) | null = null;
+    let offInput: (() => void) | null = null;
 
     const term = new Terminal({
       convertEol: false,
@@ -231,16 +280,15 @@ export function useTerminalSession(
 
         // pty output → surrogate-safe reassembly → xterm.
         const surrogates = new SurrogateBuffer();
-        const offData = bridge.onData((event) => {
+        offData = bridge.onData((event) => {
           if (event.terminalId !== liveId) {
             return;
           }
           term.write(surrogates.push(event.data));
         });
-        disposers.push(offData);
 
         // pty exit → exit outcome (the panel offers a restart).
-        const offExit = bridge.onExit((event) => {
+        offExit = bridge.onExit((event) => {
           if (event.terminalId !== liveId) {
             return;
           }
@@ -255,12 +303,11 @@ export function useTerminalSession(
             sessionKey,
           });
         });
-        disposers.push(offExit);
 
         // keystrokes → pty. A `{ ok:false }` write (dead pty) surfaces once; an
         // IPC-level rejection (bridge torn down mid-keystroke) is logged, not left
         // as an unhandled rejection on this hot path.
-        const onInput = term.onData((data: string) => {
+        const inputDisposable = term.onData((data: string) => {
           void bridge
             .write({ data, terminalId: liveId })
             .then((writeResult) => {
@@ -270,10 +317,13 @@ export function useTerminalSession(
             })
             .catch(warnBridgeRejection('write'));
         });
-        disposers.push(() => onInput.dispose());
+        offInput = () => inputDisposable.dispose();
 
         // Container resize → fit → pty resize (debounced so a drag does not spam).
-        let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+        // `resizeTimer`/`resizeObserver` are the OUTER, effect-scoped bindings
+        // declared above — not re-declared here — so the main cleanup below
+        // can clear/disconnect them directly, the same way it already does
+        // for `retryTimer`.
         const commitResize = () => {
           resizeTimer = null;
           try {
@@ -285,19 +335,13 @@ export function useTerminalSession(
             .resize({ cols: term.cols, rows: term.rows, terminalId: liveId })
             .catch(warnBridgeRejection('resize'));
         };
-        const observer = new ResizeObserver(() => {
+        resizeObserver = new ResizeObserver(() => {
           if (resizeTimer !== null) {
             clearTimeout(resizeTimer);
           }
           resizeTimer = setTimeout(commitResize, RESIZE_DEBOUNCE_MS);
         });
-        observer.observe(container);
-        disposers.push(() => {
-          if (resizeTimer !== null) {
-            clearTimeout(resizeTimer);
-          }
-          observer.disconnect();
-        });
+        resizeObserver.observe(container);
 
         term.focus();
       })
@@ -313,12 +357,14 @@ export function useTerminalSession(
 
     return () => {
       cancelled = true;
-      if (retryTimer !== null) {
-        clearTimeout(retryTimer);
-      }
-      for (const dispose of disposers) {
-        dispose();
-      }
+      disposeTerminalSessionHandles({
+        offData,
+        offExit,
+        offInput,
+        resizeObserver,
+        resizeTimer,
+        retryTimer,
+      });
       if (terminalId) {
         void bridge.destroy({ terminalId }).catch(warnBridgeRejection('destroy'));
       }

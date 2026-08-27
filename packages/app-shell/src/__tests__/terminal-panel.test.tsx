@@ -134,6 +134,7 @@ let dataCallback: ((event: TerminalDataEvent) => void) | null = null;
 let exitCallback: ((event: TerminalExitEvent) => void) | null = null;
 const offData = vi.fn();
 const offExit = vi.fn();
+const resizeObserverDisconnect = vi.fn();
 
 function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
   const full: TerminalBridge = {
@@ -225,13 +226,17 @@ describe('TerminalPanel', () => {
     useTerminalTargetStore.getState().reset();
     offData.mockReset();
     offExit.mockReset();
+    resizeObserverDisconnect.mockReset();
     // jsdom has no ResizeObserver — stub it so the session effect can observe.
+    // `disconnect` is a spy (not a no-op) so unmount tests can prove the
+    // observer this effect creates is actually torn down, not just replaced
+    // by a fresh one next render.
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
       observe() {
         /* no-op */
       }
       disconnect() {
-        /* no-op */
+        resizeObserverDisconnect();
       }
       unobserve() {
         /* no-op */
@@ -386,6 +391,10 @@ describe('TerminalPanel', () => {
     expect(offData).toHaveBeenCalled();
     expect(offExit).toHaveBeenCalled();
     expect(lastTerminal().dispose).toHaveBeenCalled();
+    // The resize ResizeObserver this session's effect created is disconnected
+    // on unmount too — not left subscribed to a container the component no
+    // longer owns.
+    expect(resizeObserverDisconnect).toHaveBeenCalled();
   });
 
   it('restarts a fresh pty after an exit', async () => {
