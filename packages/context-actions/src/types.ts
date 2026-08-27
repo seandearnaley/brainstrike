@@ -116,6 +116,34 @@ export type ContextTarget =
       readonly repositoryRoot: string;
       readonly trust: 'unvalidated' | 'validated';
       readonly trustReason: string | null;
+    }
+  /**
+   * A CONNECTED workspace root — the Explorer's per-root section header
+   * (spec §7). This kind closes the `docs/agents/workspace-context.md`
+   * DEFERRED ruling ("root headers have no ContextTarget kind yet").
+   *
+   * `rootId` is the surface's resolved root IDENTITY: the durable `roots.id`
+   * when one exists, otherwise the legacy path-as-id the forest already falls
+   * back to (`RootSection`'s `rootIdentity`). Like every other durable root id
+   * in this union it is commonly a UUID and MUST NOT be treated as a path.
+   *
+   * `path` is `null` when the root has no absolute path distinct from its
+   * name — a browser File-System-Access root. That is the same condition the
+   * header already uses to suppress its own path tooltip, so path-shaped
+   * actions gate on the DATA (`isVisible`) and web hides them without any
+   * platform check.
+   *
+   * `isMain` is the workspace-wide MAIN role (`activeRootIds[0]`) the header
+   * renders as its "Main" badge — deliberately NOT the workspace bar's
+   * per-thread primary, which has a different writer and a different meaning
+   * (BST-1393 ruling R1).
+   */
+  | {
+      readonly displayName: string;
+      readonly isMain: boolean;
+      readonly kind: 'workspace-root';
+      readonly path: string | null;
+      readonly rootId: string;
     };
 
 export type ContextTargetKind = ContextTarget['kind'];

@@ -14,3 +14,7 @@ export {
   fileTabToTarget,
   fileViewerToTarget,
 } from './file-surface-target';
+export {
+  type WorkspaceRootTargetInput,
+  workspaceRootToTarget,
+} from './workspace-root-target';
