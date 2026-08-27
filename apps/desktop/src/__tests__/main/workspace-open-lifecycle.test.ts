@@ -70,6 +70,7 @@ interface MockWindowInstance {
   readonly webContents: {
     readonly isDestroyed: ReturnType<typeof vi.fn>;
     readonly isLoading: ReturnType<typeof vi.fn>;
+    readonly off: ReturnType<typeof vi.fn>;
     readonly on: ReturnType<typeof vi.fn>;
     readonly openDevTools: ReturnType<typeof vi.fn>;
     readonly send: ReturnType<typeof vi.fn>;
@@ -99,6 +100,7 @@ function createMockWindowInstance(): MockWindowInstance {
   const webContents = {
     isDestroyed: vi.fn(() => false),
     isLoading: vi.fn(() => false),
+    off: vi.fn(),
     on: vi.fn(),
     openDevTools: vi.fn(),
     send: vi.fn(),
@@ -444,6 +446,13 @@ describe('main workspace-open lifecycle', () => {
     expect(latestWindow().webContents.send).toHaveBeenCalledTimes(1);
   });
 
+  // Self-limiting, like the mid-reload test above: this test's assertion
+  // ("nothing was sent") also holds pre-fix, but for the WRONG reason — the
+  // still-broken initial attach (Critical 1) means nothing is ever sent
+  // regardless of the path's shape. It falsifies the filter's removal only
+  // GIVEN the attach fix; `workspace-open-queue.test.ts`'s
+  // `filterDirectoryOpenCandidates` unit tests falsify the filter itself in
+  // isolation, independent of any window-creation wiring.
   it('skips a FILE path delivered by open-file (macOS "Open With…") instead of forwarding it', async () => {
     statSyncMock.mockReturnValue({ isDirectory: () => false });
     await import('../../main');
@@ -510,6 +519,40 @@ describe('main workspace-open lifecycle', () => {
     });
   });
 
+  // Self-limiting, same as the mid-reload and FILE-skip tests above: this
+  // test's "not delivered" assertion also holds against the pre-Critical-1-fix
+  // commit, but vacuously — nothing is ever attached there, so nothing is
+  // ever sent regardless of whether `closed` -> `detach()` exists. Verified by
+  // temporarily removing ONLY this `closed` handler from the real fix: exactly
+  // this test fails and the other seven stay green (see the fix report).
+  it('detaches on the window\'s "closed" event, not just isDestroyed() timing — a request arriving in the same tick as close is buffered rather than sent into a dying webContents', async () => {
+    await import('../../main');
+
+    await vi.waitFor(() => {
+      expect(latestWindow().once).toHaveBeenCalledWith('closed', expect.any(Function));
+    });
+
+    // Between `win.close()` starting and the webContents actually being
+    // destroyed, `isDestroyed()` can still report `false` for a beat — the
+    // review's flagged race. Firing every `closed` listener (real Electron
+    // fires them all) exercises detach() at the SAME instant as the window's
+    // other teardown, rather than relying on isDestroyed() ever flipping.
+    fireHandlersRegisteredSoFar(latestWindow().once, 'closed');
+
+    const openFileHandler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
+      mockApp.on,
+      'open-file'
+    );
+    openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/closed-window-repo');
+
+    // Not delivered into the closed window — it buffers instead of being
+    // spliced out and sent into a dying webContents.
+    expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
+      OPEN_PATH_CHANNEL,
+      expect.anything()
+    );
+  });
+
   it('a request arriving after app.on(activate) recreates a destroyed window is still delivered — the primary macOS Dock-drop path', async () => {
     await import('../../main');
 
@@ -520,6 +563,17 @@ describe('main workspace-open lifecycle', () => {
     // `BrowserWindow.getAllWindows()` (mocked to `[]`) reports none open —
     // matching `app.on('activate')`'s own `hasVisibleWindow` check.
     mockWindowInstances[0]?.webContents.isDestroyed.mockReturnValue(true);
+
+    // Anchor `findLastHandler`'s "last registration wins" assumption to a
+    // durable count rather than trusting registration order silently: exactly
+    // TWO `'activate'` listeners should exist by now — `create-window.ts`'s
+    // per-window crash-recovery handler (registered first) and `main.ts`'s
+    // own window-recreation handler (registered second, the one this test
+    // needs). If a THIRD listener is ever added anywhere, this assertion
+    // fails here, at the actual cause, instead of surfacing as a baffling
+    // "window was never recreated" failure further down.
+    const activateRegistrations = mockApp.on.mock.calls.filter((args) => args[0] === 'activate');
+    expect(activateRegistrations).toHaveLength(2);
 
     const activateHandler = findLastHandler<() => Promise<void>>(mockApp.on, 'activate');
     await activateHandler();

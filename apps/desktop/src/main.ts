@@ -2245,6 +2245,17 @@ if (singleInstanceLockAcquired) {
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
+        // Between `win.close()` being initiated and the webContents actually being
+        // destroyed, `isDestroyed()` still reports `false` — so without this, a
+        // request enqueued in that same tick would be spliced out of `pending` and
+        // `send` into a dying webContents (lost, or an uncaught "Object has been
+        // destroyed" escaping through `enqueue`). Detaching explicitly on `closed`
+        // removes that gap instead of leaving it an emergent property of
+        // `isDestroyed()` timing; `activate`'s later `createMainWindow()` call
+        // re-attaches to the new window through the same wiring above.
+        win.once('closed', () => {
+          workspaceOpenQueue.detach();
+        });
 
         // `createWindow`'s `loadFile`/`loadURL` call RESOLVES at `did-finish-load`
         // (Electron's own contract), so by the time `win` exists here the initial
@@ -2270,6 +2281,15 @@ if (singleInstanceLockAcquired) {
         // `did-start-loading` stops mid-reload requests from being sent into a
         // page with no listener (they buffer instead, and the following
         // `did-finish-load` re-attach delivers them).
+        //
+        // LOAD-BEARING: the three statements below (register `did-start-loading`,
+        // register `did-finish-load`, then check `isLoading()`) MUST stay one
+        // synchronous block with NO `await` between them. Node/Electron main is
+        // single-threaded, so as written nothing can interleave; an inserted
+        // `await` would let a real `did-finish-load` land between the listener
+        // registration and the check, silently re-opening Critical 1 (the initial
+        // attach never fires again) in a way no test can express — this is a
+        // property of the CALLER's code shape, not something a mock can pin.
         win.webContents.on('did-start-loading', () => {
           workspaceOpenQueue.detach();
         });
