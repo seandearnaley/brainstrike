@@ -465,11 +465,10 @@ On a Map card the item renders exactly when `entry.rootId !== null`, and
 always names the next step and never shows a disabled action. Web has no
 `window.terminal`, so `isTerminalBridgeAvailable()` is false and no surface
 supplies the handler: the item does not exist there in any form. The W5
-absence-assertion tripwire in
-`packages/app-shell/src/worktree-map/__tests__/worktree-map-surface.test.tsx` and
-the sibling assertion in `packages/assistant-ui/src/__tests__/mode-chip.test.tsx`
-were DELETED in the same PR that added the action, as their own comments
-instructed.
+absence-assertion tripwire in `worktree-map-surface.test.tsx` was DELETED in
+the same PR that added the action, as its own comment instructed; the sibling
+assertion in `mode-chip.test.tsx` survives, repurposed from a deferral
+tripwire into an ordinary handler-presence contract.
 
 The A5 run-scoped `git worktree lock` deferral above still stands on its own —
 it remains a capability the spec named that no seam yet supports.
