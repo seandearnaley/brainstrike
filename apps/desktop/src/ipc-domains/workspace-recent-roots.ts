@@ -133,8 +133,34 @@ export async function readRecentRootsOrQuarantine(
 }
 
 /**
+ * Pure ledger transform: applies one grant on top of an already-loaded
+ * snapshot — dedup by path (the new grant wins), newest-first, capped at
+ * RECENT_ROOTS_LIMIT. Extracted (BST-1400 item 4) so a caller applying MANY
+ * grants in one mutation (`recordRecentRootsIfNew`) can fold them all
+ * against a single read instead of reading the ledger once per grant.
+ */
+function withRecentRootGranted(
+  existing: readonly StoredRecentRoot[],
+  presentationPath: string,
+  lastGrantedAt: number
+): StoredRecentRoot[] {
+  const normalized = normalizeRecentRootPath(presentationPath);
+  const deduped = existing.filter((entry) => !recentPathsEqual(entry.path, normalized));
+  return [{ lastGrantedAt, path: normalized }, ...deduped].slice(0, RECENT_ROOTS_LIMIT);
+}
+
+/**
  * Append a grant to the ledger: newest first, deduped by path, capped at
  * RECENT_ROOTS_LIMIT.
+ *
+ * `existingEntries`, when supplied, is used INSTEAD OF reading the ledger
+ * here (BST-1400 item 4): `WorkspaceRootRegistry.addRoot` reads the ledger
+ * up front, before mounting/persisting, so a broken ledger fails the whole
+ * call loud BEFORE any state changes rather than after — then hands the
+ * snapshot it already has here. Re-reading in that case would either
+ * duplicate the I/O or, worse, let a second read fail AFTER the mutation
+ * already succeeded, defeating the hoist. Omitted, this reads the ledger
+ * itself — the ordinary single-grant case.
  *
  * Only the WRITE (`storage.setItem`) may fail without failing the grant it is
  * recording. The same broken storage that fails here already degrades
@@ -150,13 +176,11 @@ export async function readRecentRootsOrQuarantine(
 export async function recordRecentRoot(
   storage: ElectronStorageAdapter,
   presentationPath: string,
-  lastGrantedAt: number = Date.now()
+  lastGrantedAt: number = Date.now(),
+  existingEntries?: readonly StoredRecentRoot[]
 ): Promise<void> {
-  const normalized = normalizeRecentRootPath(presentationPath);
-  const existing = (await readRecentRootsOrQuarantine(storage)).filter(
-    (entry) => !recentPathsEqual(entry.path, normalized)
-  );
-  const next = [{ lastGrantedAt, path: normalized }, ...existing].slice(0, RECENT_ROOTS_LIMIT);
+  const existing = existingEntries ?? (await readRecentRootsOrQuarantine(storage));
+  const next = withRecentRootGranted(existing, presentationPath, lastGrantedAt);
   try {
     await storage.setItem(RECENT_ROOTS_STORAGE_KEY, JSON.stringify(next));
   } catch (error) {
@@ -165,23 +189,43 @@ export async function recordRecentRoot(
 }
 
 /**
- * `recordRecentRoot`, but only when `presentationPath` isn't already in the
- * ledger (see `restoreRoots`). Keeps a re-restore of an already-granted path
- * from bumping its `lastGrantedAt` / applying slot pressure on every launch.
+ * Batch form of `recordRecentRoot { presentationPath isn't already recorded
+ * }`, used by `restoreRoots` (BST-1400 item 4): ONE ledger read for the
+ * whole restored set instead of up to two reads PER candidate, and at most
+ * ONE write instead of one per newly-recorded candidate.
+ *
+ * `candidates` are applied in order — a path already in the ledger is
+ * skipped, preserving its `lastGrantedAt` (a relaunch must not rewrite grant
+ * history with launch timestamps); a new path is folded in with
+ * `withRecentRootGranted`, the same prepend-and-cap transform a sequence of
+ * individual grants would apply, so a batch of N new candidates lands in
+ * exactly the order N sequential single-grant calls would have produced.
  */
-export async function recordRecentRootIfNew(
+export async function recordRecentRootsIfNew(
   storage: ElectronStorageAdapter,
-  presentationPath: string,
-  lastGrantedAt: number
+  candidates: readonly { readonly lastGrantedAt: number; readonly path: string }[]
 ): Promise<void> {
-  const normalized = normalizeRecentRootPath(presentationPath);
-  const alreadyRecorded = (await readRecentRootsOrQuarantine(storage)).some((recent) =>
-    recentPathsEqual(recent.path, normalized)
-  );
-  if (alreadyRecorded) {
+  if (candidates.length === 0) {
     return;
   }
-  await recordRecentRoot(storage, presentationPath, lastGrantedAt);
+  let entries = await readRecentRootsOrQuarantine(storage);
+  let changed = false;
+  for (const candidate of candidates) {
+    const normalized = normalizeRecentRootPath(candidate.path);
+    if (entries.some((entry) => recentPathsEqual(entry.path, normalized))) {
+      continue;
+    }
+    entries = withRecentRootGranted(entries, candidate.path, candidate.lastGrantedAt);
+    changed = true;
+  }
+  if (!changed) {
+    return;
+  }
+  try {
+    await storage.setItem(RECENT_ROOTS_STORAGE_KEY, JSON.stringify(entries));
+  } catch (error) {
+    logger.warn('Failed to record recently granted workspace folders during restore', { error });
+  }
 }
 
 /**

@@ -332,6 +332,34 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     }
   });
 
+  it('records a multi-root restore with ONE shared ledger read, in the same order per-entry recording would produce (BST-1400 item 4)', async () => {
+    await storage.setItem(
+      'rootsList',
+      JSON.stringify([
+        { addedAt: 1, path: '/ws/alpha', rootId: 'r-alpha' },
+        { addedAt: 2, path: '/ws/beta', rootId: 'r-beta' },
+        { addedAt: 3, path: '/ws/gamma', rootId: 'r-gamma' },
+      ])
+    );
+    const registry = createRegistry({ storage });
+    const getItemMock = vi.mocked(storage.getItem);
+    const setItemMock = vi.mocked(storage.setItem);
+    getItemMock.mockClear();
+    setItemMock.mockClear();
+
+    await registry.restoreRoots();
+
+    const recentRootsReads = getItemMock.mock.calls.filter(([key]) => key === 'recentRootsList');
+    const recentRootsWrites = setItemMock.mock.calls.filter(([key]) => key === 'recentRootsList');
+    expect(recentRootsReads).toHaveLength(1);
+    expect(recentRootsWrites).toHaveLength(1);
+
+    // Same final order a sequence of individual recordRecentRootIfNew calls
+    // produced pre-fix: each new grant prepends, so restore order reverses.
+    const recents = await registry.listRecentRoots();
+    expect(recents.map((entry) => entry.path)).toEqual(['/ws/gamma', '/ws/beta', '/ws/alpha']);
+  });
+
   it('quarantines a malformed ledger on the read path instead of bricking Recents', async () => {
     const registry = createRegistry({ storage });
     const corruptRaw = JSON.stringify([{ path: '/ws/alpha' }]);
@@ -384,6 +412,35 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     await expect(registry.listRecentRoots()).rejects.toThrow('storage offline');
     expect(storage.setItem).not.toHaveBeenCalledWith('recentRootsList.corrupt', expect.anything());
     expect(loggerMock.error).not.toHaveBeenCalledWith(QUARANTINE_MESSAGE, expect.anything());
+  });
+
+  it('does not mount or persist a root when the recentRootsList read fails during addRoot (BST-1400 item 4)', async () => {
+    const registry = createRegistry({ storage });
+    vi.mocked(storage.getItem).mockImplementation(async (key: string) => {
+      if (key === 'recentRootsList') {
+        throw new Error('storage offline');
+      }
+      return null;
+    });
+
+    await expect(registry.addRoot(rootHandle('/ws/alpha'))).rejects.toThrow('storage offline');
+
+    // The read is hoisted above the mount+persist mutation, so a rejected
+    // addRoot() must leave rootsList untouched — before the fix, the mount
+    // and rootsList persist both completed BEFORE this read ran, so the
+    // caller saw a rejection for a call that had, in fact, already
+    // succeeded.
+    expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.anything());
+  });
+
+  it('reads the recentRootsList ledger only once per addRoot call (no double-read after the hoist)', async () => {
+    const registry = createRegistry({ storage });
+    const getItemMock = vi.mocked(storage.getItem);
+
+    await registry.addRoot(rootHandle('/ws/alpha'));
+
+    const recentRootsReads = getItemMock.mock.calls.filter(([key]) => key === 'recentRootsList');
+    expect(recentRootsReads).toHaveLength(1);
   });
 
   it('tolerates a recentRootsList write failure without failing addRoot (accepted deviation)', async () => {

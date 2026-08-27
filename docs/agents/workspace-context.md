@@ -1063,10 +1063,20 @@ additional explorer/status chrome):
   - "Add folder…" adds the folder GLOBALLY (the existing multi-root
     `addRootDirectory` flow) AND records it as a thread secondary. The durable
     `roots` row is written by the roots-reconciliation effect, so the id
-    lookup polls on a BOUNDED budget (20 x 250 ms, ~5 s). Exhaustion is not a
-    silent no-op: it logs and raises a "Folder added, but not attached to this
-    thread" toast. The canonical fix — an awaitable "root registered" seam on
-    `roots/use-roots-reconciliation.ts` — is a recorded follow-up.
+    lookup AWAITS that effect's own "root registered" notification
+    (`roots/root-registration-events.ts`, BST-1400) instead of polling the
+    database — a module-scoped event bus, since `useWorkspaceBar` renders as a
+    REACT SIBLING of the `RootIdentityProvider` subtree that owns
+    `useRootsReconciliation` and cannot reach its callbacks through context.
+    The wait is still BOUNDED (`ROOT_ROW_WAIT_TIMEOUT_MS`, ~5 s, same budget
+    the old 20 x 250 ms poll had). Exhaustion is not a silent no-op: it logs
+    and raises a "Folder added, but not attached to this thread" toast. The
+    seam is EPOCH-based (a per-key generation counter), not a one-shot flag —
+    re-adding a removed folder mints a fresh adapter id and is a genuine
+    SECOND registration of the same path, so a plain "ever registered?" flag
+    would resolve stale against a row that is still absent; a waiter instead
+    captures the generation before its first failed read and only a strictly
+    later one satisfies it.
   - Mode-chip checkout metadata is owned by `use-thread-checkout.ts`. Selecting
     a worktree first resolves its mounted path to a durable live `roots.id`, then
     uses the workspace bar's serialized folder-write queue to persist the

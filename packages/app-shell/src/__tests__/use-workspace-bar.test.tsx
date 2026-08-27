@@ -1,3 +1,11 @@
+/**
+ * The Add-folder flow (global add/attach, Recents refresh, the
+ * await-root-registration seam, abandonment, double-click serialization,
+ * "already attached" no-ops) lives in `use-workspace-bar-add-folder.test.tsx`
+ * — split out (BST-1400 full-branch review fold-in) once this file crossed
+ * Biome's 1000-line cap a third time, the same reasoning that moved the
+ * write-tail-chaining and failure-surfacing clusters into their own files.
+ */
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { WorkspaceBarBranchMenu } from '@brainstrike/assistant-ui';
@@ -8,6 +16,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useWorkspaceBar } from '../hooks/use-workspace-bar';
+import { resetRootRegistrationEventsForTests } from '../roots/root-registration-events';
 
 // `fs` is only dereferenced when the mocked useFileSystem() is CALLED (render
 // time), so vitest's vi.mock hoisting above these imports is safe.
@@ -65,20 +74,10 @@ const {
   worktreeListSpy,
 } = vi.hoisted(() => ({
   branchSwitcherSpy: vi.fn(),
-  checkoutSpy: vi.fn(
-    (
-      _root: {
-        readonly adapterRootId: string | null;
-        readonly dbRootId: string;
-        readonly path: string;
-      } | null
-    ) => ({
-      ahead: 0,
-      behind: 0,
-      branch: 'main',
-      dirty: false,
-    })
-  ),
+  // Default return value is installed in `beforeEach` (via mockReturnValue,
+  // reinstalled after mockReset every test) rather than here, since one test
+  // below overrides it with mockReturnValue for the whole test body.
+  checkoutSpy: vi.fn(),
   clipboardWriteText: vi.fn(),
   forgePrSpy: vi.fn(),
   loggerMock: {
@@ -151,18 +150,10 @@ const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: strin
 // How many times the live-root probe for a path must MISS before the row
 // appears — models roots reconciliation writing the row after the add resolves.
 const liveRootMisses = new Map<string, number>();
-// Holds the live-root probe open so a test can land a thread switch WHILE the
-// final lookup is in flight (the window a retry-loop-only cancellation check
-// cannot see).
+// Read by the shared `query` mock below; `openLiveRootGate` (the only setter)
+// moved to use-workspace-bar-add-folder.test.tsx with its one caller — no
+// test left in this file ever opens the gate, so it stays permanently null.
 let liveRootGate: { promise: Promise<void>; release: () => void } | null = null;
-function openLiveRootGate(): { promise: Promise<void>; release: () => void } {
-  let release = (): void => undefined;
-  const promise = new Promise<void>((resolve) => {
-    release = () => resolve();
-  });
-  liveRootGate = { promise, release };
-  return liveRootGate;
-}
 
 const isSecondaryLookup = (sql: unknown) => typeof sql === 'string' && sql.includes('= ANY');
 
@@ -273,10 +264,20 @@ function installWorktreesBridge(): void {
 }
 
 interface BarProps {
+  // Optional: a `rerender` call omitting it keeps using the value `setup`
+  // closed over (every caller except the collision test below). Present so a
+  // test CAN pass a fresh reference across a rerender — the collision guard
+  // is keyed on `[rootDescriptors]` identity, so re-passing the SAME object
+  // reference would never re-run that effect at all, making a "warns only
+  // once" assertion pass vacuously regardless of the guard's own logic.
+  readonly rootDescriptors?: typeof rootDescriptors;
   readonly selectedMemoryThreadId: string | undefined;
 }
 
-async function setup(metadata: Record<string, unknown> = {}) {
+async function setup(
+  metadata: Record<string, unknown> = {},
+  rootDescriptorsOverride: typeof rootDescriptors = rootDescriptors
+) {
   seedThread(metadata);
   const rendered = renderHook(
     (props: BarProps) =>
@@ -285,7 +286,7 @@ async function setup(metadata: Record<string, unknown> = {}) {
         currentMainRoot,
         database,
         memoryResourceId: RESOURCE_ID,
-        rootDescriptors,
+        rootDescriptors: props.rootDescriptors ?? rootDescriptorsOverride,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
       }),
     { initialProps: { selectedMemoryThreadId: THREAD_ID } as BarProps }
@@ -308,12 +309,19 @@ beforeEach(() => {
   currentFs = fs;
   liveRootMisses.clear();
   liveRootGate = null;
+  resetRootRegistrationEventsForTests();
   useChangesLiveRefreshStore.getState().reset();
   clipboardWriteText.mockReset();
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
   branchSwitcherSpy.mockReset();
   branchSwitcherSpy.mockReturnValue(branchMenu);
-  checkoutSpy.mockClear();
+  // reset (not clear): one test overrides the return value with
+  // mockReturnValue, which mockClear alone would leak into later tests.
+  checkoutSpy.mockReset();
+  checkoutSpy.mockReturnValue({
+    checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+    settled: true,
+  });
   forgePrSpy.mockReset();
   forgePrSpy.mockReturnValue({ diagnostic: null, refresh: vi.fn(), status: null });
   toastSpy.mockClear();
@@ -544,6 +552,33 @@ describe('useWorkspaceBar', () => {
     });
   });
 
+  // BST-1400: `checkoutState` is the deterministic e2e wait
+  // (`data-checkout-state` on the bar) that replaces sampling for the branch
+  // chip's absence.
+  it('surfaces checkoutState as pending until useThreadCheckoutStatus settles, then resolved', async () => {
+    // `mockReturnValue` (not `...Once`) so every render during the "waiting
+    // for the primary to resolve" phase below keeps reporting pending — a
+    // one-shot override would be consumed by an earlier render than the one
+    // this test inspects.
+    checkoutSpy.mockReturnValue({ checkout: undefined, settled: false });
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
+    expect(result.current.checkoutState).toBe('pending');
+
+    checkoutSpy.mockReturnValue({
+      checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+      settled: true,
+    });
+    await act(async () => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/ws/brainstrike/.git',
+        repositoryRoot: '/ws/brainstrike',
+      });
+    });
+    await waitFor(() => expect(result.current.checkoutState).toBe('resolved'));
+  });
+
   it('registers no working-tree scope for a primary that is not mounted in this workspace', async () => {
     // The thread is bound to a folder that is NOT among the mounted roots, so
     // no descriptor supplies an adapter id. Registering the DB id instead would
@@ -563,6 +598,57 @@ describe('useWorkspaceBar', () => {
       expect.stringContaining('not mounted'),
       expect.objectContaining({ path: '/ws/site' })
     );
+  });
+
+  // BST-1400 item 13: two adapter root descriptors sharing a path (a genuine
+  // duplicate mount, or a spelling divergence the adapter never normalized —
+  // e.g. a macOS case variant) collapse to one in the derived path→adapterId
+  // map. Whichever descriptor loses that collision never gets its
+  // working-tree refresh registered, and until this fix nothing logged why.
+  it('warns once per path on a collision, never for distinct paths', async () => {
+    // TWO descriptors, DIFFERENT paths — not the default one-descriptor
+    // fixture (BST-1400 item 13 review fold-in): an implementation keyed on
+    // `Object.keys(rootDescriptors).length > 1` rather than genuine path
+    // equality would pass a one-entry fixture unchanged, since there is only
+    // one path to (not) collide with either way.
+    const distinctDescriptors = {
+      ...rootDescriptors,
+      'adapter-other': { displayName: 'other', path: '/ws/other', rootId: 'adapter-other' },
+    };
+    const noCollision = await setup({}, distinctDescriptors);
+    expect(loggerMock.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('share a path'),
+      expect.anything()
+    );
+    noCollision.unmount();
+
+    const dupeDescriptors = {
+      ...rootDescriptors,
+      'adapter-main-2': { displayName: 'brainstrike (2)', path: '/ws/brainstrike', rootId: '' },
+    };
+    const { rerender } = await setup({}, dupeDescriptors);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining('share a path'),
+      expect.objectContaining({
+        adapterRootIds: expect.arrayContaining(['adapter-main', 'adapter-main-2']),
+        path: '/ws/brainstrike',
+      })
+    );
+
+    // A re-render with the SAME collision, but a FRESH object reference
+    // (BST-1400 item 13 review fold-in), must not warn again. The guard's
+    // effect is keyed on `[rootDescriptors]` identity — re-passing the SAME
+    // reference (the bug in the original version of this test) never
+    // re-runs the effect at all, so "does not warn again" would pass even
+    // with the once-guard deleted. A fresh reference with the same
+    // collision is the shape a live re-mount loop actually produces (the
+    // store rebuilds the descriptors map via `Object.fromEntries(...)` on
+    // every mount/unmount), which is exactly what the guard exists for.
+    const warnCallsAfterMount = loggerMock.warn.mock.calls.length;
+    await act(async () => {
+      rerender({ rootDescriptors: { ...dupeDescriptors }, selectedMemoryThreadId: THREAD_ID });
+    });
+    expect(loggerMock.warn.mock.calls.length).toBe(warnCallsAfterMount);
   });
 
   it('warns and shows no primary when the MAIN root has no live roots row', async () => {
@@ -639,262 +725,6 @@ describe('useWorkspaceBar', () => {
     });
     await act(async () => {});
     expect(query.mock.calls.filter((call) => isSecondaryLookup(call[0])).length).toBe(before);
-  });
-
-  it('Add folder adds globally and records the new root as a thread secondary', async () => {
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await waitFor(() =>
-      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
-        secondaryRootIds: ['r-docs'],
-      })
-    );
-  });
-
-  it('shows a Workspace Bar grant after disconnect in the same session', async () => {
-    const { rerender, result } = await setup();
-    fs.listRecentRoots.mockResolvedValueOnce([
-      { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
-      { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
-      { displayName: 'docs', lastGrantedAt: 3, path: '/ws/docs' },
-    ]);
-
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await waitFor(() => expect(fs.addRootDirectory).toHaveBeenCalledTimes(1));
-    rerender({ selectedMemoryThreadId: THREAD_ID });
-
-    await waitFor(() =>
-      expect(result.current.recentRoots).toEqual(
-        expect.arrayContaining([{ displayName: 'docs', path: '/ws/docs' }])
-      )
-    );
-  });
-
-  it('shows an Explorer-granted folder after disconnect in the same session', async () => {
-    const { rerender, result } = await setup();
-    await waitFor(() =>
-      expect(result.current.recentRoots).toEqual([{ displayName: 'alpha', path: '/ws/alpha' }])
-    );
-
-    // Explorer Add Folder mutates the shared file-system source. The folder is
-    // already disconnected (absent from rootDescriptors) when the bar refreshes.
-    fs.listRecentRoots.mockResolvedValueOnce([
-      { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
-      { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
-      { displayName: 'docs', lastGrantedAt: 3, path: '/ws/docs' },
-    ]);
-    fs.recentRootsRevision += 1;
-    rerender({ selectedMemoryThreadId: THREAD_ID });
-
-    await waitFor(() =>
-      expect(result.current.recentRoots).toEqual(
-        expect.arrayContaining([{ displayName: 'docs', path: '/ws/docs' }])
-      )
-    );
-    expect(fs.addRootDirectory).not.toHaveBeenCalled();
-  });
-
-  it('shows a restore-backfilled folder after disconnect in the same session', async () => {
-    const { rerender, result } = await setup();
-    fs.listRecentRoots.mockResolvedValueOnce([
-      { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
-      { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
-      { displayName: 'restored', lastGrantedAt: 3, path: '/ws/restored' },
-    ]);
-
-    await act(async () => {
-      await fs.registerRestoredHandles([
-        {
-          kind: 'directory',
-          name: 'restored',
-          path: '/ws/restored',
-          platform: 'electron',
-          rootId: 'adapter-restored',
-        },
-      ]);
-    });
-    rerender({ selectedMemoryThreadId: THREAD_ID });
-
-    await waitFor(() =>
-      expect(result.current.recentRoots).toEqual(
-        expect.arrayContaining([{ displayName: 'restored', path: '/ws/restored' }])
-      )
-    );
-  });
-
-  it('ignores an older overlapping recents response after a newer refresh wins', async () => {
-    let resolveOlder:
-      | ((entries: Awaited<ReturnType<typeof fs.listRecentRoots>>) => void)
-      | undefined;
-    fs.listRecentRoots.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveOlder = resolve;
-        })
-    );
-    const { rerender, result } = await setup();
-
-    fs.listRecentRoots.mockResolvedValueOnce([
-      { displayName: 'newer', lastGrantedAt: 4, path: '/ws/newer' },
-    ]);
-    fs.recentRootsRevision += 1;
-    rerender({ selectedMemoryThreadId: THREAD_ID });
-    await waitFor(() =>
-      expect(result.current.recentRoots).toEqual([{ displayName: 'newer', path: '/ws/newer' }])
-    );
-
-    await act(async () => {
-      resolveOlder?.([{ displayName: 'older', lastGrantedAt: 1, path: '/ws/older' }]);
-    });
-    expect(result.current.recentRoots).toEqual([{ displayName: 'newer', path: '/ws/newer' }]);
-  });
-
-  it('waits for roots reconciliation before attaching a just-added folder', async () => {
-    vi.useFakeTimers();
-    // The registration effect has not written the row yet when the add resolves.
-    liveRootMisses.set('/ws/docs', 3);
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-    expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
-      secondaryRootIds: ['r-docs'],
-    });
-    expect(toastSpy).not.toHaveBeenCalled();
-  });
-
-  it('surfaces a folder that never reconciles instead of silently dropping it', async () => {
-    vi.useFakeTimers();
-    liveRootMisses.set('/ws/docs', Number.POSITIVE_INFINITY);
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
-    expect(toastSpy).toHaveBeenCalledWith({
-      description: expect.stringContaining('docs'),
-      title: 'Folder added, but not attached to this thread',
-      variant: 'destructive',
-    });
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    expect(loggerMock.error).toHaveBeenCalled();
-  });
-
-  it('abandons an in-flight folder attachment when the selected thread changes', async () => {
-    vi.useFakeTimers();
-    liveRootMisses.set('/ws/docs', 3);
-    const { rerender, result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    await act(async () => {
-      rerender({ selectedMemoryThreadId: 'thread-2' });
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
-    // The write captured thread-1's folder set; landing it now would replace
-    // thread-2's folders with thread-1's.
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    expect(toastSpy).not.toHaveBeenCalled();
-  });
-
-  it('abandons an in-flight folder attachment when the thread changes during the final lookup', async () => {
-    const { rerender, result } = await setup();
-    const gate = openLiveRootGate();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await act(async () => {
-      rerender({ selectedMemoryThreadId: 'thread-2' });
-    });
-    await act(async () => {
-      gate.release();
-    });
-    await act(async () => {});
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    expect(toastSpy).not.toHaveBeenCalled();
-  });
-
-  it('abandons an in-flight folder attachment when the hook unmounts', async () => {
-    vi.useFakeTimers();
-    liveRootMisses.set('/ws/docs', 3);
-    const { result, unmount } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    unmount();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    expect(toastSpy).not.toHaveBeenCalled();
-  });
-
-  it('serializes two rapid Add folder writes so neither id is dropped', async () => {
-    const { result } = await setup();
-    fs.addRootDirectory
-      .mockResolvedValueOnce({
-        kind: 'directory',
-        name: 'docs',
-        path: '/ws/docs',
-        platform: 'electron',
-        rootId: 'adapter-docs',
-      })
-      .mockResolvedValueOnce({
-        kind: 'directory',
-        name: 'site',
-        path: '/ws/site',
-        platform: 'electron',
-        rootId: 'adapter-site',
-      });
-    await act(async () => {
-      result.current.onAddFolder();
-      result.current.onAddFolder();
-    });
-    await act(async () => {});
-    // Both lookups settle in the same tick: an unserialized second write would
-    // read the pre-click set and persist ['r-site'] alone.
-    await waitFor(() =>
-      expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
-        secondaryRootIds: ['r-docs', 'r-site'],
-      })
-    );
-  });
-
-  it('does not rewrite the thread when the added folder is already the primary', async () => {
-    const { result } = await setup({
-      operatingRootDisplayName: 'docs',
-      operatingRootId: 'r-docs',
-      operatingRootPath: '/ws/docs',
-    });
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await act(async () => {});
-    expect(fs.addRootDirectory).toHaveBeenCalled();
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-  });
-
-  it('does not rewrite the thread when the added folder is already a secondary', async () => {
-    const { result } = await setup({ secondaryRootIds: ['r-docs'] });
-    await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(1));
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await act(async () => {});
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
   });
 
   it('Make primary re-binds the thread (not global MAIN) and demotes the old primary to a secondary', async () => {

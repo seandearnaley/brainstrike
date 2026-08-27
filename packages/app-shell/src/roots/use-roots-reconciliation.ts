@@ -4,6 +4,7 @@ import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type ChangesBridge, resolveChangesBridge } from '../changes/changes-bridge';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
+import { notifyRootRegistered } from './root-registration-events';
 import { reconcileRoots } from './root-registry';
 
 const logger = createLogger('useRootsReconciliation');
@@ -170,7 +171,7 @@ function applyBootReconciliationResult({
   publishCanonicalKind,
   publishCanonicalMapping,
   result,
-}: ApplyBootReconciliationResultArgs): { dbRootIdMap: DbRootIdMap; registeredAny: boolean } {
+}: ApplyBootReconciliationResultArgs): { dbRootIdMap: DbRootIdMap; insertedAny: boolean } {
   const dbRootIdMap: DbRootIdMap = new Map();
   for (const descriptor of adapterRoots) {
     const dbRootId = result.dbRootIdByAdapterRootId.get(descriptor.rootId);
@@ -183,7 +184,12 @@ function applyBootReconciliationResult({
   for (const [rootKey, dbRootId] of dbRootIdMap) {
     dbRootIdMapRef.current.set(rootKey, dbRootId);
   }
-  let registeredAny = false;
+  // Insert-vs-match (BST-1400 item 11): an ordinary boot with only
+  // already-registered roots matches every one of them — the git inventory's
+  // own eager app-ready build already discovered those, so re-nudging it here
+  // would be one wasted extra build every single session. Only a GENUINE new
+  // row (see `insertedAdapterRootIds`'s doc in root-registry.ts) needs it.
+  let insertedAny = false;
   for (const descriptor of adapterRoots) {
     const dbRootId = dbRootIdMap.get(descriptor.rootId);
     if (dbRootId === undefined) {
@@ -194,9 +200,18 @@ function applyBootReconciliationResult({
     if (kind !== undefined) {
       publishCanonicalKind(descriptor.rootId, kind);
     }
-    registeredAny = true;
+    // Wakes any `awaitRootRegistration` waiter outside this component subtree
+    // (e.g. `useWorkspaceBar`'s MAIN-root resolution) — see
+    // `root-registration-events.ts` for why this can't be a React context read.
+    // Fires for EVERY successfully-mapped root, matched or inserted — a
+    // matched-and-restored-to-'live' root (the remove-then-re-add shape) is
+    // just as real a registration for a waiter's purposes as a fresh insert.
+    notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
+    if (result.insertedAdapterRootIds.has(descriptor.rootId)) {
+      insertedAny = true;
+    }
   }
-  return { dbRootIdMap, registeredAny };
+  return { dbRootIdMap, insertedAny };
 }
 
 /**
@@ -267,6 +282,9 @@ async function performRootRegistration({
       if (kind !== undefined) {
         publishCanonicalKind(descriptor.rootId, kind);
       }
+      // Same wake-up as the boot batch above — this is the mid-session Add
+      // Folder / Recent path `useWorkspaceBar` used to poll the database for.
+      notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
       // The root is now in the `roots` table the inventory's loadRoots() reads.
       refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
     }
@@ -442,18 +460,21 @@ export function useRootsReconciliation({
           platformKind,
           query: db.query,
         });
-        const { dbRootIdMap, registeredAny } = applyBootReconciliationResult({
+        const { dbRootIdMap, insertedAny } = applyBootReconciliationResult({
           adapterRoots,
           dbRootIdMapRef,
           publishCanonicalKind,
           publishCanonicalMapping,
           result,
         });
-        if (registeredAny) {
+        if (insertedAny) {
           // ONE nudge for the whole boot batch — on a fresh install these rows
           // land after main's eager app-ready build, which would otherwise be
-          // the only build of the session. Skipped when nothing registered:
-          // there is no new row for loadRoots() to find.
+          // the only build of the session. Gated on an INSERT, not just a
+          // successful mapping (BST-1400 item 11): an ordinary boot re-matches
+          // every already-registered root, which the eager build already
+          // discovered — nudging for that would be one wasted extra inventory
+          // build every session, not a follow-up on anything actually new.
           refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
         }
         resolve(dbRootIdMap);

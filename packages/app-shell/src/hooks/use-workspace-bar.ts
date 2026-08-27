@@ -20,10 +20,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  type AssistantOperatingRootCandidate,
-  resolveAssistantOperatingRootBinding,
-} from '../assistant-operating-root';
+import type { AssistantOperatingRootCandidate } from '../assistant-operating-root';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useFolderDrop } from '../workspace-connect/use-folder-drop';
@@ -31,19 +28,27 @@ import { useAssistantThreadRootBinding } from './use-assistant-thread-root-bindi
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
+import {
+  useDuplicatePathNotice,
+  type WorkspaceBarRootDescriptor,
+} from './use-workspace-bar-duplicate-path-notice';
 import { useWorkspaceBarForge } from './use-workspace-bar-forge';
 import { useWorkspaceBarMode } from './use-workspace-bar-mode';
+import { resolveRootIdAfterReconciliation } from './use-workspace-bar-root-row-lookup';
 import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
 import {
   deriveMakePrimary,
+  folderWriteIdentityOf,
   MakePrimaryDerivationError,
   persistedCheckoutMode,
   type ResolvedSecondaryRoots,
   refuseWriteBeforeThreadMetadata,
   secondaryRootsStatus,
   type ThreadFoldersWriteTail,
+  touchedFolderWriteFields,
   writeStartingPoint,
 } from './use-workspace-bar-write-derive';
+import { NO_TOUCHED_FIELDS, useWriteTailQueue } from './use-workspace-bar-write-tail-queue';
 import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
 
 // Re-exported (not just imported) so existing test imports of
@@ -53,11 +58,6 @@ import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
 export { deriveMakePrimary };
 
 const logger = createLogger('WorkspaceBar');
-
-interface WorkspaceBarRootDescriptor {
-  readonly displayName: string;
-  readonly path: string;
-}
 
 export interface UseWorkspaceBarArgs {
   readonly assistantThreadRepository: AssistantThreadRepository | null;
@@ -85,33 +85,6 @@ const NO_RECENT_ENTRIES: readonly RecentRootEntry[] = [];
 // and must change with it.)
 const SECONDARY_ID_SEPARATOR = ' ';
 const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off returns to.';
-
-/**
- * A folder's durable `roots` row is written by the roots-reconciliation effect
- * in `workspace-collection-sync-provider.tsx`, which runs only AFTER
- * `addRootDirectory()` has resolved and re-rendered the provider. Looking the
- * row up in the same microtask therefore loses that race, and the folder mounts
- * globally while never being attached to the thread. Re-mounting a
- * `'disconnected'` root has the same shape (the row is flipped back to 'live'
- * by the same effect). So the lookup polls on a bounded budget, mirroring the
- * transient-root retry in `git-panel/use-git-panel.ts`.
- *
- * FOLLOW-UP (deliberately out of scope here): the canonical fix is a
- * promise-based "await root registration" seam exported by the reconciliation
- * layer (`roots/use-roots-reconciliation.ts`), so a caller can await the
- * registration its own action triggered instead of polling for the side effect.
- */
-const ROOT_ROW_RETRY_LIMIT = 20;
-const ROOT_ROW_RETRY_DELAY_MS = 250;
-
-type RootRowLookup =
-  | { readonly kind: 'cancelled' }
-  | { readonly kind: 'resolved'; readonly rootId: string }
-  | { readonly error: unknown; readonly kind: 'unresolved' };
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Electron's `ipcRenderer.invoke` re-throws a main-process rejection in the
@@ -145,6 +118,46 @@ function checkoutEntry(
   checkout: WorkspaceBarCheckout | undefined
 ): { readonly checkout?: WorkspaceBarCheckout } {
   return primaryRoot && checkout ? { checkout } : {};
+}
+
+/**
+ * BST-1400: `data-checkout-state` on the bar element (the deterministic e2e
+ * wait that replaces sampling for the branch chip's absence). Pulled out for
+ * the same reason as `checkoutEntry` above — a bare ternary inline in
+ * `useWorkspaceBar`'s return statement was what tipped its cognitive
+ * complexity over Biome's cap.
+ */
+function checkoutStateOf(checkoutSettled: boolean): 'pending' | 'resolved' {
+  return checkoutSettled ? 'resolved' : 'pending';
+}
+
+/**
+ * BST-1400 item 12: disables "Add folder…" and each Recent row for the same
+ * reason `enqueueThreadFoldersWrite` already refuses the write —
+ * `refuseWriteBeforeThreadMetadata` — but proactively instead of reactively.
+ * Previously the OS picker (or a picker-less Recent re-mount) ran to
+ * completion, the folder mounted GLOBALLY, and only THEN did the thread-level
+ * write get refused — leaving a folder connected to the workspace but not to
+ * the thread, with a "try again in a moment" toast as the only explanation.
+ * Disabling the affordance while pending stops the picker from ever opening
+ * for a write that cannot land yet. The reactive guard stays in place as a
+ * backstop (e.g. a call this component didn't render the disabled state for
+ * in time) — this only prevents the common, avoidable case.
+ */
+function addFolderDisabledReasonFor(selectedThreadMetadataPending: boolean): string | null {
+  return selectedThreadMetadataPending ? "This thread hasn't finished loading yet" : null;
+}
+
+/**
+ * Ready-to-spread partial, same shape as `checkoutEntry`/`forgeEntry`/
+ * `modeEntry` above — pulled the conditional out of `useWorkspaceBar`'s
+ * return statement entirely rather than an inline ternary spread, which
+ * tipped that function's cognitive complexity over Biome's cap.
+ */
+function addFolderDisabledReasonEntry(addFolderDisabledReason: string | null): {
+  readonly addFolderDisabledReason?: string;
+} {
+  return addFolderDisabledReason ? { addFolderDisabledReason } : {};
 }
 
 /**
@@ -263,36 +276,8 @@ function usePrimaryAdapterRootId(
     ? (adapterRootIdByPath.get(primaryRootPath) ?? null)
     : null;
   useUnmappedPrimaryRootNotice(primaryRootPath, primaryAdapterRootId);
+  useDuplicatePathNotice(rootDescriptors);
   return primaryAdapterRootId;
-}
-
-/**
- * The durable `roots.id` for a path, waiting a bounded window for
- * reconciliation to insert (or re-flip to `'live'`) the row. Never rejects:
- * every outcome — including exhaustion — is returned so the caller can surface
- * it. Exhaustion is NOT a silent no-op for any caller.
- */
-async function resolveRootIdAfterReconciliation(
-  database: DbHandle,
-  candidate: AssistantOperatingRootCandidate,
-  isCancelled: () => boolean
-): Promise<RootRowLookup> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < ROOT_ROW_RETRY_LIMIT; attempt += 1) {
-    if (attempt > 0) {
-      await delay(ROOT_ROW_RETRY_DELAY_MS);
-    }
-    if (isCancelled()) {
-      return { kind: 'cancelled' };
-    }
-    try {
-      const binding = await resolveAssistantOperatingRootBinding(database, candidate);
-      return { kind: 'resolved', rootId: binding.rootId };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  return isCancelled() ? { kind: 'cancelled' } : { error: lastError, kind: 'unresolved' };
 }
 
 /**
@@ -304,9 +289,11 @@ async function resolveRootIdAfterReconciliation(
  *   MAIN root's row is resolved by PATH, never borrowed from the file-system
  *   adapter's own id space (`window.git.status` and `secondaryRootIds` both
  *   speak the DB space). Re-resolving that row on `anyInvalidationNonce` is
- *   OPPORTUNISTIC — a row written with no accompanying changes invalidation
- *   stays unseen until the next one — and remains so until the await-root-
- *   registration seam below exists.
+ *   OPPORTUNISTIC — a row registered after this hook's own bounded wait
+ *   (`ROOT_ROW_WAIT_TIMEOUT_MS`, via `../roots/root-registration-events.ts`)
+ *   already gave up stays unseen until the next invalidation re-triggers the
+ *   effect from scratch. That outer retrigger is a separate, still-open
+ *   concern from the inner wait itself (BST-1400).
  * - SECONDARIES = `metadata.secondaryRootIds` resolved against the `roots`
  *   table for display. The assistant panel renders as a sibling of the
  *   RootIdentityProvider subtree, so there is no root-identity context to read
@@ -581,6 +568,11 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   );
   const recentRoots = useMemo<readonly WorkspaceBarRecentRoot[]>(
     () =>
+      // Exact-string, unlike main's platform-aware `pathsEqual` (case-folds on
+      // macOS/Windows) — negligible here (BST-1400 item 9): both sides of this
+      // comparison are produced by the SAME renderer, from the SAME adapter,
+      // so `entry.path`/`descriptor.path` never disagree on casing the way a
+      // user-typed or cross-process path could. Note only, not a bug to fix.
       recentEntries.flatMap((entry) =>
         mountedPaths.has(entry.path) ? [] : [{ displayName: entry.displayName, path: entry.path }]
       ),
@@ -602,6 +594,43 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId, updateThreadMetadata]
   );
 
+  /**
+   * Serializes thread-folder writes. Two Add-folder clicks whose lookups settle
+   * in the same tick would otherwise both derive from the pre-click set and the
+   * second would drop the first's id. So a queued write derives from what the
+   * PREVIOUS queued write actually persisted — its ids AND the primary it
+   * installed — because the store update behind `threadFoldersRef` has not
+   * reached the render at that point in the microtask chain.
+   *
+   * The tail is thread-scoped and drainable, both deliberately:
+   *
+   * - it carries the thread it describes and is consumed ONLY by a write
+   *   started for that same thread. This hook is long-lived in the wrapper, so
+   *   the ref outlives a thread switch; consuming it unconditionally would
+   *   write thread A's folder set onto thread B.
+   * - once the queue drains AND `threadFoldersRef` has caught up on every
+   *   FIELD the last write actually touched, the tail retires so the next
+   *   write reads LIVE state rather than a stale value from an already-
+   *   settled round of writes. A hand-off between overlapping writes, never
+   *   a cache. `useWriteTailQueue` tracks this PER IDENTITY FIELD (v4, PR
+   *   #2685 review) — a single scalar bumped on any field changing (v1–v3)
+   *   could not tell "the field THIS write cares about caught up" from "some
+   *   UNRELATED field changed," and retired on the latter too, dropping the
+   *   write's own change. See that file's docblock for the full three-case
+   *   matrix and the one residual it does not close.
+   *
+   * A write whose thread is no longer selected — or that outlives the hook —
+   * is skipped rather than landed on whatever thread is current now.
+   */
+  const {
+    currentRevisions,
+    pendingWriteCountRef,
+    recordLiveIdentity,
+    retireWriteTailIfCaughtUp,
+    settleWrite,
+    writeTailRef,
+  } = useWriteTailQueue();
+
   // The reconciliation wait below can span seconds, so the folder set captured
   // when the user clicked may be stale by the time the write happens (a removal
   // in between would be undone). Read the CURRENT set through this ref instead.
@@ -620,7 +649,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     threadId: selectedMemoryThreadId,
   });
   useEffect(() => {
-    threadFoldersRef.current = {
+    const live: ThreadCheckoutFolders = {
       checkoutLocalRootId,
       checkoutMode,
       metadataPending: selectedThreadMetadataPending,
@@ -632,6 +661,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       secondaryRootsPending,
       threadId: selectedMemoryThreadId,
     };
+    threadFoldersRef.current = live;
+    // The other half of the write-queue's tail retirement (BST-1400 item 2):
+    // a write settling does not mean this ref has caught up to it yet — see
+    // the `writeTailRef` doc comment above. This effect is the render
+    // committing that catch-up, so a genuine identity change bumps the
+    // revision here (not only at settle time), and every sync re-checks
+    // whether that is now enough to retire.
+    recordLiveIdentity(folderWriteIdentityOf(live));
+    retireWriteTailIfCaughtUp();
   }, [
     checkoutLocalRootId,
     checkoutMode,
@@ -643,33 +681,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     secondaryRootsPending,
     selectedMemoryThreadId,
     selectedThreadMetadataPending,
+    recordLiveIdentity,
+    retireWriteTailIfCaughtUp,
   ]);
 
-  /**
-   * Serializes thread-folder writes. Two Add-folder clicks whose lookups settle
-   * in the same tick would otherwise both derive from the pre-click set and the
-   * second would drop the first's id. So a queued write derives from what the
-   * PREVIOUS queued write actually persisted — its ids AND the primary it
-   * installed — because the store update behind `threadFoldersRef` has not
-   * reached the render at that point in the microtask chain.
-   *
-   * The tail is thread-scoped and drainable, both deliberately:
-   *
-   * - it carries the thread it describes and is consumed ONLY by a write
-   *   started for that same thread. This hook is long-lived in the wrapper, so
-   *   the ref outlives a thread switch; consuming it unconditionally would
-   *   write thread A's folder set onto thread B.
-   * - `pendingWriteCountRef` clears the tail the moment the queue drains, so
-   *   the next write reads LIVE state rather than a stale value from an
-   *   already-settled round of writes (metadata changed by another surface in
-   *   between must not be reverted). The tail is a hand-off between writes that
-   *   overlap, never a cache of the persisted state.
-   *
-   * A write whose thread is no longer selected — or that outlives the hook —
-   * is skipped rather than landed on whatever thread is current now.
-   */
-  const writeTailRef = useRef<Promise<ThreadFoldersWriteTail | null> | null>(null);
-  const pendingWriteCountRef = useRef(0);
   const enqueueThreadFoldersWrite = useCallback(
     (
       startedForThreadId: string | undefined,
@@ -682,9 +697,18 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ): Promise<void> => {
       const previous = writeTailRef.current;
       pendingWriteCountRef.current += 1;
+      // Captured the instant `live` is actually read below (after awaiting
+      // `previous`, since the identity can move DURING that wait) — the bar
+      // this write's own settle must clear before its tail may retire.
+      // `touchedFields` starts empty (a skipped/failed/no-op write retires
+      // immediately, nothing to wait for) and is set only once a real
+      // request is actually derived below.
+      let revisionsAtStart = currentRevisions();
+      let touchedFields = NO_TOUCHED_FIELDS;
       const settled = (async (): Promise<ThreadFoldersWriteTail | null> => {
         const tail = previous ? await previous : null;
         const live = threadFoldersRef.current;
+        revisionsAtStart = currentRevisions();
         // A write with NO thread is a caller bug, not an expected outcome: the
         // action fired while nothing was selected. Skipping it silently is what
         // makes "the folder did not attach" look like a UI glitch.
@@ -711,10 +735,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         if (!request) {
           return tail;
         }
+        const persistedMode = persistedCheckoutMode(current, request);
+        touchedFields = touchedFolderWriteFields(current, request, persistedMode);
         await writeThreadFolders(request.ids, request.binding);
         return {
           checkoutLocalRootId: request.checkoutLocalRootId,
-          checkoutMode: persistedCheckoutMode(current, request),
+          checkoutMode: persistedMode,
           ids: request.ids,
           primaryRoot: request.primaryRoot,
           primaryRootId: request.primaryRootId,
@@ -729,15 +755,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         () => null
       );
       writeTailRef.current = tailed;
-      void tailed.then(() => {
-        pendingWriteCountRef.current -= 1;
-        if (pendingWriteCountRef.current === 0) {
-          writeTailRef.current = null;
-        }
-      });
+      // This write is the most recent to settle, so ITS start-revisions and
+      // touched-fields (a `then` chain settles in enqueue order) are the
+      // fresh retirement bar; `settleWrite` retires immediately if
+      // threadFoldersRef already moved past it on every touched field,
+      // otherwise the sync effect retires it once it does.
+      void tailed.then(() => settleWrite(revisionsAtStart, touchedFields));
       return settled.then(() => undefined);
     },
-    [writeThreadFolders]
+    [currentRevisions, pendingWriteCountRef, settleWrite, writeTailRef, writeThreadFolders]
   );
 
   const resolveRootIdForPath = useCallback(
@@ -975,7 +1001,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const primaryRootPath = primaryRoot?.path;
   const primaryAdapterRootId = usePrimaryAdapterRootId(rootDescriptors, primaryRootPath);
-  const checkout = useThreadCheckoutStatus(
+  const { checkout, settled: checkoutSettled } = useThreadCheckoutStatus(
     primaryRootId && primaryRootPath
       ? {
           adapterRootId: primaryAdapterRootId,
@@ -1014,13 +1040,18 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedMemoryThreadId,
     updateThreadMetadata,
   });
+  const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
 
   return {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
+    // BST-1400: the deterministic e2e wait `data-checkout-state` on the bar
+    // exposes, replacing a bounded-sampling loop over "no branch chip yet".
+    checkoutState: checkoutStateOf(checkoutSettled),
     ...checkoutEntry(primaryRoot, checkout),
     ...forgeEntry(forge),
     ...modeEntry(mode),
     ...workspaceBarTerminal,
+    ...addFolderDisabledReasonEntry(addFolderDisabledReason),
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,

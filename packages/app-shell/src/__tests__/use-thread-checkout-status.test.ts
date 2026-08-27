@@ -78,7 +78,10 @@ describe('useThreadCheckoutStatus', () => {
       })
     );
     await waitFor(() =>
-      expect(result.current).toEqual({ ahead: 2, behind: 0, branch: 'main', dirty: false })
+      expect(result.current).toEqual({
+        checkout: { ahead: 2, behind: 0, branch: 'main', dirty: false },
+        settled: true,
+      })
     );
 
     status.mockResolvedValueOnce({
@@ -101,7 +104,10 @@ describe('useThreadCheckoutStatus', () => {
       });
     });
     await waitFor(() =>
-      expect(result.current).toEqual({ ahead: null, behind: null, branch: null, dirty: true })
+      expect(result.current).toEqual({
+        checkout: { ahead: null, behind: null, branch: null, dirty: true },
+        settled: true,
+      })
     );
     expect(status).toHaveBeenCalledTimes(2);
   });
@@ -127,7 +133,8 @@ describe('useThreadCheckoutStatus', () => {
         path: '/ws/a',
       })
     );
-    await waitFor(() => expect(result.current?.dirty).toBe(false));
+    await waitFor(() => expect(result.current.checkout?.dirty).toBe(false));
+    expect(result.current.settled).toBe(true);
     expect(status).toHaveBeenCalledTimes(1);
 
     // A working-tree edit under ANOTHER repository must not churn this chip.
@@ -149,7 +156,7 @@ describe('useThreadCheckoutStatus', () => {
     act(() => {
       useChangesLiveRefreshStore.getState().ingestWorkingTreeRefresh(['/ws/a']);
     });
-    await waitFor(() => expect(result.current?.dirty).toBe(true));
+    await waitFor(() => expect(result.current.checkout?.dirty).toBe(true));
     expect(status).toHaveBeenCalledTimes(2);
   });
 
@@ -174,10 +181,15 @@ describe('useThreadCheckoutStatus', () => {
       })
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
-    expect(result.current).toBeUndefined();
+    expect(result.current.checkout).toBeUndefined();
+    // Confirmed non-repository IS a settled outcome, not a perpetual pending —
+    // this is the exact case BST-1400's `data-checkout-state` needed to
+    // distinguish from "still loading".
+    await waitFor(() => expect(result.current.settled).toBe(true));
 
+    // No root at all: nothing to await, so settled immediately.
     const { result: nullRoot } = renderHook(() => useThreadCheckoutStatus(null));
-    expect(nullRoot.current).toBeUndefined();
+    expect(nullRoot.current).toEqual({ checkout: undefined, settled: true });
 
     (window as Window & { git?: unknown }).git = undefined;
     const { result: noBridge } = renderHook(() =>
@@ -187,7 +199,8 @@ describe('useThreadCheckoutStatus', () => {
         path: '/ws/a',
       })
     );
-    expect(noBridge.current).toBeUndefined();
+    // No bridge: also nothing to await.
+    expect(noBridge.current).toEqual({ checkout: undefined, settled: true });
     expect(status).toHaveBeenCalledTimes(1);
   });
 
@@ -201,7 +214,9 @@ describe('useThreadCheckoutStatus', () => {
       })
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
-    expect(result.current).toBeUndefined();
+    expect(result.current.checkout).toBeUndefined();
+    // A failed round-trip still SETTLES — the caller must not wait forever.
+    await waitFor(() => expect(result.current.settled).toBe(true));
     expect(loggerMock.warn).toHaveBeenCalledWith(
       'git status for the workspace bar failed',
       expect.objectContaining({ dbRootId: DB_ROOT_ID, error: 'boom' })
@@ -348,12 +363,16 @@ describe('useThreadCheckoutStatus', () => {
         }),
       { initialProps: { rootId: 'root-a' } }
     );
-    await waitFor(() => expect(result.current?.branch).toBe('root-a-branch'));
+    await waitFor(() => expect(result.current.checkout?.branch).toBe('root-a-branch'));
+    expect(result.current.settled).toBe(true);
 
     // Second root's status is still in flight: the bar must show nothing
-    // rather than root-a's branch under root-b.
+    // rather than root-a's branch under root-b — and this is the ONE case
+    // `settled` reads false: a genuinely new root whose first round-trip has
+    // not landed yet.
     rerender({ rootId: 'root-b' });
-    expect(result.current).toBeUndefined();
+    expect(result.current.checkout).toBeUndefined();
+    expect(result.current.settled).toBe(false);
 
     await act(async () => {
       resolveSecond?.({
@@ -370,7 +389,10 @@ describe('useThreadCheckoutStatus', () => {
       });
     });
     await waitFor(() =>
-      expect(result.current).toEqual({ ahead: 0, behind: 1, branch: 'root-b-branch', dirty: true })
+      expect(result.current).toEqual({
+        checkout: { ahead: 0, behind: 1, branch: 'root-b-branch', dirty: true },
+        settled: true,
+      })
     );
   });
 });

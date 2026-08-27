@@ -128,12 +128,12 @@ export function AdaptersTestWrapper({ children }: { children: ReactNode }) {
  * adapter (e.g. a case-specific capability stub for addRootByPath /
  * listRecentRoots). `children` is optional here — matching AdaptersTestWrapper
  * above — purely so this reads the same as its sibling; RTL's `wrapper` prop
- * always supplies children at runtime. Living in this .tsx file (real JSX)
- * means children genuinely nests through the component tree instead of an
- * explicit prop, with no createElement typed-overload workaround needed —
- * unlike a .ts (non-JSX) call site, which would otherwise have to either pass
- * `children` as an explicit prop (flagged by react-doctor/no-children-prop) or
- * cast around AdaptersProviderProps' required `children` field.
+ * always supplies children at runtime. Real JSX means `children` genuinely
+ * nests through the component tree instead of an explicit prop passed to
+ * `createElement`, which a non-JSX (`.ts`) call site would otherwise have to
+ * do — flagged by react-doctor/no-children-prop, and the reason
+ * `use-file-system.test.tsx` (this factory's caller) is itself a `.tsx` file
+ * (BST-1400).
  */
 export function createAdaptersTestWrapper(
   fileSystemAdapter: FileSystemAdapter,

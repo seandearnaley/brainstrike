@@ -128,19 +128,17 @@ test.describe('Workspace bar (desktop)', () => {
     const folderChip = page.getByTestId('workspace-bar-folder-chip');
     await expect(folderChip).toContainText(path.basename(plain), { timeout: 30_000 });
 
-    // The folder chip carrying the root's NAME proves the primary's durable
-    // `roots.id` resolved — which is the exact input `useThreadCheckoutStatus`
-    // issues its `window.git.status` call for. So the status round-trip is in
-    // flight (or done) by now. Sampling across a bounded window keeps this from
-    // passing vacuously against a chip that simply had not mounted yet.
-    // FOLLOW-UP: the deterministic form needs a renderer-observable
-    // "checkout resolution settled" signal — expose `data-checkout-state` on
-    // `workspace-bar` — and this loop goes away.
-    const branchChip = page.getByTestId('workspace-bar-branch-chip');
-    for (let sample = 0; sample < 2; sample += 1) {
-      await expect(branchChip).toHaveCount(0);
-      await page.waitForTimeout(500);
-    }
+    // Deterministic wait (BST-1400): `data-checkout-state` flips to
+    // "resolved" once `useThreadCheckoutStatus`'s `window.git.status`
+    // round-trip for THIS root has settled — pending vs. "confirmed no
+    // branch chip" are otherwise indistinguishable from a chip that simply
+    // had not mounted yet.
+    await expect(page.getByTestId('workspace-bar')).toHaveAttribute(
+      'data-checkout-state',
+      'resolved',
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId('workspace-bar-branch-chip')).toHaveCount(0);
   });
 
   test('re-mounts a recent folder from the chip without the OS picker and records it as +1', async ({

@@ -34,6 +34,23 @@ export interface ThreadCheckoutRoot {
   readonly path: string;
 }
 
+export interface ThreadCheckoutStatusResult {
+  /** Read-only git state for the Branch chip; see the function doc for `undefined`'s meanings. */
+  readonly checkout: WorkspaceBarCheckout | undefined;
+  /**
+   * True once the async `window.git.status` round-trip for the CURRENT root
+   * has settled at least once (resolved, failed, or was never needed — no
+   * bridge, no root). False only while that FIRST round-trip for this root is
+   * still in flight. A later refetch of the SAME root (triggered by either
+   * live-refresh nonce) does not flip this back to false — the chip keeps
+   * showing its last-known state during a refresh rather than flashing back to
+   * pending, matching the production UI. BST-1400: this is the seam
+   * `data-checkout-state` on the workspace bar exposes so e2e can await
+   * "checkout resolved" instead of sampling across a bounded window.
+   */
+  readonly settled: boolean;
+}
+
 /**
  * Read-only git state for the workspace bar's Branch chip. Desktop only
  * (`window.git`); `undefined` = no chip (web, no root, not a repository, or a
@@ -58,7 +75,7 @@ export interface ThreadCheckoutRoot {
  */
 export function useThreadCheckoutStatus(
   root: ThreadCheckoutRoot | null
-): WorkspaceBarCheckout | undefined {
+): ThreadCheckoutStatusResult {
   // Resolved ONCE per hook instance, not per render (same discipline as
   // useGitInventory): the bridge identity is an effect input.
   const bridge = useMemo(() => resolveGitBridge(), []);
@@ -83,6 +100,11 @@ export function useThreadCheckoutStatus(
     readonly dbRootId: string;
     readonly value: WorkspaceBarCheckout;
   } | null>(null);
+  // Tagged the same way `checkout` is: a settle recorded for a PRIOR dbRootId
+  // must not read as "this root is settled" once the root swaps. Not reset on
+  // dbRootId change — reading `settledForDbRootId === dbRootId` already
+  // handles that without an extra clearing effect.
+  const [settledForDbRootId, setSettledForDbRootId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!(bridge && dbRootId)) {
@@ -101,10 +123,12 @@ export function useThreadCheckoutStatus(
             error: result.error,
           });
           setCheckout(null);
+          setSettledForDbRootId(dbRootId);
           return;
         }
         if (!result.value.isRepository) {
           setCheckout(null);
+          setSettledForDbRootId(dbRootId);
           return;
         }
         setCheckout({
@@ -116,11 +140,13 @@ export function useThreadCheckoutStatus(
             dirty: !result.value.clean,
           },
         });
+        setSettledForDbRootId(dbRootId);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           logger.warn('git status for the workspace bar threw', { dbRootId, error });
           setCheckout(null);
+          setSettledForDbRootId(dbRootId);
         }
       });
     return () => {
@@ -128,5 +154,10 @@ export function useThreadCheckoutStatus(
     };
   }, [anyInvalidationNonce, bridge, dbRootId, gitScopeNonce]);
 
-  return checkout?.dbRootId === dbRootId ? checkout.value : undefined;
+  return {
+    checkout: checkout?.dbRootId === dbRootId ? checkout.value : undefined,
+    // Nothing to await when there is no bridge (web) or no root at all — that
+    // is trivially settled, not perpetually pending.
+    settled: !(bridge && dbRootId) || settledForDbRootId === dbRootId,
+  };
 }

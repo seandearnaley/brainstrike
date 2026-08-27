@@ -33,6 +33,19 @@ export interface ReconcileRootsResult {
    * rows retain their persisted kind; this map is a read-through only.
    */
   dbRootKindByAdapterRootId: Map<string, string>;
+  /**
+   * Adapter root ids this call caused a NEW `roots` row to appear for — a
+   * genuine `insertRoot` (or the concurrent-writer race that converges onto a
+   * row another window's insert just landed; that row is equally new to
+   * `loadRoots()`'s cache). Excludes every `matched` root (line ~202 above):
+   * an already-existing row reconciliation only path-matched and possibly
+   * flipped back to `'live'`, which the git inventory has already discovered
+   * via a prior build. This is the insert-vs-match signal
+   * `use-roots-reconciliation.ts`'s boot discovery nudge gates on — an
+   * ordinary boot with only already-registered roots has nothing new for the
+   * inventory to arm a watcher for, so it must not fire the nudge.
+   */
+  insertedAdapterRootIds: Set<string>;
 }
 
 interface DbRootRow {
@@ -137,17 +150,29 @@ async function resolvePathUniqueRace(args: {
  * does NOT clear; resurrecting them to 'live' here would skip the re-grant /
  * re-verification they demand (NO SILENT FALLBACKS). A row whose status the
  * caller's SELECT omitted is likewise left untouched.
+ *
+ * Returns whether the row was ACTUALLY flipped — the caller needs this to
+ * decide whether this root just became newly addressable (BST-1400 item 11
+ * review fold-in): `apps/desktop/src/assistant-server/workspace-roots.ts`'s
+ * inventory query is `WHERE status = 'live'`, so a 'disconnected' row is
+ * outside its view until this flip, and re-adding a previously-disconnected
+ * root must be treated the same as inserting a brand-new one for the
+ * discovery-nudge gate — the exact flow BST-1400 item 1 exists to support.
  */
-async function restoreRootLiveStatus(query: RootsQueryFn, row: DbRootRow): Promise<void> {
+async function restoreRootLiveStatus(query: RootsQueryFn, row: DbRootRow): Promise<boolean> {
   if (row.status !== 'disconnected') {
-    return;
+    return false;
   }
   try {
     await query(`UPDATE roots SET status = 'live', last_verified_at = NOW() WHERE id = $1`, [
       row.id,
     ]);
+    return true;
   } catch (error) {
     logger.error('Failed to restore live status on remounted root', { error, rootId: row.id });
+    // A failed flip leaves the row 'disconnected' — still outside the
+    // inventory's view, so it must not count as newly addressable either.
+    return false;
   }
 }
 
@@ -170,6 +195,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
   const managedWorktreePathsKnown = args.managedWorktreePathsKnown ?? true;
   const mapping = new Map<string, string>();
   const dbRootKindByAdapterRootId = new Map<string, string>();
+  const insertedAdapterRootIds = new Set<string>();
 
   const result = await query('SELECT id, kind, path, status FROM roots');
   const dbRows = result.rows.filter(isDbRootRow);
@@ -200,9 +226,17 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       root,
     });
     if (matched) {
-      await restoreRootLiveStatus(query, matched);
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- root registration is intentionally serial: dbByPath/mapping are mutated per iteration for a subsequent same-path root to read, and `query` is a single-connection sequential DB handle throughout this loop already.
+      const restoredToLive = await restoreRootLiveStatus(query, matched);
       mapping.set(root.rootId, matched.id);
       dbRootKindByAdapterRootId.set(root.rootId, matched.kind ?? platformKind);
+      // A matched row that was already 'live' is nothing new — the inventory
+      // has seen it. One just flipped from 'disconnected' is NOT: it was
+      // outside the inventory's `WHERE status = 'live'` view a moment ago
+      // (BST-1400 item 11 review fold-in — see restoreRootLiveStatus's doc).
+      if (restoredToLive) {
+        insertedAdapterRootIds.add(root.rootId);
+      }
       continue;
     }
     if (!managedWorktreePathsKnown) {
@@ -227,6 +261,9 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       mapping.set(root.rootId, existingRow.id);
       dbRootKindByAdapterRootId.set(root.rootId, existingRow.kind ?? platformKind);
       dbByPath.set(rootPath, { ...existingRow, status: 'live' });
+      // A concurrent writer's row, but still NEW relative to what any
+      // already-running inventory build has seen — counts as inserted.
+      insertedAdapterRootIds.add(root.rootId);
       logger.warn('Root path registered by a concurrent writer — converged on existing row', {
         dbRootId: existingRow.id,
         rootId: root.rootId,
@@ -242,8 +279,9 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
     });
     mapping.set(root.rootId, root.rootId);
     dbRootKindByAdapterRootId.set(root.rootId, kind);
+    insertedAdapterRootIds.add(root.rootId);
     logger.info('Registered new root', { kind, rootId: root.rootId });
   }
 
-  return { dbRootIdByAdapterRootId: mapping, dbRootKindByAdapterRootId };
+  return { dbRootIdByAdapterRootId: mapping, dbRootKindByAdapterRootId, insertedAdapterRootIds };
 }

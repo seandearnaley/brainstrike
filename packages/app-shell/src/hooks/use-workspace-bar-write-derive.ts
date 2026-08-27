@@ -87,6 +87,120 @@ export function writeStartingPoint(
 }
 
 /**
+ * The write-queue-identity subset of a folder set: the fields a chained
+ * write actually reads off `current`/a tail in `writeStartingPoint`, reduced
+ * to ONE shape shared by `ThreadCheckoutFolders` (`threadFoldersRef`'s own
+ * snapshots) and `ThreadFoldersWriteTail` (`ids` renamed to
+ * `secondaryRootIds`) so both can be compared the same way.
+ */
+export interface FolderWriteIdentity {
+  readonly checkoutLocalRootId: string | undefined;
+  readonly checkoutMode: 'local' | 'worktree';
+  readonly primaryRootId: string | undefined;
+  readonly secondaryRootIds: readonly string[];
+  // `undefined` for a `ThreadCheckoutFolders` snapshot taken with no thread
+  // selected; a tail's `threadId` is always a real thread (see
+  // `ThreadFoldersWriteTail`).
+  readonly threadId: string | undefined;
+}
+
+export function folderWriteIdentityOf(live: ThreadCheckoutFolders): FolderWriteIdentity {
+  return {
+    checkoutLocalRootId: live.checkoutLocalRootId,
+    checkoutMode: live.checkoutMode,
+    primaryRootId: live.primaryRootId,
+    secondaryRootIds: live.secondaryRootIds,
+    threadId: live.threadId,
+  };
+}
+
+/** Every field the write queue's per-dimension revision tracking distinguishes. */
+export type FolderWriteIdentityField =
+  | 'checkoutLocalRootId'
+  | 'checkoutMode'
+  | 'primaryRootId'
+  | 'secondaryRootIds'
+  | 'threadId';
+
+export const FOLDER_WRITE_IDENTITY_FIELDS: readonly FolderWriteIdentityField[] = [
+  'checkoutLocalRootId',
+  'checkoutMode',
+  'primaryRootId',
+  'secondaryRootIds',
+  'threadId',
+];
+
+function sameSecondaryRootIdSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const aIds = new Set(a);
+  return b.every((id) => aIds.has(id));
+}
+
+/**
+ * Which fields differ between two write-queue identity snapshots (BST-1400
+ * item 2 v4 — per-dimension revisions). `secondaryRootIds` compares as a
+ * SET — a resynced query result carries no ordering guarantee, and ordering
+ * is not part of this set's identity — everything else by `===`.
+ *
+ * This is the primitive both halves of tail retirement are built on:
+ * `recordLiveIdentity` (in `use-workspace-bar-write-tail-queue.ts`) calls it
+ * on consecutive `threadFoldersRef` snapshots to decide which per-field
+ * revision counters to bump, and `touchedFolderWriteFields` below calls it
+ * to decide which fields a write's OWN derive actually changed. See that
+ * queue's docblock for why retirement is asked per field rather than as one
+ * "did anything change" question — v1 through v3 of this mechanism all
+ * failed by collapsing the two.
+ */
+export function changedFolderWriteIdentityFields(
+  a: FolderWriteIdentity,
+  b: FolderWriteIdentity
+): ReadonlySet<FolderWriteIdentityField> {
+  const changed = new Set<FolderWriteIdentityField>();
+  if (a.threadId !== b.threadId) {
+    changed.add('threadId');
+  }
+  if (a.primaryRootId !== b.primaryRootId) {
+    changed.add('primaryRootId');
+  }
+  if (a.checkoutMode !== b.checkoutMode) {
+    changed.add('checkoutMode');
+  }
+  if (a.checkoutLocalRootId !== b.checkoutLocalRootId) {
+    changed.add('checkoutLocalRootId');
+  }
+  if (!sameSecondaryRootIdSet(a.secondaryRootIds, b.secondaryRootIds)) {
+    changed.add('secondaryRootIds');
+  }
+  return changed;
+}
+
+/**
+ * Which identity fields a queued write's own `request` actually changed,
+ * relative to the `current` it derived from — the "touched" set
+ * `settleWrite` records so retirement can ask "has the ref caught up on
+ * EVERY dimension THIS write changed?" instead of "has the ref moved for
+ * any reason at all?" (BST-1400 item 2 v4). `threadId` is deliberately
+ * never touched by a write's own derive (a write's thread is fixed context,
+ * not something it changes) — a thread switch is handled as its own
+ * retirement hatch, not through this set.
+ */
+export function touchedFolderWriteFields(
+  current: ThreadCheckoutFolders,
+  request: ThreadCheckoutWrite,
+  persistedMode: 'local' | 'worktree'
+): ReadonlySet<FolderWriteIdentityField> {
+  return changedFolderWriteIdentityFields(folderWriteIdentityOf(current), {
+    checkoutLocalRootId: request.checkoutLocalRootId,
+    checkoutMode: persistedMode,
+    primaryRootId: request.primaryRootId,
+    secondaryRootIds: request.ids,
+    threadId: current.threadId,
+  });
+}
+
+/**
  * The `checkoutMode` a queued write actually persisted — `'local'` when the
  * write's own binding says so (an atomic make-primary-off-a-worktree switch,
  * or an explicit hand-off), otherwise unchanged from what the write started
