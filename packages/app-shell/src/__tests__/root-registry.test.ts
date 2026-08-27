@@ -67,10 +67,15 @@ describe('reconcileRoots', () => {
     expect(update?.[0]).toMatch(/status = 'live'/);
     expect(update?.[0]).toMatch(/last_verified_at = NOW\(\)/);
     expect(update?.[1]).toEqual(['db-1']);
-    // BST-1400 item 11: the exact remove-then-re-add shape the boot discovery
-    // nudge over-fired for — matched-and-restored is not a NEW row, so it must
-    // not be reported as inserted even though the row just flipped live.
-    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(false);
+    // BST-1400 item 11 review fold-in: matched-and-restored is NOT the same
+    // as matched-and-already-live — the row was 'disconnected' a moment ago,
+    // outside the inventory's `WHERE status = 'live'` view (workspace-
+    // roots.ts), so flipping it to live makes it newly addressable and MUST
+    // be reported as inserted, the same as a genuine insert. (The original
+    // version of this fix reported `false` here — the exact regression this
+    // assertion now pins; see the sibling `use-roots-reconciliation.test.tsx`
+    // test for the end-to-end discovery-nudge behavior this feeds.)
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(true);
   });
 
   it.each(['needs-regrant', 'snapshot-stale'])(
@@ -93,6 +98,8 @@ describe('reconcileRoots', () => {
       expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(
         false
       );
+      // No flip happened, so this is an ordinary match — must not nudge.
+      expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(false);
     }
   );
 
@@ -114,6 +121,10 @@ describe('reconcileRoots', () => {
       query,
     });
     expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+    // The row is STILL 'disconnected' (the flip failed) — outside the
+    // inventory's view either way, so this must not be reported as
+    // inserted; the next reconcile's retry is what should eventually nudge.
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(false);
   });
 
   it('does not path-match FSA roots because path is only the directory display name', async () => {

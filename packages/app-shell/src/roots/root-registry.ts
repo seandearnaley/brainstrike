@@ -150,17 +150,29 @@ async function resolvePathUniqueRace(args: {
  * does NOT clear; resurrecting them to 'live' here would skip the re-grant /
  * re-verification they demand (NO SILENT FALLBACKS). A row whose status the
  * caller's SELECT omitted is likewise left untouched.
+ *
+ * Returns whether the row was ACTUALLY flipped — the caller needs this to
+ * decide whether this root just became newly addressable (BST-1400 item 11
+ * review fold-in): `apps/desktop/src/assistant-server/workspace-roots.ts`'s
+ * inventory query is `WHERE status = 'live'`, so a 'disconnected' row is
+ * outside its view until this flip, and re-adding a previously-disconnected
+ * root must be treated the same as inserting a brand-new one for the
+ * discovery-nudge gate — the exact flow BST-1400 item 1 exists to support.
  */
-async function restoreRootLiveStatus(query: RootsQueryFn, row: DbRootRow): Promise<void> {
+async function restoreRootLiveStatus(query: RootsQueryFn, row: DbRootRow): Promise<boolean> {
   if (row.status !== 'disconnected') {
-    return;
+    return false;
   }
   try {
     await query(`UPDATE roots SET status = 'live', last_verified_at = NOW() WHERE id = $1`, [
       row.id,
     ]);
+    return true;
   } catch (error) {
     logger.error('Failed to restore live status on remounted root', { error, rootId: row.id });
+    // A failed flip leaves the row 'disconnected' — still outside the
+    // inventory's view, so it must not count as newly addressable either.
+    return false;
   }
 }
 
@@ -214,9 +226,17 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       root,
     });
     if (matched) {
-      await restoreRootLiveStatus(query, matched);
+      // eslint-disable-next-line react-doctor/async-await-in-loop -- root registration is intentionally serial: dbByPath/mapping are mutated per iteration for a subsequent same-path root to read, and `query` is a single-connection sequential DB handle throughout this loop already.
+      const restoredToLive = await restoreRootLiveStatus(query, matched);
       mapping.set(root.rootId, matched.id);
       dbRootKindByAdapterRootId.set(root.rootId, matched.kind ?? platformKind);
+      // A matched row that was already 'live' is nothing new — the inventory
+      // has seen it. One just flipped from 'disconnected' is NOT: it was
+      // outside the inventory's `WHERE status = 'live'` view a moment ago
+      // (BST-1400 item 11 review fold-in — see restoreRootLiveStatus's doc).
+      if (restoredToLive) {
+        insertedAdapterRootIds.add(root.rootId);
+      }
       continue;
     }
     if (!managedWorktreePathsKnown) {

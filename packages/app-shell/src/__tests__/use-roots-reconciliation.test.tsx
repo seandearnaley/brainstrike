@@ -854,6 +854,43 @@ describe('useRootsReconciliation', () => {
       }
     });
 
+    // BST-1400 item 11 review fold-in: a matched row that flips
+    // 'disconnected' → 'live' is NOT "nothing new" — the inventory's query is
+    // `WHERE status = 'live'` (workspace-roots.ts), so it was outside its
+    // view a moment ago. Must nudge, same as a genuine insert.
+    it('refreshes when the boot reconcile MATCHED a row and restored it from disconnected to live', async () => {
+      const rootPath = '/workspace/docs';
+      const inventory = okInventory();
+      const uninstall = installChangesBridge(inventory);
+
+      try {
+        const restoreRoots = vi.fn(
+          async (): Promise<RootDescriptor[]> => [
+            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+          ]
+        );
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        // Unlike makeDbWithRootRow's status-less fixture, this row is
+        // explicitly 'disconnected' — reconcileRoots must flip it.
+        const query = vi.fn(async (sql: string) => {
+          if ((sql as string).includes('SELECT id')) {
+            return { rows: [{ id: 'db-root-id', path: rootPath, status: 'disconnected' }] };
+          }
+          return { rows: [] };
+        });
+        const db = { query } as unknown as DbHandle;
+        const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('db-root-id');
+        await waitFor(() => {
+          expect(inventory).toHaveBeenCalledTimes(1);
+        });
+        expect(inventory).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
+      } finally {
+        uninstall();
+      }
+    });
+
     it('does not refresh when the boot reconcile registered no roots', async () => {
       const inventory = okInventory();
       const uninstall = installChangesBridge(inventory);
