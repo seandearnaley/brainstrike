@@ -668,10 +668,18 @@ describe('useWorktreeMode', () => {
       useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT })
     );
 
+    // The bound-checkout fallback renders `{ name, worktreeId }` from the
+    // persisted checkout on the very first render, so a worktree match can
+    // pass before the retry's list() call has even fired — the spy count is
+    // the only signal that discriminates the retry from the fallback.
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
     await waitFor(() =>
-      expect(result.current?.worktree).toMatchObject({ name: 'bright-fox', worktreeId: 'w-1' })
+      expect(result.current).toMatchObject({
+        disabledReason: null,
+        picker: { options: [{ current: true, worktreeId: 'w-1' }] },
+        worktree: { name: 'bright-fox', worktreeId: 'w-1' },
+      })
     );
-    expect(listSpy).toHaveBeenCalledTimes(2);
 
     rerender();
     await act(async () => {
