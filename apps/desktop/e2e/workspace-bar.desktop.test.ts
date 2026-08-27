@@ -149,7 +149,7 @@ test.describe('Workspace bar (desktop)', () => {
     const recent = freshNonGitDir('recent');
     // The recents grant is seeded in the SAME write as `rootsList`, before the
     // only reload: the boot that reload triggers runs `restoreRoots` →
-    // `recordRecentRootIfNew`, a read-modify-write on `recentRootsList`, and a
+    // `recordRecentRootsIfNew`, a read-modify-write on `recentRootsList`, and a
     // seed landing after it would race that write. Being present in the ledger
     // is the ONLY thing that authorizes the picker-less `fs:addRootByPath`.
     await seedRoot(page, primary, { recentPaths: [recent] });
