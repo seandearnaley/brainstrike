@@ -33,6 +33,7 @@ export type DesktopIpcDomain =
   | 'userCommands'
   | 'userPersonas'
   | 'vectorPreferences'
+  | 'workspace'
   | 'worktrees';
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';

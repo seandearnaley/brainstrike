@@ -78,6 +78,7 @@ interface MockWindowInstance {
   readonly setFullScreen: ReturnType<typeof vi.fn>;
   readonly show: ReturnType<typeof vi.fn>;
   readonly webContents: {
+    readonly id: number;
     readonly isDestroyed: ReturnType<typeof vi.fn>;
     readonly isLoading: ReturnType<typeof vi.fn>;
     readonly off: ReturnType<typeof vi.fn>;
@@ -106,8 +107,15 @@ function latestWindow(): MockWindowInstance {
   return win;
 }
 
+// Real Electron `WebContents.id`s are unique per instance — main.ts's ready-
+// ping handler routes on `event.sender.id`, so the mock must give each
+// window a DISTINCT id too, or the activate-recreation test (and any other
+// two-window scenario) would silently collide on the same map key.
+let nextMockWebContentsId = 1;
+
 function createMockWindowInstance(): MockWindowInstance {
   const webContents = {
+    id: nextMockWebContentsId++,
     isDestroyed: vi.fn(() => false),
     isLoading: vi.fn(() => false),
     off: vi.fn(),

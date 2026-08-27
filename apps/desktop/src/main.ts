@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike/types';
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { buildFileMenuTemplate } from './application-file-menu';
@@ -181,6 +181,7 @@ import {
   enqueueFolderCandidates,
   filterDirectoryOpenCandidates,
 } from './workspace-open-queue';
+import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ipc';
 import { resolveRootCwd } from './workspace-root-cwd';
 import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
@@ -1476,6 +1477,23 @@ if (singleInstanceLockAcquired) {
 
   const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
 
+  // Renderer→main ready ping (`WorkspaceConnectHost`, immediately after it
+  // subscribes via `onOpenPath`). Registered ONCE here, at module scope,
+  // through `workspace-open-ready-ipc.ts`'s registrar — `main.ts` itself must
+  // never register a raw Electron IPC event/handle listener directly
+  // (`runtime-host-boundary.test.ts`'s "keeps main process startup free of ad
+  // hoc IPC registration"). `createMainWindow` runs again on every
+  // `app.on('activate')` recreation, so per-window routing happens via this
+  // Map (keyed by `webContents.id`, populated/cleaned up per window below)
+  // rather than by registering the channel a second time, which the registry
+  // rejects.
+  const workspaceOpenReadyCallbacksByWebContentsId = new Map<number, () => void>();
+  registerWorkspaceOpenReadyIpcHandlers({
+    onOpenPathReady: (senderWebContentsId) => {
+      workspaceOpenReadyCallbacksByWebContentsId.get(senderWebContentsId)?.();
+    },
+  });
+
   // macOS delivers this before `whenReady` (Dock drop, "Open With", a click in
   // the Dock's recent-documents list that `app.addRecentDocument` populates),
   // so the listener is registered at module scope and the queue holds the
@@ -2358,22 +2376,20 @@ if (singleInstanceLockAcquired) {
           maybeAttachWorkspaceOpenQueue();
         });
         // Renderer→main ready ping (`WorkspaceConnectHost`, immediately after
-        // it subscribes via `onOpenPath`). Scoped to THIS window's webContents
-        // — `createMainWindow` runs again on every `activate` recreation, and
-        // an unscoped/global listener would let a stale ready ping from a
-        // previous, now-destroyed window attach a NEW window prematurely.
-        // Removed on `closed` so listeners don't accumulate across
-        // recreations.
-        const handleOpenPathReady = (event: Electron.IpcMainEvent) => {
-          if (event.sender !== win.webContents) {
-            return;
-          }
+        // it subscribes via `onOpenPath`). The channel itself is registered
+        // ONCE, globally, by `workspace-open-ready-ipc.ts` (see the module
+        // comment above `workspaceOpenReadyCallbacksByWebContentsId`) — this
+        // just plugs THIS window's callback into that shared dispatch map,
+        // keyed by `webContents.id` so a ping from a different window (or a
+        // stale one from a previous, now-destroyed window, after `activate`
+        // recreates it) never attaches this one prematurely. Removed on
+        // `closed` so the map doesn't accumulate entries across recreations.
+        workspaceOpenReadyCallbacksByWebContentsId.set(win.webContents.id, () => {
           rendererReady = true;
           maybeAttachWorkspaceOpenQueue();
-        };
-        ipcMain.on(DESKTOP_IPC_CHANNELS.workspace.openPathReady, handleOpenPathReady);
+        });
         win.once('closed', () => {
-          ipcMain.removeListener(DESKTOP_IPC_CHANNELS.workspace.openPathReady, handleOpenPathReady);
+          workspaceOpenReadyCallbacksByWebContentsId.delete(win.webContents.id);
         });
         // LOAD-BEARING: this whole block, from the `did-start-loading`
         // registration above through the `isLoading()` check below, MUST stay
