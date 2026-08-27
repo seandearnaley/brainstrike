@@ -157,8 +157,13 @@ function createMockWindowInstance(): MockWindowInstance {
 const mockBrowserWindow = vi.fn();
 mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
   const instance = createMockWindowInstance();
-  mockWindowInstances.push(instance);
   Object.assign(this, instance);
+  // Push the CONSTRUCTED window (`this`), not the template object: they share
+  // every mock-function reference, so all existing assertions behave
+  // identically — but only `this` is the object `main.ts` actually holds,
+  // which lets the destroyed-webContents regression test below redefine
+  // `webContents` as a throwing getter the production `closed` handlers see.
+  mockWindowInstances.push(this as unknown as MockWindowInstance);
 });
 Object.assign(mockBrowserWindow, {
   getAllWindows: vi.fn(() => []),
@@ -812,5 +817,34 @@ describe('main workspace-open lifecycle', () => {
     // Delivery went to the NEW window, never the destroyed one — proves the
     // queue re-attached rather than merely never having been detached.
     expect(mockWindowInstances[0]?.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('no "closed" handler dereferences win.webContents after destruction — the teardown "Object has been destroyed" exception (BST-1393 L5 e2e finding)', async () => {
+    await import('../../main');
+
+    await vi.waitFor(() => {
+      expect(latestWindow().once).toHaveBeenCalledWith('closed', expect.any(Function));
+    });
+
+    const win = latestWindow();
+    // Real Electron: once a window has emitted `closed`, its `webContents`
+    // GETTER itself throws "Object has been destroyed". The live e2e run
+    // surfaced exactly that as an uncaught main-process exception from the
+    // ready-callback map's cleanup handler, which read `win.webContents.id`
+    // inside `closed` instead of capturing the id at registration time.
+    // Both halves of Electron's post-close contract must be simulated
+    // together: `isDestroyed()` reports true AND the `webContents` getter
+    // throws. Simulating only the throwing getter mislabels handlers that
+    // are correctly guarded by `isDestroyed()` (browser-pane dispose) while
+    // the actually-unguarded one hides behind them.
+    win.isDestroyed.mockReturnValue(true);
+    Object.defineProperty(win, 'webContents', {
+      configurable: true,
+      get() {
+        throw new TypeError('Object has been destroyed');
+      },
+    });
+
+    expect(() => fireHandlersRegisteredSoFar(win.once, 'closed')).not.toThrow();
   });
 });

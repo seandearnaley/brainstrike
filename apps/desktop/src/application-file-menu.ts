@@ -27,8 +27,19 @@ export const FILE_MENU_IDS = {
 export const FILE_MENU_RECENT_LIMIT = 10;
 
 export interface FileMenuDeps {
-  readonly onOpenFolder: () => void;
-  readonly onOpenRecentPath: (recentPath: string) => void;
+  /**
+   * `targetWindow` is the window Electron hands the click handler (the
+   * focused window at click time). Passed through — the same
+   * `(_menuItem, browserWindow)` idiom the View menu's Command Palette /
+   * Quick Open items use — because the consumer's
+   * `BrowserWindow.getFocusedWindow()` fallback is null whenever the app is
+   * not the OS-active application (a menu item driven programmatically via
+   * `getMenuItemById(...).click(...)`, e.g. from the desktop e2e, would
+   * otherwise be a silent no-op). This module stays dependency-free, so the
+   * param is typed as the base window and the consumer narrows.
+   */
+  readonly onOpenFolder: (targetWindow?: Electron.BaseWindow) => void;
+  readonly onOpenRecentPath: (recentPath: string, targetWindow?: Electron.BaseWindow) => void;
   /** Newest-first, exactly as `listRecentRootEntries` orders them. */
   readonly recentPaths: readonly string[];
 }
@@ -49,8 +60,8 @@ export function buildFileMenuTemplate({
   // needing its own factory-reset and corruption story. Removing the item is
   // the honest fix until that lands for real.
   const recentSubmenu: Electron.MenuItemConstructorOptions[] = visible.map((recentPath) => ({
-    click: () => {
-      onOpenRecentPath(recentPath);
+    click: (_menuItem, browserWindow) => {
+      onOpenRecentPath(recentPath, browserWindow);
     },
     // Basename reads; the full path disambiguates two same-named
     // folders without making every row a wall of text.
@@ -65,8 +76,8 @@ export function buildFileMenuTemplate({
         // Matches the repo's explicit per-platform accelerator style; the
         // existing View items are written the same way rather than CmdOrCtrl.
         accelerator: process.platform === 'darwin' ? 'Cmd+O' : 'Ctrl+O',
-        click: () => {
-          onOpenFolder();
+        click: (_menuItem, browserWindow) => {
+          onOpenFolder(browserWindow);
         },
         id: FILE_MENU_IDS.openFolder,
         label: 'Open Folder…',

@@ -2133,12 +2133,22 @@ if (singleInstanceLockAcquired) {
           ],
         },
       ];
-      const pushToFocusedWindow = (channel: string, payload?: unknown): void => {
-        // Menu clicks from application-file-menu.ts don't carry Electron's
-        // click-handler browserWindow through (FileMenuDeps' callbacks are
-        // plain () => void / (path: string) => void) — this always targets
-        // the focused window, same as the Cmd+K / Cmd+P items above.
-        const targetWindow = BrowserWindow.getFocusedWindow();
+      const pushToFocusedWindow = (
+        channel: string,
+        payload?: unknown,
+        explicitWindow?: Electron.BaseWindow
+      ): void => {
+        // Same `browserWindow instanceof BrowserWindow ? browserWindow :
+        // BrowserWindow.getFocusedWindow()` routing as the Cmd+K / Cmd+P View
+        // items above: application-file-menu.ts now passes Electron's
+        // click-handler window through, because `getFocusedWindow()` alone is
+        // null whenever this app is not the OS-active application — which is
+        // exactly the state a programmatic `getMenuItemById(...).click(...)`
+        // (the desktop e2e's only way to drive the File menu) runs in.
+        const targetWindow =
+          explicitWindow instanceof BrowserWindow
+            ? explicitWindow
+            : BrowserWindow.getFocusedWindow();
         if (!targetWindow || targetWindow.isDestroyed()) {
           return;
         }
@@ -2153,14 +2163,22 @@ if (singleInstanceLockAcquired) {
           1,
           template[1]?.label === 'File' ? 1 : 0,
           buildFileMenuTemplate({
-            onOpenFolder: () => {
-              pushToFocusedWindow(DESKTOP_IPC_CHANNELS.workspace.openFolderPicker);
+            onOpenFolder: (targetWindow) => {
+              pushToFocusedWindow(
+                DESKTOP_IPC_CHANNELS.workspace.openFolderPicker,
+                undefined,
+                targetWindow
+              );
             },
-            onOpenRecentPath: (recentPath) => {
-              pushToFocusedWindow(DESKTOP_IPC_CHANNELS.workspace.openPath, {
-                origin: 'menu-recent',
-                path: recentPath,
-              });
+            onOpenRecentPath: (recentPath, targetWindow) => {
+              pushToFocusedWindow(
+                DESKTOP_IPC_CHANNELS.workspace.openPath,
+                {
+                  origin: 'menu-recent',
+                  path: recentPath,
+                },
+                targetWindow
+              );
             },
             recentPaths: recents,
           })
@@ -2384,12 +2402,18 @@ if (singleInstanceLockAcquired) {
         // stale one from a previous, now-destroyed window, after `activate`
         // recreates it) never attaches this one prematurely. Removed on
         // `closed` so the map doesn't accumulate entries across recreations.
-        workspaceOpenReadyCallbacksByWebContentsId.set(win.webContents.id, () => {
+        // Captured NOW, not read inside the `closed` handler: by the time
+        // `closed` fires the WebContents is destroyed and `win.webContents`
+        // GETTER ACCESS throws "Object has been destroyed" — an uncaught
+        // main-process exception on every window close (caught live by the
+        // BST-1393 L5 e2e run, where it surfaced during every teardown).
+        const workspaceOpenReadyWebContentsId = win.webContents.id;
+        workspaceOpenReadyCallbacksByWebContentsId.set(workspaceOpenReadyWebContentsId, () => {
           rendererReady = true;
           maybeAttachWorkspaceOpenQueue();
         });
         win.once('closed', () => {
-          workspaceOpenReadyCallbacksByWebContentsId.delete(win.webContents.id);
+          workspaceOpenReadyCallbacksByWebContentsId.delete(workspaceOpenReadyWebContentsId);
         });
         // LOAD-BEARING: this whole block, from the `did-start-loading`
         // registration above through the `isLoading()` check below, MUST stay
