@@ -42,6 +42,7 @@ interface RegisterIpcHandlerOptions {
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
+  readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
 }
 
 /**
@@ -73,6 +74,9 @@ export function registerIpcHandlers(
       : {}),
     ...(options?.managedWorktreeAuthorizer
       ? { managedWorktreeAuthorizer: options.managedWorktreeAuthorizer }
+      : {}),
+    ...(options?.onWorkspaceRootGranted
+      ? { onWorkspaceRootGranted: options.onWorkspaceRootGranted }
       : {}),
     storage,
   });

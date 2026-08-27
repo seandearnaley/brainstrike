@@ -24,4 +24,15 @@ describe('WorkspaceRootRegistry managed-worktree authorizer (BST-1390, spec §6.
     await registry.addRootByPath('/managed/app/bright-fox');
     expect(authorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
   });
+
+  it('does NOT notify onRootGranted for a managed-worktree mount (BST-1393 review finding)', async () => {
+    // The registry already excludes managed-worktree grants from the recents
+    // ledger (recordInRecentRoots: false); onRootGranted rides the SAME gate,
+    // so a scratch worktree must never reach the OS recent-documents list.
+    const onRootGranted = vi.fn();
+    const registry = createRegistry({ onRootGranted });
+    registry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
+    await registry.addRootByPath('/managed/app/bright-fox');
+    expect(onRootGranted).not.toHaveBeenCalled();
+  });
 });

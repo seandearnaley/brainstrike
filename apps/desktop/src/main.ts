@@ -21,6 +21,7 @@ import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import {
@@ -119,6 +120,7 @@ import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
+import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
@@ -775,6 +777,16 @@ let stopAssistantServer: null | (() => Promise<void>) = null;
 // BST-1330: gates the developer-menu database reset so a repeat accelerator
 // press surfaces "already in progress" instead of the reset barrier's throw.
 let developerDatabaseResetInFlight = false;
+// NOT a replay buffer, despite the name's "pending" framing: a grant recorded
+// before this is assigned (inside app.whenReady()'s menu block) is a silent
+// no-op for THIS subscriber specifically — it never queues and never fires
+// late. That's safe because the grant itself is durable regardless (the
+// ledger write in workspace-recent-roots.ts happens unconditionally, and the
+// next application-menu rebuild reads the ledger fresh), so the only thing a
+// pre-assignment grant misses is that one mount's app.addRecentDocument call
+// — relevant only to a renderer-less/background window mounting before the
+// visible-UI menu block runs, which does not happen in the normal boot path.
+let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterParserHostIpcHandlers: null | (() => void) = null;
@@ -1093,6 +1105,18 @@ function registerShutdownSignalHandlers(): void {
 
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
+
+const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
+  try {
+    return (await listRecentRootEntries(storage)).map((entry) => entry.path);
+  } catch (error) {
+    // A menu that cannot list recents still opens folders; a boot that dies
+    // on a storage read does not. Logged, never silent.
+    logger.warn('Could not read the recent workspace folders for the File menu', { error });
+    return [];
+  }
+};
+
 const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
@@ -1308,6 +1332,9 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
   },
   onResetLocal: handleResetLocal,
   onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
+  onWorkspaceRootGranted: (grantedPath: string) => {
+    pendingRootGrantSubscriber?.(grantedPath);
+  },
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
 unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);
@@ -2047,7 +2074,65 @@ if (singleInstanceLockAcquired) {
           ],
         },
       ];
-      Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
+      const pushToFocusedWindow = (channel: string, payload?: unknown): void => {
+        // Menu clicks from application-file-menu.ts don't carry Electron's
+        // click-handler browserWindow through (FileMenuDeps' callbacks are
+        // plain () => void / (path: string) => void) — this always targets
+        // the focused window, same as the Cmd+K / Cmd+P items above.
+        const targetWindow = BrowserWindow.getFocusedWindow();
+        if (!targetWindow || targetWindow.isDestroyed()) {
+          return;
+        }
+        targetWindow.webContents.send(channel, payload);
+      };
+
+      let applicationMenuRebuildScheduled = false;
+      const rebuildApplicationMenu = async (): Promise<void> => {
+        const recents = await listWorkspaceRecentRootPaths();
+        const template = [...menuTemplate];
+        template.splice(
+          1,
+          template[1]?.label === 'File' ? 1 : 0,
+          buildFileMenuTemplate({
+            onOpenFolder: () => {
+              pushToFocusedWindow(DESKTOP_IPC_CHANNELS.workspace.openFolderPicker);
+            },
+            onOpenRecentPath: (recentPath) => {
+              pushToFocusedWindow(DESKTOP_IPC_CHANNELS.workspace.openPath, {
+                origin: 'menu-recent',
+                path: recentPath,
+              });
+            },
+            recentPaths: recents,
+          })
+        );
+        Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+      };
+
+      const scheduleApplicationMenuRebuild = (): void => {
+        // Coalesced: a restore mounts many roots in a burst, and rebuilding
+        // the whole application menu per root would thrash the menu bar.
+        if (applicationMenuRebuildScheduled) {
+          return;
+        }
+        applicationMenuRebuildScheduled = true;
+        setTimeout(() => {
+          applicationMenuRebuildScheduled = false;
+          rebuildApplicationMenu().catch((error: unknown) => {
+            logger.warn('Failed to rebuild the application menu', { error });
+          });
+        }, 250);
+      };
+
+      pendingRootGrantSubscriber = (grantedPath: string) => {
+        // Spec §7's explicit ask. This feeds the macOS Dock menu and the
+        // Windows jump list, whose clicks arrive back as `open-file` / argv —
+        // the entry points Layer 3 handles.
+        app.addRecentDocument(grantedPath);
+        scheduleApplicationMenuRebuild();
+      };
+
+      await rebuildApplicationMenu();
 
       // Start local data stream server for desktop assistant-ui
       let assistantUrl = '';

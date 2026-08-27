@@ -16,3 +16,4 @@ export * from './status-items';
 export * from './threads-panel';
 export * from './types';
 export * from './verify-provider-credential';
+export * from './workspace-connect/workspace-connect-host';

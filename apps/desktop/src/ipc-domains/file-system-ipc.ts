@@ -48,6 +48,14 @@ interface RegisterFileSystemIpcHandlersOptions {
    */
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
+  /**
+   * Fired after a successful grant-recording mount (BST-1393). main uses it to
+   * push the folder into the OS recent-documents list and to rebuild the File
+   * menu's Open Recent projection. Optional so every existing caller and test
+   * is unaffected; a throwing subscriber must never fail the mount that
+   * succeeded, so the call is wrapped.
+   */
+  readonly onWorkspaceRootGranted?: ((grantedPath: string) => void) | undefined;
   readonly storage: ElectronStorageAdapter;
   /** Explicit constructor seams for unit tests of native-root composition. */
   readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
@@ -303,9 +311,17 @@ export function registerFileSystemIpcHandlers({
   getRootsDatabase,
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
+  onWorkspaceRootGranted,
   storage,
   workspaceRootRegistryFileSystemSeams,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
+  const notifyRootGranted = (grantedPath: string): void => {
+    try {
+      onWorkspaceRootGranted?.(grantedPath);
+    } catch (error) {
+      logger.warn('workspace-root grant subscriber threw', { error });
+    }
+  };
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
   const syntheticFileSystemClassifications = new Map<string, boolean>();
@@ -404,6 +420,7 @@ export function registerFileSystemIpcHandlers({
     disposeCommandSessionsForRoot,
     evictLspServersForRoot: evictLspServerForRoot,
     getRootsDatabase,
+    onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
     resolveCanonicalRoot: async (rootPath) => {
       if (usesSyntheticFileSystem(rootPath)) {
@@ -598,6 +615,11 @@ export function registerFileSystemIpcHandlers({
   // Picker-less: main's recent-roots ledger is the only authorization, so an
   // unrecorded path is rejected there rather than granted from a renderer
   // string. The shape check stays here so a malformed payload never reaches it.
+  // The grant-notification callback (recents pushed to OS recent-documents +
+  // File-menu rebuild) fires structurally from inside WorkspaceRootRegistry.addRoot,
+  // gated on the SAME recordInRecentRoots flag that decides ledger recording —
+  // see onRootGranted on the `roots` construction above — so this handler
+  // does not need to call it itself.
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.addRootByPath,
