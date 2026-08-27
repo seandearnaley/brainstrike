@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 
 const TRANSPORT_FILE_NAME = 'main-log-transport.js';
 
@@ -9,30 +10,20 @@ const TRANSPORT_FILE_NAME = 'main-log-transport.js';
 export function resolveMainLogTransportPath(
   appPath: string,
   isPackaged: boolean,
-  currentModuleFilename: string = module.filename
+  currentModuleFilename?: string
 ): string {
   if (!isPackaged) {
-    // BST-1459: app.getAppPath() changes with Electron's launch mode and can
-    // already be dist/ (e.g. Playwright's e2e harness launches Electron with
-    // a direct path to dist/main.js, which has no package.json above it, so
-    // app.getAppPath() returns dist/ itself and appending 'dist' here would
-    // double it — the same bug fixed for main-watchdog-path.ts). This never
-    // surfaced as a visible failure in e2e because BRAINSTRIKE_DISABLE_FILE_LOGS=1
-    // short-circuits main.ts's getLogFilePath() before this path is ever
-    // dereferenced by a pino transport worker — masked, not absent. The
-    // running CommonJS module reliably identifies the emitted worker's
-    // sibling directory regardless of the entry argument.
-    // Inherited from db-host-manager.ts's resolveDefaultEntryPath(), not
-    // independently justified here: `module.filename` is set synchronously
-    // by CJS module init before this function can ever run, so this branch
-    // is unreachable in practice, and it would resolve to the wrong
-    // directory (silently) if it were ever hit. Don't treat it as real
-    // protection — it's a vestigial shape carried over, not a tested seam.
-    const moduleFilename =
-      typeof currentModuleFilename === 'string' && currentModuleFilename.length > 0
-        ? currentModuleFilename
-        : path.join(process.cwd(), 'main.js');
-    return path.join(path.dirname(moduleFilename), TRANSPORT_FILE_NAME);
+    // BST-1459: see bundled-sibling-path.ts for the full launch-mode
+    // rationale and NO SILENT FALLBACKS reasoning (PR #2680 review). This
+    // never surfaced as a visible failure in e2e because
+    // BRAINSTRIKE_DISABLE_FILE_LOGS=1 short-circuits main.ts's
+    // getLogFilePath() before this path is ever dereferenced by a pino
+    // transport worker — masked, not absent.
+    return resolveBundledSiblingPath(
+      'main log transport',
+      TRANSPORT_FILE_NAME,
+      currentModuleFilename
+    );
   }
   if (path.basename(appPath) !== 'app.asar') {
     throw new Error(

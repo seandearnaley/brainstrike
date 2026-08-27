@@ -167,6 +167,27 @@ dedicated wiring. That coverage is pinned by the BST-1061 regression test in
 unpack dir ever moves outside userData, it needs explicit reset wiring plus an
 update here.
 
+`resolveDesktopPythonRuntimeResourcesDir` (`apps/desktop/src/python-runtime/
+index.ts`) resolves the SOURCE directory the archive/manifest ship in — a
+different, unrelated path from the unpack dir above — and is where BST-1459
+found a real bug: it used to derive this from `app.getAppPath()`, which
+returns a launch-mode-dependent value (the project root under `electron .`,
+but `dist/` itself when Electron is launched with a direct path to
+`dist/main.js`, as Playwright's desktop e2e harness does), silently pointing
+at `dist/resources/python-runtime/manifest.json` instead of the real
+`apps/desktop/resources/python-runtime/manifest.json`. It now resolves via
+the running bundled module's own `module.filename` instead (same invariant as
+the two entries below), taking `path.dirname()` TWICE — once to `dist/`, once
+more to its parent `apps/desktop/` — because these resources are a sibling of
+`dist/`, not of `main.js` itself. That second `dirname()` additionally
+encodes `dist/`'s DEPTH below the app root, not just its identity, which is
+more fragile than the sibling-of-`main.js` pattern the watchdog/log-transport
+resolvers use below — so this one enforces it at runtime: it throws if the
+resolved parent-of-parent directory does not literally end in `dist/`, rather
+than silently pointing at the wrong directory if a future change nests `dist/`
+differently. Pinned by
+`apps/desktop/src/__tests__/main/python-runtime-resources-dir.test.ts`.
+
 Desktop MAIN-PROCESS storage (`ElectronStorageAdapter`, one
 `electron-storage.json` under `app.getPath('userData')`) is covered by the same
 wholesale userData wipe — no per-key wiring. The keys it owns that MATTER for a
@@ -1438,7 +1459,14 @@ Pino worker target `apps/desktop/src/diagnostics/main-log-transport.ts`, bundled
 as the flat main-process entry `dist/main-log-transport.js`. Packaged builds
 explicitly put that entry in `app.asar.unpacked`, and
 `resolveMainLogTransportPath` rejects an unexpected packaged layout rather than
-depending on worker-thread ASAR loading or silently trying another target. The
+depending on worker-thread ASAR loading or silently trying another target.
+Development resolves `main-log-transport.js` as a sibling of the running
+bundled module's own `module.filename` (BST-1459) — not `app.getAppPath()`,
+which is launch-mode-dependent and can already point at `dist/` itself (see
+the watchdog entry below and the Python-runtime entry above for the same
+invariant and the bug it replaced); an empty/missing `module.filename` throws
+rather than falling back to a `process.cwd()`-relative guess. Pinned by
+`apps/desktop/src/__tests__/diagnostics/main-log-transport-path.test.ts`. The
 target passes Pino's already-delimited bytes unchanged to the same
 `RotatingFileSink` used by the diagnostic backstop: 10 MB × 5 files,
 drop-oldest slot math, encoded-byte accounting, short-write failure, and
@@ -1464,7 +1492,12 @@ main-process output `dist/main-watchdog-worker.js`. It is never constructed from
 an inline string or with `eval`. Packaged builds explicitly put the entry in
 `app.asar.unpacked`, and `resolveMainWatchdogWorkerPath` rejects an unexpected
 packaged layout instead of trying an ASAR path or another target. Development
-resolves the same emitted filename under the desktop `dist/` directory.
+resolves `main-watchdog-worker.js` as a sibling of the running bundled
+module's own `module.filename` (BST-1459), not `app.getAppPath()` — see the
+Python-runtime and log-transport entries above for the same invariant and the
+`dist/dist/` doubling bug it replaced. An empty/missing `module.filename`
+throws rather than falling back to a `process.cwd()`-relative guess. Pinned
+by `apps/desktop/src/__tests__/diagnostics/main-watchdog-path.test.ts`.
 
 The independently-tested `main-watchdog-core.ts` owns the typed config,
 heartbeat, suspend/resume protocol and diagnostic calculation. The worker uses

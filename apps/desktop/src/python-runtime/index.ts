@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { app } from 'electron';
+import { resolveBundledDistDir } from '../bundled-sibling-path';
 import { resolvePythonBinary } from './resolve-python-binary';
 
 export * from './resolve-python-binary';
@@ -7,7 +8,7 @@ export * from './resolve-python-binary';
 export function resolveDesktopPythonRuntimeResourcesDir(
   isPackaged: boolean,
   resourcesPath: string,
-  currentModuleFilename: string = module.filename
+  currentModuleFilename?: string
 ): string {
   // Packaged: electron-builder's extraResources copies
   // resources/python-runtime/ to <Resources>/python-runtime.
@@ -15,20 +16,28 @@ export function resolveDesktopPythonRuntimeResourcesDir(
     return path.join(resourcesPath, 'python-runtime');
   }
 
-  // BST-1459: app.getAppPath() changes with Electron's launch mode and can
-  // already be dist/. The running CommonJS module reliably identifies dist/;
-  // development resources are rooted in its parent apps/desktop directory.
-  // Inherited from db-host-manager.ts's resolveDefaultEntryPath(), not
-  // independently justified here: `module.filename` is set synchronously
-  // by CJS module init before this function can ever run, so this branch
-  // is unreachable in practice, and it would resolve to the wrong
-  // directory (silently) if it were ever hit. Don't treat it as real
-  // protection — it's a vestigial shape carried over, not a tested seam.
-  const moduleFilename =
-    typeof currentModuleFilename === 'string' && currentModuleFilename.length > 0
-      ? currentModuleFilename
-      : path.join(process.cwd(), 'dist', 'main.js');
-  return path.join(path.dirname(path.dirname(moduleFilename)), 'resources', 'python-runtime');
+  // BST-1459: see bundled-sibling-path.ts for the full launch-mode rationale
+  // and NO SILENT FALLBACKS reasoning (PR #2680 review). Development
+  // resources are rooted in dist/'s PARENT (apps/desktop/), not dist/
+  // itself — a sibling of dist/, not of main.js — so this needs the dist/
+  // directory, not a same-directory sibling file.
+  const distDir = resolveBundledDistDir('Python runtime', currentModuleFilename);
+  // This resolver additionally depends on dist/'s DEPTH below the app root
+  // (one MORE dirname() below, past what resolveBundledDistDir already
+  // does — see build-main-config.mjs), which is strictly more fragile than
+  // the sibling-of-main.js pattern the watchdog and log-transport resolvers
+  // use: they only need "same directory as the running module" and are
+  // unaffected if dist/ ever moves. Enforce the depth assumption at runtime
+  // instead of leaving it documented-but-silent (PR #2680 review) — a
+  // wrong-but-well-formed path here degrades invisibly (the manifest probe
+  // just reports "not installed"), so this must fail loudly the moment
+  // dist/ nesting changes, not quietly point at the wrong directory.
+  if (path.basename(distDir) !== 'dist') {
+    throw new Error(
+      `Python runtime: expected the running main module to live in dist/, received "${distDir}"`
+    );
+  }
+  return path.join(path.dirname(distDir), 'resources', 'python-runtime');
 }
 
 function desktopPythonRuntimeResourcesDir(): string {

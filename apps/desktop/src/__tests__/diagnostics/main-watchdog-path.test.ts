@@ -13,7 +13,26 @@ describe('resolveMainWatchdogWorkerPath', () => {
       '/repo/apps/desktop/dist/main.js'
     );
     expect(result).toBe(path.join('/repo/apps/desktop', 'dist', 'main-watchdog-worker.js'));
-    expect(result).not.toContain(path.join('dist', 'dist'));
+  });
+
+  it('tracks a differently-shaped module path instead of a fixed string (PR #2680 review)', () => {
+    // The golden-path `toBe` above pins one exact string, so a same-string
+    // `not.toContain('dist/dist')` alongside it can never fail independently
+    // — this case varies the input's directory shape so a naive/hardcoded
+    // implementation (or a reintroduced 'dist'-appending composition) would
+    // fail here even though it happens to pass the case above.
+    expect(resolveMainWatchdogWorkerPath('/unused', false, '/a/b/c/dist/main.js')).toBe(
+      path.join('/a/b/c', 'dist', 'main-watchdog-worker.js')
+    );
+  });
+
+  it('rejects an empty module filename instead of guessing from cwd (PR #2680 review)', () => {
+    // NO SILENT FALLBACKS: an unreachable-in-practice empty module.filename
+    // must fail loudly, not degrade to a plausible-but-wrong
+    // process.cwd()-relative path.
+    expect(() => resolveMainWatchdogWorkerPath('/unused', false, '')).toThrow(
+      'module.filename unavailable'
+    );
   });
 
   it('resolves the explicitly unpacked worker in packaged builds', () => {
@@ -21,6 +40,28 @@ describe('resolveMainWatchdogWorkerPath', () => {
       resolveMainWatchdogWorkerPath(
         '/Applications/Brainstrike.app/Contents/Resources/app.asar',
         true
+      )
+    ).toBe(
+      path.join(
+        '/Applications/Brainstrike.app/Contents/Resources',
+        'app.asar.unpacked',
+        'dist',
+        'main-watchdog-worker.js'
+      )
+    );
+  });
+
+  it('ignores an otherwise-invalid third argument in packaged builds (PR #2680 review)', () => {
+    // Proves the packaged branch never reads currentModuleFilename / module.filename:
+    // an empty string here WOULD throw if the unpackaged branch's guard ran
+    // against it. Getting the normal packaged result instead shows the two
+    // branches are structurally decoupled, not just decoupled by luck of the
+    // isPackaged check happening to run first.
+    expect(
+      resolveMainWatchdogWorkerPath(
+        '/Applications/Brainstrike.app/Contents/Resources/app.asar',
+        true,
+        ''
       )
     ).toBe(
       path.join(
