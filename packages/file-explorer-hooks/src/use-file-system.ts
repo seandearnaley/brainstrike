@@ -51,6 +51,8 @@ interface UseFileSystemParams {
 
 interface FileSystemState {
   isAccessLoading: boolean;
+  /** Monotonic signal that a supported flow may have mutated Recents. */
+  recentRootsRevision: number;
   rootDirectoryHandle: DirectoryHandle | null;
   /** All active roots (ordered). rootDirectoryHandle is always in this list (or null when empty). */
   rootDirectoryHandles: DirectoryHandle[];
@@ -63,6 +65,7 @@ type FileSystemAction =
   | { type: 'setAccessLoading'; loading: boolean }
   | { type: 'addOrFocusHandle'; handle: DirectoryHandle; rootId?: string }
   | { type: 'removeHandle'; rootId: string }
+  | { type: 'recordRecentRootMutation' }
   | {
       type: 'setAllHandles';
       handles: DirectoryHandle[];
@@ -171,6 +174,8 @@ async function forgetRootInAdapter(adapter: unknown, rootId: string): Promise<vo
 
 function reducer(state: FileSystemState, action: FileSystemAction): FileSystemState {
   switch (action.type) {
+    case 'recordRecentRootMutation':
+      return { ...state, recentRootsRevision: state.recentRootsRevision + 1 };
     case 'setRoot': {
       // null clears everything (legacy clear semantics).
       if (action.handle === null) {
@@ -300,6 +305,10 @@ async function runMultiRootRestore({
     if (granted.length === 0) {
       return;
     }
+    // Desktop restoreRoots backfills the canonical Recents ledger before it
+    // resolves. Publish only while this hook instance is still live and only
+    // when at least one granted descriptor could have been recorded.
+    dispatch({ type: 'recordRecentRootMutation' });
 
     if (waitForHydration) {
       await waitForHydration();
@@ -376,16 +385,32 @@ export function useFileSystem({
 }: UseFileSystemParams) {
   const { fileSystemAdapter } = useAdapters();
 
-  const [{ rootDirectoryHandle, rootDirectoryHandles, isAccessLoading, rootIdByPath }, dispatch] =
-    useReducer(reducer, {
-      isAccessLoading: false,
-      rootDirectoryHandle: null,
-      rootDirectoryHandles: [],
-      rootIdByPath: new Map<string, string>(),
-    });
+  const [
+    {
+      rootDirectoryHandle,
+      rootDirectoryHandles,
+      isAccessLoading,
+      recentRootsRevision,
+      rootIdByPath,
+    },
+    dispatch,
+  ] = useReducer(reducer, {
+    isAccessLoading: false,
+    recentRootsRevision: 0,
+    rootDirectoryHandle: null,
+    rootDirectoryHandles: [],
+    rootIdByPath: new Map<string, string>(),
+  });
 
   const hasAttemptedRestoreRef = useRef(false);
   const isRestoringRef = useRef(false);
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   // Stable refs for callbacks that must be fresh at call time but should not
   // trigger effect re-runs (avoids infinite loops from unstable inline fn refs).
   const getFolderAccessOrderRef = useRef(getFolderAccessOrder);
@@ -439,6 +464,7 @@ export function useFileSystem({
         if (persisted) {
           addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
         }
+        dispatch({ type: 'recordRecentRootMutation' });
         return handle;
       }
       // Legacy fallback: requestDirectoryAccess → synthetic descriptor
@@ -448,6 +474,7 @@ export function useFileSystem({
       // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
       updateCurrentFolderId(rootId);
       addActiveRoot({ displayName: handle.name, path: getCanonicalFolderId(handle), rootId });
+      dispatch({ type: 'recordRecentRootMutation' });
       return handle;
     } catch (error) {
       if (isUserCancellation(error)) {
@@ -486,6 +513,7 @@ export function useFileSystem({
         if (persisted) {
           addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
         }
+        dispatch({ type: 'recordRecentRootMutation' });
         return handle;
       } catch (error) {
         throw mapFileSystemError(error);
@@ -623,7 +651,13 @@ export function useFileSystem({
       if (typeof adapterWithRestoreRoots.restoreRoots === 'function') {
         try {
           const descriptors = await adapterWithRestoreRoots.restoreRoots.call(fileSystemAdapter);
+          if (!isMountedRef.current) {
+            return;
+          }
           adapterRootIdByPath = new Map(descriptors.map((d) => [d.handle.path, d.rootId]));
+          if (descriptors.some((descriptor) => descriptor.permissionState === 'granted')) {
+            dispatch({ type: 'recordRecentRootMutation' });
+          }
         } catch (error) {
           logger.warn('registerRestoredHandles: failed to read adapter root descriptors', {
             error,
@@ -849,6 +883,7 @@ export function useFileSystem({
       isAccessLoading,
       isFileSystemAccessSupported,
       listRecentRoots,
+      recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
       rootDirectoryHandle,
@@ -868,6 +903,7 @@ export function useFileSystem({
       addRootDirectory,
       addRootDirectoryByPath,
       listRecentRoots,
+      recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
       selectRootDirectory,

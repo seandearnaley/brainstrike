@@ -660,6 +660,8 @@ export function useFileSystemInstance() {
       isFileSystemAccessSupported: coreApi.isFileSystemAccessSupported,
       /** Desktop-only companion to addRootDirectoryByPath; see its note. */
       listRecentRoots: coreApi.listRecentRoots,
+      /** Shared refresh signal for supported flows that may mutate Recents. */
+      recentRootsRevision: coreApi.recentRootsRevision,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
       /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
@@ -699,6 +701,7 @@ export function useFileSystemInstance() {
       coreApi.isAccessLoading,
       coreApi.isFileSystemAccessSupported,
       coreApi.listRecentRoots,
+      coreApi.recentRootsRevision,
       coreApi.rootIdByPath,
       coreApi.setAccessLoading,
       coreApi.setFocusedRoot,

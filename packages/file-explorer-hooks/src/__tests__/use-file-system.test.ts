@@ -713,6 +713,32 @@ describe('useFileSystem', () => {
   });
 
   describe('multi-root: addRootDirectory via addRoot', () => {
+    it('increments the shared recent-roots revision after a successful grant', async () => {
+      const descriptor: RootDescriptor = {
+        displayName: 'my-root',
+        handle: { kind: 'directory', name: 'my-root', path: '/my/root', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'root-id-1',
+      };
+      const adapter: FileSystemAdapter = {
+        addRoot: vi.fn().mockResolvedValue(descriptor),
+        exists: vi.fn().mockResolvedValue(true),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+      };
+      const wrapper = createAdaptersTestWrapper(adapter, createStorageAdapter('web'));
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
+
+      expect(result.current.recentRootsRevision).toBe(0);
+      await act(async () => {
+        await result.current.addRootDirectory();
+      });
+      expect(result.current.recentRootsRevision).toBe(1);
+    });
+
     it('appends handle to rootDirectoryHandles, sets focused, calls addActiveRoot and setCurrentFolderId', async () => {
       const descriptor: RootDescriptor = {
         displayName: 'my-root',
@@ -949,6 +975,35 @@ describe('useFileSystem', () => {
   });
 
   describe('multi-root: restoreRoots boot', () => {
+    it('publishes a recent-roots refresh after restore backfills granted roots', async () => {
+      const descriptor: RootDescriptor = {
+        displayName: 'restored-root',
+        handle: {
+          kind: 'directory',
+          name: 'restored-root',
+          path: '/restored/root',
+          platform: 'web',
+        },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'restored-root-id',
+      };
+      const adapter: FileSystemAdapter = {
+        exists: vi.fn().mockResolvedValue(true),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        requestDirectoryAccess: vi.fn(),
+        restoreRoots: vi.fn().mockResolvedValue([descriptor]),
+      };
+      const wrapper = createAdaptersTestWrapper(adapter, createStorageAdapter('web'));
+
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
+
+      await waitFor(() => expect(result.current.rootDirectoryHandles).toHaveLength(1));
+      expect(result.current.recentRootsRevision).toBe(1);
+    });
+
     it('populates rootDirectoryHandles, calls setActiveRoots, focuses by folderAccessOrder', async () => {
       const desc1: RootDescriptor = {
         displayName: 'folder-a',
@@ -1242,6 +1297,33 @@ describe('useFileSystem', () => {
         path: 'Root B',
         rootId: 'root-b',
       });
+    });
+
+    it('publishes a recent-roots refresh after restore-access backfills a granted root', async () => {
+      const grantedDescriptor: RootDescriptor = {
+        displayName: 'Root A',
+        handle: handleA,
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'root-a',
+      };
+      const adapter: FileSystemAdapter = {
+        exists: vi.fn().mockResolvedValue(true),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        requestDirectoryAccess: vi.fn(),
+        restoreRoots: vi.fn().mockResolvedValue([grantedDescriptor]),
+      };
+      const wrapper = createAdaptersTestWrapper(adapter, createStorageAdapter('web'));
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
+      await waitFor(() => expect(result.current.recentRootsRevision).toBe(1));
+
+      await act(async () => {
+        await result.current.registerRestoredHandles([handleA]);
+      });
+
+      expect(result.current.recentRootsRevision).toBe(2);
     });
 
     it('falls back to synthetic rootIds when the adapter has no restoreRoots', async () => {
