@@ -52,6 +52,9 @@ const fs = {
     platform: 'electron',
     rootId: 'adapter-alpha',
   })),
+  // BST-1393 L2: useConnectFolder() (now reached via useFolderDrop() inside
+  // useWorkspaceBar()) calls this unconditionally to gate openPicker.
+  isFileSystemAccessSupported: vi.fn(() => ({ reason: '', supported: true })),
   listRecentRoots: vi.fn(async () => [
     { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
     { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
@@ -60,9 +63,13 @@ const fs = {
   registerRestoredHandles: vi.fn(async (_handles: readonly unknown[]) => undefined),
 };
 // Web omits the desktop-only capabilities rather than stubbing them.
-const webFs: Pick<typeof fs, 'addRootDirectory' | 'recentRootsRevision'> &
+const webFs: Pick<
+  typeof fs,
+  'addRootDirectory' | 'isFileSystemAccessSupported' | 'recentRootsRevision'
+> &
   Partial<Pick<typeof fs, 'addRootDirectoryByPath' | 'listRecentRoots'>> = {
   addRootDirectory: fs.addRootDirectory,
+  isFileSystemAccessSupported: fs.isFileSystemAccessSupported,
   recentRootsRevision: 0,
 };
 let currentFs: typeof fs | typeof webFs = fs;
