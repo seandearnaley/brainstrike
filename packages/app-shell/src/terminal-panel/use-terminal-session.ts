@@ -324,7 +324,7 @@ export function useTerminalSession(
       }
       term.dispose();
     };
-  }, [bridge, rootId, cwd, container, sessionId, toast]);
+  }, [bridge, rootId, cwd, container, sessionId, sessionKey, toast]);
 
   // Derive the displayed state during render (no effect mirror):
   //  - no bridge/root → idle;
