@@ -22,11 +22,24 @@ import path from 'node:path';
  * Electron 43): `electron . --no-sandbox --…=dev-server <dir>` arrived with
  * `.` at index 5; a fixed `slice(2)` let it resolve against the working
  * directory and enqueue the repo checkout as a folder-open candidate. The
- * skip therefore drops any positional that RESOLVES to `appPath`, and only
- * when unpackaged — packaged argv has no app-path positional to recognize,
- * and packaged parsing is unchanged.
+ * skip therefore drops the FIRST positional that RESOLVES to `appPath` or to
+ * `appEntryPath` (the FILE-entry launch spelling, BST-1459) — the implicit
+ * app argument; a later duplicate is the caller explicitly asking to open
+ * the app dir (`electron . .`) and stays a candidate — and only when
+ * unpackaged: packaged argv has no app-path positional to recognize, and
+ * packaged parsing is unchanged.
  */
 export interface FolderArgvParams {
+  /**
+   * The running bundled main module's own on-disk path (`__filename` in
+   * main; see bundled-sibling-path.ts for why `__filename` specifically).
+   * Recognizes the FILE-entry launch spelling `electron <path>/dist/main.js`
+   * — the desktop Playwright harness's shape — where `app.getAppPath()` is
+   * dist/ ITSELF (BST-1459) and so never equals the entry positional. Same
+   * value in both unpackaged spellings, since `electron .` also executes
+   * dist/main.js via package.json `main`. Consulted only when unpackaged.
+   */
+  readonly appEntryPath: string;
   /**
    * `app.getAppPath()` of the RECEIVING instance — for `electron <app-dir>`
    * this is the resolved app directory. Consulted only when `isPackaged` is
@@ -51,18 +64,42 @@ export interface FolderArgvParams {
 }
 
 export function resolveFolderCandidatesFromArgv({
+  appEntryPath,
   appPath,
   argv,
   isPackaged,
   platform = process.platform,
   workingDirectory,
 }: FolderArgvParams): readonly string[] {
+  // NO SILENT FALLBACK: `path.resolve('')` is the working directory, so an
+  // empty identity would silently swallow a legitimate `.` candidate — the
+  // exact misparse shape this module exists to prevent. Malformed input
+  // throws loudly instead.
+  if (appPath.trim().length === 0) {
+    throw new TypeError('resolveFolderCandidatesFromArgv: appPath must be a non-empty path');
+  }
+  if (appEntryPath.trim().length === 0) {
+    throw new TypeError('resolveFolderCandidatesFromArgv: appEntryPath must be a non-empty path');
+  }
   const toKey = (resolved: string): string =>
     platform === 'win32' ? resolved.toLowerCase() : resolved;
   // Same key shape as the dedupe below (resolved + win32 case-fold), so every
   // spelling of the app dir — `.`, absolute, trailing separator, other case
   // on Windows — collapses onto the same identity.
   const appPathKey = isPackaged ? null : toKey(path.resolve(appPath));
+  // The FILE-entry spelling of the same implicit argument (BST-1459): under
+  // `electron <path>/dist/main.js` the app "path" Electron reports is dist/,
+  // and the positional is the entry FILE — recognized by the running
+  // bundle's own filename instead of falling through to the stat filter.
+  const appEntryKey = isPackaged ? null : toKey(path.resolve(appEntryPath));
+  // The implicit `electron <app-dir>` argument appears exactly once, as the
+  // FIRST app-path-valued positional (Chromium regroups switches ahead of
+  // positionals but preserves the positionals' relative order — see the
+  // captured shape in the docblock). Skip only that occurrence: a LATER
+  // positional naming the same directory is the caller explicitly asking to
+  // open the app dir (`electron . .`) and stays a candidate, exactly as the
+  // old positional parse allowed.
+  let implicitAppArgPending = !isPackaged;
   const seen = new Set<string>();
   const candidates: string[] = [];
   for (const raw of argv.slice(1)) {
@@ -82,7 +119,11 @@ export function resolveFolderCandidatesFromArgv({
     // Resolved from the RAW, untrimmed value — see the comment above.
     const resolved = path.resolve(workingDirectory, raw);
     const key = toKey(resolved);
-    if (key === appPathKey || seen.has(key)) {
+    if (implicitAppArgPending && (key === appPathKey || key === appEntryKey)) {
+      implicitAppArgPending = false;
+      continue;
+    }
+    if (seen.has(key)) {
       continue;
     }
     seen.add(key);

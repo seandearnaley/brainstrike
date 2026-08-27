@@ -6,12 +6,18 @@ const CWD = path.resolve('/work');
 // Packaged appPath points inside the bundle; no packaged argv positional can
 // legitimately equal it, and the packaged branch must never consult it anyway.
 const PACKAGED_APP_PATH = '/Applications/BrainStrike.app/Contents/Resources/app.asar';
+const PACKAGED_APP_ENTRY = '/Applications/BrainStrike.app/Contents/Resources/app.asar/dist/main.js';
 const DEV_APP_PATH = path.resolve('/repo/apps/desktop');
+// The running bundle's own on-disk path (`__filename` in main) — the same
+// value in BOTH unpackaged launch spellings, because `electron .` also
+// executes dist/main.js via package.json `main`.
+const DEV_APP_ENTRY = path.resolve('/repo/apps/desktop/dist/main.js');
 
 describe('resolveFolderCandidatesFromArgv', () => {
   it('takes a single positional path from a PACKAGED launch', () => {
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/Applications/BrainStrike.app/Contents/MacOS/BrainStrike', '/work/repo'],
         isPackaged: true,
@@ -28,6 +34,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
     // second-instance shape below.
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: DEV_APP_ENTRY,
         appPath: DEV_APP_PATH,
         argv: ['/node_modules/electron/dist/electron', '/repo/apps/desktop', '/work/repo'],
         isPackaged: false,
@@ -55,6 +62,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
     // checkout. Only the stranger dir is a real candidate.
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: DEV_APP_ENTRY,
         appPath: DEV_APP_PATH,
         argv: [
           '/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
@@ -73,9 +81,28 @@ describe('resolveFolderCandidatesFromArgv', () => {
     ).toEqual([path.resolve('/tmp/stranger-dir')]);
   });
 
-  it('drops every spelling that RESOLVES to the app path on an UNPACKAGED launch', () => {
+  it('skips only the FIRST app-path occurrence — a later duplicate is an explicit request', () => {
+    // `electron . .`: the first `.` is the implicit `electron <app-dir>`
+    // argument (Chromium moves switches, not the relative order of
+    // positionals, so the implicit argument is always the first positional
+    // that resolves to appPath); the SECOND `.` is the caller explicitly
+    // asking to open the app directory and must survive as a candidate
+    // (Codex review on PR #2688 — the old positional `slice(2)` supported
+    // this, so skip-all would have been a dev-launch regression).
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: DEV_APP_ENTRY,
+        appPath: DEV_APP_PATH,
+        argv: ['/node_modules/electron/dist/electron', '.', '.'],
+        isPackaged: false,
+        workingDirectory: DEV_APP_PATH,
+      })
+    ).toEqual([DEV_APP_PATH]);
+    // Later spellings that resolve to the app path collapse to ONE explicit
+    // candidate via the normal dedupe.
+    expect(
+      resolveFolderCandidatesFromArgv({
+        appEntryPath: DEV_APP_ENTRY,
         appPath: DEV_APP_PATH,
         argv: [
           '/node_modules/electron/dist/electron',
@@ -87,12 +114,69 @@ describe('resolveFolderCandidatesFromArgv', () => {
         isPackaged: false,
         workingDirectory: DEV_APP_PATH,
       })
+    ).toEqual([DEV_APP_PATH]);
+  });
+
+  it('drops the FILE-entry launch argument (`electron <path>/dist/main.js`, BST-1459)', () => {
+    // The desktop Playwright harness launches Electron with a direct path to
+    // dist/main.js. In that mode `app.getAppPath()` is dist/ ITSELF
+    // (BST-1459, pinned in bundled-sibling-path.ts), so the entry POSITIONAL
+    // (a file) never equals appPath (a directory) — it is recognized against
+    // `appEntryPath`, the running bundle's own `__filename`, instead of
+    // falling through to the stat filter and warning on every E2E launch.
+    const distAppPath = path.resolve('/repo/apps/desktop/dist');
+    expect(
+      resolveFolderCandidatesFromArgv({
+        appEntryPath: DEV_APP_ENTRY,
+        appPath: distAppPath,
+        argv: ['/node_modules/electron/dist/electron', '/repo/apps/desktop/dist/main.js'],
+        isPackaged: false,
+        workingDirectory: DEV_APP_PATH,
+      })
     ).toEqual([]);
+    expect(
+      resolveFolderCandidatesFromArgv({
+        appEntryPath: DEV_APP_ENTRY,
+        appPath: distAppPath,
+        argv: [
+          '/node_modules/electron/dist/electron',
+          '/repo/apps/desktop/dist/main.js',
+          '/work/repo',
+        ],
+        isPackaged: false,
+        workingDirectory: DEV_APP_PATH,
+      })
+    ).toEqual([path.resolve('/work/repo')]);
+  });
+
+  it('throws on an empty appPath or appEntryPath instead of silently aliasing the working directory', () => {
+    // `path.resolve('')` is process.cwd() — an empty identity would silently
+    // swallow a legitimate `.` candidate, the exact silent-misparse shape
+    // this module exists to prevent. Malformed input throws loudly.
+    expect(() =>
+      resolveFolderCandidatesFromArgv({
+        appEntryPath: DEV_APP_ENTRY,
+        appPath: '',
+        argv: ['/node_modules/electron/dist/electron', '.'],
+        isPackaged: false,
+        workingDirectory: DEV_APP_PATH,
+      })
+    ).toThrow(/appPath/);
+    expect(() =>
+      resolveFolderCandidatesFromArgv({
+        appEntryPath: '   ',
+        appPath: DEV_APP_PATH,
+        argv: ['/node_modules/electron/dist/electron', '.'],
+        isPackaged: false,
+        workingDirectory: DEV_APP_PATH,
+      })
+    ).toThrow(/appEntryPath/);
   });
 
   it('emits nothing for the plain first-launch dev shape `electron .`', () => {
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: DEV_APP_ENTRY,
         appPath: DEV_APP_PATH,
         argv: ['/node_modules/electron/dist/electron', '.'],
         isPackaged: false,
@@ -108,6 +192,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
     // the stat filter and mount gates downstream decide its fate.
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/Applications/BrainStrike.app/Contents/MacOS/BrainStrike', PACKAGED_APP_PATH],
         isPackaged: true,
@@ -118,6 +203,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
 
   it('case-folds the app-path identity skip on win32 only', () => {
     const params = {
+      appEntryPath: DEV_APP_ENTRY,
       appPath: DEV_APP_PATH,
       argv: ['/node_modules/electron/dist/electron', '/repo/Apps/Desktop'],
       isPackaged: false,
@@ -136,6 +222,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
   it('resolves a relative path against the working directory', () => {
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike', '.'],
         isPackaged: true,
@@ -144,6 +231,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
     ).toEqual([CWD]);
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike', 'repo'],
         isPackaged: true,
@@ -155,6 +243,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
   it('ignores every switch, including Chromium and BrainStrike ones', () => {
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: [
           '/app/BrainStrike',
@@ -173,6 +262,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
   it('dedupes paths that differ only by trailing separator', () => {
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike', '/work/repo', '/work/repo/'],
         isPackaged: true,
@@ -184,6 +274,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
   it('returns nothing for a bare launch', () => {
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike'],
         isPackaged: true,
@@ -195,6 +286,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
   it('never emits an empty or whitespace-only candidate', () => {
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike', '', '   '],
         isPackaged: true,
@@ -211,6 +303,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
     // nonexistent, or resolve to a different, existing folder instead).
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike', 'repo with trailing space '],
         isPackaged: true,
@@ -219,6 +312,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
     ).toEqual([path.resolve(CWD, 'repo with trailing space ')]);
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike', ' repo-with-leading-space'],
         isPackaged: true,
@@ -234,6 +328,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
     // untested outside a real Windows box.
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike', '/work/Repo', '/work/repo'],
         isPackaged: true,
@@ -246,6 +341,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
     // platform — proves the branch is actually conditional, not always folding.
     expect(
       resolveFolderCandidatesFromArgv({
+        appEntryPath: PACKAGED_APP_ENTRY,
         appPath: PACKAGED_APP_PATH,
         argv: ['/app/BrainStrike', '/work/Repo', '/work/repo'],
         isPackaged: true,
