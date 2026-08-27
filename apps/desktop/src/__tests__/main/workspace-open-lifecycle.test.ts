@@ -50,12 +50,16 @@ type MockOnFn = ReturnType<typeof vi.fn>;
  * AFTER this runs (the bug the review found) is never invoked, exactly like
  * the real API.
  */
-function fireHandlersRegisteredSoFar(onMock: MockOnFn, eventName: string): void {
+function fireHandlersRegisteredSoFar(
+  onMock: MockOnFn,
+  eventName: string,
+  args: readonly unknown[] = []
+): void {
   const handlers = onMock.mock.calls
-    .filter((args) => args[0] === eventName)
-    .map((args) => args[1] as () => void);
+    .filter((call) => call[0] === eventName)
+    .map((call) => call[1] as (...handlerArgs: unknown[]) => void);
   for (const handler of handlers) {
-    handler();
+    handler(...args);
   }
 }
 
@@ -369,6 +373,22 @@ function sendReadyPing(win: MockWindowInstance): void {
   }
 }
 
+/**
+ * Fires every registered `did-start-navigation` handler with the real
+ * Electron signature `(event, url, isInPlace, isMainFrame)` — matching
+ * `main.ts`'s own listener, which is the ONLY thing that resets
+ * `rendererReady` (never `did-start-loading` alone; see the PR #2682
+ * re-review this whole file is built around).
+ */
+function fireDidStartNavigation(onMock: MockOnFn, isMainFrame: boolean, isInPlace = false): void {
+  fireHandlersRegisteredSoFar(onMock, 'did-start-navigation', [
+    {},
+    'https://example.test/',
+    isInPlace,
+    isMainFrame,
+  ]);
+}
+
 describe('main workspace-open lifecycle', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -484,14 +504,24 @@ describe('main workspace-open lifecycle', () => {
       path: '/work/argv-repo',
     });
 
-    // A later, unrelated reload (did-start-loading → did-stop-loading → a
-    // fresh ready ping) must not redeliver the same already-consumed
-    // request — the queue's one-shot consume, exercised through the real
-    // wiring rather than the queue's own unit test.
+    // A later, unrelated MAIN-FRAME reload (did-start-loading +
+    // did-start-navigation → did-stop-loading → a fresh ready ping) must not
+    // redeliver the same already-consumed request — the queue's one-shot
+    // consume, exercised through the real wiring rather than the queue's own
+    // unit test.
     fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-start-loading');
+    fireDidStartNavigation(latestWindow().webContents.on, true);
     fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
     sendReadyPing(latestWindow());
-    expect(latestWindow().webContents.send).toHaveBeenCalledTimes(1);
+    // Scoped to the open-path channel specifically: a real main-frame
+    // navigation ALSO fires `browser-pane-host.ts`'s own `did-start-navigation`
+    // listener, which disposes the pane and pushes an unrelated
+    // `browser:tabsChanged` event through the same `webContents.send` mock —
+    // asserting a bare call COUNT here would conflate that with a redelivery.
+    const openPathSends = latestWindow().webContents.send.mock.calls.filter(
+      (call) => call[0] === OPEN_PATH_CHANNEL
+    );
+    expect(openPathSends).toHaveLength(1);
   });
 
   // Self-limiting, like the mid-reload test below, though by a DIFFERENT
@@ -529,7 +559,7 @@ describe('main workspace-open lifecycle', () => {
   // reload's `did-stop-loading` stays buffered, and even once the reload's
   // document reports "stopped", delivery still waits on a FRESH ready ping
   // (the old one was reset, not carried over from before the reload).
-  it('a request arriving mid-reload buffers via did-start-loading detach, then delivers only once the reload BOTH stops loading AND re-pings ready', async () => {
+  it('a request arriving mid-reload buffers via did-start-loading detach, then delivers only once a MAIN-FRAME reload BOTH stops loading AND re-pings ready', async () => {
     await import('../../main');
 
     await vi.waitFor(() => {
@@ -537,9 +567,14 @@ describe('main workspace-open lifecycle', () => {
     });
     sendReadyPing(latestWindow());
 
-    // Simulate a reload beginning: the renderer's WorkspaceConnectHost
-    // subscription is gone until the new document re-mounts it.
+    // Simulate a REAL reload beginning: `did-start-loading` (WebContents-level,
+    // fires for any frame) fires alongside `did-start-navigation` with
+    // `isMainFrame: true, isInPlace: false` — the top-level document is about
+    // to be replaced, tearing down `WorkspaceConnectHost`'s subscription with
+    // it. ONLY this combination should reset `rendererReady` (see the
+    // subframe-cycle test below for the contrasting case that must NOT).
     fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-start-loading');
+    fireDidStartNavigation(latestWindow().webContents.on, true);
 
     const openFileHandler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
       mockApp.on,
@@ -571,17 +606,24 @@ describe('main workspace-open lifecycle', () => {
     });
   });
 
-  it('a subframe-only load cycle (did-start-loading with NO did-finish-load) still re-attaches via did-stop-loading', async () => {
-    // The regression this pins: `did-start-loading` is WebContents-level and
-    // fires for ANY frame, including an `<iframe>` navigation (the canvas
-    // surface renders one whose `src` changes with the nonce). `did-finish-load`
-    // is main-frame-ONLY (Electron guards `WebContents::DidFinishLoad` on
-    // `!render_frame_host->GetParent()`) — a subframe's completion fires
-    // `did-frame-finish-load` instead, which nothing here listens for. Pairing
-    // `did-start-loading` with `did-finish-load` would detach permanently on a
-    // subframe-only load, since nothing would ever re-attach. `did-stop-loading`
-    // is the correct, symmetric WebContents-level counterpart and fires
-    // regardless of which frame navigated.
+  it('a subframe-only load cycle (did-start-loading + did-stop-loading, NO re-ping) still delivers on the ALREADY-VALID ready ping', async () => {
+    // The regression this pins is the SECOND Critical the re-review found:
+    // an earlier version of this fix reset `rendererReady` on EVERY
+    // `did-start-loading`, which is WebContents-level and fires for ANY
+    // frame — including the canvas surface's real `<iframe>`
+    // (`canvas-frame.tsx`, whose `src` changes with the nonce every time an
+    // artifact opens or re-keys). `WorkspaceConnectHost`'s ready-ping effect
+    // depends only on `[connectPath]`, so it NEVER re-fires for a subframe
+    // navigation — resetting `rendererReady` there was UNRECOVERABLE:
+    // `did-stop-loading` would restore `loadFinished`, but with no second
+    // ready ping ever coming, the queue stayed permanently detached. Same
+    // end state as the ORIGINAL Critical 2, reached through the new flag.
+    //
+    // The falsifying shape, deliberately: ready is pinged ONCE, up front,
+    // and NEVER again — if `rendererReady` survives the whole subframe cycle
+    // below, delivery works using that one ping. If anything in the cycle
+    // silently clears it, delivery is lost forever (this test times out /
+    // fails, and nothing here would ever re-ping to rescue it).
     await import('../../main');
 
     await vi.waitFor(() => {
@@ -589,10 +631,14 @@ describe('main workspace-open lifecycle', () => {
     });
     sendReadyPing(latestWindow());
 
-    // A subframe navigation: did-start-loading fires (detaches), but the
-    // subframe's own completion would emit did-frame-finish-load — an event
-    // this file (correctly) never listens for — NOT did-finish-load.
+    // A subframe navigation: `did-start-loading` fires (WebContents-level,
+    // any frame) and `did-start-navigation` fires too, but with
+    // `isMainFrame: false` — main.ts's guard must leave `rendererReady`
+    // untouched. The subframe's own completion would emit
+    // `did-frame-finish-load` (an event nothing here listens for), NOT
+    // `did-finish-load` — modeled by simply never firing it.
     fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-start-loading');
+    fireDidStartNavigation(latestWindow().webContents.on, false);
 
     const openFileHandler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
       mockApp.on,
@@ -604,11 +650,11 @@ describe('main workspace-open lifecycle', () => {
       expect.anything()
     );
 
-    // did-stop-loading DOES fire once Chromium's overall loading state clears
-    // — the falsifier for a did-finish-load-only pairing, which would leave
-    // this request buffered forever.
+    // did-stop-loading DOES fire once Chromium's overall loading state
+    // clears — the falsifier for a did-finish-load-only pairing (§1). NO
+    // re-ping follows: delivery must land on the ready state from BEFORE
+    // this whole cycle, which the guard was supposed to leave intact (§2).
     fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
-    sendReadyPing(latestWindow());
 
     expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
       origin: 'open-file',
@@ -642,6 +688,42 @@ describe('main workspace-open lifecycle', () => {
     expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
       origin: 'open-file',
       path: '/Users/dev/ready-gate-repo',
+    });
+  });
+
+  it('gates delivery correctly when the ready ping arrives BEFORE did-stop-loading, the opposite ordering from the test above', async () => {
+    await import('../../main');
+
+    await vi.waitFor(() => {
+      expect(mockWindowInstances).toHaveLength(1);
+    });
+    // Get back to a "loading" state via a main-frame reload, so the window
+    // is not already both loaded AND ready by construction (as it is right
+    // after initial boot).
+    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-start-loading');
+    fireDidStartNavigation(latestWindow().webContents.on, true);
+
+    // The ready ping arrives FIRST, while the reload is still in flight.
+    sendReadyPing(latestWindow());
+
+    const openFileHandler = findHandler<(event: { preventDefault: () => void }, p: string) => void>(
+      mockApp.on,
+      'open-file'
+    );
+    openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/ready-before-stop-repo');
+
+    // rendererReady is true, but loadFinished is not — must NOT deliver yet.
+    expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
+      OPEN_PATH_CHANNEL,
+      expect.anything()
+    );
+
+    // did-stop-loading completes the gate from the OTHER side.
+    fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
+
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
+      origin: 'open-file',
+      path: '/Users/dev/ready-before-stop-repo',
     });
   });
 

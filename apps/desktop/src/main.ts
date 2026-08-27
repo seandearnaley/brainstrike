@@ -2297,15 +2297,50 @@ if (singleInstanceLockAcquired) {
         // subscription before the new document re-mounts it; detaching on
         // `did-start-loading` stops mid-reload requests from being sent into a
         // page with no listener (they buffer instead, and the matching
-        // re-attach below delivers them once the new document is BOTH loaded
-        // and ready). Resetting both flags here, not just calling `detach()`,
-        // is what makes a reload require a FRESH ready ping rather than
-        // attaching prematurely on the stale one from the previous document.
+        // re-attach below delivers them once loading settles again).
+        // `loadFinished` resets here UNCONDITIONALLY (any frame, including a
+        // subframe) — fail-safe: a request enqueued mid-load would be lost
+        // into a possibly-reloading page anyway, and the paired
+        // `did-stop-loading` below self-heals it regardless of which frame
+        // navigated.
+        //
+        // `rendererReady` is deliberately NOT reset here — see
+        // `did-start-navigation` below for why resetting it on EVERY
+        // `did-start-loading` is a second Critical bug, not a fix (PR #2682
+        // re-review).
         win.webContents.on('did-start-loading', () => {
           loadFinished = false;
-          rendererReady = false;
           workspaceOpenQueue.detach();
         });
+        // `rendererReady` resets ONLY on a real MAIN-FRAME navigation that
+        // replaces the current document (`isMainFrame && !isInPlace` — the
+        // same guard `browser-pane-host.ts`'s `onHostNavigation` already uses
+        // for an identical "did the top-level document just get replaced?"
+        // question). This is deliberately a DIFFERENT, narrower event than
+        // `did-start-loading` above: that one is WebContents-level and fires
+        // for ANY frame, including the canvas surface's `<iframe>`
+        // (`canvas-frame.tsx`) whose `src` changes with the nonce every time
+        // an artifact opens or re-keys. `WorkspaceConnectHost`'s ready-ping
+        // effect depends only on `[connectPath]`, so it NEVER re-fires for a
+        // subframe navigation — resetting `rendererReady` on
+        // `did-start-loading` (as an earlier version of this fix did) would
+        // clear it on a canvas-artifact open and nothing would ever set it
+        // back: `did-stop-loading` would restore `loadFinished`, but with no
+        // second ready ping ever coming, the queue would stay permanently
+        // detached — the ORIGINAL Critical 2 bug, reproduced through the new
+        // flag instead of the old attach listener. A subframe navigation
+        // (`isMainFrame === false`) and a same-document one (`isInPlace`,
+        // e.g. a hash change or `pushState`) both leave the existing
+        // `WorkspaceConnectHost` subscription — and its already-sent ready
+        // ping — intact, so neither should reset readiness.
+        win.webContents.on(
+          'did-start-navigation',
+          (_event: Electron.Event, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
+            if (isMainFrame && !isInPlace) {
+              rendererReady = false;
+            }
+          }
+        );
         // `did-stop-loading`, NOT `did-finish-load`: the latter is main-frame
         // ONLY (Electron guards `WebContents::DidFinishLoad` on
         // `!render_frame_host->GetParent()`; a subframe's completion fires
