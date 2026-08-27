@@ -31,6 +31,7 @@ const fs = {
     { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
   ]),
   recentRootsRevision: 0,
+  registerRestoredHandles: vi.fn(async (_handles: readonly unknown[]) => undefined),
 };
 // Web omits the desktop-only capabilities rather than stubbing them.
 const webFs: Pick<typeof fs, 'addRootDirectory' | 'recentRootsRevision'> &
@@ -319,14 +320,38 @@ beforeEach(() => {
   loggerMock.warn.mockClear();
   query.mockClear();
   updateThreadMetadata.mockClear();
-  fs.addRootDirectory.mockClear();
-  fs.addRootDirectoryByPath.mockClear();
+  fs.addRootDirectory.mockReset();
+  fs.addRootDirectory.mockImplementation(async () => {
+    fs.recentRootsRevision += 1;
+    return {
+      kind: 'directory',
+      name: 'docs',
+      path: '/ws/docs',
+      platform: 'electron',
+      rootId: 'adapter-docs',
+    };
+  });
+  fs.addRootDirectoryByPath.mockReset();
+  fs.addRootDirectoryByPath.mockImplementation(async (path: string) => {
+    fs.recentRootsRevision += 1;
+    return {
+      kind: 'directory',
+      name: 'alpha',
+      path,
+      platform: 'electron',
+      rootId: 'adapter-alpha',
+    };
+  });
   fs.listRecentRoots.mockReset();
   fs.listRecentRoots.mockResolvedValue([
     { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
     { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
   ]);
   fs.recentRootsRevision = 0;
+  fs.registerRestoredHandles.mockReset();
+  fs.registerRestoredHandles.mockImplementation(async () => {
+    fs.recentRootsRevision += 1;
+  });
 });
 
 afterEach(() => {
@@ -622,6 +647,27 @@ describe('useWorkspaceBar', () => {
     );
   });
 
+  it('shows a Workspace Bar grant after disconnect in the same session', async () => {
+    const { rerender, result } = await setup();
+    fs.listRecentRoots.mockResolvedValueOnce([
+      { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
+      { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
+      { displayName: 'docs', lastGrantedAt: 3, path: '/ws/docs' },
+    ]);
+
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    await waitFor(() => expect(fs.addRootDirectory).toHaveBeenCalledTimes(1));
+    rerender({ selectedMemoryThreadId: THREAD_ID });
+
+    await waitFor(() =>
+      expect(result.current.recentRoots).toEqual(
+        expect.arrayContaining([{ displayName: 'docs', path: '/ws/docs' }])
+      )
+    );
+  });
+
   it('shows an Explorer-granted folder after disconnect in the same session', async () => {
     const { rerender, result } = await setup();
     await waitFor(() =>
@@ -644,6 +690,34 @@ describe('useWorkspaceBar', () => {
       )
     );
     expect(fs.addRootDirectory).not.toHaveBeenCalled();
+  });
+
+  it('shows a restore-backfilled folder after disconnect in the same session', async () => {
+    const { rerender, result } = await setup();
+    fs.listRecentRoots.mockResolvedValueOnce([
+      { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
+      { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
+      { displayName: 'restored', lastGrantedAt: 3, path: '/ws/restored' },
+    ]);
+
+    await act(async () => {
+      await fs.registerRestoredHandles([
+        {
+          kind: 'directory',
+          name: 'restored',
+          path: '/ws/restored',
+          platform: 'electron',
+          rootId: 'adapter-restored',
+        },
+      ]);
+    });
+    rerender({ selectedMemoryThreadId: THREAD_ID });
+
+    await waitFor(() =>
+      expect(result.current.recentRoots).toEqual(
+        expect.arrayContaining([{ displayName: 'restored', path: '/ws/restored' }])
+      )
+    );
   });
 
   it('ignores an older overlapping recents response after a newer refresh wins', async () => {

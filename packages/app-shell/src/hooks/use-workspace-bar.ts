@@ -531,7 +531,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   }, [database, secondaryRootIds, secondaryRootIdsKey]);
 
   // The ledger is read once per capability identity, and re-read after the
-  // shared file-system source reports any successful grant; which
+  // shared file-system source reports a flow that may have mutated Recents; which
   // entries are still OFFERABLE is a separate, render-time question (a folder
   // mounted or disconnected this session must leave/re-enter the list without
   // another IPC round-trip).
@@ -570,9 +570,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
       });
     return () => {
-      if (recentRequestGenerationRef.current === generation) {
-        recentRequestGenerationRef.current += 1;
-      }
+      recentRequestGenerationRef.current += 1;
     };
   }, [listRecentRoots, recentRootsRevision]);
   const mountedPaths = useMemo(

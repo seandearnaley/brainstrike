@@ -1071,10 +1071,14 @@ additional explorer/status chrome):
   - Recents come from main's `recentRootsList` ledger
     (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
     `fs:listRecentRoots`), minus folders already mounted in this workspace.
-    Every successful grant through the shared file-system instance increments
-    its `recentRootsRevision`; the workspace bar reloads the ledger from that
-    canonical signal, so Explorer Add Folder and future grant callers need no
-    bar-specific refresh wiring. Recents loads use a monotonic request generation,
+    Every supported flow that may write the ledger through the shared file-system
+    instance increments its `recentRootsRevision`, including grants, startup
+    multi-root restore, and restore-access registration; the workspace bar reloads
+    the ledger from that canonical signal, so Explorer Add Folder and future grant
+    or restore callers need no bar-specific refresh wiring. The signal is an honest
+    superset: managed-worktree mounts may also increment it because the renderer's
+    descriptor does not expose main's grant source, while main deliberately keeps
+    managed worktrees out of Recents. Recents loads use a monotonic request generation,
     and an older overlapping response cannot replace a newer snapshot.
     `fs:addRootByPath` has TWO ordered gates: first that ledger (BST-1395), then
     the server-owned managed-worktree authorizer (BST-1390, spec §6.2), which

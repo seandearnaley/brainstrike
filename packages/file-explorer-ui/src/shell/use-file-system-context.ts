@@ -660,7 +660,7 @@ export function useFileSystemInstance() {
       isFileSystemAccessSupported: coreApi.isFileSystemAccessSupported,
       /** Desktop-only companion to addRootDirectoryByPath; see its note. */
       listRecentRoots: coreApi.listRecentRoots,
-      /** Shared mutation signal for every successful grant entry point. */
+      /** Shared refresh signal for supported flows that may mutate Recents. */
       recentRootsRevision: coreApi.recentRootsRevision,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
