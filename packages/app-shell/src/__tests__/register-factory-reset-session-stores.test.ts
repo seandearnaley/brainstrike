@@ -14,6 +14,12 @@ import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { useChangesStore } from '../changes/changes-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
+import {
+  awaitRootRegistration,
+  notifyRootRegistered,
+  resetRootRegistrationEventsForTests,
+  rootRegistrationSeq,
+} from '../roots/root-registration-events';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 
 // The real notes-vault store's default services require indexedDB (handle
@@ -35,6 +41,7 @@ describe('register-factory-reset-session-stores', () => {
     useWorkspaceContextCurationStore.getState().reset();
     useAssistantComposerCommandStore.getState().reset();
     useAssistantThreadGroupsStore.getState().reset();
+    resetRootRegistrationEventsForTests();
     vi.mocked(resetNotesVaultSessionState).mockClear();
   });
 
@@ -173,5 +180,47 @@ describe('register-factory-reset-session-stores', () => {
     expect(useChangesStore.getState().selectedFileKeys).toEqual(new Set());
     expect(useChangesStore.getState().hasExplicitSelection).toBe(false);
     expect(useChangesStore.getState().expandedIds).toEqual(new Set());
+  });
+
+  // BST-1400 (review Important #1/#2): `root-registration-events.ts` is
+  // DELIBERATELY not registered above — see its module docblock and
+  // `docs/agents/platform-contracts.md` § FACTORY RESET CONTRACT for why
+  // wiring one would introduce a mid-session regression. This is the pin an
+  // auditor of that contract needs: it drives the REAL reset pipeline (not
+  // the test-only `resetRootRegistrationEventsForTests` helper, which is a
+  // cross-test isolation seam, not a stand-in for what a reset actually
+  // does) and proves the module's counters survive it untouched, and that a
+  // wait captured with the surviving (stale) generation still correctly
+  // requires a NEW registration rather than treating the pre-reset fact as
+  // sufficient.
+  it('leaves root-registration-events untouched — it is deliberately NOT wired into factory reset', async () => {
+    notifyRootRegistered(['/ws/docs']);
+    const preResetSeq = rootRegistrationSeq('/ws/docs');
+    expect(preResetSeq).toBe(1);
+
+    const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    expect(result.success).toBe(true);
+
+    // The real reset pipeline ran every registered resetter above and left
+    // this counter exactly as it was — proving by construction (not by
+    // reading the docblock's claim) that this module sits outside it.
+    expect(rootRegistrationSeq('/ws/docs')).toBe(preResetSeq);
+
+    // And the surviving (stale) generation is still honestly stale: a waiter
+    // that captures it as `since` AFTER the reset must not resolve off the
+    // pre-reset registration — only a genuinely new one satisfies it.
+    vi.useFakeTimers();
+    const waiter = awaitRootRegistration('/ws/docs', { since: preResetSeq, timeoutMs: 5000 });
+    let settled = false;
+    void waiter.then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+
+    notifyRootRegistered(['/ws/docs']); // the post-reset re-add's registration
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    vi.useRealTimers();
   });
 });

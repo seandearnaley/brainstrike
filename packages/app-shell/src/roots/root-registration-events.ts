@@ -42,12 +42,30 @@
  * carries a monotonically-increasing GENERATION counter instead of a boolean:
  * a caller captures the generation at (or before) its first failed read and
  * only a STRICTLY LATER generation — one bumped by a registration that landed
- * AFTER that read — satisfies the wait. This is also what keeps this module
- * correct across a factory reset: the reset wipes the `roots` table, not this
- * counter, but a stale (pre-reset) generation number can never satisfy a wait
- * captured after it, so no resetter is needed here (unlike the AGENTS.md
- * "wire new persistent state into factory reset" invariant, this module holds
- * no fact that reset could make wrong to keep).
+ * AFTER that read — satisfies the wait.
+ *
+ * FACTORY RESET (see `docs/agents/platform-contracts.md` § FACTORY RESET
+ * CONTRACT — this module is named there, deliberately un-wired, alongside
+ * this reasoning): a reset wipes the `roots` table but NOT `seqByKey` below —
+ * there is no resetter registered for this module in
+ * `register-factory-reset-session-stores.ts`, and there must not be. This
+ * module DOES hold a fact a reset makes wrong to keep as an absolute — "path P
+ * has registered N times" becomes false the instant the DB row it counted is
+ * gone. What keeps it correct anyway is that its ONLY consumer
+ * (`resolveRootIdAfterReconciliation` in `use-workspace-bar.ts`) never reads
+ * the counter as an absolute, only as a DELTA: capture-before-read, compare
+ * strictly-greater. A stale (pre-reset) generation can structurally never
+ * satisfy a wait captured after it, so a survived-reset counter is harmless —
+ * pinned by the real reset-pipeline test in
+ * `register-factory-reset-session-stores.test.ts`. Wiring a resetter here
+ * would make things WORSE, not better: clearing `seqByKey` mid-session (the
+ * reset-without-reload path this repo's own contract exists for) would strand
+ * any IN-FLIGHT waiter whose `since` sits above the post-reset generation
+ * (e.g. `since: 3`, reset rebumps to 1) — `1 > 3` is false forever, so that
+ * waiter would run its full bounded timeout and raise the destructive "Folder
+ * added, but not attached to this thread" toast on a request that should have
+ * succeeded. See `rootRegistrationSeq` below for the one way this delta-only
+ * safety argument can be reopened.
  */
 
 type Waiter = () => void;
@@ -59,7 +77,17 @@ type Waiter = () => void;
 const seqByKey = new Map<string, number>();
 const waitersByKey = new Map<string, Set<Waiter>>();
 
-/** The current registration generation for `key` (0 = never registered). */
+/**
+ * The current registration generation for `key` (0 = never registered).
+ *
+ * ONLY valid as a BEFORE snapshot to pass through as `awaitRootRegistration`'s
+ * `since` — a fresh capture, compared strictly-greater. Never read it as an
+ * absolute: `rootRegistrationSeq(key) > 0` reconstructs the exact "was this
+ * key EVER registered?" membership predicate BST-1400 removed as a Critical
+ * (a stale registration would then read as "still registered" forever), and
+ * it is also the one reading a factory reset makes wrong — reset wipes the DB
+ * `roots` table this counter describes, not the counter itself.
+ */
 export function rootRegistrationSeq(key: string): number {
   return seqByKey.get(key) ?? 0;
 }
@@ -122,10 +150,19 @@ export function awaitRootRegistration(
       resolve();
     };
     const timer = setTimeout(() => {
-      // Only clean up the set THIS waiter believes it is in. A notify for an
-      // earlier generation already deleted-and-replaced `waitersByKey`'s
-      // entry for `key` by the time a later generation's waiters subscribed —
-      // that stale timer must not delete the NEWER set it no longer owns.
+      // Only clean up the set THIS waiter believes it is in. A `notify` can
+      // never leave a stale live timer behind (it deletes the map entry and
+      // then wakes — clearing the timer of — every member of the set it just
+      // unlinked), so this guard is NOT defending against a notify race. It
+      // is defending against `resetRootRegistrationEventsForTests` (and, by
+      // the same shape, any future reset callback): `waitersByKey.clear()`
+      // wakes nobody, so a waiter subscribed before a reset is orphaned with
+      // its timer still armed, while a SECOND waiter subscribing after the
+      // reset creates a fresh Set under the same key. Without this check, the
+      // orphaned waiter's timeout would delete `waitersByKey`'s entry out
+      // from under that second, unrelated waiter. Falsified by
+      // `root-registration-events.test.ts` — "a stale timer from a WIPED
+      // generation must not delete a NEWER waiter set it no longer owns".
       if (waitersByKey.get(key) === activeWaiters) {
         activeWaiters.delete(wake);
         if (activeWaiters.size === 0) {

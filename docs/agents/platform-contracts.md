@@ -256,6 +256,39 @@ which seeds a REAL `electron-storage.json` (all of the keys above, including
 both `.corrupt` quarantines) into a REAL temp userData dir and asserts the file
 is gone and `logs` is the only surviving entry.
 
+Renderer module-scoped state, `roots/root-registration-events.ts` (BST-1400):
+a per-key registration GENERATION counter (`seqByKey`) the await-root-
+registration seam uses so `useWorkspaceBar` can await a root's durable id
+landing instead of polling the database for it. It is DELIBERATELY NOT
+registered with `registerFactoryResetSessionStore` — the one case in this
+contract where the right answer is "do not wire it, and say why here so
+nobody 'fixes' the omission":
+- A reset wipes the DB `roots` table this counter describes but leaves the
+  counter itself untouched, so after a reset it can be stale (nonzero for a
+  path with no live row). That is harmless because the seam's ONLY consumer
+  (`resolveRootIdAfterReconciliation` in `packages/app-shell/src/hooks/
+  use-workspace-bar.ts`) never reads the counter as an absolute — it captures
+  a snapshot BEFORE its first failed read and only accepts a STRICTLY LATER
+  generation, so a stale (pre-reset) count can structurally never satisfy a
+  wait captured after it.
+- Wiring a resetter would make this WORSE: clearing the counter mid-session
+  (the reset-without-reload path this contract exists for) would strand any
+  IN-FLIGHT waiter whose captured `since` sits above the post-reset
+  generation the reset rebumps to — that waiter can then never be satisfied
+  and runs its full bounded timeout, raising a destructive "Folder added, but
+  not attached to this thread" toast for a request that should have
+  succeeded.
+
+That reasoning is pinned by a test that drives the REAL reset pipeline (not
+the module's own test-only `resetRootRegistrationEventsForTests` helper,
+which exists only for cross-test isolation) —
+`packages/app-shell/src/__tests__/register-factory-reset-session-stores.test.ts`
+— `'leaves root-registration-events untouched — it is deliberately NOT wired
+into factory reset'`. If this module ever needs a resetter for some other
+reason, that test (and this entry) must be updated together, and the
+in-flight-waiter regression above must be solved first (e.g. an
+`AbortSignal` per waiter) — not merely `seqByKey.clear()`.
+
 If main-process storage ever moves outside `userData` (or gains a preserved
 entry name), every one of these needs explicit reset wiring plus an update
 here.

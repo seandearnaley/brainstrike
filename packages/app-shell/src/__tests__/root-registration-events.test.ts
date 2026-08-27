@@ -118,6 +118,12 @@ describe('root-registration-events', () => {
     expect(rootRegistrationSeq('/ws/docs')).toBe(2);
   });
 
+  // This is the SAME shape a post-factory-reset re-add takes (a stale `since`
+  // must not be satisfied by a registration that predates it) — see
+  // `register-factory-reset-session-stores.test.ts` for the test that drives
+  // the REAL reset pipeline end to end and confirms this module's counters
+  // are untouched by it, which is what makes a stale `since` here honestly
+  // "pre-reset" rather than just "earlier this test".
   it('does NOT resolve a waiter whose since already reflects the current generation — the exact membership-set bug', async () => {
     // First registration (models the original Add folder).
     notifyRootRegistered(['/ws/docs']);
@@ -155,27 +161,33 @@ describe('root-registration-events', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('a stale generation survives a resetRootRegistrationEventsForTests-style wipe the same way a factory reset would', async () => {
-    // Models: register (gen 1) -> factory reset wipes the roots table but NOT
-    // this module's counters (there is deliberately no resetter wired into
-    // factory reset; see the module docblock) -> re-add mints a fresh
-    // registration (gen 2). A waiter whose `since` reflects the PRE-reset
-    // generation must still only resolve on the POST-reset registration, not
-    // treat the pre-reset fact as good enough.
-    notifyRootRegistered(['/ws/docs']);
-    const preResetSeq = rootRegistrationSeq('/ws/docs');
+  // --- Timeout-branch set ownership (review Note-6 / Important #3) ---
 
+  it('a stale timer from a WIPED generation must not delete a NEWER waiter set it no longer owns', async () => {
+    // The reachable mechanism is `resetRootRegistrationEventsForTests` (and,
+    // by the same shape, any future reset callback): it does
+    // `waitersByKey.clear()` WITHOUT waking anyone, so a waiter subscribed
+    // before the wipe is orphaned — its own timer is still armed and pointing
+    // at a Set object the map no longer references by the time a SECOND
+    // waiter (post-wipe) creates a fresh Set under the same key. (A notify
+    // can never produce this: it deletes the map entry and then wakes AND
+    // clears the timer of every member of the set it deleted, so no waiter of
+    // a notify-cleared set can still hold a live timer.) Without the ownership
+    // guard in `awaitRootRegistration`'s timeout branch, the stale waiter's
+    // timer fires, sees its OWN (orphaned) Set is empty, and deletes
+    // `waitersByKey`'s entry — which by then belongs to the SECOND waiter,
+    // stranding it to its own timeout instead of ever seeing the notify below.
     vi.useFakeTimers();
-    const waiter = awaitRootRegistration('/ws/docs', { since: preResetSeq, timeoutMs: 5000 });
-    let settled = false;
-    void waiter.then(() => {
-      settled = true;
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(settled).toBe(false);
+    const stale = awaitRootRegistration('/ws/docs', { since: 0, timeoutMs: 100 });
+    const staleRejection = expect(stale).rejects.toThrow();
 
-    notifyRootRegistered(['/ws/docs']); // the post-"reset" re-registration
-    await vi.advanceTimersByTimeAsync(0);
-    expect(settled).toBe(true);
+    resetRootRegistrationEventsForTests();
+
+    const fresh = awaitRootRegistration('/ws/docs', { since: 0, timeoutMs: 5000 });
+    await vi.advanceTimersByTimeAsync(100); // the stale waiter's timer fires
+    await staleRejection;
+
+    notifyRootRegistered(['/ws/docs']);
+    await expect(fresh).resolves.toBeUndefined();
   });
 });
