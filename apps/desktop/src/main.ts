@@ -777,6 +777,15 @@ let stopAssistantServer: null | (() => Promise<void>) = null;
 // BST-1330: gates the developer-menu database reset so a repeat accelerator
 // press surfaces "already in progress" instead of the reset barrier's throw.
 let developerDatabaseResetInFlight = false;
+// NOT a replay buffer, despite the name's "pending" framing: a grant recorded
+// before this is assigned (inside app.whenReady()'s menu block) is a silent
+// no-op for THIS subscriber specifically — it never queues and never fires
+// late. That's safe because the grant itself is durable regardless (the
+// ledger write in workspace-recent-roots.ts happens unconditionally, and the
+// next application-menu rebuild reads the ledger fresh), so the only thing a
+// pre-assignment grant misses is that one mount's app.addRecentDocument call
+// — relevant only to a renderer-less/background window mounting before the
+// visible-UI menu block runs, which does not happen in the normal boot path.
 let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;

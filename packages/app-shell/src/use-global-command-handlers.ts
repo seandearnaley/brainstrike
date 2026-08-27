@@ -23,6 +23,14 @@ import { useConnectFolder } from './workspace-connect/use-connect-folder';
  *
  * Shared by the ⌘K command palette host AND the composer's "/" slash menu so
  * both project the SAME global commands from one source of truth.
+ *
+ * INVARIANT (BST-1393): `openFolder`'s `useConnectFolder()` call means this
+ * hook now requires a `FileSystemProvider` ancestor — `useFileSystem()`
+ * throws without one. True today for both existing consumers
+ * (`CommandPaletteHost` and the slash-menu's `useAssistantSlashCommands`,
+ * both verified to render inside `AppLayout`'s `FileSystemProvider`), but is
+ * NOT enforced by this hook's own signature. A future THIRD consumer mounted
+ * above that provider would crash on render — check this before adding one.
  */
 export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHandlers {
   const { openPicker } = useConnectFolder();
