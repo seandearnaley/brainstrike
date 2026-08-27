@@ -667,6 +667,13 @@ declare global {
       list: () => Promise<UserSlashCommandsListResult>;
     };
     /**
+     * Low-friction folder connection (BST-1393). Absent on web — consumers
+     * capability-check it via `resolveWorkspaceConnectBridge()`. The exposed
+     * key set is pinned to `WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS` by the
+     * preload-runtime contract test.
+     */
+    workspace?: import('@brainstrike/app-shell/workspace-connect/workspace-connect-bridge').WorkspaceConnectBridge;
+    /**
      * Desktop-only managed-worktree bridge (BST-1390).
      *
      * ⚠️ MUST stay in sync with `WorktreesBridge` in

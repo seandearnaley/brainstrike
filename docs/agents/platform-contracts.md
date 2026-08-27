@@ -167,6 +167,38 @@ dedicated wiring. That coverage is pinned by the BST-1061 regression test in
 unpack dir ever moves outside userData, it needs explicit reset wiring plus an
 update here.
 
+`resolveDesktopPythonRuntimeResourcesDir` (`apps/desktop/src/python-runtime/
+index.ts`) resolves the SOURCE directory the archive/manifest ship in — a
+different, unrelated path from the unpack dir above — and is where BST-1459
+found a real bug: it used to derive this from `app.getAppPath()`, which
+returns a launch-mode-dependent value (the project root under `electron .`,
+but `dist/` itself when Electron is launched with a direct path to
+`dist/main.js`, as Playwright's desktop e2e harness does), silently pointing
+at `dist/resources/python-runtime/manifest.json` instead of the real
+`apps/desktop/resources/python-runtime/manifest.json`. It now resolves via
+the running bundled module's own `__filename` instead (same invariant as the
+two entries below — deliberately NOT `module.filename`, a synthetic shim
+with no `.filename` under Vitest, or `import.meta.filename`, empty in this
+file's esbuild `cjs` output; see `bundled-sibling-path.ts`'s docblock),
+taking `path.dirname()` TWICE — once to `dist/` (the module's immediate
+parent), once more to its parent `apps/desktop/` — because these resources
+are a sibling of `dist/`, not of `main.js` itself. This resolver additionally
+depends on that immediate parent directory being literally NAMED `dist` — an
+IDENTITY check on that one path segment, not a depth check (e.g.
+`out/dist/main.js` still resolves correctly; only the parent's basename is
+compared, not how many levels it sits below the app root) — which is still
+more fragile than the sibling-of-`main.js` pattern the watchdog/log-transport
+resolvers use below, since those need no name assumption at all. This one
+enforces the identity assumption at runtime: it throws if that parent
+directory is not literally named `dist`, rather than silently pointing at the
+wrong directory if the bundle output is ever restructured or renamed. Pinned
+by `apps/desktop/src/__tests__/main/python-runtime-resources-dir.test.ts`.
+Downstream, `resolvePythonBinary` classifies unsupported platforms BEFORE any
+manifest I/O — off darwin no target triple exists, so the manifest is never
+read and the result is the typed `python_unsupported_platform` condition with
+no PATH-Python fallback (pinned by the fixture-less unsupported-platform case
+in `apps/desktop/src/__tests__/main/resolve-python-binary.test.ts`).
+
 Desktop MAIN-PROCESS storage (`ElectronStorageAdapter`, one
 `electron-storage.json` under `app.getPath('userData')`) is covered by the same
 wholesale userData wipe — no per-key wiring. The keys it owns that MATTER for a
@@ -1438,7 +1470,17 @@ Pino worker target `apps/desktop/src/diagnostics/main-log-transport.ts`, bundled
 as the flat main-process entry `dist/main-log-transport.js`. Packaged builds
 explicitly put that entry in `app.asar.unpacked`, and
 `resolveMainLogTransportPath` rejects an unexpected packaged layout rather than
-depending on worker-thread ASAR loading or silently trying another target. The
+depending on worker-thread ASAR loading or silently trying another target.
+Development resolves `main-log-transport.js` as a sibling of the running
+bundled module's own `__filename` (BST-1459) — not `app.getAppPath()`, which
+is launch-mode-dependent and can already point at `dist/` itself (see the
+watchdog entry below and the Python-runtime entry above for the same
+invariant and the bug it replaced), and deliberately not `module.filename`
+(a synthetic shim with no `.filename` under Vitest) or `import.meta.filename`
+(empty in this file's esbuild `cjs` output) either — see
+`bundled-sibling-path.ts`'s docblock. An empty/missing `__filename` throws
+rather than falling back to a `process.cwd()`-relative guess. Pinned by
+`apps/desktop/src/__tests__/diagnostics/main-log-transport-path.test.ts`. The
 target passes Pino's already-delimited bytes unchanged to the same
 `RotatingFileSink` used by the diagnostic backstop: 10 MB × 5 files,
 drop-oldest slot math, encoded-byte accounting, short-write failure, and
@@ -1464,7 +1506,15 @@ main-process output `dist/main-watchdog-worker.js`. It is never constructed from
 an inline string or with `eval`. Packaged builds explicitly put the entry in
 `app.asar.unpacked`, and `resolveMainWatchdogWorkerPath` rejects an unexpected
 packaged layout instead of trying an ASAR path or another target. Development
-resolves the same emitted filename under the desktop `dist/` directory.
+resolves `main-watchdog-worker.js` as a sibling of the running bundled
+module's own `__filename` (BST-1459), not `app.getAppPath()` — see the
+Python-runtime and log-transport entries above for the same invariant and the
+`dist/dist/` doubling bug it replaced, and deliberately not `module.filename`
+or `import.meta.filename` either (see `bundled-sibling-path.ts`'s docblock:
+one is empty under Vitest, the other empty in this file's esbuild `cjs`
+output). An empty/missing `__filename` throws rather than falling back to a
+`process.cwd()`-relative guess. Pinned
+by `apps/desktop/src/__tests__/diagnostics/main-watchdog-path.test.ts`.
 
 The independently-tested `main-watchdog-core.ts` owns the typed config,
 heartbeat, suspend/resume protocol and diagnostic calculation. The worker uses

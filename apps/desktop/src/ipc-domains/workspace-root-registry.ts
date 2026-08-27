@@ -66,6 +66,16 @@ interface WorkspaceRootRegistryOptions {
   readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
   readonly evictLspServersForRoot?: (rootId: string) => Promise<void>;
   readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
+  /**
+   * Fired after a mount that IS recorded in the recents ledger
+   * (`recordInRecentRoots` true — the picker path, and a recents-ledger-
+   * matched picker-less mount). NOT fired for a managed-worktree mount
+   * (BST-1390, spec §6.2): those are deliberately excluded from Recents, and
+   * this is the SAME boolean that decision already uses, so the exclusion is
+   * structural rather than something each caller has to remember (BST-1393
+   * review finding).
+   */
+  readonly onRootGranted?: (grantedPath: string) => void;
   readonly pathExists: (rootPath: string) => Promise<boolean>;
   readonly resolveCanonicalRoot?: (rootPath: string) => Promise<string>;
   readonly resolveReadPath?: (requestedPath: string, canonicalRoot: string) => Promise<string>;
@@ -85,6 +95,7 @@ export class WorkspaceRootRegistry {
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private mutationTail: Promise<void> = Promise.resolve();
+  private readonly onRootGranted: ((grantedPath: string) => void) | undefined;
   private readonly pathExists: (rootPath: string) => Promise<boolean>;
   private readonly resolveCanonicalRoot: (rootPath: string) => Promise<string>;
   private readonly resolveReadPath: (
@@ -99,6 +110,7 @@ export class WorkspaceRootRegistry {
       options.disposeCommandSessionsForRoot ?? disposeDesktopCommandSessionsForRoot;
     this.evictLspServersForRoot = options.evictLspServersForRoot ?? evictLspServersForRoot;
     this.getRootsDatabase = options.getRootsDatabase;
+    this.onRootGranted = options.onRootGranted;
     this.pathExists = options.pathExists;
     this.resolveCanonicalRoot = options.resolveCanonicalRoot ?? resolveCanonicalRootPath;
     this.resolveReadPath = options.resolveReadPath ?? resolveValidatedReadPath;
@@ -152,6 +164,11 @@ export class WorkspaceRootRegistry {
           // The grant happened whether or not rootsList persistence succeeded,
           // so the ledger records it either way.
           await recordRecentRoot(this.storage, entry.path);
+          // Same gate as the ledger write above (BST-1393 review finding): a
+          // managed-worktree mount passes recordInRecentRoots: false and must
+          // not reach the OS recent-documents list either — the registry
+          // already decided it doesn't belong in Recents.
+          this.onRootGranted?.(entry.path);
         }
         return descriptorFor(entry, 'granted', persisted);
       } finally {

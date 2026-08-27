@@ -55,7 +55,6 @@ import {
   type TreeNode,
   TreeTable,
   type TreeTableColumn,
-  toast,
   useContextMenuTarget,
 } from '@brainstrike/ui';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
@@ -95,6 +94,7 @@ import {
   THREAD_CONTROL_TITLE_CLASS_NAME,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
+import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
 import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
@@ -3152,48 +3152,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     },
     [groupsRepository, moveThreadToGroup, resourceId]
   );
-  /**
-   * A thread started FROM a folder section is born bound to that folder: one
-   * `createThread`, then ONE metadata update carrying the whole binding (the
-   * repository rejects a partial operating-root triple, and two writes would
-   * leave a window where the thread is bound to half a folder).
-   *
-   * `operatingRootPath` is omitted when the root has none (a browser
-   * file-system-access root): the display name + durable root id ARE the
-   * binding, and the path is display-only.
-   */
-  const handleCreateThreadInFolder = useCallback(
-    (folder: ThreadFolderRow): void => {
-      if (!repository) {
-        return;
-      }
-      createThread(repository, resourceId)
-        .then(async (thread) => {
-          try {
-            await updateThreadMetadata(repository, resourceId, thread.id, {
-              operatingRootDisplayName: folder.displayName,
-              operatingRootId: folder.rootId,
-              ...(folder.path ? { operatingRootPath: folder.path } : {}),
-            });
-          } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error);
-            toast({
-              description: `Could not bind it to ${folder.displayName}. Open the thread and select ${folder.displayName} to retry. Error: ${message}`,
-              title: 'Thread created in No folder',
-              variant: 'destructive',
-            });
-          }
-        })
-        .catch((error: unknown) => {
-          toast({
-            description: error instanceof Error ? error.message : String(error),
-            title: `New thread in ${folder.displayName} failed`,
-            variant: 'destructive',
-          });
-        });
-    },
-    [createThread, repository, resourceId, updateThreadMetadata]
-  );
+  const handleCreateThreadInFolder = useCreateThreadInFolder();
   const handleSortByChange = (nextSortBy: ThreadsPanelSortBy): void => {
     if (sortPresentation === 'folder') {
       // Unreachable through the popover, which binds folder mode to
@@ -3437,7 +3396,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           onBulkMove={handleBulkMove}
           onDeleteThread={handleDeleteThread}
           onMoveThreadToGroup={handleMoveThreadToGroup}
-          onNewThreadInFolder={repository ? handleCreateThreadInFolder : null}
+          onNewThreadInFolder={handleCreateThreadInFolder}
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
           onUpdateThreadMetadata={handleUpdateThreadMetadata}

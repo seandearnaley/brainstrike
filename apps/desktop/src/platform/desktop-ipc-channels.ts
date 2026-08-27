@@ -262,6 +262,25 @@ export const DESKTOP_IPC_CHANNELS = {
     read: 'vector-preferences:read',
     write: 'vector-preferences:write',
   },
+  workspace: {
+    // One-way main→renderer push: File ▸ Open Folder… asks the FOCUSED window
+    // to run its ordinary picker flow, so the grant, the recents recording and
+    // the mount bookkeeping all stay on one path. NOT an `ipcMain.handle`
+    // channel.
+    openFolderPicker: 'workspace:open-folder-picker',
+    // One-way main→renderer push: argv / open-file / second-instance / File ▸
+    // Open Recent ask the FOCUSED window to CONNECT a path. A request, never a
+    // grant — the renderer routes it through `fs:addRootByPath`, whose gates
+    // decide. NOT an `ipcMain.handle` channel.
+    openPath: 'workspace:open-path',
+    // The ONLY channel in this domain that runs renderer→main. Sent by
+    // `WorkspaceConnectHost` the instant it subscribes to `openPath` above —
+    // main gates delivery on BOTH the window having finished loading AND this
+    // ping, because `did-finish-load`/`did-stop-loading` only prove the
+    // DOCUMENT loaded, not that React has mounted the host and its
+    // `ipcRenderer.on` listener exists yet. NOT an `ipcMain.handle` channel.
+    openPathReady: 'workspace:open-path-ready',
+  },
   worktrees: {
     adopt: 'worktrees:adopt',
     archive: 'worktrees:archive',

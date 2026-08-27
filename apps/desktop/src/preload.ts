@@ -1,5 +1,5 @@
 // Electron preload script - must use CommonJS syntax
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 type EmbeddingTelemetrySnapshot =
   import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
@@ -83,6 +83,9 @@ const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
 const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
 const QUICK_OPEN_OPEN_EVENT = 'quick-open:open' as const;
+const WORKSPACE_OPEN_FOLDER_PICKER_EVENT = 'workspace:open-folder-picker' as const;
+const WORKSPACE_OPEN_PATH_EVENT = 'workspace:open-path' as const;
+const WORKSPACE_OPEN_PATH_READY_EVENT = 'workspace:open-path-ready' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
 const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
@@ -1075,6 +1078,45 @@ contextBridge.exposeInMainWorld('quickOpen', {
     };
   },
 });
+
+// Low-friction folder connection (BST-1393, spec §7): the app menu's
+// Open Folder… / Open Recent, `brainstrike <path>` argv, macOS open-file, and
+// resolving a Finder-dropped folder to an absolute path. The two `on*` members
+// mirror commandPalette/quickOpen; `getDroppedPath` is preload-local.
+if (shouldExposeBridge('workspace')) {
+  contextBridge.exposeInMainWorld('workspace', {
+    getDroppedPath: (file: File): string => {
+      try {
+        return webUtils.getPathForFile(file);
+      } catch {
+        // Documented throw: the argument was not a File. Reported as "no
+        // path", which the renderer counts and states — never a silent skip.
+        return '';
+      }
+    },
+    // The one renderer→main member of this bridge: fire-and-forget, no
+    // response expected. `WorkspaceConnectHost` calls this the instant it
+    // subscribes to `onOpenPath`, so main can gate delivery on the renderer
+    // actually being ready to receive rather than merely having loaded.
+    notifyOpenPathReady: (): void => {
+      ipcRenderer.send(WORKSPACE_OPEN_PATH_READY_EVENT);
+    },
+    onOpenFolderPicker: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(WORKSPACE_OPEN_FOLDER_PICKER_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(WORKSPACE_OPEN_FOLDER_PICKER_EVENT, listener);
+      };
+    },
+    onOpenPath: (callback: (request: unknown) => void) => {
+      const listener = (_event: unknown, request: unknown) => callback(request);
+      ipcRenderer.on(WORKSPACE_OPEN_PATH_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(WORKSPACE_OPEN_PATH_EVENT, listener);
+      };
+    },
+  });
+}
 
 contextBridge.exposeInMainWorld('embeddingHost', {
   cancelAllBackfills: (): Promise<void> =>

@@ -178,6 +178,12 @@ vi.mock('../quick-open-host', () => ({
   QuickOpenHost: () => <div data-testid="quick-open-host" />,
 }));
 
+// The workspace-connect host pulls in the file-system context and the desktop
+// bridge; mock it the same way as the command palette and quick-open hosts.
+vi.mock('../workspace-connect/workspace-connect-host', () => ({
+  WorkspaceConnectHost: () => <div data-testid="workspace-connect-host" />,
+}));
+
 // The coordinator binds real stores + PGlite; this layout-routing suite mocks
 // it like every other child surface.
 vi.mock('../thread-workspace/thread-workspace-coordinator', () => ({

@@ -135,6 +135,10 @@
       "types": "./dist/terminal-panel/availability.d.ts",
       "import": "./dist/terminal-panel/availability.js"
     },
+    "./workspace-connect/workspace-connect-bridge": {
+      "types": "./dist/workspace-connect/workspace-connect-bridge.d.ts",
+      "import": "./dist/workspace-connect/workspace-connect-bridge.js"
+    },
     "./canvas/canvas-panel": {
       "types": "./dist/canvas/canvas-panel.d.ts",
       "import": "./dist/canvas/canvas-panel.js"
