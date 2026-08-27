@@ -2684,6 +2684,23 @@ self-bounds through `fitItemsToCharBudget`. Hitting either cap is reported in
 Web omits the tool because its assistant server has no capability to read the
 client-local PGlite database; there is no remote fallback.
 
+`brainstrike.listWorktrees` and `brainstrike.manageWorktree` (BST-1392) are
+desktop-only for the same reason as `manageCanvas`: their source of truth —
+the git worktree inventory and the `brainstrike_worktrees` ledger — lives on
+the client, and web's assistant server has no bridge to either. Spec §6.4
+named three tool names (`createWorktree`, `listWorktrees`, `archiveWorktree`);
+they collapsed to two ids on the risk split, not on merged capability:
+`listWorktrees` is deliberately `read`-risk with no approval, so plan-mode
+orientation (an agent listing worktrees before proposing a plan) still works
+without interrupting the user, while `manageWorktree` is `execute`-risk with
+`requiresApproval: true` and an `action: 'create' | 'archive'` discriminated
+union — every mutation still gates through the permission engine exactly as
+three separate ids would have, since `create`/`archive` are the only actions
+that write. Both tools share ONE `workspace` discovery namespace entry (the
+same namespace `manageCanvas`/`queryDiagnostics` register under), not two,
+because they operate on the same client-local capability surface a model
+should discover together.
+
 ### Tool discovery contract (LIVE for hosted Mastra catalog search)
 
 `packages/assistant-contract/src/tool-discovery.ts` is the authoritative

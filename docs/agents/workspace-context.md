@@ -1068,6 +1068,24 @@ additional explorer/status chrome):
     checkout-mode transition atomically strips `checkoutBranch`;
     the Local transition also removes both worktree keys and
     `checkoutLocalRootId`, so no stale checkout authority survives the hand-off.
+  - The Worktree Map tab (BST-1392, `packages/app-shell/src/worktree-map/`)
+    is capability-gated the same way Changes/Canvas/Terminal are:
+    `apps/desktop/src/renderer/components/root-layout-content.tsx` resolves
+    `isWorktreesBridgeAvailable()` once via `useMemo` and conditionally spreads
+    `worktreeMapPageContent` into `buildWorkspaceApps`, never an `isElectron()`
+    check — web omits the tab entirely (no `window.worktrees`, no registration).
+    Its `onNewThread`/`onHandOffToLocal` handlers do NOT write checkout
+    metadata directly: they call
+    `useWorktreeCheckoutIntentStore().publish({branch, path, threadId,
+    worktreeId})`, a ONE-SHOT request the intent-consumer
+    (`use-workspace-bar-mode.ts`) applies to the SELECTED thread exactly once —
+    `consume(threadId)` clears the entry so a re-render cannot re-apply it —
+    by calling the SAME `onSelectWorktree`/`onHandOffToLocal` callbacks the
+    Mode chip's own picker and create-sheet call. `use-thread-checkout.ts`
+    remains the ONLY writer of `mastra_threads.metadata.checkout*`; the intent
+    store is a cross-component REQUEST queue, never a second write path. A
+    failed apply surfaces through the same `logger.error` + toast path the
+    chip uses and is not retried.
   - Recents come from main's `recentRootsList` ledger
     (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
     `fs:listRecentRoots`), minus folders already mounted in this workspace.
