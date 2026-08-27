@@ -2,6 +2,7 @@ import { Button } from '@brainstrike/ui';
 import { Bot, RotateCw, TerminalSquare } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
+import type { TerminalTarget } from '../stores/terminal-target-store';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { isCommandSessionBridgeAvailable } from './command-session-bridge';
 import { CommandSessionInventory } from './command-session-inventory';
@@ -129,6 +130,22 @@ export function TerminalPanel(): ReactElement {
   // as it always has. Derived during render — never mirrored into state.
   const rootId = target?.rootId ?? focusedRootId;
 
+  // An explicit "Open in Terminal" must show the shell it just started, even
+  // when Command sessions was the last surface selected — otherwise the
+  // requested PTY starts invisibly behind that tab (PR #2675 review). Render-time
+  // adjustment per the house "derived state" idiom (budget-settings-panel.tsx,
+  // threads-panel-search.tsx): `openTerminalAt` always sets a FRESH object, so
+  // its identity changes on every call, including a repeat pin of the same
+  // checkout. The user can still switch back to Command sessions afterward —
+  // this only forces the surface at the moment a new target is requested.
+  const [lastHandledTarget, setLastHandledTarget] = useState<TerminalTarget | null>(target);
+  if (target !== lastHandledTarget) {
+    setLastHandledTarget(target);
+    if (target) {
+      setSurface('shell');
+    }
+  }
+
   if (!rootId) {
     return (
       <div
@@ -174,9 +191,13 @@ export function TerminalPanel(): ReactElement {
           rootId={rootId}
         />
       </div>
-      {commandSessionsAvailable ? (
+      {commandSessionsAvailable && focusedRootId ? (
         <div className="min-h-0 flex-1" hidden={surface !== 'command-sessions'}>
-          <CommandSessionInventory key={rootId} rootId={rootId} />
+          {/* A pin is a SHELL pin by design — Command sessions always follows
+              the FOCUSED root, never the pinned `rootId`, so a checkout pinned
+              in another root can never silently retarget this surface's
+              destructive stop/remove/write actions (PR #2675 review). */}
+          <CommandSessionInventory key={focusedRootId} rootId={focusedRootId} />
         </div>
       ) : null}
     </div>

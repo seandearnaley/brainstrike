@@ -773,4 +773,46 @@ describe('TerminalPanel', () => {
       expect(screen.queryByTestId('terminal-panel-exited')).not.toBeInTheDocument()
     );
   });
+
+  it('selects the shell surface on an explicit Open in Terminal, even if command-sessions was active', async () => {
+    // PR #2675 review: `openTerminalAt` changes rootId/cwd and reopens the
+    // Terminal tab, but before this fix nothing forced `surface` back to
+    // 'shell' — the requested PTY started invisibly behind the
+    // command-sessions view whenever that tab was last selected.
+    installBridge();
+    installCommandSessionBridge();
+    const user = userEvent.setup();
+    render(<TerminalPanel />);
+    await user.click(screen.getByRole('button', { name: 'Command sessions' }));
+    await screen.findByText('server ready');
+    expect(screen.getByTestId('terminal-host')).not.toBeVisible();
+
+    await act(async () => {
+      useTerminalTargetStore.getState().openTerminalAt({ cwd: '/abs/repo/sub', rootId: 'root-1' });
+    });
+
+    await waitFor(() => expect(screen.getByTestId('terminal-host')).toBeVisible());
+    expect(screen.getByRole('button', { name: 'Shell' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it("scopes CommandSessionInventory's rootId to the FOCUSED root, never the pin", async () => {
+    // PR #2675 review: a pin is a SHELL pin by design — its destructive
+    // stop/remove/write actions must never silently retarget onto whatever
+    // root a shell happens to be pinned to. Pin a DIFFERENT root than the
+    // one actually focused (mockRoot stays 'root-1') and assert the
+    // inventory still queries the focused root.
+    installBridge();
+    const commandSessions = installCommandSessionBridge();
+    const user = userEvent.setup();
+    useTerminalTargetStore.getState().openTerminalAt({ cwd: '/other/repo/sub', rootId: 'root-2' });
+    render(<TerminalPanel />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Shell' })).toHaveAttribute('aria-current', 'page')
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Command sessions' }));
+
+    await waitFor(() => expect(commandSessions.list).toHaveBeenCalledWith({ rootId: 'root-1' }));
+    expect(commandSessions.list).not.toHaveBeenCalledWith({ rootId: 'root-2' });
+  });
 });
