@@ -167,10 +167,18 @@ describe('useWorktreeMode terminal wiring', () => {
     listSpy.mockResolvedValue({ ok: true, value: [noRoot] });
     const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
     act(() => result.current?.onOpenPicker());
-    // `worktree` becomes non-null exactly when `currentEntry` resolves
-    // (id match), independent of rootId — the general "entries loaded"
-    // signal this negative case needs, since onOpenTerminal never fires.
-    await waitFor(() => expect(result.current?.worktree).not.toBeNull());
+    // NOT `worktree not null`: `computeWorktreeSummary` has a second,
+    // "missing worktree" branch fed by `missingWorktreePath`, which is
+    // derived synchronously from `checkout.worktreePath` — non-null on the
+    // very FIRST render, before `listSpy` ever resolves. Gating on mere
+    // non-null is satisfiable by that placeholder and never actually waits
+    // for `currentEntry` to resolve from the mocked list. The placeholder's
+    // `path` is `checkout.worktreePath` ('/managed/app/bright-fox'), a
+    // different literal from the RESOLVED entry's path below, so gating on
+    // the resolved path is the fact only a real list match can produce.
+    await waitFor(() =>
+      expect(result.current?.worktree?.path).toBe('/repo/.claude/worktrees/bright-fox')
+    );
 
     expect(result.current?.onOpenTerminal).toBeUndefined();
     expect(openTerminalAtMock).not.toHaveBeenCalled();
@@ -188,7 +196,11 @@ describe('useWorktreeMode terminal wiring', () => {
     listSpy.mockResolvedValue({ ok: true, value: [nested] });
     const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
     act(() => result.current?.onOpenPicker());
-    await waitFor(() => expect(result.current?.worktree).not.toBeNull());
+    // Same fallback-satisfiable-waitFor trap as above: gate on the RESOLVED
+    // entry's path, not mere non-null worktree.
+    await waitFor(() =>
+      expect(result.current?.worktree?.path).toBe('/repo/.claude/worktrees/bright-fox')
+    );
 
     expect(result.current?.onOpenTerminal).toBeUndefined();
     expect(openTerminalAtMock).not.toHaveBeenCalled();
