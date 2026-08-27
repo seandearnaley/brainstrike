@@ -446,11 +446,12 @@ describe('main workspace-open lifecycle', () => {
     expect(latestWindow().webContents.send).toHaveBeenCalledTimes(1);
   });
 
-  // Self-limiting, like the mid-reload test above: this test's assertion
-  // ("nothing was sent") also holds pre-fix, but for the WRONG reason — the
-  // still-broken initial attach (Critical 1) means nothing is ever sent
-  // regardless of the path's shape. It falsifies the filter's removal only
-  // GIVEN the attach fix; `workspace-open-queue.test.ts`'s
+  // Self-limiting, like the mid-reload test below, though by a DIFFERENT
+  // mechanism: this test never manually fires an event at all, so its
+  // "nothing was sent" assertion holds pre-fix too, but only because the
+  // still-broken initial attach (Critical 1) means nothing is EVER sent,
+  // regardless of the path's shape — it cannot discriminate the filter's
+  // removal from the attach bug. `workspace-open-queue.test.ts`'s
   // `filterDirectoryOpenCandidates` unit tests falsify the filter itself in
   // isolation, independent of any window-creation wiring.
   it('skips a FILE path delivered by open-file (macOS "Open With…") instead of forwarding it', async () => {
@@ -472,17 +473,17 @@ describe('main workspace-open lifecycle', () => {
     );
   });
 
-  // This test's own falsifying power is scoped to the detach/re-attach pair
-  // in ISOLATION: it correctly catches a future regression that removes
-  // `did-start-loading` → `detach()` while the initial-attach wiring stays
-  // correct (a target that stayed attached would deliver BEFORE the
-  // reload-finished assertion below, failing the "not delivered yet" check).
-  // It is not a substitute for the queue's own `detach()` unit tests
-  // (`workspace-open-queue.test.ts`), which falsify the primitive without
-  // depending on the surrounding window-creation wiring at all — run against
-  // this file's OWN pre-fix commit, the still-broken initial attach (§3.1)
-  // means nothing is ever attached to begin with, which masks this specific
-  // property rather than exercising it.
+  // Self-limiting: this test manually fires the event the production wiring
+  // was mis-ordered against, so it cannot discriminate that ordering — the
+  // queue's own unit tests do (`workspace-open-queue.test.ts`'s `detach()`
+  // cases, which exercise the primitive without any window-creation wiring
+  // at all). Concretely: the closing assertion below needs a `did-finish-load`
+  // to land, and this test fires that event BY HAND as its final step. Pre-fix
+  // `main.ts` DID register an attach listener for `did-finish-load` — too late
+  // to catch the one automatic firing inside `loadFile`/`loadURL` during the
+  // initial load (Critical 1), but already registered and waiting by the time
+  // THIS test fires the event manually, so delivery lands and the assertion
+  // passes regardless of whether `did-start-loading` → `detach()` exists.
   it('a request arriving mid-reload buffers via did-start-loading detach, then delivers once the reload finishes', async () => {
     await import('../../main');
 
@@ -519,8 +520,10 @@ describe('main workspace-open lifecycle', () => {
     });
   });
 
-  // Self-limiting, same as the mid-reload and FILE-skip tests above: this
-  // test's "not delivered" assertion also holds against the pre-Critical-1-fix
+  // Self-limiting like the FILE-skip test above (a DIFFERENT mechanism than
+  // the mid-reload test, which manually fires the mis-ordered event to make
+  // delivery land pre-fix): this test never needs a delivery to land, so its
+  // "not delivered" assertion also holds against the pre-Critical-1-fix
   // commit, but vacuously — nothing is ever attached there, so nothing is
   // ever sent regardless of whether `closed` -> `detach()` exists. Verified by
   // temporarily removing ONLY this `closed` handler from the real fix: exactly
