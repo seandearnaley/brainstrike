@@ -1,3 +1,7 @@
+import {
+  WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE,
+  WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE,
+} from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
 import { AccessError } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -421,6 +425,13 @@ describe('resolveGrantedRootHandle managed-worktree gate (BST-1390, spec §6.2)'
     ).rejects.toThrow('Folder was never granted in this app; use Add Folder to grant it.');
   });
 
+  it('throws EXACTLY the canonical never-granted message the renderer refusal remedy matches on', async () => {
+    const empty = createStorage();
+    await expect(resolveGrantedRootHandle(empty, '/somewhere/else')).rejects.toMatchObject({
+      message: WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE,
+    });
+  });
+
   it('names the managed-worktree denial only for a path under the managed directory', async () => {
     const empty = createStorage();
     await expect(
@@ -430,6 +441,15 @@ describe('resolveGrantedRootHandle managed-worktree gate (BST-1390, spec §6.2)'
     ).rejects.toThrow(
       'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
     );
+  });
+
+  it('throws EXACTLY the canonical managed-but-unauthorized message', async () => {
+    const empty = createStorage();
+    await expect(
+      resolveGrantedRootHandle(empty, '/managed/app/not-a-row', () =>
+        Promise.resolve('managed-but-unauthorized')
+      )
+    ).rejects.toMatchObject({ message: WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE });
   });
 
   it('rejects when NO authorizer is injected and the ledger has no entry (unchanged behavior)', async () => {

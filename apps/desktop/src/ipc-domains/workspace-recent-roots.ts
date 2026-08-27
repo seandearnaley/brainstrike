@@ -207,7 +207,21 @@ export async function listRecentRootEntries(
  */
 export type ManagedWorktreeAuthorization = 'authorized' | 'managed-but-unauthorized' | 'unmanaged';
 
-const NEVER_GRANTED_MESSAGE = 'Folder was never granted in this app; use Add Folder to grant it.';
+type WorkspaceConnectBridgeModule =
+  typeof import('@brainstrike/app-shell/workspace-connect/workspace-connect-bridge');
+
+const WORKSPACE_CONNECT_BRIDGE_MODULE =
+  '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge' as const;
+
+/**
+ * Electron main is bundled as CJS while app-shell exposes this dependency-light
+ * subpath through its ESM `import` condition. A native dynamic import selects
+ * that real export condition; a resolution failure propagates rather than
+ * falling back to a duplicated refusal string.
+ */
+async function loadWorkspaceConnectBridgeModule(): Promise<WorkspaceConnectBridgeModule> {
+  return import(WORKSPACE_CONNECT_BRIDGE_MODULE);
+}
 
 /**
  * Authorizes a path the app itself created under its managed worktree
@@ -262,8 +276,12 @@ export async function resolveGrantedRootHandle(
   if (granted) {
     return { grantSource: 'recents', handle };
   }
+  const {
+    WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE,
+    WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE: neverGrantedMessage,
+  } = await loadWorkspaceConnectBridgeModule();
   if (!isManagedWorktreePath) {
-    throw new AccessError(NEVER_GRANTED_MESSAGE, requestedPath, 'read');
+    throw new AccessError(neverGrantedMessage, requestedPath, 'read');
   }
 
   let authorization: ManagedWorktreeAuthorization;
@@ -273,15 +291,15 @@ export async function resolveGrantedRootHandle(
     // A broken authorizer must not become an implicit grant, and must not be
     // silent either.
     logger.error('managed-worktree authorization check threw', { error, path: normalized });
-    throw new AccessError(NEVER_GRANTED_MESSAGE, requestedPath, 'read');
+    throw new AccessError(neverGrantedMessage, requestedPath, 'read');
   }
   if (authorization === 'authorized') {
     return { grantSource: 'managed-worktree', handle };
   }
   throw new AccessError(
     authorization === 'managed-but-unauthorized'
-      ? 'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
-      : NEVER_GRANTED_MESSAGE,
+      ? WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE
+      : neverGrantedMessage,
     requestedPath,
     'read'
   );

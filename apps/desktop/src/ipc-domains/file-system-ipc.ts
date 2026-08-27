@@ -48,6 +48,14 @@ interface RegisterFileSystemIpcHandlersOptions {
    */
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
+  /**
+   * Fired after a successful grant-recording mount (BST-1393). main uses it to
+   * push the folder into the OS recent-documents list and to rebuild the File
+   * menu's Open Recent projection. Optional so every existing caller and test
+   * is unaffected; a throwing subscriber must never fail the mount that
+   * succeeded, so the call is wrapped.
+   */
+  readonly onWorkspaceRootGranted?: ((grantedPath: string) => void) | undefined;
   readonly storage: ElectronStorageAdapter;
   /** Explicit constructor seams for unit tests of native-root composition. */
   readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
@@ -303,9 +311,17 @@ export function registerFileSystemIpcHandlers({
   getRootsDatabase,
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
+  onWorkspaceRootGranted,
   storage,
   workspaceRootRegistryFileSystemSeams,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
+  const notifyRootGranted = (grantedPath: string): void => {
+    try {
+      onWorkspaceRootGranted?.(grantedPath);
+    } catch (error) {
+      logger.warn('workspace-root grant subscriber threw', { error });
+    }
+  };
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
   const syntheticFileSystemClassifications = new Map<string, boolean>();
@@ -591,9 +607,13 @@ export function registerFileSystemIpcHandlers({
     roots.restoreRoots()
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () =>
-    addSelectedRoot()
-  );
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () => {
+    const descriptor = await addSelectedRoot();
+    if (descriptor.handle.path) {
+      notifyRootGranted(descriptor.handle.path);
+    }
+    return descriptor;
+  });
 
   // Picker-less: main's recent-roots ledger is the only authorization, so an
   // unrecorded path is rejected there rather than granted from a renderer
@@ -605,7 +625,11 @@ export function registerFileSystemIpcHandlers({
       if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
         throw new Error('fs:addRootByPath requires a non-empty path.');
       }
-      return roots.addRootByPath(requestedPath);
+      const descriptor = await roots.addRootByPath(requestedPath);
+      if (descriptor.handle.path) {
+        notifyRootGranted(descriptor.handle.path);
+      }
+      return descriptor;
     }
   );
 

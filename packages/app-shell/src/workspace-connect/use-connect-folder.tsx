@@ -25,24 +25,12 @@ import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { ToastAction, toast } from '@brainstrike/ui';
 import { useCallback } from 'react';
-import type { WorkspaceOpenPathRequest } from './workspace-connect-bridge';
+import {
+  WORKSPACE_ROOT_NEVER_GRANTED_MESSAGES as NEVER_GRANTED_MESSAGES,
+  type WorkspaceOpenPathRequest,
+} from './workspace-connect-bridge';
 
 const logger = createLogger('ConnectFolder');
-
-/**
- * The two refusal messages `resolveGrantedRootHandle` throws
- * (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`) when neither
- * picker-less grant fires. Duplicated as literals rather than imported: errors
- * cross the main↔renderer boundary as plain strings, and `apps/desktop` is not
- * a dependency this package can import from — the same reasoning
- * `worktree-map-surface.tsx` records for the identical constant. If either
- * message changes, this match silently stops firing and the refusal degrades
- * to the raw error text (never to a WRONG remedy).
- */
-const NEVER_GRANTED_MESSAGES: readonly string[] = [
-  'Folder was never granted in this app; use Add Folder to grant it.',
-  'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.',
-];
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

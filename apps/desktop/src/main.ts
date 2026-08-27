@@ -21,6 +21,7 @@ import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import {
@@ -119,6 +120,7 @@ import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
+import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
@@ -775,6 +777,7 @@ let stopAssistantServer: null | (() => Promise<void>) = null;
 // BST-1330: gates the developer-menu database reset so a repeat accelerator
 // press surfaces "already in progress" instead of the reset barrier's throw.
 let developerDatabaseResetInFlight = false;
+let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterParserHostIpcHandlers: null | (() => void) = null;
@@ -1093,6 +1096,18 @@ function registerShutdownSignalHandlers(): void {
 
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
+
+const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
+  try {
+    return (await listRecentRootEntries(storage)).map((entry) => entry.path);
+  } catch (error) {
+    // A menu that cannot list recents still opens folders; a boot that dies
+    // on a storage read does not. Logged, never silent.
+    logger.warn('Could not read the recent workspace folders for the File menu', { error });
+    return [];
+  }
+};
+
 const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
@@ -1308,6 +1323,9 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
   },
   onResetLocal: handleResetLocal,
   onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
+  onWorkspaceRootGranted: (grantedPath: string) => {
+    pendingRootGrantSubscriber?.(grantedPath);
+  },
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
 unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);
@@ -2047,7 +2065,77 @@ if (singleInstanceLockAcquired) {
           ],
         },
       ];
-      Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
+      const pushToFocusedWindow = (
+        browserWindow: Electron.BrowserWindow | undefined,
+        channel: string,
+        payload?: unknown
+      ): void => {
+        // Same focused-window routing the Cmd+K / Cmd+P items already use:
+        // hidden host windows are never focused and never register the
+        // renderer listener, so this is a no-op there.
+        const targetWindow =
+          browserWindow instanceof BrowserWindow ? browserWindow : BrowserWindow.getFocusedWindow();
+        if (!targetWindow || targetWindow.isDestroyed()) {
+          return;
+        }
+        targetWindow.webContents.send(channel, payload);
+      };
+
+      let applicationMenuRebuildScheduled = false;
+      const rebuildApplicationMenu = async (): Promise<void> => {
+        const recents = await listWorkspaceRecentRootPaths();
+        const template = [...menuTemplate];
+        template.splice(
+          1,
+          template[1]?.label === 'File' ? 1 : 0,
+          buildFileMenuTemplate({
+            onClearRecents: () => {
+              // OS-level only. The app's own `recentRootsList` ledger is what
+              // authorizes the picker-less mount, and clearing it here would
+              // silently revoke grants from a menu item labelled "Clear Menu".
+              // Emptying the app ledger is "Remove from recents" — still
+              // deferred (spec §7 [D9]).
+              app.clearRecentDocuments();
+            },
+            onOpenFolder: () => {
+              pushToFocusedWindow(undefined, DESKTOP_IPC_CHANNELS.workspace.openFolderPicker);
+            },
+            onOpenRecentPath: (recentPath) => {
+              pushToFocusedWindow(undefined, DESKTOP_IPC_CHANNELS.workspace.openPath, {
+                origin: 'menu-recent',
+                path: recentPath,
+              });
+            },
+            recentPaths: recents,
+          })
+        );
+        Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+      };
+
+      const scheduleApplicationMenuRebuild = (): void => {
+        // Coalesced: a restore mounts many roots in a burst, and rebuilding
+        // the whole application menu per root would thrash the menu bar.
+        if (applicationMenuRebuildScheduled) {
+          return;
+        }
+        applicationMenuRebuildScheduled = true;
+        setTimeout(() => {
+          applicationMenuRebuildScheduled = false;
+          rebuildApplicationMenu().catch((error: unknown) => {
+            logger.warn('Failed to rebuild the application menu', { error });
+          });
+        }, 250);
+      };
+
+      pendingRootGrantSubscriber = (grantedPath: string) => {
+        // Spec §7's explicit ask. This feeds the macOS Dock menu and the
+        // Windows jump list, whose clicks arrive back as `open-file` / argv —
+        // the entry points Layer 3 handles.
+        app.addRecentDocument(grantedPath);
+        scheduleApplicationMenuRebuild();
+      };
+
+      await rebuildApplicationMenu();
 
       // Start local data stream server for desktop assistant-ui
       let assistantUrl = '';
