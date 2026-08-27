@@ -780,6 +780,13 @@ describe('useWorkspaceBar — write tail chaining', () => {
     });
   });
 
+  // BST-1400 item 2's tail-retirement rule, pinned against the three-case
+  // matrix its per-dimension revision tracking (v4) exists to satisfy — see
+  // `use-workspace-bar-write-tail-queue.ts`'s module docblock for the full
+  // table and the documented residual it does NOT cover:
+  //   v1 (below)       — ref hasn't caught up on the touched field at all → tail HELD
+  //   v2 (below)       — a THIRD PARTY changes the SAME field the write touched → tail RETIRES
+  //   v3 (further down) — an UNRELATED field bumps while the touched field stays stale → tail HELD
   it('keeps chaining off the tail after it settles until the live ref actually reflects it (BST-1400 item 2)', async () => {
     vi.useFakeTimers();
     const { result } = await setup({ secondaryRootIds: ['r-docs', 'r-site'] });
@@ -869,16 +876,16 @@ describe('useWorkspaceBar — write tail chaining', () => {
     });
   });
 
-  // PR #2685 review, item 2 (claude[bot]): CONFIRMED EMPIRICALLY — this
-  // fails against the current fix. An identity bump on an UNRELATED field
-  // (primaryRootId, via seedThread below) retires the tail while
-  // secondaryRootIds itself is still the PRE-write value, so the next
-  // write derives from a stale live ref and resurrects r-docs instead of
-  // persisting []. Left `it.skip` (not deleted, not committed as a red
-  // assertion) pending the coordinator's chosen fix direction — reported,
-  // not yet fixed. Un-skip once the fix lands; this is the regression test
-  // for it.
-  it.skip("does not retire the tail on an UNRELATED identity bump before the ref absorbs this write's OWN result", async () => {
+  // v3 of the three-case matrix above. PR #2685 review, item 2 (claude[bot]):
+  // CONFIRMED EMPIRICALLY against the prior (v3-of-the-mechanism, coarse
+  // single-scalar) fix — an identity bump on an UNRELATED field
+  // (primaryRootId, via seedThread below) retired the tail while
+  // secondaryRootIds itself was still the PRE-write value, so the next write
+  // derived from a stale live ref and resurrected r-docs instead of
+  // persisting []. Fixed by per-dimension revision tracking (BST-1400 item 2
+  // v4): the tail now only retires once EVERY field the write touched has
+  // moved, so an unrelated-field bump alone cannot spring it.
+  it("does not retire the tail on an UNRELATED identity bump before the ref absorbs this write's OWN result", async () => {
     vi.useFakeTimers();
     const { result } = await setup({
       operatingRootDisplayName: 'brainstrike',

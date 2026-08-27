@@ -114,39 +114,90 @@ export function folderWriteIdentityOf(live: ThreadCheckoutFolders): FolderWriteI
   };
 }
 
-/**
- * Identity equality between two write-queue snapshots (BST-1400 item 2).
- * `secondaryRootIds` compares as a SET — a resynced query result carries no
- * ordering guarantee, and ordering is not part of this set's identity —
- * everything else by `===`.
- *
- * This is the primitive the write queue's tail-retirement is built on (see
- * `retireWriteTailIfCaughtUp` in `use-workspace-bar.ts`): it is used to
- * detect that `threadFoldersRef` has genuinely MOVED since a write started,
- * not to check whether it moved to any one specific expected value.
- * Retiring only on an exact match against what a write itself persisted
- * (the original version of this fix) could not tell "hasn't caught up yet"
- * apart from "caught up to something ELSE" — a third-party change landing
- * before this write's own change propagated compared unequal to the tail
- * forever, pinning it, and the next same-thread write silently reverted the
- * third-party change. Comparing consecutive `threadFoldersRef` snapshots
- * instead — bumping a revision counter on any identity change, and retiring
- * once that counter has advanced past the value captured when the write
- * started — retires correctly in BOTH cases, because either way the ref no
- * longer needs help from a stale tail.
- */
-export function sameFolderWriteIdentity(a: FolderWriteIdentity, b: FolderWriteIdentity): boolean {
-  if (
-    a.threadId !== b.threadId ||
-    a.primaryRootId !== b.primaryRootId ||
-    a.checkoutMode !== b.checkoutMode ||
-    a.checkoutLocalRootId !== b.checkoutLocalRootId ||
-    a.secondaryRootIds.length !== b.secondaryRootIds.length
-  ) {
+/** Every field the write queue's per-dimension revision tracking distinguishes. */
+export type FolderWriteIdentityField =
+  | 'checkoutLocalRootId'
+  | 'checkoutMode'
+  | 'primaryRootId'
+  | 'secondaryRootIds'
+  | 'threadId';
+
+export const FOLDER_WRITE_IDENTITY_FIELDS: readonly FolderWriteIdentityField[] = [
+  'checkoutLocalRootId',
+  'checkoutMode',
+  'primaryRootId',
+  'secondaryRootIds',
+  'threadId',
+];
+
+function sameSecondaryRootIdSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) {
     return false;
   }
-  const aIds = new Set(a.secondaryRootIds);
-  return b.secondaryRootIds.every((id) => aIds.has(id));
+  const aIds = new Set(a);
+  return b.every((id) => aIds.has(id));
+}
+
+/**
+ * Which fields differ between two write-queue identity snapshots (BST-1400
+ * item 2 v4 — per-dimension revisions). `secondaryRootIds` compares as a
+ * SET — a resynced query result carries no ordering guarantee, and ordering
+ * is not part of this set's identity — everything else by `===`.
+ *
+ * This is the primitive both halves of tail retirement are built on:
+ * `recordLiveIdentity` (in `use-workspace-bar-write-tail-queue.ts`) calls it
+ * on consecutive `threadFoldersRef` snapshots to decide which per-field
+ * revision counters to bump, and `touchedFolderWriteFields` below calls it
+ * to decide which fields a write's OWN derive actually changed. See that
+ * queue's docblock for why retirement is asked per field rather than as one
+ * "did anything change" question — v1 through v3 of this mechanism all
+ * failed by collapsing the two.
+ */
+export function changedFolderWriteIdentityFields(
+  a: FolderWriteIdentity,
+  b: FolderWriteIdentity
+): ReadonlySet<FolderWriteIdentityField> {
+  const changed = new Set<FolderWriteIdentityField>();
+  if (a.threadId !== b.threadId) {
+    changed.add('threadId');
+  }
+  if (a.primaryRootId !== b.primaryRootId) {
+    changed.add('primaryRootId');
+  }
+  if (a.checkoutMode !== b.checkoutMode) {
+    changed.add('checkoutMode');
+  }
+  if (a.checkoutLocalRootId !== b.checkoutLocalRootId) {
+    changed.add('checkoutLocalRootId');
+  }
+  if (!sameSecondaryRootIdSet(a.secondaryRootIds, b.secondaryRootIds)) {
+    changed.add('secondaryRootIds');
+  }
+  return changed;
+}
+
+/**
+ * Which identity fields a queued write's own `request` actually changed,
+ * relative to the `current` it derived from — the "touched" set
+ * `settleWrite` records so retirement can ask "has the ref caught up on
+ * EVERY dimension THIS write changed?" instead of "has the ref moved for
+ * any reason at all?" (BST-1400 item 2 v4). `threadId` is deliberately
+ * never touched by a write's own derive (a write's thread is fixed context,
+ * not something it changes) — a thread switch is handled as its own
+ * retirement hatch, not through this set.
+ */
+export function touchedFolderWriteFields(
+  current: ThreadCheckoutFolders,
+  request: ThreadCheckoutWrite,
+  persistedMode: 'local' | 'worktree'
+): ReadonlySet<FolderWriteIdentityField> {
+  return changedFolderWriteIdentityFields(folderWriteIdentityOf(current), {
+    checkoutLocalRootId: request.checkoutLocalRootId,
+    checkoutMode: persistedMode,
+    primaryRootId: request.primaryRootId,
+    secondaryRootIds: request.ids,
+    threadId: current.threadId,
+  });
 }
 
 /**
