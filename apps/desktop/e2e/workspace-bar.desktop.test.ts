@@ -205,4 +205,40 @@ test.describe('Workspace bar (desktop)', () => {
 
     await expect(folderChip).toContainText('+1', { timeout: 60_000 });
   });
+
+  test('@smoke the composer drop zone arms only for a drag that carries files', {
+    tag: '@smoke',
+  }, async ({ window: page }) => {
+    test.setTimeout(90_000);
+    const repo = freshRepo('drop-gate');
+    await seedRoot(page, repo);
+    await openComposer(page);
+
+    const zone = page.getByTestId('workspace-bar-drop-zone');
+    await expect(zone).toBeVisible({ timeout: 30_000 });
+
+    // A REAL DataTransfer (constructed in the page, not a serialized
+    // object) that carries text only: the 'Files' gate must not arm, so
+    // internal pragmatic-drag-and-drop drags pass through untouched.
+    const textDrag = await page.evaluateHandle(() => {
+      const transfer = new DataTransfer();
+      transfer.setData('text/plain', 'not-a-file');
+      return transfer;
+    });
+    await zone.dispatchEvent('dragover', { dataTransfer: textDrag });
+    await expect(zone).not.toHaveClass(/ring-2/);
+
+    // Adding a File makes the DataTransfer advertise 'Files' — the ring
+    // arms. NOTE (stated, per the plan): this proves the GATE and the ring
+    // only. A JS-constructed File is not OS-backed, so `getPathForFile`
+    // would return '' and no path could ever resolve from a synthetic
+    // drop — the real-Finder-folder drop is the manual CDT step in Task 14.
+    const fileDrag = await page.evaluateHandle(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }));
+      return transfer;
+    });
+    await zone.dispatchEvent('dragover', { dataTransfer: fileDrag });
+    await expect(zone).toHaveClass(/ring-2/);
+  });
 });
