@@ -456,7 +456,7 @@ jobs:
           DB_TEST_SHARD: ${{ matrix.vitest_shard }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
 
       - name: Pull request affected integration tests
         if: github.event_name == 'pull_request'
@@ -472,7 +472,7 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test:integration ${{ matrix.pr_filters }} --concurrency=2
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --concurrency=2
 
       # Push (main) + workflow_dispatch: full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
@@ -499,7 +499,7 @@ jobs:
           DB_TEST_SHARD: ${{ matrix.vitest_shard }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Push and manual integration tests
         if: github.event_name != 'pull_request'
@@ -509,7 +509,7 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
   # Fan-in job preserving the required-check name "Unit": branch protection
   # points at this single check, not at the per-shard matrix jobs, so shard
