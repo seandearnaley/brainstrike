@@ -125,7 +125,16 @@ export function useConnectFolder(): ConnectFolderApi {
       } catch (error: unknown) {
         const message = messageOf(error);
         logger.warn('Folder connection refused', { message, origin, path });
-        if (NEVER_GRANTED_MESSAGES.includes(message)) {
+        // BEHAVIORAL match by SUFFIX, deliberately not equality on the
+        // stripped message: the stripper above recognizes the envelope plus
+        // any `*Error:` class name, but a future refusal thrown through a
+        // class whose name doesn't end in `Error` would leave its prefix on
+        // the message and an equality check would go dark silently AGAIN —
+        // the third notch on the exact failure the L5 e2e caught live. The
+        // canonical refusal sentences are long and specific, so a suffix
+        // match cannot fire on an unrelated error; the stripper stays for
+        // the DISPLAY paths below, where a stale prefix is only cosmetic.
+        if (NEVER_GRANTED_MESSAGES.some((refusal) => message.endsWith(refusal))) {
           toast({
             action: (
               <ToastAction
