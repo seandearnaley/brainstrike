@@ -350,6 +350,50 @@ describe('WorkspaceBar', () => {
     expect(onCopyPath).toHaveBeenCalledWith('/ws/brainstrike');
   });
 
+  it('offers Open in Terminal on a root row and passes its rootId and path', async () => {
+    const user = setup();
+    const onOpenTerminal = vi.fn<(rootId: string, path: string) => void>();
+    const onCopyPath = vi.fn<(path: string) => void>();
+    render(<WorkspaceBar {...baseProps({ onCopyPath, onOpenTerminal })} />);
+
+    await openFolderMenu(user);
+    await openRootSubmenu(user, 'r-main');
+    await user.click(await screen.findByTestId('workspace-bar-open-terminal-r-main'));
+
+    expect(onOpenTerminal).toHaveBeenCalledExactlyOnceWith('r-main', '/ws/brainstrike');
+    expect(onCopyPath).not.toHaveBeenCalled();
+  });
+
+  it('omits Open in Terminal when the platform supplies no handler', async () => {
+    const user = setup();
+    render(<WorkspaceBar {...baseProps()} />);
+
+    await openFolderMenu(user);
+    await openRootSubmenu(user, 'r-main');
+
+    expect(screen.queryByTestId('workspace-bar-open-terminal-r-main')).not.toBeInTheDocument();
+  });
+
+  it('omits Open in Terminal for a root with no filesystem path (web FSA root)', async () => {
+    const user = setup();
+    const onOpenTerminal = vi.fn<(rootId: string, path: string) => void>();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          onOpenTerminal,
+          primaryRoot: { displayName: 'granted', rootId: 'r-fsa' },
+        })}
+      />
+    );
+
+    await openFolderMenu(user);
+    await openRootSubmenu(user, 'r-fsa');
+
+    // A path-less root cannot be a shell cwd; the row still renders its other
+    // actions rather than the whole submenu vanishing.
+    expect(screen.queryByTestId('workspace-bar-open-terminal-r-fsa')).not.toBeInTheDocument();
+  });
+
   it('renders the branch chip states and hides it without checkout data', () => {
     const { rerender } = render(<WorkspaceBar {...baseProps()} />);
     expect(screen.queryByTestId('workspace-bar-branch-chip')).not.toBeInTheDocument();

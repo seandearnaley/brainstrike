@@ -183,6 +183,13 @@ export interface WorkspaceBarProps {
   readonly onAddRecent?: ((path: string) => void) | undefined;
   readonly onCopyPath?: ((path: string) => void) | undefined;
   readonly onMakePrimary: (rootId: string) => void;
+  /**
+   * Opens the app's Terminal on a mounted root. Present only when the platform
+   * has a terminal bridge (desktop). `rootId` authorizes and `path` is where
+   * the shell actually starts — main containment-checks the second against the
+   * first, so both travel together.
+   */
+  readonly onOpenTerminal?: ((rootId: string, path: string) => void) | undefined;
   readonly onRemoveSecondary: (rootId: string) => void;
   /**
    * undefined = no folder connected → the chip renders the "Choose a folder"

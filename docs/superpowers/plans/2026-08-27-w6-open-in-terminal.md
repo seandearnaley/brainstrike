@@ -1453,7 +1453,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ## Task 6: Folder chip root-row action
 
-**Files:** `packages/assistant-ui/src/workspace-bar/workspace-bar.tsx`, `packages/assistant-ui/src/workspace-bar/folder-chip.tsx`, `packages/assistant-ui/src/__tests__/workspace-bar.test.tsx`, `packages/app-shell/src/hooks/use-workspace-bar.ts`
+**Files:** `packages/assistant-ui/src/workspace-bar/workspace-bar.tsx`, `packages/assistant-ui/src/workspace-bar/folder-chip.tsx`, `packages/assistant-ui/src/__tests__/workspace-bar.test.tsx`, `packages/app-shell/src/hooks/use-workspace-bar.ts`, `packages/app-shell/src/hooks/use-workspace-bar-terminal.ts` (new — corrected at execution: the pre-authorized remedy for Step 4's line-count contingency fired instead for `noExcessiveCognitiveComplexity`; same extraction applied)
 
 - [ ] **Step 1 (RED): pin the row action**
 
@@ -1610,6 +1610,13 @@ pnpm dlx ultracite fix packages/assistant-ui/src/workspace-bar/workspace-bar.tsx
 # sits at ~749. Run the check anyway — if it fires, extract the terminal
 # wiring into packages/app-shell/src/hooks/use-workspace-bar-terminal.ts and
 # call it from here. Never register a Biome override.
+# (Corrected at execution, 2026-08-27: it was noExcessiveCognitiveComplexity
+# — 21 vs max 20 — that fired, not the anticipated noExcessiveLinesPerFile;
+# the line count stayed fine. Same remedy applied regardless — the extracted
+# hook returns a ready-to-spread partial, per the checkoutEntry/forgeEntry/
+# modeEntry idiom already in this file, so the call site carries no
+# conditional of its own and the calling hook's complexity budget stays
+# untouched by this wiring.)
 pnpm exec biome check packages/app-shell/src/hooks/use-workspace-bar.ts
 ```
 
