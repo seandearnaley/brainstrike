@@ -40,7 +40,12 @@ describe('extractDroppedFolderPaths', () => {
     const resolvePath = vi.fn((file: File) => `/w/${file.name}`);
     expect(
       extractDroppedFolderPaths([directoryItem('/w/alpha'), directoryItem('/w/beta')], resolvePath)
-    ).toEqual({ paths: ['/w/alpha', '/w/beta'], skippedFileCount: 0, unresolvedCount: 0 });
+    ).toEqual({
+      paths: ['/w/alpha', '/w/beta'],
+      skippedFileCount: 0,
+      unreadableCount: 0,
+      unresolvedCount: 0,
+    });
     expect(resolvePath).toHaveBeenCalledTimes(2);
   });
 
@@ -52,6 +57,7 @@ describe('extractDroppedFolderPaths', () => {
     expect(extractDroppedFolderPaths([plainFileItem()], resolvePath)).toEqual({
       paths: [],
       skippedFileCount: 1,
+      unreadableCount: 0,
       unresolvedCount: 0,
     });
     expect(resolvePath).not.toHaveBeenCalled();
@@ -61,6 +67,7 @@ describe('extractDroppedFolderPaths', () => {
     expect(extractDroppedFolderPaths([directoryItem('/w/alpha')], () => '')).toEqual({
       paths: [],
       skippedFileCount: 0,
+      unreadableCount: 0,
       unresolvedCount: 1,
     });
   });
@@ -71,10 +78,13 @@ describe('extractDroppedFolderPaths', () => {
         [{ getAsFile: () => null, kind: 'string', webkitGetAsEntry: () => null }],
         vi.fn()
       )
-    ).toEqual({ paths: [], skippedFileCount: 0, unresolvedCount: 0 });
+    ).toEqual({ paths: [], skippedFileCount: 0, unreadableCount: 0, unresolvedCount: 0 });
   });
 
-  it('survives an item whose entry cannot be read', () => {
+  it('counts an item whose entry cannot be read as UNREADABLE, not unresolved — its kind is unknown', () => {
+    // Review finding: folding this into unresolvedCount tells the user
+    // "N folders could not be read" about an item never confirmed to BE a
+    // folder — the same wrong-noun mistake ruling D1 exists to prevent.
     const throwing: DroppableFolderItem = {
       getAsFile: () => null,
       kind: 'file',
@@ -84,7 +94,12 @@ describe('extractDroppedFolderPaths', () => {
     };
     expect(
       extractDroppedFolderPaths([throwing, directoryItem('/w/alpha')], (file) => `/w/${file.name}`)
-    ).toEqual({ paths: ['/w/alpha'], skippedFileCount: 0, unresolvedCount: 1 });
+    ).toEqual({
+      paths: ['/w/alpha'],
+      skippedFileCount: 0,
+      unreadableCount: 1,
+      unresolvedCount: 0,
+    });
   });
 
   it('dedupes a folder dropped twice in one gesture', () => {
@@ -93,6 +108,11 @@ describe('extractDroppedFolderPaths', () => {
         [directoryItem('/w/alpha'), directoryItem('/w/alpha')],
         () => '/w/alpha'
       )
-    ).toEqual({ paths: ['/w/alpha'], skippedFileCount: 0, unresolvedCount: 0 });
+    ).toEqual({
+      paths: ['/w/alpha'],
+      skippedFileCount: 0,
+      unreadableCount: 0,
+      unresolvedCount: 0,
+    });
   });
 });

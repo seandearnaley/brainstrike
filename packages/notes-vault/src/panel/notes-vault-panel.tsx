@@ -25,6 +25,13 @@ const logger = createLogger('NotesVault');
  * True when a drag originates from the OS and carries files/folders. Internal
  * drags (assistant-thread tabs via pragmatic-drag-and-drop, text selections)
  * advertise other types and must not arm or consume this drop zone.
+ *
+ * Byte-identical to `packages/assistant-ui/src/workspace-bar/workspace-bar-drop-zone.tsx`'s
+ * copy of the same name (BST-1393 review finding). Not worth a shared module
+ * for one function, but the `'Files'` MIME gate IS the security-relevant
+ * part of both drop surfaces — it's what keeps an internal
+ * pragmatic-drag-and-drop thread-tab drag from being consumed. If this gate
+ * is ever hardened, check the other copy too, or the divergence is silent.
  */
 function dragCarriesFiles(event: React.DragEvent<HTMLElement>): boolean {
   const types = event.dataTransfer?.types;

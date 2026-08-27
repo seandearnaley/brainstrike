@@ -8,6 +8,13 @@ import { useCallback, useState } from 'react';
  * zone — the same discipline `notes-vault-panel.tsx`'s `dragCarriesFiles`
  * uses, checked BEFORE `preventDefault()` so an internal drag passes through
  * untouched.
+ *
+ * Byte-identical to `packages/notes-vault/src/panel/notes-vault-panel.tsx`'s
+ * copy of the same name (review finding). Not worth a shared module for one
+ * function, but the `'Files'` MIME gate IS the security-relevant part of
+ * both drop surfaces — it's what keeps an internal pragmatic-drag-and-drop
+ * thread-tab drag from being consumed. If this gate is ever hardened, check
+ * the other copy too, or the divergence is silent.
  */
 function dragCarriesFiles(event: React.DragEvent<HTMLElement>): boolean {
   const types = event.dataTransfer?.types;
@@ -37,7 +44,7 @@ export function WorkspaceBarDropZone({
 }: WorkspaceBarDropZoneProps): ReactElement {
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLElement>) => {
     if (!dragCarriesFiles(event)) {
       return;
     }
@@ -45,7 +52,7 @@ export function WorkspaceBarDropZone({
     setIsDragOver(true);
   }, []);
 
-  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLElement>) => {
     const related = event.relatedTarget;
     if (related instanceof Node && event.currentTarget.contains(related)) {
       return;
@@ -54,7 +61,7 @@ export function WorkspaceBarDropZone({
   }, []);
 
   const handleDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
+    (event: React.DragEvent<HTMLElement>) => {
       if (!dragCarriesFiles(event)) {
         // Internal drags (thread tabs, text selections) pass through
         // untouched; this surface only mounts real OS folders.
@@ -69,9 +76,9 @@ export function WorkspaceBarDropZone({
   );
 
   return (
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: drag-and-drop mount surface; the keyboard-accessible path is the Folder chip's Add folder… action — the same discipline notes-vault-panel.tsx's drop surface uses.
-    <section
-      aria-label="Folder drop zone"
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: drag-and-drop mount surface; the keyboard-accessible path is the Folder chip's Add folder… action.
+    // biome-ignore lint/a11y/noStaticElementInteractions: deliberately a bare <div>, NOT a labelled <section> like notes-vault-panel.tsx's drop surface — workspace-bar.tsx:251-253 documents that this exact bar rejects an extra grouping level (each chip already carries its own accessible name), and this wrapper exists only to catch a pointer gesture AT users cannot perform anyway. A <section aria-label> here would add the permanent landmark-list noise that comment argues against, for a surface AT users never reach.
+    <div
       className={isDragOver ? 'ring-2 ring-primary ring-inset' : ''}
       data-testid="workspace-bar-drop-zone"
       onDragLeave={handleDragLeave}
@@ -79,7 +86,7 @@ export function WorkspaceBarDropZone({
       onDrop={handleDrop}
     >
       {children}
-    </section>
+    </div>
   );
 }
 

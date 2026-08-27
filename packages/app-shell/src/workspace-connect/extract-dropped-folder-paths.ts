@@ -14,7 +14,11 @@
  * main (ruling D1): a plain file sent to `fs:addRootByPath` comes back with a
  * message about GRANTS, which misdescribes the problem.
  *
- * Both non-outcomes are COUNTED, not swallowed: the caller states them.
+ * Every non-outcome is COUNTED, not swallowed: the caller states them. There
+ * are three, kept separate so the notice never names the wrong noun (ruling
+ * D1): plain files (`skippedFileCount`), items whose kind could never be
+ * read (`unreadableCount`), and confirmed folders whose path failed to
+ * resolve (`unresolvedCount`).
  */
 export interface DroppableFolderItem {
   readonly getAsFile: () => File | null;
@@ -27,6 +31,15 @@ export interface DroppedFolderPaths {
   readonly paths: readonly string[];
   /** Dropped items that were plain files. */
   readonly skippedFileCount: number;
+  /**
+   * Items `webkitGetAsEntry()` threw on — kind (file vs. folder) is UNKNOWN,
+   * so this is counted separately from `unresolvedCount` rather than folded
+   * into it (review finding, ruling D1's misdescription class): telling a
+   * user "N folders could not be read" about an item that might have been a
+   * plain file is the same wrong-noun mistake D1 exists to prevent, just one
+   * layer up from the GRANTS-message case.
+   */
+  readonly unreadableCount: number;
   /** Directories whose `File` yielded no path (not disk-backed, or unreadable). */
   readonly unresolvedCount: number;
 }
@@ -38,6 +51,7 @@ export function extractDroppedFolderPaths(
   const seen = new Set<string>();
   const paths: string[] = [];
   let skippedFileCount = 0;
+  let unreadableCount = 0;
   let unresolvedCount = 0;
 
   for (const item of items) {
@@ -50,9 +64,10 @@ export function extractDroppedFolderPaths(
       isDirectory = item.webkitGetAsEntry()?.isDirectory === true;
       file = isDirectory ? item.getAsFile() : null;
     } catch {
-      // The item became unusable (or the browser refused it). Counted, so the
-      // notice can say "1 item could not be read" instead of nothing.
-      unresolvedCount += 1;
+      // The item became unusable (or the browser refused it) before its kind
+      // could even be read. Counted separately from unresolvedCount: this
+      // item was never confirmed to BE a folder.
+      unreadableCount += 1;
       continue;
     }
     if (!isDirectory) {
@@ -71,5 +86,5 @@ export function extractDroppedFolderPaths(
     paths.push(resolved);
   }
 
-  return { paths, skippedFileCount, unresolvedCount };
+  return { paths, skippedFileCount, unreadableCount, unresolvedCount };
 }
