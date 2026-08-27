@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -243,6 +243,13 @@ describe('WorktreeMapSurface', () => {
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
+    // BST-1392 W5 e2e finding: Adopt only inserts the ledger row, it never
+    // mounts a `roots` row, and use-workspace-bar.ts's bind waits up to 5s
+    // for one and then fails ("no unique live workspace identity") — so
+    // "New thread here" must mount BEFORE creating/selecting/publishing,
+    // exactly like use-worktree-mode.ts's mountWorktree/onSelectExisting do.
+    expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
+    expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
     expect(createThreadMock).toHaveBeenCalledTimes(1);
     // Falsifiable for BOTH arguments: `SENTINEL_REPOSITORY` proves the real
     // repository (derived from `database` via
@@ -261,6 +268,75 @@ describe('WorktreeMapSurface', () => {
     // Falsifier: the Map must not reach for any other seam to do this.
     expect(setIndexingMock).not.toHaveBeenCalled();
     expect(showItemInFolderMock).not.toHaveBeenCalled();
+  });
+
+  // PIN (PR #2671 review ruling): the mount callbacks must NOT call the Map's
+  // own `refresh()`. A refresh fired when the mount promise resolves races the
+  // `roots` write — the row lands later, in the fire-and-forget mid-session
+  // registration — so it usually re-reads `rootId: null` and the card stays
+  // badge-less anyway. The deterministic re-read lives in `useWorktreeMap`
+  // itself, keyed on the root-identity context republishing after the row is
+  // written (see use-worktree-map.test.ts). Reintroducing a caller-side
+  // refresh here would only paper over that ordering.
+  it('does not refresh from onNewThread — the Map re-loads via the root-identity subscription', async () => {
+    const refreshMock = vi.fn();
+    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
+    expect(publishMock).toHaveBeenCalledTimes(1);
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  it('states a failure and never creates a thread when mounting the checkout as a root fails', async () => {
+    addRootDirectoryByPathMock.mockResolvedValueOnce(null);
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await screen.findByText('Could not add "bright-fox" as a workspace root.');
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(selectThreadMock).not.toHaveBeenCalled();
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it('states the real remedy, not the generic "Add Folder" copy, when an adopted-but-unmanaged mount is refused', async () => {
+    // BST-1392 review: a worktree inside a granted root but outside
+    // BrainStrike's managed worktrees directory adopts fine (a live ledger
+    // row exists — `worktreeId` is non-null, or this callback couldn't even
+    // be reached) but then can't be mounted, because neither of
+    // `resolveGrantedRootHandle`'s two picker-less grants (exact-path
+    // recents match, or managed-directory containment + ledger row) fires
+    // for it. The generic refusal text is reused VERBATIM here on purpose —
+    // it is the actual string `resolveGrantedRootHandle` throws
+    // (`workspace-recent-roots.ts`'s `NEVER_GRANTED_MESSAGE`), duplicated
+    // rather than imported since `apps/desktop` isn't a dependency this
+    // package can reach.
+    addRootDirectoryByPathMock.mockRejectedValueOnce(
+      new Error('Folder was never granted in this app; use Add Folder to grant it.')
+    );
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await screen.findByText(
+      '"bright-fox" was adopted, but it sits outside BrainStrike\'s managed worktrees folder, so it can\'t be mounted automatically. Use the workspace bar\'s "Add Folder" to grant this worktree\'s folder directly, then try "New thread here" again.'
+    );
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(selectThreadMock).not.toHaveBeenCalled();
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it('passes an UNRELATED addRootDirectoryByPath failure through verbatim, not the managed-worktree remedy', async () => {
+    addRootDirectoryByPathMock.mockRejectedValueOnce(new Error('disk is full'));
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await screen.findByText('disk is full');
+    expect(createThreadMock).not.toHaveBeenCalled();
   });
 
   it('states a loud error and never calls createThread when the workspace database is not ready', async () => {
@@ -379,7 +455,9 @@ describe('WorktreeMapSurface', () => {
   // with the handlers stubbed (plan-review R2): each asserts the CALL and its
   // exact argument, which no `setActionError(null)` stub can satisfy.
   it('archives through the worktrees bridge with the card worktree id and states a refusal verbatim', async () => {
+    const refreshMock = vi.fn();
     archiveMock.mockResolvedValue({ error: 'worktree has uncommitted changes', ok: false });
+    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
     render(<WorktreeMapSurface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
@@ -388,6 +466,26 @@ describe('WorktreeMapSurface', () => {
     expect(archiveMock).toHaveBeenCalledTimes(1);
     expect(archiveMock).toHaveBeenCalledWith({ worktreeId: 'wt-1' });
     await screen.findByText('Worktree not archived: worktree has uncommitted changes');
+    // A refused archive changed nothing to re-read.
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  // PR #2671 review note 2: with adopt refreshing, archive was the one
+  // remaining ledger mutation that left its own stale card on screen (the
+  // removed checkout) until an unrelated invalidation. Unlike the mount
+  // paths, the archive IPC resolves only after the ledger row is archived,
+  // so a caller-side refresh here observes a write that already happened —
+  // the mount-path race does not apply.
+  it('refreshes the Map after a successful archive so the removed card leaves the list', async () => {
+    const refreshMock = vi.fn();
+    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /archive/iu }));
+
+    expect(archiveMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
   });
 
   it('adds the checkout as a workspace root through the by-path seam', async () => {
@@ -396,8 +494,10 @@ describe('WorktreeMapSurface', () => {
     // correctly never offers "Add as root" for it. This is the ONE test that
     // exercises the unmounted case; every other test keeps the shared
     // default.)
+    const refreshMock = vi.fn();
     useWorktreeMapMock.mockReturnValue({
       ...BASE_STATE,
+      refresh: refreshMock,
       repositories: [
         {
           ...BASE_STATE.repositories[0],
@@ -412,6 +512,9 @@ describe('WorktreeMapSurface', () => {
 
     expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
     expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
+    // Same pin as onNewThread above: no caller-side refresh — the Map
+    // re-loads via the root-identity subscription once the row exists.
+    expect(refreshMock).not.toHaveBeenCalled();
     // Falsifier: adding a root never archives or mutates indexing.
     expect(archiveMock).not.toHaveBeenCalled();
     expect(setIndexingMock).not.toHaveBeenCalled();

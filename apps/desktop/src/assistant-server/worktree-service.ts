@@ -106,8 +106,14 @@ export interface WorktreeSetupInput {
 export interface WorktreeServiceDeps extends WorktreeRunEventDeps {
   readonly getDatabase: () => Promise<WorktreeLedgerDatabase>;
   readonly readSettings: () => Promise<WorktreeSettings>;
-  /** The cached inventory snapshot — the same one `window.changes.inventory()` serves. */
-  readonly resolveInventory: () => Promise<GitInventory>;
+  /**
+   * The cached inventory snapshot — the same one `window.changes.inventory()`
+   * serves. `options.forceFresh` (threaded to `WorktreeAdoptDeps.resolveInventory`,
+   * used only by `reconcileWorktreesFromShell`'s post-command read) requests a
+   * build guaranteed to start after the call, main.ts's wiring maps it to
+   * `GitInventoryService.getSnapshot({ maxAgeMs: 0 })`.
+   */
+  readonly resolveInventory: (options?: { readonly forceFresh?: boolean }) => Promise<GitInventory>;
   readonly resolveRootCwd: (rootId: string) => Promise<GitResult<string>>;
   readonly resolveRootPaths: () => Promise<
     readonly { readonly id: string; readonly path: string }[]

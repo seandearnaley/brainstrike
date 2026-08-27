@@ -996,6 +996,33 @@ missing from `ASSISTANT_RUN_EVENT_KINDS` is REJECTED by `readAssistantRunEvent`
 and the row disappears — which is why the contract entry is the first thing to
 add.
 
+`worktree.created` carries a `metadata.via` discriminator with a CLOSED
+vocabulary (BST-1392), emitted by exactly three sites in
+`worktree-run-events.ts`: `'app'` and `'tool'` (`emitWorktreeCreateEvents`,
+`worktree-service.ts`'s single `create()`), `'adopt'`
+(`emitWorktreeAdoptedEvent`), and `'shell'` (`emitWorktreeShellCreatedEvent`,
+the correlator). No new run-event kind was added for any of these: a second
+kind would need its own pairing-contract row and a second label vocabulary for
+the same fact. `'app'` vs `'tool'` is not a second writer's opinion — the Mode
+chip's IPC handler and the `brainstrike.manageWorktree` tool executor both
+flow through the ONE `emitWorktreeCreateEvents` emitter, which derives the
+breadcrumb from the ledger row's `createdBy` (`'user'` → `'app'`, `'agent'` →
+`'tool'`), so the timeline can never disagree with `brainstrike_worktrees`
+about who created a worktree. Paired test:
+`apps/desktop/src/__tests__/assistant-server/worktree-run-events.test.ts`.
+
+Correlation reads the `executeCommand` TOOL RESULT, never the git-metadata
+watcher. `GitInventoryInvalidation` carries `{ gitCommonDir, repositoryRoot }`
+with no worktree path, no create-vs-remove discrimination, and a 300–2000 ms
+coalescing window — attributing that to a run would be a temporal guess. The
+correlator is fire-and-forget: it runs after the result exists and can never
+delay or fail the tool call.
+
+A `git worktree remove` run in a shell is reported as a VANISHED ledger row,
+never archived: an archive carries a restorable snapshot and a shell removal
+produced none. The ghost row's "missing on disk — restore it or archive it"
+is the honest surface.
+
 ### Threads-panel active-run projection (BST-1244)
 
 The Threads panel derives its running indicators directly from

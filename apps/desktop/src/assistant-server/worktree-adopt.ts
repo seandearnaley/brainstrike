@@ -43,7 +43,14 @@ const GIT_DEFAULT_TIMEOUT_MS = 30_000;
 export interface WorktreeAdoptDeps {
   readonly ledger: Pick<WorktreeLedger, 'getByPath' | 'insert' | 'listActive'>;
   readonly readSettings: () => Promise<WorktreeSettings>;
-  readonly resolveInventory: () => Promise<GitInventory>;
+  /**
+   * `forceFresh` maps to `GitInventoryService.getSnapshot({ maxAgeMs: 0 })`
+   * (main.ts) — a build GUARANTEED to start after the call, not merely a
+   * cache-bust. Default (no options / `forceFresh` absent or false) may serve
+   * a snapshot up to `GIT_INVENTORY_SNAPSHOT_TTL_MS` old, or older still if
+   * the watcher hasn't marked it dirty yet.
+   */
+  readonly resolveInventory: (options?: { readonly forceFresh?: boolean }) => Promise<GitInventory>;
   readonly resolveRootPaths: () => Promise<
     readonly { readonly id: string; readonly path: string }[]
   >;
@@ -359,7 +366,36 @@ export async function reconcileWorktreesFromShell(
     readonly threadId?: string;
   }
 ): Promise<GitResult<WorktreeShellReconcileResult>> {
-  const inventory = await deps.resolveInventory();
+  // Force a fresh read (BST-1392 review round, W5 e2e): this call runs
+  // milliseconds after the agent's own shell command exited — reliably well
+  // under both the inventory's 5s TTL and the fs watcher's 300-2000ms
+  // coalescing window — so a cached read HERE deterministically reports the
+  // worktree the command just created as "not there" on every single call,
+  // making `adopted` empty for every real shell-created worktree (verified:
+  // command exitCode 0, worktree present on disk, this read's own
+  // `onDiskPaths` still missing it).
+  //
+  // `snapshotWorktreePaths` (execute-command-correlation.ts), the PRE-command
+  // guard read, deliberately keeps the cached default instead. Named
+  // consequence, correctly signed: `descriptor.path` IN the preceding
+  // snapshot is what SKIPS adoption below, so a snapshot that UNDER-includes
+  // (misses something that already existed) does NOT skip it — that path
+  // gets adopted and mis-attributed to this run, the bad direction.
+  // Over-inclusion only SUPPRESSES adoption of something that may be
+  // genuinely new — safe, boring. Unlike the post-command read above, this
+  // isn't a guarantee triggered by this function's own timing: it would need
+  // an UNRELATED process to create a worktree in the exact narrow pre-command
+  // window the cache hasn't yet observed. In practice that residual risk is
+  // narrowed further still — `adoptWorktree`'s own `ledger.getByPath` check
+  // (below) refuses anything with an existing ledger row, live or archived,
+  // so under-inclusion can only mis-attribute a worktree that is BOTH new to
+  // the cache AND never previously known to BrainStrike at all: a genuinely
+  // externally-created checkout that lands inside that cache window. Forcing
+  // freshness here would not close even that narrow race outright (there is
+  // always some latency before "now"), so there is no comparable, always-
+  // reproducing failure — the post-command guarantee above — to justify the
+  // cost.
+  const inventory = await deps.resolveInventory({ forceFresh: true });
   const repository = inventory.repositories.find(
     (candidate) => candidate.identity.gitCommonDir === params.repoCommonDir
   );
