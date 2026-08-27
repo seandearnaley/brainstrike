@@ -713,6 +713,32 @@ describe('useFileSystem', () => {
   });
 
   describe('multi-root: addRootDirectory via addRoot', () => {
+    it('increments the shared recent-roots revision after a successful grant', async () => {
+      const descriptor: RootDescriptor = {
+        displayName: 'my-root',
+        handle: { kind: 'directory', name: 'my-root', path: '/my/root', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'root-id-1',
+      };
+      const adapter: FileSystemAdapter = {
+        addRoot: vi.fn().mockResolvedValue(descriptor),
+        exists: vi.fn().mockResolvedValue(true),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+      };
+      const wrapper = createAdaptersTestWrapper(adapter, createStorageAdapter('web'));
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
+
+      expect(result.current.recentRootsRevision).toBe(0);
+      await act(async () => {
+        await result.current.addRootDirectory();
+      });
+      expect(result.current.recentRootsRevision).toBe(1);
+    });
+
     it('appends handle to rootDirectoryHandles, sets focused, calls addActiveRoot and setCurrentFolderId', async () => {
       const descriptor: RootDescriptor = {
         displayName: 'my-root',

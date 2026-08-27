@@ -51,6 +51,8 @@ interface UseFileSystemParams {
 
 interface FileSystemState {
   isAccessLoading: boolean;
+  /** Monotonic signal that the canonical grant wrappers mutated Recents. */
+  recentRootsRevision: number;
   rootDirectoryHandle: DirectoryHandle | null;
   /** All active roots (ordered). rootDirectoryHandle is always in this list (or null when empty). */
   rootDirectoryHandles: DirectoryHandle[];
@@ -63,6 +65,7 @@ type FileSystemAction =
   | { type: 'setAccessLoading'; loading: boolean }
   | { type: 'addOrFocusHandle'; handle: DirectoryHandle; rootId?: string }
   | { type: 'removeHandle'; rootId: string }
+  | { type: 'recordRecentRootMutation' }
   | {
       type: 'setAllHandles';
       handles: DirectoryHandle[];
@@ -171,6 +174,8 @@ async function forgetRootInAdapter(adapter: unknown, rootId: string): Promise<vo
 
 function reducer(state: FileSystemState, action: FileSystemAction): FileSystemState {
   switch (action.type) {
+    case 'recordRecentRootMutation':
+      return { ...state, recentRootsRevision: state.recentRootsRevision + 1 };
     case 'setRoot': {
       // null clears everything (legacy clear semantics).
       if (action.handle === null) {
@@ -376,13 +381,22 @@ export function useFileSystem({
 }: UseFileSystemParams) {
   const { fileSystemAdapter } = useAdapters();
 
-  const [{ rootDirectoryHandle, rootDirectoryHandles, isAccessLoading, rootIdByPath }, dispatch] =
-    useReducer(reducer, {
-      isAccessLoading: false,
-      rootDirectoryHandle: null,
-      rootDirectoryHandles: [],
-      rootIdByPath: new Map<string, string>(),
-    });
+  const [
+    {
+      rootDirectoryHandle,
+      rootDirectoryHandles,
+      isAccessLoading,
+      recentRootsRevision,
+      rootIdByPath,
+    },
+    dispatch,
+  ] = useReducer(reducer, {
+    isAccessLoading: false,
+    recentRootsRevision: 0,
+    rootDirectoryHandle: null,
+    rootDirectoryHandles: [],
+    rootIdByPath: new Map<string, string>(),
+  });
 
   const hasAttemptedRestoreRef = useRef(false);
   const isRestoringRef = useRef(false);
@@ -439,6 +453,7 @@ export function useFileSystem({
         if (persisted) {
           addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
         }
+        dispatch({ type: 'recordRecentRootMutation' });
         return handle;
       }
       // Legacy fallback: requestDirectoryAccess → synthetic descriptor
@@ -448,6 +463,7 @@ export function useFileSystem({
       // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
       updateCurrentFolderId(rootId);
       addActiveRoot({ displayName: handle.name, path: getCanonicalFolderId(handle), rootId });
+      dispatch({ type: 'recordRecentRootMutation' });
       return handle;
     } catch (error) {
       if (isUserCancellation(error)) {
@@ -486,6 +502,7 @@ export function useFileSystem({
         if (persisted) {
           addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
         }
+        dispatch({ type: 'recordRecentRootMutation' });
         return handle;
       } catch (error) {
         throw mapFileSystemError(error);
@@ -849,6 +866,7 @@ export function useFileSystem({
       isAccessLoading,
       isFileSystemAccessSupported,
       listRecentRoots,
+      recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
       rootDirectoryHandle,
@@ -868,6 +886,7 @@ export function useFileSystem({
       addRootDirectory,
       addRootDirectoryByPath,
       listRecentRoots,
+      recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
       selectRootDirectory,

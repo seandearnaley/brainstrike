@@ -530,12 +530,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     };
   }, [database, secondaryRootIds, secondaryRootIdsKey]);
 
-  // The ledger is read once per capability identity, and re-read on demand
-  // (see `refreshRecentRoots`) after this session records a new grant; which
+  // The ledger is read once per capability identity, and re-read after the
+  // shared file-system source reports any successful grant; which
   // entries are still OFFERABLE is a separate, render-time question (a folder
   // mounted or disconnected this session must leave/re-enter the list without
   // another IPC round-trip).
   const listRecentRoots = fileSystem.listRecentRoots;
+  const recentRootsRevision = fileSystem.recentRootsRevision;
   // Source-tagged: entries read through one capability are never rendered after
   // the adapter swaps it out, so losing the capability needs no clearing
   // setState (react-hooks/set-state-in-effect).
@@ -549,40 +550,31 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     listRecentRoots && loadedRecents?.source === listRecentRoots
       ? loadedRecents.entries
       : NO_RECENT_ENTRIES;
-  // Shared by the mount-time load below and by a same-session grant (Add
-  // folder / re-mounting a recent) — main appends to `recentRootsList`
-  // synchronously inside `addRoot()`, before the grant's promise resolves back
-  // to the renderer, so a caller-driven refresh right after that resolution
-  // always observes the new entry. `isCancelled` lets each caller supply its
-  // own "still relevant" check (an effect generation flag for the mount-time
-  // load, `unmountedRef` for a grant-triggered refresh).
-  const refreshRecentRoots = useCallback(
-    (isCancelled: () => boolean) => {
-      if (!listRecentRoots) {
-        return;
-      }
-      listRecentRoots()
-        .then((entries) => {
-          if (!isCancelled()) {
-            setLoadedRecents({ entries, source: listRecentRoots });
-          }
-        })
-        .catch((error: unknown) => {
-          if (!isCancelled()) {
-            logger.error('failed to list the recent roots', { error });
-            setLoadedRecents({ entries: NO_RECENT_ENTRIES, source: listRecentRoots });
-          }
-        });
-    },
-    [listRecentRoots]
-  );
+  const recentRequestGenerationRef = useRef(0);
   useEffect(() => {
-    let cancelled = false;
-    refreshRecentRoots(() => cancelled);
+    const generation = recentRequestGenerationRef.current + 1;
+    recentRequestGenerationRef.current = generation;
+    if (!listRecentRoots) {
+      return;
+    }
+    void listRecentRoots()
+      .then((entries) => {
+        if (recentRequestGenerationRef.current === generation) {
+          setLoadedRecents({ entries, source: listRecentRoots });
+        }
+      })
+      .catch((error: unknown) => {
+        if (recentRequestGenerationRef.current === generation) {
+          logger.error('failed to list the recent roots', { error });
+          setLoadedRecents({ entries: NO_RECENT_ENTRIES, source: listRecentRoots });
+        }
+      });
     return () => {
-      cancelled = true;
+      if (recentRequestGenerationRef.current === generation) {
+        recentRequestGenerationRef.current += 1;
+      }
     };
-  }, [refreshRecentRoots]);
+  }, [listRecentRoots, recentRootsRevision]);
   const mountedPaths = useMemo(
     () => new Set(Object.values(rootDescriptors ?? {}).map((descriptor) => descriptor.path)),
     [rootDescriptors]
@@ -776,13 +768,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const recordAddedAsSecondary = useCallback(
     async (handle: { readonly name: string; readonly path: string }) => {
-      // Main already appended this grant to `recentRootsList` by the time the
-      // add call resolved into `handle` — refresh the bar's snapshot now so a
-      // folder granted and then disconnected THIS session still shows up under
-      // Recent without a remount/reload. Session-wide, not thread-scoped: it
-      // must run even if the thread changes before the rest of this function's
-      // (thread-specific) work below is cancelled.
-      refreshRecentRoots(() => unmountedRef.current);
       if (!database) {
         throw new Error('Cannot record a thread folder before the workspace database is ready.');
       }
@@ -835,7 +820,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         };
       });
     },
-    [database, enqueueThreadFoldersWrite, refreshRecentRoots, selectedMemoryThreadId]
+    [database, enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
 
   const addRootDirectory = fileSystem.addRootDirectory;

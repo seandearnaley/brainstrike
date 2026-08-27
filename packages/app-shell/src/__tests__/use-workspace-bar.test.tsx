@@ -30,11 +30,13 @@ const fs = {
     { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
     { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
   ]),
+  recentRootsRevision: 0,
 };
 // Web omits the desktop-only capabilities rather than stubbing them.
-const webFs: Pick<typeof fs, 'addRootDirectory'> &
+const webFs: Pick<typeof fs, 'addRootDirectory' | 'recentRootsRevision'> &
   Partial<Pick<typeof fs, 'addRootDirectoryByPath' | 'listRecentRoots'>> = {
   addRootDirectory: fs.addRootDirectory,
+  recentRootsRevision: 0,
 };
 let currentFs: typeof fs | typeof webFs = fs;
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => currentFs }));
@@ -319,7 +321,12 @@ beforeEach(() => {
   updateThreadMetadata.mockClear();
   fs.addRootDirectory.mockClear();
   fs.addRootDirectoryByPath.mockClear();
-  fs.listRecentRoots.mockClear();
+  fs.listRecentRoots.mockReset();
+  fs.listRecentRoots.mockResolvedValue([
+    { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
+    { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
+  ]);
+  fs.recentRootsRevision = 0;
 });
 
 afterEach(() => {
@@ -615,31 +622,55 @@ describe('useWorkspaceBar', () => {
     );
   });
 
-  it('refreshes the recents ledger after a same-session grant, without a remount', async () => {
-    const { result } = await setup();
+  it('shows an Explorer-granted folder after disconnect in the same session', async () => {
+    const { rerender, result } = await setup();
     await waitFor(() =>
       expect(result.current.recentRoots).toEqual([{ displayName: 'alpha', path: '/ws/alpha' }])
     );
 
-    // Models main appending the just-granted folder to `recentRootsList` the
-    // instant `addRoot()` resolves — the ledger the bar's snapshot must catch
-    // up to without a remount/reload.
+    // Explorer Add Folder mutates the shared file-system source. The folder is
+    // already disconnected (absent from rootDescriptors) when the bar refreshes.
     fs.listRecentRoots.mockResolvedValueOnce([
       { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
       { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
       { displayName: 'docs', lastGrantedAt: 3, path: '/ws/docs' },
     ]);
-
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await waitFor(() => expect(updateThreadMetadata).toHaveBeenCalled());
+    fs.recentRootsRevision += 1;
+    rerender({ selectedMemoryThreadId: THREAD_ID });
 
     await waitFor(() =>
       expect(result.current.recentRoots).toEqual(
         expect.arrayContaining([{ displayName: 'docs', path: '/ws/docs' }])
       )
     );
+    expect(fs.addRootDirectory).not.toHaveBeenCalled();
+  });
+
+  it('ignores an older overlapping recents response after a newer refresh wins', async () => {
+    let resolveOlder:
+      | ((entries: Awaited<ReturnType<typeof fs.listRecentRoots>>) => void)
+      | undefined;
+    fs.listRecentRoots.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOlder = resolve;
+        })
+    );
+    const { rerender, result } = await setup();
+
+    fs.listRecentRoots.mockResolvedValueOnce([
+      { displayName: 'newer', lastGrantedAt: 4, path: '/ws/newer' },
+    ]);
+    fs.recentRootsRevision += 1;
+    rerender({ selectedMemoryThreadId: THREAD_ID });
+    await waitFor(() =>
+      expect(result.current.recentRoots).toEqual([{ displayName: 'newer', path: '/ws/newer' }])
+    );
+
+    await act(async () => {
+      resolveOlder?.([{ displayName: 'older', lastGrantedAt: 1, path: '/ws/older' }]);
+    });
+    expect(result.current.recentRoots).toEqual([{ displayName: 'newer', path: '/ws/newer' }]);
   });
 
   it('waits for roots reconciliation before attaching a just-added folder', async () => {
