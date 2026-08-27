@@ -772,6 +772,39 @@ describe('useWorkspaceBar', () => {
     expect(toastSpy).not.toHaveBeenCalled();
   });
 
+  // BST-1400 review fix: a PRIOR registration of the same path (the exact
+  // remove-then-re-add shape `use-workspace-bar.ts`'s docblock covers — a
+  // re-add mints a fresh adapter id, so reconciliation genuinely notifies
+  // TWICE for `/ws/docs`) must not let a membership-style "was this path
+  // EVER registered?" check resolve the wait against the STALE first
+  // registration. Only the SECOND notifyRootRegistered may satisfy it.
+  it('waits for the SECOND registration of a re-added path — not the stale first one', async () => {
+    // Models an earlier registration of this exact path this session (e.g. a
+    // prior Add folder, or the boot batch), before this test's Add folder
+    // click even happens.
+    notifyRootRegistered(['/ws/docs']);
+
+    liveRootMisses.set('/ws/docs', 1);
+    const { result } = await setup();
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    // A membership-set bug would have resolved instantly off the FIRST
+    // (stale) registration above and already landed this write by now.
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
+
+    // The re-add's own (SECOND) registration.
+    await act(async () => {
+      notifyRootRegistered(['/ws/docs']);
+    });
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
+        secondaryRootIds: ['r-docs'],
+      })
+    );
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
   it('does not poll the database while awaiting root registration (no interval churn)', async () => {
     vi.useFakeTimers();
     // Never notified in this test — models reconciliation taking a while.
@@ -780,16 +813,27 @@ describe('useWorkspaceBar', () => {
     await act(async () => {
       result.current.onAddFolder();
     });
-    const singleRootLookup = (call: unknown[]) =>
-      typeof call[0] === 'string' && call[0].includes('FROM roots') && !call[0].includes('= ANY');
-    const lookupsAfterAdd = query.mock.calls.filter(singleRootLookup).length;
+    // Scoped to /ws/docs specifically (PATH-specific, like the query mock
+    // itself notes) — setup() also issues its OWN single-root lookup for the
+    // MAIN root's path, which is unrelated to this Add-folder flow and must
+    // not be counted here.
+    const docsLookup = (call: unknown[]) =>
+      typeof call[0] === 'string' &&
+      call[0].includes('FROM roots') &&
+      !call[0].includes('= ANY') &&
+      (call[1] as unknown[] | undefined)?.[0] === '/ws/docs';
+    const lookupsAfterAdd = query.mock.calls.filter(docsLookup).length;
+    // Pins the "exactly one read before the wait" half of the design — without
+    // this, a broken Add-folder flow that issued NO read at all would still
+    // pass the post-window comparison below at a vacuous 0 === 0.
+    expect(lookupsAfterAdd).toBe(1);
     await act(async () => {
       // The old 20x250ms retry loop would have issued ~16 more queries across
       // this window; the event-based wait issues none until notified or timed
       // out — there is no interval driving it.
       await vi.advanceTimersByTimeAsync(4000);
     });
-    expect(query.mock.calls.filter(singleRootLookup).length).toBe(lookupsAfterAdd);
+    expect(query.mock.calls.filter(docsLookup).length).toBe(lookupsAfterAdd);
   });
 
   it('surfaces a folder that never reconciles instead of silently dropping it', async () => {

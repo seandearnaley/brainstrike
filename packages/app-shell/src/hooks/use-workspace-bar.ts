@@ -26,7 +26,7 @@ import {
 } from '../assistant-operating-root';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
-import { awaitRootRegistration } from '../roots/root-registration-events';
+import { awaitRootRegistration, rootRegistrationSeq } from '../roots/root-registration-events';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -97,10 +97,13 @@ const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off return
  *
  * So the lookup AWAITS the reconciliation layer's own "root registered"
  * notification (`../roots/root-registration-events.ts`) instead of polling
- * the database for the side effect — the canonical fix recorded as a BST-1400
- * follow-up. A bounded timeout is still enforced (`ROOT_ROW_WAIT_TIMEOUT_MS`,
- * the same ~5s budget the old 20×250ms retry loop had): exhaustion is not a
- * silent no-op for any caller.
+ * the database for the side effect — the canonical fix, landed in BST-1400
+ * item 1. The seam is EPOCH-based, not a one-shot flag, so a path registered
+ * a SECOND time this session (the remove-then-re-add shape above) still wakes
+ * a waiter whose first read raced it — see that module's docblock. A bounded
+ * timeout is still enforced (`ROOT_ROW_WAIT_TIMEOUT_MS`, the same ~5s budget
+ * the old 20×250ms retry loop had): exhaustion is not a silent no-op for any
+ * caller.
  */
 const ROOT_ROW_WAIT_TIMEOUT_MS = 5000;
 
@@ -294,6 +297,15 @@ async function resolveRootIdAfterReconciliation(
   if (isCancelled()) {
     return { kind: 'cancelled' };
   }
+  // Captured BEFORE the first read, not after: a registration for this exact
+  // path can land concurrently with (or immediately after) that read — most
+  // commonly a remove-then-re-add, since re-adding mints a fresh adapter id
+  // and so is a genuine SECOND registration of the same path, not a no-op.
+  // Comparing against the generation observed here (rather than asking "was
+  // this path EVER registered?") is what makes a registration that beats the
+  // first read still satisfy the wait below, instead of the wait resolving
+  // instantly off a stale earlier registration while the row is still absent.
+  const since = rootRegistrationSeq(candidate.path);
   const firstAttempt = await tryResolveRootId(database, candidate);
   if (firstAttempt.kind === 'resolved') {
     return { kind: 'resolved', rootId: firstAttempt.rootId };
@@ -302,7 +314,7 @@ async function resolveRootIdAfterReconciliation(
     return { kind: 'cancelled' };
   }
   try {
-    await awaitRootRegistration(candidate.path, { timeoutMs: ROOT_ROW_WAIT_TIMEOUT_MS });
+    await awaitRootRegistration(candidate.path, { since, timeoutMs: ROOT_ROW_WAIT_TIMEOUT_MS });
   } catch (waitError) {
     // Timed out: reconciliation never announced this path. Loud, not silent —
     // the caller logs/toasts this outcome.

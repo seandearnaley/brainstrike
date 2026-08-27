@@ -570,10 +570,13 @@ describe('useRootsReconciliation', () => {
     });
 
     // Already announced by the time this waiter subscribes — resolves without
-    // ever starting its bounded timeout.
-    await expect(awaitRootRegistration(rootPath, { timeoutMs: 100 })).resolves.toBeUndefined();
+    // ever starting its bounded timeout. since: 0 is correct here — neither
+    // key had registered before this test began.
     await expect(
-      awaitRootRegistration('adapter-root-1', { timeoutMs: 100 })
+      awaitRootRegistration(rootPath, { since: 0, timeoutMs: 100 })
+    ).resolves.toBeUndefined();
+    await expect(
+      awaitRootRegistration('adapter-root-1', { since: 0, timeoutMs: 100 })
     ).resolves.toBeUndefined();
   });
 
@@ -609,7 +612,7 @@ describe('useRootsReconciliation', () => {
 
       // Subscribed BEFORE registerRoot resolves, unlike the boot test above —
       // proves the seam wakes an already-waiting caller, not just a late one.
-      const waiter = awaitRootRegistration('/workspace/new', { timeoutMs: 1000 });
+      const waiter = awaitRootRegistration('/workspace/new', { since: 0, timeoutMs: 1000 });
 
       await act(async () => {
         await result.current.registerRoot(
