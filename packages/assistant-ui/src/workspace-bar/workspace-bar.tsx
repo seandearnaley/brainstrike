@@ -166,10 +166,27 @@ export interface WorkspaceBarBranchMenu {
 }
 
 export interface WorkspaceBarProps {
+  /**
+   * Non-null disables "Add folder…" and every Recent row instead of letting
+   * the OS picker (or a picker-less Recent re-mount) run to completion only
+   * to discover the folder cannot be attached to this thread yet (BST-1400).
+   * The reason renders the same way a disabled root action's
+   * `WorkspaceBarRoot.removeDisabledReason` does.
+   */
+  readonly addFolderDisabledReason?: string | undefined;
   /** Desktop only — makes the Branch chip an interactive switcher. */
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   /** Desktop only — read-only git state for the primary root; undefined hides the chip. */
   readonly checkout?: WorkspaceBarCheckout | undefined;
+  /**
+   * Whether the primary root's checkout status has settled at least once —
+   * surfaced as `data-checkout-state` on the bar's own element (BST-1400) so
+   * e2e can await "checkout resolved" deterministically instead of sampling
+   * across a bounded window for the branch chip's absence. Callers that never
+   * have an async checkout to await (most pure-component usage) can omit
+   * this: it defaults to `'resolved'`, since there is nothing pending.
+   */
+  readonly checkoutState?: 'pending' | 'resolved' | undefined;
   /**
    * Desktop only — forge PR state for the primary root's checkout. `undefined`
    * means the platform has no forge bridge at all (web); a present value can
@@ -248,6 +265,7 @@ function forgeDiagnosticOf(forge: WorkspaceBarForge | undefined): string | undef
 export const WorkspaceBar = ({
   branchMenu,
   checkout,
+  checkoutState = 'resolved',
   forge,
   mode,
   onDropItems,
@@ -258,7 +276,11 @@ export const WorkspaceBar = ({
     // A plain container, not a labelled group: each chip carries its own
     // accessible name, and an extra grouping level would only add noise to
     // the composer's screen-reader path.
-    <div className="mx-3 flex flex-wrap items-center gap-1.5" data-testid="workspace-bar">
+    <div
+      className="mx-3 flex flex-wrap items-center gap-1.5"
+      data-checkout-state={checkoutState}
+      data-testid="workspace-bar"
+    >
       <FolderChip {...folder} />
       {checkout ? (
         <BranchChip

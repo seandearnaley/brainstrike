@@ -94,10 +94,13 @@ const {
         readonly path: string;
       } | null
     ) => ({
-      ahead: 0,
-      behind: 0,
-      branch: 'main',
-      dirty: false,
+      checkout: {
+        ahead: 0,
+        behind: 0,
+        branch: 'main',
+        dirty: false,
+      },
+      settled: true,
     })
   ),
   clipboardWriteText: vi.fn(),
@@ -778,6 +781,175 @@ describe('useWorkspaceBar — write tail chaining', () => {
     await flush();
     expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
       secondaryRootIds: ['r-alpha-db'],
+    });
+  });
+
+  // BST-1400 item 2's tail-retirement rule, pinned against the three-case
+  // matrix its per-dimension revision tracking (v4) exists to satisfy — see
+  // `use-workspace-bar-write-tail-queue.ts`'s module docblock for the full
+  // table and the documented residual it does NOT cover:
+  //   v1 (below)       — ref hasn't caught up on the touched field at all → tail HELD
+  //   v2 (below)       — a THIRD PARTY changes the SAME field the write touched → tail RETIRES
+  //   v3 (further down) — an UNRELATED field bumps while the touched field stays stale → tail HELD
+  it('keeps chaining off the tail after it settles until the live ref actually reflects it (BST-1400 item 2)', async () => {
+    vi.useFakeTimers();
+    const { result } = await setup({ secondaryRootIds: ['r-docs', 'r-site'] });
+    await flush();
+    // Model the production window where a write PERSISTS but its store
+    // update never reaches this render — threadFoldersRef never resyncs on
+    // its own for the rest of this test, so the tail is the ONLY correct
+    // source for what the first write actually did.
+    await act(async () => {
+      useAssistantThreadStore.setState({
+        updateThreadMetadata: async (
+          repository: AssistantThreadRepository,
+          _resourceId: string,
+          threadId: string,
+          metadata: AssistantThreadMetadata
+        ) => {
+          await repository.updateThreadMetadata(threadId, metadata);
+        },
+      });
+    });
+    // First write settles — flushed to completion, in its OWN act(), so the
+    // write queue fully drains (pendingWriteCountRef back to 0) before the
+    // second click. A tail retired the instant the queue drains, without
+    // waiting for the live ref to catch up, would already be gone here.
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-site'],
+    });
+    // Second click, enqueued well after the first settled. Deriving from a
+    // stale live ref (unaware r-docs was just removed) would resurrect it;
+    // deriving from the tail correctly starts from ['r-site'] only.
+    await act(async () => {
+      result.current.onRemoveSecondary('r-site');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: [],
+    });
+  });
+
+  it('retires a pinned tail once the live ref resyncs to something ELSE, letting the external change win (BST-1400 item 2 review fold-in)', async () => {
+    vi.useFakeTimers();
+    const { result } = await setup({ secondaryRootIds: ['r-docs', 'r-site'] });
+    await flush();
+    // Same persist-only forwarder as the sibling test above, so the first
+    // write's OWN change never reaches threadFoldersRef on its own — only an
+    // explicit seedThread below moves it.
+    await act(async () => {
+      useAssistantThreadStore.setState({
+        updateThreadMetadata: async (
+          repository: AssistantThreadRepository,
+          _resourceId: string,
+          threadId: string,
+          metadata: AssistantThreadMetadata
+        ) => {
+          await repository.updateThreadMetadata(threadId, metadata);
+        },
+      });
+    });
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-site'],
+    });
+    // An EXTERNAL surface changes the thread's folders to a set that is
+    // neither the pre-write state (['r-docs','r-site']) NOR what the write
+    // above persisted (['r-site']) — the case a tail retired only on an
+    // exact match against its own result cannot distinguish from "hasn't
+    // caught up yet", pinning it forever.
+    await act(async () => {
+      seedThread({ secondaryRootIds: ['r-alpha-db'] });
+    });
+    await flush();
+    // The next write must derive from the externally-changed live set, not
+    // revert it back toward the pinned tail.
+    await act(async () => {
+      result.current.onRemoveSecondary('r-alpha-db');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: [],
+    });
+  });
+
+  // v3 of the three-case matrix above. PR #2685 review, item 2 (claude[bot]):
+  // CONFIRMED EMPIRICALLY against the prior (v3-of-the-mechanism, coarse
+  // single-scalar) fix — an identity bump on an UNRELATED field
+  // (primaryRootId, via seedThread below) retired the tail while
+  // secondaryRootIds itself was still the PRE-write value, so the next write
+  // derived from a stale live ref and resurrected r-docs instead of
+  // persisting []. Fixed by per-dimension revision tracking (BST-1400 item 2
+  // v4): the tail now only retires once EVERY field the write touched has
+  // moved, so an unrelated-field bump alone cannot spring it.
+  it("does not retire the tail on an UNRELATED identity bump before the ref absorbs this write's OWN result", async () => {
+    vi.useFakeTimers();
+    const { result } = await setup({
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'r-main-db',
+      operatingRootPath: '/ws/brainstrike',
+      secondaryRootIds: ['r-docs', 'r-site'],
+    });
+    await flush();
+    // Same persist-only forwarder as the sibling tests above: this write's
+    // OWN change to secondaryRootIds never reaches threadFoldersRef on its
+    // own for the rest of this test.
+    await act(async () => {
+      useAssistantThreadStore.setState({
+        updateThreadMetadata: async (
+          repository: AssistantThreadRepository,
+          _resourceId: string,
+          threadId: string,
+          metadata: AssistantThreadMetadata
+        ) => {
+          await repository.updateThreadMetadata(threadId, metadata);
+        },
+      });
+    });
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-site'],
+    });
+
+    // An UNRELATED field changes and commits — primaryRootId (via
+    // operatingRootId), NOT secondaryRootIds. secondaryRootIds in this
+    // seed is deliberately still the PRE-write value (['r-docs',
+    // 'r-site']) — nothing has touched that field; only primaryRootId
+    // moved.
+    await act(async () => {
+      seedThread({
+        operatingRootDisplayName: 'site',
+        operatingRootId: 'r-site',
+        operatingRootPath: '/ws/site',
+        secondaryRootIds: ['r-docs', 'r-site'],
+      });
+    });
+    await flush();
+
+    // If the tail incorrectly retired on the unrelated bump, this derives
+    // from the STALE live ref (['r-docs', 'r-site']) and would persist
+    // ['r-docs'] here — resurrecting r-docs. If the tail correctly held
+    // (secondaryRootIds itself never caught up), this derives from the
+    // tail (['r-site']) and persists [].
+    await act(async () => {
+      result.current.onRemoveSecondary('r-site');
+    });
+    await flush();
+    // NOTE: this assertion is the empirical probe, not a pre-judged
+    // "correct" outcome — see the coordinator dispatch for BST-1400 for
+    // what the result determines.
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: [],
     });
   });
 

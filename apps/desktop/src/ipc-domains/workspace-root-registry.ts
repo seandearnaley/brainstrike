@@ -20,8 +20,9 @@ import { projectReadDenialDiagnostic, projectReadDenialError } from './read-deni
 import {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
+  readRecentRootsOrQuarantine,
   recordRecentRoot,
-  recordRecentRootIfNew,
+  recordRecentRootsIfNew,
   resolveGrantedRootHandle,
 } from './workspace-recent-roots';
 import { WorkspaceRootMountTable } from './workspace-root-mounts';
@@ -130,7 +131,31 @@ export class WorkspaceRootRegistry {
       // storage I/O failure; corruption is quarantined rather than thrown)
       // can no longer leak an already-opened probe capability.
       const entries = await readStoredRootsOrQuarantine(this.storage);
-      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store read has succeeded, so the try/finally owns it from the instant it exists.
+      // Hoisted above the mount+persist mutation below (BST-1400 item 4): a
+      // recentRootsList I/O failure must surface BEFORE anything is mounted
+      // or persisted, not after — mirroring the rootsList read above. Before
+      // this, `recordRecentRoot`'s own internal read ran AFTER
+      // reconcileAddMount/persistAddedRoot had already succeeded, so a
+      // broken ledger left addRoot() rejecting while the root was, in fact,
+      // already mounted and persisted (state divergence). Positioned before
+      // the mutation regardless; gated on `recordInRecentRoots` because that
+      // flag is the only thing that can consume it (PR #2685 review: the
+      // read itself IS conditional on this flag — only its POSITION, above
+      // the mutation, is unconditional).
+      //
+      // The invariant throw below (`recentRootEntries === null`) sits AFTER
+      // reconcileAddMount/persistAddedRoot, so tripping it would reintroduce
+      // exactly the mount-succeeded-but-addRoot-rejected divergence this
+      // hoist exists to remove. Acceptable for a genuinely unreachable
+      // invariant (see that throw's own comment) — reading unconditionally
+      // instead (dropping this ternary and the `null` case entirely) would
+      // make the correlation a type-level fact rather than a runtime
+      // assertion, at the cost of one extra storage read on the
+      // managed-worktree path.
+      const recentRootEntries = recordInRecentRoots
+        ? await readRecentRootsOrQuarantine(this.storage)
+        : null;
+      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store reads above have succeeded, so the try/finally owns it from the instant it exists.
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
@@ -161,9 +186,27 @@ export class WorkspaceRootRegistry {
           await writeLastFolderBestEffort(this.storage, entry.path);
         }
         if (recordInRecentRoots) {
+          // recentRootEntries is populated whenever recordInRecentRoots is
+          // true (see the read above) — TypeScript just can't narrow that
+          // correlation across the two separate checks. NO SILENT
+          // FALLBACKS (review fold-in, BST-1400 item 4): a `?? []` here
+          // would read as "the ledger is empty" and recordRecentRoot writes
+          // `[newEntry, ...existing]` unconditionally, so if these two
+          // conditions ever drifted, the fallback would silently overwrite
+          // the user's entire recents ledger with a single entry. An
+          // invariant violation must fail loud, the same as any other
+          // ledger problem this function already surfaces before mutating.
+          if (recentRootEntries === null) {
+            throw new Error(
+              'Invariant violated: recentRootEntries must be populated when recordInRecentRoots is true.'
+            );
+          }
           // The grant happened whether or not rootsList persistence succeeded,
-          // so the ledger records it either way.
-          await recordRecentRoot(this.storage, entry.path);
+          // so the ledger records it either way. Passes the entries read
+          // above rather than letting recordRecentRoot re-read them — the
+          // hoist's whole point is that this write can no longer fail on an
+          // I/O problem the read above would already have surfaced.
+          await recordRecentRoot(this.storage, entry.path, undefined, recentRootEntries);
           // Same gate as the ledger write above (BST-1393 review finding): a
           // managed-worktree mount passes recordInRecentRoots: false and must
           // not reach the OS recent-documents list either — the registry
@@ -425,13 +468,15 @@ export class WorkspaceRootRegistry {
         await writeStoredRoots(this.storage, storedSurvivors);
       }
       const kindByRootId = await this.loadPersistedRootKinds(recentRootCandidates);
-      for (const entry of recentRootCandidates) {
-        if (kindByRootId.get(entry.rootId) === 'worktree') {
-          continue;
-        }
-        // eslint-disable-next-line react-doctor/async-await-in-loop -- ledger appends are read-modify-write on one storage key and must preserve restore order.
-        await recordRecentRootIfNew(this.storage, entry.path, entry.addedAt);
-      }
+      // BST-1400 item 4: one shared read + at most one shared write for the
+      // whole restored batch, instead of up to two ledger reads PER restored
+      // root (recordRecentRootIfNew's own read plus recordRecentRoot's).
+      const newRecentCandidates = recentRootCandidates.flatMap((entry) =>
+        kindByRootId.get(entry.rootId) === 'worktree'
+          ? []
+          : [{ lastGrantedAt: entry.addedAt, path: entry.path }]
+      );
+      await recordRecentRootsIfNew(this.storage, newRecentCandidates);
       await this.convergeDatabase();
       return descriptors;
     });

@@ -27,6 +27,10 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
 }));
 
 import { CHANGES_BRIDGE_REQUIRED_METHODS, type ChangesBridge } from '../changes/changes-bridge';
+import {
+  awaitRootRegistration,
+  resetRootRegistrationEventsForTests,
+} from '../roots/root-registration-events';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
@@ -123,6 +127,7 @@ describe('useRootsReconciliation', () => {
     installWorktreesBridge([]);
     loggerMock.error.mockClear();
     loggerMock.warn.mockClear();
+    resetRootRegistrationEventsForTests();
   });
 
   afterEach(() => {
@@ -541,6 +546,40 @@ describe('useRootsReconciliation', () => {
     expect(resolved).toBe(dbId);
   });
 
+  // BST-1400: the await-root-registration seam. `useWorkspaceBar` cannot read
+  // this hook's own callbacks (it renders as a React sibling of the provider
+  // that owns this hook instance — see `root-identity-context.tsx`), so boot
+  // reconciliation must announce a successful mapping through the decoupled
+  // `root-registration-events.ts` bus, keyed by BOTH identities a caller might
+  // wait on.
+  it('announces a boot-reconciled root through the root-registration seam', async () => {
+    const rootPath = '/workspace/docs';
+    const dbId = 'db-root-id';
+    const restoreRoots = vi.fn(
+      async (): Promise<RootDescriptor[]> => [
+        grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+      ]
+    );
+    const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+    const { db } = makeDbWithRootRow(rootPath, dbId);
+
+    renderHook(() => useRootsReconciliation({ adapter, db }));
+
+    await waitFor(() => {
+      expect(restoreRoots).toHaveBeenCalledTimes(1);
+    });
+
+    // Already announced by the time this waiter subscribes — resolves without
+    // ever starting its bounded timeout. since: 0 is correct here — neither
+    // key had registered before this test began.
+    await expect(
+      awaitRootRegistration(rootPath, { since: 0, timeoutMs: 100 })
+    ).resolves.toBeUndefined();
+    await expect(
+      awaitRootRegistration('adapter-root-1', { since: 0, timeoutMs: 100 })
+    ).resolves.toBeUndefined();
+  });
+
   describe('registerRoot (mid-session registration)', () => {
     function countRootInserts(query: ReturnType<typeof vi.fn>): number {
       return query.mock.calls.filter(([sql]) => (sql as string).includes('INSERT INTO roots'))
@@ -561,6 +600,27 @@ describe('useRootsReconciliation', () => {
       });
 
       await expect(result.current.resolveDbRootId('/workspace/new')).resolves.toBe('root-new');
+    });
+
+    // BST-1400: this is the exact seam `useWorkspaceBar`'s "Add folder /
+    // Recent" path now awaits instead of polling the database.
+    it('announces a mid-session registerRoot through the root-registration seam', async () => {
+      const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+      const { db } = makeDb();
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      // Subscribed BEFORE registerRoot resolves, unlike the boot test above —
+      // proves the seam wakes an already-waiting caller, not just a late one.
+      const waiter = awaitRootRegistration('/workspace/new', { since: 0, timeoutMs: 1000 });
+
+      await act(async () => {
+        await result.current.registerRoot(
+          grantedRootWithPath('root-new', 'docs', '/workspace/new')
+        );
+      });
+
+      await expect(waiter).resolves.toBeUndefined();
     });
 
     it('tags a managed worktree listed by the bridge during mid-session registration', async () => {
@@ -723,19 +783,20 @@ describe('useRootsReconciliation', () => {
       return loggerMock.warn.mock.calls.some(([message]) => message === REFRESH_FAILED);
     }
 
-    it('refreshes once after the boot reconcile and again after a mid-session registerRoot', async () => {
-      const rootPath = '/workspace/docs';
+    it('refreshes after a genuinely new boot insert, and again after a mid-session registerRoot', async () => {
       const inventory = okInventory();
       const uninstall = installChangesBridge(inventory);
 
       try {
+        // No pre-existing row for ANY path (makeDb(), not makeDbWithRootRow):
+        // the boot reconcile must INSERT this root, not match one.
         const restoreRoots = vi.fn(
           async (): Promise<RootDescriptor[]> => [
-            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+            grantedRootWithPath('adapter-root-1', 'docs', '/workspace/docs'),
           ]
         );
         const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        const { db } = makeDb();
         const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
         await waitFor(() => {
@@ -753,6 +814,76 @@ describe('useRootsReconciliation', () => {
 
         await waitFor(() => {
           expect(inventory).toHaveBeenCalledTimes(2);
+        });
+        expect(inventory).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
+      } finally {
+        uninstall();
+      }
+    });
+
+    // BST-1400 item 11: the boot batch used to nudge whenever ANY root
+    // successfully mapped, including one that only MATCHED an already-live
+    // row — the ordinary case for every boot after the first. That row was
+    // already discovered by the inventory's own eager app-ready build, so
+    // re-nudging for it is one wasted extra build every session.
+    it('does not refresh when the boot reconcile only MATCHED an already-registered root', async () => {
+      const rootPath = '/workspace/docs';
+      const inventory = okInventory();
+      const uninstall = installChangesBridge(inventory);
+
+      try {
+        const restoreRoots = vi.fn(
+          async (): Promise<RootDescriptor[]> => [
+            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+          ]
+        );
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        // makeDbWithRootRow: the row is ALREADY there before this boot runs —
+        // reconciliation only matches and (if needed) restores it to 'live'.
+        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        // Awaits resolveDbRootId (not just restoreRoots having been CALLED) so
+        // the full boot chain — including the conditional inventory nudge —
+        // has settled before asserting it never fired; restoreRoots alone
+        // only proves the chain STARTED.
+        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('db-root-id');
+        expect(inventory).not.toHaveBeenCalled();
+      } finally {
+        uninstall();
+      }
+    });
+
+    // BST-1400 item 11 review fold-in: a matched row that flips
+    // 'disconnected' → 'live' is NOT "nothing new" — the inventory's query is
+    // `WHERE status = 'live'` (workspace-roots.ts), so it was outside its
+    // view a moment ago. Must nudge, same as a genuine insert.
+    it('refreshes when the boot reconcile MATCHED a row and restored it from disconnected to live', async () => {
+      const rootPath = '/workspace/docs';
+      const inventory = okInventory();
+      const uninstall = installChangesBridge(inventory);
+
+      try {
+        const restoreRoots = vi.fn(
+          async (): Promise<RootDescriptor[]> => [
+            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+          ]
+        );
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        // Unlike makeDbWithRootRow's status-less fixture, this row is
+        // explicitly 'disconnected' — reconcileRoots must flip it.
+        const query = vi.fn(async (sql: string) => {
+          if ((sql as string).includes('SELECT id')) {
+            return { rows: [{ id: 'db-root-id', path: rootPath, status: 'disconnected' }] };
+          }
+          return { rows: [] };
+        });
+        const db = { query } as unknown as DbHandle;
+        const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('db-root-id');
+        await waitFor(() => {
+          expect(inventory).toHaveBeenCalledTimes(1);
         });
         expect(inventory).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
       } finally {
@@ -825,13 +956,16 @@ describe('useRootsReconciliation', () => {
           ]
         );
         const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        // makeDb() (not makeDbWithRootRow): must be a genuine INSERT — a
+        // matched root never fires the nudge at all (see the item-11 test
+        // above), which would make this failure-path test vacuous.
+        const { db } = makeDb();
         const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
         await waitFor(() => {
           expect(result.current.dbRootIdByAdapterRootId.size).toBe(1);
         });
-        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('db-root-id');
+        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('adapter-root-1');
         await waitFor(() => {
           expect(warnedRefreshFailure()).toBe(true);
         });
@@ -854,7 +988,9 @@ describe('useRootsReconciliation', () => {
           ]
         );
         const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        // Same reason as above: a genuine insert is required to trigger the
+        // nudge this test exercises the failure path of.
+        const { db } = makeDb();
         renderHook(() => useRootsReconciliation({ adapter, db }));
 
         await waitFor(() => {

@@ -72,6 +72,21 @@ describe('WorkspaceBar', () => {
     expect(chip).toHaveAccessibleName('Folder: brainstrike, 2 more');
   });
 
+  // BST-1400: `data-checkout-state` is the deterministic e2e wait that
+  // replaces sampling for the branch chip's absence.
+  it('defaults data-checkout-state to resolved when the caller has no async checkout to await', () => {
+    render(<WorkspaceBar {...baseProps()} />);
+    expect(screen.getByTestId('workspace-bar')).toHaveAttribute('data-checkout-state', 'resolved');
+  });
+
+  it('surfaces the caller-supplied checkout state on the bar element', () => {
+    const { rerender } = render(<WorkspaceBar {...baseProps({ checkoutState: 'pending' })} />);
+    expect(screen.getByTestId('workspace-bar')).toHaveAttribute('data-checkout-state', 'pending');
+
+    rerender(<WorkspaceBar {...baseProps({ checkoutState: 'resolved' })} />);
+    expect(screen.getByTestId('workspace-bar')).toHaveAttribute('data-checkout-state', 'resolved');
+  });
+
   it('routes unavailable forge detail to BranchChip and mounts PrChip for a pull request', async () => {
     const user = setup();
     const forgeBase = {
@@ -180,6 +195,37 @@ describe('WorkspaceBar', () => {
     expect(onAddFolder).toHaveBeenCalledTimes(1);
   });
 
+  // BST-1400 item 12: disables "Add folder…" and Recent rows instead of
+  // letting the OS picker run to completion only to have the thread-level
+  // write refused afterward.
+  it('disables Add folder… and Recent rows with a reason while addFolderDisabledReason is set', async () => {
+    const user = setup();
+    const onAddFolder = vi.fn();
+    const onAddRecent = vi.fn();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          addFolderDisabledReason: "This thread hasn't finished loading yet",
+          onAddFolder,
+          onAddRecent,
+          recentRoots: [{ displayName: 'alpha', path: '/ws/alpha' }],
+        })}
+      />
+    );
+
+    await openFolderMenu(user);
+    const addFolderItem = await screen.findByTestId('workspace-bar-add-folder');
+    const recentItem = await screen.findByTestId('workspace-bar-recent-/ws/alpha');
+    expect(addFolderItem).toHaveAttribute('aria-disabled', 'true');
+    expect(recentItem).toHaveAttribute('aria-disabled', 'true');
+    expect(addFolderItem).toHaveTextContent("This thread hasn't finished loading yet");
+
+    await user.click(addFolderItem);
+    await user.click(recentItem);
+    expect(onAddFolder).not.toHaveBeenCalled();
+    expect(onAddRecent).not.toHaveBeenCalled();
+  });
+
   it('still shows mounted secondaries when there is no primary root', async () => {
     const user = setup();
     render(
@@ -227,6 +273,36 @@ describe('WorkspaceBar', () => {
     await user.click(await screen.findByTestId('workspace-bar-recent-/ws/alpha'));
 
     expect(onAddRecent).toHaveBeenCalledWith('/ws/alpha');
+  });
+
+  // PR #2685 review: the shared DisableableMenuItem label span lost its
+  // `truncate` class in the folder-chip refactor — a long basename widened
+  // the dropdown instead of ellipsising. Root-action labels are fixed short
+  // strings, so only Recent rows regress; pinned here directly.
+  it('truncates a long Recent row basename instead of widening the dropdown', async () => {
+    const user = setup();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          onAddRecent: vi.fn(),
+          recentRoots: [
+            {
+              displayName: 'a-very-long-folder-basename-that-should-ellipsize-not-widen',
+              path: '/ws/a-very-long-folder-basename-that-should-ellipsize-not-widen',
+            },
+          ],
+        })}
+      />
+    );
+
+    await openFolderMenu(user);
+    const row = await screen.findByTestId(
+      'workspace-bar-recent-/ws/a-very-long-folder-basename-that-should-ellipsize-not-widen'
+    );
+    const label = within(row).getByText(
+      'a-very-long-folder-basename-that-should-ellipsize-not-widen'
+    );
+    expect(label.className.split(' ')).toContain('truncate');
   });
 
   it('hides recents that are already mounted in this thread', async () => {

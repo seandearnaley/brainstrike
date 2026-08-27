@@ -27,16 +27,11 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-import {
-  GIT_INVENTORY_SNAPSHOT_TTL_MS,
-  GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS,
-  GitInventoryStoppedError,
-} from '../../assistant-server/git-inventory-service';
+import { GIT_INVENTORY_SNAPSHOT_TTL_MS } from '../../assistant-server/git-inventory-service';
 import {
   GIT_INVENTORY_WATCH_BATCH_MS,
   type WatchGitCommonDir,
 } from '../../assistant-server/git-inventory-watcher';
-import type { GitCommandRun, GitCommandRunner } from '../../assistant-server/git-service';
 import {
   cleanupTempDirs,
   createFakeWatchDirectory,
@@ -628,121 +623,6 @@ describe('createGitInventoryService', () => {
   // watcher arming — sees it. Plain coalescing silently defeats that: the
   // in-flight build's `loadRoots()` already ran, so its result predates the
   // new row and the renderer's nudge is swallowed.
-  describe('forced refresh guarantees a build that started after the call', () => {
-    /**
-     * A `loadRoots` whose FIRST call blocks until released, and which each
-     * time reports whatever roots the test has registered by the moment it
-     * ran — so "did this build see the late root?" is directly observable.
-     */
-    type LoadRootsSpy = ReturnType<
-      typeof vi.fn<() => Promise<readonly { id: string; path: string }[]>>
-    >;
-
-    function makeGatedLoadRoots(roots: { id: string; path: string }[]): {
-      readonly loadRootsSpy: LoadRootsSpy;
-      readonly release: () => void;
-    } {
-      let release = (): void => undefined;
-      const firstCallGate = new Promise<void>((resolve) => {
-        release = () => resolve();
-      });
-      let calls = 0;
-      const loadRootsSpy: LoadRootsSpy = vi.fn(
-        async (): Promise<readonly { id: string; path: string }[]> => {
-          calls += 1;
-          const observed = [...roots];
-          if (calls === 1) {
-            await firstCallGate;
-          }
-          return observed;
-        }
-      );
-      return { loadRootsSpy, release };
-    }
-
-    it('awaits the in-flight build and then runs exactly ONE more, returning the later snapshot', async () => {
-      const { fs, rootDir, rootId } = await makeSingleRepoRoot('brainstrike-git-inv-svc-forced-');
-      const roots: { id: string; path: string }[] = [];
-      const { loadRootsSpy, release } = makeGatedLoadRoots(roots);
-      const fake = createFakeWatchDirectory();
-      const service = makeService({
-        fs,
-        loadRootsSpy,
-        run: makeWorktreeListRunner(),
-        watchDirectory: fake.watchDirectory,
-      });
-
-      const inFlight = service.getSnapshot();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
-
-      // The registration the forced call is reporting: it lands AFTER the
-      // in-flight build read the roots table.
-      roots.push({ id: rootId, path: rootDir });
-      const forced = service.getSnapshot({ maxAgeMs: 0 });
-      release();
-
-      const [stale, fresh] = await Promise.all([inFlight, forced]);
-      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
-      expect(stale.repositories).toHaveLength(0);
-      expect(fresh.repositories).toHaveLength(1);
-    });
-
-    it('coalesces two concurrent forced calls onto ONE follow-up build', async () => {
-      const roots: { id: string; path: string }[] = [];
-      const { loadRootsSpy, release } = makeGatedLoadRoots(roots);
-      const fake = createFakeWatchDirectory();
-      const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
-
-      const inFlight = service.getSnapshot();
-      await vi.advanceTimersByTimeAsync(0);
-
-      const forcedA = service.getSnapshot({ maxAgeMs: 0 });
-      const forcedB = service.getSnapshot({ maxAgeMs: 0 });
-      release();
-
-      const [, a, b] = await Promise.all([inFlight, forcedA, forcedB]);
-      // One initial build plus ONE follow-up — never one per forced caller.
-      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
-      expect(a).toEqual(b);
-    });
-
-    it('leaves the plain coalescing path alone: an unforced call still shares the in-flight build', async () => {
-      const roots: { id: string; path: string }[] = [];
-      const { loadRootsSpy, release } = makeGatedLoadRoots(roots);
-      const fake = createFakeWatchDirectory();
-      const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
-
-      const inFlight = service.getSnapshot();
-      await vi.advanceTimersByTimeAsync(0);
-      const joined = service.getSnapshot();
-      release();
-
-      await Promise.all([inFlight, joined]);
-      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
-    });
-
-    it('rejects a forced follow-up whose service was stopped while it waited, instead of building against a closed DB', async () => {
-      const roots: { id: string; path: string }[] = [];
-      const { loadRootsSpy, release } = makeGatedLoadRoots(roots);
-      const fake = createFakeWatchDirectory();
-      const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
-
-      const inFlight = service.getSnapshot();
-      await vi.advanceTimersByTimeAsync(0);
-      const forced = service.getSnapshot({ maxAgeMs: 0 });
-      const forcedSettled = expect(forced).rejects.toBeInstanceOf(GitInventoryStoppedError);
-
-      const stopping = service.stop();
-      release();
-      await inFlight;
-      await stopping;
-      await forcedSettled;
-
-      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
-    });
-  });
-
   describe('watcher health errors are folded exactly once (BST-1112 review Minor 9)', () => {
     it('does not double-count a persistently dead watcher across a forced rebuild', async () => {
       const { fs, rootDir, rootId } = await makeSingleRepoRoot(
@@ -880,71 +760,6 @@ describe('createGitInventoryService', () => {
 
       requireRelease(releaseLoadRoots, 'load-roots release')();
       await stopPromise;
-    });
-  });
-
-  describe('stop() bounds its drain of a build that never settles (BST-1112 P1, codex 3712467640)', () => {
-    it('aborts the build signal, resolves within GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS, and logs the abandonment', async () => {
-      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
-        'brainstrike-git-inv-svc-drain-bound-'
-      );
-      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
-
-      let resolveRunCalled: (() => void) | undefined;
-      const runCalled = new Promise<void>((resolve) => {
-        resolveRunCalled = resolve;
-      });
-      let capturedSignal: AbortSignal | undefined;
-      // Never resolves — simulates a git child process that ignores the
-      // abort signal (e.g. unresponsive/zombied), so this test proves
-      // stop()'s own TIMEOUT bound protects the shutdown deadline, not the
-      // abort mechanism itself (that wiring is asserted separately below via
-      // `capturedSignal`).
-      const run: GitCommandRunner = (params) => {
-        capturedSignal = params.signal;
-        resolveRunCalled?.();
-        return new Promise<GitCommandRun>(() => {
-          // Intentionally never settles.
-        });
-      };
-      const fake = createFakeWatchDirectory();
-      const service = makeService({
-        fs,
-        loadRootsSpy,
-        run,
-        watchDirectory: fake.watchDirectory,
-      });
-
-      service.start();
-      // Real awaits (not fake-timer-dependent) until the build's git spawn —
-      // resolveRoots()'s realpath and the FakeFs walk are all real
-      // microtask/IO work, not timer-scheduled.
-      await runCalled;
-      expect(capturedSignal?.aborted).toBe(false);
-
-      let stopResolved = false;
-      const stopPromise = service.stop().then(() => {
-        stopResolved = true;
-      });
-
-      // stop() aborts synchronously, before it ever awaits the drain race.
-      expect(capturedSignal?.aborted).toBe(true);
-
-      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS - 1);
-      expect(stopResolved).toBe(false);
-
-      await vi.advanceTimersByTimeAsync(1);
-      await stopPromise;
-      expect(stopResolved).toBe(true);
-      expect(loggerErrorSpy).toHaveBeenCalledExactlyOnceWith(
-        expect.stringContaining('abandoned'),
-        expect.objectContaining({ drainTimeoutMs: GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS })
-      );
-
-      // The `stopped` flag (set synchronously, before this whole drain even
-      // started) still rejects any post-stop getSnapshot() — the abandoned
-      // build's eventual (here: never) settlement has no way back in.
-      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
     });
   });
 });

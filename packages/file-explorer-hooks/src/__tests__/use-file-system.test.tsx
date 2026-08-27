@@ -9,7 +9,7 @@ import {
 import { createStorageAdapter } from '@brainstrike/storage';
 import type { RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { createElement, type ReactNode, StrictMode } from 'react';
+import { type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdaptersProvider } from '../adapters-context.js';
 import { useFileSystem } from '../use-file-system.js';
@@ -495,8 +495,11 @@ describe('useFileSystem', () => {
           })
       );
 
-      const StrictAdaptersWrapper = ({ children }: { children: ReactNode }) =>
-        createElement(StrictMode, null, createElement(AdaptersTestWrapper, null, children));
+      const StrictAdaptersWrapper = ({ children }: { children: ReactNode }) => (
+        <StrictMode>
+          <AdaptersTestWrapper>{children}</AdaptersTestWrapper>
+        </StrictMode>
+      );
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), {
         wrapper: StrictAdaptersWrapper,
@@ -556,12 +559,11 @@ describe('useFileSystem', () => {
       const secondAdapter = createAdapter(async () => restoredHandle);
       let activeAdapter: FileSystemAdapter = firstAdapter;
 
-      const DynamicAdaptersWrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, {
-          children,
-          fileSystemAdapter: activeAdapter,
-          storageAdapter,
-        });
+      const DynamicAdaptersWrapper = ({ children }: { children: ReactNode }) => (
+        <AdaptersProvider fileSystemAdapter={activeAdapter} storageAdapter={storageAdapter}>
+          {children}
+        </AdaptersProvider>
+      );
 
       const { result, rerender } = renderHook(() => useFileSystem(makeFsParams()), {
         wrapper: DynamicAdaptersWrapper,
@@ -1729,11 +1731,10 @@ describe('useFileSystem', () => {
 
     function wrapperFor(adapter: FileSystemAdapter) {
       const storageAdapter = createStorageAdapter('web');
-      // Delegates to the .tsx factory (real JSX, optional children — see its
-      // doc comment) instead of createElement here: this .ts file can't use
-      // JSX, and createElement's typed overload requires `props` to satisfy
-      // AdaptersProviderProps in full (children included) regardless of a
-      // trailing children argument.
+      // Delegates to the shared factory in test-helpers.tsx (see its doc
+      // comment) rather than inlining another AdaptersProvider wrapper here —
+      // one place owns the "optional children, matches AdaptersTestWrapper"
+      // shape for every per-test adapter.
       return createAdaptersTestWrapper(adapter, storageAdapter);
     }
 
