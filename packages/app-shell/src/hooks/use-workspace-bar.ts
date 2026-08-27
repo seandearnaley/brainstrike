@@ -164,6 +164,17 @@ function checkoutEntry(
 }
 
 /**
+ * BST-1400: `data-checkout-state` on the bar element (the deterministic e2e
+ * wait that replaces sampling for the branch chip's absence). Pulled out for
+ * the same reason as `checkoutEntry` above — a bare ternary inline in
+ * `useWorkspaceBar`'s return statement was what tipped its cognitive
+ * complexity over Biome's cap.
+ */
+function checkoutStateOf(checkoutSettled: boolean): 'pending' | 'resolved' {
+  return checkoutSettled ? 'resolved' : 'pending';
+}
+
+/**
  * Gated on the same `primaryRoot && checkout` pair as the chip itself: an
  * interactive menu for a chip that is not rendered is unreachable state.
  * Returns a ready-to-spread partial so the call site in `useWorkspaceBar`
@@ -1008,7 +1019,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const primaryRootPath = primaryRoot?.path;
   const primaryAdapterRootId = usePrimaryAdapterRootId(rootDescriptors, primaryRootPath);
-  const checkout = useThreadCheckoutStatus(
+  const { checkout, settled: checkoutSettled } = useThreadCheckoutStatus(
     primaryRootId && primaryRootPath
       ? {
           adapterRootId: primaryAdapterRootId,
@@ -1050,6 +1061,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   return {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
+    // BST-1400: the deterministic e2e wait `data-checkout-state` on the bar
+    // exposes, replacing a bounded-sampling loop over "no branch chip yet".
+    checkoutState: checkoutStateOf(checkoutSettled),
     ...checkoutEntry(primaryRoot, checkout),
     ...forgeEntry(forge),
     ...modeEntry(mode),

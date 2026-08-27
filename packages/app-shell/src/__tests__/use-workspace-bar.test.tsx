@@ -63,20 +63,10 @@ const {
   worktreeListSpy,
 } = vi.hoisted(() => ({
   branchSwitcherSpy: vi.fn(),
-  checkoutSpy: vi.fn(
-    (
-      _root: {
-        readonly adapterRootId: string | null;
-        readonly dbRootId: string;
-        readonly path: string;
-      } | null
-    ) => ({
-      ahead: 0,
-      behind: 0,
-      branch: 'main',
-      dirty: false,
-    })
-  ),
+  // Default return value is installed in `beforeEach` (via mockReturnValue,
+  // reinstalled after mockReset every test) rather than here, since one test
+  // below overrides it with mockReturnValue for the whole test body.
+  checkoutSpy: vi.fn(),
   clipboardWriteText: vi.fn(),
   forgePrSpy: vi.fn(),
   loggerMock: {
@@ -312,7 +302,13 @@ beforeEach(() => {
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
   branchSwitcherSpy.mockReset();
   branchSwitcherSpy.mockReturnValue(branchMenu);
-  checkoutSpy.mockClear();
+  // reset (not clear): one test overrides the return value with
+  // mockReturnValue, which mockClear alone would leak into later tests.
+  checkoutSpy.mockReset();
+  checkoutSpy.mockReturnValue({
+    checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+    settled: true,
+  });
   forgePrSpy.mockReset();
   forgePrSpy.mockReturnValue({ diagnostic: null, refresh: vi.fn(), status: null });
   toastSpy.mockClear();
@@ -541,6 +537,33 @@ describe('useWorkspaceBar', () => {
       dbRootId: 'r-main-db',
       path: '/ws/brainstrike',
     });
+  });
+
+  // BST-1400: `checkoutState` is the deterministic e2e wait
+  // (`data-checkout-state` on the bar) that replaces sampling for the branch
+  // chip's absence.
+  it('surfaces checkoutState as pending until useThreadCheckoutStatus settles, then resolved', async () => {
+    // `mockReturnValue` (not `...Once`) so every render during the "waiting
+    // for the primary to resolve" phase below keeps reporting pending — a
+    // one-shot override would be consumed by an earlier render than the one
+    // this test inspects.
+    checkoutSpy.mockReturnValue({ checkout: undefined, settled: false });
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
+    expect(result.current.checkoutState).toBe('pending');
+
+    checkoutSpy.mockReturnValue({
+      checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+      settled: true,
+    });
+    await act(async () => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/ws/brainstrike/.git',
+        repositoryRoot: '/ws/brainstrike',
+      });
+    });
+    await waitFor(() => expect(result.current.checkoutState).toBe('resolved'));
   });
 
   it('registers no working-tree scope for a primary that is not mounted in this workspace', async () => {

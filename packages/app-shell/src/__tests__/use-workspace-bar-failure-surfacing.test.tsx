@@ -73,10 +73,13 @@ const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, forgePrSpy, loggerMo
           readonly path: string;
         } | null
       ) => ({
-        ahead: 0,
-        behind: 0,
-        branch: 'main',
-        dirty: false,
+        checkout: {
+          ahead: 0,
+          behind: 0,
+          branch: 'main',
+          dirty: false,
+        },
+        settled: true,
       })
     ),
     clipboardWriteText: vi.fn(),

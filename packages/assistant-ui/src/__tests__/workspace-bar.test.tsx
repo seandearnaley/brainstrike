@@ -72,6 +72,21 @@ describe('WorkspaceBar', () => {
     expect(chip).toHaveAccessibleName('Folder: brainstrike, 2 more');
   });
 
+  // BST-1400: `data-checkout-state` is the deterministic e2e wait that
+  // replaces sampling for the branch chip's absence.
+  it('defaults data-checkout-state to resolved when the caller has no async checkout to await', () => {
+    render(<WorkspaceBar {...baseProps()} />);
+    expect(screen.getByTestId('workspace-bar')).toHaveAttribute('data-checkout-state', 'resolved');
+  });
+
+  it('surfaces the caller-supplied checkout state on the bar element', () => {
+    const { rerender } = render(<WorkspaceBar {...baseProps({ checkoutState: 'pending' })} />);
+    expect(screen.getByTestId('workspace-bar')).toHaveAttribute('data-checkout-state', 'pending');
+
+    rerender(<WorkspaceBar {...baseProps({ checkoutState: 'resolved' })} />);
+    expect(screen.getByTestId('workspace-bar')).toHaveAttribute('data-checkout-state', 'resolved');
+  });
+
   it('routes unavailable forge detail to BranchChip and mounts PrChip for a pull request', async () => {
     const user = setup();
     const forgeBase = {
