@@ -35,14 +35,20 @@ const logger = createLogger('ConnectFolder');
 
 /**
  * `ipcRenderer.invoke` prefixes a main-process rejection's message with
- * `Error invoking remote method '<channel>': Error: ` before it reaches this
- * hook. Mirrors `IPC_INVOKE_ENVELOPE` in `hooks/use-workspace-bar.ts`'s
+ * `Error invoking remote method '<channel>': <ErrorName>: ` before it reaches
+ * this hook. Mirrors `IPC_INVOKE_ENVELOPE` in `hooks/use-workspace-bar.ts`'s
  * `describeFailure` — stripped here too so the never-granted exact-string
  * match below actually fires in production (a review finding: it never did,
  * because this comparison was only ever tested against the un-enveloped
- * message).
+ * message). The error-name group matches ANY `*Error:` prefix, not just the
+ * literal `Error:`: main throws the refusal as an `AccessError`
+ * (`workspace-recent-roots.ts` → `@brainstrike/file-system`'s class), whose
+ * NAME survives IPC serialization — caught live by the BST-1393 L5 e2e run,
+ * where `AccessError: ` was left on the message, the exact-string match went
+ * dark, and the remedy toast silently degraded to the generic one.
  */
-const IPC_INVOKE_ENVELOPE = /^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/u;
+const IPC_INVOKE_ENVELOPE =
+  /^Error invoking remote method '[^']+':\s*(?:[A-Za-z][\w$]*Error:\s*)?/u;
 
 function messageOf(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);

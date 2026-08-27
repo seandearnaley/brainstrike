@@ -121,7 +121,12 @@ function delay(ms: number): Promise<void> {
  * of a toast. Stripped here, at the one place a failure becomes user-facing
  * text; the message itself is never rewritten.
  */
-const IPC_INVOKE_ENVELOPE = /^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/u;
+// Kept byte-identical to `workspace-connect/use-connect-folder.tsx`'s copy
+// (the two are documented mirrors): the error-name group matches any
+// `*Error:` prefix because main-side rejections arrive with their CLASS name
+// (`AccessError: …`), not the literal `Error:` — BST-1393 L5 live finding.
+const IPC_INVOKE_ENVELOPE =
+  /^Error invoking remote method '[^']+':\s*(?:[A-Za-z][\w$]*Error:\s*)?/u;
 
 /**
  * The text a user is shown when an action fails. Always the ORIGINATING

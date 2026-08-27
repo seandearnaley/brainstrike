@@ -84,9 +84,13 @@ describe('useConnectFolder', () => {
     // Real Electron wraps a main-process rejection's message exactly like
     // this before it reaches the renderer — a review finding: the exact-string
     // match never fired in production because it was only tested un-enveloped.
+    // The prefix is `AccessError:`, NOT `Error:`: main throws the refusal as
+    // an AccessError and the class NAME survives IPC serialization (BST-1393
+    // L5 live finding — a literal-`Error:`-only stripper left `AccessError: `
+    // on the message and this remedy silently degraded to the generic toast).
     addRootDirectoryByPathMock.mockRejectedValue(
       new Error(
-        "Error invoking remote method 'fs:addRootByPath': Error: Folder was never granted in this app; use Add Folder to grant it."
+        "Error invoking remote method 'fs:addRootByPath': AccessError: Folder was never granted in this app; use Add Folder to grant it."
       )
     );
     const { result } = renderHook(() => useConnectFolder());
