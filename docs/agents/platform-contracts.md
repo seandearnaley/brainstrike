@@ -1353,7 +1353,11 @@ Pino worker target `apps/desktop/src/diagnostics/main-log-transport.ts`, bundled
 as the flat main-process entry `dist/main-log-transport.js`. Packaged builds
 explicitly put that entry in `app.asar.unpacked`, and
 `resolveMainLogTransportPath` rejects an unexpected packaged layout rather than
-depending on worker-thread ASAR loading or silently trying another target. The
+depending on worker-thread ASAR loading or silently trying another target.
+Development resolves it beside the executing `dist/main.js`, using the same
+validated flat-entry layout as the watchdog and Python-resource resolvers;
+`app.getAppPath()` may already be `dist/` during a direct-file launch and must
+not receive another `dist/` segment. The
 target passes Pino's already-delimited bytes unchanged to the same
 `RotatingFileSink` used by the diagnostic backstop: 10 MB × 5 files,
 drop-oldest slot math, encoded-byte accounting, short-write failure, and

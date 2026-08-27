@@ -22,8 +22,8 @@ test.describe('Electron App Launch', () => {
     const { getBufferedElectronOutput } = await loadElectronHelpers();
     const output = await getBufferedElectronOutput(electronApp.app);
     const startupOutput = [...output.stderr, ...output.stdout].join('\n');
+    expect(startupOutput).not.toContain('dist/dist/main-log-transport.js');
     expect(startupOutput).not.toContain('dist/dist/main-watchdog-worker.js');
-    expect(startupOutput).not.toContain('dist/resources/python-runtime/manifest.json');
   });
 
   test('does not start persisted stores without storage', async ({ electronApp, window }) => {

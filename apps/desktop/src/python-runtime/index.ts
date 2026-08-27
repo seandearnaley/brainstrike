@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { getMainModulePath } from '../main-module-path';
 import { resolvePythonRuntimeResourcesDir } from './python-runtime-path';
 import { resolvePythonBinary } from './resolve-python-binary';
 
@@ -11,7 +12,7 @@ function desktopPythonRuntimeResourcesDir(): string {
   // the fetched tarballs live in the repo's apps/desktop/resources/.
   return resolvePythonRuntimeResourcesDir({
     isPackaged: app.isPackaged,
-    mainModulePath: module.filename,
+    mainModulePath: getMainModulePath(),
     resourcesPath: process.resourcesPath,
   });
 }

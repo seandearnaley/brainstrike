@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { resolveDevelopmentMainOutputDir } from '../main-entry-path';
 
 export interface ResolvePythonRuntimeResourcesDirOptions {
   readonly isPackaged: boolean;
@@ -14,15 +15,9 @@ export function resolvePythonRuntimeResourcesDir(
     return path.join(options.resourcesPath, 'python-runtime');
   }
 
-  const mainOutputDir = path.dirname(options.mainModulePath);
-  if (
-    path.basename(options.mainModulePath) !== 'main.js' ||
-    path.basename(mainOutputDir) !== 'dist'
-  ) {
-    throw new Error(
-      `Bundled Python runtime: Expected development main entry to be dist/main.js, received "${options.mainModulePath}"`
-    );
-  }
-
+  const mainOutputDir = resolveDevelopmentMainOutputDir(
+    options.mainModulePath,
+    'Bundled Python runtime'
+  );
   return path.join(path.dirname(mainOutputDir), 'resources', 'python-runtime');
 }

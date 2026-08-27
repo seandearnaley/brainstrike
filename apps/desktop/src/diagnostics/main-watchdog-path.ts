@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { resolveDevelopmentMainOutputDir } from '../main-entry-path';
 
 const WATCHDOG_WORKER_FILE_NAME = 'main-watchdog-worker.js';
 
@@ -9,13 +10,10 @@ export function resolveMainWatchdogWorkerPath(
   mainModulePath: string
 ): string {
   if (!isPackaged) {
-    const mainOutputDir = path.dirname(mainModulePath);
-    if (path.basename(mainModulePath) !== 'main.js' || path.basename(mainOutputDir) !== 'dist') {
-      throw new Error(
-        `Main watchdog worker: Expected development main entry to be dist/main.js, received "${mainModulePath}"`
-      );
-    }
-    return path.join(mainOutputDir, WATCHDOG_WORKER_FILE_NAME);
+    return path.join(
+      resolveDevelopmentMainOutputDir(mainModulePath, 'Main watchdog worker'),
+      WATCHDOG_WORKER_FILE_NAME
+    );
   }
   if (path.basename(appPath) !== 'app.asar') {
     throw new Error(

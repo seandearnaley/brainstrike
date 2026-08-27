@@ -146,6 +146,7 @@ import {
   registerLoggingIpcHandlers,
 } from './logging-ipc';
 import type { LoggingSettingsPayload } from './logging-shared';
+import { getMainModulePath } from './main-module-path';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { ParserHostManager } from './parser-host-manager';
@@ -254,7 +255,7 @@ function createMainLogTransportConfig(): Pick<FileTransportConfig, 'options' | '
       maxBytes: DEFAULT_MAX_BYTES,
       maxFiles: DEFAULT_MAX_FILES,
     },
-    target: resolveMainLogTransportPath(app.getAppPath(), app.isPackaged),
+    target: resolveMainLogTransportPath(app.getAppPath(), app.isPackaged, getMainModulePath()),
   };
 }
 
@@ -2102,7 +2103,7 @@ if (singleInstanceLockAcquired) {
           const workerPath = resolveMainWatchdogWorkerPath(
             app.getAppPath(),
             app.isPackaged,
-            module.filename
+            getMainModulePath()
           );
           const watchdog = new Worker(workerPath);
           let heartbeatTimer: ReturnType<typeof setInterval> | null = null;

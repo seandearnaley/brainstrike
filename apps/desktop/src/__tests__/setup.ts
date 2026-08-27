@@ -3,6 +3,13 @@ import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { vi } from 'vitest';
 
+vi.mock('../main-module-path', async () => {
+  const path = await import('node:path');
+  return {
+    getMainModulePath: () => path.resolve(import.meta.dirname, '../../dist/main.js'),
+  };
+});
+
 // Mock Electron for tests that transitively import main-process modules. The
 // harness layers observable IPC and WebContents controls over the inert default
 // surface in electron-test-stub.mts, so that stub remains the surface authority.
