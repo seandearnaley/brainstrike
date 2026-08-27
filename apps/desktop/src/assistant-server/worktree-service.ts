@@ -997,7 +997,17 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           }
           return reconciled;
         } catch (error) {
-          logger.error('worktree shell reconcile failed', { error, ...params });
+          // Spreading `params` directly would dump `precedingWorktreePaths` —
+          // a `Set`, which loses its members through JSON-shaped logging
+          // anyway — into the log line. Log its identity (present or not)
+          // and size instead of its spread contents (BST-1392 review).
+          logger.error('worktree shell reconcile failed', {
+            error,
+            precedingWorktreePathsCount: params.precedingWorktreePaths?.size ?? null,
+            repoCommonDir: params.repoCommonDir,
+            runId: params.runId ?? null,
+            threadId: params.threadId ?? null,
+          });
           return { error: toErrorMessage(error), ok: false };
         }
       });

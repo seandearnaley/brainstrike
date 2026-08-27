@@ -552,7 +552,12 @@ function buildDesktopToolDependencies(
     service || forge
       ? createShellCorrelation({
           forgeRefresh: (rootId) => {
-            void forge?.refresh(rootId, 'shell');
+            // `refresh` returns a Promise; `void`-ing the call alone let its
+            // rejection go unhandled. `.catch` per the same shape
+            // `onRepositoryInvalidated` already uses (forge-service.ts:626).
+            forge?.refresh(rootId, 'shell').catch((error: unknown) => {
+              logger.error('shell forge refresh threw', { error, rootId });
+            });
           },
           reconcile: async (rootId, precedingWorktreePaths) => {
             if (!service) {

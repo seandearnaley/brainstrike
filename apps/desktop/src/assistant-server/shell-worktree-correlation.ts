@@ -49,6 +49,7 @@ export function createShellCorrelation(deps: {
             if (result.ok) {
               logger.info('shell worktree reconcile completed', {
                 adopted: result.value.adopted.length,
+                likelyMoves: result.value.likelyMoves.length,
                 rootId,
                 vanished: result.value.vanishedLedgerIds.length,
               });

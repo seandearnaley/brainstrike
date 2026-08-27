@@ -16,6 +16,7 @@ const SETTINGS: WorktreeSettings = {
 function inventory(
   worktrees: readonly {
     path: string;
+    branch?: string | null;
     lockedReason?: string | null;
     trust?: 'unvalidated' | 'validated';
   }[]
@@ -27,7 +28,7 @@ function inventory(
         identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
         worktrees: worktrees.map((worktree) => ({
           bare: false,
-          branch: 'feature',
+          branch: worktree.branch === undefined ? 'feature' : worktree.branch,
           containment: ['root-1'] as readonly string[],
           current: false,
           detached: false,
@@ -514,5 +515,78 @@ describe('reconcileWorktreesFromShell', () => {
     expect(result.ok).toBe(true);
     expect(result.ok && result.value.adopted).toHaveLength(0);
     expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('does not adopt a `git worktree move` destination as a new row, and states it as a likely move', async () => {
+    // Composite delta (BST-1392 review, P1): one command both moves an
+    // existing managed worktree (`/repo/old` -> `/repo/old-moved`, same
+    // branch) AND creates a genuinely new, unrelated one (`/repo/brand-new`).
+    // The move must not be adopted as new (that would fabricate a "created"
+    // event and orphan the original row's identity/thread/lineage), while the
+    // unrelated new worktree must still be adopted normally.
+    const inserted: ManagedWorktreeRow[] = [];
+    const deps = {
+      ledger: {
+        getByPath: vi.fn(async () => null),
+        insert: vi.fn(async (row: ManagedWorktreeRow) => {
+          inserted.push(row);
+          return row;
+        }),
+        listActive: vi.fn(async () => [
+          {
+            branch: 'bs/feature',
+            id: 'moved-1',
+            path: '/repo/old',
+            repoCommonDir: '/repo/.git',
+          } as never,
+        ]),
+      } as never,
+      readSettings: () => Promise.resolve(SETTINGS),
+      resolveInventory: () =>
+        Promise.resolve(
+          inventory([
+            { path: '/repo' },
+            { branch: 'bs/feature', path: '/repo/old-moved' },
+            { branch: 'bs/other', path: '/repo/brand-new' },
+          ])
+        ),
+      resolveRootPaths: () => Promise.resolve([{ id: 'root-1', path: '/repo' }]),
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        stderr: '',
+        stdout: 'deadbeef\n',
+        timedOut: false,
+      })),
+    };
+
+    const result = await reconcileWorktreesFromShell(deps, {
+      precedingWorktreePaths: new Set(['/repo', '/repo/old']),
+      repoCommonDir: '/repo/.git',
+      runId: 'run-1',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    // No duplicate adoption of the moved worktree: only the unrelated new one
+    // is inserted/adopted.
+    expect(inserted.map((row) => row.path)).toEqual(['/repo/brand-new']);
+    expect(result.value.adopted).toHaveLength(1);
+    expect(result.value.adopted[0]?.path).toBe('/repo/brand-new');
+    // No false "created" event for the move: it never reaches `adopted`.
+    expect(inserted.some((row) => row.path === '/repo/old-moved')).toBe(false);
+    // The likely-move is stated, not silently dropped.
+    expect(result.value.likelyMoves).toEqual([
+      {
+        branch: 'bs/feature',
+        newPath: '/repo/old-moved',
+        vanishedLedgerId: 'moved-1',
+        vanishedPath: '/repo/old',
+      },
+    ]);
+    // Ledger identity is not rewritten: the original row still surfaces as a
+    // vanished ghost, exactly as an actual `git worktree remove` would.
+    expect(result.value.vanishedLedgerIds).toEqual(['moved-1']);
   });
 });

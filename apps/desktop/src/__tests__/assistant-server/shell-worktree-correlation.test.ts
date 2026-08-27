@@ -5,7 +5,7 @@ function harness() {
   const forgeRefresh = vi.fn();
   const reconcile = vi.fn().mockResolvedValue({
     ok: true,
-    value: { adopted: [], vanishedLedgerIds: [] },
+    value: { adopted: [], likelyMoves: [], vanishedLedgerIds: [] },
   });
   return {
     correlation: createShellCorrelation({ forgeRefresh, reconcile }),

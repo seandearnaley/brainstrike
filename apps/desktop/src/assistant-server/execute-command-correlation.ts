@@ -5,9 +5,14 @@
  * same reason `worktree-tools.ts` was split out in Task 10.
  *
  * The guard: snapshot on-disk worktree paths BEFORE the command runs, but
- * ONLY when its text looks worktree-shaped (a false positive here costs one
- * cheap, cached-inventory `list()` call, never a git spawn and never a
- * blocked command). Without this snapshot, a scanner false positive
+ * ONLY when its text looks worktree-shaped. This is NOT always a cheap call:
+ * `list()` reads the inventory service's TTL-cached snapshot
+ * (`git-inventory-service.ts`), which is cheap on a hit, but a stale-or-dirty
+ * cache rebuilds by spawning git across every repository in the workspace —
+ * and this call is awaited pre-command, on the critical path of every
+ * worktree-shaped `executeCommand`. The bound is scope, not cost: it only
+ * ever runs for commands the scanner judges worktree-shaped, never for the
+ * general case. Without this snapshot, a scanner false positive
  * (quote-blindness on a heredoc or quoted string) combined with a reconcile
  * that otherwise adopts every unmanaged worktree would durably attribute a
  * user's own pre-existing external checkout (Claude Code, Codex, ...) to
@@ -15,13 +20,24 @@
  * `undefined` (no snapshot) is a distinct, honest signal from an empty set:
  * the reconciler treats it as "cannot safely attribute anything new" and
  * adopts nothing, per `reconcileWorktreesFromShell`'s own fail-closed rule.
+ * A snapshot failure (see `snapshotWorktreePaths`) degrades to that same
+ * `undefined` signal rather than blocking the command.
+ *
+ * Known limitation (best-effort, not fixed here): a command run from a cwd
+ * belonging to a DIFFERENT repository than the one the reconciler resolves
+ * from the tool result's `rootId` degrades to an empty delta — a missed
+ * breadcrumb, not a wrong one, and within this feature's stated best-effort
+ * contract.
  */
 import type { ExecuteCommandInput, RuntimeData } from '@brainstrike/agent';
 import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { ExecuteCommandToolResult, ShellOutputStreamer } from './execute-command-tool';
 import { runExecuteCommand } from './execute-command-tool';
 import type { ShellCorrelationCapability } from './shell-worktree-correlation';
 import type { WorktreeToolCapability } from './worktree-tools';
+
+const logger = createLogger('ExecuteCommandCorrelation');
 
 async function snapshotWorktreePaths(
   worktreeTools: WorktreeToolCapability | undefined
@@ -29,8 +45,17 @@ async function snapshotWorktreePaths(
   if (!worktreeTools) {
     return undefined;
   }
-  const listed = await worktreeTools.list();
-  return listed.ok ? new Set(listed.value.map((entry) => entry.path)) : undefined;
+  try {
+    const listed = await worktreeTools.list();
+    return listed.ok ? new Set(listed.value.map((entry) => entry.path)) : undefined;
+  } catch (error) {
+    // A breadcrumb must never block the command it describes. The reconcile
+    // pass already fails closed to "adopt nothing" on an `undefined`
+    // snapshot, so a snapshot failure degrades to that same safe state
+    // instead of throwing out of a pre-command await.
+    logger.error('pre-command worktree snapshot failed', { error });
+    return undefined;
+  }
 }
 
 export async function runExecuteCommandWithShellCorrelation(
