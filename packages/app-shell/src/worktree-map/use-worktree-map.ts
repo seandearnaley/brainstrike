@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
 import { useForgePrCache } from '../hooks/use-forge-pr-cache';
+import { useOptionalRootIdentity } from '../roots/root-identity-context';
 import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
 import {
   useWorktreeCheckoutStatuses,
@@ -67,6 +68,19 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   useChangesLiveRefreshSubscription();
   const invalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
   const refreshNonce = invalidationNonce + manualNonce;
+  // Third repeat trigger (PR #2671 review finding): mounting a checkout as a
+  // workspace root does NOT write the `roots` row the entries' `rootId`
+  // resolves from — the row lands later, in the fire-and-forget mid-session
+  // registration (`performRootRegistration`), whose completion emits no
+  // `changes:invalidated`. A caller-side refresh right after the mount promise
+  // therefore races the write and usually re-reads `rootId: null`. The
+  // canonical mapping publication IS the deterministic post-write signal:
+  // `RootIdentityProvider` re-memoizes its context value only when a new
+  // adapter→DB pair lands (after `reconcileRoots` wrote the row), so keying
+  // the load effect on it re-reads exactly when the row provably exists —
+  // for mounts started from ANY surface, not just this Map. `null` (web, or
+  // no provider above) is honest absence: no extra trigger, never a stub.
+  const rootIdentity = useOptionalRootIdentity();
 
   const load = useCallback(
     // A `.then()` chain, not `async`/`await`: an `async` function's body runs
@@ -123,7 +137,7 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
     return () => {
       cancelled = true;
     };
-  }, [load, refreshNonce]);
+  }, [load, refreshNonce, rootIdentity]);
 
   const prCache = useForgePrCache({ database: input.database, enabled: bridge !== null });
   const threads = useAssistantThreadStore(

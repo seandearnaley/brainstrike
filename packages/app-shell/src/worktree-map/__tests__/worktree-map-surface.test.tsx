@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -270,13 +270,15 @@ describe('WorktreeMapSurface', () => {
     expect(showItemInFolderMock).not.toHaveBeenCalled();
   });
 
-  // BST-1392 W5 follow-up (live CDT finding, scripts/probe-worktree-map.mjs):
-  // mounting creates the `roots` row the card model resolves `rootId` from,
-  // but the Map never re-reads on its own — without an explicit refresh the
-  // card's `indexing` stays 'not-a-root' (no badge at all) until an UNRELATED
-  // changes-invalidation happens to refresh the Map. Mirror onAdopt: refresh
-  // on a successful mount, never on a failed one.
-  it('refreshes the Map after onNewThread mounts the checkout, so indexing re-resolves', async () => {
+  // PIN (PR #2671 review ruling): the mount callbacks must NOT call the Map's
+  // own `refresh()`. A refresh fired when the mount promise resolves races the
+  // `roots` write — the row lands later, in the fire-and-forget mid-session
+  // registration — so it usually re-reads `rootId: null` and the card stays
+  // badge-less anyway. The deterministic re-read lives in `useWorktreeMap`
+  // itself, keyed on the root-identity context republishing after the row is
+  // written (see use-worktree-map.test.ts). Reintroducing a caller-side
+  // refresh here would only paper over that ordering.
+  it('does not refresh from onNewThread — the Map re-loads via the root-identity subscription', async () => {
     const refreshMock = vi.fn();
     useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
     render(<WorktreeMapSurface />);
@@ -284,18 +286,7 @@ describe('WorktreeMapSurface', () => {
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
     expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
-    expect(refreshMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not refresh the Map when the onNewThread mount fails', async () => {
-    const refreshMock = vi.fn();
-    addRootDirectoryByPathMock.mockResolvedValueOnce(null);
-    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
-    render(<WorktreeMapSurface />);
-
-    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
-
-    await screen.findByText('Could not add "bright-fox" as a workspace root.');
+    expect(publishMock).toHaveBeenCalledTimes(1);
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
@@ -427,7 +418,9 @@ describe('WorktreeMapSurface', () => {
   // with the handlers stubbed (plan-review R2): each asserts the CALL and its
   // exact argument, which no `setActionError(null)` stub can satisfy.
   it('archives through the worktrees bridge with the card worktree id and states a refusal verbatim', async () => {
+    const refreshMock = vi.fn();
     archiveMock.mockResolvedValue({ error: 'worktree has uncommitted changes', ok: false });
+    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
     render(<WorktreeMapSurface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
@@ -436,9 +429,29 @@ describe('WorktreeMapSurface', () => {
     expect(archiveMock).toHaveBeenCalledTimes(1);
     expect(archiveMock).toHaveBeenCalledWith({ worktreeId: 'wt-1' });
     await screen.findByText('Worktree not archived: worktree has uncommitted changes');
+    // A refused archive changed nothing to re-read.
+    expect(refreshMock).not.toHaveBeenCalled();
   });
 
-  it('adds the checkout as a workspace root through the by-path seam and refreshes the Map', async () => {
+  // PR #2671 review note 2: with adopt refreshing, archive was the one
+  // remaining ledger mutation that left its own stale card on screen (the
+  // removed checkout) until an unrelated invalidation. Unlike the mount
+  // paths, the archive IPC resolves only after the ledger row is archived,
+  // so a caller-side refresh here observes a write that already happened —
+  // the mount-path race does not apply.
+  it('refreshes the Map after a successful archive so the removed card leaves the list', async () => {
+    const refreshMock = vi.fn();
+    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /archive/iu }));
+
+    expect(archiveMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('adds the checkout as a workspace root through the by-path seam', async () => {
     // (corrected at execution: the canonical fixture's shared `card()`
     // default is `rootId: 'root-1'` — already a mounted root, so the card
     // correctly never offers "Add as root" for it. This is the ONE test that
@@ -462,9 +475,9 @@ describe('WorktreeMapSurface', () => {
 
     expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
     expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
-    // Same staleness as onNewThread's mount: without a refresh the card keeps
-    // rendering no indexing badge until an unrelated invalidation.
-    expect(refreshMock).toHaveBeenCalledTimes(1);
+    // Same pin as onNewThread above: no caller-side refresh — the Map
+    // re-loads via the root-identity subscription once the row exists.
+    expect(refreshMock).not.toHaveBeenCalled();
     // Falsifier: adding a root never archives or mutates indexing.
     expect(archiveMock).not.toHaveBeenCalled();
     expect(setIndexingMock).not.toHaveBeenCalled();

@@ -47,6 +47,19 @@ vi.mock('../../changes/use-changes-live-refresh', () => ({
   useChangesLiveRefreshSubscription: () => undefined,
 }));
 
+// Controllable root-identity context value. `null` is the honest
+// provider-absent default (web, or a subtree outside the workspace-sync
+// provider); tests that exercise the registration-driven reload swap in a
+// fresh value object, mirroring how `RootIdentityProvider` re-memoizes when
+// `publishCanonicalMapping` lands a new adapter→DB pair.
+let rootIdentityValue: {
+  resolveAdapterRootId: (dbRootId: string) => string | null;
+  workspaceDbRootIds: readonly string[];
+} | null = null;
+vi.mock('../../roots/root-identity-context', () => ({
+  useOptionalRootIdentity: () => rootIdentityValue,
+}));
+
 import { type UseWorktreeMapInput, useWorktreeMap } from '../use-worktree-map';
 
 const INPUT: UseWorktreeMapInput = {
@@ -86,6 +99,7 @@ function entry(overrides: Record<string, unknown> = {}) {
 describe('useWorktreeMap', () => {
   beforeEach(() => {
     invalidationNonce = 0;
+    rootIdentityValue = null;
     listMock.mockReset().mockResolvedValue({ ok: true, value: [entry()] });
     checkoutStatusMock.mockReset().mockResolvedValue({
       ok: true,
@@ -132,6 +146,51 @@ describe('useWorktreeMap', () => {
     rerender();
     await waitFor(() => expect(checkoutStatusMock).toHaveBeenCalledTimes(2));
     expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  // PR #2671 review finding: a mount's `addRootDirectoryByPath` resolving does
+  // NOT mean the `roots` row exists — the row is written later by the
+  // fire-and-forget mid-session registration (`performRootRegistration`), so a
+  // surface-level refresh right after the mount promise races the write and
+  // usually re-reads `rootId: null`. The deterministic signal is the canonical
+  // adapter→DB mapping publication: `RootIdentityProvider` re-memoizes its
+  // context value only when a NEW pair lands (after `reconcileRoots` wrote the
+  // row), so the hook re-reads exactly when the row provably exists.
+  it('re-reads the list when a root registration publishes a new canonical identity', async () => {
+    rootIdentityValue = { resolveAdapterRootId: () => null, workspaceDbRootIds: [] };
+    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(listMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(checkoutStatusMock).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      rootIdentityValue = {
+        resolveAdapterRootId: () => 'adapter-1',
+        workspaceDbRootIds: ['db-root-1'],
+      };
+    });
+    rerender();
+
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+    // Falsifier: the identity-driven reload must stay CHEAP — the status
+    // effect keys on path CONTENT + the invalidation nonce, neither of which
+    // changed, so no extra `git status` per card is spawned.
+    expect(checkoutStatusMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-read the list when the identity value is unchanged', async () => {
+    rootIdentityValue = { resolveAdapterRootId: () => null, workspaceDbRootIds: [] };
+    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(listMock).toHaveBeenCalledTimes(1);
+
+    // Same flush rationale as the invalidation-generation test above: the
+    // load defers behind a microtask, so a synchronous assertion would fail
+    // open without the act() flush.
+    await act(async () => {
+      rerender();
+    });
+    expect(listMock).toHaveBeenCalledTimes(1);
   });
 
   it('reports a list failure as an error and never as an empty map', async () => {
