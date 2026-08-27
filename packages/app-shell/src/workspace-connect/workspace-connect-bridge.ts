@@ -24,13 +24,23 @@ const logger = createLogger('WorkspaceConnectBridge');
 /** Which OS gesture produced the request. Presentation + logging only. */
 export type WorkspaceOpenOrigin = 'argv' | 'drop' | 'menu-recent' | 'open-file' | 'second-instance';
 
-const WORKSPACE_OPEN_ORIGINS: readonly WorkspaceOpenOrigin[] = [
-  'argv',
-  'drop',
-  'menu-recent',
-  'open-file',
-  'second-instance',
-];
+// Compile-time exact-set proof, mirroring WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHOD_SET
+// below: `satisfies Record<WorkspaceOpenOrigin, true>` fails the build if a union member
+// is missing here (or if an extra key sneaks in), so deleting an origin — e.g. removing
+// 'open-file', or 'drop' (the newest member, with no IPC producer yet and therefore the
+// likeliest "looks unused" cleanup target) — can no longer compile clean while silently
+// making isWorkspaceOpenPathRequest stop accepting that gesture.
+const WORKSPACE_OPEN_ORIGIN_SET = {
+  argv: true,
+  drop: true,
+  'menu-recent': true,
+  'open-file': true,
+  'second-instance': true,
+} as const satisfies Record<WorkspaceOpenOrigin, true>;
+
+const WORKSPACE_OPEN_ORIGINS = Object.keys(
+  WORKSPACE_OPEN_ORIGIN_SET
+) as readonly WorkspaceOpenOrigin[];
 
 export interface WorkspaceOpenPathRequest {
   readonly origin: WorkspaceOpenOrigin;

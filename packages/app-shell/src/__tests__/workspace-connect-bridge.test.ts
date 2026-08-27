@@ -4,6 +4,7 @@ import {
   isWorkspaceOpenPathRequest,
   resolveWorkspaceConnectBridge,
   WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS,
+  type WorkspaceOpenOrigin,
 } from '../workspace-connect/workspace-connect-bridge';
 
 interface MutableWindow {
@@ -57,8 +58,20 @@ describe('resolveWorkspaceConnectBridge', () => {
 });
 
 describe('isWorkspaceOpenPathRequest', () => {
-  it('accepts a well-formed request', () => {
-    expect(isWorkspaceOpenPathRequest({ origin: 'argv', path: '/a/b' })).toBe(true);
+  it('accepts a well-formed request for every declared origin', () => {
+    // Falsifier for the origins-completeness bug a reviewer found: this loop
+    // fails immediately if a future edit ever shrinks the origin set without
+    // updating this test — one assertion per union member, not just 'argv'.
+    const origins: readonly WorkspaceOpenOrigin[] = [
+      'argv',
+      'drop',
+      'menu-recent',
+      'open-file',
+      'second-instance',
+    ];
+    for (const origin of origins) {
+      expect(isWorkspaceOpenPathRequest({ origin, path: '/a/b' })).toBe(true);
+    }
   });
 
   it('rejects every malformed shape rather than coercing it', () => {
