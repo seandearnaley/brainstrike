@@ -40,15 +40,16 @@ import { useWorkspaceBarMode } from './use-workspace-bar-mode';
 import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
 import {
   deriveMakePrimary,
+  folderWriteIdentityOf,
   MakePrimaryDerivationError,
   persistedCheckoutMode,
   type ResolvedSecondaryRoots,
   refuseWriteBeforeThreadMetadata,
   secondaryRootsStatus,
   type ThreadFoldersWriteTail,
-  tailReflectedInLiveState,
   writeStartingPoint,
 } from './use-workspace-bar-write-derive';
+import { useWriteTailQueue } from './use-workspace-bar-write-tail-queue';
 import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
 
 // Re-exported (not just imported) so existing test imports of
@@ -701,43 +702,37 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
    *   started for that same thread. This hook is long-lived in the wrapper, so
    *   the ref outlives a thread switch; consuming it unconditionally would
    *   write thread A's folder set onto thread B.
-   * - once the queue drains (`pendingWriteCountRef` back to 0) AND
-   *   `threadFoldersRef` has caught up to reflect what the last write
-   *   persisted, the tail retires so the next write reads LIVE state rather
-   *   than a stale value from an already-settled round of writes (metadata
-   *   changed by another surface in between must not be reverted). The tail
-   *   is a hand-off between writes that overlap, never a cache of the
-   *   persisted state. Retiring the moment the queue drains, WITHOUT waiting
-   *   for the ref, raced React's commit (BST-1400 item 2): the ref is
-   *   resynced by an effect on a later tick than the write's own settle
-   *   microtask, so a second write landing in that window found the tail
-   *   already gone and derived from a ref that did not yet include the
-   *   first write's change. See `tailReflectedInLiveState`.
+   * - once the queue drains AND `threadFoldersRef` has moved past what it
+   *   was when the last write started, the tail retires so the next write
+   *   reads LIVE state rather than a stale value from an already-settled
+   *   round of writes (metadata changed by another surface must not be
+   *   reverted). A hand-off between overlapping writes, never a cache.
+   *
+   *   Retiring the moment the queue drains, WITHOUT waiting for the ref,
+   *   raced React's commit (item 2 v1): the ref resyncs via an effect on a
+   *   LATER tick than the write's own settle microtask, so a second write
+   *   landing in that window derived from a ref missing the first write's
+   *   change. Retiring only once the ref matched the write's OWN result
+   *   (item 2 v1's fix) traded that for a rarer bug (v2, review fold-in): it
+   *   could not tell "hasn't caught up yet" from "caught up to something
+   *   ELSE" — a third-party change compared unequal to the tail forever,
+   *   PINNING it, reverting the third-party change on the next write.
+   *   `useWriteTailQueue`'s identity-REVISION counter fixes this the way
+   *   item 1 fixed the same "did X happen after Y" shape: an epoch, not a
+   *   membership/equality check — retire once the identity has moved AT ALL
+   *   since the write started, to its own result or to anything else.
    *
    * A write whose thread is no longer selected — or that outlives the hook —
    * is skipped rather than landed on whatever thread is current now.
    */
-  const writeTailRef = useRef<Promise<ThreadFoldersWriteTail | null> | null>(null);
-  const pendingWriteCountRef = useRef(0);
-  // The most recently settled tail, kept even after `writeTailRef` itself
-  // might already be retired — `retireWriteTailIfCaughtUp` needs it to
-  // recognize the moment `threadFoldersRef` catches up.
-  const lastSettledTailRef = useRef<ThreadFoldersWriteTail | null>(null);
-  // Retires the tail once BOTH the queue has drained and `live` (a just
-  // resynced `threadFoldersRef` snapshot) reflects what the last write
-  // persisted. Called from the sync effect below (every resync) and from
-  // the settle handler further down (the fast path where `live` already
-  // matches, or there is nothing to wait for). A stable identity so the
-  // sync effect's dependency array does not churn on every render.
-  const retireWriteTailIfCaughtUp = useCallback((live: ThreadCheckoutFolders) => {
-    const settledTail = lastSettledTailRef.current;
-    if (
-      pendingWriteCountRef.current === 0 &&
-      (settledTail === null || tailReflectedInLiveState(live, settledTail))
-    ) {
-      writeTailRef.current = null;
-    }
-  }, []);
+  const {
+    currentRevision: currentLiveIdentityRevision,
+    pendingWriteCountRef,
+    recordLiveIdentity,
+    retireWriteTailIfCaughtUp,
+    settleWrite,
+    writeTailRef,
+  } = useWriteTailQueue();
 
   // The reconciliation wait below can span seconds, so the folder set captured
   // when the user clicked may be stale by the time the write happens (a removal
@@ -772,10 +767,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     threadFoldersRef.current = live;
     // The other half of the write-queue's tail retirement (BST-1400 item 2):
     // a write settling does not mean this ref has caught up to it yet — see
-    // `tailReflectedInLiveState`'s doc comment. This effect is the render
-    // committing that catch-up, so it re-checks on every sync rather than
-    // only at settle time.
-    retireWriteTailIfCaughtUp(live);
+    // the `writeTailRef` doc comment above. This effect is the render
+    // committing that catch-up, so a genuine identity change bumps the
+    // revision here (not only at settle time), and every sync re-checks
+    // whether that is now enough to retire.
+    recordLiveIdentity(folderWriteIdentityOf(live));
+    retireWriteTailIfCaughtUp();
   }, [
     checkoutLocalRootId,
     checkoutMode,
@@ -787,6 +784,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     secondaryRootsPending,
     selectedMemoryThreadId,
     selectedThreadMetadataPending,
+    recordLiveIdentity,
     retireWriteTailIfCaughtUp,
   ]);
 
@@ -802,9 +800,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ): Promise<void> => {
       const previous = writeTailRef.current;
       pendingWriteCountRef.current += 1;
+      // Captured the instant `live` is actually read below (after awaiting
+      // `previous`, since the identity can move DURING that wait) — the bar
+      // this write's own settle must clear before its tail may retire.
+      let revisionAtStart = currentLiveIdentityRevision();
       const settled = (async (): Promise<ThreadFoldersWriteTail | null> => {
         const tail = previous ? await previous : null;
         const live = threadFoldersRef.current;
+        revisionAtStart = currentLiveIdentityRevision();
         // A write with NO thread is a caller bug, not an expected outcome: the
         // action fired while nothing was selected. Skipping it silently is what
         // makes "the folder did not attach" look like a UI glitch.
@@ -849,19 +852,20 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         () => null
       );
       writeTailRef.current = tailed;
-      void tailed.then((tail) => {
-        pendingWriteCountRef.current -= 1;
-        lastSettledTailRef.current = tail;
-        // Retires immediately when there is nothing to catch up to (a
-        // skipped/failed write) or `threadFoldersRef` already reflects this
-        // write (e.g. an optimistic update landed by settle time);
-        // otherwise the sync effect retires it once the ref actually
-        // catches up.
-        retireWriteTailIfCaughtUp(threadFoldersRef.current);
-      });
+      // This write is the most recent to settle, so ITS start-revision
+      // (a `then` chain settles in enqueue order) is the fresh retirement
+      // bar; `settleWrite` retires immediately if threadFoldersRef already
+      // moved past it, otherwise the sync effect retires it once it does.
+      void tailed.then(() => settleWrite(revisionAtStart));
       return settled.then(() => undefined);
     },
-    [writeThreadFolders]
+    [
+      currentLiveIdentityRevision,
+      pendingWriteCountRef,
+      settleWrite,
+      writeTailRef,
+      writeThreadFolders,
+    ]
   );
 
   const resolveRootIdForPath = useCallback(

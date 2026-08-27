@@ -87,40 +87,66 @@ export function writeStartingPoint(
 }
 
 /**
- * Whether `live` (a just-resynced `threadFoldersRef` snapshot) already
- * reflects what `tail` persisted — the write queue's signal that it is safe
- * to retire the tail and let the NEXT write derive straight from `live`
- * again (BST-1400 item 2).
- *
- * Retiring the tail as soon as the write's own promise settles — instead of
- * waiting for this — raced React's commit: `threadFoldersRef.current` is
- * resynced by an effect, which runs on a LATER tick than the microtask
- * continuation on `settled`. A second write enqueued in that window found
- * the tail already cleared and derived from a `live` ref that did not yet
- * include the first write's change — silently dropping it, the exact bug
- * the tail exists to prevent, just shifted to different-tick clicks instead
- * of same-tick ones.
- *
- * Compares every field a chained write actually reads off the tail in
- * `writeStartingPoint`. `secondaryRootIds`/`ids` compares as a SET: a
- * resynced query result carries no ordering guarantee, and ordering is not
- * part of this set's identity.
+ * The write-queue-identity subset of a folder set: the fields a chained
+ * write actually reads off `current`/a tail in `writeStartingPoint`, reduced
+ * to ONE shape shared by `ThreadCheckoutFolders` (`threadFoldersRef`'s own
+ * snapshots) and `ThreadFoldersWriteTail` (`ids` renamed to
+ * `secondaryRootIds`) so both can be compared the same way.
  */
-export function tailReflectedInLiveState(
-  live: ThreadCheckoutFolders,
-  tail: ThreadFoldersWriteTail
-): boolean {
+export interface FolderWriteIdentity {
+  readonly checkoutLocalRootId: string | undefined;
+  readonly checkoutMode: 'local' | 'worktree';
+  readonly primaryRootId: string | undefined;
+  readonly secondaryRootIds: readonly string[];
+  // `undefined` for a `ThreadCheckoutFolders` snapshot taken with no thread
+  // selected; a tail's `threadId` is always a real thread (see
+  // `ThreadFoldersWriteTail`).
+  readonly threadId: string | undefined;
+}
+
+export function folderWriteIdentityOf(live: ThreadCheckoutFolders): FolderWriteIdentity {
+  return {
+    checkoutLocalRootId: live.checkoutLocalRootId,
+    checkoutMode: live.checkoutMode,
+    primaryRootId: live.primaryRootId,
+    secondaryRootIds: live.secondaryRootIds,
+    threadId: live.threadId,
+  };
+}
+
+/**
+ * Identity equality between two write-queue snapshots (BST-1400 item 2).
+ * `secondaryRootIds` compares as a SET — a resynced query result carries no
+ * ordering guarantee, and ordering is not part of this set's identity —
+ * everything else by `===`.
+ *
+ * This is the primitive the write queue's tail-retirement is built on (see
+ * `retireWriteTailIfCaughtUp` in `use-workspace-bar.ts`): it is used to
+ * detect that `threadFoldersRef` has genuinely MOVED since a write started,
+ * not to check whether it moved to any one specific expected value.
+ * Retiring only on an exact match against what a write itself persisted
+ * (the original version of this fix) could not tell "hasn't caught up yet"
+ * apart from "caught up to something ELSE" — a third-party change landing
+ * before this write's own change propagated compared unequal to the tail
+ * forever, pinning it, and the next same-thread write silently reverted the
+ * third-party change. Comparing consecutive `threadFoldersRef` snapshots
+ * instead — bumping a revision counter on any identity change, and retiring
+ * once that counter has advanced past the value captured when the write
+ * started — retires correctly in BOTH cases, because either way the ref no
+ * longer needs help from a stale tail.
+ */
+export function sameFolderWriteIdentity(a: FolderWriteIdentity, b: FolderWriteIdentity): boolean {
   if (
-    live.threadId !== tail.threadId ||
-    live.primaryRootId !== tail.primaryRootId ||
-    live.checkoutMode !== tail.checkoutMode ||
-    live.checkoutLocalRootId !== tail.checkoutLocalRootId ||
-    live.secondaryRootIds.length !== tail.ids.length
+    a.threadId !== b.threadId ||
+    a.primaryRootId !== b.primaryRootId ||
+    a.checkoutMode !== b.checkoutMode ||
+    a.checkoutLocalRootId !== b.checkoutLocalRootId ||
+    a.secondaryRootIds.length !== b.secondaryRootIds.length
   ) {
     return false;
   }
-  const liveIds = new Set(live.secondaryRootIds);
-  return tail.ids.every((id) => liveIds.has(id));
+  const aIds = new Set(a.secondaryRootIds);
+  return b.secondaryRootIds.every((id) => aIds.has(id));
 }
 
 /**

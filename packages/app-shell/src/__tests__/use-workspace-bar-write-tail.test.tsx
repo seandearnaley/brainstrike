@@ -823,6 +823,52 @@ describe('useWorkspaceBar — write tail chaining', () => {
     });
   });
 
+  it('retires a pinned tail once the live ref resyncs to something ELSE, letting the external change win (BST-1400 item 2 review fold-in)', async () => {
+    vi.useFakeTimers();
+    const { result } = await setup({ secondaryRootIds: ['r-docs', 'r-site'] });
+    await flush();
+    // Same persist-only forwarder as the sibling test above, so the first
+    // write's OWN change never reaches threadFoldersRef on its own — only an
+    // explicit seedThread below moves it.
+    await act(async () => {
+      useAssistantThreadStore.setState({
+        updateThreadMetadata: async (
+          repository: AssistantThreadRepository,
+          _resourceId: string,
+          threadId: string,
+          metadata: AssistantThreadMetadata
+        ) => {
+          await repository.updateThreadMetadata(threadId, metadata);
+        },
+      });
+    });
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-site'],
+    });
+    // An EXTERNAL surface changes the thread's folders to a set that is
+    // neither the pre-write state (['r-docs','r-site']) NOR what the write
+    // above persisted (['r-site']) — the case a tail retired only on an
+    // exact match against its own result cannot distinguish from "hasn't
+    // caught up yet", pinning it forever.
+    await act(async () => {
+      seedThread({ secondaryRootIds: ['r-alpha-db'] });
+    });
+    await flush();
+    // The next write must derive from the externally-changed live set, not
+    // revert it back toward the pinned tail.
+    await act(async () => {
+      result.current.onRemoveSecondary('r-alpha-db');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: [],
+    });
+  });
+
   it('chains two Make primary clicks so the second demotes the first, dropping and duplicating nothing', async () => {
     vi.useFakeTimers();
     const { result } = await setup({
