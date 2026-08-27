@@ -4,6 +4,7 @@ import { BranchChip } from './branch-chip';
 import { FolderChip } from './folder-chip';
 import { ModeChip } from './mode-chip';
 import { PrChip, type WorkspaceBarForge } from './pr-chip';
+import { WorkspaceBarDropZone } from './workspace-bar-drop-zone';
 
 /** A folder mounted in this thread's workspace (primary or secondary). */
 export interface WorkspaceBarRoot {
@@ -199,6 +200,13 @@ export interface WorkspaceBarProps {
   /** Present only when the platform can re-mount a recent folder without a picker (desktop). */
   readonly onAddRecent?: ((path: string) => void) | undefined;
   readonly onCopyPath?: ((path: string) => void) | undefined;
+  /**
+   * Receives the drop's `DataTransferItem`s. Present only when the platform
+   * can resolve a dropped folder to a path (desktop). Path resolution and
+   * mounting live in app-shell; this package stays store-free and
+   * Electron-free.
+   */
+  readonly onDropItems?: ((items: readonly DataTransferItem[]) => void) | undefined;
   readonly onMakePrimary: (rootId: string) => void;
   /**
    * Opens the app's Terminal on a mounted root. Present only when the platform
@@ -260,10 +268,11 @@ export const WorkspaceBar = ({
   checkoutState = 'resolved',
   forge,
   mode,
+  onDropItems,
   ...folder
 }: WorkspaceBarProps): ReactElement => {
   const forgeDiagnostic = forgeDiagnosticOf(forge);
-  return (
+  const bar = (
     // A plain container, not a labelled group: each chip carries its own
     // accessible name, and an extra grouping level would only add noise to
     // the composer's screen-reader path.
@@ -283,6 +292,13 @@ export const WorkspaceBar = ({
       {forge ? <PrChip forge={forge} /> : null}
       {mode ? <ModeChip mode={mode} /> : null}
     </div>
+  );
+  // Capability gating by omission (desktop only): no handler ⇒ no wrapper, no
+  // ring, no listeners — never a disabled zone.
+  return onDropItems ? (
+    <WorkspaceBarDropZone onDropItems={onDropItems}>{bar}</WorkspaceBarDropZone>
+  ) : (
+    bar
   );
 };
 

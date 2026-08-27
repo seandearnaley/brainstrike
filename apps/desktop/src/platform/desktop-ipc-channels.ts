@@ -273,6 +273,13 @@ export const DESKTOP_IPC_CHANNELS = {
     // grant — the renderer routes it through `fs:addRootByPath`, whose gates
     // decide. NOT an `ipcMain.handle` channel.
     openPath: 'workspace:open-path',
+    // The ONLY channel in this domain that runs renderer→main. Sent by
+    // `WorkspaceConnectHost` the instant it subscribes to `openPath` above —
+    // main gates delivery on BOTH the window having finished loading AND this
+    // ping, because `did-finish-load`/`did-stop-loading` only prove the
+    // DOCUMENT loaded, not that React has mounted the host and its
+    // `ipcRenderer.on` listener exists yet. NOT an `ipcMain.handle` channel.
+    openPathReady: 'workspace:open-path-ready',
   },
   worktrees: {
     adopt: 'worktrees:adopt',

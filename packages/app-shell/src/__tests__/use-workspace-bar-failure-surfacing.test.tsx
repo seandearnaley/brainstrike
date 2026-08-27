@@ -44,15 +44,19 @@ const fs = {
     platform: 'electron',
     rootId: 'adapter-alpha',
   })),
+  // BST-1393 L2: useConnectFolder() (now reached via useFolderDrop() inside
+  // useWorkspaceBar()) calls this unconditionally to gate openPicker.
+  isFileSystemAccessSupported: vi.fn(() => ({ reason: '', supported: true })),
   listRecentRoots: vi.fn(async () => [
     { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
     { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
   ]),
 };
 // Web omits the desktop-only capabilities rather than stubbing them.
-const webFs: Pick<typeof fs, 'addRootDirectory'> &
+const webFs: Pick<typeof fs, 'addRootDirectory' | 'isFileSystemAccessSupported'> &
   Partial<Pick<typeof fs, 'addRootDirectoryByPath' | 'listRecentRoots'>> = {
   addRootDirectory: fs.addRootDirectory,
+  isFileSystemAccessSupported: fs.isFileSystemAccessSupported,
 };
 let currentFs: typeof fs | typeof webFs = fs;
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => currentFs }));

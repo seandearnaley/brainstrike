@@ -18,7 +18,12 @@ vi.mock('@brainstrike/assistant-ui', () => ({
 }));
 vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>()),
-  useFileSystem: () => ({ addRootDirectory: vi.fn() }),
+  useFileSystem: () => ({
+    addRootDirectory: vi.fn(),
+    // BST-1393 L2: useConnectFolder() (now reached via useFolderDrop() inside
+    // useWorkspaceBar()) calls this unconditionally to gate openPicker.
+    isFileSystemAccessSupported: () => ({ reason: '', supported: true }),
+  }),
 }));
 
 // Module-level, so its identity is stable across parent renders — exactly what

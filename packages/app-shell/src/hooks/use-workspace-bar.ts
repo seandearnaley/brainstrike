@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AssistantOperatingRootCandidate } from '../assistant-operating-root';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -862,6 +863,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       });
   }, [addRootDirectory, recordAddedAsSecondary]);
 
+  // Chains the SAME thread-attachment step onAddFolder/onAddRecent chain
+  // after a successful mount, so a dropped folder becomes a chip on this
+  // thread instead of mounting globally and leaving the bar silent (review
+  // finding).
+  const folderDropEntry = useFolderDrop({ onRootConnected: recordAddedAsSecondary });
+
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
   // Always defined; the CAPABILITY decides whether the prop is supplied (see
   // the return). Gating the spread on `addRootDirectoryByPath` rather than on
@@ -1048,6 +1055,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,
+    ...folderDropEntry,
     onMakePrimary,
     onRemoveSecondary,
     ...(primaryRoot ? { primaryRoot } : {}),

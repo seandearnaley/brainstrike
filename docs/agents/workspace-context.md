@@ -1152,6 +1152,79 @@ additional explorer/status chrome):
     connected roots cannot evict disconnected grants. Desktop-only — web has no
     ledger and therefore no `onAddRecent` affordance (capability gating, not an
     `isElectron()` check).
+  - **Finder folder drop (BST-1393, spec §4.1 [D7]) — the bar's THIRD add
+    gesture**, alongside Add folder… and Add recent…, and the only one that
+    routes through the desktop `window.workspace` bridge rather than
+    `@brainstrike/file-explorer-ui/shell`'s `useFileSystem()` directly.
+    - **`useConnectFolder` (`workspace-connect/use-connect-folder.tsx`) is the
+      ONE seam every W6 entry point converges on**: File menu, `brainstrike
+      <path>` argv, macOS `open-file`, `second-instance` argv, File ▸ Open
+      Recent, AND a Finder drop — five `WorkspaceOpenOrigin` values (`argv` ·
+      `open-file` · `second-instance` · `menu-recent` · `drop`), all logged on
+      refusal so a "why did this folder mount / not mount" question always
+      names its real gesture. **Security posture (ruling S1): a path from any
+      of these is a REQUEST, never a grant.** `open-file` and argv are
+      attacker-influencable (any process can run `open -a BrainStrike
+      <path>`), so `connectPath` calls the SAME picker-less `addRootDirectoryByPath`
+      Add Recent uses (never a new grant door) and renders the SAME
+      "never granted, use Add folder…" remedy toast on refusal. `connectPath`
+      resolves to the mounted `DirectoryHandle` on success and `null` on
+      every refusal/failure path (each already toasted here) — a caller that
+      needs to react to success, rather than just fire-and-forget like
+      `workspace-connect-host.tsx` does for the other four origins, can.
+    - **`extractDroppedFolderPaths` (`workspace-connect/extract-dropped-folder-paths.ts`)**
+      turns a drop's `DataTransferItem`s into absolute paths, synchronously:
+      a `DataTransferItem` goes invalid the instant the drop event settles
+      (the same contract `packages/notes-vault/src/core/drop.ts` established),
+      so `webkitGetAsEntry()`/`getAsFile()` must both run inside the drop
+      tick. Files vs. folders are told apart by ASKING THE DOM
+      (`entry.isDirectory`), never guessed from `size`/`type` and never
+      forwarded blind to `connectPath` (ruling D1) — a plain file sent there
+      would come back with a GRANTS-flavored refusal that misdescribes the
+      problem. Every non-outcome is counted, not swallowed, in three SEPARATE
+      buckets so the notice never names the wrong noun: `skippedFileCount`
+      (confirmed plain files), `unreadableCount` (items whose kind
+      `webkitGetAsEntry()` threw before revealing — never confirmed to BE a
+      folder), and `unresolvedCount` (confirmed folders whose `File` yielded
+      no disk path). Resolved paths are deduped in drop order.
+    - **`WorkspaceBarDropZone` (`packages/assistant-ui/src/workspace-bar/`)**
+      wraps the bar's existing chips ONLY when `onDropItems` is supplied
+      (app-shell's `useFolderDrop` decides that from the bridge + `connectPath`
+      capabilities) — no wrapper, no ring, no listeners on web. The `'Files'`
+      MIME-type gate (`dragCarriesFiles`, checked BEFORE `preventDefault()`)
+      is byte-identical to `notes-vault-panel.tsx`'s copy of the same name —
+      intentionally not shared into a module for one function, but both sites
+      carry a cross-reference comment because that gate is the
+      security-relevant part of both surfaces (it is what keeps an internal
+      pragmatic-drag-and-drop thread-tab drag from being consumed): if one
+      copy is ever hardened, check the other. The drag-leave ring guard reads
+      `event.relatedTarget` rather than the vault panel's
+      `currentTarget === target` check: that check only holds up because the
+      vault panel's drop surface has few children, but the bar is full of
+      chips, and a dragleave bubbling off any one of them would otherwise
+      flicker the ring. The wrapper is a bare `<div>` with TWO a11y
+      suppressions, deliberately not a labelled `<section>`/landmark: chips
+      already carry their own accessible names, this exact bar already
+      rejects an extra grouping level for that reason (see the composer bar's
+      own container comment, `workspace-bar.tsx`), and the wrapper exists
+      only to catch a pointer gesture AT users cannot perform — the keyboard
+      path is the Folder chip's Add folder… action.
+    - **`useFolderDrop` (`workspace-connect/use-folder-drop.ts`) chains the
+      SAME thread-attachment step Add folder…/Add recent… run after their own
+      successful mount** (`recordAddedAsSecondary`, injected in from
+      `use-workspace-bar.ts` since this hook has no thread/database context
+      of its own) — a review finding: routing a drop through `connectPath`
+      alone mounts the folder globally but leaves the bar showing no trace of
+      it, on either outcome. Multiple dropped folders connect ONE AT A TIME,
+      not concurrently: `addRootDirectoryByPath` shares a loading flag and a
+      "most recently mounted becomes focused" outcome across calls, so firing
+      them concurrently makes both non-deterministic (order stops matching
+      drop order). A refused connect (`connectPath` resolves `null`) records
+      nothing and chains no `recordAddedAsSecondary` call — `connectPath`
+      already toasted its own refusal reason, so nothing here fires a second,
+      differently-flavored notice on top of it. A drop that mounted
+      everything cleanly toasts NOTHING, matching Add folder/Add recent's own
+      silence on success — the chip appearing IS the feedback.
   - Reveal: the chip NEVER hardcodes an OS name. `WorkspaceBarProps.reveal`
     pairs `{ label, onReveal }` so supplying a handler without a label is a
     type error, and app-shell feeds it the platform-aware `revealLabel()`
@@ -1341,6 +1414,22 @@ ledger, create/use/archive against the built app),
 (orderWorkspaceRoots + enrichment reorder), and the
 `hooks primaryCwd follows the declared main root` describe in
 `apps/desktop/src/__tests__/assistant-server/hooks/server-composition.integration.test.ts`.
+**The W6 connect-folder seam + Finder drop** (BST-1393, spec §7 / §4.1 [D7]):
+`packages/app-shell/src/__tests__/workspace-connect-bridge.test.ts` (bridge
+capability resolution + the exact-set `WorkspaceOpenOrigin`/required-method
+proofs) + `use-connect-folder.test.tsx` (S1 refusal remedy, IPC-envelope
+stripping, the FSA-capability `openPicker` gate) +
+`workspace-connect-host.test.tsx` (malformed-request rejection, subscription
+wiring) + `application-file-menu.test.ts` (File menu → `connectPath`),
+`packages/app-shell/src/__tests__/extract-dropped-folder-paths.test.ts`
+(drop-tick synchronicity falsifier, the three separately-counted
+non-outcomes, dedup) + `use-folder-drop.test.tsx` (sequential connect +
+`recordAddedAsSecondary` chaining, the refused-connect-records-nothing case,
+skip/unreadable/unresolved toast copy) +
+`packages/assistant-ui/src/__tests__/workspace-bar-drop.test.tsx` (the Files
+MIME gate, the relatedTarget leave guard, capability gating by omission on
+web) + `apps/desktop/src/__tests__/preload-runtime-contract.test.ts`
+(`window.workspace` preload surface).
 
 When changing this flow, update this section and the paired tests.
 
