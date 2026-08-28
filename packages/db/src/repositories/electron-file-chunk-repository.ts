@@ -453,42 +453,46 @@ export class ElectronFileChunkRepository {
 
     // Build tsquery using the appropriate function based on query mode
     const tsqueryFunc = this.getTsqueryFunction(queryMode);
-    const params: unknown[] = [language, trimmedQuery];
+    const params: unknown[] = [trimmedQuery, language];
     let paramIndex = 3;
 
-    // Build WHERE clause
-    const whereParts = [
-      'content_tsvector IS NOT NULL',
-      `content_tsvector @@ ${tsqueryFunc}($1::regconfig, $2)`,
-    ];
+    // Build scope filters once so the exact and fuzzy fallback arms cannot
+    // disagree about the caller's file/root/embedding boundaries.
+    const scopeWhereParts: string[] = [];
 
     paramIndex = this.appendFilterClause(
-      whereParts,
+      scopeWhereParts,
       params,
       paramIndex,
       fileRecordId,
       'file_record_id'
     );
-    paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
+    paramIndex = this.appendFilterClause(
+      scopeWhereParts,
+      params,
+      paramIndex,
+      chunkType,
+      'chunk_type'
+    );
     // Embedding-set scope with coverage-identity semantics (getCoverageForSet):
     // the chunk's own set matches, OR the chunk is pending embedding (NULL set)
     // and its file record carries the set. Match (tsquery) semantics unchanged.
     if (embeddingSetId !== undefined) {
-      whereParts.push(
+      scopeWhereParts.push(
         `(embedding_set_id = $${paramIndex} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = $${paramIndex})))`
       );
       params.push(embeddingSetId);
       paramIndex += 1;
     }
     paramIndex = this.appendSelectionFilters(
-      whereParts,
+      scopeWhereParts,
       params,
       paramIndex,
       normalizedFilePaths,
       normalizedSnapshotId
     );
     if (rootIds !== undefined) {
-      whereParts.push(
+      scopeWhereParts.push(
         `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
       );
       params.push(Array.from(rootIds));
@@ -500,28 +504,57 @@ export class ElectronFileChunkRepository {
     // unchanged; only the ORDERING comes from BM25. The `, id` tiebreaks keep
     // ordering deterministic — BM25 produces exact score ties for rows with
     // identical term statistics.
-    const result = await this.db.query(
+    const exactWhereParts = [
+      'content_tsvector IS NOT NULL',
+      `content_tsvector @@ ${tsqueryFunc}($2::regconfig, $1)`,
+      ...scopeWhereParts,
+    ];
+    const exactResult = await this.db.query(
       `SELECT
         ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
-        ${bm25RankExpression('$2')} as fts_rank,
+        ${bm25RankExpression('$1')} as fts_rank,
         ${
           includeHeadline
-            ? `ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
+            ? `ts_headline($2::regconfig, content, ${tsqueryFunc}($2::regconfig, $1),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
             : ''
         }
-        ROW_NUMBER() OVER (ORDER BY ${bm25RankExpression('$2')} DESC, id) as position
+        ROW_NUMBER() OVER (ORDER BY ${bm25RankExpression('$1')} DESC, id) as position
       FROM file_chunks
-      WHERE ${whereParts.join(' AND ')}
+      WHERE ${exactWhereParts.join(' AND ')}
       ORDER BY fts_rank DESC, id
       LIMIT $${paramIndex}`,
       [...params, limit]
     );
 
+    const rows =
+      exactResult.rows.length > 0 || language !== 'english'
+        ? exactResult.rows
+        : (
+            await this.db.query(
+              `SELECT
+                ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
+                word_similarity($1, content)::float8 as fts_rank,
+                ROW_NUMBER() OVER (ORDER BY word_similarity($1, content) DESC, id) as position
+              FROM file_chunks
+              WHERE $1 <% content
+                AND $2::regconfig IS NOT NULL${
+                  scopeWhereParts.length > 0 ? ` AND ${scopeWhereParts.join(' AND ')}` : ''
+                }
+              ORDER BY fts_rank DESC, id
+              LIMIT $${paramIndex}`,
+              [...params, limit]
+            )
+          ).rows;
+
     // Map results to FTSSearchResult
     const results: import('../models/file-chunk').FTSSearchResult[] = [];
-    for (const row of result.rows) {
-      const ftsRow = row as FileChunkRow & { fts_rank: string; headline: string; position: string };
+    for (const row of rows) {
+      const ftsRow = row as FileChunkRow & {
+        fts_rank: string;
+        headline?: string;
+        position: string;
+      };
       const rank = Number.parseFloat(ftsRow.fts_rank);
 
       // Apply threshold filter
