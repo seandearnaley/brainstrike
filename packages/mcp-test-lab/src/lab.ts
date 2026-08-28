@@ -34,12 +34,15 @@ import {
 } from './node-loopback.js';
 import { createReferenceServer } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario } from './scenario.js';
+import { assertStartOptions, type StartMcpLabScenarioOptions } from './start-options.js';
 import {
   requestIdKey,
   requestMethodFromMessage,
   responseIdKey,
   stdioChunkByteLength,
 } from './stdio-utils.js';
+
+export type { StartMcpLabScenarioOptions } from './start-options.js';
 
 export interface McpLabCleanupReport {
   readonly httpListenersClosed: number;
@@ -89,11 +92,6 @@ export interface McpLabSession {
   diagnostics: () => readonly McpLabDiagnostic[];
   endpoint: McpLabEndpoint;
   scenario: McpLabScenario;
-}
-
-export interface StartMcpLabScenarioOptions {
-  readonly execution?: 'in-process' | 'loopback';
-  readonly faultPlan?: McpLabFaultPlan;
 }
 
 interface AppliedFault {
@@ -962,6 +960,7 @@ export async function startMcpLabScenario(
   id: string,
   options: StartMcpLabScenarioOptions = {}
 ): Promise<McpLabSession> {
+  assertStartOptions(options);
   const scenario = getMcpLabScenario(id);
   if (scenario.id === 'stdio-reference') {
     if (options.execution) {

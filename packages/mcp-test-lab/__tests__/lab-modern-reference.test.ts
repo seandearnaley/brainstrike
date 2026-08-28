@@ -3,6 +3,27 @@ import { describe, expect, it } from 'vitest';
 import { startMcpLabScenario } from '../src/lab';
 
 describe('MCP lab modern reference', () => {
+  it.each([
+    ['unknown execution', { execution: 'typo' }],
+    ['null execution', { execution: null }],
+    ['false execution', { execution: false }],
+    ['unknown option', { unexpected: true }],
+    ['null fault plan', { faultPlan: null }],
+    ['null options', null],
+  ])('rejects %s before dispatching a scenario', async (_label, options) => {
+    let lab: Awaited<ReturnType<typeof startMcpLabScenario>> | undefined;
+    let caught: unknown;
+    try {
+      lab = await startMcpLabScenario('modern-reference', options as never);
+    } catch (error) {
+      caught = error;
+    } finally {
+      await lab?.close();
+    }
+
+    expect(String(caught)).toMatch(/Invalid MCP lab start options/);
+  });
+
   it('negotiates 2026-07-28 and exercises a real official SDK tool exchange', async () => {
     const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
     if (lab.endpoint.kind !== 'in-process-http') {
