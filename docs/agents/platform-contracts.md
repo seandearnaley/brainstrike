@@ -1264,7 +1264,7 @@ delivery.
 `packages/utils/src/browser-download.ts`** (subpath
 `@brainstrike/utils/browser-download`; pure-half tests
 `packages/utils/src/__tests__/browser-download.test.ts`, DOM-half tests
-`packages/ui/src/__tests__/debug-bundle-download.test.ts` because the utils
+`packages/assistant-ui/src/__tests__/debug-bundle-download.test.ts` because the utils
 package's vitest environment is `node`; the desktop-bridge route is covered in
 the node-env file since it needs no DOM). Five export surfaces today:
 `formatDebugBundleFilename` / `downloadDebugBundleFile`, `log-viewer.tsx`'s
@@ -1370,8 +1370,8 @@ push channel), `apps/desktop/src/__tests__/renderer/main.test.tsx`
 (hidden-renderer transport normalization), `packages/ui/src/__tests__/error-boundary.test.tsx`,
 `packages/app-shell/src/__tests__/debug-bundle.test.ts` (includes a golden
 snapshot), `packages/app-shell/src/__tests__/secret-scrub.test.ts`,
-`packages/ui/src/__tests__/copy-debug-bundle-button.test.tsx`,
-`packages/ui/src/__tests__/debug-bundle-download.test.ts`,
+`packages/assistant-ui/src/__tests__/copy-debug-bundle-button.test.tsx`,
+`packages/assistant-ui/src/__tests__/debug-bundle-download.test.ts`,
 `packages/app-shell/src/__tests__/use-debug-bundle.test.ts`.
 
 ### P2a: NDJSON backstop + persistent Log Viewer source
