@@ -1,6 +1,6 @@
 {
   "name": "@brainstrike/e2e-test-utils",
-  "description": "Shared Playwright helpers for Brainstrike end-to-end tests",
+  "description": "Shared Playwright helpers and protocol labs for Brainstrike end-to-end tests",
   "version": "0.1.0",
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -14,6 +14,7 @@
     "node": ">=24.15.0 <25"
   },
   "exports": {
+    "./mcp-lab-manifest": "./mcp-lab-manifest.ts",
     "./settings-test-overrides": "./settings-test-overrides.ts"
   },
   "private": true,
