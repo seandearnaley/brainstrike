@@ -167,6 +167,31 @@ describe('register-factory-reset-session-stores', () => {
     expect(useBrowserTabsStore.getState().tabs).toEqual([]);
   });
 
+  it('keeps later app-shell resets isolated when one registered store throws', async () => {
+    const originalClose = useCommandPaletteStore.getState().close;
+    useCommandPaletteStore.setState({
+      close: () => {
+        throw new Error('command palette reset failed');
+      },
+    });
+    useQuickOpenStore.getState().open();
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'codex/reset-after-failure',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'worktree-1',
+    });
+
+    try {
+      const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(result.success).toBe(true);
+      expect(useQuickOpenStore.getState().isOpen).toBe(false);
+      expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+    } finally {
+      useCommandPaletteStore.setState({ close: originalClose });
+    }
+  });
+
   // The two diagnostics session stores get their own case rather than riding
   // along above: without it, DELETING both `registerFactoryResetSessionStore`
   // blocks for them would leave every test on the branch green, silently

@@ -18,17 +18,19 @@ import {
   ROOT_PATH,
 } from './workspace-collection-sync-service-test-helpers';
 
-const { readFullTreeWithOptionsMock, runEnhancedImportMock } = vi.hoisted(() => ({
-  readFullTreeWithOptionsMock: vi.fn(),
-  runEnhancedImportMock: vi.fn(),
-}));
+const { backfillEmbeddingSetAssignmentsMock, readFullTreeWithOptionsMock, runEnhancedImportMock } =
+  vi.hoisted(() => ({
+    backfillEmbeddingSetAssignmentsMock: vi.fn(async () => undefined),
+    readFullTreeWithOptionsMock: vi.fn(),
+    runEnhancedImportMock: vi.fn(),
+  }));
 
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
 }));
 
 vi.mock('@brainstrike/file-import', () => ({
-  backfillEmbeddingSetAssignments: vi.fn(async () => undefined),
+  backfillEmbeddingSetAssignments: backfillEmbeddingSetAssignmentsMock,
   runEnhancedImport: runEnhancedImportMock,
 }));
 const COMPOSITE_KEY = encodeFileSelection(ROOT_PATH, FILE_PATH);
@@ -93,6 +95,12 @@ describe('WorkspaceCollectionSyncService', () => {
       params.onChunkingStart?.(baseResults);
       return [];
     });
+  });
+
+  it('preserves dependency mock implementations across test resets', async () => {
+    const result = backfillEmbeddingSetAssignmentsMock();
+    expect(result).toBeInstanceOf(Promise);
+    await expect(result).resolves.toBeUndefined();
   });
 
   it('does not start the local runtime when reconciliation finds no changes', async () => {
