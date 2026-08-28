@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CONTENT_HASH = '000000000000002a';
 
@@ -59,6 +59,10 @@ describe('background-indexer.worker cache validation', () => {
     vi.unstubAllGlobals();
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('skips counting only when both the cached hash and known size match', async () => {
     const { messageHandler, postMessage } = await loadWorkerHarness();
 
@@ -79,13 +83,13 @@ describe('background-indexer.worker cache validation', () => {
     );
   });
 
-  it('keeps hash-only matching for legacy cache entries without a size', async () => {
+  it('rejects cached hashes without the required secondary size', async () => {
     const { messageHandler, postMessage } = await loadWorkerHarness();
 
     await messageHandler(createRequest(undefined));
 
     expect(postMessage).toHaveBeenLastCalledWith(
-      expect.objectContaining({ contentHash: CONTENT_HASH, fileSize: 8, skipped: true })
+      expect.objectContaining({ error: expect.stringContaining('cachedFileSize'), type: 'error' })
     );
   });
 });

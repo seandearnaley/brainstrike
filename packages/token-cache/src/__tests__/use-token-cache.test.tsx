@@ -110,7 +110,7 @@ describe('useTokenCache', () => {
 
     let value: number | null = 0;
     await act(async () => {
-      value = result.current.getTokenCount('folder', 'file.txt', 'hello world');
+      value = result.current.getTokenCount('folder', 'file.txt', 'hello world', 11);
     });
     expect(value).toBeNull();
 
@@ -145,8 +145,8 @@ describe('useTokenCache', () => {
     const { result, rerender } = renderCacheHook();
 
     await act(async () => {
-      expect(result.current.getTokenCount('folder', 'file.txt', 'content')).toBeNull();
-      expect(result.current.getTokenCount('folder', 'file.txt', 'content')).toBeNull();
+      expect(result.current.getTokenCount('folder', 'file.txt', 'content', 7)).toBeNull();
+      expect(result.current.getTokenCount('folder', 'file.txt', 'content', 7)).toBeNull();
     });
 
     // Trigger another render to process deferred load queue
@@ -168,8 +168,8 @@ describe('useTokenCache', () => {
     const { result, rerender } = renderCacheHook();
 
     await act(async () => {
-      expect(result.current.getTokenCount('project', absolutePath, 'content')).toBeNull();
-      expect(result.current.getTokenCount('project', absolutePath, 'content')).toBeNull();
+      expect(result.current.getTokenCount('project', absolutePath, 'content', 7)).toBeNull();
+      expect(result.current.getTokenCount('project', absolutePath, 'content', 7)).toBeNull();
     });
 
     await act(async () => {
@@ -198,7 +198,8 @@ describe('useTokenCache', () => {
 
     let value: number | null = 0;
     await act(async () => {
-      value = result.current.getTokenCount('folder', 'file.txt', 'content');
+      // Seven is the current on-disk byte size supplied by file metadata.
+      value = result.current.getTokenCount('folder', 'file.txt', 'content', 7);
     });
     expect(value).toBeNull(); // initial lookup is async
 
@@ -244,7 +245,7 @@ describe('useTokenCache', () => {
     );
   });
 
-  it('preserves best-effort hash matching for legacy entries without a file size', async () => {
+  it('recounts a malformed cache entry without a file size instead of degrading to hash-only', async () => {
     store.get.mockResolvedValueOnce({
       contentHash: 'hash:content',
       countingMode: 'accurate',
@@ -264,8 +265,24 @@ describe('useTokenCache', () => {
     });
     await flushMicrotasks();
 
+    expect(workerPool.exec).toHaveBeenCalledTimes(1);
+    expect(store.set).toHaveBeenCalledWith(
+      expect.objectContaining({ filePath: 'file.txt', fileSize: 7, tokenCount: 7 })
+    );
+  });
+
+  it('waits for current file metadata instead of inventing a size from decoded content', async () => {
+    const { result, rerender } = renderCacheHook('accurate');
+
+    await act(async () => {
+      expect(result.current.getTokenCount('folder', 'bom.txt', 'content')).toBeNull();
+      rerender();
+    });
+    await flushMicrotasks();
+
+    expect(store.get).not.toHaveBeenCalled();
     expect(workerPool.exec).not.toHaveBeenCalled();
-    expect(result.current.getTokenCount('folder', 'file.txt')).toBe(99);
+    expect(store.set).not.toHaveBeenCalled();
   });
 
   it('updates hot cache after counting and calls onTokenResolved', async () => {
@@ -281,7 +298,7 @@ describe('useTokenCache', () => {
     );
 
     await act(async () => {
-      expect(result.current.getTokenCount('folder', 'file.txt', 'hello')).toBeNull();
+      expect(result.current.getTokenCount('folder', 'file.txt', 'hello', 5)).toBeNull();
     });
 
     // Trigger another render to process deferred load queue
@@ -306,7 +323,9 @@ describe('useTokenCache', () => {
     const { result, rerender } = renderCacheHook();
 
     await act(async () => {
-      expect(result.current.getTokenCount('brainstrike copy 2', absolutePath, 'hello')).toBeNull();
+      expect(
+        result.current.getTokenCount('brainstrike copy 2', absolutePath, 'hello', 5)
+      ).toBeNull();
     });
 
     await act(async () => {
@@ -329,7 +348,7 @@ describe('useTokenCache', () => {
     const { result, rerender } = renderCacheHook();
 
     await act(async () => {
-      expect(result.current.getTokenCount('project', traversalPath, 'secret')).toBeNull();
+      expect(result.current.getTokenCount('project', traversalPath, 'secret', 6)).toBeNull();
     });
 
     await act(async () => {
