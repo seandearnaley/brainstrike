@@ -27,10 +27,10 @@ const delayMs = Number.parseInt(process.env.MCP_LAB_START_DELAY_MS ?? '0', 10);
 if (Number.isFinite(delayMs) && delayMs > 0) {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
-if (process.env.MCP_LAB_STDERR_TEXT) {
+if (process.env.MCP_LAB_STDERR_TEXT !== undefined) {
   process.stderr.write(`${process.env.MCP_LAB_STDERR_TEXT}\n`);
 }
-if (process.env.MCP_LAB_MALFORMED_JSON) {
+if (process.env.MCP_LAB_MALFORMED_JSON !== undefined) {
   process.stdout.write(`${process.env.MCP_LAB_MALFORMED_JSON}\n`);
 }
 if (process.env.MCP_LAB_EXIT_SIGNAL) {

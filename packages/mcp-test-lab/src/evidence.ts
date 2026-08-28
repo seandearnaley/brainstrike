@@ -518,7 +518,7 @@ function validateVerificationProof(
   }
 }
 
-function assertSanitizedText(value: unknown, path: string): void {
+function assertSanitizedText(value: unknown, path: string, scanDecodedKeys = false): void {
   if (typeof value === 'string') {
     const finding = scanEvidenceTextForSecrets(value)[0];
     if (finding) {
@@ -528,7 +528,7 @@ function assertSanitizedText(value: unknown, path: string): void {
   }
   if (Array.isArray(value)) {
     for (const [index, entry] of value.entries()) {
-      assertSanitizedText(entry, `${path}[${index}]`);
+      assertSanitizedText(entry, `${path}[${index}]`, scanDecodedKeys);
     }
     return;
   }
@@ -536,7 +536,20 @@ function assertSanitizedText(value: unknown, path: string): void {
     return;
   }
   for (const [key, entry] of Object.entries(value)) {
-    assertSanitizedText(entry, path === '$' ? `$.${key}` : `${path}.${key}`);
+    const entryPath = path === '$' ? `$.${key}` : `${path}.${key}`;
+    const normalizedKey = key.toLowerCase().replaceAll(/[ -]/g, '_');
+    if (scanDecodedKeys && typeof entry === 'string' && CREDENTIAL_KEY_SET.has(normalizedKey)) {
+      const finding = scanEvidenceTextForSecrets(`${normalizedKey}=${entry}`)[0];
+      if (finding) {
+        fail(
+          entryPath,
+          'secret_detected',
+          `contains prohibited ${finding.kind} material`,
+          finding.index
+        );
+      }
+    }
+    assertSanitizedText(entry, entryPath, scanDecodedKeys);
   }
 }
 
@@ -605,7 +618,7 @@ function assertSanitizedParsedJson(text: string, path: string): void {
     return;
   }
   try {
-    assertSanitizedText(JSON.parse(trimmed) as unknown, path);
+    assertSanitizedText(JSON.parse(trimmed) as unknown, path, true);
     return;
   } catch (error) {
     if (error instanceof McpEvidenceValidationError) {
@@ -619,7 +632,7 @@ function assertSanitizedParsedJson(text: string, path: string): void {
       continue;
     }
     try {
-      assertSanitizedText(JSON.parse(candidate) as unknown, `${path}.ndjson[${index}]`);
+      assertSanitizedText(JSON.parse(candidate) as unknown, `${path}.ndjson[${index}]`, true);
     } catch (error) {
       if (error instanceof McpEvidenceValidationError) {
         throw error;

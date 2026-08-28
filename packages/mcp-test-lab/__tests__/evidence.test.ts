@@ -215,6 +215,23 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/bearer-token/i);
   });
 
+  it('detects credentials whose JSON property name is Unicode-escaped', () => {
+    const bytes = new TextEncoder().encode('{"access\\u005ftoken":"opaque-0123456789abcdef"}');
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
   it('rejects missing and unknown fields at every strict object boundary', () => {
     const missingTicket = {
       artifacts: VALID_BUNDLE.artifacts,

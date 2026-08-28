@@ -189,6 +189,8 @@ function assertChildExitFault(id: string, fault: UntypedFault): void {
   const exitedWithCode =
     typeof fault['code'] === 'number' &&
     Number.isInteger(fault['code']) &&
+    fault['code'] >= 0 &&
+    fault['code'] <= 255 &&
     fault['signal'] === null;
   const exitedWithSignal =
     fault['code'] === null &&
@@ -196,14 +198,18 @@ function assertChildExitFault(id: string, fault: UntypedFault): void {
     MCP_LAB_CHILD_SIGNAL_SET.has(fault['signal']);
   if (!(exitedWithCode || exitedWithSignal)) {
     throw new Error(
-      `Invalid MCP lab fault "${id}": child exit must provide either an integer code or a supported terminating signal`
+      `Invalid MCP lab fault "${id}": child exit must provide a code from 0 to 255 or a supported terminating signal`
     );
   }
 }
 
 function assertChildStderrFault(id: string, fault: UntypedFault): void {
-  if (typeof fault['text'] !== 'string') {
+  const text = fault['text'];
+  if (typeof text !== 'string') {
     throw new Error(`Invalid MCP lab fault "${id}": child stderr text must be a string`);
+  }
+  if (text.length === 0) {
+    throw new Error(`Invalid MCP lab fault "${id}": child stderr text must be non-empty`);
   }
   assertOnlyFaultKeys(
     id,
@@ -217,6 +223,9 @@ function assertMalformedJsonFault(id: string, fault: UntypedFault): void {
   const payload = fault['payload'];
   if (typeof payload !== 'string') {
     throw new Error(`Invalid MCP lab fault "${id}": malformed JSON payload must be a string`);
+  }
+  if (payload.trim().length === 0) {
+    throw new Error(`Invalid MCP lab fault "${id}": malformed JSON payload must be non-empty`);
   }
   assertOnlyFaultKeys(
     id,
