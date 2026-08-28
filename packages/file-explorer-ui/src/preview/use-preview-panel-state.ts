@@ -122,6 +122,7 @@ export function usePreviewPanelState({
   const persistentCache = usePersistentTokenCache({
     decodeFileSelection,
     fileContents,
+    ...(fileSizes === undefined ? {} : { fileSizes }),
     onTokenResolved: handleTokenResolved,
     tokenCounting,
   });

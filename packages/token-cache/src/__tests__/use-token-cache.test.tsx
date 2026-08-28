@@ -621,7 +621,9 @@ describe('useTokenCache', () => {
     expect(result.current.isAnyLoading).toBe(false);
 
     await act(async () => {
-      result.current.queueForCounting([{ content: 'c', filePath: 'file.txt', folderId: 'folder' }]);
+      result.current.queueForCounting([
+        { content: 'c', filePath: 'file.txt', fileSize: 1, folderId: 'folder' },
+      ]);
     });
 
     await flushMicrotasks();

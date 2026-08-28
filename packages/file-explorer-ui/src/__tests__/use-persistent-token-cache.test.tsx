@@ -102,7 +102,12 @@ describe('usePersistentTokenCache', () => {
 
       const value = result.current.getTokenCount('folder::file.txt');
       expect(value).toBe(42);
-      expect(mockContext?.getTokenCount).toHaveBeenCalledWith('folder', 'file.txt', 'hello');
+      expect(mockContext?.getTokenCount).toHaveBeenCalledWith(
+        'folder',
+        'file.txt',
+        'hello',
+        undefined
+      );
     });
 
     it('normalizes restored absolute paths before reading persistent token counts', () => {
@@ -111,7 +116,12 @@ describe('usePersistentTokenCache', () => {
 
       const value = result.current.getTokenCount('/repo::/repo/src/file.txt');
       expect(value).toBe(42);
-      expect(mockContext?.getTokenCount).toHaveBeenCalledWith('/repo', 'src/file.txt', 'hello');
+      expect(mockContext?.getTokenCount).toHaveBeenCalledWith(
+        '/repo',
+        'src/file.txt',
+        'hello',
+        undefined
+      );
     });
 
     it('normalizes restored absolute paths before reading persistent file sizes', () => {

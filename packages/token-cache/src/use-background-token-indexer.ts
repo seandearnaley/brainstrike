@@ -897,7 +897,7 @@ export function useBackgroundTokenIndexer({
           }
 
           requests.push({
-            ...(cachedFileSize === undefined ? {} : { cachedFileSize }),
+            cachedFileSize,
             cachedHash,
             compositeKey: file.compositeKey,
             filePath: file.filePath,
