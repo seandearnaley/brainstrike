@@ -185,7 +185,7 @@ describe('useTokenCache', () => {
       contentHash: 'hash:content',
       countingMode: 'accurate',
       filePath: 'file.txt',
-      fileSize: 10,
+      fileSize: 7,
       folderId: 'folder',
       modelEncoding: 'o200k_base',
       mtimeMs: null,
@@ -212,6 +212,57 @@ describe('useTokenCache', () => {
     act(() => {
       vi.advanceTimersByTime(VERSION_DEBOUNCE_MS);
     });
+
+    expect(workerPool.exec).not.toHaveBeenCalled();
+    expect(result.current.getTokenCount('folder', 'file.txt')).toBe(99);
+  });
+
+  it('recounts when persistent hash matches but a known file size differs', async () => {
+    store.get.mockResolvedValueOnce({
+      contentHash: 'hash:content',
+      countingMode: 'accurate',
+      filePath: 'file.txt',
+      fileSize: 99,
+      folderId: 'folder',
+      modelEncoding: 'o200k_base',
+      mtimeMs: null,
+      tokenCount: 99,
+    });
+
+    const { result } = renderCacheHook('accurate');
+
+    act(() => {
+      result.current.queueForCounting([
+        { content: 'content', filePath: 'file.txt', fileSize: 7, folderId: 'folder' },
+      ]);
+    });
+    await flushMicrotasks();
+
+    expect(workerPool.exec).toHaveBeenCalledTimes(1);
+    expect(store.set).toHaveBeenCalledWith(
+      expect.objectContaining({ filePath: 'file.txt', fileSize: 7, tokenCount: 7 })
+    );
+  });
+
+  it('preserves best-effort hash matching for legacy entries without a file size', async () => {
+    store.get.mockResolvedValueOnce({
+      contentHash: 'hash:content',
+      countingMode: 'accurate',
+      filePath: 'file.txt',
+      folderId: 'folder',
+      modelEncoding: 'o200k_base',
+      mtimeMs: null,
+      tokenCount: 99,
+    });
+
+    const { result } = renderCacheHook('accurate');
+
+    act(() => {
+      result.current.queueForCounting([
+        { content: 'content', filePath: 'file.txt', fileSize: 7, folderId: 'folder' },
+      ]);
+    });
+    await flushMicrotasks();
 
     expect(workerPool.exec).not.toHaveBeenCalled();
     expect(result.current.getTokenCount('folder', 'file.txt')).toBe(99);
