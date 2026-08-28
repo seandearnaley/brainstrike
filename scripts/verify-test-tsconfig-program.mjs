@@ -131,9 +131,12 @@ function parseCliArgs(argv) {
   return { minTestFiles, project };
 }
 
-function main() {
-  const options = parseCliArgs(process.argv.slice(2));
-  const result = verifyTestTsconfigProgram({ cwd: process.cwd(), ...options });
+export function main(options = {}) {
+  const cliOptions = parseCliArgs(process.argv.slice(2));
+  const result = verifyTestTsconfigProgram({
+    cwd: options.repoRoot ?? process.cwd(),
+    ...cliOptions,
+  });
   if (!result.ok) {
     console.error(result.message);
     process.exitCode = 1;
