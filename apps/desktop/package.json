@@ -211,6 +211,6 @@
     "type-check": "pnpm type-check:main && pnpm type-check:test && pnpm type-check:e2e",
     "type-check:e2e": "tsc --noEmit --project tsconfig.e2e.json",
     "type-check:main": "tsc --noEmit && tsc --noEmit --project tsconfig.main.json",
-    "type-check:test": "tsc --noEmit --project tsconfig.test.json"
+    "type-check:test": "node ../../scripts/verify-test-tsconfig-program.mjs --project tsconfig.test.json --min-test-files 400"
   }
 }

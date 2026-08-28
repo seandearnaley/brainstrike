@@ -286,6 +286,21 @@ ambient shims. Two consequences to keep in mind:
   `declaration: true` makes exported `vi.fn()` mocks fail TS2883 portability
   checks that vary with pnpm store layout.
 
+Desktop's `type-check:test` runs `scripts/verify-test-tsconfig-program.mjs`
+instead of invoking `tsc` directly. The wrapper asks the pinned compiler for
+the actual program through `--listFilesOnly`, requires at least 400 desktop
+test roots, and then runs the unchanged `tsc --noEmit` diagnostic pass. The
+floor is an anti-vacuity contract: `tsconfig.test.json` currently selects 419
+test files, and an inherited/excluded test glob must fail before a zero-file
+type-check can look green again. Its script tests include an empty-root
+control, a broken test-only import that must surface TS2307, and manifest/cache
+wiring assertions. `scripts/ts7-parity-check.mjs` unwraps the verifier command
+back to its `--project` so the desktop test program remains in TS6↔TS7 parity
+coverage. Because the verifier lives outside `apps/desktop`,
+`apps/desktop/turbo.json` explicitly includes it in the desktop `type-check`
+task inputs alongside `$TURBO_DEFAULT$`; changing the anti-vacuity or
+diagnostic logic must invalidate Turbo's cached result.
+
 ### Vercel Preview is advisory
 
 The Vercel GitHub integration reports a `Vercel` commit status on pull
