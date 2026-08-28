@@ -29,8 +29,116 @@ export interface HybridSearchBenchmarkReport {
   readonly warmupIterations: number;
 }
 
+function assertPositiveInteger(value: number, label: string): void {
+  if (!(Number.isInteger(value) && value > 0)) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+}
+
+function assertNonNegativeInteger(value: number, label: string): void {
+  if (!(Number.isInteger(value) && value >= 0)) {
+    throw new Error(`${label} must be a non-negative integer.`);
+  }
+}
+
+function assertPositiveFinite(value: number, label: string): void {
+  if (!(Number.isFinite(value) && value > 0)) {
+    throw new Error(`${label} must be finite and greater than zero.`);
+  }
+}
+
+function readClock(now: () => number): number {
+  const value = now();
+  if (!(Number.isFinite(value) && value >= 0)) {
+    throw new Error('Hybrid search benchmark clock must be finite and non-negative.');
+  }
+  return value;
+}
+
+async function measure(run: () => Promise<void>, now: () => number): Promise<number> {
+  const start = readClock(now);
+  await run();
+  const end = readClock(now);
+  if (end < start) {
+    throw new Error('Hybrid search benchmark clock moved backwards.');
+  }
+  return end - start;
+}
+
+function percentile(sortedSamples: readonly number[], ratio: number): number {
+  const index = Math.max(0, Math.ceil(sortedSamples.length * ratio) - 1);
+  return sortedSamples[index] ?? 0;
+}
+
+function summarize(samplesMs: readonly number[]): HybridSearchBenchmarkLatencySummary {
+  const sortedSamples = [...samplesMs].sort((left, right) => left - right);
+  return {
+    p50Ms: percentile(sortedSamples, 0.5),
+    p95Ms: percentile(sortedSamples, 0.95),
+    samplesMs: [...samplesMs],
+  };
+}
+
 export async function runHybridSearchBenchmark(
-  _options: HybridSearchBenchmarkOptions
+  options: HybridSearchBenchmarkOptions
 ): Promise<HybridSearchBenchmarkReport> {
-  throw new Error('Hybrid search benchmark runner is not implemented.');
+  assertPositiveInteger(options.iterations, 'Hybrid search benchmark iterations');
+  assertNonNegativeInteger(options.warmupIterations, 'Hybrid search benchmark warmupIterations');
+  assertPositiveFinite(
+    options.thresholds.maxAdditionalP95Ms,
+    'Hybrid search benchmark maxAdditionalP95Ms'
+  );
+  assertPositiveFinite(options.thresholds.maxHybridP95Ms, 'Hybrid search benchmark maxHybridP95Ms');
+
+  const now = options.now ?? performance.now.bind(performance);
+  for (let index = 0; index < options.warmupIterations; index++) {
+    if (index % 2 === 0) {
+      await options.runVectorOnly();
+      await options.runHybrid();
+    } else {
+      await options.runHybrid();
+      await options.runVectorOnly();
+    }
+  }
+
+  const vectorOnlySamples: number[] = [];
+  const hybridSamples: number[] = [];
+  for (let index = 0; index < options.iterations; index++) {
+    if (index % 2 === 0) {
+      vectorOnlySamples.push(await measure(options.runVectorOnly, now));
+      hybridSamples.push(await measure(options.runHybrid, now));
+    } else {
+      hybridSamples.push(await measure(options.runHybrid, now));
+      vectorOnlySamples.push(await measure(options.runVectorOnly, now));
+    }
+  }
+
+  const additionalSamples = hybridSamples.map(
+    (hybridSample, index) => hybridSample - (vectorOnlySamples[index] ?? 0)
+  );
+  const hybridLatency = summarize(hybridSamples);
+  const vectorOnlyLatency = summarize(vectorOnlySamples);
+  const additionalLatency = summarize(additionalSamples);
+  const failures: string[] = [];
+  if (hybridLatency.p95Ms > options.thresholds.maxHybridP95Ms) {
+    failures.push(
+      `hybrid p95 ${hybridLatency.p95Ms.toFixed(3)}ms exceeds ${options.thresholds.maxHybridP95Ms.toFixed(3)}ms`
+    );
+  }
+  if (additionalLatency.p95Ms > options.thresholds.maxAdditionalP95Ms) {
+    failures.push(
+      `additional p95 ${additionalLatency.p95Ms.toFixed(3)}ms exceeds ${options.thresholds.maxAdditionalP95Ms.toFixed(3)}ms`
+    );
+  }
+
+  return {
+    additionalLatency,
+    failures,
+    hybridLatency,
+    iterations: options.iterations,
+    passed: failures.length === 0,
+    thresholds: { ...options.thresholds },
+    vectorOnlyLatency,
+    warmupIterations: options.warmupIterations,
+  };
 }
