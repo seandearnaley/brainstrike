@@ -10,13 +10,11 @@ import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/wor
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
-import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
 import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useChangesStore } from './changes/changes-store';
 import { useRewindStore } from './changes/rewind-store';
-import { resetAppShellSessionStores } from './reset-app-shell-session-stores';
+import { APP_SHELL_SESSION_STORE_RESETTERS } from './reset-app-shell-session-stores';
 import { useTerminalTargetStore } from './stores/terminal-target-store';
 
 /**
@@ -31,7 +29,9 @@ import { useTerminalTargetStore } from './stores/terminal-target-store';
  * Store imports use package subpaths (not feature barrels) so registration stays
  * free of UI/bridge side graphs.
  */
-registerFactoryResetSessionStore(resetAppShellSessionStores);
+for (const reset of APP_SHELL_SESSION_STORE_RESETTERS) {
+  registerFactoryResetSessionStore(reset);
+}
 
 registerFactoryResetSessionStore(() => {
   useWorkspaceSearchStore.getState().reset();
@@ -64,10 +64,6 @@ registerFactoryResetSessionStore(() => {
   // persist write — the resetDatabaseDemoStoreToDefault bug class.
   useWorkspaceTabSelectionStore.getState().reset();
   useTabManagerStore.getState().clearTabs();
-});
-
-registerFactoryResetSessionStore(() => {
-  useAssistantComposerCommandStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
@@ -108,14 +104,6 @@ registerFactoryResetSessionStore(() => {
   // just wiped; leaving it up would show a confirm modal for a conversation
   // that no longer exists.
   useRewindStore.getState().reset();
-});
-
-registerFactoryResetSessionStore(() => {
-  // The browser-pane tab mirror (BST-1174). The main-process views + their
-  // `persist:browser-pane` partition are wiped by the desktop userData reset;
-  // this clears the renderer's stale copy of that list so the pane starts
-  // empty in the fresh profile.
-  useBrowserTabsStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {

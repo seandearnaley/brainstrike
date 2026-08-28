@@ -159,18 +159,20 @@ If you add new persistence (Caches API, service worker, filesystem handles, etc.
 - Integrate into reset pipeline.
 - Otherwise stale embeddings/providers may reappear.
 
-Dependency-free session stores owned by `app-shell` share one reset function,
-`resetAppShellSessionStores`; this includes diagnostics health/seen state,
-thread search, command palette, quick open, and one-shot worktree checkout
-intent. Production registers that function through
-`registerFactoryResetSessionStore`, and `packages/app-shell/vitest.setup.ts`
-invokes the same function before every test. Do not maintain a second test-only
-reset list: that recreates the drift BST-938 found, where shuffled tests
-inherited a disabled diagnostic sink or active search from an earlier test.
-Component-coupled app-shell stores and feature-package stores keep their own
-production registrations plus explicit focused-test setup; preloading those in
-the global helper would bind real dependencies before test modules can install
-their mocks. The regression in
+Dependency-free session stores owned by `app-shell` share one authoritative
+resetter list, `APP_SHELL_SESSION_STORE_RESETTERS`; this includes diagnostics
+health/seen state, assistant composer commands, browser tabs, thread search,
+command palette, quick open, and one-shot worktree checkout intent. Production
+registers every list member separately through
+`registerFactoryResetSessionStore`, preserving per-store failure isolation,
+while `packages/app-shell/vitest.setup.ts` invokes
+`resetAppShellSessionStores()` to drain the same list before every test. Do not
+maintain a second test-only reset list: that recreates the drift BST-938 found,
+where shuffled tests inherited a disabled diagnostic sink or active search from
+an earlier test. Component-coupled app-shell stores and feature-package stores
+keep their own production registrations plus explicit focused-test setup;
+preloading those in the global helper would bind real dependencies before test
+modules can install their mocks. The regression in
 `packages/app-shell/src/__tests__/session-store-test-isolation.test.ts` pins the
 cross-test boundary, while
 `register-factory-reset-session-stores.test.ts` pins production registration.

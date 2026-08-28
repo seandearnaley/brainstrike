@@ -8,16 +8,29 @@ import { resetThreadSearchStore } from './thread-search-store';
 /**
  * Reset dependency-free app-shell session stores that tests can safely preload.
  *
- * This is the single authoritative list for both factory reset registration
- * and app-shell's Vitest beforeEach isolation. Component-coupled stores retain
- * explicit production registrations and focused test setup: preloading them
- * here would bind their dependencies before test modules can install mocks.
+ * This list is authoritative for both factory-reset registration and
+ * app-shell's Vitest beforeEach isolation. Production registers each member
+ * separately so one throwing resetter cannot prevent later stores from
+ * clearing. Component-coupled stores retain explicit production registrations
+ * and focused test setup: preloading them here would bind their dependencies
+ * before test modules can install mocks.
  */
+export const APP_SHELL_SESSION_STORE_RESETTERS: readonly (() => void)[] = [
+  resetDiagnosticSinkHealthStore,
+  resetDiagnosticsSeenStore,
+  () => useAssistantComposerCommandStore.getState().reset(),
+  () => useBrowserTabsStore.getState().reset(),
+  () => useCommandPaletteStore.getState().close(),
+  () => useQuickOpenStore.getState().close(),
+  () => useWorktreeCheckoutIntentStore.getState().reset(),
+  resetThreadSearchStore,
+];
+
 export function resetAppShellSessionStores(): void {
-  resetDiagnosticSinkHealthStore();
-  resetDiagnosticsSeenStore();
-  useCommandPaletteStore.getState().close();
-  useQuickOpenStore.getState().close();
-  useWorktreeCheckoutIntentStore.getState().reset();
-  resetThreadSearchStore();
+  for (const reset of APP_SHELL_SESSION_STORE_RESETTERS) {
+    reset();
+  }
 }
+
+import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
