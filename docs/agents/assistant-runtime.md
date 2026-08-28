@@ -1430,7 +1430,7 @@ viewport, not by thread length.
   Tier 2 puts inter-message spacing and the trailing gap on the row wrapper as
   padding.
 
-Paired tests: `packages/ui/src/__tests__/assistant-thread-virtualization.browser.test.tsx`
+Paired tests: `packages/assistant-ui/src/__tests__/assistant-thread-virtualization.browser.test.tsx`
 (real Chromium: tier attribute either side of the threshold, bounded DOM rows at
 N=1000 with all messages still reachable, opening at the newest message, append
 while scrolled up, streaming growth staying pinned, tier-1 containment computed
