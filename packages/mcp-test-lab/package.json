@@ -6,6 +6,7 @@
     "@brainstrike/test-utils": "workspace:*",
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/conformance": "0.2.0-alpha.10",
+    "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
@@ -26,8 +27,9 @@
   "private": true,
   "scripts": {
     "lint": "pnpm -w lint",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
