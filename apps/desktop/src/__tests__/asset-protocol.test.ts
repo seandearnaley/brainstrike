@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { net } from 'electron';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({
   net: {
@@ -38,10 +39,38 @@ function makeHandler() {
 const assetUrl = (p: string): string =>
   `brainstrike-asset://local/asset?path=${encodeURIComponent(p)}`;
 
+beforeEach(() => {
+  vi.mocked(net.fetch).mockClear();
+});
+
 describe('asset protocol handler', () => {
   it('serves files inside a mounted root', async () => {
     const res = await makeHandler()(new Request(assetUrl(path.join(root, 'img.png'))));
     expect(res.status).toBe(200);
+  });
+
+  it('serves files when the mounted root is the filesystem root', async () => {
+    const filesystemRoot = path.parse(root).root;
+    const handler = createAssetProtocolHandler({
+      listRoots: () =>
+        Promise.resolve([
+          { displayName: 'filesystem root', path: filesystemRoot, rootId: 'r-root' },
+        ]),
+    });
+
+    const res = await handler(new Request(assetUrl(path.join(root, 'img.png'))));
+    expect(res.status).toBe(200);
+    expect(net.fetch).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a sibling directory that merely shares the root path prefix', async () => {
+    const sibling = `${root}-evil`;
+    await mkdir(sibling);
+    await writeFile(path.join(sibling, 'img.png'), 'png-bytes');
+
+    const res = await makeHandler()(new Request(assetUrl(path.join(sibling, 'img.png'))));
+    expect(res.status).toBe(404);
+    expect(net.fetch).not.toHaveBeenCalled();
   });
 
   it('rejects files outside every root with 404 (not 403 — no existence oracle)', async () => {
