@@ -3,12 +3,25 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const workflow = readFileSync('.github/workflows/test.yml', 'utf8');
+const coverageWorkflow = readFileSync('.github/workflows/coverage.yml', 'utf8');
+const shortAutomationWorkflows = new Map([
+  ['React Doctor', readFileSync('.github/workflows/react-doctor.yml', 'utf8')],
+  ['Claude Auto Review', readFileSync('.github/workflows/claude-code-review.yml', 'utf8')],
+  ['Claude Code', readFileSync('.github/workflows/claude.yml', 'utf8')],
+]);
 
-const UBICLOUD_JOBS = ['unit-shard', 'build', 'native-electron', 'web-e2e', 'desktop-e2e'];
+const UBICLOUD_JOBS = [
+  'unit-shard',
+  'build',
+  'native-electron',
+  'browser-tests',
+  'web-e2e',
+  'desktop-e2e',
+];
 const GITHUB_JOBS = new Map([
   ['admission', 'ubuntu-slim'],
   ['static', 'ubuntu-24.04-arm'],
-  ['unit', 'ubuntu-24.04-arm'],
+  ['unit', 'ubuntu-slim'],
   ['native-windows', 'windows-latest'],
 ]);
 
@@ -32,13 +45,33 @@ test('the measured Linux x64 jobs run on Ubicloud standard-4', () => {
   }
 });
 
-test('admission, ARM, and Windows jobs remain on GitHub-hosted runners', () => {
+test('PR coverage uses the cost-optimized 2-vCPU Ubicloud runner', () => {
+  assert.match(coverageWorkflow, /^ {4}runs-on: ubicloud-standard-2$/m);
+});
+
+test('short x64 automation uses the cost-optimized 2-vCPU Ubicloud runner', () => {
+  for (const [name, source] of shortAutomationWorkflows) {
+    assert.match(source, /^ {4}runs-on: ubicloud-standard-2$/m, name);
+  }
+});
+
+test('admission, Unit fan-in, ARM Static, and Windows use their cheapest compatible GitHub runners', () => {
   for (const [jobId, runner] of GITHUB_JOBS) {
     assert.match(jobBlock(jobId), new RegExp(`^ {4}runs-on: ${runner}$`, 'm'), jobId);
   }
 });
 
-test('Ubicloud is limited to the five measured jobs', () => {
+test('Native Windows stays always-on without custom diff-routing machinery', () => {
+  assert.doesNotMatch(workflow, /^ {2}native-windows-impact:\s*$/m);
+  assert.doesNotMatch(workflow, /native-windows-impact\.mjs/);
+
+  const windows = jobBlock('native-windows');
+  assert.match(windows, /^ {4}if: needs\.admission\.outputs\.admitted == 'true'$/m);
+  assert.match(windows, /^ {4}needs: \[admission\]$/m);
+  assert.doesNotMatch(windows, /^ {4}if: always\(\)/m);
+});
+
+test('the Test workflow uses Ubicloud only for the six measured jobs', () => {
   const ubicloudAssignments = [...workflow.matchAll(/^ {4}runs-on: (ubicloud-[a-z0-9-]+)$/gm)].map(
     (match) => match[1]
   );

@@ -114,7 +114,10 @@ jobs:
        github.event.action == 'reopened' ||
        github.event.action == 'ready_for_review' ||
        (github.event.action == 'labeled' && github.event.label.name == 'coverage'))
-    runs-on: ubuntu-latest
+    # Cost-first exact-shape migration: private ubuntu-latest is 2 vCPU / 8 GB;
+    # Ubicloud standard-2 preserves that shape at the lower managed-runner rate.
+    # Keep the existing concurrency and x64-native coverage behavior unchanged.
+    runs-on: ubicloud-standard-2
     timeout-minutes: 60
     steps:
       # `fetch-depth: 0` is REQUIRED: the affected-only coverage filter below
