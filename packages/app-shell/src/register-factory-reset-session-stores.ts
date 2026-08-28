@@ -11,15 +11,12 @@ import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-rese
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
 import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useChangesStore } from './changes/changes-store';
 import { useRewindStore } from './changes/rewind-store';
-import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-health-store';
-import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
+import { resetAppShellSessionStores } from './reset-app-shell-session-stores';
 import { useTerminalTargetStore } from './stores/terminal-target-store';
-import { resetThreadSearchStore } from './thread-search-store';
 
 /**
  * Wire session-only Zustand stores into the factory-reset pipeline per the
@@ -33,6 +30,8 @@ import { resetThreadSearchStore } from './thread-search-store';
  * Store imports use package subpaths (not feature barrels) so registration stays
  * free of UI/bridge side graphs.
  */
+registerFactoryResetSessionStore(resetAppShellSessionStores);
+
 registerFactoryResetSessionStore(() => {
   useWorkspaceSearchStore.getState().reset();
 });
@@ -85,50 +84,18 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
-  // Thread search results/query are session-only; the durable index rows
-  // (brainstrike_thread_message_index/_state) are cleared with the DB.
-  resetThreadSearchStore();
-});
-
-registerFactoryResetSessionStore(() => {
-  // The unseen-diagnostics watermark is seeded to "now" at launch (design
-  // §9) so the status-bar chip counts events since this session, not every
-  // retained row replayed as unread. Reset re-seeds it to "now" rather than
-  // restoring the original module-load value, matching that same contract.
-  resetDiagnosticsSeenStore();
-});
-
-registerFactoryResetSessionStore(() => {
-  // The sink-health flag is the only channel `DiagnosticSinkBridge`'s
-  // onDisabled callback has to reach the settings UI (the bridge mounts
-  // outside RootLayoutContent, so React context can't carry it); it reflects
-  // in-memory writer state for this run and must not survive a reset.
-  resetDiagnosticSinkHealthStore();
-});
-
-registerFactoryResetSessionStore(() => {
-  // Without this, `activeChangeset`/`handoffThreadIdentity` would keep
-  // pointing at a runId/threadId or repository path the reset just wiped.
   useChangesNavigationStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
-  // Selection/expansion are view-only, but a selection carried over past a
-  // reset can filter every file out of a diff pane that no longer exists.
   useChangesStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
-  // Invalidation nonces name absolute repository paths; the wire-generation
-  // guard also restarts so a post-reset main process re-numbering from 1 is
-  // not dropped (BST-1161).
   useChangesLiveRefreshStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
-  // An open Conversation Rewind request names a thread/message/run the reset
-  // just wiped; leaving it up would show a confirm modal for a conversation
-  // that no longer exists.
   useRewindStore.getState().reset();
 });
 
@@ -136,14 +103,6 @@ registerFactoryResetSessionStore(() => {
   // A pending composer repopulation is the text of a message the reset just
   // deleted — it must not land in a fresh profile's first prompt.
   useRewindComposerStore.getState().consume();
-});
-
-registerFactoryResetSessionStore(() => {
-  // The browser-pane tab mirror (BST-1174). The main-process views + their
-  // `persist:browser-pane` partition are wiped by the desktop userData reset;
-  // this clears the renderer's stale copy of that list so the pane starts
-  // empty in the fresh profile.
-  useBrowserTabsStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
@@ -156,8 +115,5 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
-  // A pinned Terminal target names an absolute checkout path and a rootId the
-  // reset just wiped; leaving it would point the panel at a folder that no
-  // longer exists in this profile.
   useTerminalTargetStore.getState().reset();
 });

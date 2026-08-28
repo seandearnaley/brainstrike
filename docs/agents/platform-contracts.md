@@ -159,6 +159,22 @@ If you add new persistence (Caches API, service worker, filesystem handles, etc.
 - Integrate into reset pipeline.
 - Otherwise stale embeddings/providers may reappear.
 
+Dependency-free session stores owned by `app-shell` share one reset function,
+`resetAppShellSessionStores`; this includes diagnostics health/seen state,
+thread search, command palette, quick open, and one-shot worktree checkout
+intent. Production registers that function through
+`registerFactoryResetSessionStore`, and `packages/app-shell/vitest.setup.ts`
+invokes the same function before every test. Do not maintain a second test-only
+reset list: that recreates the drift BST-938 found, where shuffled tests
+inherited a disabled diagnostic sink or active search from an earlier test.
+Component-coupled app-shell stores and feature-package stores keep their own
+production registrations plus explicit focused-test setup; preloading those in
+the global helper would bind real dependencies before test modules can install
+their mocks. The regression in
+`packages/app-shell/src/__tests__/session-store-test-isolation.test.ts` pins the
+cross-test boundary, while
+`register-factory-reset-session-stores.test.ts` pins production registration.
+
 Desktop bundled Python runtime (BST-1061): `resolvePythonBinary` unpacks the
 pinned CPython under `app.getPath('userData')/python-runtime/`, so the
 wholesale userData wipe in `desktop-factory-reset.ts` covers it with zero
@@ -1766,9 +1782,10 @@ starts clean and re-arms the warning only after its own bounded
 failure threshold accumulates.
 
 **Factory reset (all three P2b stores)**: the two session stores
-(`resetDiagnosticsSeenStore`, `resetDiagnosticSinkHealthStore`) are registered
-in `packages/app-shell/src/register-factory-reset-session-stores.ts`; the
-persisted `resetDiagnosticsRetentionStoreToDefaults()` is called directly from
+(`resetDiagnosticsSeenStore`, `resetDiagnosticSinkHealthStore`) are reset by
+`resetAppShellSessionStores`, which is registered in
+`packages/app-shell/src/register-factory-reset-session-stores.ts`; the persisted
+`resetDiagnosticsRetentionStoreToDefaults()` is called directly from
 `clearBrowserStorage()` in
 `packages/app-state/src/factory-reset.ts`, alongside
 its sibling persisted stores.

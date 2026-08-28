@@ -20,7 +20,10 @@ import {
   resetRootRegistrationEventsForTests,
   rootRegistrationSeq,
 } from '../roots/root-registration-events';
+import { useCommandPaletteStore } from '../stores/command-palette-store';
+import { useQuickOpenStore } from '../stores/quick-open-store';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
+import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 
 // The real notes-vault store's default services require indexedDB (handle
 // persistence), which this vitest environment does not provide. The reset
@@ -104,6 +107,14 @@ describe('register-factory-reset-session-stores', () => {
     });
     useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
     useTerminalTargetStore.getState().openTerminalAt({ cwd: '/wt', rootId: 'r-1' });
+    useCommandPaletteStore.getState().open();
+    useQuickOpenStore.getState().open();
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'codex/reset-me',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'worktree-1',
+    });
 
     expect(useWorkspaceSearchStore.getState().query).toBe('find me');
     expect(useChunkSelectionStore.getState().selectionsByKey['root|@|src/a.ts']).toBeDefined();
@@ -134,6 +145,12 @@ describe('register-factory-reset-session-stores', () => {
     expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
     expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
     expect(useTerminalTargetStore.getState().target).toBeNull();
+    expect(useCommandPaletteStore.getState()).toMatchObject({
+      isOpen: false,
+      openTarget: null,
+    });
+    expect(useQuickOpenStore.getState().isOpen).toBe(false);
+    expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
   });
 
   // The two diagnostics session stores get their own case rather than riding

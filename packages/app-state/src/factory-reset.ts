@@ -491,11 +491,7 @@ function clearBrowserStorage(): void {
   // Drain externally-registered session-store resetters (see the registry doc
   // above). Each is guarded so one failure cannot abort the rest of the reset.
   for (const reset of sessionStoreResetters) {
-    try {
-      reset();
-    } catch (error) {
-      logger.warn('Failed to reset a registered session store', { error });
-    }
+    resetLiveStoreSafely('registered session store', reset);
   }
 
   // Clear localStorage - blanket clear, no fallback lists

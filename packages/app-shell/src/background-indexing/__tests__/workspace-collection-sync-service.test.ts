@@ -70,7 +70,10 @@ function createMockNodeHandle(args: {
 
 describe('WorkspaceCollectionSyncService', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Reset implementations and one-shot queues as well as call history.
+    // `clearAllMocks` left unused mockResolvedValueOnce values behind, so a
+    // shuffled later test could see an empty tree and skip runtime startup.
+    vi.resetAllMocks();
     readFullTreeWithOptionsMock.mockResolvedValue([
       {
         handle: { path: `${ROOT_PATH}/${FILE_PATH}`, platform: 'electron' },
