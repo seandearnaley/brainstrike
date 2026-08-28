@@ -392,19 +392,19 @@ function sendReadyPing(win: MockWindowInstance): void {
 }
 
 /**
- * Fires every registered `did-start-navigation` handler with the real
- * Electron signature `(event, url, isInPlace, isMainFrame)` — matching
- * `main.ts`'s own listener, which is the ONLY thing that resets
- * `rendererReady` (never `did-start-loading` alone; see the PR #2682
- * re-review this whole file is built around).
+ * Fires every registered `did-start-navigation` handler with Electron's modern
+ * details-object signature. Supplying no deprecated positional args makes
+ * this harness fail if `main.ts` still reads `isInPlace` / `isMainFrame` from
+ * positions 3 and 4. This listener is the ONLY thing that resets
+ * `rendererReady` (never `did-start-loading` alone; see the PR #2682 re-review
+ * this whole file is built around).
  */
-function fireDidStartNavigation(onMock: MockOnFn, isMainFrame: boolean, isInPlace = false): void {
-  fireHandlersRegisteredSoFar(onMock, 'did-start-navigation', [
-    {},
-    'https://example.test/',
-    isInPlace,
-    isMainFrame,
-  ]);
+function fireDidStartNavigation(
+  onMock: MockOnFn,
+  isMainFrame: boolean,
+  isSameDocument = false
+): void {
+  fireHandlersRegisteredSoFar(onMock, 'did-start-navigation', [{ isMainFrame, isSameDocument }]);
 }
 
 // Captured once at module load, before any test mutates it (see beforeEach).
@@ -605,7 +605,7 @@ describe('main workspace-open lifecycle', () => {
 
     // Simulate a REAL reload beginning: `did-start-loading` (WebContents-level,
     // fires for any frame) fires alongside `did-start-navigation` with
-    // `isMainFrame: true, isInPlace: false` — the top-level document is about
+    // `isMainFrame: true, isSameDocument: false` — the top-level document is about
     // to be replaced, tearing down `WorkspaceConnectHost`'s subscription with
     // it. ONLY this combination should reset `rendererReady` (see the
     // subframe-cycle test below for the contrasting case that must NOT).
