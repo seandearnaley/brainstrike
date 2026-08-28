@@ -111,3 +111,25 @@ test('ignores tests and build output', async () => {
   assert.equal(callCount, 1);
   assert.deepEqual(violations, []);
 });
+
+test('ignores producer-shaped text in comments and literals', async () => {
+  const root = await writeFixture({
+    [OWNING_FILE]: COMPLIANT_OWNER,
+    'packages/assistant-ui/src/run-event-derivation.ts': String.raw`
+// createThreadRunId() is intentionally owned by app-shell.
+/** Keep createThreadRunId() behind the schema bootstrap. */
+const singleQuoted = 'createThreadRunId()';
+const doubleQuoted = "createThreadRunId()";
+const templateText = \`createThreadRunId()\`;
+const pattern = /createThreadRunId\\(\\)/;
+`,
+  });
+
+  const { callCount, declarationCount, violations } = await findAssistantRunIdProducerViolations({
+    root,
+  });
+
+  assert.equal(declarationCount, 1);
+  assert.equal(callCount, 1);
+  assert.deepEqual(violations, []);
+});
