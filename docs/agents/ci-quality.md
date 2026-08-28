@@ -279,7 +279,10 @@ then runs the unchanged `tsc --noEmit` diagnostic pass. The floor is an
 anti-vacuity contract: `tsconfig.test.json` currently selects 419 test files,
 and an inherited/excluded test glob must fail before a zero-file type-check can
 look green again. Its script tests include both an empty-root control and a
-broken test-only import that must surface TS2307.
+broken test-only import that must surface TS2307. Because the verifier lives
+outside `apps/desktop`, `apps/desktop/turbo.json` explicitly includes it in the
+desktop `type-check` task inputs alongside `$TURBO_DEFAULT$`; changing the
+anti-vacuity or diagnostic logic must invalidate Turbo's cached result.
 
 - `type-check:test` needs deps built first. Turbo's `type-check` task
   (`dependsOn: ["build"]`) covers CI and `pnpm type-check`; a bare
