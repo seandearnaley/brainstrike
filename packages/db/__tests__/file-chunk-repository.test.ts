@@ -1288,6 +1288,15 @@ describe('FileChunkRepository', () => {
       expect(results).toEqual([]);
     });
 
+    it('finds a near-match when an exact full-text query has no rows', async () => {
+      const results = await repository.fullTextSearch('authentcation');
+
+      expect(results.map((result) => result.chunk.id)).toEqual(['fts-chunk1', 'fts-chunk3']);
+      for (const result of results) {
+        expect(result.rank).toBeGreaterThan(0.6);
+      }
+    });
+
     it('should throw error when filePaths exceeds limit', async () => {
       const tooManyPaths = Array.from({ length: 1001 }, (_, i) => `/path/to/file${i}.txt`);
 
