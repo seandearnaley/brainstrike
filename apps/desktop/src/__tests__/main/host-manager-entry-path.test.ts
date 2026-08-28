@@ -17,6 +17,10 @@ const PACKAGED_MAIN_PATH = '/Applications/Brainstrike.app/Contents/Resources/app
 const PACKAGED_DIST_PATH = '/Applications/Brainstrike.app/Contents/Resources/app.asar/dist';
 
 describe('resolveDbHostEntryPath', () => {
+  it('resolves from the current bundled module filename when called without an override', () => {
+    expect(() => resolveDbHostEntryPath()).not.toThrow();
+  });
+
   it('resolves the emitted DB host entry next to main.js', () => {
     expect(resolveDbHostEntryPath('/repo/apps/desktop/dist/main.js')).toBe(
       path.join('/repo/apps/desktop/dist', 'db-host-entry.js')
@@ -41,6 +45,10 @@ describe('resolveDbHostEntryPath', () => {
 });
 
 describe('resolveParserHostEntryPath', () => {
+  it('resolves from the current bundled module filename when called without an override', () => {
+    expect(() => resolveParserHostEntryPath()).not.toThrow();
+  });
+
   it('resolves the emitted parser host entry next to main.js', () => {
     expect(resolveParserHostEntryPath('/repo/apps/desktop/dist/main.js')).toBe(
       path.join('/repo/apps/desktop/dist', 'parser-host-entry.js')
