@@ -88,6 +88,10 @@ const PROVISIONING_STEPS = new Set([
   'desktop-e2e › Require successful admission',
   'desktop-e2e › Install Chromium system dependencies',
   'desktop-e2e › Provision Electron binary',
+  // Allocation plumbing, not a code gate: the pure classifier is exercised by
+  // native-windows-impact.test.mjs and its workflow wiring by the paired
+  // contract test. A local check has no PR/push event SHAs to compare.
+  'native-windows-impact › Classify Native Windows impact',
   'notify-main-failure › Ensure tracking label exists',
   'notify-main-failure › Open or update tracking issue',
   'notify-main-recovery › Close the tracking issue once main is green',

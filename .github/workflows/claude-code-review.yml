@@ -12,7 +12,9 @@ on:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
+    # The Claude action keeps GitHub OIDC below; only the ephemeral x64 runner
+    # moves to the equivalent 2-vCPU/8-GB Ubicloud shape.
+    runs-on: ubicloud-standard-2
     # Large PRs can exceed Claude's default review budget while still producing
     # valid review output. Keep this aligned with the --max-turns budget below.
     timeout-minutes: 60

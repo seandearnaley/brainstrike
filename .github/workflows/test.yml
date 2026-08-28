@@ -527,7 +527,10 @@ jobs:
     name: Unit
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission, unit-shard]
-    runs-on: ubuntu-24.04-arm
+    # This fan-in only checks one dependency result and completes in ~3s. Use
+    # GitHub's 1-core slim runner so per-job minute rounding does not charge the
+    # ARM compute rate for a job that performs no build or test work.
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Require successful admission
@@ -634,10 +637,72 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  native-windows:
-    name: Native Windows
+  native-windows-impact:
+    name: Native Windows impact
     if: needs.admission.outputs.admitted == 'true'
     needs: [admission]
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.impact.outputs.required }}
+    steps:
+      - name: Checkout the admitted head and comparison history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Classify Native Windows impact
+        id: impact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -o pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+            echo "::error::Cannot establish the Native Windows comparison SHAs."
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            diff_range="${BASE_SHA}...${HEAD_SHA}"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            if [[ "$BASE_SHA" =~ ^0+$ ]]; then
+              echo "::notice::Push has no comparison base; running Native Windows conservatively."
+              echo "required=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            diff_range="${BASE_SHA}..${HEAD_SHA}"
+          else
+            echo "::error::Unsupported Native Windows impact event: ${EVENT_NAME}"
+            exit 1
+          fi
+
+          required=$(git diff --name-only -z "$diff_range" -- | node scripts/native-windows-impact.mjs)
+          if [ "$required" != "true" ] && [ "$required" != "false" ]; then
+            echo "::error::Native Windows classifier returned an invalid decision: ${required}"
+            exit 1
+          fi
+
+          echo "required=${required}" >> "$GITHUB_OUTPUT"
+
+  native-windows:
+    name: Native Windows
+    # A failed classifier means uncertainty, so allocate Windows and surface
+    # the original classifier failure alongside it. Only an explicit false
+    # decision may skip this non-required job.
+    if: >-
+      always() &&
+      needs.admission.outputs.admitted == 'true' &&
+      (needs.native-windows-impact.result != 'success' ||
+       needs.native-windows-impact.outputs.required == 'true')
+    needs: [admission, native-windows-impact]
     runs-on: windows-latest
     timeout-minutes: 20
     env:
@@ -778,11 +843,12 @@ jobs:
     # must first prove itself deterministic.
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
-    # GitHub-hosted on purpose: the Ubicloud pool is contractually limited to
-    # the five measured jobs (scripts/__tests__/ubicloud-runner-contract.
-    # test.mjs) and a new unproven lane should not expand the paid-runner
-    # contract. Move only with a wall-clock measurement and a contract update.
-    runs-on: ubuntu-latest
+    # Cost-first runner migration (2026-08-28): this lane used 1,928 rounded
+    # GitHub Linux minutes in the 7.76-day audit. The same pinned Playwright
+    # container contract is already green in the Ubicloud Web E2E job, and the
+    # explicit 4-vCPU shape matches TURBO_CONCURRENCY below. There is no
+    # provider fallback: allocation must queue or fail visibly.
+    runs-on: ubicloud-standard-4
     # Same official Playwright image + pin as Web E2E — browsers baked in, no
     # cdn.playwright.dev download at job time. KEEP IN SYNC: the image tag MUST
     # equal @playwright/test's version (scripts/verify-playwright-pin-sync.mjs
@@ -1081,12 +1147,12 @@ jobs:
   # Persistent E2E breakage is still caught within 24h by the scheduled
   # notifiers in web-e2e.yml / desktop-e2e.yml.
   #
-  # `browser-tests`, `native-windows` and `native-electron` also run on pushes
-  # to `main` and are also NOT notified — not on flakiness grounds, but because
-  # none of them is a required check. A red one of those does not block anyone
-  # else's branch, so it is not this job's class of problem. (`browser-tests`
-  # additionally "must first prove itself deterministic" per its own header
-  # before it could ever be a candidate.)
+  # `browser-tests`, affected `native-windows`, and `native-electron` also run
+  # on pushes to `main` and are also NOT notified — not on flakiness grounds,
+  # but because none of them is a required check. A red one of those does not
+  # block anyone else's branch, so it is not this job's class of problem.
+  # (`browser-tests` additionally "must first prove itself deterministic" per
+  # its own header before it could ever be a candidate.)
   #
   # WHY `!cancelled()` AND NOT `always()` — this is load-bearing, do not
   # "simplify" it back. `== 'failure'` alone does NOT mean "the code failed",

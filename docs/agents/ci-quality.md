@@ -438,8 +438,9 @@ exact failure this job exists to prevent. Persistent E2E breakage is still
 caught within 24h by the scheduled notifiers in `web-e2e.yml` /
 `desktop-e2e.yml`.
 
-That leaves `Browser tests`, `Native Windows` and `Native Electron Package`,
-which also run on pushes to `main` and are also **not** notified. Not on
+That leaves `Browser tests`, affected `Native Windows`, and
+`Native Electron Package`, which also run on pushes to `main` and are also
+**not** notified. Not on
 flakiness grounds — `browser-tests` "must first prove itself deterministic"
 per its own header, which makes it *pending*, not excluded — but because none
 of them is a required check. A red one does not block anyone else's branch, so
@@ -520,8 +521,9 @@ branch-protection setting and therefore the repo owner's call, not a workflow's.
 
 It adds **no new trigger** to `test.yml` (see `coverage.yml`'s header for why a
 new trigger here greys out the merge box), neither job is a **required status
-check**, and both stay off the Ubicloud pool, which
-`ubicloud-runner-contract.test.mjs` limits to the five measured jobs. The `gh`
+check**, and both stay on GitHub `ubuntu-latest`. These five-second reporting
+jobs do not justify an additional managed-runner allocation; the notifier
+contract rejects Ubicloud assignments. The `gh`
 steps are reporting rather than gating, so they are listed in
 `check-ci-parity.test.mjs`'s `PROVISIONING_STEPS` — `pnpm check` must not
 mirror them, because running them locally would file and close GitHub issues.
@@ -580,10 +582,10 @@ Two things the 2.5.3–2.5.8 window changed on this repo, both already absorbed:
 `nursery/noFloatingPromises` (the repo's only error-level nursery rule)
 surfaced **no** new violations at 2.5.8.
 
-### Static and the Unit fan-in run on arm64 (Series C R9b)
+### Static runs on arm64; the Unit fan-in runs on slim (Series C R9b/R10)
 
-`static` and the lightweight `unit` fan-in in `test.yml` run on
-`ubuntu-24.04-arm`, not `ubuntu-latest` (x64). arm64 runners became available
+`static` in `test.yml` runs on `ubuntu-24.04-arm`, not `ubuntu-latest` (x64).
+arm64 runners became available
 for private repos on 2026-01-29 and cost 37% less per minute than x64. Probe P1
 measured this specific: `pnpm install --frozen-lockfile` (the native-deps/node-gyp set,
 the main risk), lint, script tests, secret scan, and the 6 `cache: false`
@@ -591,7 +593,14 @@ the main risk), lint, script tests, secret scan, and the 6 `cache: false`
 native-dependent work in the workflow) all genuinely ran and passed on
 arm64. Wall-clock was AT PARITY with x64 (~3.0m either arch) — arm64 is
 **not** faster here, only cheaper per minute; do not claim a speedup.
-`native-windows` stays on GitHub's `windows-latest` runner.
+
+The `unit` fan-in performs no install, build, or test: it reads the matrix
+result and normally completes in about three seconds. The 2026-08-21..28 cost
+audit found 609 rounded ARM minutes ($3.05 list price) for that result check.
+It now runs on GitHub `ubuntu-slim`, preserving the exact required `Unit` check
+while lowering the one-minute rounding rate to $0.002. `native-windows` stays
+on GitHub's `windows-latest` runner and is allocated only after the affected
+gate described below.
 
 ### Performance lane (performance.yml) — calibrated budgets only (BST-1038)
 
@@ -677,20 +686,25 @@ measurement and worker-message validation modules remain in unit coverage, and
 the web L98/F85/B73/S89 thresholds are unchanged. Do not broaden this exception
 or replace it with a wildcard.
 
-### Primary Linux x64 jobs run on Ubicloud (BST-765)
+### Cost-ranked Linux x64 jobs run on Ubicloud (BST-765)
 
-`unit-shard`, `build`, `native-electron`, `web-e2e`, and `desktop-e2e` in
-`test.yml` run on `ubicloud-standard-4`. That runner preserves the
+`unit-shard`, `build`, `native-electron`, `browser-tests`, `web-e2e`, and
+`desktop-e2e` in `test.yml` run on `ubicloud-standard-4`. That runner preserves the
 4-vCPU/16-GB class used for the x64 work while moving the measured, dominant
-Linux x64 lanes to the connected Ubicloud runner fleet. The boundary is
-deliberate:
+Linux x64 lanes to the connected Ubicloud runner fleet. PR Coverage, React
+Doctor, Claude Auto Review, and `@claude` handling use
+`ubicloud-standard-2`, preserving the previous private `ubuntu-latest`
+2-vCPU/8-GB shape at the lower managed-runner rate. The boundary is deliberate:
 
 - quiet-head admission remains on GitHub `ubuntu-slim`
-- Static and the Unit fan-in remain on GitHub ARM
+- the lightweight Unit fan-in also uses GitHub `ubuntu-slim`
+- Static remains on the measured GitHub ARM lane
 - all four physical Unit rows use one fixed Ubicloud runner class (two DB
   native shards plus the heavy and rest rows)
-- Native Windows remains on GitHub Windows
-- coverage, scheduled, review, and auxiliary workflows are unchanged
+- Native Windows remains on GitHub Windows behind its affected gate
+- scheduled regression/coverage jobs remain GitHub-hosted until their existing
+  baselines are green enough to support a runner comparison
+- main-failure/recovery and scheduled-failure notifiers remain GitHub-hosted
 
 The Unit matrix moved as a whole after GitHub's ARM pool terminated the
 `rest` shard without a failing test assertion on five consecutive attempts
@@ -715,7 +729,9 @@ Do not add a provider-selection layer or an automatic GitHub fallback. An
 Ubicloud provisioning failure must queue or fail visibly; rollback is an
 explicit revert of the runner-label change. Existing cache and setup actions
 stay unchanged because Ubicloud's transparent cache supports the standard
-GitHub cache actions. Contract coverage lives in
+GitHub cache actions. The cost audit and service evidence live in
+`docs/superpowers/research/2026-08-28-ubicloud-github-actions-runners.md`.
+Contract coverage lives in
 `scripts/__tests__/ubicloud-runner-contract.test.mjs`.
 
 The Static job caps the monorepo type-check with Turbo's official
@@ -745,7 +761,7 @@ just doesn't extend to the remote cache.
 and MUST NOT be turbo-cached.** `@brainstrike/secure-fs-native` compiles an
 arch/ABI-specific `.node` into `build/**`. When its turbo `build` task cached
 that output, the arch-blind remote cache let the arm64 Static/Unit jobs
-populate an entry that the x64 Coverage job (`ubuntu-latest`) then replayed —
+populate an entry that the x64 Coverage job (`ubicloud-standard-2`) then replayed —
 so `apps/desktop`'s coverage lane, which loads the real addon via its
 `*.integration.test.*` files, died with `secure_fs_native.node: cannot open
 shared object file` on every PR touching `apps/desktop` (PR #1749 shipped a
@@ -755,6 +771,23 @@ same package's long-standing `test` policy, so every runner node-gyp-rebuilds
 the addon for its own ABI. Any future native/node-gyp package added to the
 monorepo must do the same — never cache a compiled binary on turbo's
 source-only, arch-blind hash.
+
+**Native Windows is affected-gated before allocation (R10).** The non-required
+job consumed 2,440 rounded Windows minutes ($24.40 list price) in the
+2026-08-21..28 audit, while most changes do not affect its two native packages.
+After quiet-head admission, `native-windows-impact` runs on `ubuntu-slim`,
+checks out full comparison history, and feeds NUL-delimited `git diff` paths to
+`scripts/native-windows-impact.mjs`. Changes under either native package, any
+workspace `package.json`, the lockfile/catalog/runtime install contract, the
+active root/desktop install lifecycle scripts, the shared setup action,
+`test.yml`, patches, or the classifier itself require the Windows job. Manual
+dispatches always require it. Invalid events, missing
+SHAs, checkout/diff failures, and malformed classifier input fail visibly;
+`native-windows` uses `always()` and runs when the classifier result is not
+successful. Only an explicit `required=false` may avoid Windows allocation.
+The script behavior and workflow wiring are paired in
+`native-windows-impact.test.mjs` and
+`native-windows-impact-contract.test.mjs`.
 
 **node-gyp's HEADERS are the opposite case and ARE cached, for `native-windows`
 only (BST-1375).** Compiled output is arch-specific and must never be shared;
@@ -835,7 +868,7 @@ integration config inherits `pool: 'forks'` and `maxWorkers: '50%'` from
 `vitest.config.mts`, and `Unit (rest)` runs on the 4-vCPU/16-GB Ubicloud class
 (see the `unit-shard` comment in `test.yml`), so the lane ran **2 workers** and
 the serialization is 2 → 1. The 2-vCPU figure belongs to `coverage.yml`'s
-`ubuntu-latest` host in the section above, a different workflow.
+`ubicloud-standard-2` host in the section above, a different workflow.
 
 The in-lane flag is also not the only concurrency knob: `test.yml` invokes
 `pnpm turbo run test:integration … --concurrency=2`, so a SECOND integration
@@ -2196,7 +2229,7 @@ period. Missing or malformed native Job Object support aborts Windows startup;
 there is no ancestry-walk fallback. Only after the owned tree is stopped may
 the launcher remove its temporary profile. Process-tree or profile cleanup
 failures are visible fatal errors with a non-zero exit, never warning-only
-cleanup. The `Native Windows` required check builds and exercises the native
+cleanup. The affected-gated `Native Windows` CI job builds and exercises the native
 addon with a late-writing orphan plus an unrelated-process survival assertion.
 
 #### Stale-profile sweep (abrupt-kill recovery)
@@ -2287,6 +2320,7 @@ running:
 pinned `0.9.11`) on every PR and on push to `main`. It supersedes running standalone knip in
 CI: React Doctor performs knip-style dead-code analysis (the bundled `deslop` engine) **and**
 its React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
+It uses `ubicloud-standard-2`; provider allocation has no GitHub fallback.
 Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`.
 
 Invariants (do not regress without updating this section, `doctor.config.ts`, and the doc):
