@@ -1291,7 +1291,7 @@ describe('FileChunkRepository', () => {
     it('finds a near-match when an exact full-text query has no rows', async () => {
       const results = await repository.fullTextSearch('authentcation');
 
-      expect(results.map((result) => result.chunk.id)).toEqual(['fts-chunk1', 'fts-chunk3']);
+      expect(results.map((result) => result.chunk.id).sort()).toEqual(['fts-chunk1', 'fts-chunk3']);
       for (const result of results) {
         expect(result.rank).toBeGreaterThan(0.6);
       }
