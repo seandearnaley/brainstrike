@@ -18,6 +18,29 @@ function expectString(value: unknown, label: string): string {
 }
 
 describe('MCP lab advertised scenarios', () => {
+  it('accepts bracketed IPv6 loopback OAuth redirects for native clients', async () => {
+    const lab = await startMcpLabScenario('oauth-reference');
+    if (lab.endpoint.kind !== 'oauth-loopback-http') {
+      throw new Error(`Expected OAuth loopback endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    try {
+      const response = await fetch(lab.endpoint.registrationUrl, {
+        body: JSON.stringify({
+          application_type: 'native',
+          client_name: 'Brainstrike IPv6 Loopback Test',
+          redirect_uris: ['http://[::1]:54321/callback'],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+
+      expect(response.status).toBe(201);
+    } finally {
+      await lab.close();
+    }
+  });
+
   it('serves the legacy reference over a real loopback exchange', async () => {
     const lab = await startMcpLabScenario('legacy-reference');
     if (lab.endpoint.kind !== 'loopback-http') {

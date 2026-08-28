@@ -9,9 +9,8 @@ import {
 } from '../src/evidence';
 
 const VALID_ARTIFACT_CONTENT = { entries: [{ message: 'sanitized lifecycle event' }] } as const;
-const VALID_ARTIFACT_SHA256 = createHash('sha256')
-  .update(JSON.stringify(VALID_ARTIFACT_CONTENT))
-  .digest('hex');
+const VALID_ARTIFACT_BYTES = new TextEncoder().encode(JSON.stringify(VALID_ARTIFACT_CONTENT));
+const VALID_ARTIFACT_SHA256 = createHash('sha256').update(VALID_ARTIFACT_BYTES).digest('hex');
 
 const VALID_BUNDLE = {
   artifacts: [
@@ -74,7 +73,7 @@ const VALIDATION_DEPENDENCIES = {
     if (reference !== 'artifacts/main-process.ndjson') {
       throw new Error('artifact fixture is unavailable');
     }
-    return VALID_ARTIFACT_CONTENT;
+    return { bytes: VALID_ARTIFACT_BYTES };
   },
 } as const;
 
@@ -100,6 +99,120 @@ describe('parseMcpEvidenceBundle', () => {
     };
 
     expect(() => parseEvidence(mismatched)).toThrowError(/artifacts\[0\]\.sha256.*content/i);
+  });
+
+  it('digests exact binary artifact bytes independently of the parsed scan view', () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 255]);
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          kind: 'screenshot',
+          reference: 'artifacts/oauth-dialog.png',
+          sanitized: true,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(
+      parseMcpEvidenceBundle(bundle, {
+        extractScreenshotText: (receivedBytes, reference) => {
+          expect(receivedBytes).toEqual(bytes);
+          expect(reference).toBe('artifacts/oauth-dialog.png');
+          return 'sanitized OAuth dialog screenshot';
+        },
+        readArtifactContent: () => ({
+          bytes,
+        }),
+      })
+    ).toEqual(bundle);
+  });
+
+  it('rejects screenshots without exact-byte text extraction', () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71]);
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          kind: 'screenshot',
+          reference: 'artifacts/oauth-dialog.png',
+          sanitized: true,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/screenshot evidence requires exact-byte text extraction/i);
+  });
+
+  it('rejects image references mislabeled as text and non-text bytes in text artifacts', () => {
+    const imageBytes = Uint8Array.from([137, 80, 78, 71]);
+    const mislabeled = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          kind: 'report',
+          reference: 'artifacts/oauth-dialog.png',
+          sanitized: true,
+          sha256: createHash('sha256').update(imageBytes).digest('hex'),
+        },
+      ],
+    };
+    const binaryText = {
+      ...mislabeled,
+      artifacts: [{ ...mislabeled.artifacts[0], reference: 'artifacts/oauth-dialog.md' }],
+    };
+
+    expect(() => parseMcpEvidenceBundle(mislabeled, VALIDATION_DEPENDENCIES)).toThrowError(
+      /extension.*incompatible.*report/i
+    );
+    expect(() =>
+      parseMcpEvidenceBundle(binaryText, {
+        readArtifactContent: () => ({ bytes: imageBytes }),
+      })
+    ).toThrowError(/report evidence must contain valid UTF-8 text/i);
+  });
+
+  it('secret-scans screenshot text extracted from the exact hashed bytes', () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71]);
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          kind: 'screenshot',
+          reference: 'artifacts/oauth-dialog.png',
+          sanitized: true,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, {
+        extractScreenshotText: () => 'Bearer mcp_live_0123456789abcdef',
+        readArtifactContent: () => ({ bytes }),
+      })
+    ).toThrowError(/bearer-token/i);
+  });
+
+  it('detects secrets decoded from JSON escapes in the exact artifact bytes', () => {
+    const bytes = new TextEncoder().encode('{"message":"Be\\u0061rer mcp_live_0123456789abcdef"}');
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/bearer-token/i);
   });
 
   it('rejects missing and unknown fields at every strict object boundary', () => {
@@ -335,6 +448,14 @@ describe('parseMcpEvidenceBundle', () => {
         'Commit 0123456789abcdef0123456789abcdef01234567; the verifier rejected code 1.'
       )
     ).toEqual([]);
+    expect(
+      scanEvidenceTextForSecrets(
+        'exit code: INTERNAL_ERROR_XYZ; error code = ECONNREFUSED; authorization: not-required-here; token: redacted'
+      )
+    ).toEqual([]);
+    expect(scanEvidenceTextForSecrets('token=SECRETSECRET')).not.toEqual([]);
+    expect(scanEvidenceTextForSecrets('authorization=BEARERTOKEN')).not.toEqual([]);
+    expect(scanEvidenceTextForSecrets('code=ABCDEFGH')).not.toEqual([]);
   });
 
   it('secret-scans textual evidence recursively and reports only its path and secret class', () => {
@@ -350,23 +471,39 @@ describe('parseMcpEvidenceBundle', () => {
     try {
       parseEvidence(secretBundle);
     } catch (error: unknown) {
-      expect(JSON.stringify(error)).not.toContain('mcp_live_0123456789abcdef');
+      expect(error).toBeInstanceOf(McpEvidenceValidationError);
+      expect((error as McpEvidenceValidationError).issue.index).toBe(
+        secretBundle.cleanup.details.indexOf('Bearer')
+      );
+      expect(String(error)).not.toContain('mcp_live_0123456789abcdef');
     }
   });
 
   it('recursively secret-scans referenced artifact contents despite sanitized metadata', () => {
     const credential = `mcp_${'live_0123456789abcdef'}`;
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ entries: [{ message: `Authorization: Bearer ${credential}` }] })
+    );
     const readArtifactContent = (_reference: string) => ({
-      entries: [{ message: `Authorization: Bearer ${credential}` }],
+      bytes,
     });
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
 
-    expect(() => parseMcpEvidenceBundle(VALID_BUNDLE, { readArtifactContent })).toThrowError(
+    expect(() => parseMcpEvidenceBundle(bundle, { readArtifactContent })).toThrowError(
       /artifacts\[0\]\.content.*bearer-token/i
     );
     try {
-      parseMcpEvidenceBundle(VALID_BUNDLE, { readArtifactContent });
+      parseMcpEvidenceBundle(bundle, { readArtifactContent });
     } catch (error: unknown) {
-      expect(JSON.stringify(error)).not.toContain(credential);
+      expect(String(error)).not.toContain(credential);
     }
   });
 
@@ -382,6 +519,7 @@ describe('parseMcpEvidenceBundle', () => {
     } catch (error: unknown) {
       expect(error).toBeInstanceOf(McpEvidenceValidationError);
       expect(String(error)).toMatch(/artifacts\[0\]\.reference.*could not be read/i);
+      expect(String(error)).not.toContain(credential);
       expect(JSON.stringify(error)).not.toContain(credential);
     }
   });

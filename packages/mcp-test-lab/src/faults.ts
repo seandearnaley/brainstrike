@@ -181,6 +181,7 @@ export interface McpLabFaultPlan {
   assertFullyConsumed(): void;
   consume(consumption: McpLabFaultConsumption): McpLabFault;
   consumeIfConfigured(consumption: McpLabFaultConsumption): McpLabFault | undefined;
+  hasRemainingPhase(phase: McpLabProtocolPhase): boolean;
   observations(): readonly McpLabFaultObservation[];
   untriggeredIds(): readonly string[];
 }
@@ -451,6 +452,9 @@ export function createMcpLabFaultPlan(
         );
       }
       return;
+    },
+    hasRemainingPhase(phase) {
+      return [...remaining.values()].some((declaration) => declaration.match.phase === phase);
     },
     observations() {
       return Object.freeze(observations.slice());

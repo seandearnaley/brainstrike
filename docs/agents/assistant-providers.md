@@ -1962,11 +1962,24 @@ accepted protocol method must resolve to an executable phase, and the dedicated
 `node/dispatch` coordinate verifies the outer Node response error boundary
 rather than an SDK-internal JSON-RPC error. Cleanup reports listener and stdio
 transport counts plus immutable untriggered fault ids; a failed close remains
-retryable.
+retryable, including a delegated stdio close that rejects. `drop_response`
+means a real transport failure: loopback destroys the socket without headers,
+and stdio accepts the selected tool request but never replies until the caller
+cancels or times out. It must never be represented as a structured HTTP 500 or
+an immediate child exit.
 
-Evidence parsing reads each referenced artifact once, recursively secret-scans
-that exact content, recomputes its lowercase SHA-256 digest, and rejects any
-metadata/content mismatch. A syntactically valid digest is not evidence. RED
+Evidence parsing reads each referenced artifact once as exact bytes. Text
+artifacts are scanned both as raw UTF-8 and as parsed JSON/NDJSON so escaped
+credentials cannot evade detection. Screenshot artifacts require a text/OCR
+extractor that the verifier invokes with a copy of those exact bytes; absent or
+failed extraction rejects the bundle. The verifier recomputes the lowercase
+SHA-256 digest over the original bytes and rejects any metadata/content
+mismatch. Artifact kind is bound to a closed extension allowlist, and every
+log/report/trace must decode as fatal UTF-8, so image bytes cannot be mislabeled
+to bypass screenshot extraction. The reader cannot supply a separately
+sanitized view that disagrees with the hashed artifact. This supports
+independently verifiable file digests without JSON reserialization drift. A
+syntactically valid digest is not evidence. RED
 proof requires a non-zero command and at least one internally consistent failed
 test; GREEN and later verification must be successful. Keep these invariants
 paired with `packages/mcp-test-lab/__tests__/package-contract.test.ts` and the

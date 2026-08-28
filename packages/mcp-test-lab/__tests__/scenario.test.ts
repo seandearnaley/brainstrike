@@ -50,9 +50,12 @@ describe('MCP lab scenario manifest', () => {
     });
   });
 
-  it('matches the real installed client and server package versions', () => {
+  it('matches the real installed client, server, and conformance package versions', () => {
     expect(readInstalledPackageVersion('@modelcontextprotocol/client')).toBe(MCP_LAB_SDK_VERSION);
     expect(readInstalledPackageVersion('@modelcontextprotocol/server')).toBe(MCP_LAB_SDK_VERSION);
+    expect(readInstalledPackageVersion('@modelcontextprotocol/conformance')).toBe(
+      MCP_LAB_CONFORMANCE_VERSION
+    );
   });
 
   it('declares an independently verifiable upstream source tag and peeled commit', () => {

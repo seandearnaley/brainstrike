@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
-import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
   localhostHostValidation,
   localhostOriginValidation,
-  type NodeIncomingMessageLike,
   toNodeHandler,
 } from '@modelcontextprotocol/node';
 import {
@@ -27,8 +26,20 @@ import type {
   McpLabProtocolPhase,
 } from './faults.js';
 import { protocolPhaseForMethod } from './faults.js';
+import {
+  closeLoopbackServer,
+  listenLoopback,
+  toCorrelatedNodeRequest,
+  writeNodeResponse,
+} from './node-loopback.js';
 import { createReferenceServer } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario } from './scenario.js';
+import {
+  requestIdKey,
+  requestMethodFromMessage,
+  responseIdKey,
+  stdioChunkByteLength,
+} from './stdio-utils.js';
 
 export interface McpLabCleanupReport {
   readonly httpListenersClosed: number;
@@ -90,6 +101,12 @@ interface AppliedFault {
   readonly id: string;
 }
 
+const HTTP_PROTOCOL_COORDINATE_PHASES = [
+  'initialization',
+  'operation',
+  'subscription',
+] as const satisfies readonly McpLabProtocolPhase[];
+
 interface CloseResource {
   close: () => Promise<void>;
   closed: boolean;
@@ -128,17 +145,14 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function recordDiagnostic(list: McpLabDiagnostic[], value: McpLabDiagnostic): void {
-  if (
-    list.some(
-      (item) =>
-        item.correlationId === value.correlationId &&
-        item.kind === value.kind &&
-        item.message === value.message
-    )
-  ) {
-    return;
+class McpLabDroppedResponseError extends Error {
+  constructor(faultId: string) {
+    super(`MCP lab fault "${faultId}" dropped the response`);
+    this.name = 'McpLabDroppedResponseError';
   }
+}
+
+function recordDiagnostic(list: McpLabDiagnostic[], value: McpLabDiagnostic): void {
   list.push(Object.freeze({ ...value }));
 }
 
@@ -170,6 +184,12 @@ function createFaultRuntime(plan: McpLabFaultPlan | undefined, scenarioId: strin
     nextCorrelation(label = 'exchange'): string {
       correlationSequence += 1;
       return `${scenarioId}:${label}:${correlationSequence}`;
+    },
+    requiresProtocolBodyCoordinate(): boolean {
+      return (
+        plan !== undefined &&
+        HTTP_PROTOCOL_COORDINATE_PHASES.some((phase) => plan.hasRemainingPhase(phase))
+      );
     },
     untriggeredIds(): readonly string[] {
       return plan?.untriggeredIds() ?? Object.freeze([]);
@@ -236,7 +256,7 @@ async function applyHttpFault(applied: AppliedFault): Promise<Response | undefin
       return;
     }
     case 'drop_response':
-      throw new Error(`MCP lab fault "${applied.id}" dropped the response`);
+      throw new McpLabDroppedResponseError(applied.id);
     case 'http_status':
       return Response.json(
         { error: 'mcp_lab_fault', faultId: applied.id },
@@ -252,6 +272,35 @@ async function applyHttpFault(applied: AppliedFault): Promise<Response | undefin
   }
 }
 
+async function consumeHttpFault(
+  runtime: FaultRuntime,
+  phase: McpLabProtocolPhase,
+  method: McpLabProtocolMethod,
+  correlationId: string
+): Promise<Response | undefined> {
+  const applied = runtime.consume(phase, method, correlationId);
+  return applied ? applyHttpFault(applied) : undefined;
+}
+
+async function consumeProtocolHttpFault(
+  runtime: FaultRuntime,
+  request: Request,
+  correlationId: string
+): Promise<Response | undefined> {
+  const oauthMethod = oauthFaultMethod(new URL(request.url).pathname);
+  if (oauthMethod) {
+    return consumeHttpFault(runtime, 'authorization', oauthMethod, correlationId);
+  }
+  if (!runtime.requiresProtocolBodyCoordinate()) {
+    return;
+  }
+  const coordinate = await protocolCoordinate(request);
+  if (!coordinate) {
+    return;
+  }
+  return consumeHttpFault(runtime, coordinate.phase, coordinate.method, correlationId);
+}
+
 function withFaults(
   handler: McpHttpHandler,
   runtime: FaultRuntime,
@@ -264,26 +313,27 @@ function withFaults(
       const correlationId =
         request.headers.get('x-mcp-lab-correlation-id') ?? runtime.nextCorrelation();
       try {
-        const requestFault = runtime.consume('transport', 'http/request', correlationId);
-        if (requestFault) {
-          const response = await applyHttpFault(requestFault);
-          if (response) {
-            return response;
-          }
+        const requestFaultResponse = await consumeHttpFault(
+          runtime,
+          'transport',
+          'http/request',
+          correlationId
+        );
+        if (requestFaultResponse) {
+          return requestFaultResponse;
         }
-        const coordinate = await protocolCoordinate(request);
-        if (coordinate) {
-          const protocolFault = runtime.consume(coordinate.phase, coordinate.method, correlationId);
-          if (protocolFault) {
-            const response = await applyHttpFault(protocolFault);
-            if (response) {
-              return response;
-            }
-          }
+        const protocolFaultResponse = await consumeProtocolHttpFault(
+          runtime,
+          request,
+          correlationId
+        );
+        if (protocolFaultResponse) {
+          return protocolFaultResponse;
         }
         const response = await handler.fetch(request, options);
-        const responseFault = runtime.consume('transport', 'http/response', correlationId);
-        return responseFault ? ((await applyHttpFault(responseFault)) ?? response) : response;
+        return (
+          (await consumeHttpFault(runtime, 'transport', 'http/response', correlationId)) ?? response
+        );
       } catch (error) {
         recordDiagnostic(diagnostics, {
           correlationId,
@@ -482,7 +532,7 @@ function isLoopbackRedirect(value: string): boolean {
     const url = new URL(value);
     return (
       url.protocol === 'http:' &&
-      (url.hostname === '127.0.0.1' || url.hostname === '::1' || url.hostname === 'localhost')
+      (url.hostname === '127.0.0.1' || url.hostname === '[::1]' || url.hostname === 'localhost')
     );
   } catch {
     return false;
@@ -548,44 +598,6 @@ function oauthHandler(
     },
     notify: mcpHandler.notify,
   };
-}
-
-function listen(server: Server): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const onError = (error: Error) => {
-      server.off('listening', onListening);
-      reject(error);
-    };
-    const onListening = () => {
-      server.off('error', onError);
-      const address = server.address();
-      if (!address || typeof address === 'string') {
-        reject(new Error('MCP lab listener has no TCP address'));
-        return;
-      }
-      resolve(address.port);
-    };
-    server.once('error', onError);
-    server.once('listening', onListening);
-    server.listen(0, '127.0.0.1');
-  });
-}
-
-function nodeRequest(request: IncomingMessage, correlationId: string): NodeIncomingMessageLike {
-  return {
-    [Symbol.asyncIterator]() {
-      return request[Symbol.asyncIterator]();
-    },
-    headers: { ...request.headers, 'x-mcp-lab-correlation-id': correlationId },
-    ...(request.method === undefined ? {} : { method: request.method }),
-    ...(request.url === undefined ? {} : { url: request.url }),
-  };
-}
-
-function closeServer(server: Server): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
 }
 
 function session(
@@ -693,7 +705,7 @@ function stdioSession(
 ): McpLabSession {
   const diagnostics: McpLabDiagnostic[] = [];
   const runtime = createFaultRuntime(faultPlan, scenario.id);
-  const env: Record<string, string> = { ['MCP_LAB_STDIO_SCENARIO']: scenario.id };
+  const env: Record<string, string> = {};
   const args = Object.freeze([
     fileURLToPath(new URL('../fixtures/stdio-reference-server.mjs', import.meta.url)),
   ]);
@@ -719,6 +731,7 @@ function stdioSession(
 class LabOwnedStdioTransport implements McpLabOwnedStdioTransport {
   private closed = false;
   private delegate: StdioClientTransport | undefined;
+  private readonly droppedResponseIds = new Set<string>();
   onclose: (() => void) | undefined;
   onerror: ((error: Error) => void) | undefined;
   onmessage: ((message: JSONRPCMessage) => void) | undefined;
@@ -764,7 +777,13 @@ class LabOwnedStdioTransport implements McpLabOwnedStdioTransport {
     });
     delegate.onclose = () => this.onclose?.();
     delegate.onerror = (error) => this.onerror?.(error);
-    delegate.onmessage = (message) => this.onmessage?.(message);
+    delegate.onmessage = (message) => {
+      const responseId = responseIdKey(message);
+      if (responseId && this.droppedResponseIds.delete(responseId)) {
+        return;
+      }
+      this.onmessage?.(message);
+    };
     delegate.stderr?.on('data', (chunk: unknown) => {
       recordDiagnostic(this.diagnostics, {
         correlationId,
@@ -780,29 +799,49 @@ class LabOwnedStdioTransport implements McpLabOwnedStdioTransport {
     if (this.closed) {
       return;
     }
-    this.closed = true;
     await this.delegate?.close();
+    this.closed = true;
   }
 
   async send(message: JSONRPCMessage): Promise<void> {
     if (!this.delegate) {
       throw new Error('MCP lab stdio transport is not started');
     }
+    const method = requestMethodFromMessage(message);
+    if (method) {
+      const phase = protocolPhaseForMethod(method);
+      if (phase) {
+        const applied = this.runtime.consume(
+          phase,
+          method as McpLabProtocolMethod,
+          this.runtime.nextCorrelation('stdio')
+        );
+        if (applied) {
+          await this.applyProtocolFault(message, applied);
+        }
+      }
+    }
     await this.delegate.send(message);
   }
-}
 
-function stdioChunkByteLength(chunk: unknown): number {
-  if (typeof chunk === 'string') {
-    return Buffer.byteLength(chunk);
+  private async applyProtocolFault(message: JSONRPCMessage, applied: AppliedFault): Promise<void> {
+    if (applied.fault.kind === 'delay') {
+      const { delayMs } = applied.fault;
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      return;
+    }
+    if (applied.fault.kind === 'drop_response') {
+      const requestId = requestIdKey(message);
+      if (!requestId) {
+        throw new Error(`MCP lab fault "${applied.id}" requires a request id to drop its response`);
+      }
+      this.droppedResponseIds.add(requestId);
+      return;
+    }
+    throw new Error(
+      `MCP lab fault "${applied.id}" of kind "${applied.fault.kind}" cannot target a stdio protocol request`
+    );
   }
-  if (Buffer.isBuffer(chunk)) {
-    return chunk.length;
-  }
-  if (chunk instanceof Uint8Array) {
-    return chunk.byteLength;
-  }
-  return Buffer.byteLength(String(chunk));
 }
 
 function applyStdioFault(env: Record<string, string>, applied: AppliedFault): void {
@@ -824,8 +863,7 @@ function applyStdioFault(env: Record<string, string>, applied: AppliedFault): vo
     return;
   }
   if (applied.fault.kind === 'drop_response') {
-    env['MCP_LAB_DROP_RESPONSE'] = '1';
-    return;
+    throw new Error(`MCP lab fault "${applied.id}" must target a stdio protocol request`);
   }
   throw new Error(`MCP lab fault "${applied.id}" cannot target stdio`);
 }
@@ -836,7 +874,7 @@ async function loopbackSession(
 ): Promise<McpLabSession> {
   const diagnostics: McpLabDiagnostic[] = [];
   const runtime = createFaultRuntime(faultPlan, scenario.id);
-  let dispatch: ReturnType<typeof toNodeHandler> | undefined;
+  let dispatch: McpHttpHandler | undefined;
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
   const server = createServer((request, response) => {
@@ -858,7 +896,13 @@ async function loopbackSession(
           return;
         }
       }
-      await activeDispatch(nodeRequest(request, correlationId), response);
+      await toNodeHandler(activeDispatch, {
+        onerror(error) {
+          if (error instanceof McpLabDroppedResponseError) {
+            response.destroy(error);
+          }
+        },
+      })(toCorrelatedNodeRequest(request, correlationId), response);
     };
     void runDispatch().catch((error: unknown) => {
       recordDiagnostic(diagnostics, {
@@ -866,6 +910,10 @@ async function loopbackSession(
         kind: 'handler-error',
         message: messageOf(error),
       });
+      if (error instanceof McpLabDroppedResponseError) {
+        response.destroy(error);
+        return;
+      }
       if (response.headersSent) {
         response.destroy(error instanceof Error ? error : undefined);
       } else {
@@ -877,7 +925,7 @@ async function loopbackSession(
       }
     });
   });
-  const port = await listen(server);
+  const port = await listenLoopback(server);
   const origin = new URL(`http://127.0.0.1:${port}/`);
   const url = new URL('/mcp', origin);
   let endpoint: Extract<McpLabEndpoint, { readonly kind: 'loopback-http' | 'oauth-loopback-http' }>;
@@ -897,25 +945,17 @@ async function loopbackSession(
   } else {
     endpoint = Object.freeze({ kind: 'loopback-http', url });
   }
-  dispatch = toNodeHandler(withFaults(handler, runtime, diagnostics));
+  dispatch = withFaults(handler, runtime, diagnostics);
   return session(
     endpoint,
     scenario,
     [
-      { close: () => closeServer(server), closed: false, kind: 'http-listener' },
+      { close: () => closeLoopbackServer(server), closed: false, kind: 'http-listener' },
       { close: handler.close, closed: false, kind: 'handler' },
     ],
     diagnostics,
     runtime
   );
-}
-
-async function writeNodeResponse(
-  response: import('node:http').ServerResponse,
-  source: Response
-): Promise<void> {
-  response.writeHead(source.status, Object.fromEntries(source.headers));
-  response.end(Buffer.from(await source.arrayBuffer()));
 }
 
 export async function startMcpLabScenario(

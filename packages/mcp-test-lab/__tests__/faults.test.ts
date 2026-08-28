@@ -67,6 +67,7 @@ describe('MCP lab fault plan', () => {
         match: { method: 'child/exit', occurrence: 1, phase: 'child-process' },
       },
     ]);
+    expect(plan.hasRemainingPhase('child-process')).toBe(true);
 
     expect(
       plan.consume({
@@ -98,6 +99,7 @@ describe('MCP lab fault plan', () => {
         match: { method: 'tools/call', occurrence: 2, phase: 'operation' },
       },
     ]);
+    expect(plan.hasRemainingPhase('operation')).toBe(true);
 
     expect(
       plan.consume({
@@ -107,6 +109,8 @@ describe('MCP lab fault plan', () => {
         phase: 'operation',
       })
     ).toEqual({ delayMs: 25, kind: 'delay' });
+    expect(plan.hasRemainingPhase('operation')).toBe(false);
+    expect(plan.hasRemainingPhase('shutdown')).toBe(false);
     expect(plan.observations()).toEqual([
       {
         correlationId: 'corr-tools-2',

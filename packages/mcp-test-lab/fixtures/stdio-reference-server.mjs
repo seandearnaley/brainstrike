@@ -37,6 +37,6 @@ if (process.env.MCP_LAB_EXIT_SIGNAL) {
   process.kill(process.pid, process.env.MCP_LAB_EXIT_SIGNAL);
 } else if (process.env.MCP_LAB_EXIT_CODE) {
   process.exit(Number.parseInt(process.env.MCP_LAB_EXIT_CODE, 10));
-} else if (process.env.MCP_LAB_DROP_RESPONSE !== '1') {
+} else {
   void serveStdio(createReferenceServer, { legacy: 'reject' });
 }

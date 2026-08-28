@@ -89,16 +89,13 @@ export interface EvidenceSecretFinding {
   readonly kind: EvidenceSecretKind;
 }
 
-export type McpArtifactContent =
-  | boolean
-  | number
-  | string
-  | null
-  | readonly McpArtifactContent[]
-  | { readonly [key: string]: McpArtifactContent };
+export interface McpArtifactReadResult {
+  readonly bytes: Uint8Array;
+}
 
 export interface McpEvidenceValidationDependencies {
-  readonly readArtifactContent: (reference: string) => McpArtifactContent;
+  readonly extractScreenshotText?: (bytes: Uint8Array, reference: string) => string;
+  readonly readArtifactContent: (reference: string) => McpArtifactReadResult;
 }
 
 export type McpEvidenceValidationCode =
@@ -109,6 +106,7 @@ export type McpEvidenceValidationCode =
 
 export interface McpEvidenceValidationIssue {
   readonly code: McpEvidenceValidationCode;
+  readonly index?: number;
   readonly message: string;
   readonly path: string;
 }
@@ -159,6 +157,7 @@ const CREDENTIAL_KEYS = [
   'token',
 ] as const;
 const CREDENTIAL_KEY_SET = new Set<string>(CREDENTIAL_KEYS);
+const GENERIC_CREDENTIAL_KEYS = new Set(['authorization', 'code', 'token']);
 const CREDENTIAL_ASSIGNMENT_KEYS = CREDENTIAL_KEYS.map((key) => key.replaceAll('_', '[_ -]'));
 const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
   `\\b(${CREDENTIAL_ASSIGNMENT_KEYS.join('|')})\\b["']?[ \\t]*[:=][ \\t]*["']?[^\\s"',;&?#}\\]]{8,}`,
@@ -192,6 +191,21 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
       continue;
     }
     const label = match[1]?.toLowerCase().replaceAll(/[ -]/g, '_') ?? '';
+    const separatorIndex = match[0].search(/[:=]/u);
+    const assignedValue =
+      separatorIndex === -1
+        ? ''
+        : match[0]
+            .slice(separatorIndex + 1)
+            .trim()
+            .replace(/^["']/u, '');
+    const prefix = text.slice(Math.max(0, match.index - 16), match.index);
+    if (
+      GENERIC_CREDENTIAL_KEYS.has(label) &&
+      isSafeDiagnosticAssignment(label, assignedValue, prefix)
+    ) {
+      continue;
+    }
     findings.push({
       index: match.index,
       kind: credentialAssignmentKind(label),
@@ -200,6 +214,18 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
 
   return findings.sort(
     (left, right) => left.index - right.index || left.kind.localeCompare(right.kind)
+  );
+}
+
+function isSafeDiagnosticAssignment(label: string, value: string, prefix: string): boolean {
+  if (/^(?:disabled|none|redacted)$/iu.test(value)) {
+    return true;
+  }
+  if (label === 'authorization' && /^not[-_ ]required(?:[-_ ].*)?$/iu.test(value)) {
+    return true;
+  }
+  return (
+    label === 'code' && /(?:error|exit)[ \t]+$/iu.test(prefix) && /^[A-Z][A-Z0-9_]*$/u.test(value)
   );
 }
 
@@ -358,9 +384,12 @@ function parseArtifacts(input: unknown): readonly McpArtifactReference[] {
   return artifacts.map((entry, index) => {
     const path = `$.artifacts[${index}]`;
     const value = strictObject(entry, path, ['kind', 'reference', 'sha256', 'sanitized']);
+    const kind = oneOf(value['kind'], `${path}.kind`, ['log', 'report', 'screenshot', 'trace']);
+    const reference = artifactReference(value['reference'], `${path}.reference`);
+    assertArtifactKindMatchesReference(kind, reference, path);
     return {
-      kind: oneOf(value['kind'], `${path}.kind`, ['log', 'report', 'screenshot', 'trace']),
-      reference: artifactReference(value['reference'], `${path}.reference`),
+      kind,
+      reference,
       sanitized: exactLiteral(value['sanitized'], true, `${path}.sanitized`),
       sha256: matchingString(
         value['sha256'],
@@ -370,6 +399,29 @@ function parseArtifacts(input: unknown): readonly McpArtifactReference[] {
       ),
     };
   });
+}
+
+const ARTIFACT_EXTENSIONS: Readonly<Record<McpArtifactKind, ReadonlySet<string>>> = {
+  log: new Set(['.json', '.log', '.ndjson', '.txt']),
+  report: new Set(['.html', '.json', '.md', '.txt']),
+  screenshot: new Set(['.jpeg', '.jpg', '.png', '.webp']),
+  trace: new Set(['.json', '.ndjson', '.trace']),
+};
+
+function assertArtifactKindMatchesReference(
+  kind: McpArtifactKind,
+  reference: string,
+  path: string
+): void {
+  const filename = reference.split('/').at(-1) ?? '';
+  const extensionIndex = filename.lastIndexOf('.');
+  const extension = extensionIndex === -1 ? '' : filename.slice(extensionIndex).toLowerCase();
+  if (!ARTIFACT_EXTENSIONS[kind].has(extension)) {
+    invalid(
+      `${path}.reference`,
+      `extension "${extension || '(none)'}" is incompatible with artifact kind "${kind}"`
+    );
+  }
 }
 
 function parseCleanup(input: unknown): McpEvidenceBundle['cleanup'] {
@@ -470,7 +522,7 @@ function assertSanitizedText(value: unknown, path: string): void {
   if (typeof value === 'string') {
     const finding = scanEvidenceTextForSecrets(value)[0];
     if (finding) {
-      fail(path, 'secret_detected', `contains prohibited ${finding.kind} material`);
+      fail(path, 'secret_detected', `contains prohibited ${finding.kind} material`, finding.index);
     }
     return;
   }
@@ -493,40 +545,86 @@ function assertSanitizedArtifacts(
   dependencies: McpEvidenceValidationDependencies
 ): void {
   for (const [index, artifact] of artifacts.entries()) {
-    let content: McpArtifactContent;
+    let result: McpArtifactReadResult;
     try {
-      content = dependencies.readArtifactContent(artifact.reference);
+      result = dependencies.readArtifactContent(artifact.reference);
     } catch {
       invalid(`$.artifacts[${index}].reference`, 'referenced artifact content could not be read');
     }
-    assertSanitizedArtifactContent(content, `$.artifacts[${index}].content`);
-    const digest = createHash('sha256').update(serializeArtifactContent(content)).digest('hex');
+    if (!(result.bytes instanceof Uint8Array)) {
+      invalid(`$.artifacts[${index}].content`, 'artifact reader must return exact bytes');
+    }
+    const bytes = Uint8Array.from(result.bytes);
+    const digest = createHash('sha256').update(bytes).digest('hex');
     if (digest !== artifact.sha256) {
       invalid(`$.artifacts[${index}].sha256`, 'does not match referenced artifact content');
     }
+    assertSanitizedArtifactBytes(artifact, bytes, dependencies, `$.artifacts[${index}].content`);
   }
 }
 
-function serializeArtifactContent(content: McpArtifactContent): string {
-  return typeof content === 'string' ? content : JSON.stringify(content);
-}
-
-function assertSanitizedArtifactContent(value: McpArtifactContent, path: string): void {
-  if (typeof value === 'string') {
-    assertSanitizedText(value, path);
-    return;
-  }
-  if (value === null || typeof value === 'boolean' || typeof value === 'number') {
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const [index, entry] of value.entries()) {
-      assertSanitizedArtifactContent(entry, `${path}[${index}]`);
+function assertSanitizedArtifactBytes(
+  artifact: McpArtifactReference,
+  bytes: Uint8Array,
+  dependencies: McpEvidenceValidationDependencies,
+  path: string
+): void {
+  if (artifact.kind === 'screenshot') {
+    if (!dependencies.extractScreenshotText) {
+      invalid(path, 'screenshot evidence requires exact-byte text extraction');
     }
+    let extractedText: string;
+    try {
+      extractedText = dependencies.extractScreenshotText(
+        Uint8Array.from(bytes),
+        artifact.reference
+      );
+    } catch {
+      invalid(path, 'screenshot text extraction failed');
+    }
+    if (typeof extractedText !== 'string') {
+      invalid(path, 'screenshot text extraction must return a string');
+    }
+    assertSanitizedText(extractedText, path);
     return;
   }
-  for (const [key, entry] of Object.entries(value)) {
-    assertSanitizedArtifactContent(entry, `${path}.${key}`);
+
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    invalid(path, `${artifact.kind} evidence must contain valid UTF-8 text`);
+  }
+  assertSanitizedText(text, path);
+  assertSanitizedParsedJson(text, path);
+}
+
+function assertSanitizedParsedJson(text: string, path: string): void {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+  try {
+    assertSanitizedText(JSON.parse(trimmed) as unknown, path);
+    return;
+  } catch (error) {
+    if (error instanceof McpEvidenceValidationError) {
+      throw error;
+    }
+  }
+
+  for (const [index, line] of text.split(/\r?\n/u).entries()) {
+    const candidate = line.trim();
+    if (!(candidate.startsWith('{') || candidate.startsWith('['))) {
+      continue;
+    }
+    try {
+      assertSanitizedText(JSON.parse(candidate) as unknown, `${path}.ndjson[${index}]`);
+    } catch (error) {
+      if (error instanceof McpEvidenceValidationError) {
+        throw error;
+      }
+    }
   }
 }
 
@@ -718,6 +816,16 @@ function invalid(path: string, message: string): never {
   fail(path, 'invalid_value', message);
 }
 
-function fail(path: string, code: McpEvidenceValidationCode, message: string): never {
-  throw new McpEvidenceValidationError({ code, message, path });
+function fail(
+  path: string,
+  code: McpEvidenceValidationCode,
+  message: string,
+  index?: number
+): never {
+  throw new McpEvidenceValidationError({
+    code,
+    message,
+    path,
+    ...(index === undefined ? {} : { index }),
+  });
 }

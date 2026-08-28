@@ -18,7 +18,9 @@ describe('MCP test lab package contract', () => {
   it('emits every public entry as Node-compatible JavaScript plus declarations', async () => {
     const manifest = await readManifest();
 
-    expect(manifest.scripts['build']).toBe('node ../../scripts/prune-stale-dist.mjs && tsc -b .');
+    expect(manifest.scripts['build']).toBe(
+      'node ../../scripts/prune-stale-dist.mjs && tsc -b . && node scripts/verify-built-package.mjs'
+    );
     expect(manifest.files).toEqual(['dist', 'fixtures']);
     expect(manifest.types).toBe('./dist/index.d.ts');
     expect(manifest.exports).toEqual({
@@ -56,7 +58,7 @@ describe('MCP test lab package contract', () => {
 
     expect(contract).toContain('@brainstrike/mcp-test-lab');
     expect(contract).toContain('lab-owned `StdioClientTransport`');
-    expect(contract).toContain('recomputes its lowercase SHA-256 digest');
+    expect(contract).toContain('SHA-256 digest over the original bytes');
     expect(contract).toContain('`node/dispatch` coordinate');
   });
 });
