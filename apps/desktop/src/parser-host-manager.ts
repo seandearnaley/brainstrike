@@ -13,8 +13,8 @@
  * See: docs/prd-chunking-wasm-parser-2026-05.md §4
  */
 
-import path from 'node:path';
 import { type UtilityProcess, utilityProcess } from 'electron';
+import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import type { ParserHostParseRequest, ParserHostParseResponse } from './parser-host-shared';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -31,15 +31,12 @@ export interface ParserHostManagerOptions {
   readonly requestTimeoutMs?: number;
 }
 
-function resolveDefaultEntryPath(): string {
-  // Mirror db-host-manager.resolveDefaultEntryPath. The main process build
-  // is CommonJS, so module.filename is reliable; the cwd fallback only
-  // matters in the (rare) case where the bundler stripped module info.
-  const currentModuleFilename =
-    typeof module.filename === 'string' && module.filename.length > 0
-      ? module.filename
-      : path.join(process.cwd(), 'parser-host-manager.js');
-  return path.join(path.dirname(currentModuleFilename), 'parser-host-entry.js');
+export function resolveParserHostEntryPath(currentModuleFilename?: string): string {
+  return resolveBundledSiblingPath(
+    'Parser host entry',
+    'parser-host-entry.js',
+    currentModuleFilename
+  );
 }
 
 function isParserHostParseResponse(value: unknown): value is ParserHostParseResponse {
@@ -60,7 +57,7 @@ export class ParserHostManager {
   readonly #pending = new Map<string, PendingRequest>();
 
   constructor(options: ParserHostManagerOptions = {}) {
-    this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
+    this.#entryPath = options.entryPath ?? resolveParserHostEntryPath();
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 

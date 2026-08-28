@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
+import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import type {
   DbHostDiagnosticsResult,
   DbHostInitResult,
@@ -260,12 +261,8 @@ function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeout
   }
 }
 
-function resolveDefaultEntryPath(): string {
-  const currentModuleFilename =
-    typeof module.filename === 'string' && module.filename.length > 0
-      ? module.filename
-      : path.join(process.cwd(), 'db-host-manager.js');
-  return path.join(path.dirname(currentModuleFilename), 'db-host-entry.js');
+export function resolveDbHostEntryPath(currentModuleFilename?: string): string {
+  return resolveBundledSiblingPath('DB host entry', 'db-host-entry.js', currentModuleFilename);
 }
 
 function resolveDatabaseRootPathForHost(): string {
@@ -424,7 +421,7 @@ class DefaultDbHostManager implements DbHostManager {
   #initialization: Promise<RemoteDbClient> | null = null;
 
   constructor(options: DbHostManagerOptions = {}) {
-    this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
+    this.#entryPath = options.entryPath ?? resolveDbHostEntryPath();
     this.#closeTimeoutMs = options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.#maintenanceRequestTimeoutMs =

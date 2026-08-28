@@ -45,12 +45,6 @@ import path from 'node:path';
  * AGENTS.md forbids, and a WORSE failure than the bug this ticket fixed
  * (the old `dist/dist/` doubling at least failed loudly at `Worker`
  * construction).
- *
- * FOLLOW-UP (not fixed here, filed as BST-1460): `db-host-manager.ts`'s
- * `resolveDefaultEntryPath()` and `parser-host-manager.ts`'s equivalent
- * predate this helper and still inline their own `module.filename`-with-
- * `process.cwd()`-fallback copy of this idiom, unmodified. They should
- * migrate to this helper too.
  */
 export function resolveBundledModuleDir(
   contextLabel: string,
