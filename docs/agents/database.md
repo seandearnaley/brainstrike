@@ -658,7 +658,17 @@ extension control file" error on that path only:
   matches through migration 034's generated tsvector + GIN index and orders
   those matches with the migration-066 BM25 index. `rankNormalization` remains
   in the public options type for compatibility but is inert because
-  pg_textsearch owns BM25 normalization. The opt-in qualification test is
+  pg_textsearch owns BM25 normalization. When that exact English arm returns
+  zero rows, all three file-chunk repository implementations run one bounded
+  `pg_trgm` fallback using the indexable `$query <% content` word-similarity
+  predicate and rank only that fallback set with `word_similarity`. Exact BM25
+  and fuzzy scores are never mixed; non-English match configurations remain
+  exact-only; and the fallback reuses every file, root, embedding-set, and
+  selection-snapshot scope assembled for the exact arm. Fuzzy-only rows omit
+  `ts_headline` because the misspelled tsquery has no honest highlight to
+  render. `file-chunk-repository.test.ts` proves typo recall, scope retention,
+  and planner selection of `idx_file_chunks_content_trgm`; the Electron and
+  Drizzle repository suites pin transport parity. The opt-in qualification test is
   `packages/db/__tests__/pg-textsearch-durability-gate.integration.test.ts`;
   run it from the repository root with
   `pnpm --filter @brainstrike/db test:pg-textsearch-durability`. It submits a
