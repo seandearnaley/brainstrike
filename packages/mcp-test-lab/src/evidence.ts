@@ -158,6 +158,7 @@ const CREDENTIAL_KEYS = [
 ] as const;
 const CREDENTIAL_KEY_SET = new Set<string>(CREDENTIAL_KEYS);
 const GENERIC_CREDENTIAL_KEYS = new Set(['authorization', 'code', 'token']);
+const MAX_SERIALIZED_JSON_SCAN_DEPTH = 4;
 const CREDENTIAL_ASSIGNMENT_KEYS = CREDENTIAL_KEYS.map((key) => key.replaceAll('_', '[_ -]'));
 const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
   `\\b(${CREDENTIAL_ASSIGNMENT_KEYS.join('|')})\\b["']?[ \\t]*[:=][ \\t]*["']?[^\\s"',;&?#}\\]]{8,}`,
@@ -518,17 +519,42 @@ function validateVerificationProof(
   }
 }
 
-function assertSanitizedText(value: unknown, path: string, scanDecodedKeys = false): void {
+function assertSerializedJsonText(value: string, path: string, serializedJsonDepth: number): void {
+  const trimmed = value.trim();
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return;
+  }
+  if (serializedJsonDepth >= MAX_SERIALIZED_JSON_SCAN_DEPTH) {
+    invalid(path, 'serialized JSON nesting exceeds the evidence scan limit');
+  }
+  assertSanitizedText(parsed, `${path}.serializedJson`, true, serializedJsonDepth + 1);
+}
+
+function assertSanitizedText(
+  value: unknown,
+  path: string,
+  scanDecodedKeys = false,
+  serializedJsonDepth = 0
+): void {
   if (typeof value === 'string') {
     const finding = scanEvidenceTextForSecrets(value)[0];
     if (finding) {
       fail(path, 'secret_detected', `contains prohibited ${finding.kind} material`, finding.index);
     }
+    if (scanDecodedKeys) {
+      assertSerializedJsonText(value, path, serializedJsonDepth);
+    }
     return;
   }
   if (Array.isArray(value)) {
     for (const [index, entry] of value.entries()) {
-      assertSanitizedText(entry, `${path}[${index}]`, scanDecodedKeys);
+      assertSanitizedText(entry, `${path}[${index}]`, scanDecodedKeys, serializedJsonDepth);
     }
     return;
   }
@@ -549,7 +575,7 @@ function assertSanitizedText(value: unknown, path: string, scanDecodedKeys = fal
         );
       }
     }
-    assertSanitizedText(entry, entryPath, scanDecodedKeys);
+    assertSanitizedText(entry, entryPath, scanDecodedKeys, serializedJsonDepth);
   }
 }
 

@@ -166,6 +166,10 @@ function hasOnlyKeys(
   );
 }
 
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 type UntypedFault = Readonly<Record<string, unknown>>;
 
 function assertOnlyFaultKeys(
@@ -328,6 +332,14 @@ export function createMcpLabFaultPlan(
   const declaredIds = new Set<string>();
   const declaredMatches = new Map<string, string>();
   for (const declaration of declarations) {
+    const untypedDeclaration: unknown = declaration;
+    if (!isRecord(untypedDeclaration)) {
+      throw new Error('Invalid MCP lab fault declaration: expected an object');
+    }
+    const untypedId = untypedDeclaration['id'];
+    if (typeof untypedId !== 'string' || untypedId.trim().length === 0) {
+      throw new Error('Invalid MCP lab fault id: expected a non-empty string');
+    }
     assertFaultPayload(declaration);
     if (!Number.isSafeInteger(declaration.match.occurrence) || declaration.match.occurrence < 1) {
       throw new Error(

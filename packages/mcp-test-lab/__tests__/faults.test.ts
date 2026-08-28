@@ -6,6 +6,18 @@ import {
 } from '../src/faults';
 
 describe('MCP lab fault plan', () => {
+  it.each([undefined, null, 42, '', '  '])('rejects invalid fault id %j', (id) => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { kind: 'drop_response' },
+          id,
+          match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+        },
+      ] as never)
+    ).toThrowError(/fault id.*non-empty string/i);
+  });
+
   it.each([
     [null, 'payload must be an object'],
     [
