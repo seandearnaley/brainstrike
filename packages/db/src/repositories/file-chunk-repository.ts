@@ -16,6 +16,7 @@ import {
 import {
   appendColumn,
   appendColumnIfDefined,
+  assertFuzzyThreshold,
   bm25RankExpression,
   computeOverfetchLimit,
   createUpdateBuilder,
@@ -28,6 +29,7 @@ import {
   type Queryable,
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
+  shouldUseFuzzyFallback,
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
@@ -433,6 +435,8 @@ export class FileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      fuzzyFallback = true,
+      fuzzyThreshold = 0.6,
       rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
@@ -446,6 +450,7 @@ export class FileChunkRepository {
     if (!trimmedQuery) {
       return [];
     }
+    assertFuzzyThreshold(fuzzyThreshold);
 
     const normalizedFilePaths = this.normalizeFilePaths(filePaths);
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
@@ -532,28 +537,42 @@ export class FileChunkRepository {
       [...params, limit]
     );
 
-    // Preserve the exact-match BM25 contract whenever it returns candidates.
-    // Only an empty exact arm activates pg_trgm's indexable word-similarity
-    // operator, so exact and fuzzy score domains are never mixed.
-    const rows =
-      exactResult.rows.length > 0 || language !== 'english'
-        ? exactResult.rows
-        : (
-            await this.db.query(
-              `SELECT
-                ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
-                word_similarity($1, content)::float8 as fts_rank,
-                ROW_NUMBER() OVER (ORDER BY word_similarity($1, content) DESC, id) as position
-              FROM file_chunks
-              WHERE $1 <% content
-                AND $2::regconfig IS NOT NULL${
-                  scopeWhereParts.length > 0 ? ` AND ${scopeWhereParts.join(' AND ')}` : ''
-                }
-              ORDER BY fts_rank DESC, id
-              LIMIT $${paramIndex}`,
-              [...params, limit]
-            )
-          ).rows;
+    // Preserve exact query-mode semantics. Raw-text trigram recovery is honest
+    // only for `plain`, which has no phrase/negation/operator syntax to lose.
+    const useFuzzyFallback = shouldUseFuzzyFallback({
+      exactResultCount: exactResult.rows.length,
+      fuzzyFallback,
+      language,
+      queryMode,
+    });
+    let rows = exactResult.rows;
+    let matchKind: FTSSearchResult['matchKind'] = 'exact';
+    if (useFuzzyFallback) {
+      const fuzzyThresholdIndex = paramIndex;
+      const fuzzyResult = await this.db.transaction(async (transaction) => {
+        await transaction.query(
+          "SELECT set_config('pg_trgm.word_similarity_threshold', $1, true)",
+          [String(fuzzyThreshold)]
+        );
+        return transaction.query(
+          `SELECT
+          ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
+          word_similarity($1, content)::float8 as fts_rank,
+          ROW_NUMBER() OVER (ORDER BY word_similarity($1, content) DESC, id) as position
+        FROM file_chunks
+        WHERE $1 <% content
+          AND word_similarity($1, content) >= $${fuzzyThresholdIndex}::float8
+          AND ${tsqueryFunc}($2::regconfig, $1)::text <> ''${
+            scopeWhereParts.length > 0 ? ` AND ${scopeWhereParts.join(' AND ')}` : ''
+          }
+        ORDER BY fts_rank DESC, id
+        LIMIT $${fuzzyThresholdIndex + 1}`,
+          [...params, fuzzyThreshold, limit]
+        );
+      });
+      rows = fuzzyResult.rows;
+      matchKind = 'fuzzy';
+    }
 
     // Map results to FTSSearchResult
     const results: FTSSearchResult[] = [];
@@ -566,12 +585,13 @@ export class FileChunkRepository {
       const rank = Number.parseFloat(ftsRow.fts_rank);
 
       // Apply threshold filter
-      if (threshold > 0 && rank < threshold) {
+      if (matchKind === 'exact' && threshold > 0 && rank < threshold) {
         continue;
       }
 
       const ftsResult: FTSSearchResult = {
         chunk: this.mapRowToChunk(ftsRow),
+        matchKind,
         position: Number.parseInt(ftsRow.position, 10),
         rank,
       };

@@ -1322,6 +1322,15 @@ describe('FileChunkRepository', () => {
       expect(results.every((result) => result.matchKind === 'fuzzy')).toBe(true);
     });
 
+    it('pins fuzzy admission independently of ambient session state', async () => {
+      await db.query("SET pg_trgm.word_similarity_threshold = '0.95'");
+
+      const results = await repository.fullTextSearch('authentcation', { queryMode: 'plain' });
+
+      expect(results).not.toHaveLength(0);
+      expect(results.every((result) => result.matchKind === 'fuzzy')).toBe(true);
+    });
+
     it('keeps the fuzzy fallback inside the requested file scope', async () => {
       const results = await repository.fullTextSearch('authentcation', {
         fileRecordId: 'file1',

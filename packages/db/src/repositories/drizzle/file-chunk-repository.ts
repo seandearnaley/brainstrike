@@ -29,6 +29,7 @@ import {
   assertTextContentsHaveNoNullBytes,
 } from '../../text-content-invariants.js';
 import {
+  assertFuzzyThreshold,
   BM25_CONTENT_INDEX_NAME,
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
@@ -38,6 +39,7 @@ import {
   MAX_INLINE_FILE_PATHS,
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
+  shouldUseFuzzyFallback,
 } from '../_shared.js';
 import type { FileChunkQueryTx } from '../file-chunk-repository.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from '../file-chunk-shared-queries.js';
@@ -531,6 +533,8 @@ export class DrizzleFileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      fuzzyFallback = true,
+      fuzzyThreshold = 0.6,
       rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
@@ -544,6 +548,7 @@ export class DrizzleFileChunkRepository {
     if (!trimmedQuery) {
       return [];
     }
+    assertFuzzyThreshold(fuzzyThreshold);
 
     const normalizedFilePaths = this.normalizeFilePaths(filePaths);
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
@@ -648,8 +653,14 @@ export class DrizzleFileChunkRepository {
     `;
 
     const exactResult = await this.db.execute(exactQuery);
-    if (exactResult.rows.length > 0 || language !== 'english') {
-      return this.mapFTSResults(exactResult.rows as Record<string, unknown>[], threshold);
+    const useFuzzyFallback = shouldUseFuzzyFallback({
+      exactResultCount: exactResult.rows.length,
+      fuzzyFallback,
+      language,
+      queryMode,
+    });
+    if (!useFuzzyFallback) {
+      return this.mapFTSResults(exactResult.rows as Record<string, unknown>[], 'exact', threshold);
     }
 
     const fuzzyRank = sql`word_similarity(${trimmedQuery}, content)::float8`;
@@ -660,13 +671,20 @@ export class DrizzleFileChunkRepository {
         ROW_NUMBER() OVER (ORDER BY ${fuzzyRank} DESC, id) as position
       FROM file_chunks
       WHERE ${trimmedQuery} <% content
+        AND word_similarity(${trimmedQuery}, content) >= ${fuzzyThreshold}
+        AND ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})::text <> ''
     `);
     fuzzyQuery = sql`${fuzzyQuery}
       ORDER BY fts_rank DESC, id
       LIMIT ${limit}
     `;
-    const fuzzyResult = await this.db.execute(fuzzyQuery);
-    return this.mapFTSResults(fuzzyResult.rows as Record<string, unknown>[], threshold);
+    const fuzzyResult = await this.db.transaction(async (transaction) => {
+      await transaction.execute(
+        sql`SELECT set_config('pg_trgm.word_similarity_threshold', ${String(fuzzyThreshold)}, true)`
+      );
+      return transaction.execute(fuzzyQuery);
+    });
+    return this.mapFTSResults(fuzzyResult.rows as Record<string, unknown>[], 'fuzzy', threshold);
   }
 
   /**
@@ -674,17 +692,19 @@ export class DrizzleFileChunkRepository {
    */
   private mapFTSResults(
     rows: Record<string, unknown>[],
+    matchKind: import('../../models/file-chunk.js').FTSSearchResult['matchKind'],
     threshold: number
   ): import('../../models/file-chunk.js').FTSSearchResult[] {
     const results: import('../../models/file-chunk.js').FTSSearchResult[] = [];
     for (const row of rows) {
       const rank = Number(row['fts_rank']);
       // Apply threshold filter
-      if (threshold > 0 && rank < threshold) {
+      if (matchKind === 'exact' && threshold > 0 && rank < threshold) {
         continue;
       }
       const ftsResult: import('../../models/file-chunk.js').FTSSearchResult = {
         chunk: this.fromRawRow(row),
+        matchKind,
         position: Number(row['position']),
         rank,
       };

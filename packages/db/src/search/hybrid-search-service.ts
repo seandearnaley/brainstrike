@@ -46,6 +46,10 @@ export interface HybridSearchOptions {
   // === Common Filters ===
   /** Filter by specific file record ID */
   fileRecordId?: string;
+  /** Allow plain-mode typo recovery after an empty exact FTS arm (default: true). */
+  ftsFuzzyFallback?: boolean;
+  /** Minimum 0–1 score for fuzzy FTS candidates (default: 0.6). */
+  ftsFuzzyThreshold?: number;
   /** FTS language configuration (default: 'english') */
   ftsLanguage?: string;
   /** Number of results to fetch from FTS before fusion (default: 50) */
@@ -203,6 +207,8 @@ export class HybridSearchService {
       ftsWeight = 1.0,
       ftsQueryMode = 'websearch',
       ftsLanguage = 'english',
+      ftsFuzzyFallback = true,
+      ftsFuzzyThreshold = 0.6,
       // Default to projecting the embedding vector away (see HybridSearchOptions).
       includeEmbedding = false,
       // Default to generating FTS headlines (callers that won't render them opt out).
@@ -251,6 +257,8 @@ export class HybridSearchService {
     // BM25-only chunks from another embedding space.
     const ftsSearchOptions: FTSSearchOptions = {
       embeddingSetId,
+      fuzzyFallback: ftsFuzzyFallback,
+      fuzzyThreshold: ftsFuzzyThreshold,
       includeEmbedding,
       includeHeadline,
       language: ftsLanguage,

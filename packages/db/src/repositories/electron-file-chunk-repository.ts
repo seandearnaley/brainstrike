@@ -13,6 +13,7 @@ import {
 import {
   appendColumn,
   appendColumnIfDefined,
+  assertFuzzyThreshold,
   bm25RankExpression,
   computeOverfetchLimit,
   createUpdateBuilder,
@@ -25,6 +26,7 @@ import {
   type Queryable,
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
+  shouldUseFuzzyFallback,
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
@@ -72,6 +74,17 @@ interface SearchScope {
   rootId?: string | undefined;
   rootIds?: readonly string[] | undefined;
   selectionSnapshotId?: string | undefined;
+}
+
+function requireAtomicFuzzyTransaction(
+  db: ElectronDbAPI
+): NonNullable<ElectronDbAPI['transaction']> {
+  if (!db.transaction) {
+    throw new Error(
+      'Electron fuzzy full-text search requires the atomic database transaction capability.'
+    );
+  }
+  return db.transaction.bind(db);
 }
 
 // Type for stats query rows
@@ -428,6 +441,8 @@ export class ElectronFileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      fuzzyFallback = true,
+      fuzzyThreshold = 0.6,
       rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
@@ -441,6 +456,7 @@ export class ElectronFileChunkRepository {
     if (!trimmedQuery) {
       return [];
     }
+    assertFuzzyThreshold(fuzzyThreshold);
 
     const normalizedFilePaths = this.normalizeFilePaths(filePaths);
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
@@ -527,25 +543,42 @@ export class ElectronFileChunkRepository {
       [...params, limit]
     );
 
-    const rows =
-      exactResult.rows.length > 0 || language !== 'english'
-        ? exactResult.rows
-        : (
-            await this.db.query(
-              `SELECT
-                ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
-                word_similarity($1, content)::float8 as fts_rank,
-                ROW_NUMBER() OVER (ORDER BY word_similarity($1, content) DESC, id) as position
-              FROM file_chunks
-              WHERE $1 <% content
-                AND $2::regconfig IS NOT NULL${
-                  scopeWhereParts.length > 0 ? ` AND ${scopeWhereParts.join(' AND ')}` : ''
-                }
-              ORDER BY fts_rank DESC, id
-              LIMIT $${paramIndex}`,
-              [...params, limit]
-            )
-          ).rows;
+    const useFuzzyFallback = shouldUseFuzzyFallback({
+      exactResultCount: exactResult.rows.length,
+      fuzzyFallback,
+      language,
+      queryMode,
+    });
+    let rows = exactResult.rows;
+    let matchKind: import('../models/file-chunk').FTSSearchResult['matchKind'] = 'exact';
+    if (useFuzzyFallback) {
+      const transaction = requireAtomicFuzzyTransaction(this.db);
+      const fuzzyThresholdIndex = paramIndex;
+      const fuzzySql = `SELECT
+          ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
+          word_similarity($1, content)::float8 as fts_rank,
+          ROW_NUMBER() OVER (ORDER BY word_similarity($1, content) DESC, id) as position
+        FROM file_chunks
+        WHERE $1 <% content
+          AND word_similarity($1, content) >= $${fuzzyThresholdIndex}::float8
+          AND ${tsqueryFunc}($2::regconfig, $1)::text <> ''${
+            scopeWhereParts.length > 0 ? ` AND ${scopeWhereParts.join(' AND ')}` : ''
+          }
+        ORDER BY fts_rank DESC, id
+        LIMIT $${fuzzyThresholdIndex + 1}`;
+      const fuzzyResult = await transaction(
+        [
+          {
+            params: [String(fuzzyThreshold)],
+            sql: "SELECT set_config('pg_trgm.word_similarity_threshold', $1, true)",
+          },
+          { params: [...params, fuzzyThreshold, limit], sql: fuzzySql },
+        ],
+        1
+      );
+      rows = fuzzyResult.rows;
+      matchKind = 'fuzzy';
+    }
 
     // Map results to FTSSearchResult
     const results: import('../models/file-chunk').FTSSearchResult[] = [];
@@ -558,12 +591,13 @@ export class ElectronFileChunkRepository {
       const rank = Number.parseFloat(ftsRow.fts_rank);
 
       // Apply threshold filter
-      if (threshold > 0 && rank < threshold) {
+      if (matchKind === 'exact' && threshold > 0 && rank < threshold) {
         continue;
       }
 
       const ftsResult: import('../models/file-chunk').FTSSearchResult = {
         chunk: this.mapRowToChunk(ftsRow),
+        matchKind,
         position: Number.parseInt(ftsRow.position, 10),
         rank,
       };

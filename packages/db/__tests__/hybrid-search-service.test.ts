@@ -41,6 +41,7 @@ function createFTSResult(
   return {
     chunk: createMockChunk(id, content),
     headline: `...${content.slice(0, 50)}...`,
+    matchKind: 'exact',
     position,
     rank,
   };

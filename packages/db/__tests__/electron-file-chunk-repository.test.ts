@@ -248,8 +248,9 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
   });
 
   it('runs the same fuzzy fallback over the Electron database bridge', async () => {
-    query.mockResolvedValueOnce({ rows: [] });
-    query.mockResolvedValueOnce({
+    const created = createRepoWithTransaction();
+    created.query.mockResolvedValueOnce({ rows: [] });
+    created.transaction.mockResolvedValueOnce({
       rows: [
         {
           ...createRowFromChunk(baseChunk),
@@ -259,7 +260,7 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
       ],
     });
 
-    const results = await repo.fullTextSearch('authentcation', { queryMode: 'plain' });
+    const results = await created.repo.fullTextSearch('authentcation', { queryMode: 'plain' });
 
     expect(results).toEqual([
       {
@@ -269,10 +270,14 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
         rank: 0.875,
       },
     ]);
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls[1]?.[0]).toContain('$1 <% content');
-    expect(query.mock.calls[1]?.[0]).toContain("plainto_tsquery($2::regconfig, $1)::text <> ''");
-    expect(query.mock.calls[1]?.[1]).toEqual(['authentcation', 'english', 0.6, 10]);
+    expect(created.query).toHaveBeenCalledTimes(1);
+    expect(created.transaction).toHaveBeenCalledTimes(1);
+    const [statements, resultIndex] = created.transaction.mock.calls[0]!;
+    expect(resultIndex).toBe(1);
+    expect(statements[0]?.sql).toContain("set_config('pg_trgm.word_similarity_threshold'");
+    expect(statements[1]?.sql).toContain('$1 <% content');
+    expect(statements[1]?.sql).toContain("plainto_tsquery($2::regconfig, $1)::text <> ''");
+    expect(statements[1]?.params).toEqual(['authentcation', 'english', 0.6, 10]);
   });
 
   it('clears embeddings and refreshes stats in one atomic query', async () => {

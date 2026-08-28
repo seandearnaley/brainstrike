@@ -138,6 +138,7 @@ export async function runLexicalEvaluation(
 
     for (const query of dataset.queries) {
       const results = await chunkRepo.fullTextSearch(query.text, {
+        fuzzyFallback: false,
         includeHeadline: false,
         limit: DEFAULT_LIMIT,
       });
