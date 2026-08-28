@@ -658,7 +658,23 @@ extension control file" error on that path only:
   matches through migration 034's generated tsvector + GIN index and orders
   those matches with the migration-066 BM25 index. `rankNormalization` remains
   in the public options type for compatibility but is inert because
-  pg_textsearch owns BM25 normalization. The opt-in qualification test is
+  pg_textsearch owns BM25 normalization. When that exact English `plain` arm
+  returns zero rows, all three file-chunk repository implementations may run
+  one bounded `pg_trgm` fallback using the index-supported `$query <% content`
+  word-similarity predicate. Websearch and phrase modes remain exact-only so
+  their operators/adjacency are never silently discarded, stopword-only
+  tsqueries remain honestly empty, and `fuzzyFallback: false` gives evaluation
+  callers an explicit opt-out. The fallback pins its session GUC and explicit
+  `fuzzyThreshold` to the same value (default `0.6`), returns
+  `matchKind: 'fuzzy'`, and does not apply the unbounded BM25 `threshold` to the
+  separate 0–1 fuzzy score domain. It reuses every file, root, embedding-set,
+  and selection-snapshot scope assembled for the exact arm. Fuzzy-only rows
+  omit `ts_headline` because the misspelled tsquery has no honest highlight to
+  render. `file-chunk-repository.test.ts` proves typo recall, stopword and mode
+  safety, scope retention, explicit opt-out, score-domain separation, and that
+  `idx_file_chunks_content_trgm` supports the admission operator when sequential
+  scans are disabled; the Electron and Drizzle repository suites pin transport
+  parity. The opt-in qualification test is
   `packages/db/__tests__/pg-textsearch-durability-gate.integration.test.ts`;
   run it from the repository root with
   `pnpm --filter @brainstrike/db test:pg-textsearch-durability`. It submits a

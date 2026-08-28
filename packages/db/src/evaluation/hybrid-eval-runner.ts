@@ -259,6 +259,7 @@ export async function runHybridEvaluation(
         // apples-to-apples within the same embedding set.
         chunkRepo.fullTextSearch(query.text, {
           embeddingSetId,
+          fuzzyFallback: false,
           includeHeadline: false,
           limit: DEFAULT_LIMIT,
         }),

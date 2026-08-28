@@ -134,27 +134,28 @@ export async function runLexicalEvaluation(
 
   try {
     const chunkRepo = await seedLexicalDataset(db, dataset);
-    const queryResults: LexicalEvaluationQueryResult[] = [];
-
-    for (const query of dataset.queries) {
-      const results = await chunkRepo.fullTextSearch(query.text, {
-        includeHeadline: false,
-        limit: DEFAULT_LIMIT,
-      });
-      const topChunkIds = results.map((result) => result.chunk.id);
-      const rankIndex = topChunkIds.indexOf(query.expectedChunkId);
-      const reciprocalRank = rankIndex === -1 ? 0 : 1 / (rankIndex + 1);
-      const precisionAt1 = rankIndex === 0 ? 1 : 0;
-      queryResults.push({
-        expectedChunkId: query.expectedChunkId,
-        id: query.id,
-        passed: precisionAt1 === 1,
-        precisionAt1,
-        query: query.text,
-        reciprocalRank,
-        topChunkIds,
-      });
-    }
+    const queryResults = await Promise.all(
+      dataset.queries.map(async (query): Promise<LexicalEvaluationQueryResult> => {
+        const results = await chunkRepo.fullTextSearch(query.text, {
+          fuzzyFallback: false,
+          includeHeadline: false,
+          limit: DEFAULT_LIMIT,
+        });
+        const topChunkIds = results.map((result) => result.chunk.id);
+        const rankIndex = topChunkIds.indexOf(query.expectedChunkId);
+        const reciprocalRank = rankIndex === -1 ? 0 : 1 / (rankIndex + 1);
+        const precisionAt1 = rankIndex === 0 ? 1 : 0;
+        return {
+          expectedChunkId: query.expectedChunkId,
+          id: query.id,
+          passed: precisionAt1 === 1,
+          precisionAt1,
+          query: query.text,
+          reciprocalRank,
+          topChunkIds,
+        };
+      })
+    );
 
     const total = queryResults.length;
     const meanPrecisionAt1 =

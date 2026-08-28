@@ -782,6 +782,25 @@ describe('DrizzleFileChunkRepository', () => {
       expect(results[0]?.chunk.id).toBe('00000000-0000-0000-0000-000000000230');
       expect(results[0]?.rank).toBeGreaterThan(0);
     });
+
+    it('finds a typo through the same fuzzy fallback as the raw repositories', async () => {
+      const now = new Date().toISOString();
+      await repository.insert({
+        chunkIndex: 0,
+        content: 'authentication middleware validates every session token',
+        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000232',
+        updatedAt: now,
+      });
+
+      const results = await repository.fullTextSearch('authentcation', { queryMode: 'plain' });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.chunk.id).toBe('00000000-0000-0000-0000-000000000232');
+      expect(results[0]?.matchKind).toBe('fuzzy');
+      expect(results[0]?.rank).toBeGreaterThan(0.6);
+    });
   });
 
   describe('clearEmbeddingsForSet (BST-989 slice 2 coverage)', () => {

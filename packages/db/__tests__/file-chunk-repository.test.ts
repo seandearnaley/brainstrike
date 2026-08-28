@@ -1288,6 +1288,73 @@ describe('FileChunkRepository', () => {
       expect(results).toEqual([]);
     });
 
+    it('finds a near-match when an exact full-text query has no rows', async () => {
+      const results = await repository.fullTextSearch('authentcation', { queryMode: 'plain' });
+
+      expect(results.map((result) => result.chunk.id).sort()).toEqual(['fts-chunk1', 'fts-chunk3']);
+      for (const result of results) {
+        expect(result.matchKind).toBe('fuzzy');
+        expect(result.rank).toBeGreaterThan(0.6);
+      }
+    });
+
+    it('keeps stopword-only and structured query modes honestly empty', async () => {
+      await expect(repository.fullTextSearch('the', { queryMode: 'plain' })).resolves.toEqual([]);
+      await expect(repository.fullTextSearch('authentcation -middleware')).resolves.toEqual([]);
+      await expect(
+        repository.fullTextSearch('authentcation middleware', { queryMode: 'phrase' })
+      ).resolves.toEqual([]);
+    });
+
+    it('supports an explicit fuzzy opt-out and keeps BM25 thresholds out of the fuzzy domain', async () => {
+      await expect(
+        repository.fullTextSearch('authentcation', {
+          fuzzyFallback: false,
+          queryMode: 'plain',
+        })
+      ).resolves.toEqual([]);
+
+      const results = await repository.fullTextSearch('authentcation', {
+        queryMode: 'plain',
+        threshold: 1.5,
+      });
+      expect(results).not.toHaveLength(0);
+      expect(results.every((result) => result.matchKind === 'fuzzy')).toBe(true);
+    });
+
+    it('pins fuzzy admission independently of ambient session state', async () => {
+      await db.query("SET pg_trgm.word_similarity_threshold = '0.95'");
+
+      const results = await repository.fullTextSearch('authentcation', { queryMode: 'plain' });
+
+      expect(results).not.toHaveLength(0);
+      expect(results.every((result) => result.matchKind === 'fuzzy')).toBe(true);
+    });
+
+    it('keeps the fuzzy fallback inside the requested file scope', async () => {
+      const results = await repository.fullTextSearch('authentcation', {
+        fileRecordId: 'file1',
+        queryMode: 'plain',
+      });
+
+      expect(results.map((result) => result.chunk.id)).toEqual(['fts-chunk1']);
+      expect(results[0]?.headline).toBeUndefined();
+    });
+
+    it('proves the fuzzy admission operator is supported by the existing trigram index', async () => {
+      const plan = await db.transaction(async (tx) => {
+        await tx.query('SET LOCAL enable_seqscan = off');
+        return tx.query<{ 'QUERY PLAN': string }>(
+          'EXPLAIN SELECT id FROM file_chunks WHERE $1 <% content',
+          ['authentcation']
+        );
+      });
+
+      expect(plan.rows.map((row) => row['QUERY PLAN']).join('\n')).toContain(
+        'idx_file_chunks_content_trgm'
+      );
+    });
+
     it('should throw error when filePaths exceeds limit', async () => {
       const tooManyPaths = Array.from({ length: 1001 }, (_, i) => `/path/to/file${i}.txt`);
 

@@ -71,6 +71,26 @@ export function dedupeByContentAndModel<T extends { contentHash: string; modelKe
  */
 export const MAX_INLINE_FILE_PATHS = 500;
 
+export function assertFuzzyThreshold(value: number): void {
+  if (!Number.isFinite(value) || value <= 0 || value > 1) {
+    throw new Error('fullTextSearch fuzzyThreshold must be a finite value in (0, 1].');
+  }
+}
+
+export function shouldUseFuzzyFallback(options: {
+  exactResultCount: number;
+  fuzzyFallback: boolean;
+  language: string;
+  queryMode: 'plain' | 'websearch' | 'phrase';
+}): boolean {
+  return (
+    options.exactResultCount === 0 &&
+    options.fuzzyFallback &&
+    options.language === 'english' &&
+    options.queryMode === 'plain'
+  );
+}
+
 /**
  * Maximum number of embedding dimension entries to cache.
  * Prevents unbounded memory growth in long-running processes.
