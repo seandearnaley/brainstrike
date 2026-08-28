@@ -1297,6 +1297,29 @@ describe('FileChunkRepository', () => {
       }
     });
 
+    it('keeps the fuzzy fallback inside the requested file scope', async () => {
+      const results = await repository.fullTextSearch('authentcation', {
+        fileRecordId: 'file1',
+      });
+
+      expect(results.map((result) => result.chunk.id)).toEqual(['fts-chunk1']);
+      expect(results[0]?.headline).toBeUndefined();
+    });
+
+    it('uses the existing trigram index for the fuzzy admission predicate', async () => {
+      const plan = await db.transaction(async (tx) => {
+        await tx.query('SET LOCAL enable_seqscan = off');
+        return tx.query<{ 'QUERY PLAN': string }>(
+          'EXPLAIN SELECT id FROM file_chunks WHERE $1 <% content',
+          ['authentcation']
+        );
+      });
+
+      expect(plan.rows.map((row) => row['QUERY PLAN']).join('\n')).toContain(
+        'idx_file_chunks_content_trgm'
+      );
+    });
+
     it('should throw error when filePaths exceeds limit', async () => {
       const tooManyPaths = Array.from({ length: 1001 }, (_, i) => `/path/to/file${i}.txt`);
 
