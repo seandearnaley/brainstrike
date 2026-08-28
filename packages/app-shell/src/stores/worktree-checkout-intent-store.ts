@@ -26,6 +26,7 @@ export interface WorktreeCheckoutIntentState {
   readonly consume: (threadId: string) => WorktreeCheckoutIntent | null;
   readonly pending: WorktreeCheckoutIntent | null;
   readonly publish: (intent: WorktreeCheckoutIntent) => void;
+  readonly reset: () => void;
 }
 
 export const useWorktreeCheckoutIntentStore = create<WorktreeCheckoutIntentState>((set, get) => ({
@@ -43,4 +44,5 @@ export const useWorktreeCheckoutIntentStore = create<WorktreeCheckoutIntentState
   publish: (intent) => {
     set({ pending: intent });
   },
+  reset: () => set({ pending: null }),
 }));

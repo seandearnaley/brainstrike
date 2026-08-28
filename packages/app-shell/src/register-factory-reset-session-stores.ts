@@ -10,16 +10,12 @@ import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/wor
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
-import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
 import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useChangesStore } from './changes/changes-store';
 import { useRewindStore } from './changes/rewind-store';
-import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-health-store';
-import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
+import { APP_SHELL_SESSION_STORE_RESETTERS } from './reset-app-shell-session-stores';
 import { useTerminalTargetStore } from './stores/terminal-target-store';
-import { resetThreadSearchStore } from './thread-search-store';
 
 /**
  * Wire session-only Zustand stores into the factory-reset pipeline per the
@@ -33,6 +29,10 @@ import { resetThreadSearchStore } from './thread-search-store';
  * Store imports use package subpaths (not feature barrels) so registration stays
  * free of UI/bridge side graphs.
  */
+for (const reset of APP_SHELL_SESSION_STORE_RESETTERS) {
+  registerFactoryResetSessionStore(reset);
+}
+
 registerFactoryResetSessionStore(() => {
   useWorkspaceSearchStore.getState().reset();
 });
@@ -67,10 +67,6 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
-  useAssistantComposerCommandStore.getState().reset();
-});
-
-registerFactoryResetSessionStore(() => {
   // Thread group/placement rows live in PGlite (wiped with the DB); this
   // clears the in-memory mirror plus the persisted view prefs slice so a
   // reset-without-reload doesn't resurrect stale groups.
@@ -82,28 +78,6 @@ registerFactoryResetSessionStore(() => {
   // handle database (brainstrike-notes-vault) is wiped via the IndexedDB
   // fallback list in factory-reset-helpers.ts.
   resetNotesVaultSessionState();
-});
-
-registerFactoryResetSessionStore(() => {
-  // Thread search results/query are session-only; the durable index rows
-  // (brainstrike_thread_message_index/_state) are cleared with the DB.
-  resetThreadSearchStore();
-});
-
-registerFactoryResetSessionStore(() => {
-  // The unseen-diagnostics watermark is seeded to "now" at launch (design
-  // §9) so the status-bar chip counts events since this session, not every
-  // retained row replayed as unread. Reset re-seeds it to "now" rather than
-  // restoring the original module-load value, matching that same contract.
-  resetDiagnosticsSeenStore();
-});
-
-registerFactoryResetSessionStore(() => {
-  // The sink-health flag is the only channel `DiagnosticSinkBridge`'s
-  // onDisabled callback has to reach the settings UI (the bridge mounts
-  // outside RootLayoutContent, so React context can't carry it); it reflects
-  // in-memory writer state for this run and must not survive a reset.
-  resetDiagnosticSinkHealthStore();
 });
 
 registerFactoryResetSessionStore(() => {
@@ -136,14 +110,6 @@ registerFactoryResetSessionStore(() => {
   // A pending composer repopulation is the text of a message the reset just
   // deleted — it must not land in a fresh profile's first prompt.
   useRewindComposerStore.getState().consume();
-});
-
-registerFactoryResetSessionStore(() => {
-  // The browser-pane tab mirror (BST-1174). The main-process views + their
-  // `persist:browser-pane` partition are wiped by the desktop userData reset;
-  // this clears the renderer's stale copy of that list so the pane starts
-  // empty in the fresh profile.
-  useBrowserTabsStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {

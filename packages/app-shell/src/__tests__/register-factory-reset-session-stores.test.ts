@@ -10,6 +10,8 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import type { BrowserTab } from '../browser-pane/browser-bridge';
+import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { useChangesStore } from '../changes/changes-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
@@ -20,7 +22,10 @@ import {
   resetRootRegistrationEventsForTests,
   rootRegistrationSeq,
 } from '../roots/root-registration-events';
+import { useCommandPaletteStore } from '../stores/command-palette-store';
+import { useQuickOpenStore } from '../stores/quick-open-store';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
+import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 
 // The real notes-vault store's default services require indexedDB (handle
 // persistence), which this vitest environment does not provide. The reset
@@ -41,6 +46,7 @@ describe('register-factory-reset-session-stores', () => {
     useWorkspaceContextCurationStore.getState().reset();
     useAssistantComposerCommandStore.getState().reset();
     useAssistantThreadGroupsStore.getState().reset();
+    useBrowserTabsStore.getState().reset();
     resetRootRegistrationEventsForTests();
     vi.mocked(resetNotesVaultSessionState).mockClear();
   });
@@ -104,6 +110,24 @@ describe('register-factory-reset-session-stores', () => {
     });
     useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
     useTerminalTargetStore.getState().openTerminalAt({ cwd: '/wt', rootId: 'r-1' });
+    useCommandPaletteStore.getState().open();
+    useQuickOpenStore.getState().open();
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'codex/reset-me',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'worktree-1',
+    });
+    const browserTab: BrowserTab = {
+      active: true,
+      canGoBack: false,
+      canGoForward: false,
+      isLoading: false,
+      tabId: 'browser-tab-1',
+      title: 'Before reset',
+      url: 'https://example.com',
+    };
+    useBrowserTabsStore.getState().setTabs([browserTab]);
 
     expect(useWorkspaceSearchStore.getState().query).toBe('find me');
     expect(useChunkSelectionStore.getState().selectionsByKey['root|@|src/a.ts']).toBeDefined();
@@ -134,6 +158,38 @@ describe('register-factory-reset-session-stores', () => {
     expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
     expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
     expect(useTerminalTargetStore.getState().target).toBeNull();
+    expect(useCommandPaletteStore.getState()).toMatchObject({
+      isOpen: false,
+      openTarget: null,
+    });
+    expect(useQuickOpenStore.getState().isOpen).toBe(false);
+    expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+    expect(useBrowserTabsStore.getState().tabs).toEqual([]);
+  });
+
+  it('keeps later app-shell resets isolated when one registered store throws', async () => {
+    const originalClose = useCommandPaletteStore.getState().close;
+    useCommandPaletteStore.setState({
+      close: () => {
+        throw new Error('command palette reset failed');
+      },
+    });
+    useQuickOpenStore.getState().open();
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'codex/reset-after-failure',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'worktree-1',
+    });
+
+    try {
+      const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(result.success).toBe(true);
+      expect(useQuickOpenStore.getState().isOpen).toBe(false);
+      expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+    } finally {
+      useCommandPaletteStore.setState({ close: originalClose });
+    }
   });
 
   // The two diagnostics session stores get their own case rather than riding
