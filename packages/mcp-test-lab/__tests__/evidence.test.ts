@@ -63,10 +63,23 @@ const VALID_BUNDLE = {
   },
 } as const satisfies McpEvidenceBundle;
 
+const VALIDATION_DEPENDENCIES = {
+  readArtifactContent(reference: string) {
+    if (reference !== 'artifacts/main-process.ndjson') {
+      throw new Error('artifact fixture is unavailable');
+    }
+    return { entries: [{ message: 'sanitized lifecycle event' }] };
+  },
+} as const;
+
+function parseEvidence(input: unknown): McpEvidenceBundle {
+  return parseMcpEvidenceBundle(input, VALIDATION_DEPENDENCIES);
+}
+
 describe('parseMcpEvidenceBundle', () => {
   it('accepts a complete exact-head MCP scenario evidence bundle', () => {
     expect(MCP_EVIDENCE_SCHEMA_VERSION).toBe('1.0.0');
-    expect(parseMcpEvidenceBundle(VALID_BUNDLE)).toEqual(VALID_BUNDLE);
+    expect(parseEvidence(VALID_BUNDLE)).toEqual(VALID_BUNDLE);
   });
 
   it('rejects missing and unknown fields at every strict object boundary', () => {
@@ -88,9 +101,9 @@ describe('parseMcpEvidenceBundle', () => {
       git: { ...VALID_BUNDLE.git, branch: 'codex/bst-1475' },
     };
 
-    expect(() => parseMcpEvidenceBundle(missingTicket)).toThrowError(/ticket.*required/i);
-    expect(() => parseMcpEvidenceBundle(unknownRoot)).toThrowError(/generatedAt.*unknown/i);
-    expect(() => parseMcpEvidenceBundle(unknownNested)).toThrowError(/git\.branch.*unknown/i);
+    expect(() => parseEvidence(missingTicket)).toThrowError(/ticket.*required/i);
+    expect(() => parseEvidence(unknownRoot)).toThrowError(/generatedAt.*unknown/i);
+    expect(() => parseEvidence(unknownNested)).toThrowError(/git\.branch.*unknown/i);
   });
 
   it('requires exact identifiers, versions, hashes, counts, and explicit cleanup proof', () => {
@@ -133,7 +146,7 @@ describe('parseMcpEvidenceBundle', () => {
     ];
 
     for (const malformed of malformedBundles) {
-      expect(() => parseMcpEvidenceBundle(malformed)).toThrow(McpEvidenceValidationError);
+      expect(() => parseEvidence(malformed)).toThrow(McpEvidenceValidationError);
     }
   });
 
@@ -163,17 +176,42 @@ describe('parseMcpEvidenceBundle', () => {
       ],
     };
 
-    expect(() => parseMcpEvidenceBundle(greenBeforeRed)).toThrowError(/RED.*first/i);
-    expect(() => parseMcpEvidenceBundle(passingRed)).toThrowError(/RED.*non-zero/i);
-    expect(() => parseMcpEvidenceBundle(failingGreen)).toThrowError(/GREEN.*zero/i);
-    expect(() => parseMcpEvidenceBundle(verificationBeforeGreen)).toThrowError(
-      /verification.*GREEN/i
-    );
+    expect(() => parseEvidence(greenBeforeRed)).toThrowError(/RED.*first/i);
+    expect(() => parseEvidence(passingRed)).toThrowError(/RED.*non-zero/i);
+    expect(() => parseEvidence(failingGreen)).toThrowError(/GREEN.*zero/i);
+    expect(() => parseEvidence(verificationBeforeGreen)).toThrowError(/verification.*GREEN/i);
+  });
+
+  it.each([
+    { failed: 0, passed: 0, skipped: 0, total: 0 },
+    { failed: 0, passed: 1, skipped: 0, total: 1 },
+  ])('requires RED proof to report an actual failed test: %o', (tests) => {
+    const invalidRed = {
+      ...VALID_BUNDLE,
+      commands: [{ ...VALID_BUNDLE.commands[0], tests }, VALID_BUNDLE.commands[1]],
+    };
+
+    expect(() => parseEvidence(invalidRed)).toThrowError(/RED.*failed test/i);
+  });
+
+  it('requires RED proof failure counts to be internally consistent', () => {
+    const invalidRed = {
+      ...VALID_BUNDLE,
+      commands: [
+        {
+          ...VALID_BUNDLE.commands[0],
+          tests: { failed: 1, passed: 0, skipped: 0, total: 2 },
+        },
+        VALID_BUNDLE.commands[1],
+      ],
+    };
+
+    expect(() => parseEvidence(invalidRed)).toThrowError(/tests\.total.*equal/i);
   });
 
   it('requires observed protocol identity, unique capabilities, and correlation IDs', () => {
     expect(() =>
-      parseMcpEvidenceBundle({
+      parseEvidence({
         ...VALID_BUNDLE,
         negotiation: {
           ...VALID_BUNDLE.negotiation,
@@ -182,7 +220,7 @@ describe('parseMcpEvidenceBundle', () => {
       })
     ).toThrowError(/capabilities.*unique/i);
 
-    expect(() => parseMcpEvidenceBundle({ ...VALID_BUNDLE, correlationIds: [] })).toThrowError(
+    expect(() => parseEvidence({ ...VALID_BUNDLE, correlationIds: [] })).toThrowError(
       /correlationIds.*non-empty/i
     );
   });
@@ -199,9 +237,9 @@ describe('parseMcpEvidenceBundle', () => {
       ],
     };
 
-    expect(parseMcpEvidenceBundle(blockedBundle).blockers).toEqual(blockedBundle.blockers);
+    expect(parseEvidence(blockedBundle).blockers).toEqual(blockedBundle.blockers);
     expect(() =>
-      parseMcpEvidenceBundle({
+      parseEvidence({
         ...VALID_BUNDLE,
         blockers: [{ code: 'missing-description', owner: 'MCP verification' }],
       })
@@ -231,6 +269,46 @@ describe('parseMcpEvidenceBundle', () => {
     expect(JSON.stringify(findings)).not.toContain('correct-horse');
   });
 
+  it.each([
+    'access_token',
+    'api_key',
+    'authorization',
+    'client_secret',
+    'code',
+    'code_verifier',
+    'password',
+    'refresh_token',
+    'token',
+  ])('detects standalone %s assignments without returning their values', (credentialKey) => {
+    const credential = `opaque-${'0123456789abcdef'}`;
+    const equalsFindings = scanEvidenceTextForSecrets(`${credentialKey}=${credential}`);
+    const jsonFindings = scanEvidenceTextForSecrets(`"${credentialKey}": "${credential}"`);
+
+    expect(equalsFindings.length).toBeGreaterThan(0);
+    expect(jsonFindings.length).toBeGreaterThan(0);
+    expect(JSON.stringify([...equalsFindings, ...jsonFindings])).not.toContain(credential);
+  });
+
+  it.each([
+    'access_token',
+    'api_key',
+    'authorization',
+    'client_secret',
+    'code',
+    'code_verifier',
+    'password',
+    'refresh_token',
+    'token',
+  ])('detects %s values in URL fragments without returning their values', (credentialKey) => {
+    const credential = `opaque-${'0123456789abcdef'}`;
+    const findings = scanEvidenceTextForSecrets(
+      `https://example.com/callback#${credentialKey}=${credential}`
+    );
+
+    expect(findings).toEqual([expect.objectContaining({ kind: 'credential-bearing-url' })]);
+    expect(JSON.stringify(findings)).not.toContain(credential);
+  });
+
   it('does not mistake exact-head hashes or ordinary verifier prose for secrets', () => {
     expect(
       scanEvidenceTextForSecrets(
@@ -248,13 +326,43 @@ describe('parseMcpEvidenceBundle', () => {
       },
     };
 
-    expect(() => parseMcpEvidenceBundle(secretBundle)).toThrowError(
-      /cleanup\.details.*bearer-token/i
-    );
+    expect(() => parseEvidence(secretBundle)).toThrowError(/cleanup\.details.*bearer-token/i);
     try {
-      parseMcpEvidenceBundle(secretBundle);
+      parseEvidence(secretBundle);
     } catch (error: unknown) {
       expect(JSON.stringify(error)).not.toContain('mcp_live_0123456789abcdef');
+    }
+  });
+
+  it('recursively secret-scans referenced artifact contents despite sanitized metadata', () => {
+    const credential = `mcp_${'live_0123456789abcdef'}`;
+    const readArtifactContent = (_reference: string) => ({
+      entries: [{ message: `Authorization: Bearer ${credential}` }],
+    });
+
+    expect(() => parseMcpEvidenceBundle(VALID_BUNDLE, { readArtifactContent })).toThrowError(
+      /artifacts\[0\]\.content.*bearer-token/i
+    );
+    try {
+      parseMcpEvidenceBundle(VALID_BUNDLE, { readArtifactContent });
+    } catch (error: unknown) {
+      expect(JSON.stringify(error)).not.toContain(credential);
+    }
+  });
+
+  it('does not expose artifact reader errors that may contain credential material', () => {
+    const credential = `mcp_${'live_0123456789abcdef'}`;
+    const readArtifactContent = (_reference: string): never => {
+      throw new Error(`read failed near Authorization: Bearer ${credential}`);
+    };
+
+    try {
+      parseMcpEvidenceBundle(VALID_BUNDLE, { readArtifactContent });
+      throw new Error('expected artifact validation to fail');
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(McpEvidenceValidationError);
+      expect(String(error)).toMatch(/artifacts\[0\]\.reference.*could not be read/i);
+      expect(JSON.stringify(error)).not.toContain(credential);
     }
   });
 });

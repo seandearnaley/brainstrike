@@ -1,49 +1,68 @@
 export const MCP_LAB_SDK_VERSION = '2.0.0' as const;
-export const MCP_LAB_SDK_SOURCE_SHA = 'cc4b41617ce3601b1290d67216ea0b194a3cd9ac' as const;
 export const MCP_LAB_CONFORMANCE_VERSION = '0.2.0-alpha.10' as const;
 
-export const MCP_LAB_SCENARIO_IDS = [
+export const MCP_LAB_SDK_SOURCE = Object.freeze({
+  commitSha: 'cc4b41617ce3601b1290d67216ea0b194a3cd9ac',
+  repositoryUrl: 'https://github.com/modelcontextprotocol/typescript-sdk.git',
+  tag: `@modelcontextprotocol/server@${MCP_LAB_SDK_VERSION}`,
+} as const);
+
+export const MCP_LAB_SDK_SOURCE_SHA = MCP_LAB_SDK_SOURCE.commitSha;
+
+export const MCP_LAB_SCENARIO_IDS = Object.freeze([
   'modern-reference',
   'legacy-reference',
   'stdio-reference',
   'oauth-reference',
-] as const;
+] as const);
 
 export type McpLabScenarioId = (typeof MCP_LAB_SCENARIO_IDS)[number];
 
 export interface McpLabScenario {
-  authentication: 'none' | 'oauth';
-  description: string;
-  fixture:
+  readonly authentication: 'none' | 'oauth';
+  readonly description: string;
+  readonly fixture:
     | 'brainstrike-sdk-v2-reference'
     | 'brainstrike-oauth-reference'
     | 'brainstrike-stdio-reference';
-  id: McpLabScenarioId;
-  network: 'loopback-only';
-  protocol: { era: 'legacy'; version: '2025-11-25' } | { era: 'modern'; version: '2026-07-28' };
-  reference: {
-    clientPackage: '@modelcontextprotocol/client';
-    conformancePackage: '@modelcontextprotocol/conformance';
-    conformanceVersion: typeof MCP_LAB_CONFORMANCE_VERSION;
-    sdkSourceSha: typeof MCP_LAB_SDK_SOURCE_SHA;
-    sdkVersion: typeof MCP_LAB_SDK_VERSION;
-    serverPackage: '@modelcontextprotocol/server';
+  readonly id: McpLabScenarioId;
+  readonly network: 'loopback-only';
+  readonly protocol:
+    | { readonly era: 'legacy'; readonly version: '2025-11-25' }
+    | { readonly era: 'modern'; readonly version: '2026-07-28' };
+  readonly reference: {
+    readonly clientPackage: '@modelcontextprotocol/client';
+    readonly conformancePackage: '@modelcontextprotocol/conformance';
+    readonly conformanceVersion: typeof MCP_LAB_CONFORMANCE_VERSION;
+    readonly sdkSource: typeof MCP_LAB_SDK_SOURCE;
+    readonly sdkSourceSha: typeof MCP_LAB_SDK_SOURCE_SHA;
+    readonly sdkVersion: typeof MCP_LAB_SDK_VERSION;
+    readonly serverPackage: '@modelcontextprotocol/server';
   };
-  transport: 'stdio' | 'streamable-http';
-  usesAmbientCredentials: false;
+  readonly transport: 'stdio' | 'streamable-http';
+  readonly usesAmbientCredentials: false;
 }
 
-const REFERENCE = {
+const REFERENCE = Object.freeze({
   clientPackage: '@modelcontextprotocol/client',
   conformancePackage: '@modelcontextprotocol/conformance',
   conformanceVersion: MCP_LAB_CONFORMANCE_VERSION,
+  sdkSource: MCP_LAB_SDK_SOURCE,
   sdkSourceSha: MCP_LAB_SDK_SOURCE_SHA,
   sdkVersion: MCP_LAB_SDK_VERSION,
   serverPackage: '@modelcontextprotocol/server',
-} as const;
+} as const);
 
-const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = {
-  'legacy-reference': {
+function freezeScenario(scenario: McpLabScenario): McpLabScenario {
+  return Object.freeze({
+    ...scenario,
+    protocol: Object.freeze({ ...scenario.protocol }),
+    reference: REFERENCE,
+  });
+}
+
+const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = Object.freeze({
+  'legacy-reference': freezeScenario({
     authentication: 'none',
     description: 'Brainstrike legacy-era compatibility server built with the pinned official SDK',
     fixture: 'brainstrike-sdk-v2-reference',
@@ -53,8 +72,8 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = {
     reference: REFERENCE,
     transport: 'streamable-http',
     usesAmbientCredentials: false,
-  },
-  'modern-reference': {
+  }),
+  'modern-reference': freezeScenario({
     authentication: 'none',
     description: 'Brainstrike modern reference server built with the pinned official SDK',
     fixture: 'brainstrike-sdk-v2-reference',
@@ -64,8 +83,8 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = {
     reference: REFERENCE,
     transport: 'streamable-http',
     usesAmbientCredentials: false,
-  },
-  'oauth-reference': {
+  }),
+  'oauth-reference': freezeScenario({
     authentication: 'oauth',
     description: 'Loopback OAuth protected-resource and authorization reference server',
     fixture: 'brainstrike-oauth-reference',
@@ -75,8 +94,8 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = {
     reference: REFERENCE,
     transport: 'streamable-http',
     usesAmbientCredentials: false,
-  },
-  'stdio-reference': {
+  }),
+  'stdio-reference': freezeScenario({
     authentication: 'none',
     description: 'Spawned stdio lifecycle and diagnostics reference server',
     fixture: 'brainstrike-stdio-reference',
@@ -86,8 +105,8 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = {
     reference: REFERENCE,
     transport: 'stdio',
     usesAmbientCredentials: false,
-  },
-};
+  }),
+});
 
 function isMcpLabScenarioId(value: string): value is McpLabScenarioId {
   return Object.hasOwn(SCENARIOS, value);

@@ -1,88 +1,569 @@
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import {
   localhostHostValidation,
   localhostOriginValidation,
   type NodeIncomingMessageLike,
   toNodeHandler,
 } from '@modelcontextprotocol/node';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
-import { z } from 'zod';
-import { getMcpLabScenario, type McpLabScenario } from './scenario';
-
-export interface McpLabSession {
-  close: () => Promise<void>;
-  readonly closed: boolean;
-  fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-  scenario: McpLabScenario;
-}
+import {
+  createMcpHandler,
+  getOAuthProtectedResourceMetadataUrl,
+  isLegacyRequest,
+  type McpHttpHandler,
+  OAuthError,
+  OAuthErrorCode,
+  type OAuthMetadata,
+  oauthMetadataResponse,
+  requireBearerAuth,
+} from '@modelcontextprotocol/server';
+import type {
+  McpLabFault,
+  McpLabFaultPlan,
+  McpLabProtocolMethod,
+  McpLabProtocolPhase,
+} from './faults.js';
+import { createReferenceServer } from './reference-server.js';
+import { getMcpLabScenario, type McpLabScenario } from './scenario.js';
 
 export interface McpLabCleanupReport {
   readonly httpListenersClosed: number;
   readonly untriggeredFaultIds: readonly string[];
 }
 
-export interface McpLabLoopbackSession {
+export interface McpLabDiagnostic {
+  readonly correlationId: string;
+  readonly kind: 'cleanup-error' | 'handler-error';
+  readonly message: string;
+}
+
+export type McpLabEndpoint =
+  | {
+      readonly fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+      readonly kind: 'in-process-http';
+      readonly url: URL;
+    }
+  | { readonly kind: 'loopback-http'; readonly url: URL }
+  | {
+      readonly authorizationServerMetadataUrl: URL;
+      readonly authorizationUrl: URL;
+      readonly issuer: URL;
+      readonly kind: 'oauth-loopback-http';
+      readonly protectedResourceMetadataUrl: URL;
+      readonly registrationUrl: URL;
+      readonly tokenUrl: URL;
+      readonly url: URL;
+    }
+  | {
+      readonly args: readonly string[];
+      readonly command: string;
+      readonly cwd: string;
+      readonly env: Readonly<Record<string, string>>;
+      readonly kind: 'stdio';
+    };
+
+export interface McpLabSession {
   close: () => Promise<McpLabCleanupReport>;
   readonly closed: boolean;
-  endpoint: {
-    readonly kind: 'loopback-http';
-    readonly url: URL;
-  };
+  diagnostics: () => readonly McpLabDiagnostic[];
+  endpoint: McpLabEndpoint;
   scenario: McpLabScenario;
 }
 
-function createModernReferenceServer(): McpServer {
-  const server = new McpServer({
-    name: 'brainstrike-sdk-v2-reference',
-    version: '2.0.0',
-  });
-  const echoSchema = z.object({ text: z.string() });
-  server.registerTool(
-    'echo',
-    {
-      description: 'Echo a string through the official MCP TypeScript SDK v2 server.',
-      inputSchema: echoSchema,
-      outputSchema: echoSchema,
-    },
-    async ({ text }) => ({
-      content: [{ text, type: 'text' }],
-      structuredContent: { text },
-    })
-  );
-  return server;
+export interface StartMcpLabScenarioOptions {
+  readonly execution?: 'in-process' | 'loopback';
+  readonly faultPlan?: McpLabFaultPlan;
 }
 
-export function createMcpLabScenario(id: string): McpLabSession {
-  const scenario = getMcpLabScenario(id);
-  if (scenario.id !== 'modern-reference') {
-    throw new Error(`MCP lab scenario is not implemented: ${scenario.id}`);
+interface AppliedFault {
+  readonly fault: McpLabFault;
+  readonly id: string;
+}
+
+interface CloseResource {
+  close: () => Promise<void>;
+  closed: boolean;
+  readonly kind: 'handler' | 'http-listener';
+}
+
+interface RegisteredClient {
+  readonly redirectUris: readonly string[];
+}
+
+interface AuthorizationCode {
+  readonly challenge: string;
+  readonly clientId: string;
+  readonly redirectUri: string;
+  readonly resource: string;
+  readonly scope: string;
+}
+
+interface AccessToken {
+  readonly clientId: string;
+  readonly expiresAt: number;
+  readonly resource: string;
+  readonly scope: string;
+}
+
+interface OAuthRuntime {
+  readonly clients: Map<string, RegisteredClient>;
+  readonly codes: Map<string, AuthorizationCode>;
+  nextAccessToken(): string;
+  nextAuthorizationCode(): string;
+  nextClientId(): string;
+  readonly tokens: Map<string, AccessToken>;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function recordDiagnostic(list: McpLabDiagnostic[], value: McpLabDiagnostic): void {
+  if (
+    list.some(
+      (item) =>
+        item.correlationId === value.correlationId &&
+        item.kind === value.kind &&
+        item.message === value.message
+    )
+  ) {
+    return;
   }
+  list.push(Object.freeze({ ...value }));
+}
 
-  const handler = createMcpHandler(createModernReferenceServer, { legacy: 'reject' });
-  let closed = false;
-
+function createFaultRuntime(plan: McpLabFaultPlan | undefined, scenarioId: string) {
+  const occurrences = new Map<string, number>();
+  let correlationSequence = 0;
   return {
-    async close() {
-      if (closed) {
+    consume(
+      phase: McpLabProtocolPhase,
+      method: McpLabProtocolMethod,
+      correlationId: string
+    ): AppliedFault | undefined {
+      if (!plan) {
         return;
       }
-      closed = true;
-      await handler.close();
-    },
-    get closed() {
-      return closed;
-    },
-    async fetch(input, init) {
-      if (closed) {
-        throw new Error(`MCP lab scenario is closed: ${scenario.id}`);
+      const key = `${phase}\u0000${method}`;
+      const occurrence = (occurrences.get(key) ?? 0) + 1;
+      occurrences.set(key, occurrence);
+      const fault = plan.consumeIfConfigured({ correlationId, method, occurrence, phase });
+      if (!fault) {
+        return;
       }
-      return handler.fetch(new Request(input, init));
+      const observation = plan.observations().at(-1);
+      if (!observation || observation.correlationId !== correlationId) {
+        throw new Error(`MCP lab fault observation missing for ${phase}/${method}`);
+      }
+      return { fault, id: observation.faultId };
     },
-    scenario,
+    nextCorrelation(label = 'exchange'): string {
+      correlationSequence += 1;
+      return `${scenarioId}:${label}:${correlationSequence}`;
+    },
+    untriggeredIds(): readonly string[] {
+      return plan?.untriggeredIds() ?? Object.freeze([]);
+    },
   };
 }
 
-function listenOnLoopback(server: Server): Promise<number> {
+type FaultRuntime = ReturnType<typeof createFaultRuntime>;
+
+const INITIALIZATION_METHODS = new Set(['initialize', 'notifications/initialized', 'ping']);
+const OPERATION_METHODS = new Set([
+  'completion/complete',
+  'prompts/get',
+  'prompts/list',
+  'resources/list',
+  'resources/read',
+  'resources/templates/list',
+  'tasks/cancel',
+  'tasks/get',
+  'tasks/list',
+  'tasks/result',
+  'tools/call',
+  'tools/list',
+]);
+
+function phaseForMethod(method: string): McpLabProtocolPhase | undefined {
+  if (INITIALIZATION_METHODS.has(method)) {
+    return 'initialization';
+  }
+  if (OPERATION_METHODS.has(method)) {
+    return 'operation';
+  }
+  return;
+}
+
+function oauthFaultMethod(pathname: string): McpLabProtocolMethod | undefined {
+  switch (pathname) {
+    case '/.well-known/oauth-protected-resource/mcp':
+      return 'oauth/protected-resource';
+    case '/.well-known/oauth-authorization-server':
+      return 'oauth/authorization-server';
+    case '/authorize':
+      return 'oauth/authorize';
+    case '/register':
+      return 'oauth/register';
+    case '/token':
+      return 'oauth/token';
+    default:
+      return;
+  }
+}
+
+async function protocolCoordinate(
+  request: Request
+): Promise<
+  { readonly method: McpLabProtocolMethod; readonly phase: McpLabProtocolPhase } | undefined
+> {
+  const oauth = oauthFaultMethod(new URL(request.url).pathname);
+  if (oauth) {
+    return { method: oauth, phase: 'authorization' };
+  }
+  let method = request.headers.get('mcp-method') ?? undefined;
+  if (!method && request.method === 'POST') {
+    try {
+      const body: unknown = await request.clone().json();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        const candidate = (body as Record<string, unknown>)['method'];
+        method = typeof candidate === 'string' ? candidate : undefined;
+      }
+    } catch {
+      return;
+    }
+  }
+  if (!method) {
+    return;
+  }
+  const phase = phaseForMethod(method);
+  return phase ? { method: method as McpLabProtocolMethod, phase } : undefined;
+}
+
+async function applyHttpFault(applied: AppliedFault): Promise<Response | undefined> {
+  switch (applied.fault.kind) {
+    case 'delay': {
+      const { delayMs } = applied.fault;
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      return;
+    }
+    case 'drop_response':
+      throw new Error(`MCP lab fault "${applied.id}" dropped the response`);
+    case 'http_status':
+      return Response.json(
+        { error: 'mcp_lab_fault', faultId: applied.id },
+        { status: applied.fault.status }
+      );
+    case 'malformed_json':
+      return new Response(applied.fault.payload, {
+        headers: { 'content-type': 'application/json' },
+      });
+    case 'child_exit':
+    case 'child_stderr':
+      throw new Error(`MCP lab fault "${applied.id}" cannot target an HTTP exchange`);
+  }
+}
+
+function withFaults(
+  handler: McpHttpHandler,
+  runtime: FaultRuntime,
+  diagnostics: McpLabDiagnostic[]
+): McpHttpHandler {
+  return {
+    bus: handler.bus,
+    close: handler.close,
+    async fetch(request, options) {
+      const correlationId =
+        request.headers.get('x-mcp-lab-correlation-id') ?? runtime.nextCorrelation();
+      try {
+        const requestFault = runtime.consume('transport', 'http/request', correlationId);
+        if (requestFault) {
+          const response = await applyHttpFault(requestFault);
+          if (response) {
+            return response;
+          }
+        }
+        const coordinate = await protocolCoordinate(request);
+        if (coordinate) {
+          const protocolFault = runtime.consume(coordinate.phase, coordinate.method, correlationId);
+          if (protocolFault) {
+            const response = await applyHttpFault(protocolFault);
+            if (response) {
+              return response;
+            }
+          }
+        }
+        const response = await handler.fetch(request, options);
+        const responseFault = runtime.consume('transport', 'http/response', correlationId);
+        return responseFault ? ((await applyHttpFault(responseFault)) ?? response) : response;
+      } catch (error) {
+        recordDiagnostic(diagnostics, {
+          correlationId,
+          kind: 'handler-error',
+          message: messageOf(error),
+        });
+        throw error;
+      }
+    },
+    notify: handler.notify,
+  };
+}
+
+function referenceHandler(scenario: McpLabScenario): McpHttpHandler {
+  const handler = createMcpHandler(createReferenceServer, {
+    legacy: scenario.protocol.era === 'legacy' ? 'stateless' : 'reject',
+  });
+  if (scenario.protocol.era !== 'legacy') {
+    return handler;
+  }
+  return {
+    bus: handler.bus,
+    close: handler.close,
+    async fetch(request, options) {
+      if (!(await isLegacyRequest(request))) {
+        return Response.json({ error: 'mcp_lab_legacy_only' }, { status: 404 });
+      }
+      return handler.fetch(request, options);
+    },
+    notify: handler.notify,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function oauthError(error: string, description: string): Response {
+  return Response.json(
+    { error, ['error_description']: description },
+    { headers: { 'cache-control': 'no-store' }, status: 400 }
+  );
+}
+
+function createOAuthRuntime(): OAuthRuntime {
+  let clientSequence = 0;
+  let codeSequence = 0;
+  let tokenSequence = 0;
+  return {
+    clients: new Map(),
+    codes: new Map(),
+    nextAccessToken() {
+      tokenSequence += 1;
+      return `brainstrike-lab-access-${tokenSequence}`;
+    },
+    nextAuthorizationCode() {
+      codeSequence += 1;
+      return `brainstrike-lab-code-${codeSequence}`;
+    },
+    nextClientId() {
+      clientSequence += 1;
+      return `brainstrike-lab-client-${clientSequence}`;
+    },
+    tokens: new Map(),
+  };
+}
+
+function createOAuthMetadata(
+  endpoint: Extract<McpLabEndpoint, { readonly kind: 'oauth-loopback-http' }>
+): OAuthMetadata {
+  return {
+    ['authorization_endpoint']: endpoint.authorizationUrl.href,
+    ['authorization_response_iss_parameter_supported']: true,
+    ['code_challenge_methods_supported']: ['S256'],
+    ['grant_types_supported']: ['authorization_code'],
+    issuer: endpoint.issuer.href,
+    ['registration_endpoint']: endpoint.registrationUrl.href,
+    ['response_types_supported']: ['code'],
+    ['scopes_supported']: ['mcp'],
+    ['token_endpoint']: endpoint.tokenUrl.href,
+    ['token_endpoint_auth_methods_supported']: ['none'],
+  };
+}
+
+async function registerOAuthClient(request: Request, runtime: OAuthRuntime): Promise<Response> {
+  if (request.method !== 'POST') {
+    return new Response('Method not allowed', { headers: { allow: 'POST' }, status: 405 });
+  }
+  const body: unknown = await request.json().catch(() => undefined);
+  const bodyRecord = isRecord(body) ? body : undefined;
+  const redirectUris = bodyRecord?.['redirect_uris'];
+  if (
+    !Array.isArray(redirectUris) ||
+    redirectUris.length === 0 ||
+    !redirectUris.every(
+      (value): value is string => typeof value === 'string' && isLoopbackRedirect(value)
+    )
+  ) {
+    return oauthError('invalid_client_metadata', 'Loopback redirect_uris are required');
+  }
+  const clientId = runtime.nextClientId();
+  runtime.clients.set(clientId, { redirectUris: Object.freeze([...redirectUris]) });
+  return Response.json(
+    {
+      ...bodyRecord,
+      ['client_id']: clientId,
+      ['client_id_issued_at']: 1_700_000_000,
+      ['token_endpoint_auth_method']: 'none',
+    },
+    { status: 201 }
+  );
+}
+
+function authorizeOAuthClient(
+  request: Request,
+  endpoint: Extract<McpLabEndpoint, { readonly kind: 'oauth-loopback-http' }>,
+  runtime: OAuthRuntime
+): Response {
+  const url = new URL(request.url);
+  const clientId = url.searchParams.get('client_id');
+  const redirectUri = url.searchParams.get('redirect_uri');
+  const challenge = url.searchParams.get('code_challenge');
+  const state = url.searchParams.get('state');
+  const resource = url.searchParams.get('resource');
+  if (
+    request.method !== 'GET' ||
+    url.searchParams.get('response_type') !== 'code' ||
+    url.searchParams.get('code_challenge_method') !== 'S256' ||
+    !clientId ||
+    !redirectUri ||
+    !challenge ||
+    !state ||
+    resource !== endpoint.url.href ||
+    !runtime.clients.get(clientId)?.redirectUris.includes(redirectUri)
+  ) {
+    return oauthError('invalid_request', 'Authorization request is invalid');
+  }
+  const code = runtime.nextAuthorizationCode();
+  runtime.codes.set(code, {
+    challenge,
+    clientId,
+    redirectUri,
+    resource,
+    scope: url.searchParams.get('scope') ?? 'mcp',
+  });
+  const callback = new URL(redirectUri);
+  callback.searchParams.set('code', code);
+  callback.searchParams.set('iss', endpoint.issuer.href);
+  callback.searchParams.set('state', state);
+  return new Response(null, { headers: { location: callback.href }, status: 302 });
+}
+
+async function exchangeOAuthCode(request: Request, runtime: OAuthRuntime): Promise<Response> {
+  if (request.method !== 'POST') {
+    return new Response('Method not allowed', { headers: { allow: 'POST' }, status: 405 });
+  }
+  const form = new URLSearchParams(await request.text());
+  const code = form.get('code');
+  const record = code ? runtime.codes.get(code) : undefined;
+  const verifier = form.get('code_verifier');
+  const challenge = verifier
+    ? createHash('sha256').update(verifier).digest('base64url')
+    : undefined;
+  if (
+    form.get('grant_type') !== 'authorization_code' ||
+    !code ||
+    !record ||
+    challenge !== record.challenge ||
+    form.get('client_id') !== record.clientId ||
+    form.get('redirect_uri') !== record.redirectUri ||
+    form.get('resource') !== record.resource
+  ) {
+    return oauthError('invalid_grant', 'Authorization code or PKCE binding is invalid');
+  }
+  runtime.codes.delete(code);
+  const accessToken = runtime.nextAccessToken();
+  runtime.tokens.set(accessToken, {
+    clientId: record.clientId,
+    expiresAt: Math.floor(Date.now() / 1000) + 300,
+    resource: record.resource,
+    scope: record.scope,
+  });
+  return Response.json(
+    {
+      ['access_token']: accessToken,
+      ['expires_in']: 300,
+      scope: record.scope,
+      ['token_type']: 'Bearer',
+    },
+    { headers: { 'cache-control': 'no-store', pragma: 'no-cache' } }
+  );
+}
+
+function isLoopbackRedirect(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'http:' &&
+      (url.hostname === '127.0.0.1' || url.hostname === '::1' || url.hostname === 'localhost')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function oauthHandler(
+  mcpHandler: McpHttpHandler,
+  endpoint: Extract<McpLabEndpoint, { readonly kind: 'oauth-loopback-http' }>
+): McpHttpHandler {
+  const runtime = createOAuthRuntime();
+  const metadata = createOAuthMetadata(endpoint);
+  const gate = requireBearerAuth({
+    requiredScopes: ['mcp'],
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(endpoint.url),
+    verifier: {
+      async verifyAccessToken(token) {
+        const record = runtime.tokens.get(token);
+        if (!record) {
+          throw new OAuthError(OAuthErrorCode.InvalidToken, 'Unknown access token');
+        }
+        return {
+          clientId: record.clientId,
+          expiresAt: record.expiresAt,
+          resource: new URL(record.resource),
+          scopes: record.scope.split(' '),
+          token,
+        };
+      },
+    },
+  });
+  return {
+    bus: mcpHandler.bus,
+    close: mcpHandler.close,
+    async fetch(request, options) {
+      const discovery = oauthMetadataResponse(request, {
+        dangerouslyAllowInsecureIssuerUrl: true,
+        oauthMetadata: metadata,
+        resourceName: 'Brainstrike MCP Lab',
+        resourceServerUrl: endpoint.url,
+        scopesSupported: ['mcp'],
+      });
+      if (discovery) {
+        return discovery;
+      }
+      const url = new URL(request.url);
+      if (url.pathname === '/register') {
+        return registerOAuthClient(request, runtime);
+      }
+      if (url.pathname === '/authorize') {
+        return authorizeOAuthClient(request, endpoint, runtime);
+      }
+      if (url.pathname === '/token') {
+        return exchangeOAuthCode(request, runtime);
+      }
+      if (url.pathname !== '/mcp') {
+        return new Response('Not found', { status: 404 });
+      }
+      const auth = await gate(request);
+      return auth instanceof Response
+        ? auth
+        : mcpHandler.fetch(request, { ...options, authInfo: auth });
+    },
+    notify: mcpHandler.notify,
+  };
+}
+
+function listen(server: Server): Promise<number> {
   return new Promise((resolve, reject) => {
     const onError = (error: Error) => {
       server.off('listening', onListening);
@@ -92,7 +573,7 @@ function listenOnLoopback(server: Server): Promise<number> {
       server.off('error', onError);
       const address = server.address();
       if (!address || typeof address === 'string') {
-        reject(new Error('MCP lab HTTP listener did not expose a TCP address'));
+        reject(new Error('MCP lab listener has no TCP address'));
         return;
       }
       resolve(address.port);
@@ -103,81 +584,248 @@ function listenOnLoopback(server: Server): Promise<number> {
   });
 }
 
-function toMcpNodeRequest(request: IncomingMessage): NodeIncomingMessageLike {
+function nodeRequest(request: IncomingMessage, correlationId: string): NodeIncomingMessageLike {
   return {
     [Symbol.asyncIterator]() {
       return request[Symbol.asyncIterator]();
     },
-    headers: request.headers,
+    headers: { ...request.headers, 'x-mcp-lab-correlation-id': correlationId },
     ...(request.method === undefined ? {} : { method: request.method }),
     ...(request.url === undefined ? {} : { url: request.url }),
   };
 }
 
-function closeHttpServer(server: Server): Promise<void> {
+function closeServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
+    server.close((error) => (error ? reject(error) : resolve()));
   });
 }
 
-export async function startMcpLabScenario(id: string): Promise<McpLabLoopbackSession> {
-  const scenario = getMcpLabScenario(id);
-  if (scenario.id !== 'modern-reference') {
-    throw new Error(`MCP lab loopback scenario is not implemented: ${scenario.id}`);
-  }
-
-  const handler = createMcpHandler(createModernReferenceServer, { legacy: 'reject' });
-  const nodeHandler = toNodeHandler(handler);
-  const validateHost = localhostHostValidation();
-  const validateOrigin = localhostOriginValidation();
-  const server = createServer((request, response) => {
-    if (!validateHost(request, response)) {
-      return;
-    }
-    if (!validateOrigin(request, response)) {
-      return;
-    }
-    const mcpRequest = toMcpNodeRequest(request);
-    void nodeHandler(mcpRequest, response).catch(() => {
-      response.destroy();
-    });
-  });
-  const port = await listenOnLoopback(server);
+function session(
+  endpoint: McpLabEndpoint,
+  scenario: McpLabScenario,
+  resources: CloseResource[],
+  diagnostics: McpLabDiagnostic[],
+  runtime: FaultRuntime
+): McpLabSession {
   let closePromise: Promise<McpLabCleanupReport> | undefined;
-
+  let didClose = false;
   return {
     close() {
       if (closePromise) {
         return closePromise;
       }
       closePromise = (async () => {
-        const results = await Promise.allSettled([closeHttpServer(server), handler.close()]);
-        const errors = results.flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : []
-        );
-        if (errors.length === 1) {
-          throw errors[0];
+        await Promise.resolve();
+        const correlationId = runtime.nextCorrelation('cleanup');
+        try {
+          const fault = runtime.consume('shutdown', 'transport/close', correlationId);
+          if (fault) {
+            if (fault.fault.kind === 'delay') {
+              const { delayMs } = fault.fault;
+              await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+            } else {
+              throw new Error(`MCP lab fault "${fault.id}" interrupted cleanup`);
+            }
+          }
+          const results = await Promise.allSettled(
+            resources
+              .filter((resource) => !resource.closed)
+              .map(async (resource) => {
+                await resource.close();
+                resource.closed = true;
+              })
+          );
+          const errors = results.flatMap((result) =>
+            result.status === 'rejected' ? [result.reason] : []
+          );
+          if (errors.length > 0) {
+            throw errors.length === 1
+              ? errors[0]
+              : new AggregateError(errors, 'MCP lab cleanup failed');
+          }
+          didClose = resources.every((resource) => resource.closed);
+          return Object.freeze({
+            httpListenersClosed: resources.filter(
+              (resource) => resource.kind === 'http-listener' && resource.closed
+            ).length,
+            untriggeredFaultIds: runtime.untriggeredIds(),
+          });
+        } catch (error) {
+          recordDiagnostic(diagnostics, {
+            correlationId,
+            kind: 'cleanup-error',
+            message: messageOf(error),
+          });
+          throw error;
+        } finally {
+          if (!didClose) {
+            closePromise = undefined;
+          }
         }
-        if (errors.length > 1) {
-          throw new AggregateError(errors, 'MCP lab loopback cleanup failed');
-        }
-        return { httpListenersClosed: 1, untriggeredFaultIds: [] };
       })();
       return closePromise;
     },
     get closed() {
-      return closePromise !== undefined;
+      return didClose && resources.every((resource) => resource.closed);
     },
-    endpoint: {
-      kind: 'loopback-http',
-      url: new URL(`http://127.0.0.1:${port}/mcp`),
-    },
+    diagnostics: () => Object.freeze(diagnostics.map((value) => Object.freeze({ ...value }))),
+    endpoint,
     scenario,
   };
+}
+
+function inProcessSession(
+  scenario: McpLabScenario,
+  faultPlan: McpLabFaultPlan | undefined
+): McpLabSession {
+  const diagnostics: McpLabDiagnostic[] = [];
+  const runtime = createFaultRuntime(faultPlan, scenario.id);
+  const handler = referenceHandler(scenario);
+  const guarded = withFaults(handler, runtime, diagnostics);
+  return session(
+    Object.freeze({
+      fetch: (input: string | URL | Request, init?: RequestInit) =>
+        guarded.fetch(new Request(input, init)),
+      kind: 'in-process-http' as const,
+      url: new URL('http://127.0.0.1/mcp'),
+    }),
+    scenario,
+    [{ close: handler.close, closed: false, kind: 'handler' }],
+    diagnostics,
+    runtime
+  );
+}
+
+function stdioSession(
+  scenario: McpLabScenario,
+  faultPlan: McpLabFaultPlan | undefined
+): McpLabSession {
+  const diagnostics: McpLabDiagnostic[] = [];
+  const runtime = createFaultRuntime(faultPlan, scenario.id);
+  const env: Record<string, string> = { ['MCP_LAB_STDIO_SCENARIO']: scenario.id };
+  const correlationId = runtime.nextCorrelation('child');
+  for (const method of ['child/spawn', 'child/stderr', 'child/exit'] as const) {
+    const applied = runtime.consume('child-process', method, correlationId);
+    if (!applied) {
+      continue;
+    }
+    if (applied.fault.kind === 'delay') {
+      env['MCP_LAB_START_DELAY_MS'] = String(applied.fault.delayMs);
+    } else if (applied.fault.kind === 'child_stderr') {
+      env['MCP_LAB_STDERR_TEXT'] = applied.fault.text;
+    } else if (applied.fault.kind === 'child_exit') {
+      env[applied.fault.code === null ? 'MCP_LAB_EXIT_SIGNAL' : 'MCP_LAB_EXIT_CODE'] =
+        applied.fault.code === null ? applied.fault.signal : String(applied.fault.code);
+    } else if (applied.fault.kind === 'malformed_json') {
+      env['MCP_LAB_MALFORMED_JSON'] = applied.fault.payload;
+    } else if (applied.fault.kind === 'drop_response') {
+      env['MCP_LAB_DROP_RESPONSE'] = '1';
+    } else {
+      throw new Error(`MCP lab fault "${applied.id}" cannot target stdio`);
+    }
+  }
+  return session(
+    Object.freeze({
+      args: Object.freeze([
+        fileURLToPath(new URL('../fixtures/stdio-reference-server.mjs', import.meta.url)),
+      ]),
+      command: process.execPath,
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: Object.freeze(env),
+      kind: 'stdio' as const,
+    }),
+    scenario,
+    [],
+    diagnostics,
+    runtime
+  );
+}
+
+async function loopbackSession(
+  scenario: McpLabScenario,
+  faultPlan: McpLabFaultPlan | undefined
+): Promise<McpLabSession> {
+  const diagnostics: McpLabDiagnostic[] = [];
+  const runtime = createFaultRuntime(faultPlan, scenario.id);
+  let dispatch: ReturnType<typeof toNodeHandler> | undefined;
+  const validateHost = localhostHostValidation();
+  const validateOrigin = localhostOriginValidation();
+  const server = createServer((request, response) => {
+    if (!(validateHost(request, response) && validateOrigin(request, response))) {
+      return;
+    }
+    const correlationId = runtime.nextCorrelation();
+    if (!dispatch) {
+      response.writeHead(503).end();
+      return;
+    }
+    void dispatch(nodeRequest(request, correlationId), response).catch((error: unknown) => {
+      recordDiagnostic(diagnostics, {
+        correlationId,
+        kind: 'handler-error',
+        message: messageOf(error),
+      });
+      if (response.headersSent) {
+        response.destroy(error instanceof Error ? error : undefined);
+      } else {
+        response.writeHead(500, {
+          'content-type': 'application/json',
+          'x-mcp-lab-correlation-id': correlationId,
+        });
+        response.end(JSON.stringify({ correlationId, error: 'mcp_lab_handler_error' }));
+      }
+    });
+  });
+  const port = await listen(server);
+  const origin = new URL(`http://127.0.0.1:${port}/`);
+  const url = new URL('/mcp', origin);
+  let endpoint: Extract<McpLabEndpoint, { readonly kind: 'loopback-http' | 'oauth-loopback-http' }>;
+  let handler = referenceHandler(scenario);
+  if (scenario.id === 'oauth-reference') {
+    endpoint = Object.freeze({
+      authorizationServerMetadataUrl: new URL('/.well-known/oauth-authorization-server', origin),
+      authorizationUrl: new URL('/authorize', origin),
+      issuer: origin,
+      kind: 'oauth-loopback-http',
+      protectedResourceMetadataUrl: new URL(getOAuthProtectedResourceMetadataUrl(url)),
+      registrationUrl: new URL('/register', origin),
+      tokenUrl: new URL('/token', origin),
+      url,
+    });
+    handler = oauthHandler(handler, endpoint);
+  } else {
+    endpoint = Object.freeze({ kind: 'loopback-http', url });
+  }
+  dispatch = toNodeHandler(withFaults(handler, runtime, diagnostics));
+  return session(
+    endpoint,
+    scenario,
+    [
+      { close: () => closeServer(server), closed: false, kind: 'http-listener' },
+      { close: handler.close, closed: false, kind: 'handler' },
+    ],
+    diagnostics,
+    runtime
+  );
+}
+
+export async function startMcpLabScenario(
+  id: string,
+  options: StartMcpLabScenarioOptions = {}
+): Promise<McpLabSession> {
+  const scenario = getMcpLabScenario(id);
+  if (scenario.id === 'stdio-reference') {
+    if (options.execution) {
+      throw new Error(`MCP lab stdio scenario does not accept execution=${options.execution}`);
+    }
+    return stdioSession(scenario, options.faultPlan);
+  }
+  if (options.execution === 'in-process') {
+    if (scenario.id === 'oauth-reference') {
+      throw new Error('MCP lab OAuth scenario requires a loopback listener');
+    }
+    return inProcessSession(scenario, options.faultPlan);
+  }
+  return loopbackSession(scenario, options.faultPlan);
 }

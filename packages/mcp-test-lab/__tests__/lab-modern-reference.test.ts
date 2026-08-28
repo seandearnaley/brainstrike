@@ -1,16 +1,19 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
-import { createMcpLabScenario } from '../src/lab';
+import { startMcpLabScenario } from '../src/lab';
 
 describe('MCP lab modern reference', () => {
   it('negotiates 2026-07-28 and exercises a real official SDK tool exchange', async () => {
-    const lab = createMcpLabScenario('modern-reference');
+    const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+    if (lab.endpoint.kind !== 'in-process-http') {
+      throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
+    }
     const client = new Client(
       { name: 'brainstrike-mcp-lab-test', version: '1.0.0' },
       { versionNegotiation: { mode: { pin: '2026-07-28' } } }
     );
-    const transport = new StreamableHTTPClientTransport(new URL('http://mcp-lab.invalid/mcp'), {
-      fetch: lab.fetch,
+    const transport = new StreamableHTTPClientTransport(lab.endpoint.url, {
+      fetch: lab.endpoint.fetch,
     });
 
     try {
@@ -35,7 +38,10 @@ describe('MCP lab modern reference', () => {
       });
     } finally {
       await client.close();
-      await lab.close();
+      await expect(lab.close()).resolves.toEqual({
+        httpListenersClosed: 0,
+        untriggeredFaultIds: [],
+      });
     }
 
     expect(lab.closed).toBe(true);

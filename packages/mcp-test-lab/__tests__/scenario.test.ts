@@ -1,11 +1,31 @@
+import { readFileSync } from 'node:fs';
+import { findPackageJSON } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import {
   getMcpLabScenario,
   MCP_LAB_CONFORMANCE_VERSION,
   MCP_LAB_SCENARIO_IDS,
+  MCP_LAB_SDK_SOURCE,
   MCP_LAB_SDK_SOURCE_SHA,
   MCP_LAB_SDK_VERSION,
 } from '../src/scenario';
+
+function readInstalledPackageVersion(packageName: string): string {
+  const manifestPath = findPackageJSON(packageName, import.meta.url);
+  if (!manifestPath) {
+    throw new Error(`Cannot find installed package manifest for ${packageName}`);
+  }
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  if (
+    typeof manifest !== 'object' ||
+    manifest === null ||
+    !('version' in manifest) ||
+    typeof manifest.version !== 'string'
+  ) {
+    throw new Error(`Installed package manifest for ${packageName} has no string version`);
+  }
+  return manifest.version;
+}
 
 describe('MCP lab scenario manifest', () => {
   it('identifies the Brainstrike fixture and exact official source pins', () => {
@@ -20,6 +40,7 @@ describe('MCP lab scenario manifest', () => {
         clientPackage: '@modelcontextprotocol/client',
         conformancePackage: '@modelcontextprotocol/conformance',
         conformanceVersion: MCP_LAB_CONFORMANCE_VERSION,
+        sdkSource: MCP_LAB_SDK_SOURCE,
         sdkSourceSha: MCP_LAB_SDK_SOURCE_SHA,
         sdkVersion: MCP_LAB_SDK_VERSION,
         serverPackage: '@modelcontextprotocol/server',
@@ -27,6 +48,38 @@ describe('MCP lab scenario manifest', () => {
       transport: 'streamable-http',
       usesAmbientCredentials: false,
     });
+  });
+
+  it('matches the real installed client and server package versions', () => {
+    expect(readInstalledPackageVersion('@modelcontextprotocol/client')).toBe(MCP_LAB_SDK_VERSION);
+    expect(readInstalledPackageVersion('@modelcontextprotocol/server')).toBe(MCP_LAB_SDK_VERSION);
+  });
+
+  it('declares an independently verifiable upstream source tag and peeled commit', () => {
+    expect(MCP_LAB_SDK_SOURCE).toEqual({
+      commitSha: 'cc4b41617ce3601b1290d67216ea0b194a3cd9ac',
+      repositoryUrl: 'https://github.com/modelcontextprotocol/typescript-sdk.git',
+      tag: '@modelcontextprotocol/server@2.0.0',
+    });
+    expect(getMcpLabScenario('modern-reference').reference.sdkSource).toBe(MCP_LAB_SDK_SOURCE);
+  });
+
+  it('returns a deeply frozen shared manifest', () => {
+    expect(Object.isFrozen(MCP_LAB_SCENARIO_IDS)).toBe(true);
+    for (const id of MCP_LAB_SCENARIO_IDS) {
+      const manifest = getMcpLabScenario(id);
+      expect(Object.isFrozen(manifest)).toBe(true);
+      expect(Object.isFrozen(manifest.protocol)).toBe(true);
+      expect(Object.isFrozen(manifest.reference)).toBe(true);
+      expect(Object.isFrozen(manifest.reference.sdkSource)).toBe(true);
+    }
+
+    const scenario = getMcpLabScenario('modern-reference');
+
+    expect(Reflect.set(scenario, 'transport', 'stdio')).toBe(false);
+    expect(Reflect.set(scenario.protocol, 'version', 'mutated')).toBe(false);
+    expect(Reflect.set(scenario.reference.sdkSource, 'commitSha', 'mutated')).toBe(false);
+    expect(getMcpLabScenario('modern-reference').transport).toBe('streamable-http');
   });
 
   it('publishes unique scenario ids in deterministic order', () => {

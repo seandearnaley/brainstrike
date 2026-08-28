@@ -71,40 +71,45 @@ export interface McpLabChildStderrFault {
   readonly text: string;
 }
 
-export type McpLabChildSignal =
-  | 'SIGABRT'
-  | 'SIGALRM'
-  | 'SIGBUS'
-  | 'SIGCHLD'
-  | 'SIGCONT'
-  | 'SIGFPE'
-  | 'SIGHUP'
-  | 'SIGILL'
-  | 'SIGINT'
-  | 'SIGIO'
-  | 'SIGIOT'
-  | 'SIGKILL'
-  | 'SIGPIPE'
-  | 'SIGPOLL'
-  | 'SIGPROF'
-  | 'SIGPWR'
-  | 'SIGQUIT'
-  | 'SIGSEGV'
-  | 'SIGSTKFLT'
-  | 'SIGSTOP'
-  | 'SIGSYS'
-  | 'SIGTERM'
-  | 'SIGTRAP'
-  | 'SIGTSTP'
-  | 'SIGTTIN'
-  | 'SIGTTOU'
-  | 'SIGURG'
-  | 'SIGUSR1'
-  | 'SIGUSR2'
-  | 'SIGVTALRM'
-  | 'SIGWINCH'
-  | 'SIGXCPU'
-  | 'SIGXFSZ';
+const MCP_LAB_CHILD_SIGNALS = [
+  'SIGABRT',
+  'SIGALRM',
+  'SIGBUS',
+  'SIGCHLD',
+  'SIGCONT',
+  'SIGFPE',
+  'SIGHUP',
+  'SIGILL',
+  'SIGINT',
+  'SIGIO',
+  'SIGIOT',
+  'SIGKILL',
+  'SIGPIPE',
+  'SIGPOLL',
+  'SIGPROF',
+  'SIGPWR',
+  'SIGQUIT',
+  'SIGSEGV',
+  'SIGSTKFLT',
+  'SIGSTOP',
+  'SIGSYS',
+  'SIGTERM',
+  'SIGTRAP',
+  'SIGTSTP',
+  'SIGTTIN',
+  'SIGTTOU',
+  'SIGURG',
+  'SIGUSR1',
+  'SIGUSR2',
+  'SIGVTALRM',
+  'SIGWINCH',
+  'SIGXCPU',
+  'SIGXFSZ',
+] as const;
+
+const MCP_LAB_CHILD_SIGNAL_SET = new Set<string>(MCP_LAB_CHILD_SIGNALS);
+
+export type McpLabChildSignal = (typeof MCP_LAB_CHILD_SIGNALS)[number];
 
 export type McpLabChildExitFault =
   | {
@@ -150,39 +155,148 @@ export interface McpLabFaultObservation extends McpLabFaultConsumption {
 export interface McpLabFaultPlan {
   assertFullyConsumed(): void;
   consume(consumption: McpLabFaultConsumption): McpLabFault;
+  consumeIfConfigured(consumption: McpLabFaultConsumption): McpLabFault | undefined;
   observations(): readonly McpLabFaultObservation[];
+  untriggeredIds(): readonly string[];
 }
 
 function matchKey(match: McpLabFaultMatch): string {
   return `${match.phase}\u0000${match.method}\u0000${match.occurrence}`;
 }
 
-function assertKnownFaultKind(declaration: McpLabFaultDeclaration): void {
-  const kind = (declaration.fault as { readonly kind?: unknown }).kind;
+function hasOnlyKeys(
+  value: Readonly<Record<string, unknown>>,
+  expectedKeys: readonly string[]
+): boolean {
+  const keys = Object.keys(value);
+  return (
+    keys.length === expectedKeys.length && expectedKeys.every((key) => Object.hasOwn(value, key))
+  );
+}
+
+type UntypedFault = Readonly<Record<string, unknown>>;
+
+function assertOnlyFaultKeys(
+  id: string,
+  fault: UntypedFault,
+  expectedKeys: readonly string[],
+  message: string
+): void {
+  if (!hasOnlyKeys(fault, expectedKeys)) {
+    throw new Error(`Invalid MCP lab fault "${id}": ${message}`);
+  }
+}
+
+function assertChildExitFault(id: string, fault: UntypedFault): void {
+  assertOnlyFaultKeys(
+    id,
+    fault,
+    ['kind', 'code', 'signal'],
+    'child exit must contain only "kind", "code", and "signal"'
+  );
+  const exitedWithCode =
+    typeof fault['code'] === 'number' &&
+    Number.isInteger(fault['code']) &&
+    fault['signal'] === null;
+  const exitedWithSignal =
+    fault['code'] === null &&
+    typeof fault['signal'] === 'string' &&
+    MCP_LAB_CHILD_SIGNAL_SET.has(fault['signal']);
+  if (!(exitedWithCode || exitedWithSignal)) {
+    throw new Error(
+      `Invalid MCP lab fault "${id}": child exit must provide either an integer code or a known signal`
+    );
+  }
+}
+
+function assertChildStderrFault(id: string, fault: UntypedFault): void {
+  if (typeof fault['text'] !== 'string') {
+    throw new Error(`Invalid MCP lab fault "${id}": child stderr text must be a string`);
+  }
+  assertOnlyFaultKeys(
+    id,
+    fault,
+    ['kind', 'text'],
+    'child stderr must contain only "kind" and "text"'
+  );
+}
+
+function assertMalformedJsonFault(id: string, fault: UntypedFault): void {
+  if (typeof fault['payload'] !== 'string') {
+    throw new Error(`Invalid MCP lab fault "${id}": malformed JSON payload must be a string`);
+  }
+  assertOnlyFaultKeys(
+    id,
+    fault,
+    ['kind', 'payload'],
+    'malformed JSON must contain only "kind" and "payload"'
+  );
+}
+
+function assertDelayFault(id: string, fault: UntypedFault): void {
+  const delayMs = fault['delayMs'];
+  if (
+    typeof delayMs !== 'number' ||
+    !Number.isInteger(delayMs) ||
+    delayMs < 1 ||
+    delayMs > 60_000
+  ) {
+    throw new Error(`Invalid MCP lab fault "${id}": delay must be an integer from 1 to 60000 ms`);
+  }
+  assertOnlyFaultKeys(
+    id,
+    fault,
+    ['kind', 'delayMs'],
+    'delay must contain only "kind" and "delayMs"'
+  );
+}
+
+function assertHttpStatusFault(id: string, fault: UntypedFault): void {
+  const status = fault['status'];
+  if (typeof status !== 'number' || !Number.isInteger(status) || status < 400 || status > 599) {
+    throw new Error(
+      `Invalid MCP lab fault "${id}": HTTP status must be an integer from 400 to 599`
+    );
+  }
+  assertOnlyFaultKeys(
+    id,
+    fault,
+    ['kind', 'status'],
+    'HTTP status must contain only "kind" and "status"'
+  );
+}
+
+function assertFaultPayload(declaration: McpLabFaultDeclaration): void {
+  const untypedFault: unknown = declaration.fault;
+  if (typeof untypedFault !== 'object' || untypedFault === null || Array.isArray(untypedFault)) {
+    throw new Error(`Invalid MCP lab fault "${declaration.id}": payload must be an object`);
+  }
+  const fault = untypedFault as Readonly<Record<string, unknown>>;
+  const kind = fault['kind'];
   switch (kind) {
     case 'child_exit':
+      assertChildExitFault(declaration.id, fault);
+      return;
     case 'child_stderr':
+      assertChildStderrFault(declaration.id, fault);
+      return;
     case 'drop_response':
+      assertOnlyFaultKeys(
+        declaration.id,
+        fault,
+        ['kind'],
+        'drop response must contain only "kind"'
+      );
+      return;
     case 'malformed_json':
+      assertMalformedJsonFault(declaration.id, fault);
       return;
-    case 'delay': {
-      const { delayMs } = declaration.fault as McpLabDelayFault;
-      if (!Number.isInteger(delayMs) || delayMs < 1 || delayMs > 60_000) {
-        throw new Error(
-          `Invalid MCP lab fault "${declaration.id}": delay must be an integer from 1 to 60000 ms`
-        );
-      }
+    case 'delay':
+      assertDelayFault(declaration.id, fault);
       return;
-    }
-    case 'http_status': {
-      const { status } = declaration.fault as McpLabHttpStatusFault;
-      if (!Number.isInteger(status) || status < 400 || status > 599) {
-        throw new Error(
-          `Invalid MCP lab fault "${declaration.id}": HTTP status must be an integer from 400 to 599`
-        );
-      }
+    case 'http_status':
+      assertHttpStatusFault(declaration.id, fault);
       return;
-    }
     default:
       throw new Error(
         `Invalid MCP lab fault "${declaration.id}": unknown fault kind "${String(kind)}"`
@@ -204,13 +318,23 @@ export function createMcpLabFaultPlan(
   const declaredIds = new Set<string>();
   const declaredMatches = new Map<string, string>();
   for (const declaration of declarations) {
-    assertKnownFaultKind(declaration);
+    assertFaultPayload(declaration);
     if (!Number.isSafeInteger(declaration.match.occurrence) || declaration.match.occurrence < 1) {
       throw new Error(
         `Invalid MCP lab fault "${declaration.id}": occurrence must be a positive safe integer`
       );
     }
-    const methods = PROTOCOL_METHODS_BY_PHASE[declaration.match.phase];
+    const untypedPhase: unknown = declaration.match.phase;
+    if (
+      typeof untypedPhase !== 'string' ||
+      !Object.hasOwn(PROTOCOL_METHODS_BY_PHASE, untypedPhase)
+    ) {
+      throw new Error(
+        `Invalid MCP lab fault "${declaration.id}": unknown phase "${String(untypedPhase)}"`
+      );
+    }
+    const phase = untypedPhase as McpLabProtocolPhase;
+    const methods = PROTOCOL_METHODS_BY_PHASE[phase];
     if (!(methods as readonly string[]).includes(declaration.match.method)) {
       throw new Error(
         `Invalid MCP lab fault "${declaration.id}": method "${declaration.match.method}" does not belong to phase "${declaration.match.phase}"`
@@ -238,19 +362,46 @@ export function createMcpLabFaultPlan(
   const consumed = new Map<string, McpLabFaultDeclaration>();
   const observations: McpLabFaultObservation[] = [];
 
+  function consumeDeclaration(
+    consumption: McpLabFaultConsumption,
+    declaration: McpLabFaultDeclaration
+  ): McpLabFault {
+    const key = matchKey(consumption);
+    remaining.delete(key);
+    consumed.set(key, declaration);
+    observations.push(
+      Object.freeze({
+        correlationId: consumption.correlationId,
+        faultId: declaration.id,
+        faultKind: declaration.fault.kind,
+        method: consumption.method,
+        occurrence: consumption.occurrence,
+        phase: consumption.phase,
+      })
+    );
+    return declaration.fault;
+  }
+
+  function exhaustedFault(key: string): McpLabFaultDeclaration | undefined {
+    return consumed.get(key);
+  }
+
+  function untriggeredIds(): readonly string[] {
+    return Object.freeze([...remaining.values()].map((declaration) => declaration.id).sort());
+  }
+
   return {
     assertFullyConsumed() {
       if (remaining.size === 0) {
         return;
       }
-      const untriggeredIds = [...remaining.values()].map((declaration) => declaration.id).sort();
-      throw new Error(`Untriggered MCP lab faults: ${untriggeredIds.join(', ')}`);
+      throw new Error(`Untriggered MCP lab faults: ${untriggeredIds().join(', ')}`);
     },
     consume(consumption) {
       const key = matchKey(consumption);
       const declaration = remaining.get(key);
       if (!declaration) {
-        const exhausted = consumed.get(key);
+        const exhausted = exhaustedFault(key);
         if (exhausted) {
           throw new Error(
             `MCP lab fault "${exhausted.id}" is exhausted for ${consumption.phase}/${consumption.method} occurrence ${consumption.occurrence}`
@@ -260,23 +411,25 @@ export function createMcpLabFaultPlan(
           `No MCP lab fault matches ${consumption.phase}/${consumption.method} occurrence ${consumption.occurrence}`
         );
       }
-
-      remaining.delete(key);
-      consumed.set(key, declaration);
-      observations.push(
-        Object.freeze({
-          correlationId: consumption.correlationId,
-          faultId: declaration.id,
-          faultKind: declaration.fault.kind,
-          method: consumption.method,
-          occurrence: consumption.occurrence,
-          phase: consumption.phase,
-        })
-      );
-      return declaration.fault;
+      return consumeDeclaration(consumption, declaration);
+    },
+    consumeIfConfigured(consumption) {
+      const key = matchKey(consumption);
+      const declaration = remaining.get(key);
+      if (declaration) {
+        return consumeDeclaration(consumption, declaration);
+      }
+      const exhausted = exhaustedFault(key);
+      if (exhausted) {
+        throw new Error(
+          `MCP lab fault "${exhausted.id}" is exhausted for ${consumption.phase}/${consumption.method} occurrence ${consumption.occurrence}`
+        );
+      }
+      return;
     },
     observations() {
       return Object.freeze(observations.slice());
     },
+    untriggeredIds,
   };
 }

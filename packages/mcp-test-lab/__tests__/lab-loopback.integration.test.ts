@@ -5,6 +5,9 @@ import { startMcpLabScenario } from '../src/lab';
 describe('MCP lab loopback lifecycle', () => {
   it('serves modern traffic on an ephemeral loopback port and proves listener cleanup', async () => {
     const lab = await startMcpLabScenario('modern-reference');
+    if (lab.endpoint.kind !== 'loopback-http') {
+      throw new Error(`Expected loopback HTTP endpoint, received ${lab.endpoint.kind}`);
+    }
     expect(lab.endpoint.kind).toBe('loopback-http');
     expect(lab.endpoint.url.hostname).toBe('127.0.0.1');
     expect(lab.endpoint.url.port).not.toBe('0');

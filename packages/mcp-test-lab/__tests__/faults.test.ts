@@ -6,6 +6,90 @@ import {
 } from '../src/faults';
 
 describe('MCP lab fault plan', () => {
+  it.each([
+    [null, 'payload must be an object'],
+    [
+      { code: null, kind: 'child_exit', signal: null },
+      'child exit must provide either an integer code or a known signal',
+    ],
+    [
+      { code: 3.7, kind: 'child_exit', signal: null },
+      'child exit must provide either an integer code or a known signal',
+    ],
+    [
+      { code: null, kind: 'child_exit', signal: 'SIGNOTREAL' },
+      'child exit must provide either an integer code or a known signal',
+    ],
+    [
+      { code: 1, kind: 'child_exit', signal: 'SIGTERM' },
+      'child exit must provide either an integer code or a known signal',
+    ],
+    [{ kind: 'child_stderr', text: 42 }, 'child stderr text must be a string'],
+    [
+      { extra: true, kind: 'child_stderr', text: 'message' },
+      'child stderr must contain only "kind" and "text"',
+    ],
+    [{ kind: 'malformed_json', payload: 42 }, 'malformed JSON payload must be a string'],
+    [
+      { extra: true, kind: 'malformed_json', payload: '{' },
+      'malformed JSON must contain only "kind" and "payload"',
+    ],
+    [{ delayMs: 1, extra: true, kind: 'delay' }, 'delay must contain only "kind" and "delayMs"'],
+    [
+      { extra: true, kind: 'http_status', status: 503 },
+      'HTTP status must contain only "kind" and "status"',
+    ],
+    [
+      { code: 0, extra: true, kind: 'child_exit', signal: null },
+      'child exit must contain only "kind", "code", and "signal"',
+    ],
+    [{ kind: 'drop_response', reason: 'extra data' }, 'drop response must contain only "kind"'],
+  ])('rejects invalid untyped fault payload %j', (fault, expectedError) => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault,
+          id: 'invalid-payload',
+          match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+        },
+      ] as never)
+    ).toThrowError(`Invalid MCP lab fault "invalid-payload": ${expectedError}`);
+  });
+
+  it.each([
+    { code: 0, kind: 'child_exit', signal: null },
+    { code: null, kind: 'child_exit', signal: 'SIGTERM' },
+  ] as const)('accepts a valid child exit payload %j', (fault) => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault,
+        id: 'valid-child-exit',
+        match: { method: 'child/exit', occurrence: 1, phase: 'child-process' },
+      },
+    ]);
+
+    expect(
+      plan.consume({
+        correlationId: 'corr-child-exit',
+        method: 'child/exit',
+        occurrence: 1,
+        phase: 'child-process',
+      })
+    ).toEqual(fault);
+  });
+
+  it('rejects an unknown phase with declaration context before method lookup', () => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { kind: 'drop_response' },
+          id: 'unknown-phase',
+          match: { method: 'tools/call', occurrence: 1, phase: 'authorisation' },
+        },
+      ] as never)
+    ).toThrowError('Invalid MCP lab fault "unknown-phase": unknown phase "authorisation"');
+  });
+
   it('consumes an exact phase, method, and occurrence with a redacted observation', () => {
     const plan = createMcpLabFaultPlan([
       {
@@ -171,6 +255,59 @@ describe('MCP lab fault plan', () => {
     expect(() =>
       plan.consume({ ...configured, correlationId: 'corr-second', occurrence: 2 })
     ).toThrowError('No MCP lab fault matches operation/tools/call occurrence 2');
+  });
+
+  it('optionally consumes configured faults without hiding exhausted coordinates', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'configured-drop',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const configured = {
+      correlationId: 'corr-configured',
+      method: 'tools/call',
+      occurrence: 1,
+      phase: 'operation',
+    } as const;
+
+    expect(
+      plan.consumeIfConfigured({ ...configured, correlationId: 'corr-unconfigured', occurrence: 2 })
+    ).toBeUndefined();
+    expect(plan.consumeIfConfigured(configured)).toEqual({ kind: 'drop_response' });
+    expect(() => plan.consumeIfConfigured(configured)).toThrowError(
+      'MCP lab fault "configured-drop" is exhausted for operation/tools/call occurrence 1'
+    );
+  });
+
+  it('reports sorted immutable untriggered fault ids', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'z-last',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+      {
+        fault: { kind: 'drop_response' },
+        id: 'a-first',
+        match: { method: 'tools/call', occurrence: 2, phase: 'operation' },
+      },
+    ]);
+
+    const ids = plan.untriggeredIds();
+    expect(ids).toEqual(['a-first', 'z-last']);
+    expect(Object.isFrozen(ids)).toBe(true);
+    expect(Reflect.set(ids, 0, 'mutated')).toBe(false);
+
+    plan.consume({
+      correlationId: 'corr-first',
+      method: 'tools/call',
+      occurrence: 1,
+      phase: 'operation',
+    });
+    expect(plan.untriggeredIds()).toEqual(['a-first']);
+    expect(ids).toEqual(['a-first', 'z-last']);
   });
 
   it('isolates immutable observations from caller data and credentials', () => {

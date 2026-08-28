@@ -76,6 +76,7 @@ export interface McpEvidenceBundle {
 export type EvidenceSecretKind =
   | 'authorization-code'
   | 'bearer-token'
+  | 'credential-assignment'
   | 'credential-bearing-url'
   | 'jwt'
   | 'pkce-verifier'
@@ -84,6 +85,18 @@ export type EvidenceSecretKind =
 export interface EvidenceSecretFinding {
   readonly index: number;
   readonly kind: EvidenceSecretKind;
+}
+
+export type McpArtifactContent =
+  | boolean
+  | number
+  | string
+  | null
+  | readonly McpArtifactContent[]
+  | { readonly [key: string]: McpArtifactContent };
+
+export interface McpEvidenceValidationDependencies {
+  readonly readArtifactContent: (reference: string) => McpArtifactContent;
 }
 
 export type McpEvidenceValidationCode =
@@ -128,20 +141,27 @@ const SECRET_PATTERNS: readonly SecretPattern[] = [
   },
 ];
 
-const AUTH_MATERIAL_PATTERN =
-  /\b(authorization[_ -]?code|auth[_ -]?code|code[_ -]?verifier|pkce[_ -]?verifier)\b[ \t]*[:=][ \t]*["']?[a-z0-9._~+/-]{8,}/gi;
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"'`]+/gi;
-const CREDENTIAL_QUERY_KEYS = new Set([
+const CREDENTIAL_KEYS = [
   'access_token',
   'api_key',
+  'auth_code',
   'authorization',
+  'authorization_code',
   'client_secret',
   'code',
   'code_verifier',
   'password',
+  'pkce_verifier',
   'refresh_token',
   'token',
-]);
+] as const;
+const CREDENTIAL_KEY_SET = new Set<string>(CREDENTIAL_KEYS);
+const CREDENTIAL_ASSIGNMENT_KEYS = CREDENTIAL_KEYS.map((key) => key.replaceAll('_', '[_ -]'));
+const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
+  `\\b(${CREDENTIAL_ASSIGNMENT_KEYS.join('|')})\\b["']?[ \\t]*[:=][ \\t]*["']?[^\\s"',;&?#}\\]]{8,}`,
+  'gi'
+);
 
 /**
  * Finds high-confidence credential material without retaining or returning the
@@ -149,6 +169,15 @@ const CREDENTIAL_QUERY_KEYS = new Set([
  */
 export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecretFinding[] {
   const findings: EvidenceSecretFinding[] = [];
+  const urlRanges: { readonly end: number; readonly start: number }[] = [];
+
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const candidate = trimUrlPunctuation(match[0]);
+    urlRanges.push({ end: match.index + candidate.length, start: match.index });
+    if (hasEmbeddedUrlCredential(candidate)) {
+      findings.push({ index: match.index, kind: 'credential-bearing-url' });
+    }
+  }
 
   for (const secretPattern of SECRET_PATTERNS) {
     for (const match of text.matchAll(secretPattern.pattern)) {
@@ -156,20 +185,15 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
     }
   }
 
-  for (const match of text.matchAll(AUTH_MATERIAL_PATTERN)) {
-    const label = match[1]?.toLowerCase() ?? '';
-    findings.push({
-      index: match.index,
-      kind: label.includes('verifier') ? 'pkce-verifier' : 'authorization-code',
-    });
-  }
-
-  for (const match of text.matchAll(URL_PATTERN)) {
-    const candidate = trimUrlPunctuation(match[0]);
-    if (!hasEmbeddedUrlCredential(candidate)) {
+  for (const match of text.matchAll(CREDENTIAL_ASSIGNMENT_PATTERN)) {
+    if (urlRanges.some((range) => match.index >= range.start && match.index < range.end)) {
       continue;
     }
-    findings.push({ index: match.index, kind: 'credential-bearing-url' });
+    const label = match[1]?.toLowerCase().replaceAll(/[ -]/g, '_') ?? '';
+    findings.push({
+      index: match.index,
+      kind: credentialAssignmentKind(label),
+    });
   }
 
   return findings.sort(
@@ -181,7 +205,10 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
  * Parses unknown input into the immutable evidence contract. Every object is
  * closed: missing and unknown fields fail instead of being defaulted or stripped.
  */
-export function parseMcpEvidenceBundle(input: unknown): McpEvidenceBundle {
+export function parseMcpEvidenceBundle(
+  input: unknown,
+  dependencies: McpEvidenceValidationDependencies
+): McpEvidenceBundle {
   const root = strictObject(input, '$', [
     'schemaVersion',
     'ticket',
@@ -221,6 +248,7 @@ export function parseMcpEvidenceBundle(input: unknown): McpEvidenceBundle {
 
   assertProofOrder(bundle.commands);
   assertSanitizedText(bundle, '$');
+  assertSanitizedArtifacts(bundle.artifacts, dependencies);
   return bundle;
 }
 
@@ -409,6 +437,9 @@ function validateRedProof(command: McpEvidenceCommand, path: string, greenObserv
   if (command.exitStatus === 0) {
     invalid(`${path}.exitStatus`, 'RED proof must have a non-zero exit status');
   }
+  if (command.tests.failed < 1) {
+    invalid(path, 'RED proof must report at least one failed test');
+  }
 }
 
 function validateGreenProof(command: McpEvidenceCommand, path: string): void {
@@ -452,6 +483,40 @@ function assertSanitizedText(value: unknown, path: string): void {
   }
   for (const [key, entry] of Object.entries(value)) {
     assertSanitizedText(entry, path === '$' ? `$.${key}` : `${path}.${key}`);
+  }
+}
+
+function assertSanitizedArtifacts(
+  artifacts: readonly McpArtifactReference[],
+  dependencies: McpEvidenceValidationDependencies
+): void {
+  for (const [index, artifact] of artifacts.entries()) {
+    let content: McpArtifactContent;
+    try {
+      content = dependencies.readArtifactContent(artifact.reference);
+    } catch {
+      invalid(`$.artifacts[${index}].reference`, 'referenced artifact content could not be read');
+    }
+    assertSanitizedArtifactContent(content, `$.artifacts[${index}].content`);
+  }
+}
+
+function assertSanitizedArtifactContent(value: McpArtifactContent, path: string): void {
+  if (typeof value === 'string') {
+    assertSanitizedText(value, path);
+    return;
+  }
+  if (value === null || typeof value === 'boolean' || typeof value === 'number') {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const [index, entry] of value.entries()) {
+      assertSanitizedArtifactContent(entry, `${path}[${index}]`);
+    }
+    return;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    assertSanitizedArtifactContent(entry, `${path}.${key}`);
   }
 }
 
@@ -609,12 +674,34 @@ function hasEmbeddedUrlCredential(candidate: string): boolean {
   if (url.username.length > 0 || url.password.length > 0) {
     return true;
   }
-  for (const [key, value] of url.searchParams) {
-    if (value.length > 0 && CREDENTIAL_QUERY_KEYS.has(key.toLowerCase())) {
+  return (
+    hasCredentialParameter(url.searchParams) || hasCredentialParameter(fragmentParameters(url.hash))
+  );
+}
+
+function fragmentParameters(hash: string): URLSearchParams {
+  const fragment = hash.startsWith('#') ? hash.slice(1) : hash;
+  const queryIndex = fragment.indexOf('?');
+  return new URLSearchParams(queryIndex === -1 ? fragment : fragment.slice(queryIndex + 1));
+}
+
+function hasCredentialParameter(parameters: URLSearchParams): boolean {
+  for (const [key, value] of parameters) {
+    if (value.length > 0 && CREDENTIAL_KEY_SET.has(key.toLowerCase())) {
       return true;
     }
   }
   return false;
+}
+
+function credentialAssignmentKind(label: string): EvidenceSecretKind {
+  if (label.includes('verifier')) {
+    return 'pkce-verifier';
+  }
+  if (label === 'code' || label.endsWith('_code')) {
+    return 'authorization-code';
+  }
+  return 'credential-assignment';
 }
 
 function invalid(path: string, message: string): never {
