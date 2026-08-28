@@ -148,7 +148,10 @@ export interface McpLabFaultObservation extends McpLabFaultConsumption {
   readonly faultKind: McpLabFault['kind'];
 }
 
+export type McpLabTransportKind = 'http' | 'stdio';
+
 export interface McpLabFaultPlan {
+  assertCompatibleWithTransport(transport: McpLabTransportKind): void;
   assertFullyConsumed(): void;
   consume(consumption: McpLabFaultConsumption): McpLabFault;
   consumeIfConfigured(consumption: McpLabFaultConsumption): McpLabFault | undefined;
@@ -371,6 +374,25 @@ function assertFaultCoordinate(declaration: McpLabFaultDeclaration): void {
   }
 }
 
+function faultSupportsTransport(
+  declaration: McpLabFaultDeclaration,
+  transport: McpLabTransportKind
+): boolean {
+  if (declaration.match.phase === 'shutdown') {
+    return true;
+  }
+  if (transport === 'http') {
+    return declaration.match.phase !== 'child-process';
+  }
+  if (declaration.match.phase === 'child-process') {
+    return true;
+  }
+  if (declaration.match.phase === 'authorization' || declaration.match.phase === 'transport') {
+    return false;
+  }
+  return declaration.fault.kind === 'delay' || declaration.fault.kind === 'drop_response';
+}
+
 function freezeDeclaration(declaration: McpLabFaultDeclaration): McpLabFaultDeclaration {
   return Object.freeze({
     fault: Object.freeze({ ...declaration.fault }) as McpLabFault,
@@ -467,6 +489,17 @@ export function createMcpLabFaultPlan(
   }
 
   return {
+    assertCompatibleWithTransport(transport) {
+      const incompatible = immutableDeclarations.find(
+        (declaration) => !faultSupportsTransport(declaration, transport)
+      );
+      if (!incompatible) {
+        return;
+      }
+      throw new Error(
+        `MCP lab fault "${incompatible.id}" of kind "${incompatible.fault.kind}" at ${incompatible.match.phase}/${incompatible.match.method} is incompatible with ${transport} transport`
+      );
+    },
     assertFullyConsumed() {
       if (remaining.size === 0) {
         return;

@@ -972,6 +972,9 @@ export async function startMcpLabScenario(
 ): Promise<McpLabSession> {
   assertStartOptions(options);
   const scenario = getMcpLabScenario(id);
+  options.faultPlan?.assertCompatibleWithTransport(
+    scenario.id === 'stdio-reference' ? 'stdio' : 'http'
+  );
   if (scenario.id === 'stdio-reference') {
     if (options.execution) {
       throw new Error(`MCP lab stdio scenario does not accept execution=${options.execution}`);

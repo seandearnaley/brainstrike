@@ -130,7 +130,7 @@ interface SecretPattern {
 const SECRET_PATTERNS: readonly SecretPattern[] = [
   {
     kind: 'basic-credential',
-    pattern: /\bauthorization["']?[ \t]*[:=][ \t]*["']?basic[ \t]+[a-z0-9+/]{8,}={0,2}/gi,
+    pattern: /\bauthorization["']?[ \t]*[:=][ \t]*["']?basic[ \t]+[a-z0-9+/]+={0,2}/gi,
   },
   {
     kind: 'bearer-token',
@@ -283,7 +283,7 @@ export function parseMcpEvidenceBundle(
   assertProofOrder(bundle.commands);
   assertSanitizedText(bundle, '$');
   assertSanitizedArtifacts(bundle.artifacts, dependencies);
-  return bundle;
+  return deepFreeze(bundle);
 }
 
 function parseGit(input: unknown): McpEvidenceBundle['git'] {
@@ -387,7 +387,7 @@ function parseCorrelationIds(input: unknown): readonly string[] {
 
 function parseArtifacts(input: unknown): readonly McpArtifactReference[] {
   const artifacts = arrayValue(input, '$.artifacts');
-  return artifacts.map((entry, index) => {
+  const parsed = artifacts.map((entry, index) => {
     const path = `$.artifacts[${index}]`;
     const value = strictObject(entry, path, ['kind', 'reference', 'sha256', 'sanitized']);
     const kind = oneOf(value['kind'], `${path}.kind`, ['log', 'report', 'screenshot', 'trace']);
@@ -405,6 +405,11 @@ function parseArtifacts(input: unknown): readonly McpArtifactReference[] {
       ),
     };
   });
+  assertUnique(
+    parsed.map((artifact) => artifact.reference),
+    '$.artifact references'
+  );
+  return parsed;
 }
 
 const ARTIFACT_EXTENSIONS: Readonly<Record<McpArtifactKind, ReadonlySet<string>>> = {
@@ -700,6 +705,22 @@ function isRecord(input: unknown): input is Record<string, unknown> {
   }
   const prototype = Object.getPrototypeOf(input);
   return prototype === Object.prototype || prototype === null;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      deepFreeze(entry);
+    }
+    return Object.freeze(value) as T;
+  }
+  if (isRecord(value)) {
+    for (const entry of Object.values(value)) {
+      deepFreeze(entry);
+    }
+    return Object.freeze(value) as T;
+  }
+  return value;
 }
 
 function nonEmptyString(input: unknown, path: string): string {

@@ -1966,6 +1966,9 @@ retryable, including a delegated stdio close that rejects. Fault kinds are
 validated against their coordinates before a plan can start: child exit/stderr
 are bound to their matching child events, stdio startup mutations are bound to
 `child/spawn`, and `cleanup_error` is bound only to `shutdown/transport/close`.
+The selected scenario transport validates the complete plan before opening a
+listener or starting a child: HTTP-only response faults cannot be consumed by
+stdio, and child-process coordinates cannot enter HTTP sessions.
 `drop_response`
 means a real transport failure: loopback destroys the socket without headers,
 and stdio accepts the selected tool request but never replies until the caller
@@ -1981,7 +1984,9 @@ Screenshot artifacts require a text/OCR
 extractor that the verifier invokes with a copy of those exact bytes; absent or
 failed extraction rejects the bundle. The verifier recomputes the lowercase
 SHA-256 digest over the original bytes and rejects any metadata/content
-mismatch. Artifact kind is bound to a closed extension allowlist, and every
+mismatch. Artifact references must be unique, so each accepted path is read
+exactly once, and the returned evidence bundle is a deeply frozen validated
+snapshot. Artifact kind is bound to a closed extension allowlist, and every
 log/report/trace must decode as fatal UTF-8, so image bytes cannot be mislabeled
 to bypass screenshot extraction. The reader cannot supply a separately
 sanitized view that disagrees with the hashed artifact. This supports

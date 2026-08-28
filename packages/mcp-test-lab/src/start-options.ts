@@ -28,6 +28,7 @@ export function assertStartOptions(
     return;
   }
   const requiredMethods = [
+    'assertCompatibleWithTransport',
     'assertFullyConsumed',
     'consume',
     'consumeIfConfigured',

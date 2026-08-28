@@ -417,7 +417,7 @@ describe('parseMcpEvidenceBundle', () => {
 
   it.each([
     ['bearer token', 'Authorization: Bearer mcp_live_0123456789abcdef'],
-    ['Basic authorization', 'Authorization: Basic dXNlcjpwYXNzd29yZA=='],
+    ['Basic authorization', 'Authorization: Basic dTpw'],
     ['authorization code', 'authorization_code=SplxlOBeZQQYbYS6WxSbIA'],
     ['PKCE verifier', 'code_verifier: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'],
     [
@@ -438,6 +438,41 @@ describe('parseMcpEvidenceBundle', () => {
     expect(findings[0]).not.toHaveProperty('match');
     expect(JSON.stringify(findings)).not.toContain('SplxlOBeZQQYbYS6WxSbIA');
     expect(JSON.stringify(findings)).not.toContain('correct-horse');
+  });
+
+  it('rejects duplicate artifact references before reading content', () => {
+    let reads = 0;
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [VALID_BUNDLE.artifacts[0], { ...VALID_BUNDLE.artifacts[0] }],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, {
+        readArtifactContent: () => {
+          reads += 1;
+          return { bytes: VALID_ARTIFACT_BYTES };
+        },
+      })
+    ).toThrowError(/artifact references.*unique/i);
+    expect(reads).toBe(0);
+  });
+
+  it('returns a deeply frozen validated snapshot', () => {
+    const bundle = parseEvidence(VALID_BUNDLE);
+
+    expect(Object.isFrozen(bundle)).toBe(true);
+    expect(Object.isFrozen(bundle.artifacts)).toBe(true);
+    expect(Object.isFrozen(bundle.artifacts[0])).toBe(true);
+    expect(Object.isFrozen(bundle.commands)).toBe(true);
+    expect(Object.isFrozen(bundle.commands[0]?.tests)).toBe(true);
+    expect(Object.isFrozen(bundle.git)).toBe(true);
+    expect(Object.isFrozen(bundle.negotiation.capabilities)).toBe(true);
+    expect(Reflect.set(bundle, 'ticket', 'BST-9999')).toBe(false);
+    expect(Reflect.set(bundle.artifacts[0] ?? {}, 'reference', 'artifacts/unchecked.json')).toBe(
+      false
+    );
+    expect(bundle).toEqual(VALID_BUNDLE);
   });
 
   it.each([

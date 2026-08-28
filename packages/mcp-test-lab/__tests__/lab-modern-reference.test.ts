@@ -1,5 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
+import { createMcpLabFaultPlan } from '../src/faults';
 import { startMcpLabScenario } from '../src/lab';
 
 describe('MCP lab modern reference', () => {
@@ -22,6 +23,30 @@ describe('MCP lab modern reference', () => {
     }
 
     expect(String(caught)).toMatch(/Invalid MCP lab start options/);
+  });
+
+  it.each([
+    { kind: 'http_status', status: 503 },
+    { kind: 'malformed_json', payload: '{' },
+  ] as const)('rejects HTTP-only fault %j before starting stdio', async (fault) => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault,
+        id: 'stdio-incompatible',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    let lab: Awaited<ReturnType<typeof startMcpLabScenario>> | undefined;
+    let caught: unknown;
+    try {
+      lab = await startMcpLabScenario('stdio-reference', { faultPlan });
+    } catch (error) {
+      caught = error;
+    } finally {
+      await lab?.close();
+    }
+
+    expect(String(caught)).toMatch(/incompatible.*stdio/i);
   });
 
   it('negotiates 2026-07-28 and exercises a real official SDK tool exchange', async () => {
