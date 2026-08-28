@@ -133,7 +133,7 @@ const SECRET_PATTERNS: readonly SecretPattern[] = [
   },
   {
     kind: 'private-key',
-    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----/gi,
+    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----/gi,
   },
   {
     kind: 'jwt',

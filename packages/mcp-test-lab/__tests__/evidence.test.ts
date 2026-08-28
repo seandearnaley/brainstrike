@@ -388,6 +388,7 @@ describe('parseMcpEvidenceBundle', () => {
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
     ],
     ['private key', `${'-----BEGIN'} PRIVATE KEY-----\nMIIEvQIBADANBg`],
+    ['encrypted private key', `${'-----BEGIN'} ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkqhkiG9w0B`],
     ['credential URL', 'https://operator:correct-horse@example.com/callback'],
     ['OAuth callback URL', 'https://example.com/callback?code=SplxlOBeZQQYbYS6WxSbIA'],
   ])('detects a %s without returning the secret value', (_label, text) => {
