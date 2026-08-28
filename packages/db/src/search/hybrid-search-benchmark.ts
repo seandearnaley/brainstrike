@@ -79,6 +79,31 @@ function summarize(samplesMs: readonly number[]): HybridSearchBenchmarkLatencySu
   };
 }
 
+function runSequentialIterations(
+  count: number,
+  runIteration: (index: number) => Promise<void>,
+  index = 0
+): Promise<void> {
+  if (index >= count) {
+    return Promise.resolve();
+  }
+  return runIteration(index).then(() => runSequentialIterations(count, runIteration, index + 1));
+}
+
+function runSequentialPair(first: () => Promise<void>, second: () => Promise<void>): Promise<void> {
+  return first().then(second);
+}
+
+function measureAndRecord(
+  run: () => Promise<void>,
+  now: () => number,
+  samples: number[]
+): Promise<void> {
+  return measure(run, now).then((sample) => {
+    samples.push(sample);
+  });
+}
+
 export async function runHybridSearchBenchmark(
   options: HybridSearchBenchmarkOptions
 ): Promise<HybridSearchBenchmarkReport> {
@@ -91,27 +116,25 @@ export async function runHybridSearchBenchmark(
   assertPositiveFinite(options.thresholds.maxHybridP95Ms, 'Hybrid search benchmark maxHybridP95Ms');
 
   const now = options.now ?? performance.now.bind(performance);
-  for (let index = 0; index < options.warmupIterations; index++) {
-    if (index % 2 === 0) {
-      await options.runVectorOnly();
-      await options.runHybrid();
-    } else {
-      await options.runHybrid();
-      await options.runVectorOnly();
-    }
-  }
+  await runSequentialIterations(options.warmupIterations, (index) =>
+    index % 2 === 0
+      ? runSequentialPair(options.runVectorOnly, options.runHybrid)
+      : runSequentialPair(options.runHybrid, options.runVectorOnly)
+  );
 
   const vectorOnlySamples: number[] = [];
   const hybridSamples: number[] = [];
-  for (let index = 0; index < options.iterations; index++) {
-    if (index % 2 === 0) {
-      vectorOnlySamples.push(await measure(options.runVectorOnly, now));
-      hybridSamples.push(await measure(options.runHybrid, now));
-    } else {
-      hybridSamples.push(await measure(options.runHybrid, now));
-      vectorOnlySamples.push(await measure(options.runVectorOnly, now));
-    }
-  }
+  await runSequentialIterations(options.iterations, (index) =>
+    index % 2 === 0
+      ? runSequentialPair(
+          () => measureAndRecord(options.runVectorOnly, now, vectorOnlySamples),
+          () => measureAndRecord(options.runHybrid, now, hybridSamples)
+        )
+      : runSequentialPair(
+          () => measureAndRecord(options.runHybrid, now, hybridSamples),
+          () => measureAndRecord(options.runVectorOnly, now, vectorOnlySamples)
+        )
+  );
 
   const additionalSamples = hybridSamples.map(
     (hybridSample, index) => hybridSample - (vectorOnlySamples[index] ?? 0)
