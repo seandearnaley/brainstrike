@@ -273,15 +273,25 @@ export function useTokenCache({
       try {
         // Check persistent cache
         const cached = await store.get(folderId, normalizedFilePath);
+        let resolvedFileSize = fileSize;
 
         if (cached) {
-          // Validate cache with content hash
+          // Validate cache with content hash and the secondary byte-size signal.
+          // Legacy rows without a size retain best-effort hash matching until
+          // their next write backfills the required field.
           const contentHash = await hasher.hashContent(content);
+          resolvedFileSize ??= new Blob([content]).size;
+          const fileSizeMatches =
+            cached.fileSize === undefined || cached.fileSize === resolvedFileSize;
 
-          if (cached.contentHash === contentHash && cached.countingMode === countingMode) {
+          if (
+            cached.contentHash === contentHash &&
+            cached.countingMode === countingMode &&
+            fileSizeMatches
+          ) {
             // Cache hit - content unchanged
             hotCache.current.set(key, cached.tokenCount);
-            fileSizeCache.current.set(key, cached.fileSize);
+            fileSizeCache.current.set(key, resolvedFileSize);
             debouncedSetVersion();
             onTokenResolved?.(folderId, normalizedFilePath, cached.tokenCount);
             return;
@@ -302,7 +312,7 @@ export function useTokenCache({
           contentHash: result.contentHash,
           countingMode,
           filePath: normalizedFilePath,
-          fileSize: fileSize ?? new Blob([content]).size,
+          fileSize: resolvedFileSize ?? new Blob([content]).size,
           folderId,
           modelEncoding: countingMode === 'accurate' ? 'o200k_base' : null,
           mtimeMs: mtimeMs ?? null,
