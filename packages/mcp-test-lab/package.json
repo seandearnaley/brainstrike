@@ -1,0 +1,36 @@
+{
+  "name": "@brainstrike/mcp-test-lab",
+  "description": "Deterministic MCP protocol fixtures, faults, and verification evidence for Brainstrike tests",
+  "version": "0.1.0",
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/conformance": "0.2.0-alpha.10",
+    "@modelcontextprotocol/server": "2.0.0",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./evidence": "./src/evidence.ts",
+    "./faults": "./src/faults.ts",
+    "./lab": "./src/lab.ts",
+    "./scenario": "./src/scenario.ts"
+  },
+  "private": true,
+  "scripts": {
+    "lint": "pnpm -w lint",
+    "test": "vitest run",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "sideEffects": false,
+  "type": "module"
+}

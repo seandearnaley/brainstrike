@@ -1,24 +1,19 @@
 {
   "name": "@brainstrike/e2e-test-utils",
-  "description": "Shared Playwright helpers and protocol labs for Brainstrike end-to-end tests",
+  "description": "Shared Playwright helpers for Brainstrike end-to-end tests",
   "version": "0.1.0",
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/server": "2.0.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "zod": "catalog:"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=24.15.0 <25"
   },
   "exports": {
-    "./mcp-lab": "./mcp-lab.ts",
-    "./mcp-lab-manifest": "./mcp-lab-manifest.ts",
     "./settings-test-overrides": "./settings-test-overrides.ts"
   },
   "private": true,

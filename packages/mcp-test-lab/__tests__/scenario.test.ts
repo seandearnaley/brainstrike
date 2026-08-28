@@ -1,15 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { getMcpLabScenario, MCP_LAB_SCENARIO_IDS } from '../mcp-lab-manifest';
+import {
+  getMcpLabScenario,
+  MCP_LAB_CONFORMANCE_VERSION,
+  MCP_LAB_SCENARIO_IDS,
+  MCP_LAB_SDK_SOURCE_SHA,
+  MCP_LAB_SDK_VERSION,
+} from '../src/scenario';
 
 describe('MCP lab scenario manifest', () => {
-  it('pins the official modern reference scenario to the 2026 protocol era', () => {
+  it('identifies the Brainstrike fixture and exact official source pins', () => {
     expect(getMcpLabScenario('modern-reference')).toEqual({
       authentication: 'none',
-      description: 'Pinned official TypeScript SDK v2 modern reference server',
-      expectedProtocolVersion: '2026-07-28',
+      description: 'Brainstrike modern reference server built with the pinned official SDK',
+      fixture: 'brainstrike-sdk-v2-reference',
       id: 'modern-reference',
       network: 'loopback-only',
-      server: 'official-typescript-sdk-v2-everything',
+      protocol: { era: 'modern', version: '2026-07-28' },
+      reference: {
+        clientPackage: '@modelcontextprotocol/client',
+        conformancePackage: '@modelcontextprotocol/conformance',
+        conformanceVersion: MCP_LAB_CONFORMANCE_VERSION,
+        sdkSourceSha: MCP_LAB_SDK_SOURCE_SHA,
+        sdkVersion: MCP_LAB_SDK_VERSION,
+        serverPackage: '@modelcontextprotocol/server',
+      },
       transport: 'streamable-http',
       usesAmbientCredentials: false,
     });

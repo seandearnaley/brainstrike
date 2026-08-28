@@ -154,6 +154,14 @@ harness is tracked by Linear issue `BST-1475` and must exist before SDK/protocol
 implementation begins. It gives every later ticket the same public seams, fixtures,
 scenario identifiers, artifact schema, and teardown guarantees.
 
+The reusable Node-only lab lives in `packages/mcp-test-lab` as
+`@brainstrike/mcp-test-lab`, separate from Playwright-specific app helpers and absent
+from every production dependency graph. A small Brainstrike-authored fixture built with
+the exact-pinned official SDK provides controlled scenarios; it is not described as the
+official `everythingServer`. The official conformance runner remains the authoritative
+conformance target, and Brainstrike production proof must dispatch through the real host
+interface rather than an SDK-to-SDK self-test.
+
 The only pre-agreed test seams are:
 
 1. strict MCP configuration plus typed desktop-main server status;
@@ -200,6 +208,30 @@ exact head and the evidence bundle records the SHA, dirty state, exact versions,
 commands/statuses/counts, focused red then green proof, negotiated capabilities,
 correlation IDs, manual checklist where applicable, and known gaps linked to Linear.
 CI verifies this bounded local evidence; it is not the first test runner.
+
+## Host interface decision
+
+Four independent interface designs were compared for depth, locality, and caller
+authority. The settled external seam is one Electron-main `McpHost` with five lifecycle
+operations: synchronous `snapshot`, typed `invoke`, filtered `watch`, ordered
+`replaceConfig`, and terminal `close`. Protocol breadth lives in a closed typed operation
+table; there is no method per SDK verb and no raw `request(method, params)` escape hatch.
+
+Assistant and renderer integrations are least-authority adapters over that same host,
+not separate owners. Assistant adapters can discover and invoke but cannot mutate auth or
+configuration. Renderer IPC receives token-free snapshots and explicit Settings actions,
+never the host or SDK values. Tool, server, invocation, continuation, task, and Apps
+identifiers are opaque; callers never parse display names to route operations.
+
+The SDK-first stack order remains intentional. Defining the operation DTOs from the
+pinned v2 packages once avoids introducing a temporary v1-shaped host seam that would be
+deleted immediately. The verification-lab branch supplies the first failing production
+tracer, and the SDK/era branch makes that tracer green before the connection-authority
+implementation expands to OAuth and the rest of the protocol.
+
+For stdio `auto` negotiation, the host invariant is one logical actor and at most one
+steady-state child. The SDK may create a bounded disposable probe child to determine the
+era; every probe is observed and reaped, and `close` proves zero remaining children.
 
 ## Phased ticket matrix
 

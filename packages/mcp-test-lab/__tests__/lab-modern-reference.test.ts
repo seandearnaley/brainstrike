@@ -1,6 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
-import { createMcpLabScenario } from '../mcp-lab';
+import { createMcpLabScenario } from '../src/lab';
 
 describe('MCP lab modern reference', () => {
   it('negotiates 2026-07-28 and exercises a real official SDK tool exchange', async () => {
@@ -18,7 +18,7 @@ describe('MCP lab modern reference', () => {
 
       expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
       expect(client.getServerVersion()).toEqual({
-        name: 'brainstrike-official-v2-reference',
+        name: 'brainstrike-sdk-v2-reference',
         version: '2.0.0',
       });
 

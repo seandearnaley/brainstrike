@@ -748,12 +748,6 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../../packages/test-utils
-      '@modelcontextprotocol/client':
-        specifier: 2.0.0
-        version: 2.0.0
-      '@modelcontextprotocol/server':
-        specifier: 2.0.0
-        version: 2.0.0
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.62.1
@@ -769,9 +763,6 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.11.2)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
 
   apps/web:
     dependencies:
@@ -2586,6 +2577,36 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.11.2)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/mcp-test-lab:
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@modelcontextprotocol/conformance':
+        specifier: 0.2.0-alpha.10
+        version: 0.2.0-alpha.10(supports-color@10.2.2)
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.11.2)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
 
   packages/notes-vault:
     dependencies:
@@ -5849,6 +5870,10 @@ packages:
     resolution: {integrity: sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw==}
     engines: {node: '>=20'}
 
+  '@modelcontextprotocol/conformance@0.2.0-alpha.10':
+    resolution: {integrity: sha512-0V/HZDdWHcg6j0zVBzBsXcPZ571IVi6umKgTpnBhtTx/jm/LONmGF6cIWL2k4Xjyps0OiHV6B37nj2s0pUg0nQ==}
+    hasBin: true
+
   '@modelcontextprotocol/core@2.0.0':
     resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
     engines: {node: '>=20'}
@@ -6078,6 +6103,12 @@ packages:
     peerDependencies:
       '@octokit/core': '>=6'
 
+  '@octokit/plugin-request-log@6.0.0':
+    resolution: {integrity: sha512-UkOzeEN3W91/eBq9sPZNQ7sUBvYCqYbrrD8gTbBuGtHEuycE4/awMXcYvx6sVYo7LypPhmQwwpUe4Yyu4QZN5Q==}
+    engines: {node: '>= 20'}
+    peerDependencies:
+      '@octokit/core': '>=6'
+
   '@octokit/plugin-rest-endpoint-methods@17.0.0':
     resolution: {integrity: sha512-B5yCyIlOJFPqUUeiD0cnBJwWJO8lkJs5d8+ze9QDP6SvfiXSz1BF+91+0MeI1d2yxgOhU/O+CvtiZ9jSkHhFAw==}
     engines: {node: '>= 20'}
@@ -6090,6 +6121,10 @@ packages:
 
   '@octokit/request@10.0.11':
     resolution: {integrity: sha512-+s7HUxjfFqOMS9VlIwDffq0MikjSAK0gSpG73W+meAvVAvX4MBrHYTK5Bj3Uot55qFT4gzUtfzE4mGWY4Br8/Q==}
+    engines: {node: '>= 20'}
+
+  '@octokit/rest@22.0.1':
+    resolution: {integrity: sha512-Jzbhzl3CEexhnivb1iQ0KJ7s5vvjMWcmRtq5aUsKmKDrRW6z3r84ngmiFKFvpZjpiU/9/S6ITPFRpn5s/3uQJw==}
     engines: {node: '>= 20'}
 
   '@octokit/types@16.0.0':
@@ -17000,6 +17035,21 @@ snapshots:
       pkce-challenge: 5.0.1
       zod: 4.4.3
 
+  '@modelcontextprotocol/conformance@0.2.0-alpha.10(supports-color@10.2.2)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.4.3)
+      '@octokit/rest': 22.0.1
+      commander: 14.0.3
+      eventsource-parser: 3.1.0
+      express: 5.2.1(supports-color@10.2.2)
+      jose: 6.2.3
+      undici: 7.28.0
+      yaml: 2.9.0
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - supports-color
+
   '@modelcontextprotocol/core@2.0.0':
     dependencies:
       zod: 4.4.3
@@ -17194,6 +17244,10 @@ snapshots:
       '@octokit/core': 7.0.6
       '@octokit/types': 16.0.0
 
+  '@octokit/plugin-request-log@6.0.0(@octokit/core@7.0.6)':
+    dependencies:
+      '@octokit/core': 7.0.6
+
   '@octokit/plugin-rest-endpoint-methods@17.0.0(@octokit/core@7.0.6)':
     dependencies:
       '@octokit/core': 7.0.6
@@ -17211,6 +17265,13 @@ snapshots:
       content-type: 2.0.0
       json-with-bigint: 3.5.8
       universal-user-agent: 7.0.3
+
+  '@octokit/rest@22.0.1':
+    dependencies:
+      '@octokit/core': 7.0.6
+      '@octokit/plugin-paginate-rest': 14.0.0(@octokit/core@7.0.6)
+      '@octokit/plugin-request-log': 6.0.0(@octokit/core@7.0.6)
+      '@octokit/plugin-rest-endpoint-methods': 17.0.0(@octokit/core@7.0.6)
 
   '@octokit/types@16.0.0':
     dependencies:
@@ -20254,7 +20315,7 @@ snapshots:
       js-yaml: 4.3.0
       json5: 2.2.3
       lazy-val: 1.0.5
-      minimatch: 10.2.6
+      minimatch: 10.2.5
       pkijs: 3.4.0
       plist: 3.1.0
       proper-lockfile: 4.1.2

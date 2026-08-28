@@ -1,6 +1,6 @@
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { getMcpLabScenario, type McpLabScenario } from './mcp-lab-manifest';
+import { getMcpLabScenario, type McpLabScenario } from './scenario';
 
 export interface McpLabSession {
   close: () => Promise<void>;
@@ -11,7 +11,7 @@ export interface McpLabSession {
 
 function createModernReferenceServer(): McpServer {
   const server = new McpServer({
-    name: 'brainstrike-official-v2-reference',
+    name: 'brainstrike-sdk-v2-reference',
     version: '2.0.0',
   });
   const echoSchema = z.object({ text: z.string() });

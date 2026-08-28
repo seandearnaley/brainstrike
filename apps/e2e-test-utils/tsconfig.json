@@ -7,8 +7,6 @@
     ]
   },
   "include": [
-    "mcp-lab.ts",
-    "mcp-lab-manifest.ts",
     "settings-test-overrides.ts"
   ],
   "exclude": [
