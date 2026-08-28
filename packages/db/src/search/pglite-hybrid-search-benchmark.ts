@@ -1,10 +1,18 @@
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { PGlite } from '@electric-sql/pglite';
 import { migrate } from '../migrations/bootstrap.js';
-import { createDimensionIndex, hnswParams } from '../migrations/dimension-index-helpers.js';
+import {
+  createDimensionIndex,
+  dropDimensionIndex,
+  hnswParams,
+} from '../migrations/dimension-index-helpers.js';
 import type { FileChunkInsert } from '../models/file-chunk.js';
 import { EmbeddingSetsRepository } from '../repositories/embedding-sets-repository.js';
-import { FileChunkRepository } from '../repositories/file-chunk-repository.js';
+import {
+  type FileChunkDatabase,
+  type FileChunkQueryTx,
+  FileChunkRepository,
+} from '../repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../repositories/file-record-repository.js';
 import { wasmLoader } from '../wasm-loader.js';
 import type {
@@ -27,6 +35,8 @@ export interface PGliteHybridSearchBenchmarkOptions {
 export interface PGliteHybridSearchBenchmarkDependencies {
   /** Returns an isolated, fully migrated database. The benchmark closes it. */
   readonly createDatabase?: () => Promise<PGlite>;
+  /** Tiny-corpus tests may force index applicability; retained baselines must not. */
+  readonly forceIndexPlans?: boolean;
 }
 
 export interface PGliteHybridSearchBenchmarkReport extends HybridSearchBenchmarkReport {
@@ -38,12 +48,14 @@ export interface PGliteHybridSearchBenchmarkReport extends HybridSearchBenchmark
   readonly indexUsage: {
     readonly ginPlan: readonly string[];
     readonly hnswPlan: readonly string[];
+    readonly plannerMode: 'natural' | 'forced';
     readonly usesGin: boolean;
     readonly usesHnsw: boolean;
   };
   readonly observations: {
     readonly minimumHybridResultCount: number;
     readonly minimumVectorOnlyResultCount: number;
+    readonly vectorSourceLimit: number;
   };
 }
 
@@ -52,9 +64,60 @@ interface BenchmarkQuery {
   readonly text: string;
 }
 
+interface CapturedStatement {
+  readonly params: readonly unknown[];
+  readonly sql: string;
+}
+
+interface CapturedSearchQuery extends CapturedStatement {
+  readonly preamble: readonly CapturedStatement[];
+}
+
+interface SearchQueryCapture {
+  lexical: CapturedSearchQuery | null;
+  vector: CapturedSearchQuery | null;
+}
+
 const BENCHMARK_FILE_ID = '00000000-0000-7000-8000-000000000270';
 const BENCHMARK_SET_KEY = 'benchmark::hybrid-search';
 const BENCHMARK_TIMESTAMP = new Date(0).toISOString();
+
+function captureSearchQuery(
+  capture: SearchQueryCapture,
+  sql: string,
+  params: readonly unknown[],
+  preamble: readonly CapturedStatement[]
+): void {
+  const query = { params: [...params], preamble: [...preamble], sql };
+  if (sql.includes('content_tsvector @@')) {
+    capture.lexical = query;
+  }
+  if (sql.includes('embedding::halfvec(')) {
+    capture.vector = query;
+  }
+}
+
+function createRecordingDatabase(database: PGlite, capture: SearchQueryCapture): FileChunkDatabase {
+  return {
+    query: async <T = unknown>(sql: string, params: unknown[] = []) => {
+      captureSearchQuery(capture, sql, params, []);
+      return database.query<T>(sql, params);
+    },
+    transaction: <T>(run: (transaction: FileChunkQueryTx) => Promise<T>) =>
+      database.transaction(async (transaction) => {
+        const preamble: CapturedStatement[] = [];
+        return run({
+          query: async <TRow = unknown>(sql: string, params: unknown[] = []) => {
+            if (sql.trimStart().startsWith('SET LOCAL ')) {
+              preamble.push({ params: [...params], sql });
+            }
+            captureSearchQuery(capture, sql, params, preamble);
+            return transaction.query<TRow>(sql, params);
+          },
+        });
+      }),
+  };
+}
 
 function assertPositiveInteger(value: number, label: string): void {
   if (!(Number.isInteger(value) && value > 0)) {
@@ -79,6 +142,9 @@ function validateOptions(options: PGliteHybridSearchBenchmarkOptions): void {
   }
   if (options.topics > options.rows) {
     throw new Error('Hybrid benchmark topics must not exceed rows.');
+  }
+  if (options.iterations % options.topics !== 0) {
+    throw new Error('Hybrid benchmark iterations must be divisible by topics.');
   }
 }
 
@@ -129,7 +195,7 @@ function createCorpus(options: PGliteHybridSearchBenchmarkOptions): FileChunkIns
 
 function createQueries(options: PGliteHybridSearchBenchmarkOptions): BenchmarkQuery[] {
   return Array.from({ length: options.topics }, (_, topic) => ({
-    embedding: createEmbedding(topic, options.dimensions, topic),
+    embedding: createEmbedding(topic, options.dimensions, options.rows + topic),
     text: topicLabel(topic),
   }));
 }
@@ -157,34 +223,34 @@ function readPlanRows(result: { rows: unknown[] }): string[] {
 
 async function explainIndexUsage(
   database: PGlite,
+  capture: SearchQueryCapture,
   dimensions: number,
-  query: BenchmarkQuery,
-  limit: number
+  forceIndexPlans: boolean
 ): Promise<PGliteHybridSearchBenchmarkReport['indexUsage']> {
+  if (!(capture.lexical && capture.vector)) {
+    throw new Error(
+      `Hybrid benchmark did not capture both measured search statements (lexical=${String(Boolean(capture.lexical))}, vector=${String(Boolean(capture.vector))}).`
+    );
+  }
+  const lexicalQuery = capture.lexical;
+  const vectorQuery = capture.vector;
   return database.transaction(async (transaction) => {
-    await transaction.query('SET LOCAL enable_seqscan = off');
+    for (const statement of vectorQuery.preamble) {
+      await transaction.query(statement.sql, [...statement.params]);
+    }
+    if (forceIndexPlans) {
+      await transaction.query('SET LOCAL enable_seqscan = off');
+    }
     const [ginResult, hnswResult] = await Promise.all([
-      transaction.query(
-        `EXPLAIN SELECT id
-           FROM file_chunks
-          WHERE content_tsvector @@ websearch_to_tsquery('english', $1)`,
-        [query.text]
-      ),
-      transaction.query(
-        `EXPLAIN SELECT id
-           FROM file_chunks
-          WHERE embedding IS NOT NULL
-            AND vector_dims(embedding) = ${dimensions}
-          ORDER BY embedding::halfvec(${dimensions}) <=> $1::halfvec(${dimensions})
-          LIMIT $2`,
-        [`[${query.embedding.join(',')}]`, limit]
-      ),
+      transaction.query(`EXPLAIN ${lexicalQuery.sql}`, [...lexicalQuery.params]),
+      transaction.query(`EXPLAIN ${vectorQuery.sql}`, [...vectorQuery.params]),
     ]);
     const ginPlan = readPlanRows(ginResult);
     const hnswPlan = readPlanRows(hnswResult);
     return {
       ginPlan,
       hnswPlan,
+      plannerMode: forceIndexPlans ? 'forced' : 'natural',
       usesGin: ginPlan.some((line) => line.includes('idx_file_chunks_content_tsvector')),
       usesHnsw: hnswPlan.some((line) => line.includes(`idx_file_chunks_emb_hnsw_${dimensions}`)),
     };
@@ -198,8 +264,11 @@ export async function runPGliteHybridSearchBenchmark(
   validateOptions(options);
   const database = await (dependencies.createDatabase ?? createDefaultDatabase)();
   try {
+    const queryCapture: SearchQueryCapture = { lexical: null, vector: null };
     const fileRepository = new FileRecordRepository(database);
-    const chunkRepository = new FileChunkRepository(database);
+    const chunkRepository = new FileChunkRepository(
+      createRecordingDatabase(database, queryCapture)
+    );
     const embeddingSetRepository = new EmbeddingSetsRepository(database);
     const embeddingSet = await embeddingSetRepository.getOrCreateSet(
       BENCHMARK_SET_KEY,
@@ -209,6 +278,7 @@ export async function runPGliteHybridSearchBenchmark(
       { name: 'Hybrid search benchmark' }
     );
     await embeddingSetRepository.waitForPendingDimensionIndexBuilds();
+    await dropDimensionIndex(database, options.dimensions);
     await fileRepository.create({
       createdAt: BENCHMARK_TIMESTAMP,
       id: BENCHMARK_FILE_ID,
@@ -223,8 +293,10 @@ export async function runPGliteHybridSearchBenchmark(
     }));
     await chunkRepository.insertMany(corpus);
     await createDimensionIndex(database, options.dimensions, hnswParams());
+    await database.query('ANALYZE file_chunks');
 
     const queries = createQueries(options);
+    const vectorSourceLimit = Math.max(options.limit * 5, 50);
     const service = new HybridSearchService(chunkRepository);
     let hybridQueryIndex = 0;
     let vectorQueryIndex = 0;
@@ -241,10 +313,10 @@ export async function runPGliteHybridSearchBenchmark(
         }
         const response = await service.search(query.text, query.embedding, {
           embeddingSetId: embeddingSet.id,
-          ftsLimit: Math.max(options.limit * 5, 50),
+          ftsLimit: vectorSourceLimit,
           includeHeadline: false,
           limit: options.limit,
-          vectorLimit: Math.max(options.limit * 5, 50),
+          vectorLimit: vectorSourceLimit,
           vectorThreshold: 0,
         });
         minimumHybridResultCount = Math.min(minimumHybridResultCount, response.results.length);
@@ -257,7 +329,7 @@ export async function runPGliteHybridSearchBenchmark(
         }
         const results = await chunkRepository.searchSimilar(query.embedding, {
           embeddingSetId: embeddingSet.id,
-          limit: options.limit,
+          limit: vectorSourceLimit,
           threshold: 0,
         });
         minimumVectorOnlyResultCount = Math.min(minimumVectorOnlyResultCount, results.length);
@@ -267,14 +339,11 @@ export async function runPGliteHybridSearchBenchmark(
     });
     const indexUsage = await explainIndexUsage(
       database,
+      queryCapture,
       options.dimensions,
-      queries[0] ?? { embedding: createEmbedding(0, options.dimensions, 0), text: topicLabel(0) },
-      options.limit
+      dependencies.forceIndexPlans ?? false
     );
     const failures = [...measurement.failures];
-    if (!indexUsage.usesGin) {
-      failures.push('GIN plan did not select idx_file_chunks_content_tsvector');
-    }
     if (!indexUsage.usesHnsw) {
       failures.push(`HNSW plan did not select idx_file_chunks_emb_hnsw_${options.dimensions}`);
     }
@@ -301,6 +370,7 @@ export async function runPGliteHybridSearchBenchmark(
         minimumVectorOnlyResultCount: Number.isFinite(minimumVectorOnlyResultCount)
           ? minimumVectorOnlyResultCount
           : 0,
+        vectorSourceLimit,
       },
       passed: failures.length === 0,
     };

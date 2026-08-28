@@ -3,7 +3,7 @@
  *
  * Run from packages/db:
  *   pnpm bench:hybrid-search
- *   pnpm bench:hybrid-search -- --rows 10000 --dimensions 64 --json /tmp/hybrid.json
+ *   pnpm bench:hybrid-search -- --rows 10000 --dimensions 384 --json /tmp/hybrid.json
  *
  * This is deliberately a manual, uncached benchmark. Unit tests pin the
  * deterministic reporting contract; the integration test runs a small real
@@ -23,8 +23,8 @@ interface BenchmarkCliOptions {
 }
 
 const DEFAULT_OPTIONS: BenchmarkCliOptions = {
-  dimensions: 64,
-  iterations: 20,
+  dimensions: 384,
+  iterations: 24,
   jsonPath: null,
   limit: 10,
   rows: 10_000,

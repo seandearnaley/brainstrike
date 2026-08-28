@@ -692,14 +692,18 @@ extension control file" error on that path only:
 
   Hybrid-search performance evidence is produced by the manual, uncached
   `pnpm --filter @brainstrike/db bench:hybrid-search` command. Its default
-  10,000-row real PGlite run compares the complete hybrid service with a
-  vector-only control, alternates pair order, excludes warmups, retains raw
-  samples, and fails visibly when hybrid p95 exceeds 500 ms or additional p95
-  exceeds 100 ms. The same run requires nonempty results and forced-index
-  `EXPLAIN` selection of the tsvector GIN index and the dimension-specific HNSW
-  index. Unit tests pin the deterministic measurement/reporting contract; a
-  small integration test pins real PGlite execution. Retained environment and
-  baseline evidence lives in `docs/performance/hybrid-search-benchmarks.md`.
+  10,000-row, 384-dimension real PGlite run compares the complete hybrid service
+  with a vector-only control using the same 50-candidate vector source pool,
+  alternates pair order, samples each topic evenly, excludes warmups, retains
+  raw samples, and fails visibly when hybrid p95 exceeds 500 ms or additional
+  p95 exceeds 100 ms. It bulk-builds HNSW after corpus insertion and perturbs
+  query vectors so none exactly duplicates an indexed row. Plan evidence
+  replays the exact measured repository SQL: natural-planner HNSW selection is
+  required, while the lexical plan is reported honestly rather than forcing or
+  claiming GIN selection. Unit tests pin the deterministic measurement/reporting
+  contract; a small integration test pins real PGlite execution and the forced
+  applicability-plan mode. Retained environment and baseline evidence lives in
+  `docs/performance/hybrid-search-benchmarks.md`.
   Do not add a query/result cache on benchmark evidence alone: mutable
   local-first search data needs an explicit invalidation owner before cached
   answers can be correct.
