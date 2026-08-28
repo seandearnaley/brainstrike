@@ -49,15 +49,64 @@ test('desktop type-check hashes the root anti-vacuity verifier', () => {
   );
 });
 
+test('desktop type-check:test remains wired through the verifier and production floor', () => {
+  const manifest = JSON.parse(readFileSync(path.join(repoRoot, 'apps/desktop/package.json')));
+  const command = manifest.scripts?.['type-check:test'];
+
+  assert.equal(typeof command, 'string');
+  assert.match(command, /scripts\/verify-test-tsconfig-program\.mjs/u);
+  assert.match(command, /--project tsconfig\.test\.json/u);
+  const floor = command.match(/--min-test-files (\d+)/u);
+  assert.ok(floor, 'desktop type-check:test must declare --min-test-files');
+  assert.ok(Number(floor[1]) >= 400, 'desktop type-check:test floor must remain at least 400');
+});
+
+test('uses the compiler program file list rather than serialized showConfig roots', () => {
+  const calls = [];
+  const result = verifyTestTsconfigProgram({
+    checkTypes: false,
+    cwd: '/workspace/app',
+    minTestFiles: 1,
+    project: 'tsconfig.test.json',
+    runTscCommand: (args) => {
+      calls.push(args);
+      return {
+        error: undefined,
+        status: 0,
+        stderr: '',
+        stdout: '/workspace/app/src/example.test.ts\n/workspace/app/src/index.ts\n',
+      };
+    },
+  });
+
+  assert.equal(result.ok, true, result.message);
+  assert.deepEqual(calls, [['--listFilesOnly', '--project', '/workspace/app/tsconfig.test.json']]);
+  assert.deepEqual(result.testFiles, ['/workspace/app/src/example.test.ts']);
+});
+
+test('surfaces a tsc spawn failure instead of misreporting a diagnostic rejection', () => {
+  const result = verifyTestTsconfigProgram({
+    cwd: '/workspace/app',
+    minTestFiles: 1,
+    project: 'tsconfig.test.json',
+    runTscCommand: () => ({
+      error: new Error('spawn pnpm ENOENT'),
+      status: null,
+      stderr: '',
+      stdout: '',
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.message, /Unable to run tsc/u);
+  assert.match(result.message, /spawn pnpm ENOENT/u);
+});
+
 test('rejects a program whose roots contain no test files', async () => {
   const root = await writeFixture({
     source: 'export const value = 1;\n',
-    tsconfig: { compilerOptions: { strict: true }, files: ['src/example.test.ts'] },
+    tsconfig: { files: ['src/not-a-test.ts'] },
   });
-  await writeFile(
-    path.join(root, 'tsconfig.json'),
-    JSON.stringify({ files: ['src/not-a-test.ts'] })
-  );
   await writeFile(path.join(root, 'src/not-a-test.ts'), 'export const value = 1;\n');
 
   const result = verifyTestTsconfigProgram({

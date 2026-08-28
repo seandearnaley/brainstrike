@@ -129,6 +129,16 @@ describe('classifyCommand', () => {
     });
   });
 
+  it('unwraps the test-tsconfig verifier into its noEmit project', () => {
+    const command =
+      'node ../../scripts/verify-test-tsconfig-program.mjs --project tsconfig.test.json --min-test-files 400';
+    assert.deepEqual(classifyCommand(command), {
+      command,
+      kind: 'noEmit',
+      project: 'tsconfig.test.json',
+    });
+  });
+
   it('tags build and non-tsc commands instead of comparing them', () => {
     assert.equal(classifyCommand('tsc --build --force').kind, 'build');
     assert.equal(classifyCommand('tsc -b').kind, 'build');
