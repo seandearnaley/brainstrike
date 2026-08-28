@@ -23,7 +23,13 @@ function commandOutput(result) {
   return `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
 }
 
-export function verifyTestTsconfigProgram({ checkTypes = true, cwd, minTestFiles, project }) {
+export function verifyTestTsconfigProgram({
+  checkTypes = true,
+  cwd,
+  minTestFiles,
+  project,
+  runTscCommand = runTsc,
+}) {
   if (!(typeof cwd === 'string' && path.isAbsolute(cwd))) {
     throw new Error('verify-test-tsconfig-program: cwd must be an absolute path');
   }
@@ -35,29 +41,33 @@ export function verifyTestTsconfigProgram({ checkTypes = true, cwd, minTestFiles
   }
 
   const projectPath = path.resolve(cwd, project);
-  const shown = runTsc(['--showConfig', '--project', projectPath]);
-  if (shown.error || shown.status !== 0) {
+  const listed = runTscCommand(['--listFilesOnly', '--project', projectPath]);
+  if (listed.error) {
     return {
-      message: `Unable to inspect ${projectPath}:\n${commandOutput(shown)}`,
+      message: `Unable to run tsc for ${projectPath}: ${listed.error.message}`,
+      ok: false,
+      testFiles: [],
+    };
+  }
+  if (listed.status !== 0) {
+    return {
+      message: `Unable to inspect the TypeScript program for ${projectPath}:\n${commandOutput(listed)}`,
       ok: false,
       testFiles: [],
     };
   }
 
-  let config;
-  try {
-    config = JSON.parse(shown.stdout);
-  } catch (error) {
-    return {
-      message: `TypeScript emitted invalid --showConfig JSON for ${projectPath}: ${error instanceof Error ? error.message : String(error)}`,
-      ok: false,
-      testFiles: [],
-    };
-  }
-
-  const files = Array.isArray(config.files) ? config.files : [];
-  const testFiles = files
-    .filter((file) => typeof file === 'string')
+  const testFiles = (listed.stdout ?? '')
+    .split(/\r?\n/u)
+    .map((file) => file.trim())
+    .filter(Boolean)
+    .map((file) => (path.isAbsolute(file) ? file : path.resolve(cwd, file)))
+    .filter((file) => {
+      const relative = path.relative(cwd, file);
+      return (
+        relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+      );
+    })
     .map((file) => file.replaceAll('\\', '/'))
     .filter((file) => TEST_FILE_PATTERN.test(file));
   if (testFiles.length < minTestFiles) {
@@ -76,8 +86,15 @@ export function verifyTestTsconfigProgram({ checkTypes = true, cwd, minTestFiles
     };
   }
 
-  const checked = runTsc(['--noEmit', '--project', projectPath]);
-  if (checked.error || checked.status !== 0) {
+  const checked = runTscCommand(['--noEmit', '--project', projectPath]);
+  if (checked.error) {
+    return {
+      message: `Unable to run tsc for ${projectPath}: ${checked.error.message}`,
+      ok: false,
+      testFiles,
+    };
+  }
+  if (checked.status !== 0) {
     return {
       message: `TypeScript rejected ${projectPath} after selecting ${testFiles.length} test files:\n${commandOutput(checked)}`,
       ok: false,
