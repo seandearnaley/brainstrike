@@ -10,6 +10,8 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import type { BrowserTab } from '../browser-pane/browser-bridge';
+import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { useChangesStore } from '../changes/changes-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
@@ -44,6 +46,7 @@ describe('register-factory-reset-session-stores', () => {
     useWorkspaceContextCurationStore.getState().reset();
     useAssistantComposerCommandStore.getState().reset();
     useAssistantThreadGroupsStore.getState().reset();
+    useBrowserTabsStore.getState().reset();
     resetRootRegistrationEventsForTests();
     vi.mocked(resetNotesVaultSessionState).mockClear();
   });
@@ -115,6 +118,16 @@ describe('register-factory-reset-session-stores', () => {
       threadId: 'thread-1',
       worktreeId: 'worktree-1',
     });
+    const browserTab: BrowserTab = {
+      active: true,
+      canGoBack: false,
+      canGoForward: false,
+      isLoading: false,
+      tabId: 'browser-tab-1',
+      title: 'Before reset',
+      url: 'https://example.com',
+    };
+    useBrowserTabsStore.getState().setTabs([browserTab]);
 
     expect(useWorkspaceSearchStore.getState().query).toBe('find me');
     expect(useChunkSelectionStore.getState().selectionsByKey['root|@|src/a.ts']).toBeDefined();
@@ -151,6 +164,7 @@ describe('register-factory-reset-session-stores', () => {
     });
     expect(useQuickOpenStore.getState().isOpen).toBe(false);
     expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+    expect(useBrowserTabsStore.getState().tabs).toEqual([]);
   });
 
   // The two diagnostics session stores get their own case rather than riding

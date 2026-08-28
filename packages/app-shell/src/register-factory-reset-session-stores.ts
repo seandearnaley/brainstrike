@@ -11,6 +11,7 @@ import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-rese
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
 import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useChangesStore } from './changes/changes-store';
@@ -84,19 +85,37 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
+  // Without this, `activeChangeset`/`handoffThreadIdentity` would keep
+  // pointing at a runId/threadId or repository path the reset just wiped.
   useChangesNavigationStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
+  // Selection/expansion are view-only, but a selection carried over past a
+  // reset can filter every file out of a diff pane that no longer exists.
   useChangesStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
+  // Invalidation nonces name absolute repository paths; the wire-generation
+  // guard also restarts so a post-reset main process re-numbering from 1 is
+  // not dropped (BST-1161).
   useChangesLiveRefreshStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
+  // An open Conversation Rewind request names a thread/message/run the reset
+  // just wiped; leaving it up would show a confirm modal for a conversation
+  // that no longer exists.
   useRewindStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  // The browser-pane tab mirror (BST-1174). The main-process views + their
+  // `persist:browser-pane` partition are wiped by the desktop userData reset;
+  // this clears the renderer's stale copy of that list so the pane starts
+  // empty in the fresh profile.
+  useBrowserTabsStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
@@ -115,5 +134,8 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
+  // A pinned Terminal target names an absolute checkout path and a rootId the
+  // reset just wiped; leaving it would point the panel at a folder that no
+  // longer exists in this profile.
   useTerminalTargetStore.getState().reset();
 });
