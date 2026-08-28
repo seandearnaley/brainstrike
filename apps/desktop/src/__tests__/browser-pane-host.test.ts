@@ -113,8 +113,10 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     expect(attached).toHaveLength(1);
     expect(navListeners).toHaveLength(1);
 
-    // (event, url, isInPlace, isMainFrame) — a real navigation/reload.
-    navListeners[0]?.({}, 'app://renderer', false, true);
+    // Modern Electron details object — a real navigation/reload.
+    // Supplying no deprecated positional args makes this fail if production
+    // still reads `isInPlace` / `isMainFrame` from positions 3 and 4.
+    navListeners[0]?.({ isMainFrame: true, isSameDocument: false });
 
     expect(host.manager.listTabs()).toHaveLength(0);
     expect(attached).toHaveLength(0);
@@ -122,14 +124,14 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     expect(window.webContents.send).toHaveBeenLastCalledWith(expect.any(String), []);
   });
 
-  it('ignores in-place (same-document) and subframe navigations', async () => {
+  it('ignores same-document and subframe navigations', async () => {
     const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
     const { navListeners, window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
     host.manager.createTab('https://example.com');
 
-    navListeners[0]?.({}, '#hash', true, true); // in-place (hash change)
-    navListeners[0]?.({}, 'https://ad.example', false, false); // subframe
+    navListeners[0]?.({ isMainFrame: true, isSameDocument: true }); // hash change
+    navListeners[0]?.({ isMainFrame: false, isSameDocument: false }); // subframe
     expect(host.manager.listTabs()).toHaveLength(1);
   });
 

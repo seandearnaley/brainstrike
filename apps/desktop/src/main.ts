@@ -2358,7 +2358,7 @@ if (singleInstanceLockAcquired) {
           workspaceOpenQueue.detach();
         });
         // `rendererReady` resets ONLY on a real MAIN-FRAME navigation that
-        // replaces the current document (`isMainFrame && !isInPlace` — the
+        // replaces the current document (`isMainFrame && !isSameDocument` — the
         // same guard `browser-pane-host.ts`'s `onHostNavigation` already uses
         // for an identical "did the top-level document just get replaced?"
         // question). This is deliberately a DIFFERENT, narrower event than
@@ -2374,18 +2374,15 @@ if (singleInstanceLockAcquired) {
         // second ready ping ever coming, the queue would stay permanently
         // detached — the ORIGINAL Critical 2 bug, reproduced through the new
         // flag instead of the old attach listener. A subframe navigation
-        // (`isMainFrame === false`) and a same-document one (`isInPlace`,
+        // (`isMainFrame === false`) and a same-document one (`isSameDocument`,
         // e.g. a hash change or `pushState`) both leave the existing
         // `WorkspaceConnectHost` subscription — and its already-sent ready
         // ping — intact, so neither should reset readiness.
-        win.webContents.on(
-          'did-start-navigation',
-          (_event: Electron.Event, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
-            if (isMainFrame && !isInPlace) {
-              rendererReady = false;
-            }
+        win.webContents.on('did-start-navigation', (details) => {
+          if (details.isMainFrame && !details.isSameDocument) {
+            rendererReady = false;
           }
-        );
+        });
         // `did-stop-loading`, NOT `did-finish-load`: the latter is main-frame
         // ONLY (Electron guards `WebContents::DidFinishLoad` on
         // `!render_frame_host->GetParent()`; a subframe's completion fires
