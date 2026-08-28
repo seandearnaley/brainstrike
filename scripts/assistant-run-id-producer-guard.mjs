@@ -28,6 +28,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { glob } from 'glob';
+import ts from 'typescript';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -63,6 +64,62 @@ function getLineNumber(sourceText, matchIndex) {
   return sourceText.slice(0, matchIndex).split('\n').length;
 }
 
+function findProducerSyntax(filePath, sourceText) {
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true);
+  const parseDiagnostics = sourceFile.parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) {
+    const diagnostic = parseDiagnostics[0];
+    const position = sourceFile.getLineAndCharacterOfPosition(diagnostic.start ?? 0);
+    throw new Error(
+      `${filePath}:${position.line + 1}:${position.character + 1}: could not be parsed, ` +
+        `so runId provenance cannot be verified — ${ts.flattenDiagnosticMessageText(
+          diagnostic.messageText,
+          ' '
+        )}`
+    );
+  }
+  const calls = [];
+  const declarations = [];
+  const exports = [];
+
+  function visit(node) {
+    const isProducerFunction =
+      (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) &&
+      node.name?.text === PRODUCER_NAME;
+    if (isProducerFunction) {
+      declarations.push(node.name.getStart(sourceFile));
+      if (
+        ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+      ) {
+        exports.push(node.name.getStart(sourceFile));
+      }
+    }
+
+    if (ts.isIdentifier(node) && node.text === PRODUCER_NAME) {
+      const isDeclarationName =
+        (ts.isFunctionDeclaration(node.parent) || ts.isFunctionExpression(node.parent)) &&
+        node.parent.name === node;
+      if (isDeclarationName) {
+        return;
+      }
+
+      if (ts.isExportSpecifier(node.parent) || ts.isExportAssignment(node.parent)) {
+        exports.push(node.getStart(sourceFile));
+      } else {
+        // Any executable reference can leak or invoke the supposedly private
+        // producer: direct calls, property access, constructors, aliases, and
+        // imports all count. Comments and literals have no Identifier node.
+        calls.push(node.getStart(sourceFile));
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return { calls, declarations, exports };
+}
+
 /**
  * Scan non-test source for references to the run-id producer.
  * Returns `{ violations, declarationCount, callCount }`; violations carry
@@ -81,41 +138,38 @@ export async function findAssistantRunIdProducerViolations({ root = REPO_ROOT } 
   let declarationCount = 0;
   let callCount = 0;
 
-  const declaration = new RegExp(`function\\s+${PRODUCER_NAME}\\s*\\(`, 'g');
-  const call = new RegExp(`(?<!function\\s)\\b${PRODUCER_NAME}\\s*\\(`, 'g');
-  const exported = new RegExp(`export\\s+(?:async\\s+)?function\\s+${PRODUCER_NAME}\\b`, 'g');
-
   for (const filePath of sourceFiles.sort()) {
     const sourceText = await readFile(path.join(root, filePath), 'utf8');
     if (!sourceText.includes(PRODUCER_NAME)) {
       continue;
     }
+    const producerSyntax = findProducerSyntax(filePath, sourceText);
 
-    for (const match of sourceText.matchAll(declaration)) {
+    for (const matchIndex of producerSyntax.declarations) {
       declarationCount += 1;
       if (filePath !== OWNING_FILE) {
         violations.push({
           filePath,
-          lineNumber: getLineNumber(sourceText, match.index),
+          lineNumber: getLineNumber(sourceText, matchIndex),
           reason: `${PRODUCER_NAME} must be declared only in ${OWNING_FILE}`,
         });
       }
     }
 
-    for (const match of sourceText.matchAll(exported)) {
+    for (const matchIndex of producerSyntax.exports) {
       violations.push({
         filePath,
-        lineNumber: getLineNumber(sourceText, match.index),
+        lineNumber: getLineNumber(sourceText, matchIndex),
         reason: `${PRODUCER_NAME} must stay module-private (exporting it lets another module mint a runId)`,
       });
     }
 
-    for (const match of sourceText.matchAll(call)) {
+    for (const matchIndex of producerSyntax.calls) {
       callCount += 1;
       if (filePath !== OWNING_FILE) {
         violations.push({
           filePath,
-          lineNumber: getLineNumber(sourceText, match.index),
+          lineNumber: getLineNumber(sourceText, matchIndex),
           reason: `${PRODUCER_NAME} must be called only in ${OWNING_FILE}`,
         });
       }

@@ -97,6 +97,43 @@ const runId = createThreadRunId();
   assert.ok(violations.some((v) => v.reason.includes('module-private')));
 });
 
+test('flags exporting the private producer through an export specifier', async () => {
+  const root = await writeFixture({
+    [OWNING_FILE]: `${COMPLIANT_OWNER}
+export { createThreadRunId };
+`,
+  });
+
+  const { violations } = await findAssistantRunIdProducerViolations({ root });
+  assert.ok(violations.some((violation) => violation.reason.includes('module-private')));
+});
+
+test('flags property-access and constructor references to the producer', async () => {
+  const root = await writeFixture({
+    [OWNING_FILE]: COMPLIANT_OWNER,
+    'apps/desktop/src/background-run.ts': `runtime.createThreadRunId();
+new createThreadRunId();
+`,
+  });
+
+  const { callCount, violations } = await findAssistantRunIdProducerViolations({ root });
+  assert.equal(callCount, 3);
+  assert.ok(violations.some((violation) => violation.reason.includes('called only in')));
+  assert.ok(violations.some((violation) => violation.reason.includes('found 3')));
+});
+
+test('flags a named producer function expression as a second declaration', async () => {
+  const root = await writeFixture({
+    [OWNING_FILE]: COMPLIANT_OWNER,
+    'apps/desktop/src/background-run.ts':
+      'const mint = function createThreadRunId() { return crypto.randomUUID(); };\n',
+  });
+
+  const { declarationCount, violations } = await findAssistantRunIdProducerViolations({ root });
+  assert.equal(declarationCount, 2);
+  assert.ok(violations.some((violation) => violation.reason.includes('declared only in')));
+});
+
 test('ignores tests and build output', async () => {
   const root = await writeFixture({
     [OWNING_FILE]: COMPLIANT_OWNER,
@@ -110,4 +147,39 @@ test('ignores tests and build output', async () => {
   assert.equal(declarationCount, 1);
   assert.equal(callCount, 1);
   assert.deepEqual(violations, []);
+});
+
+test('ignores producer-shaped text in comments and literals', async () => {
+  const root = await writeFixture({
+    [OWNING_FILE]: COMPLIANT_OWNER,
+    'packages/assistant-ui/src/run-event-derivation.ts': `
+// createThreadRunId() is intentionally owned by app-shell.
+/** Keep createThreadRunId() behind the schema bootstrap. */
+const singleQuoted = 'createThreadRunId()';
+const doubleQuoted = "createThreadRunId()";
+const templateText = \`createThreadRunId()\`;
+const pattern = /createThreadRunId\\(\\)/;
+`,
+  });
+
+  const { callCount, declarationCount, violations } = await findAssistantRunIdProducerViolations({
+    root,
+  });
+
+  assert.equal(declarationCount, 1);
+  assert.equal(callCount, 1);
+  assert.deepEqual(violations, []);
+});
+
+test('fails closed when producer-bearing source cannot be parsed', async () => {
+  const root = await writeFixture({
+    [OWNING_FILE]: COMPLIANT_OWNER,
+    'packages/assistant-ui/src/run-event-derivation.ts':
+      'const broken = `createThreadRunId() is unterminated;\n',
+  });
+
+  await assert.rejects(
+    findAssistantRunIdProducerViolations({ root }),
+    /could not be parsed, so runId provenance cannot be verified/u
+  );
 });
