@@ -163,21 +163,23 @@ async function explainIndexUsage(
 ): Promise<PGliteHybridSearchBenchmarkReport['indexUsage']> {
   return database.transaction(async (transaction) => {
     await transaction.query('SET LOCAL enable_seqscan = off');
-    const ginResult = await transaction.query(
-      `EXPLAIN SELECT id
-         FROM file_chunks
-        WHERE content_tsvector @@ websearch_to_tsquery('english', $1)`,
-      [query.text]
-    );
-    const hnswResult = await transaction.query(
-      `EXPLAIN SELECT id
-         FROM file_chunks
-        WHERE embedding IS NOT NULL
-          AND vector_dims(embedding) = ${dimensions}
-        ORDER BY embedding::halfvec(${dimensions}) <=> $1::halfvec(${dimensions})
-        LIMIT $2`,
-      [`[${query.embedding.join(',')}]`, limit]
-    );
+    const [ginResult, hnswResult] = await Promise.all([
+      transaction.query(
+        `EXPLAIN SELECT id
+           FROM file_chunks
+          WHERE content_tsvector @@ websearch_to_tsquery('english', $1)`,
+        [query.text]
+      ),
+      transaction.query(
+        `EXPLAIN SELECT id
+           FROM file_chunks
+          WHERE embedding IS NOT NULL
+            AND vector_dims(embedding) = ${dimensions}
+          ORDER BY embedding::halfvec(${dimensions}) <=> $1::halfvec(${dimensions})
+          LIMIT $2`,
+        [`[${query.embedding.join(',')}]`, limit]
+      ),
+    ]);
     const ginPlan = readPlanRows(ginResult);
     const hnswPlan = readPlanRows(hnswResult);
     return {

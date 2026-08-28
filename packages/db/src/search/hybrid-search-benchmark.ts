@@ -71,7 +71,7 @@ function percentile(sortedSamples: readonly number[], ratio: number): number {
 }
 
 function summarize(samplesMs: readonly number[]): HybridSearchBenchmarkLatencySummary {
-  const sortedSamples = [...samplesMs].sort((left, right) => left - right);
+  const sortedSamples = samplesMs.toSorted((left, right) => left - right);
   return {
     p50Ms: percentile(sortedSamples, 0.5),
     p95Ms: percentile(sortedSamples, 0.95),
