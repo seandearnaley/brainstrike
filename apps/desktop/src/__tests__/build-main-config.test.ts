@@ -54,8 +54,8 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
  * - hidden renderer host preload → dist/hidden-preload.js
  * - main-thread watchdog worker → dist/main-watchdog-worker.js
  * - utilityProcess.fork sibling lookups → dist/db-host-entry.js,
- *   dist/parser-host-entry.js (resolved relative to module.filename of the
- *   bundled main.js, so outputs must stay FLAT in dist/)
+ *   dist/parser-host-entry.js (resolved through bundled-sibling-path from the
+ *   running bundle's __filename, so outputs must stay FLAT in dist/)
  */
 describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
