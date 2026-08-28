@@ -794,10 +794,11 @@ describe('DrizzleFileChunkRepository', () => {
         updatedAt: now,
       });
 
-      const results = await repository.fullTextSearch('authentcation');
+      const results = await repository.fullTextSearch('authentcation', { queryMode: 'plain' });
 
       expect(results).toHaveLength(1);
       expect(results[0]?.chunk.id).toBe('00000000-0000-0000-0000-000000000232');
+      expect(results[0]?.matchKind).toBe('fuzzy');
       expect(results[0]?.rank).toBeGreaterThan(0.6);
     });
   });

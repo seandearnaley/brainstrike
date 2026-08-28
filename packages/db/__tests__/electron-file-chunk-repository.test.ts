@@ -259,18 +259,20 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
       ],
     });
 
-    const results = await repo.fullTextSearch('authentcation');
+    const results = await repo.fullTextSearch('authentcation', { queryMode: 'plain' });
 
     expect(results).toEqual([
       {
         chunk: baseChunk,
+        matchKind: 'fuzzy',
         position: 1,
         rank: 0.875,
       },
     ]);
     expect(query).toHaveBeenCalledTimes(2);
     expect(query.mock.calls[1]?.[0]).toContain('$1 <% content');
-    expect(query.mock.calls[1]?.[1]).toEqual(['authentcation', 'english', 10]);
+    expect(query.mock.calls[1]?.[0]).toContain("plainto_tsquery($2::regconfig, $1)::text <> ''");
+    expect(query.mock.calls[1]?.[1]).toEqual(['authentcation', 'english', 0.6, 10]);
   });
 
   it('clears embeddings and refreshes stats in one atomic query', async () => {
