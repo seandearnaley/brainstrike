@@ -96,41 +96,7 @@ export interface McpLabChildStderrFault {
   readonly text: string;
 }
 
-const MCP_LAB_CHILD_SIGNALS = [
-  'SIGABRT',
-  'SIGALRM',
-  'SIGBUS',
-  'SIGCHLD',
-  'SIGCONT',
-  'SIGFPE',
-  'SIGHUP',
-  'SIGILL',
-  'SIGINT',
-  'SIGIO',
-  'SIGIOT',
-  'SIGKILL',
-  'SIGPIPE',
-  'SIGPOLL',
-  'SIGPROF',
-  'SIGPWR',
-  'SIGQUIT',
-  'SIGSEGV',
-  'SIGSTKFLT',
-  'SIGSTOP',
-  'SIGSYS',
-  'SIGTERM',
-  'SIGTRAP',
-  'SIGTSTP',
-  'SIGTTIN',
-  'SIGTTOU',
-  'SIGURG',
-  'SIGUSR1',
-  'SIGUSR2',
-  'SIGVTALRM',
-  'SIGWINCH',
-  'SIGXCPU',
-  'SIGXFSZ',
-] as const;
+const MCP_LAB_CHILD_SIGNALS = ['SIGABRT', 'SIGKILL', 'SIGTERM'] as const;
 
 const MCP_LAB_CHILD_SIGNAL_SET = new Set<string>(MCP_LAB_CHILD_SIGNALS);
 
@@ -230,7 +196,7 @@ function assertChildExitFault(id: string, fault: UntypedFault): void {
     MCP_LAB_CHILD_SIGNAL_SET.has(fault['signal']);
   if (!(exitedWithCode || exitedWithSignal)) {
     throw new Error(
-      `Invalid MCP lab fault "${id}": child exit must provide either an integer code or a known signal`
+      `Invalid MCP lab fault "${id}": child exit must provide either an integer code or a supported terminating signal`
     );
   }
 }
@@ -248,7 +214,8 @@ function assertChildStderrFault(id: string, fault: UntypedFault): void {
 }
 
 function assertMalformedJsonFault(id: string, fault: UntypedFault): void {
-  if (typeof fault['payload'] !== 'string') {
+  const payload = fault['payload'];
+  if (typeof payload !== 'string') {
     throw new Error(`Invalid MCP lab fault "${id}": malformed JSON payload must be a string`);
   }
   assertOnlyFaultKeys(
@@ -256,6 +223,14 @@ function assertMalformedJsonFault(id: string, fault: UntypedFault): void {
     fault,
     ['kind', 'payload'],
     'malformed JSON must contain only "kind" and "payload"'
+  );
+  try {
+    JSON.parse(payload);
+  } catch {
+    return;
+  }
+  throw new Error(
+    `Invalid MCP lab fault "${id}": malformed JSON payload must be syntactically invalid JSON`
   );
 }
 

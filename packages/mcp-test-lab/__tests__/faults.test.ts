@@ -10,19 +10,23 @@ describe('MCP lab fault plan', () => {
     [null, 'payload must be an object'],
     [
       { code: null, kind: 'child_exit', signal: null },
-      'child exit must provide either an integer code or a known signal',
+      'child exit must provide either an integer code or a supported terminating signal',
     ],
     [
       { code: 3.7, kind: 'child_exit', signal: null },
-      'child exit must provide either an integer code or a known signal',
+      'child exit must provide either an integer code or a supported terminating signal',
     ],
     [
       { code: null, kind: 'child_exit', signal: 'SIGNOTREAL' },
-      'child exit must provide either an integer code or a known signal',
+      'child exit must provide either an integer code or a supported terminating signal',
+    ],
+    [
+      { code: null, kind: 'child_exit', signal: 'SIGSTOP' },
+      'child exit must provide either an integer code or a supported terminating signal',
     ],
     [
       { code: 1, kind: 'child_exit', signal: 'SIGTERM' },
-      'child exit must provide either an integer code or a known signal',
+      'child exit must provide either an integer code or a supported terminating signal',
     ],
     [{ kind: 'child_stderr', text: 42 }, 'child stderr text must be a string'],
     [
@@ -30,6 +34,10 @@ describe('MCP lab fault plan', () => {
       'child stderr must contain only "kind" and "text"',
     ],
     [{ kind: 'malformed_json', payload: 42 }, 'malformed JSON payload must be a string'],
+    [
+      { kind: 'malformed_json', payload: '{}' },
+      'malformed JSON payload must be syntactically invalid JSON',
+    ],
     [
       { extra: true, kind: 'malformed_json', payload: '{' },
       'malformed JSON must contain only "kind" and "payload"',
