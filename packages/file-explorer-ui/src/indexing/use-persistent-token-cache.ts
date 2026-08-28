@@ -332,7 +332,15 @@ export function usePersistentTokenCache({
       }
       return;
     },
-    [fileContents, fileSizes, persistentCache, tokenCounting, decodeFileSelection, onTokenResolved]
+    [
+      countingRuntimeStateKey,
+      decodeFileSelection,
+      fileContents,
+      fileSizes,
+      onTokenResolved,
+      persistentCache,
+      tokenCounting,
+    ]
   );
 
   /**
