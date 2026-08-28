@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 import { verifyTestTsconfigProgram } from '../verify-test-tsconfig-program.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+function readJsonc(filePath) {
+  const parsed = ts.parseConfigFileTextToJson(filePath, readFileSync(filePath, 'utf8'));
+  assert.equal(parsed.error, undefined, `Could not parse ${filePath}`);
+  return parsed.config;
+}
 
 async function writeFixture({ source, tsconfig }) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'test-tsconfig-program-'));
@@ -27,6 +35,18 @@ test('real desktop test program clears its anti-vacuity floor', () => {
 
   assert.equal(result.ok, true, result.message);
   assert.ok(result.testFiles.length >= 400);
+});
+
+test('desktop type-check hashes the root anti-vacuity verifier', () => {
+  const turboConfig = readJsonc(path.join(repoRoot, 'apps/desktop/turbo.json'));
+  const inputs = turboConfig.tasks?.['type-check']?.inputs;
+
+  assert.ok(Array.isArray(inputs), 'desktop turbo.json must override type-check inputs');
+  assert.ok(inputs.includes('$TURBO_DEFAULT$'), 'desktop type-check must retain default inputs');
+  assert.ok(
+    inputs.includes('$TURBO_ROOT$/scripts/verify-test-tsconfig-program.mjs'),
+    'desktop type-check must hash scripts/verify-test-tsconfig-program.mjs'
+  );
 });
 
 test('rejects a program whose roots contain no test files', async () => {
