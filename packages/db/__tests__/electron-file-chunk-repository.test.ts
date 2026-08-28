@@ -247,6 +247,32 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(query.mock.calls[1][0]).toBe('DELETE FROM file_chunks');
   });
 
+  it('runs the same fuzzy fallback over the Electron database bridge', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          ...createRowFromChunk(baseChunk),
+          fts_rank: '0.875',
+          position: '1',
+        },
+      ],
+    });
+
+    const results = await repo.fullTextSearch('authentcation');
+
+    expect(results).toEqual([
+      {
+        chunk: baseChunk,
+        position: 1,
+        rank: 0.875,
+      },
+    ]);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[0]).toContain('$1 <% content');
+    expect(query.mock.calls[1]?.[1]).toEqual(['authentcation', 'english', 10]);
+  });
+
   it('clears embeddings and refreshes stats in one atomic query', async () => {
     query.mockResolvedValueOnce({ rows: [{ clearedCount: 3 }] });
 
