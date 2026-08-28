@@ -272,6 +272,15 @@ workspace deps resolve to built `dist` declarations (each produced under its
 own package's tsconfig) instead of recompiling foreign sources under the app's
 ambient shims. Two consequences to keep in mind:
 
+Desktop's `type-check:test` runs `scripts/verify-test-tsconfig-program.mjs`
+instead of invoking `tsc` directly. The wrapper asks the pinned TS7 compiler
+for its expanded `--showConfig`, requires at least 400 desktop test roots, and
+then runs the unchanged `tsc --noEmit` diagnostic pass. The floor is an
+anti-vacuity contract: `tsconfig.test.json` currently selects 419 test files,
+and an inherited/excluded test glob must fail before a zero-file type-check can
+look green again. Its script tests include both an empty-root control and a
+broken test-only import that must surface TS2307.
+
 - `type-check:test` needs deps built first. Turbo's `type-check` task
   (`dependsOn: ["build"]`) covers CI and `pnpm type-check`; a bare
   `pnpm --filter <app> type-check` in a fresh clone will not have `dist/`.
