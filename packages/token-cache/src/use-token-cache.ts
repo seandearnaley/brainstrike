@@ -77,7 +77,12 @@ export interface UseTokenCacheReturn {
    * @param content - Optional file content (required for counting if not cached)
    * @returns Token count or null if loading
    */
-  getTokenCount: (folderId: string, filePath: string, content?: string) => number | null;
+  getTokenCount: (
+    folderId: string,
+    filePath: string,
+    content?: string,
+    fileSize?: number
+  ) => number | null;
 
   /**
    * Get aggregated token count for multiple files.
@@ -115,7 +120,7 @@ export interface UseTokenCacheReturn {
       folderId: string;
       filePath: string;
       content: string;
-      fileSize?: number;
+      fileSize: number;
       mtimeMs?: number;
     }>
   ) => void;
@@ -253,7 +258,7 @@ export function useTokenCache({
       folderId: string,
       filePath: string,
       content: string,
-      fileSize?: number,
+      fileSize: number,
       mtimeMs?: number
     ) => {
       const normalizedFilePath = tryNormalizeCachePath(folderId, filePath);
@@ -273,15 +278,18 @@ export function useTokenCache({
       try {
         // Check persistent cache
         const cached = await store.get(folderId, normalizedFilePath);
-
         if (cached) {
-          // Validate cache with content hash
+          // Validate cache with content hash and the secondary byte-size signal.
           const contentHash = await hasher.hashContent(content);
 
-          if (cached.contentHash === contentHash && cached.countingMode === countingMode) {
+          if (
+            cached.contentHash === contentHash &&
+            cached.countingMode === countingMode &&
+            cached.fileSize === fileSize
+          ) {
             // Cache hit - content unchanged
             hotCache.current.set(key, cached.tokenCount);
-            fileSizeCache.current.set(key, cached.fileSize);
+            fileSizeCache.current.set(key, fileSize);
             debouncedSetVersion();
             onTokenResolved?.(folderId, normalizedFilePath, cached.tokenCount);
             return;
@@ -302,7 +310,7 @@ export function useTokenCache({
           contentHash: result.contentHash,
           countingMode,
           filePath: normalizedFilePath,
-          fileSize: fileSize ?? new Blob([content]).size,
+          fileSize,
           folderId,
           modelEncoding: countingMode === 'accurate' ? 'o200k_base' : null,
           mtimeMs: mtimeMs ?? null,
@@ -328,9 +336,9 @@ export function useTokenCache({
   );
 
   // Queue for deferred loading - avoids setState during render
-  const deferredLoadQueue = useRef<Array<{ folderId: string; filePath: string; content: string }>>(
-    []
-  );
+  const deferredLoadQueue = useRef<
+    Array<{ folderId: string; filePath: string; content: string; fileSize: number }>
+  >([]);
 
   // Process deferred loads in useEffect (after render completes)
   useEffect(() => {
@@ -341,7 +349,7 @@ export function useTokenCache({
     const toProcess = [...deferredLoadQueue.current];
     deferredLoadQueue.current = [];
 
-    for (const { folderId, filePath, content } of toProcess) {
+    for (const { folderId, filePath, content, fileSize } of toProcess) {
       const normalizedFilePath = tryNormalizeCachePath(folderId, filePath);
       if (!normalizedFilePath) {
         continue;
@@ -349,7 +357,7 @@ export function useTokenCache({
       const key = createCacheKey(folderId, normalizedFilePath);
       // Double-check it's not already pending or cached
       if (!(pendingRequests.current.has(key) || hotCache.current.has(key))) {
-        void loadOrCount(folderId, filePath, content);
+        void loadOrCount(folderId, filePath, content, fileSize);
       }
     }
   });
@@ -358,7 +366,7 @@ export function useTokenCache({
    * Get token count (synchronous, returns cached or null)
    */
   const getTokenCount = useCallback(
-    (folderId: string, filePath: string, content?: string): number | null => {
+    (folderId: string, filePath: string, content?: string, fileSize?: number): number | null => {
       const normalizedFilePath = tryNormalizeCachePath(folderId, filePath);
       if (!normalizedFilePath) {
         return null;
@@ -380,8 +388,13 @@ export function useTokenCache({
 
       // If content provided and not pending, queue for deferred loading
       // This avoids calling setState during render (React anti-pattern)
-      if (content && !pendingRequests.current.has(key)) {
-        deferredLoadQueue.current.push({ content, filePath: normalizedFilePath, folderId });
+      if (content && fileSize !== undefined && !pendingRequests.current.has(key)) {
+        deferredLoadQueue.current.push({
+          content,
+          filePath: normalizedFilePath,
+          fileSize,
+          folderId,
+        });
       }
 
       if (DIAG_KEY && key === DIAG_KEY && diagLogger) {
@@ -441,7 +454,7 @@ export function useTokenCache({
         folderId: string;
         filePath: string;
         content: string;
-        fileSize?: number;
+        fileSize: number;
         mtimeMs?: number;
       }>
     ) => {

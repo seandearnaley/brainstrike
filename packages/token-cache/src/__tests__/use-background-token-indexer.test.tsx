@@ -163,6 +163,16 @@ describe('useBackgroundTokenIndexer', () => {
     await waitFor(() => {
       const worker = mockWorkers[0]!;
       expect(worker.postMessage).toHaveBeenCalledTimes(1);
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        requests: [
+          expect.objectContaining({
+            cachedFileSize: 128,
+            cachedHash: 'hash',
+            compositeKey: 'folder|@|file.txt',
+          }),
+        ],
+        type: 'index-batch',
+      });
     });
 
     // Simulate a skipped result (hash matched) coming back from the worker.

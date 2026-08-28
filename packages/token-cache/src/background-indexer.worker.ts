@@ -92,6 +92,8 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
 
 // Message types for worker communication
 export interface IndexerRequest {
+  /** Cached byte size. Required as the secondary signal whenever cachedHash is present. */
+  cachedFileSize: number | undefined;
   cachedHash: string | undefined; // If provided, skip if hash matches
   compositeKey: string;
   /** Pre-loaded file content (required for Electron, optional for Web) */
@@ -314,8 +316,14 @@ async function processFile(
     const contentHash = hashToHex(hasher.h64(content));
     log('debug', 'processFile hashed', { contentHash });
 
-    // Check if hash matches cached - skip counting if so
-    if (request.cachedHash && request.cachedHash === contentHash) {
+    if (request.cachedHash && request.cachedFileSize === undefined) {
+      throw new Error('Indexer request with cachedHash requires cachedFileSize.');
+    }
+    if (
+      request.cachedHash &&
+      request.cachedHash === contentHash &&
+      request.cachedFileSize === fileSize
+    ) {
       const elapsedMs = performance.now() - startTime;
       log('debug', 'processFile cache hit; skipping count', { elapsedMs, id: request.id });
       return {
