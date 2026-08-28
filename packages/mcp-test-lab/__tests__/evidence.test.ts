@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   MCP_EVIDENCE_SCHEMA_VERSION,
@@ -7,13 +8,18 @@ import {
   scanEvidenceTextForSecrets,
 } from '../src/evidence';
 
+const VALID_ARTIFACT_CONTENT = { entries: [{ message: 'sanitized lifecycle event' }] } as const;
+const VALID_ARTIFACT_SHA256 = createHash('sha256')
+  .update(JSON.stringify(VALID_ARTIFACT_CONTENT))
+  .digest('hex');
+
 const VALID_BUNDLE = {
   artifacts: [
     {
       kind: 'log',
       reference: 'artifacts/main-process.ndjson',
       sanitized: true,
-      sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      sha256: VALID_ARTIFACT_SHA256,
     },
   ],
   blockers: [],
@@ -68,7 +74,7 @@ const VALIDATION_DEPENDENCIES = {
     if (reference !== 'artifacts/main-process.ndjson') {
       throw new Error('artifact fixture is unavailable');
     }
-    return { entries: [{ message: 'sanitized lifecycle event' }] };
+    return VALID_ARTIFACT_CONTENT;
   },
 } as const;
 
@@ -80,6 +86,20 @@ describe('parseMcpEvidenceBundle', () => {
   it('accepts a complete exact-head MCP scenario evidence bundle', () => {
     expect(MCP_EVIDENCE_SCHEMA_VERSION).toBe('1.0.0');
     expect(parseEvidence(VALID_BUNDLE)).toEqual(VALID_BUNDLE);
+  });
+
+  it('rejects a syntactically valid digest that does not match the artifact content', () => {
+    const mismatched = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        },
+      ],
+    };
+
+    expect(() => parseEvidence(mismatched)).toThrowError(/artifacts\[0\]\.sha256.*content/i);
   });
 
   it('rejects missing and unknown fields at every strict object boundary', () => {

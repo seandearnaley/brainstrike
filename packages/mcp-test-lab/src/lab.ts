@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
   localhostHostValidation,
   localhostOriginValidation,
@@ -24,17 +26,19 @@ import type {
   McpLabProtocolMethod,
   McpLabProtocolPhase,
 } from './faults.js';
+import { protocolPhaseForMethod } from './faults.js';
 import { createReferenceServer } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario } from './scenario.js';
 
 export interface McpLabCleanupReport {
   readonly httpListenersClosed: number;
+  readonly stdioTransportsClosed: number;
   readonly untriggeredFaultIds: readonly string[];
 }
 
 export interface McpLabDiagnostic {
   readonly correlationId: string;
-  readonly kind: 'cleanup-error' | 'handler-error';
+  readonly kind: 'child-stderr' | 'cleanup-error' | 'handler-error';
   readonly message: string;
 }
 
@@ -61,7 +65,12 @@ export type McpLabEndpoint =
       readonly cwd: string;
       readonly env: Readonly<Record<string, string>>;
       readonly kind: 'stdio';
+      readonly transport: McpLabOwnedStdioTransport;
     };
+
+export interface McpLabOwnedStdioTransport extends Transport {
+  readonly pid: number | null;
+}
 
 export interface McpLabSession {
   close: () => Promise<McpLabCleanupReport>;
@@ -84,7 +93,7 @@ interface AppliedFault {
 interface CloseResource {
   close: () => Promise<void>;
   closed: boolean;
-  readonly kind: 'handler' | 'http-listener';
+  readonly kind: 'handler' | 'http-listener' | 'stdio-transport';
 }
 
 interface RegisteredClient {
@@ -170,32 +179,6 @@ function createFaultRuntime(plan: McpLabFaultPlan | undefined, scenarioId: strin
 
 type FaultRuntime = ReturnType<typeof createFaultRuntime>;
 
-const INITIALIZATION_METHODS = new Set(['initialize', 'notifications/initialized', 'ping']);
-const OPERATION_METHODS = new Set([
-  'completion/complete',
-  'prompts/get',
-  'prompts/list',
-  'resources/list',
-  'resources/read',
-  'resources/templates/list',
-  'tasks/cancel',
-  'tasks/get',
-  'tasks/list',
-  'tasks/result',
-  'tools/call',
-  'tools/list',
-]);
-
-function phaseForMethod(method: string): McpLabProtocolPhase | undefined {
-  if (INITIALIZATION_METHODS.has(method)) {
-    return 'initialization';
-  }
-  if (OPERATION_METHODS.has(method)) {
-    return 'operation';
-  }
-  return;
-}
-
 function oauthFaultMethod(pathname: string): McpLabProtocolMethod | undefined {
   switch (pathname) {
     case '/.well-known/oauth-protected-resource/mcp':
@@ -204,8 +187,12 @@ function oauthFaultMethod(pathname: string): McpLabProtocolMethod | undefined {
       return 'oauth/authorization-server';
     case '/authorize':
       return 'oauth/authorize';
+    case '/callback':
+      return 'oauth/callback';
     case '/register':
       return 'oauth/register';
+    case '/revoke':
+      return 'oauth/revoke';
     case '/token':
       return 'oauth/token';
     default:
@@ -237,7 +224,7 @@ async function protocolCoordinate(
   if (!method) {
     return;
   }
-  const phase = phaseForMethod(method);
+  const phase = protocolPhaseForMethod(method);
   return phase ? { method: method as McpLabProtocolMethod, phase } : undefined;
 }
 
@@ -649,6 +636,9 @@ function session(
             httpListenersClosed: resources.filter(
               (resource) => resource.kind === 'http-listener' && resource.closed
             ).length,
+            stdioTransportsClosed: resources.filter(
+              (resource) => resource.kind === 'stdio-transport' && resource.closed
+            ).length,
             untriggeredFaultIds: runtime.untriggeredIds(),
           });
         } catch (error) {
@@ -704,42 +694,140 @@ function stdioSession(
   const diagnostics: McpLabDiagnostic[] = [];
   const runtime = createFaultRuntime(faultPlan, scenario.id);
   const env: Record<string, string> = { ['MCP_LAB_STDIO_SCENARIO']: scenario.id };
-  const correlationId = runtime.nextCorrelation('child');
-  for (const method of ['child/spawn', 'child/stderr', 'child/exit'] as const) {
-    const applied = runtime.consume('child-process', method, correlationId);
-    if (!applied) {
-      continue;
-    }
-    if (applied.fault.kind === 'delay') {
-      env['MCP_LAB_START_DELAY_MS'] = String(applied.fault.delayMs);
-    } else if (applied.fault.kind === 'child_stderr') {
-      env['MCP_LAB_STDERR_TEXT'] = applied.fault.text;
-    } else if (applied.fault.kind === 'child_exit') {
-      env[applied.fault.code === null ? 'MCP_LAB_EXIT_SIGNAL' : 'MCP_LAB_EXIT_CODE'] =
-        applied.fault.code === null ? applied.fault.signal : String(applied.fault.code);
-    } else if (applied.fault.kind === 'malformed_json') {
-      env['MCP_LAB_MALFORMED_JSON'] = applied.fault.payload;
-    } else if (applied.fault.kind === 'drop_response') {
-      env['MCP_LAB_DROP_RESPONSE'] = '1';
-    } else {
-      throw new Error(`MCP lab fault "${applied.id}" cannot target stdio`);
-    }
-  }
+  const args = Object.freeze([
+    fileURLToPath(new URL('../fixtures/stdio-reference-server.mjs', import.meta.url)),
+  ]);
+  const command = process.execPath;
+  const cwd = fileURLToPath(new URL('..', import.meta.url));
+  const transport = new LabOwnedStdioTransport({ args, command, cwd, env }, runtime, diagnostics);
   return session(
     Object.freeze({
-      args: Object.freeze([
-        fileURLToPath(new URL('../fixtures/stdio-reference-server.mjs', import.meta.url)),
-      ]),
-      command: process.execPath,
-      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      args,
+      command,
+      cwd,
       env: Object.freeze(env),
       kind: 'stdio' as const,
+      transport,
     }),
     scenario,
-    [],
+    [{ close: () => transport.close(), closed: false, kind: 'stdio-transport' }],
     diagnostics,
     runtime
   );
+}
+
+class LabOwnedStdioTransport implements McpLabOwnedStdioTransport {
+  private closed = false;
+  private delegate: StdioClientTransport | undefined;
+  onclose: (() => void) | undefined;
+  onerror: ((error: Error) => void) | undefined;
+  onmessage: ((message: JSONRPCMessage) => void) | undefined;
+
+  constructor(
+    private readonly parameters: {
+      readonly args: readonly string[];
+      readonly command: string;
+      readonly cwd: string;
+      readonly env: Readonly<Record<string, string>>;
+    },
+    private readonly runtime: FaultRuntime,
+    private readonly diagnostics: McpLabDiagnostic[]
+  ) {}
+
+  get pid(): number | null {
+    return this.delegate?.pid ?? null;
+  }
+
+  async start(): Promise<void> {
+    if (this.closed) {
+      throw new Error('MCP lab stdio transport is closed');
+    }
+    if (this.delegate) {
+      throw new Error('MCP lab stdio transport is already started');
+    }
+
+    const env = { ...this.parameters.env };
+    const correlationId = this.runtime.nextCorrelation('child');
+    for (const method of ['child/spawn', 'child/stderr', 'child/exit'] as const) {
+      const applied = this.runtime.consume('child-process', method, correlationId);
+      if (applied) {
+        applyStdioFault(env, applied);
+      }
+    }
+
+    const delegate = new StdioClientTransport({
+      args: [...this.parameters.args],
+      command: this.parameters.command,
+      cwd: this.parameters.cwd,
+      env,
+      stderr: 'pipe',
+    });
+    delegate.onclose = () => this.onclose?.();
+    delegate.onerror = (error) => this.onerror?.(error);
+    delegate.onmessage = (message) => this.onmessage?.(message);
+    delegate.stderr?.on('data', (chunk: unknown) => {
+      recordDiagnostic(this.diagnostics, {
+        correlationId,
+        kind: 'child-stderr',
+        message: `captured ${stdioChunkByteLength(chunk)} stderr bytes`,
+      });
+    });
+    this.delegate = delegate;
+    await delegate.start();
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    await this.delegate?.close();
+  }
+
+  async send(message: JSONRPCMessage): Promise<void> {
+    if (!this.delegate) {
+      throw new Error('MCP lab stdio transport is not started');
+    }
+    await this.delegate.send(message);
+  }
+}
+
+function stdioChunkByteLength(chunk: unknown): number {
+  if (typeof chunk === 'string') {
+    return Buffer.byteLength(chunk);
+  }
+  if (Buffer.isBuffer(chunk)) {
+    return chunk.length;
+  }
+  if (chunk instanceof Uint8Array) {
+    return chunk.byteLength;
+  }
+  return Buffer.byteLength(String(chunk));
+}
+
+function applyStdioFault(env: Record<string, string>, applied: AppliedFault): void {
+  if (applied.fault.kind === 'delay') {
+    env['MCP_LAB_START_DELAY_MS'] = String(applied.fault.delayMs);
+    return;
+  }
+  if (applied.fault.kind === 'child_stderr') {
+    env['MCP_LAB_STDERR_TEXT'] = applied.fault.text;
+    return;
+  }
+  if (applied.fault.kind === 'child_exit') {
+    env[applied.fault.code === null ? 'MCP_LAB_EXIT_SIGNAL' : 'MCP_LAB_EXIT_CODE'] =
+      applied.fault.code === null ? applied.fault.signal : String(applied.fault.code);
+    return;
+  }
+  if (applied.fault.kind === 'malformed_json') {
+    env['MCP_LAB_MALFORMED_JSON'] = applied.fault.payload;
+    return;
+  }
+  if (applied.fault.kind === 'drop_response') {
+    env['MCP_LAB_DROP_RESPONSE'] = '1';
+    return;
+  }
+  throw new Error(`MCP lab fault "${applied.id}" cannot target stdio`);
 }
 
 async function loopbackSession(
@@ -756,11 +844,23 @@ async function loopbackSession(
       return;
     }
     const correlationId = runtime.nextCorrelation();
-    if (!dispatch) {
+    const activeDispatch = dispatch;
+    if (!activeDispatch) {
       response.writeHead(503).end();
       return;
     }
-    void dispatch(nodeRequest(request, correlationId), response).catch((error: unknown) => {
+    const runDispatch = async () => {
+      const dispatchFault = runtime.consume('transport', 'node/dispatch', correlationId);
+      if (dispatchFault) {
+        const faultResponse = await applyHttpFault(dispatchFault);
+        if (faultResponse) {
+          await writeNodeResponse(response, faultResponse);
+          return;
+        }
+      }
+      await activeDispatch(nodeRequest(request, correlationId), response);
+    };
+    void runDispatch().catch((error: unknown) => {
       recordDiagnostic(diagnostics, {
         correlationId,
         kind: 'handler-error',
@@ -808,6 +908,14 @@ async function loopbackSession(
     diagnostics,
     runtime
   );
+}
+
+async function writeNodeResponse(
+  response: import('node:http').ServerResponse,
+  source: Response
+): Promise<void> {
+  response.writeHead(source.status, Object.fromEntries(source.headers));
+  response.end(Buffer.from(await source.arrayBuffer()));
 }
 
 export async function startMcpLabScenario(

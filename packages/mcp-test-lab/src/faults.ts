@@ -41,11 +41,36 @@ const PROTOCOL_METHODS_BY_PHASE = {
     'notifications/resources/updated',
     'notifications/tools/list_changed',
   ],
-  transport: ['http/request', 'http/response'],
+  transport: ['http/request', 'http/response', 'node/dispatch'],
 } as const;
 
 export type McpLabProtocolPhase = keyof typeof PROTOCOL_METHODS_BY_PHASE;
 export type McpLabProtocolMethod = (typeof PROTOCOL_METHODS_BY_PHASE)[McpLabProtocolPhase][number];
+
+export function protocolPhaseForMethod(method: string): McpLabProtocolPhase | undefined {
+  if ((PROTOCOL_METHODS_BY_PHASE.authorization as readonly string[]).includes(method)) {
+    return 'authorization';
+  }
+  if ((PROTOCOL_METHODS_BY_PHASE['child-process'] as readonly string[]).includes(method)) {
+    return 'child-process';
+  }
+  if ((PROTOCOL_METHODS_BY_PHASE.initialization as readonly string[]).includes(method)) {
+    return 'initialization';
+  }
+  if ((PROTOCOL_METHODS_BY_PHASE.operation as readonly string[]).includes(method)) {
+    return 'operation';
+  }
+  if ((PROTOCOL_METHODS_BY_PHASE.shutdown as readonly string[]).includes(method)) {
+    return 'shutdown';
+  }
+  if ((PROTOCOL_METHODS_BY_PHASE.subscription as readonly string[]).includes(method)) {
+    return 'subscription';
+  }
+  if ((PROTOCOL_METHODS_BY_PHASE.transport as readonly string[]).includes(method)) {
+    return 'transport';
+  }
+  return;
+}
 
 export interface McpLabDelayFault {
   readonly delayMs: number;

@@ -27,6 +27,7 @@ describe('MCP lab loopback lifecycle', () => {
 
     await expect(lab.close()).resolves.toEqual({
       httpListenersClosed: 1,
+      stdioTransportsClosed: 0,
       untriggeredFaultIds: [],
     });
     await expect(fetch(lab.endpoint.url)).rejects.toThrow();

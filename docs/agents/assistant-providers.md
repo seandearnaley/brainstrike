@@ -1947,6 +1947,31 @@ Primary references:
 When changing this flow, update this section and the focused agent + desktop
 real-protocol integration tests.
 
+### MCP verification harness
+
+`@brainstrike/mcp-test-lab` is the deterministic verifier boundary for MCP
+implementation tickets. Its loopback listeners bind ephemeral `127.0.0.1`
+ports, and its stdio scenario exposes a lab-owned `StdioClientTransport`; the
+session owns that transport through cleanup even when the connected SDK client
+already closed it. Child faults are not consumed until the owned transport
+actually starts. Stderr diagnostics retain only correlation id and byte count,
+never child output.
+
+The fault-plan vocabulary and runtime dispatcher are one contract: every
+accepted protocol method must resolve to an executable phase, and the dedicated
+`node/dispatch` coordinate verifies the outer Node response error boundary
+rather than an SDK-internal JSON-RPC error. Cleanup reports listener and stdio
+transport counts plus immutable untriggered fault ids; a failed close remains
+retryable.
+
+Evidence parsing reads each referenced artifact once, recursively secret-scans
+that exact content, recomputes its lowercase SHA-256 digest, and rejects any
+metadata/content mismatch. A syntactically valid digest is not evidence. RED
+proof requires a non-zero command and at least one internally consistent failed
+test; GREEN and later verification must be successful. Keep these invariants
+paired with `packages/mcp-test-lab/__tests__/package-contract.test.ts` and the
+focused unit/integration suites.
+
 ---
 
 

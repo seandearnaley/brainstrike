@@ -40,6 +40,7 @@ describe('MCP lab modern reference', () => {
       await client.close();
       await expect(lab.close()).resolves.toEqual({
         httpListenersClosed: 0,
+        stdioTransportsClosed: 0,
         untriggeredFaultIds: [],
       });
     }

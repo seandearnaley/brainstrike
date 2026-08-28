@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { describe, expect, it } from 'vitest';
 import { startMcpLabScenario } from '../src/lab';
 
@@ -46,13 +45,7 @@ describe('MCP lab advertised scenarios', () => {
     if (lab.endpoint.kind !== 'stdio') {
       throw new Error(`Expected stdio endpoint, received ${lab.endpoint.kind}`);
     }
-    const transport = new StdioClientTransport({
-      args: [...lab.endpoint.args],
-      command: lab.endpoint.command,
-      cwd: lab.endpoint.cwd,
-      env: { ...lab.endpoint.env },
-      stderr: 'pipe',
-    });
+    const { transport } = lab.endpoint;
     const client = new Client(
       { name: 'brainstrike-mcp-lab-stdio-test', version: '1.0.0' },
       { versionNegotiation: { mode: { pin: '2026-07-28' } } }
@@ -65,7 +58,11 @@ describe('MCP lab advertised scenarios', () => {
       expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['echo']);
     } finally {
       await client.close();
-      await lab.close();
+      await expect(lab.close()).resolves.toEqual({
+        httpListenersClosed: 0,
+        stdioTransportsClosed: 1,
+        untriggeredFaultIds: [],
+      });
     }
 
     expect(transport.pid).toBeNull();

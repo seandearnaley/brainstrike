@@ -177,14 +177,17 @@ path before closing. Protocol and lifecycle assertions use real SDK exchanges;
 mocks stop at OS, browser, clock, and credential-store boundaries. Intentional fault
 switches or mutation canaries prove that each harness layer can become red.
 
-The deterministic MCP lab contains an exact-pinned official SDK v2 modern/everything
-server for `2026-07-28`, a legacy server, real spawned stdio, and a loopback OAuth
-protected-resource/authorization server. Its scenario manifest covers discovery,
-registration, PKCE, issuer/resource validation, refresh/revocation, scope step-up,
-callback and port failures, malformed protocol data, pagination, subscription loss,
-progress/cancellation races, MRTR, child stderr/exit, and complete teardown. Fixtures
-use ephemeral loopback ports, no ambient credentials, correlation IDs, and a bounded
-runner shared by local tests and CI.
+The deterministic MCP lab starts with an exact-pinned official SDK v2 modern
+reference server for `2026-07-28`, a legacy server, lab-owned real stdio, and a
+loopback OAuth protected-resource/authorization server. The initial executable
+OAuth surface is protected-resource and authorization-server metadata, DCR,
+S256 PKCE, issuer/resource binding, authorization-code exchange, and bearer
+protection. Refresh/revocation, scope step-up, callback and port failures,
+pagination, subscription loss, progress/cancellation races, and MRTR remain
+explicit implementation-ticket scenarios; the manifest must not advertise them
+as executable before their faults and assertions exist. Fixtures use ephemeral
+loopback ports, no ambient credentials, correlation IDs, and bounded runners
+shared by local tests and CI.
 
 Evidence is layered:
 

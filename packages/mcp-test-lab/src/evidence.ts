@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export const MCP_EVIDENCE_SCHEMA_VERSION = '1.0.0' as const;
 
 const SDK_PACKAGE = '@modelcontextprotocol/client' as const;
@@ -498,7 +500,15 @@ function assertSanitizedArtifacts(
       invalid(`$.artifacts[${index}].reference`, 'referenced artifact content could not be read');
     }
     assertSanitizedArtifactContent(content, `$.artifacts[${index}].content`);
+    const digest = createHash('sha256').update(serializeArtifactContent(content)).digest('hex');
+    if (digest !== artifact.sha256) {
+      invalid(`$.artifacts[${index}].sha256`, 'does not match referenced artifact content');
+    }
   }
+}
+
+function serializeArtifactContent(content: McpArtifactContent): string {
+  return typeof content === 'string' ? content : JSON.stringify(content);
 }
 
 function assertSanitizedArtifactContent(value: McpArtifactContent, path: string): void {

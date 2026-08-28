@@ -2580,6 +2580,9 @@ importers:
 
   packages/mcp-test-lab:
     dependencies:
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
       '@modelcontextprotocol/node':
         specifier: 2.0.0
         version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.27)
@@ -2593,9 +2596,6 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
-      '@modelcontextprotocol/client':
-        specifier: 2.0.0
-        version: 2.0.0
       '@modelcontextprotocol/conformance':
         specifier: 0.2.0-alpha.10
         version: 0.2.0-alpha.10(supports-color@10.2.2)

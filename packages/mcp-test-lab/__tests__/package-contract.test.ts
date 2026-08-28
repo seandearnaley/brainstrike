@@ -47,4 +47,16 @@ describe('MCP test lab package contract', () => {
 
     expect(invalid).toEqual([]);
   });
+
+  it('keeps the living provider contract aligned with ownership and evidence integrity', async () => {
+    const contract = await readFile(
+      new URL('../../../docs/agents/assistant-providers.md', import.meta.url),
+      'utf8'
+    );
+
+    expect(contract).toContain('@brainstrike/mcp-test-lab');
+    expect(contract).toContain('lab-owned `StdioClientTransport`');
+    expect(contract).toContain('recomputes its lowercase SHA-256 digest');
+    expect(contract).toContain('`node/dispatch` coordinate');
+  });
 });
