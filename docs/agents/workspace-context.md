@@ -1143,7 +1143,7 @@ additional explorer/status chrome):
     `onOpenPath`, because a loaded document is not a mounted listener and
     Electron never replays a `send` nobody heard. `rendererReady` resets
     ONLY on a real main-frame document replacement (`did-start-navigation`
-    with `isMainFrame && !isInPlace`) — resetting it on every
+    with `details.isMainFrame && !details.isSameDocument`) — resetting it on every
     `did-start-loading` would clear it on a canvas-iframe navigation with no
     second ping ever coming. The ready channel is registered ONCE at module
     scope (`apps/desktop/src/workspace-open-ready-ipc.ts`; the IPC registry
