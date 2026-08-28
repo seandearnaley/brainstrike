@@ -772,22 +772,15 @@ the addon for its own ABI. Any future native/node-gyp package added to the
 monorepo must do the same — never cache a compiled binary on turbo's
 source-only, arch-blind hash.
 
-**Native Windows is affected-gated before allocation (R10).** The non-required
-job consumed 2,440 rounded Windows minutes ($24.40 list price) in the
-2026-08-21..28 audit, while most changes do not affect its two native packages.
-After quiet-head admission, `native-windows-impact` runs on `ubuntu-slim`,
-checks out full comparison history, and feeds NUL-delimited `git diff` paths to
-`scripts/native-windows-impact.mjs`. Changes under either native package, any
-workspace `package.json`, the lockfile/catalog/runtime install contract, the
-active root/desktop install lifecycle scripts, the shared setup action,
-`test.yml`, patches, or the classifier itself require the Windows job. Manual
-dispatches always require it. Invalid events, missing
-SHAs, checkout/diff failures, and malformed classifier input fail visibly;
-`native-windows` uses `always()` and runs when the classifier result is not
-successful. Only an explicit `required=false` may avoid Windows allocation.
-The script behavior and workflow wiring are paired in
-`native-windows-impact.test.mjs` and
-`native-windows-impact-contract.test.mjs`.
+**Native Windows stays always-on after quiet-head admission (R10).** The
+non-required job consumed 2,440 rounded Windows minutes ($24.40 list price) in
+the 2026-08-21..28 audit, but GitHub Actions has no native job-level changed-path
+filter. Do not add a repository diff classifier, planner, or routing registry to
+avoid that allocation: the root workflow contract explicitly prohibits custom
+CI routing machinery. `native-windows` therefore depends directly on
+`admission` and runs for every admitted PR, push to `main`, and manual dispatch.
+`scripts/__tests__/ubicloud-runner-contract.test.mjs` guards both the always-on
+dependency and the absence of a `native-windows-impact` planner.
 
 **node-gyp's HEADERS are the opposite case and ARE cached, for `native-windows`
 only (BST-1375).** Compiled output is arch-specific and must never be shared;
@@ -2229,7 +2222,7 @@ period. Missing or malformed native Job Object support aborts Windows startup;
 there is no ancestry-walk fallback. Only after the owned tree is stopped may
 the launcher remove its temporary profile. Process-tree or profile cleanup
 failures are visible fatal errors with a non-zero exit, never warning-only
-cleanup. The affected-gated `Native Windows` CI job builds and exercises the native
+cleanup. The always-on `Native Windows` CI job builds and exercises the native
 addon with a late-writing orphan plus an unrelated-process survival assertion.
 
 #### Stale-profile sweep (abrupt-kill recovery)

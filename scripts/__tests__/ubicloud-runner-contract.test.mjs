@@ -61,6 +61,16 @@ test('admission, Unit fan-in, ARM Static, and Windows use their cheapest compati
   }
 });
 
+test('Native Windows stays always-on without custom diff-routing machinery', () => {
+  assert.doesNotMatch(workflow, /^ {2}native-windows-impact:\s*$/m);
+  assert.doesNotMatch(workflow, /native-windows-impact\.mjs/);
+
+  const windows = jobBlock('native-windows');
+  assert.match(windows, /^ {4}if: needs\.admission\.outputs\.admitted == 'true'$/m);
+  assert.match(windows, /^ {4}needs: \[admission\]$/m);
+  assert.doesNotMatch(windows, /^ {4}if: always\(\)/m);
+});
+
 test('the Test workflow uses Ubicloud only for the six measured jobs', () => {
   const ubicloudAssignments = [...workflow.matchAll(/^ {4}runs-on: (ubicloud-[a-z0-9-]+)$/gm)].map(
     (match) => match[1]

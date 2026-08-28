@@ -44,16 +44,15 @@ worktree, with workflow contracts updated in the same change:
   unchanged.
 - The three-second required Unit fan-in moves from GitHub Arm to
   `ubuntu-slim` to reduce per-job rounding cost.
-- Native Windows remains on GitHub Windows, but a new fail-visible
-  `ubuntu-slim` impact job prevents allocation for explicitly unrelated diffs.
-  Native packages, workspace manifests/lock/runtime configuration, CI setup,
-  manual dispatch, and all classifier uncertainty still run Windows.
+- Native Windows remains always-on after admission on GitHub Windows. GitHub
+  Actions has no native job-level changed-path filter, and Brainstrike's
+  settled CI contract prohibits adding a custom diff planner or routing layer.
 
 At unchanged runtimes and standard Ubicloud rates, the four deterministic
 runner changes above reduce this sample's list cost by about **$34.43 per 7.76
 days / $133 per normalized month**, before GitHub allowances and Ubicloud's
-credit. Native Windows gating is additional and depends on the future diff
-mix. Static remains on its measured Arm lane, and currently red scheduled
+credit. Native Windows remains outside this deterministic savings estimate.
+Static remains on its measured Arm lane, and currently red scheduled
 regression workflows remain unchanged until they can provide a trustworthy
 same-head runner comparison.
 

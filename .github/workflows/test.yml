@@ -637,72 +637,10 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  native-windows-impact:
-    name: Native Windows impact
-    if: needs.admission.outputs.admitted == 'true'
-    needs: [admission]
-    runs-on: ubuntu-slim
-    timeout-minutes: 5
-    outputs:
-      required: ${{ steps.impact.outputs.required }}
-    steps:
-      - name: Checkout the admitted head and comparison history
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Classify Native Windows impact
-        id: impact
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          EVENT_NAME: ${{ github.event_name }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -o pipefail
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "required=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
-            echo "::error::Cannot establish the Native Windows comparison SHAs."
-            exit 1
-          fi
-
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            diff_range="${BASE_SHA}...${HEAD_SHA}"
-          elif [ "$EVENT_NAME" = "push" ]; then
-            if [[ "$BASE_SHA" =~ ^0+$ ]]; then
-              echo "::notice::Push has no comparison base; running Native Windows conservatively."
-              echo "required=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            diff_range="${BASE_SHA}..${HEAD_SHA}"
-          else
-            echo "::error::Unsupported Native Windows impact event: ${EVENT_NAME}"
-            exit 1
-          fi
-
-          required=$(git diff --name-only -z "$diff_range" -- | node scripts/native-windows-impact.mjs)
-          if [ "$required" != "true" ] && [ "$required" != "false" ]; then
-            echo "::error::Native Windows classifier returned an invalid decision: ${required}"
-            exit 1
-          fi
-
-          echo "required=${required}" >> "$GITHUB_OUTPUT"
-
   native-windows:
     name: Native Windows
-    # A failed classifier means uncertainty, so allocate Windows and surface
-    # the original classifier failure alongside it. Only an explicit false
-    # decision may skip this non-required job.
-    if: >-
-      always() &&
-      needs.admission.outputs.admitted == 'true' &&
-      (needs.native-windows-impact.result != 'success' ||
-       needs.native-windows-impact.outputs.required == 'true')
-    needs: [admission, native-windows-impact]
+    if: needs.admission.outputs.admitted == 'true'
+    needs: [admission]
     runs-on: windows-latest
     timeout-minutes: 20
     env:
