@@ -377,7 +377,7 @@ describe('MCP lab fault and cleanup lifecycle', () => {
   it('keeps failed cleanup retryable and reports closed only after every resource closes', async () => {
     const faultPlan = createMcpLabFaultPlan([
       {
-        fault: { kind: 'drop_response' },
+        fault: { kind: 'cleanup_error' },
         id: 'fail-first-close',
         match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
       },

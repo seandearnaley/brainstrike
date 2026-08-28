@@ -77,6 +77,7 @@ export interface McpEvidenceBundle {
 
 export type EvidenceSecretKind =
   | 'authorization-code'
+  | 'basic-credential'
   | 'bearer-token'
   | 'credential-assignment'
   | 'credential-bearing-url'
@@ -127,6 +128,10 @@ interface SecretPattern {
 }
 
 const SECRET_PATTERNS: readonly SecretPattern[] = [
+  {
+    kind: 'basic-credential',
+    pattern: /\bauthorization["']?[ \t]*[:=][ \t]*["']?basic[ \t]+[a-z0-9+/]{8,}={0,2}/gi,
+  },
   {
     kind: 'bearer-token',
     pattern: /\bbearer[ \t]+[a-z0-9._~+/-]{12,}={0,2}/gi,

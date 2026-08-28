@@ -74,6 +74,7 @@ describe('MCP lab fault plan', () => {
       'child exit must contain only "kind", "code", and "signal"',
     ],
     [{ kind: 'drop_response', reason: 'extra data' }, 'drop response must contain only "kind"'],
+    [{ kind: 'cleanup_error', reason: 'extra data' }, 'cleanup error must contain only "kind"'],
   ])('rejects invalid untyped fault payload %j', (fault, expectedError) => {
     expect(() =>
       createMcpLabFaultPlan([
@@ -119,6 +120,27 @@ describe('MCP lab fault plan', () => {
         },
       ] as never)
     ).toThrowError('Invalid MCP lab fault "unknown-phase": unknown phase "authorisation"');
+  });
+
+  it.each([
+    [
+      { code: 7, kind: 'child_exit', signal: null },
+      { method: 'tools/call', occurrence: 1, phase: 'operation' },
+    ],
+    [
+      { kind: 'child_stderr', text: 'details' },
+      { method: 'child/exit', occurrence: 1, phase: 'child-process' },
+    ],
+    [
+      { kind: 'http_status', status: 503 },
+      { method: 'child/exit', occurrence: 1, phase: 'child-process' },
+    ],
+    [{ kind: 'drop_response' }, { method: 'transport/close', occurrence: 1, phase: 'shutdown' }],
+    [{ kind: 'cleanup_error' }, { method: 'tools/call', occurrence: 1, phase: 'operation' }],
+  ])('rejects fault %j at incompatible coordinate %j', (fault, match) => {
+    expect(() =>
+      createMcpLabFaultPlan([{ fault, id: 'incompatible-coordinate', match }] as never)
+    ).toThrowError(/incompatible.*coordinate/i);
   });
 
   it('consumes an exact phase, method, and occurrence with a redacted observation', () => {
@@ -198,6 +220,11 @@ describe('MCP lab fault plan', () => {
         fault: { code: null, kind: 'child_exit', signal: 'SIGTERM' },
         id: 'exit',
         match: { method: 'child/exit', occurrence: 6, phase: 'child-process' },
+      },
+      {
+        fault: { kind: 'cleanup_error' },
+        id: 'cleanup',
+        match: { method: 'transport/close', occurrence: 7, phase: 'shutdown' },
       },
     ] as const satisfies readonly McpLabFaultDeclaration[];
     const consumptions: readonly McpLabFaultConsumption[] = declarations.map(

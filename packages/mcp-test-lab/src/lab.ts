@@ -264,6 +264,7 @@ async function applyHttpFault(applied: AppliedFault): Promise<Response | undefin
       return new Response(applied.fault.payload, {
         headers: { 'content-type': 'application/json' },
       });
+    case 'cleanup_error':
     case 'child_exit':
     case 'child_stderr':
       throw new Error(`MCP lab fault "${applied.id}" cannot target an HTTP exchange`);
@@ -598,6 +599,20 @@ function oauthHandler(
   };
 }
 
+async function applyCleanupFault(fault: AppliedFault): Promise<void> {
+  if (fault.fault.kind === 'delay') {
+    const { delayMs } = fault.fault;
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    return;
+  }
+  if (fault.fault.kind === 'cleanup_error') {
+    throw new Error(`MCP lab fault "${fault.id}" interrupted cleanup`);
+  }
+  throw new Error(
+    `MCP lab fault "${fault.id}" of kind "${fault.fault.kind}" reached an incompatible cleanup coordinate`
+  );
+}
+
 function session(
   endpoint: McpLabEndpoint,
   scenario: McpLabScenario,
@@ -618,12 +633,7 @@ function session(
         try {
           const fault = runtime.consume('shutdown', 'transport/close', correlationId);
           if (fault) {
-            if (fault.fault.kind === 'delay') {
-              const { delayMs } = fault.fault;
-              await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-            } else {
-              throw new Error(`MCP lab fault "${fault.id}" interrupted cleanup`);
-            }
+            await applyCleanupFault(fault);
           }
           const results = await Promise.allSettled(
             resources

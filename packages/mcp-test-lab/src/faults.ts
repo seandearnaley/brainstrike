@@ -91,6 +91,10 @@ export interface McpLabDroppedResponseFault {
   readonly kind: 'drop_response';
 }
 
+export interface McpLabCleanupErrorFault {
+  readonly kind: 'cleanup_error';
+}
+
 export interface McpLabChildStderrFault {
   readonly kind: 'child_stderr';
   readonly text: string;
@@ -117,6 +121,7 @@ export type McpLabChildExitFault =
 export type McpLabFault =
   | McpLabChildExitFault
   | McpLabChildStderrFault
+  | McpLabCleanupErrorFault
   | McpLabDelayFault
   | McpLabDroppedResponseFault
   | McpLabHttpStatusFault
@@ -294,6 +299,14 @@ function assertFaultPayload(declaration: McpLabFaultDeclaration): void {
     case 'child_stderr':
       assertChildStderrFault(declaration.id, fault);
       return;
+    case 'cleanup_error':
+      assertOnlyFaultKeys(
+        declaration.id,
+        fault,
+        ['kind'],
+        'cleanup error must contain only "kind"'
+      );
+      return;
     case 'drop_response':
       assertOnlyFaultKeys(
         declaration.id,
@@ -315,6 +328,46 @@ function assertFaultPayload(declaration: McpLabFaultDeclaration): void {
       throw new Error(
         `Invalid MCP lab fault "${declaration.id}": unknown fault kind "${String(kind)}"`
       );
+  }
+}
+
+function incompatibleCoordinate(declaration: McpLabFaultDeclaration): never {
+  throw new Error(
+    `Invalid MCP lab fault "${declaration.id}": kind "${declaration.fault.kind}" is incompatible with coordinate ${declaration.match.phase}/${declaration.match.method}`
+  );
+}
+
+function assertFaultCoordinate(declaration: McpLabFaultDeclaration): void {
+  const { fault, match } = declaration;
+  if (fault.kind === 'child_exit') {
+    if (match.phase !== 'child-process' || match.method !== 'child/exit') {
+      incompatibleCoordinate(declaration);
+    }
+    return;
+  }
+  if (fault.kind === 'child_stderr') {
+    if (match.phase !== 'child-process' || match.method !== 'child/stderr') {
+      incompatibleCoordinate(declaration);
+    }
+    return;
+  }
+  if (fault.kind === 'cleanup_error') {
+    if (match.phase !== 'shutdown' || match.method !== 'transport/close') {
+      incompatibleCoordinate(declaration);
+    }
+    return;
+  }
+  if (match.phase === 'child-process') {
+    if (
+      match.method !== 'child/spawn' ||
+      (fault.kind !== 'delay' && fault.kind !== 'malformed_json')
+    ) {
+      incompatibleCoordinate(declaration);
+    }
+    return;
+  }
+  if (match.phase === 'shutdown' && fault.kind !== 'delay') {
+    incompatibleCoordinate(declaration);
   }
 }
 
@@ -362,6 +415,7 @@ export function createMcpLabFaultPlan(
         `Invalid MCP lab fault "${declaration.id}": method "${declaration.match.method}" does not belong to phase "${declaration.match.phase}"`
       );
     }
+    assertFaultCoordinate(declaration);
     if (declaredIds.has(declaration.id)) {
       throw new Error(`Duplicate MCP lab fault id: ${declaration.id}`);
     }

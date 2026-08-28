@@ -1962,7 +1962,11 @@ accepted protocol method must resolve to an executable phase, and the dedicated
 `node/dispatch` coordinate verifies the outer Node response error boundary
 rather than an SDK-internal JSON-RPC error. Cleanup reports listener and stdio
 transport counts plus immutable untriggered fault ids; a failed close remains
-retryable, including a delegated stdio close that rejects. `drop_response`
+retryable, including a delegated stdio close that rejects. Fault kinds are
+validated against their coordinates before a plan can start: child exit/stderr
+are bound to their matching child events, stdio startup mutations are bound to
+`child/spawn`, and `cleanup_error` is bound only to `shutdown/transport/close`.
+`drop_response`
 means a real transport failure: loopback destroys the socket without headers,
 and stdio accepts the selected tool request but never replies until the caller
 cancels or times out. It must never be represented as a structured HTTP 500 or
@@ -1970,7 +1974,10 @@ an immediate child exit.
 
 Evidence parsing reads each referenced artifact once as exact bytes. Text
 artifacts are scanned both as raw UTF-8 and as parsed JSON/NDJSON so escaped
-credentials cannot evade detection. Screenshot artifacts require a text/OCR
+credentials, serialized JSON bodies, Basic authorization, and bearer material
+cannot evade detection. Parseable serialized JSON is scanned recursively to a
+bounded depth and fails closed if another JSON container exceeds the bound.
+Screenshot artifacts require a text/OCR
 extractor that the verifier invokes with a copy of those exact bytes; absent or
 failed extraction rejects the bundle. The verifier recomputes the lowercase
 SHA-256 digest over the original bytes and rejects any metadata/content

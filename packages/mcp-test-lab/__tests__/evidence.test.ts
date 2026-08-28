@@ -417,6 +417,7 @@ describe('parseMcpEvidenceBundle', () => {
 
   it.each([
     ['bearer token', 'Authorization: Bearer mcp_live_0123456789abcdef'],
+    ['Basic authorization', 'Authorization: Basic dXNlcjpwYXNzd29yZA=='],
     ['authorization code', 'authorization_code=SplxlOBeZQQYbYS6WxSbIA'],
     ['PKCE verifier', 'code_verifier: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'],
     [
