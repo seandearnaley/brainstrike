@@ -32,7 +32,7 @@ export interface McpLabRunnerCaseObservation {
 }
 
 export interface McpLabRunnerPhaseOwner {
-  close(): Promise<{ readonly details: string; readonly verified: true }>;
+  close(signal: AbortSignal): Promise<{ readonly details: string; readonly verified: true }>;
   run(signal: AbortSignal): Promise<McpLabRunnerCaseObservation>;
 }
 
@@ -131,12 +131,13 @@ async function runPhase(
   let cleanupDetails: string | undefined;
   let cleanupError: Error | undefined;
   try {
-    const cleanupTimeoutMs = Math.ceil(Math.min(cleanupReserveMs, remainingRunMs()));
+    const cleanupController = new AbortController();
+    const cleanupTimeoutMs = Math.max(1, Math.ceil(Math.min(cleanupReserveMs, remainingRunMs())));
     cleanupDetails = validateCleanup(
       await deadlinePromise(
         Promise.resolve().then(async () => {
           const [closeResult, runResult] = await Promise.allSettled([
-            owner.close(),
+            owner.close(cleanupController.signal),
             timedOut ? runPromise : Promise.resolve(),
           ]);
           const failures: Error[] = [];
@@ -160,7 +161,8 @@ async function runPhase(
           return closeResult.value;
         }),
         cleanupTimeoutMs,
-        `${runnerCase.id}/${phase}/cleanup`
+        `${runnerCase.id}/${phase}/cleanup`,
+        (error) => cleanupController.abort(error)
       )
     );
   } catch (error) {
@@ -195,9 +197,9 @@ function capabilitySetsEqual(left: readonly string[], right: readonly string[]):
 
 function assertCanonicalObservation(
   runnerCase: McpLabRunnerCase,
+  scenario: ReturnType<typeof getMcpLabScenario>,
   completed: readonly CompletedPhase[]
-): void {
-  const scenario = getMcpLabScenario(runnerCase.scenarioId);
+): McpLabRunnerCaseObservation {
   const first = completed[0]?.observation;
   if (!first) {
     throw new Error(`MCP lab runner case "${runnerCase.id}" produced no phase observations`);
@@ -215,6 +217,7 @@ function assertCanonicalObservation(
       throw new Error(`MCP lab runner case "${runnerCase.id}" changed capabilities between phases`);
     }
   }
+  return first;
 }
 
 function evidenceCommand(
@@ -237,12 +240,8 @@ async function buildEvidence(
   input: McpLabVerificationInput,
   integrity: McpArtifactIntegrityDependencies
 ): Promise<McpEvidenceBundle> {
-  assertCanonicalObservation(runnerCase, completed);
   const scenario = getMcpLabScenario(runnerCase.scenarioId);
-  const first = completed[0]?.observation;
-  if (!first) {
-    throw new Error(`MCP lab runner case "${runnerCase.id}" produced no observations`);
-  }
+  const first = assertCanonicalObservation(runnerCase, scenario, completed);
   const schema: McpEvidenceSchema = {
     artifacts: [],
     blockers: [...input.blockers],

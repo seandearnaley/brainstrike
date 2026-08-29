@@ -73,7 +73,10 @@ function dependencies(
       events.push(`create:${runnerCase.id}:${phase}`);
       let settleRun: (() => void) | undefined;
       return {
-        async close() {
+        async close(signal) {
+          signal.addEventListener('abort', () =>
+            events.push(`abort-cleanup:${runnerCase.id}:${phase}`)
+          );
           events.push(`close:${runnerCase.id}:${phase}`);
           if (options.cleanupFailure) {
             throw options.cleanupFailure;
@@ -184,13 +187,15 @@ describe('MCP bounded verification runner', () => {
   });
 
   it('rejects cleanup proof when an aborted run remains pending after close', async () => {
-    const failure = verifySingleCase(dependencies([], { runNeverSettles: true }), {
+    const events: string[] = [];
+    const failure = verifySingleCase(dependencies(events, { runNeverSettles: true }), {
       caseTimeoutMs: 100,
       runTimeoutMs: 100,
     });
 
     await expect(failure).rejects.toBeInstanceOf(AggregateError);
     await expect(failure).rejects.toThrow(/cleanup both failed/i);
+    expect(events).toContain('abort-cleanup:modern-stdio:red');
   });
 
   it('preserves a late non-abort run rejection with the deadline failure', async () => {
