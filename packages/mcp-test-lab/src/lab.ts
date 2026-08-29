@@ -3,6 +3,7 @@ import {
   isLegacyRequest,
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
+import { createMcpLabLoopback } from './loopback-http.js';
 import { createReferenceServer } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario } from './scenario.js';
 
@@ -18,18 +19,31 @@ export interface McpLabInProcessHttpEndpoint {
   readonly url: URL;
 }
 
+export interface McpLabLoopbackHttpEndpoint {
+  readonly kind: 'loopback-http';
+  readonly url: URL;
+}
+
+export type McpLabEndpoint = McpLabInProcessHttpEndpoint | McpLabLoopbackHttpEndpoint;
+
 export interface McpLabSession {
   close(): Promise<McpLabCleanupReport>;
   readonly closed: boolean;
-  readonly endpoint: McpLabInProcessHttpEndpoint;
+  readonly endpoint: McpLabEndpoint;
   readonly scenario: McpLabScenario;
 }
 
 export interface StartMcpLabScenarioOptions {
-  readonly execution: 'in-process';
+  readonly execution: 'in-process' | 'loopback';
 }
 
-function parseStartOptions(options: unknown): void {
+interface CloseResource {
+  close(): Promise<void>;
+  closed: boolean;
+  readonly kind: 'handler' | 'http-listener';
+}
+
+function parseStartOptions(options: unknown): Readonly<StartMcpLabScenarioOptions> {
   if (typeof options !== 'object' || options === null || Array.isArray(options)) {
     throw new Error('Invalid MCP lab start options: expected an object');
   }
@@ -44,9 +58,10 @@ function parseStartOptions(options: unknown): void {
   } catch {
     throw new Error('Invalid MCP lab start options: could not snapshot execution');
   }
-  if (execution !== 'in-process') {
-    throw new Error('Invalid MCP lab start options: execution must be "in-process"');
+  if (execution !== 'in-process' && execution !== 'loopback') {
+    throw new Error('Invalid MCP lab start options: execution must be "in-process" or "loopback"');
   }
+  return Object.freeze({ execution });
 }
 
 function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
@@ -69,40 +84,75 @@ function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
   };
 }
 
-function createSession(scenario: McpLabScenario, handler: McpHttpHandler): McpLabSession {
+function createSession(
+  scenario: McpLabScenario,
+  endpoint: McpLabEndpoint,
+  resources: CloseResource[]
+): McpLabSession {
   let closed = false;
   let closePromise: Promise<McpLabCleanupReport> | undefined;
-  const endpointUrl = new URL('http://mcp-lab.invalid/mcp');
-  const report = Object.freeze({
-    httpListenersClosed: 0,
-    stdioTransportsClosed: 0,
-    untriggeredFaultIds: Object.freeze([]),
-  });
+  const guardedEndpoint =
+    endpoint.kind === 'in-process-http'
+      ? Object.freeze({
+          ...endpoint,
+          fetch: async (input: string | URL | Request, init?: RequestInit) => {
+            if (closed) {
+              throw new Error('MCP lab session is closed');
+            }
+            return endpoint.fetch(input, init);
+          },
+        })
+      : endpoint;
   return Object.freeze({
     close(): Promise<McpLabCleanupReport> {
       if (closePromise) {
         return closePromise;
       }
-      closePromise = handler.close().then(
-        () => {
-          closed = true;
-          return report;
-        },
-        (error: unknown) => {
-          closePromise = undefined;
-          throw error;
+      closePromise = (async () => {
+        const errors: unknown[] = [];
+        for (const resource of resources) {
+          if (resource.closed) {
+            continue;
+          }
+          try {
+            await resource.close();
+            resource.closed = true;
+          } catch (error) {
+            errors.push(error);
+          }
         }
-      );
+        if (errors.length > 0) {
+          closePromise = undefined;
+          throw errors.length === 1
+            ? errors[0]
+            : new AggregateError(errors, 'MCP lab cleanup failed');
+        }
+        closed = resources.every((resource) => resource.closed);
+        return Object.freeze({
+          httpListenersClosed: resources.filter(
+            (resource) => resource.kind === 'http-listener' && resource.closed
+          ).length,
+          stdioTransportsClosed: 0,
+          untriggeredFaultIds: Object.freeze([]),
+        });
+      })();
       return closePromise;
     },
     get closed() {
       return closed;
     },
-    endpoint: Object.freeze({
+    endpoint: guardedEndpoint,
+    scenario,
+  });
+}
+
+function createInProcessSession(scenario: McpLabScenario): McpLabSession {
+  const handler = createReferenceHandler(scenario);
+  const endpointUrl = new URL('http://mcp-lab.invalid/mcp');
+  return createSession(
+    scenario,
+    Object.freeze({
       fetch: async (input: string | URL | Request, init?: RequestInit) => {
-        if (closed) {
-          throw new Error('MCP lab session is closed');
-        }
         const request = new Request(input, init);
         if (request.url !== endpointUrl.href) {
           throw new Error(
@@ -114,18 +164,43 @@ function createSession(scenario: McpLabScenario, handler: McpHttpHandler): McpLa
       kind: 'in-process-http' as const,
       url: endpointUrl,
     }),
+    [{ close: handler.close, closed: false, kind: 'handler' }]
+  );
+}
+
+async function createLoopbackSession(scenario: McpLabScenario): Promise<McpLabSession> {
+  const handler = createReferenceHandler(scenario);
+  let loopback: Awaited<ReturnType<typeof createMcpLabLoopback>>;
+  try {
+    loopback = await createMcpLabLoopback(handler);
+  } catch (startError) {
+    try {
+      await handler.close();
+    } catch (cleanupError) {
+      throw new AggregateError([startError, cleanupError], 'MCP lab loopback startup failed');
+    }
+    throw startError;
+  }
+  return createSession(
     scenario,
-  });
+    Object.freeze({ kind: 'loopback-http' as const, url: loopback.url }),
+    [
+      { close: loopback.close, closed: false, kind: 'http-listener' },
+      { close: handler.close, closed: false, kind: 'handler' },
+    ]
+  );
 }
 
 export async function startMcpLabScenario(
   id: string,
   options: StartMcpLabScenarioOptions
 ): Promise<McpLabSession> {
-  parseStartOptions(options);
+  const startOptions = parseStartOptions(options);
   const scenario = getMcpLabScenario(id);
   if (scenario.availability !== 'executable' || scenario.transport !== 'streamable-http') {
-    throw new Error(`MCP lab scenario "${scenario.id}" is not executable over in-process HTTP`);
+    throw new Error(`MCP lab scenario "${scenario.id}" is not executable`);
   }
-  return createSession(scenario, createReferenceHandler(scenario));
+  return startOptions.execution === 'in-process'
+    ? createInProcessSession(scenario)
+    : createLoopbackSession(scenario);
 }

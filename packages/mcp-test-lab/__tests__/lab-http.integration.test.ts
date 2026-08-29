@@ -1,10 +1,21 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
-import { startMcpLabScenario } from '../src/lab';
+import {
+  type McpLabInProcessHttpEndpoint,
+  type McpLabSession,
+  startMcpLabScenario,
+} from '../src/lab';
 
 type VersionNegotiation = NonNullable<
   NonNullable<ConstructorParameters<typeof Client>[1]>['versionNegotiation']
 >;
+
+function requireInProcessEndpoint(lab: McpLabSession): McpLabInProcessHttpEndpoint {
+  if (lab.endpoint.kind !== 'in-process-http') {
+    throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
+  }
+  return lab.endpoint;
+}
 
 function createInitializeRequest(
   url: URL,
@@ -89,11 +100,12 @@ async function verifyReferenceExchange(
 describe('MCP lab in-process HTTP references', () => {
   it('advertises a non-routable endpoint and rejects requests for any other URL', async () => {
     const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+    const endpoint = requireInProcessEndpoint(lab);
 
     try {
-      expect(lab.endpoint.url.hostname).toBe('mcp-lab.invalid');
+      expect(endpoint.url.hostname).toBe('mcp-lab.invalid');
       await expect(
-        lab.endpoint.fetch(new URL('/wrong', lab.endpoint.url), {
+        endpoint.fetch(new URL('/wrong', endpoint.url), {
           method: 'POST',
         })
       ).rejects.toThrow(/does not match the advertised endpoint/);
@@ -104,10 +116,11 @@ describe('MCP lab in-process HTTP references', () => {
 
   it('rejects endpoint use after the lab session closes', async () => {
     const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+    const endpoint = requireInProcessEndpoint(lab);
     await lab.close();
 
     await expect(
-      lab.endpoint.fetch(lab.endpoint.url, {
+      endpoint.fetch(endpoint.url, {
         body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'initialize', params: {} }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
@@ -117,10 +130,11 @@ describe('MCP lab in-process HTTP references', () => {
 
   it('rejects a modern initialize request at the legacy-only reference', async () => {
     const lab = await startMcpLabScenario('legacy-reference', { execution: 'in-process' });
+    const endpoint = requireInProcessEndpoint(lab);
 
     try {
-      const response = await lab.endpoint.fetch(
-        createInitializeRequest(lab.endpoint.url, '2026-07-28', true)
+      const response = await endpoint.fetch(
+        createInitializeRequest(endpoint.url, '2026-07-28', true)
       );
       expect(response.status).toBe(404);
       await expect(response.json()).resolves.toEqual({ error: 'mcp_lab_legacy_only' });
@@ -131,10 +145,11 @@ describe('MCP lab in-process HTTP references', () => {
 
   it('rejects a legacy initialize request at the modern-only reference', async () => {
     const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+    const endpoint = requireInProcessEndpoint(lab);
 
     try {
-      const response = await lab.endpoint.fetch(
-        createInitializeRequest(lab.endpoint.url, '2025-11-25', false)
+      const response = await endpoint.fetch(
+        createInitializeRequest(endpoint.url, '2025-11-25', false)
       );
       expect(response.status).toBe(400);
       await expect(response.text()).resolves.toContain('Unsupported protocol version');
