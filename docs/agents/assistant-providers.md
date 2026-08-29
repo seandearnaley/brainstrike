@@ -1895,6 +1895,13 @@ Every MCP server chooses its transport explicitly. The authoritative config
 discriminator is one of `stdio`, `streamable-http`, or legacy `sse`; it is never
 omitted, inferred from a URL path, or changed after a failed connection.
 
+Protocol policy is a separate discriminator: `legacy`, `auto`, or the pinned
+`2026-07-28`. Existing entries that omit it normalize to `legacy` without
+rewriting their JSONC; the loader emits a durable warning and a structured
+`mcp_protocol_defaulted_to_legacy` migration record. Explicit policy is never
+inferred from URL, transport failure, status code, or server behavior. Legacy
+SSE accepts only `legacy`.
+
 Remote transport rules:
 - `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK
   inherits its documented safe environment allowlist and overlays only the
@@ -1916,7 +1923,8 @@ Remote transport rules:
 Ownership and flow:
 1. Config — `apps/desktop/src/mcp-loader.ts` is the strict JSONC/Zod desktop
    boundary; `packages/agent/src/mcp/config.ts` is the serializable agent
-   contract. Public renderer status exposes only server name + transport.
+   contract. Public renderer status exposes server name, transport, effective
+   protocol policy, and token-free migration records.
 2. Official clients — `packages/agent/src/mcp/explicit-stdio-client.ts` and
    `explicit-http-client.ts`, exported only from
    `@brainstrike/agent/mcp-client`, own the stable SDK v2 split-package transports,

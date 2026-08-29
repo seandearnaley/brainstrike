@@ -91,6 +91,10 @@ const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
     }
   }
 });
+const McpProtocolSchema = z.enum(['legacy', 'auto', '2026-07-28']);
+const ProtocolPolicySchema = {
+  protocol: McpProtocolSchema.optional(),
+};
 
 const StdioServerSchema = z.strictObject({
   args: z.array(SpawnStringSchema).optional(),
@@ -98,6 +102,7 @@ const StdioServerSchema = z.strictObject({
   enabledTools: z.array(z.string()).optional(),
   env: EnvironmentSchema.optional(),
   name: ServerNameSchema,
+  ...ProtocolPolicySchema,
   transport: z.literal('stdio'),
 });
 
@@ -105,6 +110,7 @@ const HttpServerSchema = z.strictObject({
   enabledTools: z.array(z.string()).optional(),
   headers: HeadersSchema.optional(),
   name: ServerNameSchema,
+  ...ProtocolPolicySchema,
   url: HttpUrlSchema,
 });
 
@@ -116,14 +122,24 @@ const SseServerSchema = HttpServerSchema.extend({
   transport: z.literal('sse'),
 });
 
-const McpServerSchema = z.discriminatedUnion('transport', [
-  StdioServerSchema,
-  StreamableHttpServerSchema,
-  SseServerSchema,
-]);
-const McpConfigSchema = z
+const McpServerInputSchema = z
+  .discriminatedUnion('transport', [StdioServerSchema, StreamableHttpServerSchema, SseServerSchema])
+  .superRefine((server, context) => {
+    if (server.transport === 'sse' && server.protocol && server.protocol !== 'legacy') {
+      context.addIssue({
+        code: 'custom',
+        message: 'legacy SSE transport requires protocol "legacy"',
+        path: ['protocol'],
+      });
+    }
+  });
+const McpServerSchema = McpServerInputSchema.transform((server) => ({
+  ...server,
+  protocol: server.protocol ?? ('legacy' as const),
+}));
+const McpConfigInputSchema = z
   .strictObject({
-    servers: z.array(McpServerSchema),
+    servers: z.array(McpServerInputSchema),
   })
   .superRefine((config, context) => {
     const serverNames = new Set<string>();
@@ -139,9 +155,19 @@ const McpConfigSchema = z
       serverNames.add(server.name);
     }
   });
+const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
+  servers: config.servers.map((server) => McpServerSchema.parse(server)),
+}));
 
-export type McpServer = z.infer<typeof McpServerSchema>;
-export type McpConfig = z.infer<typeof McpConfigSchema>;
+export type McpServer = z.input<typeof McpServerSchema>;
+export type ResolvedMcpServer = z.output<typeof McpServerSchema>;
+export type McpConfig = z.input<typeof McpConfigSchema>;
+export type ResolvedMcpConfig = z.output<typeof McpConfigSchema>;
+export interface McpProtocolMigration {
+  code: 'mcp_protocol_defaulted_to_legacy';
+  serverIndex: number;
+  serverName: string;
+}
 
 const logger = createLogger('DesktopMcpLoader');
 
@@ -153,6 +179,7 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     // {
     //   "transport": "stdio",
     //   "name": "filesystem",
+    //   "protocol": "legacy",
     //   "command": "npx",
     //   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/workspace"]
     // },
@@ -161,6 +188,7 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     // {
     //   "transport": "streamable-http",
     //   "name": "remote-api",
+    //   "protocol": "legacy",
     //   "url": "https://your-host.example.com/mcp",
     //   "headers": {
     //     "Authorization": "Bearer YOUR_TOKEN"
@@ -171,6 +199,7 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     // {
     //   "transport": "sse",
     //   "name": "legacy-remote-api",
+    //   "protocol": "legacy",
     //   "url": "https://your-host.example.com/mcp/sse",
     //   "headers": {
     //     "Authorization": "Bearer YOUR_TOKEN"
@@ -257,17 +286,34 @@ function formatValidationIssue(issue: z.ZodIssue): string {
   return `${path}: ${issue.message}`;
 }
 
-function validateMcpConfig(value: unknown): McpConfig {
-  const parsed = McpConfigSchema.safeParse(value);
+function validateMcpConfig(value: unknown): {
+  config: ResolvedMcpConfig;
+  migrations: McpProtocolMigration[];
+} {
+  const parsed = McpConfigInputSchema.safeParse(value);
   if (!parsed.success) {
     throw new Error(
       `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
     );
   }
-  return parsed.data;
+  const migrations = parsed.data.servers.flatMap((server, serverIndex) =>
+    server.protocol === undefined
+      ? [
+          {
+            code: 'mcp_protocol_defaulted_to_legacy' as const,
+            serverIndex,
+            serverName: server.name,
+          },
+        ]
+      : []
+  );
+  return { config: McpConfigSchema.parse(parsed.data), migrations };
 }
 
-export function parseMcpConfig(text: string): McpConfig {
+function parseMcpConfigDocument(text: string): {
+  config: ResolvedMcpConfig;
+  migrations: McpProtocolMigration[];
+} {
   const parseErrors: ParseError[] = [];
   const root = parseTree(text, parseErrors, {
     allowTrailingComma: true,
@@ -297,13 +343,18 @@ export function parseMcpConfig(text: string): McpConfig {
   return validateMcpConfig(getNodeValue(root));
 }
 
+export function parseMcpConfig(text: string): ResolvedMcpConfig {
+  return parseMcpConfigDocument(text).config;
+}
+
 export interface LoadedMcpConfig {
-  config?: McpConfig;
+  config?: ResolvedMcpConfig;
   error?: string;
   exists: boolean;
   loadedAt?: number;
+  migrations?: McpProtocolMigration[];
   path: string;
-  servers?: McpServer[];
+  servers?: ResolvedMcpServer[];
 }
 
 interface CustomConfigPathCache {
@@ -639,12 +690,11 @@ function assertNoForbiddenDecryptedProperty(
 
 async function processHttpServer(
   s: Extract<McpServer, { transport: 'sse' | 'streamable-http' }>
-): Promise<McpServer> {
+): Promise<ResolvedMcpServer> {
   const headers = await applyDecryptionToHeaders(s.headers, s.name);
   if (headers !== undefined) {
     assertNoForbiddenDecryptedProperty(headers, 'headers');
-    const schema = s.transport === 'streamable-http' ? StreamableHttpServerSchema : SseServerSchema;
-    const parsed = schema.safeParse({ ...s, headers });
+    const parsed = McpServerSchema.safeParse({ ...s, headers });
     if (!parsed.success) {
       throw new Error(
         `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
@@ -653,7 +703,7 @@ async function processHttpServer(
     return parsed.data;
   }
   const { headers: _, ...rest } = s;
-  return rest;
+  return McpServerSchema.parse(rest);
 }
 
 function unsupportedTransport(server: unknown): never {
@@ -671,11 +721,11 @@ function unsupportedTransport(server: unknown): never {
 
 async function processStdioServer(
   s: Extract<McpServer, { transport: 'stdio' }>
-): Promise<McpServer> {
+): Promise<ResolvedMcpServer> {
   const env = await applyDecryptionToEnv(s.env, s.name);
   if (env !== undefined) {
     assertNoForbiddenDecryptedProperty(env, 'env');
-    const parsed = StdioServerSchema.safeParse({ ...s, env });
+    const parsed = McpServerSchema.safeParse({ ...s, env });
     if (!parsed.success) {
       throw new Error(
         `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
@@ -684,12 +734,12 @@ async function processStdioServer(
     return parsed.data;
   }
   const { env: _, ...rest } = s;
-  return rest;
+  return McpServerSchema.parse(rest);
 }
 
-export async function withDecryptedSecrets(cfg: McpConfig): Promise<McpConfig> {
+export async function withDecryptedSecrets(cfg: McpConfig): Promise<ResolvedMcpConfig> {
   const servers = await Promise.all(
-    cfg.servers.map(async (s: McpServer): Promise<McpServer> => {
+    cfg.servers.map(async (s): Promise<ResolvedMcpServer> => {
       if (s.transport === 'sse' || s.transport === 'streamable-http') {
         return processHttpServer(s);
       }
@@ -706,9 +756,22 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
   const p = await getMcpConfigPath();
   try {
     const text = await fsp.readFile(p, 'utf-8');
-    const cfg = parseMcpConfig(text);
-    const dec = await withDecryptedSecrets(cfg);
-    return { config: dec, exists: true, loadedAt: Date.now(), path: p, servers: dec.servers };
+    const parsed = parseMcpConfigDocument(text);
+    const dec = await withDecryptedSecrets(parsed.config);
+    if (parsed.migrations.length > 0) {
+      logger.warn('MCP protocol policy omitted; using visible legacy migration', {
+        migrations: parsed.migrations,
+        path: p,
+      });
+    }
+    return {
+      config: dec,
+      exists: true,
+      loadedAt: Date.now(),
+      migrations: parsed.migrations,
+      path: p,
+      servers: dec.servers,
+    };
   } catch (error) {
     const code = (error as { code?: unknown }).code;
     const message = error instanceof Error ? error.message : String(error);

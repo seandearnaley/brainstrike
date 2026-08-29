@@ -16,6 +16,7 @@ import {
   type LoadedMcpConfig,
   loadMcpConfig,
   type McpServer,
+  type ResolvedMcpServer,
   readMcpConfigText,
   setCustomMcpConfigPath,
   watchMcpConfig,
@@ -38,8 +39,13 @@ interface McpConfigStatus {
   error?: string;
   exists: boolean;
   loadedAt?: number;
+  migrations?: LoadedMcpConfig['migrations'];
   path: string;
-  servers?: Array<{ name: string; transport: McpServer['transport'] }>;
+  servers?: Array<{
+    name: string;
+    protocol: ResolvedMcpServer['protocol'];
+    transport: ResolvedMcpServer['transport'];
+  }>;
 }
 
 function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
@@ -53,9 +59,16 @@ function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
   if (config.loadedAt !== undefined) {
     status.loadedAt = config.loadedAt;
   }
+  if (config.migrations !== undefined) {
+    status.migrations = config.migrations;
+  }
   const servers = config.servers ?? config.config?.servers;
   if (servers !== undefined) {
-    status.servers = servers.map(({ name, transport }) => ({ name, transport }));
+    status.servers = servers.map(({ name, protocol, transport }) => ({
+      name,
+      protocol,
+      transport,
+    }));
   }
   return status;
 }

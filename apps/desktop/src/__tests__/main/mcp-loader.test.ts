@@ -53,6 +53,63 @@ describe('mcp-loader', () => {
     expect(config.servers[1]?.transport).toBe('sse');
   });
 
+  it('surfaces omitted protocol migration without rewriting the JSONC document', async () => {
+    const { loadMcpConfig, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const configPath = path.join(tempDir, 'mcp', 'protocol-migration.json');
+    const content = `{
+      // This comment and formatting must survive migration discovery.
+      "servers": [{ "command": "node", "name": "legacy", "transport": "stdio" }]
+    }`;
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, content, 'utf-8');
+    await setCustomMcpConfigPath(configPath);
+
+    const loaded = await loadMcpConfig();
+
+    expect(loaded.config?.servers[0]?.protocol).toBe('legacy');
+    expect(loaded.migrations).toEqual([
+      {
+        code: 'mcp_protocol_defaulted_to_legacy',
+        serverIndex: 0,
+        serverName: 'legacy',
+      },
+    ]);
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(content);
+  });
+
+  it('accepts explicit protocol modes and rejects modern policy on legacy SSE', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    const parsed = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          { command: 'node', name: 'auto', protocol: 'auto', transport: 'stdio' },
+          {
+            name: 'modern',
+            protocol: '2026-07-28',
+            transport: 'streamable-http',
+            url: 'https://example.com/mcp',
+          },
+        ],
+      })
+    );
+    expect(parsed.servers.map(({ protocol }) => protocol)).toEqual(['auto', '2026-07-28']);
+
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              name: 'invalid-sse',
+              protocol: '2026-07-28',
+              transport: 'sse',
+              url: 'https://example.com/sse',
+            },
+          ],
+        })
+      )
+    ).toThrow(/legacy SSE transport requires protocol "legacy"/u);
+  });
+
   it('decrypts encrypted values and applies to headers/env', async () => {
     decryptStringAsync.mockResolvedValue({ result: 'decrypted', shouldReEncrypt: false });
     const { decryptIfEncrypted, withDecryptedSecrets } = await import('../../mcp-loader');

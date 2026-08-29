@@ -262,6 +262,7 @@ describe('ipc-mcp handlers', () => {
               command: 'cmd',
               env: { TOKEN: 'decrypted-secret' },
               name: 'test',
+              protocol: 'legacy',
               transport: 'stdio',
             },
           ],
@@ -274,6 +275,7 @@ describe('ipc-mcp handlers', () => {
             command: 'cmd',
             env: { TOKEN: 'decrypted-secret' },
             name: 'test',
+            protocol: 'legacy',
             transport: 'stdio',
           },
         ],
@@ -281,7 +283,6 @@ describe('ipc-mcp handlers', () => {
 
       const mockedLoad = vi.mocked(loadMcpConfig);
       mockedLoad.mockResolvedValue(mockConfig as never);
-
       const handler = handlers.get('mcp:config:get');
       if (!handler) {
         throw new Error('handler not registered');
@@ -295,7 +296,7 @@ describe('ipc-mcp handlers', () => {
         exists: true,
         loadedAt: mockConfig.loadedAt,
         path: '/path/to/config',
-        servers: [{ name: 'test', transport: 'stdio' }],
+        servers: [{ name: 'test', protocol: 'legacy', transport: 'stdio' }],
       });
       expect(JSON.stringify(result)).not.toContain('decrypted-secret');
     });
