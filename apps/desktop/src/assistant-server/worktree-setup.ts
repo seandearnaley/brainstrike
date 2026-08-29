@@ -585,6 +585,9 @@ async function executeSetupCommand(
       code: number | null,
       signal: NodeJS.Signals | null
     ): void => {
+      if (settled) {
+        return;
+      }
       if (!isProcessTreeAlive(child)) {
         settle(code, signal);
         return;

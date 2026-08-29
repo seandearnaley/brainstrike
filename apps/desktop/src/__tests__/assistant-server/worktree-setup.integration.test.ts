@@ -7,11 +7,12 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  watch,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, onTestFinished } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { WorktreeSetupInput } from '../../assistant-server/worktree-service';
 import {
   parseWorktreeInclude,
@@ -450,6 +451,31 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     async () => {
       const pidPath = path.join(tempRoot, 'grandchild.pid');
       const input = baseInput();
+      const originalSetTimeout = globalThis.setTimeout;
+      let armTimeout: (() => void) | undefined;
+      const deferredTimeout = {
+        unref: () => deferredTimeout,
+      } as ReturnType<typeof setTimeout>;
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+      setTimeoutSpy.mockImplementationOnce((callback, delay, ...args) => {
+        armTimeout = () => {
+          originalSetTimeout(callback, delay, ...args);
+        };
+        return deferredTimeout;
+      });
+      const pidPublished = new Promise<void>((resolve, reject) => {
+        const watcher = watch(tempRoot, (_event, filename) => {
+          if (filename === path.basename(pidPath)) {
+            watcher.close();
+            resolve();
+          }
+        });
+        watcher.once('error', reject);
+        onTestFinished(() => watcher.close());
+      });
+      onTestFinished(() => {
+        setTimeoutSpy.mockRestore();
+      });
       const grandchildScript = [
         "const fs = require('node:fs');",
         "process.on('SIGTERM', () => { fs.closeSync(1); fs.closeSync(2); });",
@@ -464,7 +490,7 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
       ].join(' ');
       const startedAt = Date.now();
 
-      const outcome = await runWorktreeSetup({
+      const outcomePromise = runWorktreeSetup({
         ...input,
         settings: {
           ...input.settings,
@@ -473,6 +499,12 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
         terminationGraceMs: 100,
         timeoutMs: 150,
       });
+      await pidPublished;
+      if (armTimeout === undefined) {
+        throw new Error('The worktree setup timeout was not scheduled.');
+      }
+      armTimeout();
+      const outcome = await outcomePromise;
 
       const grandchildPid = Number.parseInt(readFileSync(pidPath, 'utf8'), 10);
       onTestFinished(() => {
