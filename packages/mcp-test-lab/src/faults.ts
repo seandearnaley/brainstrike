@@ -44,6 +44,23 @@ const PROTOCOL_METHODS_BY_PHASE = {
 
 export type McpLabProtocolPhase = keyof typeof PROTOCOL_METHODS_BY_PHASE;
 export type McpLabProtocolMethod = (typeof PROTOCOL_METHODS_BY_PHASE)[McpLabProtocolPhase][number];
+export type McpLabOperationMethod = (typeof PROTOCOL_METHODS_BY_PHASE)['operation'][number];
+export type McpLabFixture =
+  | 'brainstrike-oauth-reference'
+  | 'brainstrike-sdk-v2-reference'
+  | 'brainstrike-stdio-reference';
+
+const ECHO_FIXTURE_OPERATIONS = Object.freeze([
+  'tools/call',
+  'tools/list',
+] as const satisfies readonly McpLabOperationMethod[]);
+
+const OPERATIONS_BY_FIXTURE: Readonly<Record<McpLabFixture, readonly McpLabOperationMethod[]>> =
+  Object.freeze({
+    'brainstrike-oauth-reference': ECHO_FIXTURE_OPERATIONS,
+    'brainstrike-sdk-v2-reference': ECHO_FIXTURE_OPERATIONS,
+    'brainstrike-stdio-reference': ECHO_FIXTURE_OPERATIONS,
+  });
 
 export function protocolPhaseForMethod(method: string): McpLabProtocolPhase | undefined {
   if ((PROTOCOL_METHODS_BY_PHASE.authorization as readonly string[]).includes(method)) {
@@ -171,6 +188,7 @@ export type McpLabAuthentication = 'none' | 'oauth';
 
 export interface McpLabFaultPlan {
   assertCompatibleWithAuthentication(authentication: McpLabAuthentication): void;
+  assertCompatibleWithFixture(fixture: McpLabFixture): void;
   assertCompatibleWithProtocolEra(era: McpLabProtocolEra): void;
   assertCompatibleWithTransport(transport: McpLabTransportKind): void;
   assertFullyConsumed(): void;
@@ -688,6 +706,23 @@ export function createMcpLabFaultPlan(
       }
       throw new Error(
         `MCP lab fault "${incompatible.id}" at ${incompatible.match.phase}/${incompatible.match.method} is incompatible with ${authentication} authentication`
+      );
+    },
+    assertCompatibleWithFixture(fixture: McpLabFixture) {
+      if (!Object.hasOwn(OPERATIONS_BY_FIXTURE, fixture)) {
+        throw new Error('Invalid MCP lab fixture');
+      }
+      const supportedOperations = OPERATIONS_BY_FIXTURE[fixture];
+      const incompatible = immutableDeclarations.find(
+        (declaration) =>
+          declaration.match.phase === 'operation' &&
+          !supportedOperations.includes(declaration.match.method as McpLabOperationMethod)
+      );
+      if (!incompatible) {
+        return;
+      }
+      throw new Error(
+        `MCP lab fault "${incompatible.id}" at operation/${incompatible.match.method} is unsupported by fixture ${fixture}`
       );
     },
     assertCompatibleWithProtocolEra(era: McpLabProtocolEra) {

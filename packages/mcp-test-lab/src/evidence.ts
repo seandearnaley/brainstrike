@@ -709,10 +709,11 @@ function assertSanitizedArtifactBytes(
   }
   assertSanitizedText(text, path);
   assertSanitizedParsedJson(text, path);
-  if (artifact.kind === 'report' && artifact.reference.toLowerCase().endsWith('.html')) {
-    const decodedHtml = decodeHTML(text);
-    assertSanitizedText(decodedHtml, path);
-    assertSanitizedParsedJson(decodedHtml, path);
+  const reference = artifact.reference.toLowerCase();
+  if (artifact.kind === 'report' && (reference.endsWith('.html') || reference.endsWith('.md'))) {
+    const decodedMarkup = decodeHTML(text);
+    assertSanitizedText(decodedMarkup, path);
+    assertSanitizedParsedJson(decodedMarkup, path);
   }
 }
 

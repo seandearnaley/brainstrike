@@ -1,3 +1,5 @@
+import type { McpLabFixture } from './faults.js';
+
 export const MCP_LAB_SDK_VERSION = '2.0.0' as const;
 export const MCP_LAB_CONFORMANCE_VERSION = '0.2.0-alpha.10' as const;
 
@@ -21,10 +23,7 @@ export type McpLabScenarioId = (typeof MCP_LAB_SCENARIO_IDS)[number];
 export interface McpLabScenario {
   readonly authentication: 'none' | 'oauth';
   readonly description: string;
-  readonly fixture:
-    | 'brainstrike-sdk-v2-reference'
-    | 'brainstrike-oauth-reference'
-    | 'brainstrike-stdio-reference';
+  readonly fixture: McpLabFixture;
   readonly id: McpLabScenarioId;
   readonly network: 'loopback-only';
   readonly protocol:

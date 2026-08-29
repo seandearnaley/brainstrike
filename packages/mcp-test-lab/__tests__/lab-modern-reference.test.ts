@@ -236,6 +236,31 @@ describe('MCP lab modern reference', () => {
     }
   );
 
+  it.each(['modern-reference', 'legacy-reference', 'oauth-reference', 'stdio-reference'] as const)(
+    'rejects fixture-unsupported operations before starting %s',
+    async (scenarioId) => {
+      const faultPlan = createMcpLabFaultPlan([
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'fixture-unsupported-operation',
+          match: { method: 'resources/subscribe', occurrence: 1, phase: 'operation' },
+        },
+      ]);
+
+      let lab: Awaited<ReturnType<typeof startMcpLabScenario>> | undefined;
+      let caught: unknown;
+      try {
+        lab = await startMcpLabScenario(scenarioId, { faultPlan });
+      } catch (error) {
+        caught = error;
+      } finally {
+        await lab?.close();
+      }
+
+      expect(String(caught)).toMatch(/resources\/subscribe.*fixture/i);
+    }
+  );
+
   it('accepts server/discover for modern negotiation and rejects it for legacy', async () => {
     const modernPlan = createMcpLabFaultPlan([
       {

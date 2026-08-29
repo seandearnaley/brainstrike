@@ -41,6 +41,7 @@ import {
 } from './node-loopback.js';
 import { createReferenceServer } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario } from './scenario.js';
+import { assertScenarioFaultCompatibility } from './scenario-compatibility.js';
 import { parseStartOptions, type StartMcpLabScenarioOptions } from './start-options.js';
 import {
   requestIdKey,
@@ -975,15 +976,7 @@ export async function startMcpLabScenario(
 ): Promise<McpLabSession> {
   const startOptions = parseStartOptions(options);
   const scenario = getMcpLabScenario(id);
-  startOptions.faultPlan?.assertCompatibleWithAuthentication(scenario.authentication);
-  startOptions.faultPlan?.assertCompatibleWithProtocolEra(scenario.protocol.era);
-  startOptions.faultPlan?.assertCompatibleWithTransport(
-    scenario.id === 'stdio-reference'
-      ? 'stdio'
-      : startOptions.execution === 'in-process'
-        ? 'http-in-process'
-        : 'http-loopback'
-  );
+  assertScenarioFaultCompatibility(startOptions.faultPlan, scenario, startOptions.execution);
   if (scenario.id === 'stdio-reference') {
     if (startOptions.execution) {
       throw new Error(`MCP lab stdio scenario does not accept execution=${startOptions.execution}`);

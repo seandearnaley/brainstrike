@@ -360,6 +360,20 @@ describe('MCP lab fault plan', () => {
     }
   );
 
+  it('rejects operation coordinates unsupported by the selected fixture', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'unsupported-resource-subscription',
+        match: { method: 'resources/subscribe', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+
+    expect(() => plan.assertCompatibleWithFixture('brainstrike-sdk-v2-reference')).toThrowError(
+      /resources\/subscribe.*fixture/i
+    );
+  });
+
   it('supports every declared fault as typed deterministic data', () => {
     const declarations = [
       {

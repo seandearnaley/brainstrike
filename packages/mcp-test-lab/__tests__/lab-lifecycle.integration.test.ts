@@ -359,12 +359,12 @@ describe('MCP lab fault and cleanup lifecycle', () => {
     expect(faultPlan.untriggeredIds()).toEqual([]);
   });
 
-  it('executes every accepted operation fault through a real protocol request', async () => {
+  it('executes a fixture-supported operation fault through a real protocol request', async () => {
     const faultPlan = createMcpLabFaultPlan([
       {
         fault: { kind: 'http_status', status: 418 },
-        id: 'subscribe-status',
-        match: { method: 'resources/subscribe', occurrence: 1, phase: 'operation' },
+        id: 'tools-list-status',
+        match: { method: 'tools/list', occurrence: 1, phase: 'operation' },
       },
     ]);
     const lab = await startMcpLabScenario('modern-reference', { faultPlan });
@@ -376,8 +376,8 @@ describe('MCP lab fault and cleanup lifecycle', () => {
       body: JSON.stringify({
         id: 1,
         jsonrpc: '2.0',
-        method: 'resources/subscribe',
-        params: { uri: 'file:///fixture.txt' },
+        method: 'tools/list',
+        params: {},
       }),
       headers: { 'content-type': 'application/json' },
       method: 'POST',

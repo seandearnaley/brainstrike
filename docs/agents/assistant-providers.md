@@ -1984,7 +1984,11 @@ The selected scenario transport validates the complete plan before opening a
 listener or starting a child: HTTP-only response faults cannot be consumed by
 stdio, child-process coordinates cannot enter HTTP sessions, and stdio rejects
 server-to-client-only requests and notifications that its outbound transport
-cannot execute. Scenario validation also closes the protocol era:
+cannot execute. Scenario validation is also closed over the selected fixture's
+real operation capabilities: the current echo fixtures accept only
+`tools/list` and `tools/call`, so unsupported prompt, resource, logging, and
+task coordinates cannot be consumed before the SDK rejects their baseline
+operation. Scenario validation also closes the protocol era:
 `server/discover` and `subscriptions/listen` are modern, while the legacy
 initialize/initialized/ping handshake cannot be claimed by a modern run.
 Authorization coordinates are accepted only by the OAuth scenario and only for
@@ -2005,7 +2009,10 @@ still requires the exact S256 binding recorded at authorization.
 Evidence parsing reads each referenced artifact once as exact bytes. Text
 artifacts are scanned both as raw UTF-8 and as parsed JSON/NDJSON so escaped
 credentials, serialized JSON bodies, Basic authorization, and bearer material
-cannot evade detection. Balanced JSON containers embedded in prefixed or
+cannot evade detection. Rendered HTML and Markdown reports receive an
+additional HTML-character-reference decode scan, matching their preview
+surfaces without changing the exact bytes used for hashing. Balanced JSON
+containers embedded in prefixed or
 suffixed or multiline log text are decoded and scanned, including bounded
 multi-layer quote escaping and JSON Unicode escapes. Parseable serialized
 JSON and multi-root NDJSON string fields are scanned recursively to a bounded
