@@ -3,6 +3,14 @@ interface JsonStringState {
   inString: boolean;
 }
 
+const JSON_UNICODE_ESCAPE_PATTERN = /\\u([0-9a-f]{4})/giu;
+
+export function decodeJsonUnicodeEscapes(value: string): string {
+  return value.replace(JSON_UNICODE_ESCAPE_PATTERN, (_escape, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16))
+  );
+}
+
 function consumeStringCharacter(character: string | undefined, state: JsonStringState): boolean {
   if (!state.inString) {
     return false;
@@ -77,20 +85,40 @@ export function embeddedJsonStarts(line: string, limit: number): readonly number
   return starts;
 }
 
-export function balancedJsonCandidates(input: string): readonly string[] {
+export function advanceLineOffset(text: string, lineOffset: number, lineLength: number): number {
+  const separatorOffset = lineOffset + lineLength;
+  if (text.startsWith('\r\n', separatorOffset)) {
+    return separatorOffset + 2;
+  }
+  return text[separatorOffset] === '\n' ? separatorOffset + 1 : separatorOffset;
+}
+
+export interface BalancedJsonCandidateResult {
+  readonly candidates: readonly string[];
+  readonly decodingLimitExceeded: boolean;
+}
+
+export function balancedJsonCandidates(
+  input: string,
+  maxDecodingDepth: number
+): BalancedJsonCandidateResult {
   const candidates: string[] = [];
-  const direct = extractBalancedJsonContainer(input);
-  if (direct) {
-    candidates.push(direct);
-  }
-  const decodedInput = input.replaceAll('\\"', '"');
-  if (decodedInput !== input) {
-    const decoded = extractBalancedJsonContainer(decodedInput);
-    if (decoded && !candidates.includes(decoded)) {
-      candidates.push(decoded);
+  let decodedInput = input;
+  for (let depth = 0; depth <= maxDecodingDepth; depth += 1) {
+    const candidate = extractBalancedJsonContainer(decodedInput);
+    if (candidate && !candidates.includes(candidate)) {
+      candidates.push(candidate);
     }
+    const next = decodedInput.replaceAll('\\"', '"');
+    if (next === decodedInput) {
+      return { candidates, decodingLimitExceeded: false };
+    }
+    if (depth === maxDecodingDepth) {
+      return { candidates, decodingLimitExceeded: true };
+    }
+    decodedInput = next;
   }
-  return candidates;
+  return { candidates, decodingLimitExceeded: false };
 }
 
 export function parseJsonCandidate(candidate: string): { readonly value: unknown } | undefined {

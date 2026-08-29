@@ -66,6 +66,35 @@ describe('MCP lab fault plan', () => {
     ).toEqual({ delayMs: 1, kind: 'delay' });
   });
 
+  it('does not invoke a caller-controlled map while snapshotting declaration arrays', () => {
+    let faultReads = 0;
+    const declaration = Object.defineProperty(
+      {
+        id: 'proxied-declaration-array',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+      'fault',
+      {
+        enumerable: true,
+        get() {
+          faultReads += 1;
+          return { delayMs: 1, kind: 'delay' };
+        },
+      }
+    );
+    const declarations = new Proxy([declaration], {
+      get(target, property, receiver) {
+        if (property === 'map') {
+          return () => [declaration];
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    createMcpLabFaultPlan(declarations as never);
+    expect(faultReads).toBe(1);
+  });
+
   it.each([
     {
       extra: true,

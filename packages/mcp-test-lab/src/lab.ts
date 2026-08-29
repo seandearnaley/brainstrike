@@ -243,11 +243,12 @@ async function consumeProtocolHttpFault(
   if (oauthMethod) {
     return consumeHttpFault(runtime, 'authorization', oauthMethod, correlationId);
   }
-  if (!runtime.requiresProtocolBodyCoordinate()) {
+  const hasProtocolFault = runtime.requiresProtocolBodyCoordinate();
+  if (!(hasProtocolFault || request.headers.has('mcp-method'))) {
     return;
   }
   const coordinate = await protocolCoordinate(request);
-  if (!coordinate) {
+  if (!(coordinate && hasProtocolFault)) {
     return;
   }
   return consumeHttpFault(runtime, coordinate.phase, coordinate.method, correlationId);
@@ -926,6 +927,7 @@ export async function startMcpLabScenario(
 ): Promise<McpLabSession> {
   assertStartOptions(options);
   const scenario = getMcpLabScenario(id);
+  options.faultPlan?.assertCompatibleWithProtocolEra(scenario.protocol.era);
   options.faultPlan?.assertCompatibleWithTransport(
     scenario.id === 'stdio-reference'
       ? 'stdio'

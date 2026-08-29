@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { balancedJsonCandidates, embeddedJsonStarts, parseJsonCandidate } from './embedded-json.js';
+import {
+  advanceLineOffset,
+  balancedJsonCandidates,
+  decodeJsonUnicodeEscapes,
+  embeddedJsonStarts,
+  parseJsonCandidate,
+} from './embedded-json.js';
 
 export const MCP_EVIDENCE_SCHEMA_VERSION = '1.0.0' as const;
 
@@ -168,7 +174,9 @@ const AMBIGUOUS_CREDENTIAL_KEYS = ['authorization', 'code', 'token'] as const;
 const TRUSTED_NAMESPACED_CREDENTIAL_LABELS = new Map<string, string>([
   ['aws_bearer_token_bedrock', 'token'],
   ['aws_session_token', 'token'],
+  ['gh_enterprise_token', 'token'],
   ['gh_token', 'token'],
+  ['github_enterprise_token', 'token'],
   ['github_token', 'token'],
 ]);
 const NAMESPACED_CREDENTIAL_KEY_SUFFIXES = CREDENTIAL_KEY_SUFFIXES.filter(
@@ -583,11 +591,12 @@ function validateVerificationProof(
 }
 
 function assertSerializedJsonText(value: string, path: string, serializedJsonDepth: number): void {
-  const trimmed = value.trim();
+  const decodedValue = decodeJsonUnicodeEscapes(value);
+  const trimmed = decodedValue.trim();
   if (!(trimmed.includes('{') || trimmed.includes('['))) {
     return;
   }
-  assertSanitizedParsedJson(value, `${path}.serializedJson`, serializedJsonDepth);
+  assertSanitizedParsedJson(decodedValue, `${path}.serializedJson`, serializedJsonDepth);
 }
 
 function assertSanitizedText(
@@ -725,6 +734,7 @@ function assertSanitizedParsedJson(text: string, path: string, serializedJsonDep
     return;
   }
 
+  let lineOffset = 0;
   for (const [index, line] of text.split(/\r?\n/u).entries()) {
     const starts = embeddedJsonStarts(line, MAX_EMBEDDED_JSON_CANDIDATES_PER_LINE);
     if (!starts) {
@@ -734,8 +744,17 @@ function assertSanitizedParsedJson(text: string, path: string, serializedJsonDep
       );
     }
     for (const [candidateIndex, start] of starts.entries()) {
-      const candidates = balancedJsonCandidates(line.slice(start));
-      for (const [variantIndex, candidate] of candidates.entries()) {
+      const result = balancedJsonCandidates(
+        text.slice(lineOffset + start),
+        MAX_SERIALIZED_JSON_SCAN_DEPTH
+      );
+      if (result.decodingLimitExceeded) {
+        invalid(
+          `${path}.embeddedJson[${index}][${candidateIndex}]`,
+          'escaped JSON nesting exceeds the evidence scan limit'
+        );
+      }
+      for (const [variantIndex, candidate] of result.candidates.entries()) {
         const parsedCandidate = parseJsonCandidate(candidate);
         if (parsedCandidate) {
           assertParsedValue(
@@ -745,6 +764,7 @@ function assertSanitizedParsedJson(text: string, path: string, serializedJsonDep
         }
       }
     }
+    lineOffset = advanceLineOffset(text, lineOffset, line.length);
   }
 }
 

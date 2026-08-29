@@ -1,5 +1,6 @@
 import {
   isMcpLabCorrelationId,
+  isServerToClientOnlyMethod,
   type McpLabProtocolMethod,
   type McpLabProtocolPhase,
   protocolPhaseForMethod,
@@ -45,6 +46,32 @@ function protocolCoordinateForMethod(
     : undefined;
 }
 
+function jsonRpcMethod(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return;
+  }
+  const record = body as Record<string, unknown>;
+  const method = record['method'];
+  if (typeof method !== 'string') {
+    return;
+  }
+  if (record['jsonrpc'] !== '2.0') {
+    throw new Error('Invalid MCP lab request: JSON-RPC body must declare jsonrpc 2.0');
+  }
+  const id = record['id'];
+  const isNotification = method.startsWith('notifications/');
+  if (
+    (isNotification && Object.hasOwn(record, 'id')) ||
+    (!isNotification && typeof id !== 'string' && typeof id !== 'number')
+  ) {
+    throw new Error('Invalid MCP lab request: JSON-RPC request identity is invalid');
+  }
+  if (isServerToClientOnlyMethod(method)) {
+    throw new Error('Invalid MCP lab request: JSON-RPC method has the wrong direction');
+  }
+  return method;
+}
+
 export async function protocolCoordinate(
   request: Request
 ): Promise<
@@ -60,11 +87,7 @@ export async function protocolCoordinate(
   }
   try {
     const body: unknown = await request.clone().json();
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      return;
-    }
-    const candidate = (body as Record<string, unknown>)['method'];
-    const bodyMethod = typeof candidate === 'string' ? candidate : undefined;
+    const bodyMethod = jsonRpcMethod(body);
     if (headerMethod && headerMethod !== bodyMethod) {
       throw new Error('Invalid MCP lab request: mcp-method header must match the JSON-RPC body');
     }

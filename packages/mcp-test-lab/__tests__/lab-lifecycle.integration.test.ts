@@ -101,11 +101,11 @@ describe('MCP lab fault and cleanup lifecycle', () => {
   });
 
   it('clones only while a remaining MCP body fault can match the request', async () => {
-    const pingPlan = createMcpLabFaultPlan([
+    const discoveryPlan = createMcpLabFaultPlan([
       {
         fault: { kind: 'http_status', status: 418 },
-        id: 'fail-first-ping',
-        match: { method: 'ping', occurrence: 1, phase: 'initialization' },
+        id: 'fail-first-discovery',
+        match: { method: 'server/discover', occurrence: 1, phase: 'initialization' },
       },
     ]);
     const authorizationPlan = createMcpLabFaultPlan([
@@ -116,28 +116,28 @@ describe('MCP lab fault and cleanup lifecycle', () => {
       },
     ]);
     const baselineLab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
-    const pingLab = await startMcpLabScenario('modern-reference', {
+    const discoveryLab = await startMcpLabScenario('modern-reference', {
       execution: 'in-process',
-      faultPlan: pingPlan,
+      faultPlan: discoveryPlan,
     });
     const authorizationLab = await startMcpLabScenario('modern-reference', {
       execution: 'in-process',
       faultPlan: authorizationPlan,
     });
-    for (const lab of [baselineLab, pingLab, authorizationLab]) {
+    for (const lab of [baselineLab, discoveryLab, authorizationLab]) {
       if (lab.endpoint.kind !== 'in-process-http') {
         throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
       }
     }
     if (
       baselineLab.endpoint.kind !== 'in-process-http' ||
-      pingLab.endpoint.kind !== 'in-process-http' ||
+      discoveryLab.endpoint.kind !== 'in-process-http' ||
       authorizationLab.endpoint.kind !== 'in-process-http'
     ) {
       throw new Error('MCP lab endpoint narrowing failed');
     }
     const requestInit = {
-      body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'ping' }),
+      body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'server/discover' }),
       headers: { 'content-type': 'application/json' },
       method: 'POST',
     } as const;
@@ -148,11 +148,15 @@ describe('MCP lab fault and cleanup lifecycle', () => {
       const baselineCount = clone.mock.calls.length;
       clone.mockClear();
 
-      expect((await pingLab.endpoint.fetch(pingLab.endpoint.url, requestInit)).status).toBe(418);
-      expect(pingPlan.untriggeredIds()).toEqual([]);
+      expect(
+        (await discoveryLab.endpoint.fetch(discoveryLab.endpoint.url, requestInit)).status
+      ).toBe(418);
+      expect(discoveryPlan.untriggeredIds()).toEqual([]);
       clone.mockClear();
 
-      await (await pingLab.endpoint.fetch(pingLab.endpoint.url, requestInit)).arrayBuffer();
+      await (
+        await discoveryLab.endpoint.fetch(discoveryLab.endpoint.url, requestInit)
+      ).arrayBuffer();
       expect(clone).toHaveBeenCalledTimes(baselineCount);
       clone.mockClear();
 
@@ -163,11 +167,11 @@ describe('MCP lab fault and cleanup lifecycle', () => {
     } finally {
       clone.mockRestore();
       await baselineLab.close();
-      await pingLab.close();
+      await discoveryLab.close();
       await authorizationLab.close();
     }
 
-    expect(pingPlan.untriggeredIds()).toEqual([]);
+    expect(discoveryPlan.untriggeredIds()).toEqual([]);
     expect(authorizationPlan.untriggeredIds()).toEqual(['token-only']);
   });
 
@@ -419,6 +423,85 @@ describe('MCP lab fault and cleanup lifecycle', () => {
     await expect(lab.close()).resolves.toMatchObject({
       untriggeredFaultIds: ['tools-call-only'],
     });
+  });
+
+  it('validates mcp-method agreement without a remaining protocol fault', async () => {
+    const noFaultLab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+    const exhaustedPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 418 },
+        id: 'consume-tools-list',
+        match: { method: 'tools/list', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const exhaustedLab = await startMcpLabScenario('modern-reference', {
+      execution: 'in-process',
+      faultPlan: exhaustedPlan,
+    });
+    if (
+      noFaultLab.endpoint.kind !== 'in-process-http' ||
+      exhaustedLab.endpoint.kind !== 'in-process-http'
+    ) {
+      throw new Error('Expected in-process HTTP endpoints');
+    }
+    const body = JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'tools/list' });
+
+    try {
+      await expect(
+        noFaultLab.endpoint.fetch(noFaultLab.endpoint.url, {
+          body,
+          headers: { 'content-type': 'application/json', 'mcp-method': 'tools/call' },
+          method: 'POST',
+        })
+      ).rejects.toThrow(/mcp-method.*match/i);
+
+      expect(
+        (
+          await exhaustedLab.endpoint.fetch(exhaustedLab.endpoint.url, {
+            body,
+            headers: { 'content-type': 'application/json', 'mcp-method': 'tools/list' },
+            method: 'POST',
+          })
+        ).status
+      ).toBe(418);
+      await expect(
+        exhaustedLab.endpoint.fetch(exhaustedLab.endpoint.url, {
+          body,
+          headers: { 'content-type': 'application/json', 'mcp-method': 'tools/call' },
+          method: 'POST',
+        })
+      ).rejects.toThrow(/mcp-method.*match/i);
+    } finally {
+      await noFaultLab.close();
+      await exhaustedLab.close();
+    }
+  });
+
+  it('rejects malformed JSON-RPC bodies before they consume protocol faults', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 418 },
+        id: 'valid-tools-call-only',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const lab = await startMcpLabScenario('modern-reference', {
+      execution: 'in-process',
+      faultPlan,
+    });
+    if (lab.endpoint.kind !== 'in-process-http') {
+      throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    await expect(
+      lab.endpoint.fetch(lab.endpoint.url, {
+        body: JSON.stringify({ method: 'tools/call' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      })
+    ).rejects.toThrow(/JSON-RPC/i);
+    expect(faultPlan.untriggeredIds()).toEqual(['valid-tools-call-only']);
+    await lab.close();
   });
 
   it('rejects unsafe caller correlation ids before they reach diagnostics or faults', async () => {

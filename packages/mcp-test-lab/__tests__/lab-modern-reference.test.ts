@@ -77,9 +77,9 @@ describe('MCP lab modern reference', () => {
         fault: { kind: 'drop_response' },
         id: 'drop-notification',
         match: {
-          method: 'notifications/initialized',
+          method: 'notifications/progress',
           occurrence: 1,
-          phase: 'initialization',
+          phase: 'subscription',
         },
       },
     ]);
@@ -119,6 +119,88 @@ describe('MCP lab modern reference', () => {
       expect(String(caught)).toMatch(/incompatible.*stdio/i);
     }
   );
+
+  it.each([
+    'notifications/message',
+    'notifications/prompts/list_changed',
+    'notifications/resources/list_changed',
+    'notifications/resources/updated',
+    'notifications/tools/list_changed',
+  ] as const)('rejects server-originated %s faults before starting stdio', async (method) => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'server-notification-stdio',
+        match: { method, occurrence: 1, phase: 'subscription' },
+      },
+    ]);
+    let lab: Awaited<ReturnType<typeof startMcpLabScenario>> | undefined;
+    let caught: unknown;
+    try {
+      lab = await startMcpLabScenario('stdio-reference', { faultPlan });
+    } catch (error) {
+      caught = error;
+    } finally {
+      await lab?.close();
+    }
+
+    expect(String(caught)).toMatch(/incompatible.*stdio/i);
+  });
+
+  it('rejects server-to-client coordinates for HTTP server sessions', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'roots-list-inbound-only',
+        match: { method: 'roots/list', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    await expect(
+      startMcpLabScenario('modern-reference', { execution: 'in-process', faultPlan })
+    ).rejects.toThrow(/incompatible.*in-process/i);
+  });
+
+  it.each(['initialize', 'notifications/initialized', 'ping'] as const)(
+    'rejects legacy-only %s faults for modern scenarios',
+    async (method) => {
+      const faultPlan = createMcpLabFaultPlan([
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'legacy-only-modern',
+          match: { method, occurrence: 1, phase: 'initialization' },
+        },
+      ]);
+      await expect(
+        startMcpLabScenario('modern-reference', { execution: 'in-process', faultPlan })
+      ).rejects.toThrow(/incompatible.*modern/i);
+    }
+  );
+
+  it('accepts server/discover for modern negotiation and rejects it for legacy', async () => {
+    const modernPlan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'modern-discovery',
+        match: { method: 'server/discover', occurrence: 1, phase: 'initialization' },
+      },
+    ] as never);
+    const modernLab = await startMcpLabScenario('modern-reference', {
+      execution: 'in-process',
+      faultPlan: modernPlan,
+    });
+    await modernLab.close();
+
+    const legacyPlan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'legacy-discovery',
+        match: { method: 'server/discover', occurrence: 1, phase: 'initialization' },
+      },
+    ] as never);
+    await expect(
+      startMcpLabScenario('legacy-reference', { faultPlan: legacyPlan })
+    ).rejects.toThrow(/incompatible.*legacy/i);
+  });
 
   it('rejects node/dispatch faults for in-process HTTP execution', async () => {
     const faultPlan = createMcpLabFaultPlan([

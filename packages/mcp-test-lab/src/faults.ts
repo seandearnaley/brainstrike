@@ -9,7 +9,7 @@ const PROTOCOL_METHODS_BY_PHASE = {
     'oauth/revoke',
   ],
   'child-process': ['child/spawn', 'child/stderr', 'child/exit'],
-  initialization: ['initialize', 'notifications/initialized', 'ping'],
+  initialization: ['initialize', 'notifications/initialized', 'ping', 'server/discover'],
   operation: [
     'completion/complete',
     'elicitation/create',
@@ -103,10 +103,24 @@ export interface McpLabChildStderrFault {
 const MCP_LAB_CHILD_SIGNALS = ['SIGABRT', 'SIGKILL', 'SIGTERM'] as const;
 
 const MCP_LAB_CHILD_SIGNAL_SET = new Set<string>(MCP_LAB_CHILD_SIGNALS);
-const STDIO_INBOUND_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+const SERVER_TO_CLIENT_ONLY_METHODS = new Set<McpLabProtocolMethod>([
   'elicitation/create',
+  'notifications/message',
+  'notifications/prompts/list_changed',
+  'notifications/resources/list_changed',
+  'notifications/resources/updated',
+  'notifications/tools/list_changed',
   'roots/list',
   'sampling/createMessage',
+]);
+const MODERN_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+  'server/discover',
+  'subscriptions/listen',
+]);
+const LEGACY_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+  'initialize',
+  'notifications/initialized',
+  'ping',
 ]);
 
 export type McpLabChildSignal = (typeof MCP_LAB_CHILD_SIGNALS)[number];
@@ -154,8 +168,10 @@ export interface McpLabFaultObservation extends McpLabFaultConsumption {
 }
 
 export type McpLabTransportKind = 'http-in-process' | 'http-loopback' | 'stdio';
+export type McpLabProtocolEra = 'legacy' | 'modern';
 
 export interface McpLabFaultPlan {
+  assertCompatibleWithProtocolEra(era: McpLabProtocolEra): void;
   assertCompatibleWithTransport(transport: McpLabTransportKind): void;
   assertFullyConsumed(): void;
   consume(consumption: McpLabFaultConsumption): McpLabFault;
@@ -163,6 +179,10 @@ export interface McpLabFaultPlan {
   hasRemainingPhase(phase: McpLabProtocolPhase): boolean;
   observations(): readonly McpLabFaultObservation[];
   untriggeredIds(): readonly string[];
+}
+
+export function isServerToClientOnlyMethod(method: string): boolean {
+  return SERVER_TO_CLIENT_ONLY_METHODS.has(method as McpLabProtocolMethod);
 }
 
 const CREATED_MCP_LAB_FAULT_PLANS = new WeakSet<object>();
@@ -403,6 +423,9 @@ function faultSupportsTransport(
   if (declaration.match.phase === 'shutdown') {
     return true;
   }
+  if (isServerToClientOnlyMethod(declaration.match.method)) {
+    return false;
+  }
   if (transport !== 'stdio') {
     if (declaration.match.phase === 'child-process') {
       return false;
@@ -415,9 +438,6 @@ function faultSupportsTransport(
   if (declaration.match.phase === 'authorization' || declaration.match.phase === 'transport') {
     return false;
   }
-  if (STDIO_INBOUND_ONLY_METHODS.has(declaration.match.method)) {
-    return false;
-  }
   if (
     declaration.fault.kind === 'drop_response' &&
     declaration.match.method.startsWith('notifications/')
@@ -425,6 +445,16 @@ function faultSupportsTransport(
     return false;
   }
   return declaration.fault.kind === 'delay' || declaration.fault.kind === 'drop_response';
+}
+
+function faultSupportsProtocolEra(
+  declaration: McpLabFaultDeclaration,
+  era: McpLabProtocolEra
+): boolean {
+  if (era === 'modern') {
+    return !LEGACY_ONLY_METHODS.has(declaration.match.method);
+  }
+  return !MODERN_ONLY_METHODS.has(declaration.match.method);
 }
 
 function freezeDeclaration(declaration: McpLabFaultDeclaration): McpLabFaultDeclaration {
@@ -569,7 +599,14 @@ function validateFaultDeclarations(declarations: readonly McpLabFaultDeclaration
 export function createMcpLabFaultPlan(
   declarations: readonly McpLabFaultDeclaration[]
 ): McpLabFaultPlan {
-  const snapshots = declarations.map((declaration) => snapshotDeclaration(declaration));
+  if (!Array.isArray(declarations)) {
+    throw new Error('Invalid MCP lab fault declarations: expected an array');
+  }
+  const declarationCount = declarations.length;
+  const snapshots: McpLabFaultDeclaration[] = [];
+  for (let index = 0; index < declarationCount; index += 1) {
+    snapshots.push(snapshotDeclaration(declarations[index]));
+  }
   validateFaultDeclarations(snapshots);
 
   const immutableDeclarations = snapshots.map(freezeDeclaration);
@@ -608,6 +645,17 @@ export function createMcpLabFaultPlan(
   }
 
   const plan: McpLabFaultPlan = Object.freeze({
+    assertCompatibleWithProtocolEra(era: McpLabProtocolEra) {
+      const incompatible = immutableDeclarations.find(
+        (declaration) => !faultSupportsProtocolEra(declaration, era)
+      );
+      if (!incompatible) {
+        return;
+      }
+      throw new Error(
+        `MCP lab fault "${incompatible.id}" at ${incompatible.match.phase}/${incompatible.match.method} is incompatible with ${era} protocol`
+      );
+    },
     assertCompatibleWithTransport(transport: McpLabTransportKind) {
       const incompatible = immutableDeclarations.find(
         (declaration) => !faultSupportsTransport(declaration, transport)

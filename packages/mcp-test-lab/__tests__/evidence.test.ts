@@ -348,17 +348,19 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/credential-assignment/i);
   });
 
-  it.each(['AWS_SESSION_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK'])(
-    'detects the repository-supported %s credential key',
-    (credentialKey) => {
-      expect(scanEvidenceTextForSecrets(`${credentialKey}=opaque-value`)).toEqual([
-        expect.objectContaining({ kind: 'credential-assignment' }),
-      ]);
-      expect(
-        scanEvidenceTextForSecrets(`https://example.test/callback?${credentialKey}=opaque-value`)
-      ).toEqual([expect.objectContaining({ kind: 'credential-bearing-url' })]);
-    }
-  );
+  it.each([
+    'AWS_SESSION_TOKEN',
+    'AWS_BEARER_TOKEN_BEDROCK',
+    'GH_ENTERPRISE_TOKEN',
+    'GITHUB_ENTERPRISE_TOKEN',
+  ])('detects the repository-supported %s credential key', (credentialKey) => {
+    expect(scanEvidenceTextForSecrets(`${credentialKey}=opaque-value`)).toEqual([
+      expect.objectContaining({ kind: 'credential-assignment' }),
+    ]);
+    expect(
+      scanEvidenceTextForSecrets(`https://example.test/callback?${credentialKey}=opaque-value`)
+    ).toEqual([expect.objectContaining({ kind: 'credential-bearing-url' })]);
+  });
 
   it('rejects nested values under decoded credential keys', () => {
     const bytes = new TextEncoder().encode('{"access\\u005ftoken":["abc"]}');
@@ -398,6 +400,24 @@ describe('parseMcpEvidenceBundle', () => {
   it('detects credentials inside serialized NDJSON string fields', () => {
     const nestedNdjson = '{"ok":true}\n{"access\\u005ftoken":"x"}';
     const bytes = new TextEncoder().encode(JSON.stringify({ body: nestedNdjson }));
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
+  it('detects serialized credentials with Unicode-escaped container delimiters', () => {
+    const serialized = '\\u007b"access\\u005ftoken":"x"\\u007d';
+    const bytes = new TextEncoder().encode(JSON.stringify({ body: serialized }));
     const bundle = {
       ...VALID_BUNDLE,
       artifacts: [
@@ -844,6 +864,45 @@ describe('parseMcpEvidenceBundle', () => {
   it('detects a balanced JSON credential container before trailing text', () => {
     const bytes = new TextEncoder().encode(
       '<script>{"access\\u005ftoken":"opaque-secret"}</script>'
+    );
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
+  it.each([
+    String.raw`INFO body={\\"access_token\\":\\"opaque-secret\\"}`,
+    String.raw`\u007b\u0022access_token\u0022:\u0022opaque-secret\u0022\u007d`,
+  ])('detects multilayer or fully Unicode-escaped JSON credentials', (text) => {
+    const bytes = new TextEncoder().encode(text);
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
+  it('detects balanced prefixed JSON containers spanning multiple lines', () => {
+    const bytes = new TextEncoder().encode(
+      'INFO body={\n  "access\\u005ftoken":"opaque-secret"\n}'
     );
     const bundle = {
       ...VALID_BUNDLE,
