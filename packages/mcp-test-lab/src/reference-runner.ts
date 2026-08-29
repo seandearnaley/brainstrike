@@ -141,6 +141,25 @@ function echoText(value: unknown): string | undefined {
   return typeof structured.text === 'string' ? structured.text : undefined;
 }
 
+async function runEchoTest(
+  client: Client,
+  phase: McpLabRunnerPhase,
+  value: string
+): Promise<boolean> {
+  if (phase !== 'red') {
+    return echoText(await client.callTool({ arguments: { text: value }, name: 'echo' })) === value;
+  }
+  try {
+    await client.callTool({ arguments: { text: value }, name: 'missing-red-mutation' });
+  } catch (error) {
+    if (error instanceof Error && /missing-red-mutation|not found|unknown/iu.test(error.message)) {
+      return false;
+    }
+    throw error;
+  }
+  throw new Error('MCP reference runner RED mutation did not produce a server rejection');
+}
+
 class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
   private client: Client | undefined;
   private closePromise: Promise<{ readonly details: string; readonly verified: true }> | undefined;
@@ -232,12 +251,8 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
         throw new Error('MCP reference runner server does not expose the echo tool');
       }
       const value = `${this.runnerCase.id}-${this.phase}`;
-      const actual = echoText(
-        await this.client.callTool({ arguments: { text: value }, name: 'echo' })
-      );
+      const passed = await runEchoTest(this.client, this.phase, value);
       signal.throwIfAborted();
-      const expected = this.phase === 'red' ? `${value}-mutation-canary` : value;
-      const passed = actual === expected;
       const negotiated = this.client.getNegotiatedProtocolVersion();
       if (negotiated !== version) {
         throw new Error(
@@ -250,7 +265,9 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
       }
       return Object.freeze({
         capabilities: Object.freeze(Object.keys(serverCapabilities).sort()),
-        correlationIds: Object.freeze([`${this.runnerCase.id}-${this.phase}`]),
+        correlationIds: Object.freeze([
+          `${this.runnerCase.id}-${this.phase}${this.phase === 'red' ? '-tool-rejection' : ''}`,
+        ]),
         exitStatus: passed ? 0 : 1,
         negotiation:
           this.lab.scenario.protocol.era === 'legacy'

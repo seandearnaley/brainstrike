@@ -51,6 +51,7 @@ describe('MCP official reference runner', () => {
       ]);
       expect(schema.cleanup).toMatchObject({ exitStatus: 0, verified: true });
       expect(schema.correlationIds).toHaveLength(3);
+      expect(schema.correlationIds[0]).toBe(`${schema.scenarioId}-red-tool-rejection`);
       expect(schema.negotiation.capabilities).toEqual(['tools']);
     }
     expect(JSON.stringify(bundles)).not.toMatch(/bearer|access[_-]?token|client[_-]?secret/i);

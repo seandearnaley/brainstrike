@@ -17,6 +17,7 @@ function invalid(message: string): never {
 }
 
 const CLI_FLAGS = new Set(['--profile', '--ticket', '--output', '--sha', '--workspace-state']);
+const PORTABLE_OUTPUT_PATH = /^[A-Za-z0-9._/-]+\.json$/u;
 
 function collectValues(argv: unknown): ReadonlyMap<string, string> {
   if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) {
@@ -47,8 +48,8 @@ function collectValues(argv: unknown): ReadonlyMap<string, string> {
 }
 
 function relativeJsonPath(value: string): string {
-  if (isAbsolute(value) || !value.endsWith('.json')) {
-    invalid('output must be a relative JSON path');
+  if (isAbsolute(value) || !PORTABLE_OUTPUT_PATH.test(value)) {
+    invalid('output must be a portable relative JSON path using safe path characters');
   }
   const normalized = normalize(value);
   const parentPrefix = `..${process.platform === 'win32' ? '\\' : '/'}`;

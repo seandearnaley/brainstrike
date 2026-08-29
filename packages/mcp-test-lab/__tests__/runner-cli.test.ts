@@ -2,22 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { mcpLabRunnerEvidenceCommand, parseMcpLabRunnerCliArgs } from '../src/runner-cli';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
+const VALID_ARGS = [
+  '--profile',
+  'pr',
+  '--ticket',
+  'BST-1496',
+  '--output',
+  'artifacts/mcp-pr.json',
+  '--sha',
+  SHA,
+  '--workspace-state',
+  'clean',
+];
+
+function replaceValue(index: number, value: string): string[] {
+  const args = [...VALID_ARGS];
+  args[index] = value;
+  return args;
+}
 
 describe('MCP verifier runner CLI', () => {
   it('requires explicit exact-head identity and returns a frozen selection', () => {
-    const parsed = parseMcpLabRunnerCliArgs([
-      '--',
-      '--profile',
-      'pr',
-      '--ticket',
-      'BST-1496',
-      '--output',
-      'artifacts/mcp-pr.json',
-      '--sha',
-      SHA,
-      '--workspace-state',
-      'clean',
-    ]);
+    const parsed = parseMcpLabRunnerCliArgs(['--', ...VALID_ARGS]);
 
     expect(parsed).toEqual({
       output: 'artifacts/mcp-pr.json',
@@ -36,92 +42,15 @@ describe('MCP verifier runner CLI', () => {
     [
       [],
       ['--profile', 'pr'],
-      [
-        '--profile',
-        'missing',
-        '--ticket',
-        'BST-1496',
-        '--output',
-        'a.json',
-        '--sha',
-        SHA,
-        '--workspace-state',
-        'clean',
-      ],
-      [
-        '--profile',
-        'pr',
-        '--ticket',
-        '1496',
-        '--output',
-        'a.json',
-        '--sha',
-        SHA,
-        '--workspace-state',
-        'clean',
-      ],
-      [
-        '--profile',
-        'pr',
-        '--ticket',
-        'BST-1496',
-        '--output',
-        '../a.json',
-        '--sha',
-        SHA,
-        '--workspace-state',
-        'clean',
-      ],
-      [
-        '--profile',
-        'pr',
-        '--ticket',
-        'BST-1496',
-        '--output',
-        'a.txt',
-        '--sha',
-        SHA,
-        '--workspace-state',
-        'clean',
-      ],
-      [
-        '--profile',
-        'pr',
-        '--ticket',
-        'BST-1496',
-        '--output',
-        'a.json',
-        '--sha',
-        'abc',
-        '--workspace-state',
-        'clean',
-      ],
-      [
-        '--profile',
-        'pr',
-        '--ticket',
-        'BST-1496',
-        '--output',
-        'a.json',
-        '--sha',
-        SHA,
-        '--workspace-state',
-        'unknown',
-      ],
-      [
-        '--profile',
-        'pr',
-        '--profile',
-        'pr',
-        '--ticket',
-        'BST-1496',
-        '--output',
-        'a.json',
-        '--sha',
-        SHA,
-        '--workspace-state',
-        'clean',
-      ],
+      replaceValue(1, 'missing'),
+      replaceValue(3, '1496'),
+      replaceValue(5, '../a.json'),
+      replaceValue(5, 'a.txt'),
+      replaceValue(5, 'artifacts/mcp report.json'),
+      replaceValue(5, 'artifacts/mcp;report.json'),
+      replaceValue(7, 'abc'),
+      replaceValue(9, 'unknown'),
+      [...VALID_ARGS, '--profile', 'pr'],
     ].map((argv) => [argv] as const)
   )('fails closed for malformed argv %j', (argv) => {
     expect(() => parseMcpLabRunnerCliArgs(argv)).toThrow(/invalid MCP lab runner arguments/i);
