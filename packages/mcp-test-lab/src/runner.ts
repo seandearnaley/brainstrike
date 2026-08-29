@@ -243,14 +243,16 @@ export async function runMcpLabVerification(
   const runDeadline = createMcpLabRunnerDeadline(selection.runTimeoutMs, dependencies.now);
   const bundles: McpEvidenceBundle[] = [];
   for (const runnerCase of selection.cases) {
+    const caseDeadline = createMcpLabRunnerDeadline(selection.caseTimeoutMs, dependencies.now);
+    const remainingMs = () => Math.min(caseDeadline.remainingMs(), runDeadline.remainingMs());
     const completed: CompletedPhase[] = [];
     for (const phase of MCP_LAB_RUNNER_PHASES) {
+      caseDeadline.assertActive(`${runnerCase.id}/${phase}`);
       runDeadline.assertActive(`${runnerCase.id}/${phase}`);
-      const timeoutMs = Math.ceil(Math.min(selection.caseTimeoutMs, runDeadline.remainingMs()));
-      completed.push(
-        await runPhase(runnerCase, phase, timeoutMs, runDeadline.remainingMs, dependencies)
-      );
+      const timeoutMs = Math.ceil(remainingMs());
+      completed.push(await runPhase(runnerCase, phase, timeoutMs, remainingMs, dependencies));
     }
+    caseDeadline.assertActive(`${runnerCase.id}/case/evidence`);
     runDeadline.assertActive(`${runnerCase.id}/evidence`);
     bundles.push(await buildEvidence(runnerCase, completed, input, integrity));
   }

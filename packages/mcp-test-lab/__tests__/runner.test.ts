@@ -320,4 +320,35 @@ describe('MCP bounded verification runner', () => {
       )
     ).rejects.toThrow(/modern-stdio.*evidence.*100 ms/i);
   });
+
+  it('shares one case budget across RED, GREEN, and verification', async () => {
+    let now = 0;
+    await expect(
+      runMcpLabVerification(
+        input('pr', {
+          selection: {
+            caseIds: ['modern-stdio'],
+            caseTimeoutMs: 100,
+            profile: 'pr',
+            runTimeoutMs: 1000,
+          },
+        }),
+        {
+          createPhaseOwner(runnerCase, phase) {
+            return {
+              async close() {
+                return { details: 'closed', verified: true };
+              },
+              async run() {
+                now += 40;
+                return observation(runnerCase, phase);
+              },
+            };
+          },
+          now: () => now,
+        },
+        { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+      )
+    ).rejects.toThrow(/modern-stdio.*case.*100 ms/i);
+  });
 });
