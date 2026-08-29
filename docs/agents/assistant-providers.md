@@ -2069,8 +2069,55 @@ codec registry at `cc4b416`. Authentication, era, transport, fixture, and
 execution discriminators are closed. `assertScenarioFaultCompatibility` is the
 single mapping from a canonical scenario plus execution topology to those
 validators; callers never translate `streamable-http` into a lab transport.
-No runtime may attach a plan until the runtime layers add and verify their
-session-ownership and cleanup gates.
+
+HTTP fault execution is private package machinery; the executor, qualifier,
+correlation registry, OAuth hooks, and dropped-response sentinel are not public
+exports. A scenario snapshots and compatibility-checks its branded plan before
+allocating a handler, listener, OAuth record, or child. This layer accepts only
+HTTP in-process and loopback coordinates. Stdio, child-process, shutdown,
+server-to-client, wrong-era, and fixture-unreachable coordinates fail at
+startup; their execution belongs to later verifier layers.
+
+An MCP request can advance an HTTP or protocol occurrence only after one
+serialized ingress qualifier proves the exact advertised `/mcp` URL with no
+query, POST, JSON content type, a singleton SDK `ClientRequest` or
+`ClientNotification`, the scenario era, the 2026 envelope when modern, and
+standard header/body agreement. The qualifier uses the pinned SDK's
+`classifyInboundRequest` and `specTypeSchemas`; it does not maintain a second
+direction or envelope parser. Modern JSON-RPC requests require `Mcp-Method`;
+notifications may omit it but must agree when present, and `tools/call` also
+requires decoded `Mcp-Name` agreement. Bodyless, malformed,
+batch, posted-response, wrong-route, wrong-verb, wrong-direction, unsupported,
+and header-disagreeing traffic reaches the ordinary SDK rejection path without
+consuming a fault. The parsed clone is passed to the SDK handler so an eligible
+request is parsed once, and qualification stops cloning when no relevant fault
+remains.
+
+Non-OAuth loopback order is host/origin and advertised-authority validation,
+qualification and unique correlation reservation, `node/dispatch`,
+`http/request`, protocol injection, the real handler, then `http/response`.
+OAuth loopback uses the same outer transport stages, routes authorization faults
+through the validated OAuth endpoints, and defers MCP protocol injection until
+after bearer authentication. Occurrences are independent per exact
+phase/method. Ingress-stage coordinates are assigned in ingress order;
+`http/response` is assigned in response-completion order. Caller correlations
+must satisfy the bounded safe predicate and cannot repeat while the plan remains
+active; generated correlations are deterministic and session-unique. Delay is
+the only non-terminal HTTP fault. Status, malformed JSON, and drop stop later
+coordinates; response-stage replacements cancel the displaced body before
+returning or throwing.
+
+OAuth authorization faults run inside route-owned hooks after complete route,
+body, client, redirect, resource, state, PKCE, and capacity validation but
+before client/code/token mutation. MCP operation faults run only after bearer
+authentication and bounded body preparation. Thus a valid unauthenticated MCP
+request may consume an outer transport fault but never an operation fault.
+In-process drop rejects `endpoint.fetch`; loopback drop destroys the socket
+before status bytes are written and leaves the listener usable. Handler
+diagnostics are capped at 64 per session and contain only a safe correlation,
+fault id, and fixed message. Session close waits for active fault delays before
+closing owned handlers and listeners; its report exposes the closed-listener
+count, sanitized OAuth record counts, and every untriggered fault id.
 
 ---
 
