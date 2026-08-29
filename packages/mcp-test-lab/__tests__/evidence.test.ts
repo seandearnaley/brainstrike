@@ -301,6 +301,30 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/credential-assignment/i);
   });
 
+  it('does not classify ordinary namespaced metadata as credentials', () => {
+    expect(
+      scanEvidenceTextForSecrets(
+        'status_code=200 input_token=42 not_authorization=false https://example.test/?status-code=200'
+      )
+    ).toEqual([]);
+
+    const bytes = new TextEncoder().encode(
+      '{"status_code":"200","input_token":"42","not_authorization":"false"}'
+    );
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+    expect(
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toMatchObject({ ticket: 'BST-1475' });
+  });
+
   it('detects credentials inside serialized JSON string fields', () => {
     const bytes = new TextEncoder().encode(
       '{"body":"{\\"access\\\\u005ftoken\\":\\"opaque-0123456789abcdef\\"}"}'

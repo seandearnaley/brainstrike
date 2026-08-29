@@ -163,13 +163,20 @@ const CREDENTIAL_KEYS = [
   'token',
 ] as const;
 const CREDENTIAL_KEY_SUFFIXES = [...CREDENTIAL_KEYS, 'secret_access_key'] as const;
+const AMBIGUOUS_CREDENTIAL_KEYS = ['authorization', 'code', 'token'] as const;
+const NAMESPACED_CREDENTIAL_KEY_SUFFIXES = CREDENTIAL_KEY_SUFFIXES.filter(
+  (key) => !(AMBIGUOUS_CREDENTIAL_KEYS as readonly string[]).includes(key)
+);
 const GENERIC_CREDENTIAL_KEYS = new Set(['authorization', 'code', 'token']);
 const MAX_SERIALIZED_JSON_SCAN_DEPTH = 4;
-const CREDENTIAL_ASSIGNMENT_KEYS = CREDENTIAL_KEY_SUFFIXES.map((key) =>
+const AMBIGUOUS_ASSIGNMENT_KEYS = AMBIGUOUS_CREDENTIAL_KEYS.map((key) =>
+  key.replaceAll('_', '[_ .-]')
+);
+const NAMESPACED_ASSIGNMENT_KEYS = NAMESPACED_CREDENTIAL_KEY_SUFFIXES.map((key) =>
   key.replaceAll('_', '[_ .-]')
 );
 const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
-  `\\b((?:[a-z0-9]+[_.-])*(?:${CREDENTIAL_ASSIGNMENT_KEYS.join('|')}))["']?[ \\t]*[:=][ \\t]*(?:"([^"]+)"|'([^']+)'|([^\\s]+))`,
+  `(?<![a-z0-9_.-])((?:${AMBIGUOUS_ASSIGNMENT_KEYS.join('|')})|(?:[a-z0-9]+[_.-])*(?:${NAMESPACED_ASSIGNMENT_KEYS.join('|')}))["']?[ \\t]*[:=][ \\t]*(?:"([^"]+)"|'([^']+)'|([^\\s]+))`,
   'gi'
 );
 
@@ -896,9 +903,11 @@ function hasCredentialParameter(parameters: URLSearchParams): boolean {
 
 function credentialLabelForKey(key: string): string | undefined {
   const normalizedKey = key.toLowerCase().replaceAll(/[ .-]/g, '_');
-  return CREDENTIAL_KEY_SUFFIXES.find(
-    (suffix) => normalizedKey === suffix || normalizedKey.endsWith(`_${suffix}`)
-  );
+  const exact = CREDENTIAL_KEYS.find((candidate) => normalizedKey === candidate);
+  if (exact) {
+    return exact;
+  }
+  return NAMESPACED_CREDENTIAL_KEY_SUFFIXES.find((suffix) => normalizedKey.endsWith(`_${suffix}`));
 }
 
 function credentialAssignmentKind(label: string): EvidenceSecretKind {
