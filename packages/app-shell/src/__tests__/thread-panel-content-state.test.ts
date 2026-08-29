@@ -32,15 +32,34 @@ function resolve(
   return resolveThreadPanelContentState({
     databaseError: null,
     databaseStartupLoading: false,
+    folderGrouping: null,
     loadState: { status: 'ready' },
     repositoryReady: true,
+    threadFiltersActive: false,
     threads: [thread('thread-a')],
     view: POPULATED_FLAT,
     ...overrides,
   });
 }
 
+type ContentStateInput = Parameters<typeof resolveThreadPanelContentState>[0];
+type IsRequired<Key extends keyof ContentStateInput> =
+  Pick<ContentStateInput, Key> extends Record<Key, ContentStateInput[Key]> ? true : false;
+type Assert<Condition extends true> = Condition;
+
+type FolderGroupingMustBeRequired = Assert<IsRequired<'folderGrouping'>>;
+type ThreadFiltersActiveMustBeRequired = Assert<IsRequired<'threadFiltersActive'>>;
+
+const REQUIRED_INPUT_CONTRACT: readonly [
+  FolderGroupingMustBeRequired,
+  ThreadFiltersActiveMustBeRequired,
+] = [true, true];
+
 describe('resolveThreadPanelContentState', () => {
+  it('requires callers to state folder-grouping and filter activity explicitly', () => {
+    expect(REQUIRED_INPUT_CONTRACT).toEqual([true, true]);
+  });
+
   it('shows the treegrid once the repository is ready and threads exist', () => {
     expect(resolve()).toEqual({ kind: 'tree' });
   });

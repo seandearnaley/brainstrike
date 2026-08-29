@@ -98,20 +98,20 @@ export interface ThreadPanelFolderGroupingState {
 export function resolveThreadPanelContentState({
   databaseError,
   databaseStartupLoading,
-  folderGrouping = null,
+  folderGrouping,
   loadState,
   repositoryReady,
-  threadFiltersActive = false,
+  threadFiltersActive,
   threads,
   view,
 }: {
   readonly databaseError: Error | null;
   readonly databaseStartupLoading: boolean;
-  readonly folderGrouping?: ThreadPanelFolderGroupingState | null;
+  readonly folderGrouping: ThreadPanelFolderGroupingState | null;
   readonly loadState: ThreadPanelLoadState | null;
   readonly repositoryReady: boolean;
   /** True when `threads` has already been narrowed by the Show only filters. */
-  readonly threadFiltersActive?: boolean;
+  readonly threadFiltersActive: boolean;
   readonly threads: readonly AssistantMemoryThread[];
   readonly view: ThreadListView;
 }): ThreadPanelContentState {
