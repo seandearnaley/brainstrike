@@ -1958,8 +1958,11 @@ scenario ids fail visibly, and every manifest records that it consumes no
 ambient credentials. `modern-reference` and `legacy-reference` have
 `availability: 'executable'` because the lab exports a Brainstrike-owned SDK v2
 echo fixture and focused real client exchanges for both eras over in-process
-HTTP. `stdio-reference` and `oauth-reference` remain `availability: 'declared'`
-until their owning layers land executable fixtures and focused exchange tests.
+and ephemeral loopback HTTP. Loopback listeners bind only `127.0.0.1` on an
+ephemeral port, apply the SDK localhost Host/Origin validators, and close before
+the session reports completion. `stdio-reference` and `oauth-reference` remain
+`availability: 'declared'` until their owning layers land executable fixtures
+and focused exchange tests.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a

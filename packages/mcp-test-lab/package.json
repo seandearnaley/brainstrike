@@ -3,6 +3,7 @@
   "description": "Deterministic MCP protocol fixtures, faults, and verification evidence for Brainstrike tests",
   "version": "0.1.0",
   "dependencies": {
+    "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "zod": "catalog:"
   },
