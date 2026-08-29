@@ -2000,8 +2000,22 @@ error class and issue metadata are public.
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
 transport, fault coordinate, OAuth route, evidence guarantee, or runner before
-that branch contains its executable path and focused verifier. Current public
-verifier subpaths: `./evidence`, `./faults`, `./lab`, `./scenario`.
+that branch contains its executable path and focused verifier. The private
+runner manifest owns two closed deterministic profiles over six case ids:
+
+- `pr`: 4 cases, 10,000 ms per case, 60,000 ms per run — modern in-process
+  HTTP, legacy loopback HTTP, OAuth loopback HTTP, and modern stdio.
+- `exhaustive`: 6 cases, 20,000 ms per case, 180,000 ms per run — the PR set
+  plus modern loopback and legacy in-process HTTP.
+
+Selection accepts only `profile`, `caseIds`, `caseTimeoutMs`, and
+`runTimeoutMs`; unknown fields, duplicate/foreign case ids, and out-of-bound
+timeouts fail visibly. Omitted optional fields use the profile defaults.
+Explicit `undefined` values are malformed and never treated as omission. A run
+may select at most 64 cases, a case timeout stays within 100–60,000 ms, and a
+run timeout stays within 100–600,000 ms without falling below its case timeout.
+Current public verifier subpaths: `./evidence`, `./faults`, `./lab`,
+`./scenario`.
 
 ### MCP 2026 host architecture
 

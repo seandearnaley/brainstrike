@@ -109,9 +109,6 @@ function selectCaseIds(
   profile: McpLabRunnerProfile
 ): readonly McpLabRunnerCaseId[] {
   const profileIds: readonly McpLabRunnerCaseId[] = PROFILE_CASE_IDS[profile];
-  if (input === undefined) {
-    return profileIds;
-  }
   if (!Array.isArray(input) || input.length < 1 || input.length > MAX_MCP_LAB_RUNNER_CASES) {
     invalidSelection(`caseIds must contain from 1 to ${MAX_MCP_LAB_RUNNER_CASES} entries`);
   }
@@ -148,28 +145,28 @@ export function selectMcpLabRunnerCases(input: unknown): McpLabRunnerSelection {
   }
   const profile = parseProfile(input['profile']);
   const defaults = PROFILE_TIMEOUTS[profile];
-  const caseTimeoutMs =
-    input['caseTimeoutMs'] === undefined
-      ? defaults.caseTimeoutMs
-      : boundedInteger(
-          input['caseTimeoutMs'],
-          'caseTimeoutMs',
-          MIN_MCP_LAB_CASE_TIMEOUT_MS,
-          MAX_MCP_LAB_CASE_TIMEOUT_MS
-        );
-  const runTimeoutMs =
-    input['runTimeoutMs'] === undefined
-      ? defaults.runTimeoutMs
-      : boundedInteger(
-          input['runTimeoutMs'],
-          'runTimeoutMs',
-          MIN_MCP_LAB_CASE_TIMEOUT_MS,
-          MAX_MCP_LAB_RUN_TIMEOUT_MS
-        );
+  const caseTimeoutMs = Object.hasOwn(input, 'caseTimeoutMs')
+    ? boundedInteger(
+        input['caseTimeoutMs'],
+        'caseTimeoutMs',
+        MIN_MCP_LAB_CASE_TIMEOUT_MS,
+        MAX_MCP_LAB_CASE_TIMEOUT_MS
+      )
+    : defaults.caseTimeoutMs;
+  const runTimeoutMs = Object.hasOwn(input, 'runTimeoutMs')
+    ? boundedInteger(
+        input['runTimeoutMs'],
+        'runTimeoutMs',
+        MIN_MCP_LAB_CASE_TIMEOUT_MS,
+        MAX_MCP_LAB_RUN_TIMEOUT_MS
+      )
+    : defaults.runTimeoutMs;
   if (runTimeoutMs < caseTimeoutMs) {
     invalidSelection('runTimeoutMs must be greater than or equal to caseTimeoutMs');
   }
-  const caseIds = selectCaseIds(input['caseIds'], profile);
+  const caseIds = Object.hasOwn(input, 'caseIds')
+    ? selectCaseIds(input['caseIds'], profile)
+    : PROFILE_CASE_IDS[profile];
   const cases = Object.freeze(
     caseIds.map((id) => {
       const entry = CASE_BY_ID.get(id);

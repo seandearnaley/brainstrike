@@ -73,6 +73,9 @@ describe('MCP verifier runner manifest', () => {
     { caseIds: [], profile: 'pr' },
     { caseIds: ['missing'], profile: 'exhaustive' },
     { caseIds: ['modern-stdio', 'modern-stdio'], profile: 'exhaustive' },
+    { caseIds: undefined, profile: 'pr' },
+    { caseTimeoutMs: undefined, profile: 'pr' },
+    { profile: 'pr', runTimeoutMs: undefined },
     {
       caseIds: new Array(MAX_MCP_LAB_RUNNER_CASES + 1).fill('modern-stdio'),
       profile: 'exhaustive',
