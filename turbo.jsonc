@@ -76,6 +76,7 @@
       "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers
       "turbo.jsonc", // Turborepo configuration
       "biome.json", // Formatting/linting configuration
+      "docs/agents/assistant-providers.md", // MCP lab tests read this living cross-package contract
       ".nvmrc", // Node version specification
       "scripts/enforce-coverage.mjs", // Coverage thresholds (invalidates test cache when thresholds change)
       "scripts/verify-no-cross-chunk-cycles.mjs", // Cross-chunk cycle guard (BST-861); wired into apps/web `build` and apps/desktop `build:renderer` — must invalidate their build cache when edited
