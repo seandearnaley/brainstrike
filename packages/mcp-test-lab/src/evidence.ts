@@ -1,8 +1,10 @@
 import {
   type McpArtifactIntegrityDependencies,
   type McpArtifactIntegrityResult,
-  verifyMcpEvidenceArtifactIntegrity,
+  verifyParsedMcpEvidenceArtifactIntegrity,
 } from './evidence-artifact-integrity.js';
+import { parseMcpEvidenceSchema } from './evidence-schema.js';
+import { createEvidenceSanitizationSession } from './evidence-structured-secrets.js';
 
 export type {
   McpArtifactIntegrityCode,
@@ -23,6 +25,11 @@ export type {
   McpTestCounts,
 } from './evidence-schema.js';
 export { MCP_EVIDENCE_SCHEMA_VERSION, McpEvidenceValidationError } from './evidence-schema.js';
+export type {
+  McpEvidenceSecretCode,
+  McpEvidenceSecretIssue,
+} from './evidence-structured-secrets.js';
+export { McpEvidenceSecretError } from './evidence-structured-secrets.js';
 
 export type McpEvidenceBundle = McpArtifactIntegrityResult;
 
@@ -30,7 +37,16 @@ export async function verifyMcpEvidenceBundle(
   input: unknown,
   dependencies: McpArtifactIntegrityDependencies
 ): Promise<McpEvidenceBundle> {
-  const result = await verifyMcpEvidenceArtifactIntegrity(input, dependencies);
+  const schema = parseMcpEvidenceSchema(input);
+  const sanitizer = createEvidenceSanitizationSession();
+  sanitizer.assertMetadataSanitized(schema, '$');
+  const result = await verifyParsedMcpEvidenceArtifactIntegrity(
+    schema,
+    dependencies,
+    (text, index) => {
+      sanitizer.assertTextSanitized(text, `$.artifacts[${index}].content`);
+    }
+  );
   return deepFreeze(result);
 }
 
