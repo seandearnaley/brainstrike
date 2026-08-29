@@ -112,7 +112,7 @@ describe('MCP lab scenario manifest', () => {
     expect(MCP_LAB_SCENARIO_IDS.map((id) => [id, getMcpLabScenario(id).availability])).toEqual([
       ['modern-reference', 'executable'],
       ['legacy-reference', 'executable'],
-      ['stdio-reference', 'declared'],
+      ['stdio-reference', 'executable'],
       ['oauth-reference', 'declared'],
     ]);
   });

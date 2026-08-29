@@ -112,8 +112,8 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = Object.fre
   }),
   'stdio-reference': freezeScenario({
     authentication: 'none',
-    availability: 'declared',
-    description: 'Declared stdio reference contract; executable transport lands in BST-1480',
+    availability: 'executable',
+    description: 'Executable modern reference over one lab-owned spawned stdio child',
     fixture: 'brainstrike-stdio-reference',
     id: 'stdio-reference',
     network: 'loopback-only',

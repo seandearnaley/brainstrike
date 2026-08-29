@@ -1960,9 +1960,11 @@ ambient credentials. `modern-reference` and `legacy-reference` have
 echo fixture and focused real client exchanges for both eras over in-process
 and ephemeral loopback HTTP. Loopback listeners bind only `127.0.0.1` on an
 ephemeral port, apply the SDK localhost Host/Origin validators, and close before
-the session reports completion. `stdio-reference` and `oauth-reference` remain
-`availability: 'declared'` until their owning layers land executable fixtures
-and focused exchange tests.
+the session reports completion. `stdio-reference` is also executable through
+one lab-owned spawned child with an explicit empty environment; stderr is
+retained only as a byte count, and close proves the child is gone.
+`oauth-reference` remains `availability: 'declared'` until its owning layer
+lands an executable fixture and focused exchange tests.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
