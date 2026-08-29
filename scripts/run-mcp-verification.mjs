@@ -69,15 +69,7 @@ export function resolveGitEvidence({ env = process.env, runGit = runGitCommand }
 export function buildMcpVerificationInvocation({ forwardedArgs }, platform = process.platform) {
   return createSpawnInvocation(
     'pnpm',
-    [
-      '--filter',
-      '@brainstrike/mcp-test-lab',
-      'verify',
-      '--',
-      ...forwardedArgs,
-      '--ticket',
-      'BST-1486',
-    ],
+    ['--filter', '@brainstrike/mcp-test-lab', 'verify', '--', ...forwardedArgs],
     platform
   );
 }
@@ -97,6 +89,7 @@ export function main(
   { resolveEvidence = resolveGitEvidence, spawn = spawnSync } = {}
 ) {
   const forwardedArgs = normalizeForwardedArgs(rawArgs);
+  // Guard GitHub identity here; the package independently derives what it records.
   resolveEvidence();
   const invocation = buildMcpVerificationInvocation({ forwardedArgs });
   const result = spawn(invocation.command, invocation.args, {

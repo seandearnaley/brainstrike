@@ -2027,8 +2027,8 @@ deeply frozen bundle. Current public verifier subpaths:
 `./evidence`, `./faults`, `./lab`, `./runner`, `./scenario`.
 
 The package CLI derives exact Git identity and dirty or clean workspace state;
-those values are not caller arguments. The repository-owned wrapper fixes the
-ticket and rejects a GitHub Actions checkout whose `GITHUB_SHA` differs from
+those values are not caller arguments. The package CLI fixes the evidence ticket
+to `BST-1486`; the repository wrapper rejects a GitHub Actions checkout whose `GITHUB_SHA` differs from
 `HEAD` or whose tracked/untracked state is dirty before the run. The PR-required
 representative command is `pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`.
 The exhaustive schedule/manual command is `pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`.

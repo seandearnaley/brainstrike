@@ -44,7 +44,7 @@ would duplicate the required representative gate.
 `scripts/run-mcp-verification.mjs` is an identity guard, not a planner. It
 derives `HEAD` and porcelain workspace state and under GitHub Actions requires
 `GITHUB_SHA` to equal `HEAD` and the checkout to be clean. It then invokes the
-one package CLI with the fixed parent ticket `BST-1486`; that CLI independently
+one package CLI, which fixes the parent ticket to `BST-1486` and independently
 derives the Git identity recorded in evidence. The wrapper accepts exactly one
 closed profile and one safe JSON output below `artifacts/`; unknown, duplicate,
 or shell-sensitive input fails before platform-specific spawning. The paired script tests control
