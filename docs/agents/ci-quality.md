@@ -27,6 +27,29 @@ Rules:
   and the next all-green push closes it — see "A red `main` announces itself"
   below.
 
+### MCP verifier lanes (BST-1495)
+
+The required `Static` job and the default local `pnpm check` plan both invoke
+`pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`.
+That representative profile is part of the required PR gate; it is not advisory
+and must not gain `continue-on-error`, an event predicate, or a second selection
+planner. `.github/workflows/mcp-verification.yml` owns only the scheduled and
+manual exhaustive lane, using
+`pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`.
+The exhaustive job has a ten-minute outer bound, an eight-minute verifier-step
+bound, and uploads the exact-SHA sanitized evidence for 14 days. Its triggers
+must remain `schedule` plus `workflow_dispatch`; adding PR or push ownership
+would duplicate the required representative gate.
+
+`scripts/run-mcp-verification.mjs` is an identity adapter, not a planner. It
+derives `HEAD` and porcelain workspace state, rejects caller-provided ticket,
+SHA, or workspace-state values, and under GitHub Actions requires `GITHUB_SHA`
+to equal `HEAD` and the checkout to be clean. It then invokes the one package
+CLI with the fixed parent ticket `BST-1486`. The paired script tests control
+identity mismatch and dirty-checkout failures; the CI contract test pins the
+commands, profile ownership, timeouts, artifact path/retention, and local-check
+mapping.
+
 ### Open PR to Linear conformance (BST-521)
 
 Every human-authored pull request description must contain a Brainstrike issue

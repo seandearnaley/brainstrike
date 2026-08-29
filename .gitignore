@@ -165,6 +165,7 @@ apps/desktop/resources/python-runtime/*
 **/.vitest-attachments/
 packages/db/.vitest-reports/
 packages/ui/src/**/__screenshots__/
+packages/mcp-test-lab/artifacts/
 
 .claude
 .impeccable/

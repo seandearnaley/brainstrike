@@ -24,7 +24,7 @@ describe('MCP verifier runner CLI', () => {
     });
     expect(Object.isFrozen(parsed)).toBe(true);
     expect(mcpLabRunnerEvidenceCommand(parsed)).toBe(
-      'pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr --output artifacts/mcp-pr.json'
+      'pnpm run verify:mcp -- --profile pr --output artifacts/mcp-pr.json'
     );
   });
 

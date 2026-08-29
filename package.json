@@ -120,6 +120,7 @@
     "test:scripts": "node --test scripts/__tests__/*.test.mjs",
     "test:vector": "pnpm --filter @brainstrike/db test:vector",
     "type-check": "node scripts/run-turbo-command.mjs -- run type-check --summarize --log-order=grouped",
+    "verify:mcp": "node scripts/run-mcp-verification.mjs",
     "vercel:build": "pnpm build:web",
     "vercel:dev": "pnpm dev --filter @brainstrike/web"
   },

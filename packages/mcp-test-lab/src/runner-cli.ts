@@ -72,7 +72,7 @@ export function parseMcpLabRunnerCliArgs(argv: unknown): McpLabRunnerCliArgs {
 }
 
 export function mcpLabRunnerEvidenceCommand(args: McpLabRunnerCliArgs): string {
-  return `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile ${args.profile} --output ${args.output}`;
+  return `pnpm run verify:mcp -- --profile ${args.profile} --output ${args.output}`;
 }
 
 export function resolveMcpLabRunnerGitEvidence(

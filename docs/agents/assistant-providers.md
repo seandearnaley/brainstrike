@@ -2026,6 +2026,15 @@ capability set before the existing evidence sanitizer and artifact-integrity ver
 deeply frozen bundle. Current public verifier subpaths:
 `./evidence`, `./faults`, `./lab`, `./runner`, `./scenario`.
 
+The repository-owned runner command supplies the exact Git identity and dirty or
+clean workspace state; callers cannot override its ticket, SHA, or workspace
+state. It rejects a GitHub Actions checkout whose `GITHUB_SHA` differs from
+`HEAD` or whose tracked/untracked state is dirty before the run. The PR-required
+representative command is `pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`.
+The exhaustive schedule/manual command is `pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`.
+Both reach the same package CLI and emit atomically verified, credential-free
+JSON below the ignored `packages/mcp-test-lab/artifacts/` directory.
+
 ### MCP 2026 host architecture
 
 This is the living production contract for the MCP 2026 migration. The dated
