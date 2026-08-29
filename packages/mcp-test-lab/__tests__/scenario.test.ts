@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { findPackageJSON } from 'node:module';
+import { Client } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
 import {
   getMcpLabScenario,
@@ -54,6 +55,7 @@ describe('MCP lab scenario manifest', () => {
   });
 
   it('matches the real installed client, server, and conformance package versions', () => {
+    expect(typeof Client).toBe('function');
     expect(readInstalledPackageVersion('@modelcontextprotocol/client')).toBe(MCP_LAB_SDK_VERSION);
     expect(readInstalledPackageVersion('@modelcontextprotocol/server')).toBe(MCP_LAB_SDK_VERSION);
     expect(readInstalledPackageVersion('@modelcontextprotocol/conformance')).toBe(

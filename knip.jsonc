@@ -440,10 +440,9 @@
         "__tests__/**/*.test.ts"
       ],
       "ignoreDependencies": [
-        // Exact-pinned SDK provenance for the declared scenario inventory.
-        // BST-1480 consumes these packages when executable fixtures land;
-        // this foundation layer intentionally contains no runtime transport.
-        "@modelcontextprotocol/client",
+        // Exact-pinned server provenance for the declared scenario inventory.
+        // BST-1480 consumes it when executable fixtures land; this foundation
+        // layer intentionally contains no runtime transport.
         "@modelcontextprotocol/server",
         // Exact-pinned official runner provenance. The bounded conformance lane
         // consumes its CLI/package entry rather than importing it from src/.
