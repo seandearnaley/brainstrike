@@ -72,6 +72,7 @@ describe('MCP test lab package contract', () => {
       '@modelcontextprotocol/client': '2.0.0',
       '@modelcontextprotocol/node': '2.0.0',
       '@modelcontextprotocol/server': '2.0.0',
+      entities: '7.0.1',
       zod: 'catalog:',
     });
     expect(manifest.devDependencies).toMatchObject({
