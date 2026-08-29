@@ -269,12 +269,8 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
   }
 }
 
-export interface McpLabReferenceRunnerDependencyOptions {
-  readonly startCase?: (runnerCase: McpLabRunnerCase) => Promise<McpLabSession>;
-}
-
 export function createMcpLabReferenceRunnerDependencies(
-  options: McpLabReferenceRunnerDependencyOptions = {}
+  options: { readonly startCase?: (runnerCase: McpLabRunnerCase) => Promise<McpLabSession> } = {}
 ): McpLabRunnerDependencies {
   const start = options.startCase ?? startCase;
   return Object.freeze({

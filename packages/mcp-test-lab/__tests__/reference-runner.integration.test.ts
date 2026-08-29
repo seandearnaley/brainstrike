@@ -57,14 +57,13 @@ describe('MCP official reference runner', () => {
   }, 30_000);
 
   it('waits for an aborted startup allocation and closes the resulting lab', async () => {
-    let releaseStart: (() => void) | undefined;
+    let releaseStart: () => void = () => {
+      throw new Error('reference runner race fixture did not initialize');
+    };
     const startGate = new Promise<void>((resolve) => {
       releaseStart = resolve;
     });
-    const runnerCase = MCP_LAB_RUNNER_CASES.find(({ id }) => id === 'modern-http-in-process');
-    if (!(runnerCase && releaseStart)) {
-      throw new Error('reference runner race fixture is unavailable');
-    }
+    const runnerCase = MCP_LAB_RUNNER_CASES[0];
     const dependencies = createMcpLabReferenceRunnerDependencies({
       async startCase() {
         await startGate;
@@ -76,19 +75,11 @@ describe('MCP official reference runner', () => {
     const running = owner.run(controller.signal);
     controller.abort();
     const cleanup = owner.close();
-    let cleanupSettled = false;
-    void cleanup.finally(() => {
-      cleanupSettled = true;
-    });
 
-    await Promise.resolve();
-    expect(cleanupSettled).toBe(false);
+    await expect(Promise.race([cleanup, Promise.resolve('pending')])).resolves.toBe('pending');
     releaseStart();
     await expect(running).rejects.toMatchObject({ name: 'AbortError' });
-    await expect(cleanup).resolves.toEqual({
-      details: 'closed listeners=0 stdio=0',
-      verified: true,
-    });
+    expect(await cleanup).toEqual({ details: 'closed listeners=0 stdio=0', verified: true });
   });
 
   it('executes the exhaustive-only HTTP topologies through the same owner', async () => {
