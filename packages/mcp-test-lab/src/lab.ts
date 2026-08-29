@@ -29,7 +29,7 @@ export interface StartMcpLabScenarioOptions {
   readonly execution: 'in-process';
 }
 
-function parseStartOptions(options: unknown): Readonly<StartMcpLabScenarioOptions> {
+function parseStartOptions(options: unknown): void {
   if (typeof options !== 'object' || options === null || Array.isArray(options)) {
     throw new Error('Invalid MCP lab start options: expected an object');
   }
@@ -47,7 +47,6 @@ function parseStartOptions(options: unknown): Readonly<StartMcpLabScenarioOption
   if (execution !== 'in-process') {
     throw new Error('Invalid MCP lab start options: execution must be "in-process"');
   }
-  return Object.freeze({ execution });
 }
 
 function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
@@ -73,6 +72,7 @@ function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
 function createSession(scenario: McpLabScenario, handler: McpHttpHandler): McpLabSession {
   let closed = false;
   let closePromise: Promise<McpLabCleanupReport> | undefined;
+  const endpointUrl = new URL('http://mcp-lab.invalid/mcp');
   const report = Object.freeze({
     httpListenersClosed: 0,
     stdioTransportsClosed: 0,
@@ -99,10 +99,20 @@ function createSession(scenario: McpLabScenario, handler: McpHttpHandler): McpLa
       return closed;
     },
     endpoint: Object.freeze({
-      fetch: (input: string | URL | Request, init?: RequestInit) =>
-        handler.fetch(new Request(input, init)),
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
+        if (closed) {
+          throw new Error('MCP lab session is closed');
+        }
+        const request = new Request(input, init);
+        if (request.url !== endpointUrl.href) {
+          throw new Error(
+            `MCP lab request URL does not match the advertised endpoint: expected ${endpointUrl.href}, received ${request.url}`
+          );
+        }
+        return handler.fetch(request);
+      },
       kind: 'in-process-http' as const,
-      url: new URL('http://127.0.0.1/mcp'),
+      url: endpointUrl,
     }),
     scenario,
   });
@@ -114,7 +124,7 @@ export async function startMcpLabScenario(
 ): Promise<McpLabSession> {
   parseStartOptions(options);
   const scenario = getMcpLabScenario(id);
-  if (scenario.id !== 'modern-reference' && scenario.id !== 'legacy-reference') {
+  if (scenario.availability !== 'executable' || scenario.transport !== 'streamable-http') {
     throw new Error(`MCP lab scenario "${scenario.id}" is not executable over in-process HTTP`);
   }
   return createSession(scenario, createReferenceHandler(scenario));
