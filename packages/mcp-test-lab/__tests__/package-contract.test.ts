@@ -42,7 +42,7 @@ describe('MCP test lab package contract', () => {
     expect(manifest.scripts['test:integration']).toBe(
       'vitest run --config vitest.integration.config.mts'
     );
-    expect(manifest.files).toEqual(['dist']);
+    expect(manifest.files).toEqual(['dist', 'fixtures']);
     expect(manifest.types).toBe('./dist/index.d.ts');
     expect(manifest.exports).toEqual({
       '.': { default: './dist/index.js', types: './dist/index.d.ts' },
@@ -64,16 +64,16 @@ describe('MCP test lab package contract', () => {
     });
   });
 
-  it('declares executable runtime dependencies without promoting the test-only client', async () => {
+  it('separates executable runtime dependencies from test-only conformance', async () => {
     const manifest = await readManifest();
 
     expect(manifest.dependencies).toEqual({
+      '@modelcontextprotocol/client': '2.0.0',
       '@modelcontextprotocol/node': '2.0.0',
       '@modelcontextprotocol/server': '2.0.0',
       zod: 'catalog:',
     });
     expect(manifest.devDependencies).toMatchObject({
-      '@modelcontextprotocol/client': '2.0.0',
       '@modelcontextprotocol/conformance': '0.2.0-alpha.10',
     });
   });
@@ -186,13 +186,15 @@ describe('MCP test lab package contract', () => {
 
     expect(normalizedContract).toContain('`@brainstrike/mcp-test-lab`');
     expect(normalizedContract).toContain('production-independent verifier');
-    expect(executableScenarioIds).toEqual(['modern-reference', 'legacy-reference']);
+    expect(executableScenarioIds).toEqual([
+      'modern-reference',
+      'legacy-reference',
+      'stdio-reference',
+    ]);
     expect(normalizedContract).toContain(
       "`modern-reference` and `legacy-reference` have `availability: 'executable'`"
     );
-    expect(normalizedContract).toContain(
-      "`stdio-reference` and `oauth-reference` remain `availability: 'declared'`"
-    );
+    expect(normalizedContract).toContain("`oauth-reference` remains `availability: 'declared'`");
     expect(normalizedContract).toContain('A package export may appear only in');
     expect(normalizedContract).toContain(
       `Current public verifier subpaths: ${publicSubpaths.map((key) => `\`${key}\``).join(', ')}.`

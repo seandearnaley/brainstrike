@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import {
   createMcpHandler,
   isLegacyRequest,
@@ -5,7 +6,8 @@ import {
 } from '@modelcontextprotocol/server';
 import { createMcpLabLoopback } from './loopback-http.js';
 import { createReferenceServer } from './reference-server.js';
-import { getMcpLabScenario, type McpLabScenario } from './scenario.js';
+import { getMcpLabScenario, type McpLabScenario, type McpLabScenarioId } from './scenario.js';
+import { McpLabOwnedStdioTransport } from './stdio-transport.js';
 
 export interface McpLabCleanupReport {
   readonly httpListenersClosed: number;
@@ -24,11 +26,30 @@ export interface McpLabLoopbackHttpEndpoint {
   readonly url: URL;
 }
 
-export type McpLabEndpoint = McpLabInProcessHttpEndpoint | McpLabLoopbackHttpEndpoint;
+export interface McpLabStdioEndpoint {
+  readonly args: readonly string[];
+  readonly command: string;
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly kind: 'stdio';
+  readonly transport: McpLabOwnedStdioTransport;
+}
+
+export type McpLabEndpoint =
+  | McpLabInProcessHttpEndpoint
+  | McpLabLoopbackHttpEndpoint
+  | McpLabStdioEndpoint;
+
+export interface McpLabDiagnostic {
+  readonly correlationId: string;
+  readonly kind: 'child-stderr';
+  readonly message: string;
+}
 
 export interface McpLabSession {
   close(): Promise<McpLabCleanupReport>;
   readonly closed: boolean;
+  diagnostics(): readonly McpLabDiagnostic[];
   readonly endpoint: McpLabEndpoint;
   readonly scenario: McpLabScenario;
 }
@@ -37,20 +58,27 @@ export interface StartMcpLabScenarioOptions {
   readonly execution: 'in-process' | 'loopback';
 }
 
+type McpLabHttpScenarioId = Exclude<McpLabScenarioId, 'stdio-reference'>;
+type ParsedStartOptions = Readonly<Partial<StartMcpLabScenarioOptions>>;
+
 interface CloseResource {
   close(): Promise<void>;
   closed: boolean;
-  readonly kind: 'handler' | 'http-listener';
+  readonly counted?: () => boolean;
+  readonly kind: 'handler' | 'http-listener' | 'stdio-transport';
 }
 
-function parseStartOptions(options: unknown): Readonly<StartMcpLabScenarioOptions> {
+function parseStartOptions(options: unknown): ParsedStartOptions {
   if (typeof options !== 'object' || options === null || Array.isArray(options)) {
     throw new Error('Invalid MCP lab start options: expected an object');
   }
   const record = options as Readonly<Record<string, unknown>>;
-  const keys = Object.keys(record);
-  if (keys.length !== 1 || keys[0] !== 'execution') {
-    throw new Error('Invalid MCP lab start options: expected only "execution"');
+  const keys = Reflect.ownKeys(record);
+  if (keys.some((key) => key !== 'execution')) {
+    throw new Error('Invalid MCP lab start options: expected only optional "execution"');
+  }
+  if (!Object.hasOwn(record, 'execution')) {
+    return Object.freeze({});
   }
   let execution: unknown;
   try {
@@ -58,10 +86,10 @@ function parseStartOptions(options: unknown): Readonly<StartMcpLabScenarioOption
   } catch {
     throw new Error('Invalid MCP lab start options: could not snapshot execution');
   }
-  if (execution !== 'in-process' && execution !== 'loopback') {
+  if (execution !== undefined && execution !== 'in-process' && execution !== 'loopback') {
     throw new Error('Invalid MCP lab start options: execution must be "in-process" or "loopback"');
   }
-  return Object.freeze({ execution });
+  return Object.freeze(execution === undefined ? {} : { execution });
 }
 
 function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
@@ -87,7 +115,8 @@ function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
 function createSession(
   scenario: McpLabScenario,
   endpoint: McpLabEndpoint,
-  resources: CloseResource[]
+  resources: CloseResource[],
+  diagnostics: McpLabDiagnostic[] = []
 ): McpLabSession {
   let closed = false;
   let closePromise: Promise<McpLabCleanupReport> | undefined;
@@ -132,7 +161,12 @@ function createSession(
           httpListenersClosed: resources.filter(
             (resource) => resource.kind === 'http-listener' && resource.closed
           ).length,
-          stdioTransportsClosed: 0,
+          stdioTransportsClosed: resources.filter(
+            (resource) =>
+              resource.kind === 'stdio-transport' &&
+              resource.closed &&
+              (resource.counted?.() ?? true)
+          ).length,
           untriggeredFaultIds: Object.freeze([]),
         });
       })();
@@ -141,6 +175,7 @@ function createSession(
     get closed() {
       return closed;
     },
+    diagnostics: () => Object.freeze(diagnostics.map((value) => Object.freeze({ ...value }))),
     endpoint: guardedEndpoint,
     scenario,
   });
@@ -191,14 +226,63 @@ async function createLoopbackSession(scenario: McpLabScenario): Promise<McpLabSe
   );
 }
 
+function createStdioSession(scenario: McpLabScenario): McpLabSession {
+  const diagnostics: McpLabDiagnostic[] = [];
+  let stderrByteCount = 0;
+  const args = Object.freeze([
+    fileURLToPath(new URL('../fixtures/stdio-reference-server.mjs', import.meta.url)),
+  ]);
+  const command = process.execPath;
+  const cwd = fileURLToPath(new URL('..', import.meta.url));
+  const env = Object.freeze({});
+  const transport = new McpLabOwnedStdioTransport({ args, command, cwd, env }, (byteCount) => {
+    stderrByteCount += byteCount;
+    diagnostics[0] = Object.freeze({
+      correlationId: 'stdio-reference:child:1',
+      kind: 'child-stderr' as const,
+      message: `captured ${stderrByteCount} stderr bytes`,
+    });
+  });
+  return createSession(
+    scenario,
+    Object.freeze({ args, command, cwd, env, kind: 'stdio' as const, transport }),
+    [
+      {
+        close: () => transport.close(),
+        closed: false,
+        counted: () => transport.wasSpawned,
+        kind: 'stdio-transport',
+      },
+    ],
+    diagnostics
+  );
+}
+
+export function startMcpLabScenario(
+  id: 'stdio-reference',
+  options?: Readonly<Record<string, never>>
+): Promise<McpLabSession>;
+export function startMcpLabScenario(
+  id: McpLabHttpScenarioId,
+  options: StartMcpLabScenarioOptions
+): Promise<McpLabSession>;
 export async function startMcpLabScenario(
   id: string,
-  options: StartMcpLabScenarioOptions
+  options: unknown = {}
 ): Promise<McpLabSession> {
   const startOptions = parseStartOptions(options);
   const scenario = getMcpLabScenario(id);
+  if (scenario.id === 'stdio-reference') {
+    if (startOptions.execution !== undefined) {
+      throw new Error('MCP lab stdio scenario does not accept execution');
+    }
+    return createStdioSession(scenario);
+  }
   if (scenario.availability !== 'executable' || scenario.transport !== 'streamable-http') {
     throw new Error(`MCP lab scenario "${scenario.id}" is not executable`);
+  }
+  if (startOptions.execution === undefined) {
+    throw new Error('MCP lab HTTP scenario requires explicit execution');
   }
   return startOptions.execution === 'in-process'
     ? createInProcessSession(scenario)
