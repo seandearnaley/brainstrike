@@ -1027,6 +1027,18 @@ lives in
 Drizzle token/file repository tests, and
 `packages/app-shell/src/__tests__/system-diagnostics-panel.test.tsx`.
 
+The background token indexer has a separate renderer-local telemetry stream in
+`packages/token-cache/src/telemetry.ts`. System Diagnostics subscribes only
+while the panel is mounted and shows its rolling one-minute aggregate latency,
+cache-hit rate, throughput, token count, error count, and explicit retained
+event count. The view receives a deliberately projected aggregate object: raw
+events contain composite keys, folder ids, paths, and error messages and must
+never cross into the diagnostics card. Token-cache database duration and lookup
+hit rate remain owned by the `token-estimation` feature above. The old
+selection-change-to-estimate metric is no longer a meaningful asynchronous seam:
+selected-token summaries read the already-built in-memory map synchronously, so
+do not add a timer or debounce around that read solely for diagnostics.
+
 ---
 
 ## DIAGNOSTIC EVENTS (FLIGHT RECORDER P1)

@@ -22,6 +22,7 @@ import {
   getEmbeddingTelemetrySnapshot,
   subscribeEmbeddingTelemetryThrottled,
 } from '@brainstrike/embeddings';
+import { type IndexerTelemetrySnapshot, useIndexerTelemetry } from '@brainstrike/token-cache';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { Activity, CheckCircle2, Database, RefreshCw, Server, Timer, XCircle } from 'lucide-react';
 import {
@@ -482,6 +483,84 @@ function formatBinaryBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
+type TokenIndexerDiagnosticsSnapshot = Pick<
+  IndexerTelemetrySnapshot,
+  | 'averageLatencyMs'
+  | 'cacheHitRate'
+  | 'errorCount'
+  | 'latencyP50Ms'
+  | 'latencyP95Ms'
+  | 'totalFilesPerMinute'
+  | 'totalTokensIndexed'
+> & {
+  readonly eventCount: number;
+};
+
+function formatLatency(latencyMs: number | null): string {
+  return latencyMs === null ? 'No samples' : `${Math.round(latencyMs)} ms`;
+}
+
+function TokenIndexerTelemetrySection({
+  snapshot,
+}: {
+  readonly snapshot: TokenIndexerDiagnosticsSnapshot;
+}): ReactElement {
+  const hasSamples = snapshot.eventCount > 0;
+  const status = snapshot.errorCount > 0 ? 'warning' : hasSamples ? 'success' : 'loading';
+  const statusLabel =
+    snapshot.errorCount > 0
+      ? formatCount(snapshot.errorCount, 'error', 'errors')
+      : hasSamples
+        ? formatCount(snapshot.eventCount, 'sample', 'samples')
+        : 'No samples';
+  const cacheHitRate =
+    snapshot.cacheHitRate === null ? 'No samples' : `${Math.round(snapshot.cacheHitRate * 100)}%`;
+
+  return (
+    <DiagnosticCard
+      description="Background file-token indexing, rolling one-minute window"
+      icon={<Timer className="h-4 w-4 text-primary" />}
+      status={status}
+      statusLabel={statusLabel}
+      title="Token Indexing"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Latency</span>
+          <span className="font-mono text-[10px]" data-testid="token-indexer-latency">
+            avg {formatLatency(snapshot.averageLatencyMs)} · p50{' '}
+            {formatLatency(snapshot.latencyP50Ms)} · p95 {formatLatency(snapshot.latencyP95Ms)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Cache hit rate</span>
+          <span className="font-medium" data-testid="token-indexer-cache-hit-rate">
+            {cacheHitRate}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Throughput</span>
+          <span className="font-medium" data-testid="token-indexer-throughput">
+            {Math.round(snapshot.totalFilesPerMinute)} files/min
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Indexed tokens</span>
+          <span className="font-medium">
+            {formatCount(snapshot.totalTokensIndexed, 'token', 'tokens')}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Errors</span>
+          <span className="font-medium" data-testid="token-indexer-error-count">
+            {formatCount(snapshot.errorCount, 'error', 'errors')}
+          </span>
+        </div>
+      </div>
+    </DiagnosticCard>
+  );
+}
+
 function EmbeddingRuntimeDiagnosticsCard({
   providerError,
   telemetry,
@@ -856,6 +935,17 @@ export function SystemDiagnosticsPanel({
     databaseQueryTelemetry.getSnapshot,
     databaseQueryTelemetry.getSnapshot
   );
+  const { snapshot: tokenIndexerTelemetry } = useIndexerTelemetry();
+  const tokenIndexerDiagnostics: TokenIndexerDiagnosticsSnapshot = {
+    averageLatencyMs: tokenIndexerTelemetry.averageLatencyMs,
+    cacheHitRate: tokenIndexerTelemetry.cacheHitRate,
+    errorCount: tokenIndexerTelemetry.errorCount,
+    eventCount: tokenIndexerTelemetry.events.length,
+    latencyP50Ms: tokenIndexerTelemetry.latencyP50Ms,
+    latencyP95Ms: tokenIndexerTelemetry.latencyP95Ms,
+    totalFilesPerMinute: tokenIndexerTelemetry.totalFilesPerMinute,
+    totalTokensIndexed: tokenIndexerTelemetry.totalTokensIndexed,
+  };
   const longTaskSnapshot = useSyncExternalStore(
     rendererLongTaskTelemetry.subscribe,
     rendererLongTaskTelemetry.getSnapshot,
@@ -995,6 +1085,7 @@ export function SystemDiagnosticsPanel({
           tokenCachePersisted={tokenCachePersisted}
         />
         <DatabaseQueryTelemetrySection snapshot={databaseQuerySnapshot} />
+        <TokenIndexerTelemetrySection snapshot={tokenIndexerDiagnostics} />
         <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
         <EmbeddingRuntimeDiagnosticsCard

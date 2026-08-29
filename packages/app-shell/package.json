@@ -26,6 +26,7 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/settings-ui": "workspace:*",
+    "@brainstrike/token-cache": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
