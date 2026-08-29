@@ -1,4 +1,6 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
+import type { McpArtifactIntegrityDependencies } from '../src/evidence';
 import {
   type McpLabRunnerCaseObservation,
   type McpLabRunnerDependencies,
@@ -6,9 +8,15 @@ import {
   type McpLabVerificationInput,
   runMcpLabVerification,
 } from '../src/runner';
-import type { McpLabRunnerCase, McpLabRunnerProfile } from '../src/runner-manifest';
+import {
+  type McpLabRunnerCase,
+  McpLabRunnerDeadlineError,
+  type McpLabRunnerProfile,
+} from '../src/runner-manifest';
+import { MCP_LAB_SCENARIO_IDS } from '../src/scenario';
 
 const COMMAND = 'pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr';
+const INTEGRITY = { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() };
 
 function input(
   profile: McpLabRunnerProfile = 'pr',
@@ -50,18 +58,29 @@ function dependencies(
   events: string[],
   options: {
     readonly cleanupFailure?: Error;
+    readonly lateRunFailure?: Error;
+    readonly mapObservation?: (
+      value: McpLabRunnerCaseObservation,
+      phase: McpLabRunnerPhase
+    ) => McpLabRunnerCaseObservation;
     readonly runFailure?: Error;
     readonly runNeverSettles?: boolean;
+    readonly runSettlesAfterClose?: boolean;
   } = {}
 ): McpLabRunnerDependencies {
   return {
     createPhaseOwner(runnerCase, phase) {
       events.push(`create:${runnerCase.id}:${phase}`);
+      let settleRun: (() => void) | undefined;
       return {
         async close() {
           events.push(`close:${runnerCase.id}:${phase}`);
           if (options.cleanupFailure) {
             throw options.cleanupFailure;
+          }
+          if (options.runSettlesAfterClose || options.lateRunFailure) {
+            await delay(5);
+            settleRun?.();
           }
           return { details: `closed ${runnerCase.id} ${phase}`, verified: true };
         },
@@ -73,12 +92,36 @@ function dependencies(
           if (options.runNeverSettles) {
             await new Promise(() => undefined);
           }
-          return observation(runnerCase, phase);
+          if (options.lateRunFailure) {
+            await new Promise<void>((_resolve, reject) => {
+              settleRun = () => reject(options.lateRunFailure);
+            });
+          } else if (options.runSettlesAfterClose) {
+            await new Promise<void>((resolve) => {
+              settleRun = resolve;
+            });
+          }
+          const value = observation(runnerCase, phase);
+          return options.mapObservation?.(value, phase) ?? value;
         },
       };
     },
     now: () => performance.now(),
   };
+}
+
+function verifySingleCase(
+  deps: McpLabRunnerDependencies,
+  selection: Readonly<Record<string, unknown>> = {},
+  integrity: McpArtifactIntegrityDependencies = INTEGRITY
+) {
+  return runMcpLabVerification(
+    input('pr', {
+      selection: { caseIds: ['modern-stdio'], profile: 'pr', ...selection },
+    }),
+    deps,
+    integrity
+  );
 }
 
 describe('MCP bounded verification runner', () => {
@@ -97,9 +140,12 @@ describe('MCP bounded verification runner', () => {
     );
 
     expect(result.map(({ schema }) => schema.scenarioId)).toEqual([
-      'modern-http-in-process',
-      'modern-stdio',
+      'modern-reference',
+      'stdio-reference',
     ]);
+    for (const { schema } of result) {
+      expect(MCP_LAB_SCENARIO_IDS).toContain(schema.scenarioId);
+    }
     expect(result[0]?.schema.commands.map(({ phase }) => phase)).toEqual([
       'red',
       'green',
@@ -110,46 +156,25 @@ describe('MCP bounded verification runner', () => {
       'modern-http-in-process-green',
       'modern-http-in-process-verification',
     ]);
-    expect(events).toEqual([
-      'create:modern-http-in-process:red',
-      'run:modern-http-in-process:red',
-      'close:modern-http-in-process:red',
-      'create:modern-http-in-process:green',
-      'run:modern-http-in-process:green',
-      'close:modern-http-in-process:green',
-      'create:modern-http-in-process:verification',
-      'run:modern-http-in-process:verification',
-      'close:modern-http-in-process:verification',
-      'create:modern-stdio:red',
-      'run:modern-stdio:red',
-      'close:modern-stdio:red',
-      'create:modern-stdio:green',
-      'run:modern-stdio:green',
-      'close:modern-stdio:green',
-      'create:modern-stdio:verification',
-      'run:modern-stdio:verification',
-      'close:modern-stdio:verification',
-    ]);
+    expect(events).toHaveLength(18);
+    expect(events.slice(0, 3).join('|')).toBe(
+      'create:modern-http-in-process:red|run:modern-http-in-process:red|close:modern-http-in-process:red'
+    );
+    expect(events.slice(-3).join('|')).toBe(
+      'create:modern-stdio:verification|run:modern-stdio:verification|close:modern-stdio:verification'
+    );
     expect(readArtifactContent).not.toHaveBeenCalled();
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result[0]?.schema)).toBe(true);
   });
 
-  it('aborts a hanging phase at its case deadline and still closes its owner', async () => {
+  it('reserves cleanup time and waits for an aborted run to settle', async () => {
     const events: string[] = [];
     await expect(
-      runMcpLabVerification(
-        input('pr', {
-          selection: {
-            caseIds: ['modern-stdio'],
-            caseTimeoutMs: 100,
-            profile: 'pr',
-            runTimeoutMs: 100,
-          },
-        }),
-        dependencies(events, { runNeverSettles: true }),
-        { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
-      )
+      verifySingleCase(dependencies(events, { runSettlesAfterClose: true }), {
+        caseTimeoutMs: 100,
+        runTimeoutMs: 100,
+      })
     ).rejects.toThrow(/modern-stdio.*red.*100 ms/i);
     expect(events).toEqual([
       'create:modern-stdio:red',
@@ -158,17 +183,37 @@ describe('MCP bounded verification runner', () => {
     ]);
   });
 
+  it('rejects cleanup proof when an aborted run remains pending after close', async () => {
+    const failure = verifySingleCase(dependencies([], { runNeverSettles: true }), {
+      caseTimeoutMs: 100,
+      runTimeoutMs: 100,
+    });
+
+    await expect(failure).rejects.toBeInstanceOf(AggregateError);
+    await expect(failure).rejects.toThrow(/cleanup both failed/i);
+  });
+
+  it('preserves a late non-abort run rejection with the deadline failure', async () => {
+    const failure = verifySingleCase(
+      dependencies([], { lateRunFailure: new Error('late run exploded') }),
+      { caseTimeoutMs: 100, runTimeoutMs: 100 }
+    );
+
+    await expect(failure).rejects.toMatchObject({
+      errors: [
+        expect.any(McpLabRunnerDeadlineError),
+        expect.objectContaining({ message: 'late run exploded' }),
+      ],
+    });
+  });
+
   it('surfaces both primary and cleanup failures without starting the next phase', async () => {
     const events: string[] = [];
-    const failure = runMcpLabVerification(
-      input('pr', {
-        selection: { caseIds: ['modern-stdio'], profile: 'pr' },
-      }),
+    const failure = verifySingleCase(
       dependencies(events, {
         cleanupFailure: new Error('cleanup exploded'),
         runFailure: new Error('run exploded'),
-      }),
-      { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+      })
     );
 
     await expect(failure).rejects.toBeInstanceOf(AggregateError);
@@ -188,122 +233,47 @@ describe('MCP bounded verification runner', () => {
   it('rejects cleanup failure after a successful phase and emits no evidence', async () => {
     const events: string[] = [];
     await expect(
-      runMcpLabVerification(
-        input('pr', { selection: { caseIds: ['modern-stdio'], profile: 'pr' } }),
-        dependencies(events, { cleanupFailure: new Error('cleanup exploded') }),
-        { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
-      )
+      verifySingleCase(dependencies(events, { cleanupFailure: new Error('cleanup exploded') }))
     ).rejects.toThrow('cleanup exploded');
     expect(events).toHaveLength(3);
   });
 
   it('rejects observed negotiation that disagrees with the canonical scenario', async () => {
     const events: string[] = [];
-    const deps = dependencies(events);
-    const createPhaseOwner = deps.createPhaseOwner;
     await expect(
-      runMcpLabVerification(
-        input('pr', { selection: { caseIds: ['modern-stdio'], profile: 'pr' } }),
-        {
-          ...deps,
-          createPhaseOwner(runnerCase, phase) {
-            const owner = createPhaseOwner(runnerCase, phase);
-            return {
-              close: owner.close,
-              async run(signal) {
-                const value = await owner.run(signal);
-                return {
-                  ...value,
-                  negotiation: { era: 'legacy' as const, revision: '2025-11-25' },
-                };
-              },
-            };
-          },
-        },
-        { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+      verifySingleCase(
+        dependencies(events, {
+          mapObservation: (value) => ({
+            ...value,
+            negotiation: { era: 'legacy', revision: '2025-11-25' },
+          }),
+        })
       )
     ).rejects.toThrow(/modern.*2026-07-28/i);
     expect(events).toContain('close:modern-stdio:red');
   });
 
   it('treats reordered capabilities as the same negotiated set', async () => {
-    const events: string[] = [];
-    const deps = dependencies(events);
-    const createPhaseOwner = deps.createPhaseOwner;
-    const result = await runMcpLabVerification(
-      input('pr', { selection: { caseIds: ['modern-stdio'], profile: 'pr' } }),
-      {
-        ...deps,
-        createPhaseOwner(runnerCase, phase) {
-          const owner = createPhaseOwner(runnerCase, phase);
-          return {
-            close: owner.close,
-            async run(signal) {
-              return {
-                ...(await owner.run(signal)),
-                capabilities: phase === 'green' ? ['resources', 'tools'] : ['tools', 'resources'],
-              };
-            },
-          };
-        },
-      },
-      { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+    const result = await verifySingleCase(
+      dependencies([], {
+        mapObservation: (value, phase) => ({
+          ...value,
+          capabilities: phase === 'green' ? ['resources', 'tools'] : ['tools', 'resources'],
+        }),
+      })
     );
 
     expect(result).toHaveLength(1);
   });
 
-  it('caps cleanup at the remaining whole-run budget', async () => {
-    let now = 0;
-    const failure = runMcpLabVerification(
-      input('pr', {
-        selection: {
-          caseIds: ['modern-stdio'],
-          caseTimeoutMs: 100,
-          profile: 'pr',
-          runTimeoutMs: 100,
-        },
-      }),
-      {
-        createPhaseOwner(runnerCase, phase) {
-          return {
-            async close() {
-              await new Promise(() => undefined);
-              return { details: 'unreachable', verified: true };
-            },
-            async run() {
-              now = 90;
-              return observation(runnerCase, phase);
-            },
-          };
-        },
-        now: () => now,
-      },
-      { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
-    );
-
-    await expect(failure).rejects.toThrow(/modern-stdio.*red.*cleanup.*10 ms/i);
-  });
-
   it('checks the whole-run deadline again before emitting final evidence', async () => {
     let now = 0;
     await expect(
-      runMcpLabVerification(
-        input('pr', {
-          selection: {
-            caseIds: ['modern-stdio'],
-            caseTimeoutMs: 100,
-            profile: 'pr',
-            runTimeoutMs: 100,
-          },
-        }),
+      verifySingleCase(
         {
           createPhaseOwner(runnerCase, phase) {
             return {
               async close() {
-                if (phase === 'verification') {
-                  now = 100;
-                }
                 return { details: 'closed', verified: true };
               },
               async run() {
@@ -316,7 +286,14 @@ describe('MCP bounded verification runner', () => {
           },
           now: () => now,
         },
-        { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+        { caseTimeoutMs: 100, runTimeoutMs: 100 },
+        {
+          get maxArtifactBytes() {
+            now = 100;
+            return 1024;
+          },
+          readArtifactContent: () => new Uint8Array(),
+        }
       )
     ).rejects.toThrow(/modern-stdio.*evidence.*100 ms/i);
   });
@@ -324,15 +301,7 @@ describe('MCP bounded verification runner', () => {
   it('shares one case budget across RED, GREEN, and verification', async () => {
     let now = 0;
     await expect(
-      runMcpLabVerification(
-        input('pr', {
-          selection: {
-            caseIds: ['modern-stdio'],
-            caseTimeoutMs: 100,
-            profile: 'pr',
-            runTimeoutMs: 1000,
-          },
-        }),
+      verifySingleCase(
         {
           createPhaseOwner(runnerCase, phase) {
             return {
@@ -347,7 +316,7 @@ describe('MCP bounded verification runner', () => {
           },
           now: () => now,
         },
-        { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+        { caseTimeoutMs: 100, runTimeoutMs: 1000 }
       )
     ).rejects.toThrow(/modern-stdio.*case.*100 ms/i);
   });

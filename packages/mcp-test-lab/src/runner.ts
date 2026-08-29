@@ -57,23 +57,36 @@ interface CompletedPhase {
 
 function deadlinePromise<T>(
   promise: Promise<T>,
-  timeoutMs: number,
+  waitMs: number,
   label: string,
-  onTimeout?: () => void
+  onTimeout?: (error: McpLabRunnerDeadlineError) => void,
+  reportedTimeoutMs = waitMs
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      onTimeout?.();
-      reject(new McpLabRunnerDeadlineError(label, timeoutMs));
-    }, timeoutMs);
+      const error = new McpLabRunnerDeadlineError(label, reportedTimeoutMs);
+      onTimeout?.(error);
+      reject(error);
+    }, waitMs);
   });
-  void promise.catch(() => undefined);
   return Promise.race([promise, timedOut]).finally(() => {
     if (timer !== undefined) {
       clearTimeout(timer);
     }
   });
+}
+
+function phaseBudgets(timeoutMs: number): readonly [operationMs: number, cleanupMs: number] {
+  const cleanupMs = Math.min(1000, Math.max(1, Math.floor(timeoutMs / 4)));
+  return [Math.max(1, timeoutMs - cleanupMs), cleanupMs];
+}
+
+function expectedAbort(error: unknown, signal: AbortSignal): boolean {
+  return (
+    signal.aborted &&
+    (error === signal.reason || (error instanceof Error && error.name === 'AbortError'))
+  );
 }
 
 function asError(value: unknown): Error {
@@ -96,14 +109,21 @@ async function runPhase(
 ): Promise<CompletedPhase> {
   const owner = dependencies.createPhaseOwner(runnerCase, phase);
   const controller = new AbortController();
+  const [operationTimeoutMs, cleanupReserveMs] = phaseBudgets(timeoutMs);
+  const runPromise = Promise.resolve().then(() => owner.run(controller.signal));
+  let timedOut = false;
   let observation: McpLabRunnerCaseObservation | undefined;
   let primaryError: Error | undefined;
   try {
     observation = await deadlinePromise(
-      Promise.resolve().then(() => owner.run(controller.signal)),
-      timeoutMs,
+      runPromise,
+      operationTimeoutMs,
       `${runnerCase.id}/${phase}`,
-      () => controller.abort()
+      (error) => {
+        timedOut = true;
+        controller.abort(error);
+      },
+      timeoutMs
     );
   } catch (error) {
     primaryError = asError(error);
@@ -111,10 +131,34 @@ async function runPhase(
   let cleanupDetails: string | undefined;
   let cleanupError: Error | undefined;
   try {
-    const cleanupTimeoutMs = Math.ceil(Math.min(timeoutMs, remainingRunMs()));
+    const cleanupTimeoutMs = Math.ceil(Math.min(cleanupReserveMs, remainingRunMs()));
     cleanupDetails = validateCleanup(
       await deadlinePromise(
-        Promise.resolve().then(() => owner.close()),
+        Promise.resolve().then(async () => {
+          const [closeResult, runResult] = await Promise.allSettled([
+            owner.close(),
+            timedOut ? runPromise : Promise.resolve(),
+          ]);
+          const failures: Error[] = [];
+          if (closeResult.status === 'rejected') {
+            failures.push(asError(closeResult.reason));
+          }
+          if (
+            runResult.status === 'rejected' &&
+            !expectedAbort(runResult.reason, controller.signal)
+          ) {
+            failures.push(asError(runResult.reason));
+          }
+          if (failures.length > 0) {
+            throw failures.length === 1
+              ? failures[0]
+              : new AggregateError(failures, 'MCP lab runner cleanup and run settlement failed');
+          }
+          if (closeResult.status !== 'fulfilled') {
+            throw new Error('MCP lab runner cleanup did not return a proof');
+          }
+          return closeResult.value;
+        }),
         cleanupTimeoutMs,
         `${runnerCase.id}/${phase}/cleanup`
       )
@@ -216,7 +260,7 @@ async function buildEvidence(
       era: first.negotiation.era,
       revision: first.negotiation.revision,
     },
-    scenarioId: runnerCase.id,
+    scenarioId: runnerCase.scenarioId,
     schemaVersion: MCP_EVIDENCE_SCHEMA_VERSION,
     ticket: input.ticket,
     versions: {
@@ -254,7 +298,10 @@ export async function runMcpLabVerification(
     }
     caseDeadline.assertActive(`${runnerCase.id}/case/evidence`);
     runDeadline.assertActive(`${runnerCase.id}/evidence`);
-    bundles.push(await buildEvidence(runnerCase, completed, input, integrity));
+    const bundle = await buildEvidence(runnerCase, completed, input, integrity);
+    caseDeadline.assertActive(`${runnerCase.id}/case/evidence`);
+    runDeadline.assertActive(`${runnerCase.id}/evidence`);
+    bundles.push(bundle);
   }
   return Object.freeze(bundles);
 }

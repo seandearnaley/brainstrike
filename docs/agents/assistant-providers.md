@@ -2016,15 +2016,14 @@ explicit selection cannot exceed its closed profile, a case timeout stays
 within 100–60,000 ms, and a run timeout stays within 100–600,000 ms without
 falling below its case timeout. Case limits are per-case ceilings, not reserved
 runtime, so the whole-run ceiling need not equal their sum.
-The `./runner`
-owner executes closed profile selections serially as genuine RED, GREEN, and
+The `./runner` owner executes closed profile selections serially as genuine RED, GREEN, and
 repeat-verification phases. Every phase receives a bounded abort signal and an
 independently bounded cleanup attempt; a primary plus cleanup failure remains
 an `AggregateError`, while any missing cleanup proof prevents evidence emission.
-The whole-run deadline can shorten a case budget but never silently expands one.
-Phase observations must agree with the canonical scenario era/revision and stable
-capability set before the existing evidence sanitizer and artifact-integrity
-verifier can return a deeply frozen bundle. Current public verifier subpaths:
+The whole-run deadline can shorten a case budget but never silently expands one; phase
+observations agree with the canonical scenario era/revision and stable
+capability set before the existing evidence sanitizer and artifact-integrity verifier can return a
+deeply frozen bundle. Current public verifier subpaths:
 `./evidence`, `./faults`, `./lab`, `./runner`, `./scenario`.
 
 ### MCP 2026 host architecture
