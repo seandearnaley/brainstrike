@@ -159,7 +159,7 @@ export interface McpLabFaultPlan {
 
 const CREATED_MCP_LAB_FAULT_PLANS = new WeakSet<object>();
 const MAX_MCP_LAB_FAULT_DECLARATIONS = 1024;
-const MCP_LAB_CORRELATION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/u;
+const MCP_LAB_CORRELATION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/u;
 const MCP_LAB_FAULT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 export function isMcpLabFaultPlan(value: unknown): value is McpLabFaultPlan {

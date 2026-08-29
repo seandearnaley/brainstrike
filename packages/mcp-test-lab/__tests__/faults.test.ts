@@ -392,6 +392,25 @@ describe('MCP lab fault plan', () => {
     expect(Reflect.set(plan, 'consume', () => ({ kind: 'drop_response' }))).toBe(false);
   });
 
+  it.each(['1', 'abc', 'req-1'])('accepts short safe correlation id %s', (correlationId) => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'short-correlation',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+
+    expect(
+      plan.consume({
+        correlationId,
+        method: 'tools/call',
+        occurrence: 1,
+        phase: 'operation',
+      })
+    ).toEqual({ kind: 'drop_response' });
+  });
+
   it.each([399, 600, 503.5])('rejects invalid HTTP fault status %s', (status) => {
     expect(() =>
       createMcpLabFaultPlan([
