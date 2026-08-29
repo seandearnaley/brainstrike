@@ -256,6 +256,23 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/credential-assignment/i);
   });
 
+  it('detects punctuation-only credentials in parsed JSON', () => {
+    const bytes = new TextEncoder().encode('{"client_secret":"#"}');
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
   it('detects credentials inside serialized JSON string fields', () => {
     const bytes = new TextEncoder().encode(
       '{"body":"{\\"access\\\\u005ftoken\\":\\"opaque-0123456789abcdef\\"}"}'
@@ -466,10 +483,7 @@ describe('parseMcpEvidenceBundle', () => {
     ['Basic authorization', 'Authorization: Basic dTpw'],
     ['authorization code', 'authorization_code=SplxlOBeZQQYbYS6WxSbIA'],
     ['PKCE verifier', 'code_verifier: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'],
-    [
-      'JWT',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
-    ],
+    ['JWT', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'],
     ['private key', `${'-----BEGIN'} PRIVATE KEY-----\nMIIEvQIBADANBg`],
     ['encrypted private key', `${'-----BEGIN'} ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkqhkiG9w0B`],
     ['credential URL', 'https://operator:correct-horse@example.com/callback'],
@@ -563,6 +577,12 @@ describe('parseMcpEvidenceBundle', () => {
 
   it('normalizes hyphenated credential keys inside URLs', () => {
     expect(scanEvidenceTextForSecrets('https://example.test/callback?api-key=q')).toEqual([
+      expect.objectContaining({ kind: 'credential-bearing-url' }),
+    ]);
+  });
+
+  it('preserves terminal punctuation that is the URL credential value', () => {
+    expect(scanEvidenceTextForSecrets('https://example.test/callback?client_secret=)')).toEqual([
       expect.objectContaining({ kind: 'credential-bearing-url' }),
     ]);
   });

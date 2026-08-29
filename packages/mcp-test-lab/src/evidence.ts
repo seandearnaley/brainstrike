@@ -143,7 +143,7 @@ const SECRET_PATTERNS: readonly SecretPattern[] = [
   },
   {
     kind: 'jwt',
-    pattern: /\beyJ[a-z0-9_-]{6,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/gi,
+    pattern: /\beyJ[a-z0-9_-]{6,}\.[a-z0-9_-]+\.[a-z0-9_-]+\b/gi,
   },
 ];
 
@@ -180,7 +180,7 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
   const urlRanges: { readonly end: number; readonly start: number }[] = [];
 
   for (const match of text.matchAll(URL_PATTERN)) {
-    const candidate = trimUrlPunctuation(match[0]);
+    const candidate = match[0];
     urlRanges.push({ end: match.index + candidate.length, start: match.index });
     if (hasEmbeddedUrlCredential(candidate)) {
       findings.push({ index: match.index, kind: 'credential-bearing-url' });
@@ -602,16 +602,19 @@ function assertSanitizedText(
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = path === '$' ? `$.${key}` : `${path}.${key}`;
     const normalizedKey = key.toLowerCase().replaceAll(/[ -]/g, '_');
-    if (scanDecodedKeys && typeof entry === 'string' && CREDENTIAL_KEY_SET.has(normalizedKey)) {
-      const finding = scanEvidenceTextForSecrets(`${normalizedKey}=${entry}`)[0];
-      if (finding) {
-        fail(
-          entryPath,
-          'secret_detected',
-          `contains prohibited ${finding.kind} material`,
-          finding.index
-        );
-      }
+    if (
+      scanDecodedKeys &&
+      typeof entry === 'string' &&
+      entry.length > 0 &&
+      CREDENTIAL_KEY_SET.has(normalizedKey) &&
+      !isSafeDiagnosticAssignment(normalizedKey, entry, '')
+    ) {
+      fail(
+        entryPath,
+        'secret_detected',
+        `contains prohibited ${credentialAssignmentKind(normalizedKey)} material`,
+        0
+      );
     }
     assertSanitizedText(entry, entryPath, scanDecodedKeys, serializedJsonDepth);
   }
@@ -860,10 +863,6 @@ function assertUnique(values: readonly string[], path: string): void {
   if (new Set(values).size !== values.length) {
     invalid(path, 'values must be unique');
   }
-}
-
-function trimUrlPunctuation(value: string): string {
-  return value.replace(/[),.;\]}]+$/g, '');
 }
 
 function hasEmbeddedUrlCredential(candidate: string): boolean {
