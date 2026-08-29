@@ -85,17 +85,21 @@ function ViewOptionRadio({
 }): ReactElement {
   return (
     <label
-      className={`flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
+      className={`relative flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
         checked ? 'bg-accent/60 font-medium' : ''
       }`}
     >
       <input
         checked={checked}
-        className="sr-only"
+        className="peer sr-only"
         name={groupName}
         onChange={onSelect}
         type="radio"
         value={label}
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-md peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-popover"
       />
       <span>{label}</span>
       {checked ? <Check className="h-3.5 w-3.5" /> : null}
@@ -114,15 +118,19 @@ function ViewOptionCheckbox({
 }): ReactElement {
   return (
     <label
-      className={`flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
+      className={`relative flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
         checked ? 'bg-accent/60 font-medium' : ''
       }`}
     >
       <input
         checked={checked}
-        className="sr-only"
+        className="peer sr-only"
         onChange={(event) => onToggle(event.target.checked)}
         type="checkbox"
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-md peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-popover"
       />
       <span>{label}</span>
       {checked ? <Check className="h-3.5 w-3.5" /> : null}

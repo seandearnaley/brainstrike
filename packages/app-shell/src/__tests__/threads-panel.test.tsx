@@ -2703,6 +2703,36 @@ describe('ThreadsPanel folders', () => {
     );
   });
 
+  it('paints a visible focus ring for every view-options radio and checkbox', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+
+    const groupBy = await screen.findByRole('radiogroup', { name: 'Group by' });
+    const sortBy = screen.getByRole('radiogroup', { name: 'Sort by' });
+    const showOnly = screen.getByRole('group', { name: 'Show only' });
+    const controls = [
+      ...within(groupBy).getAllByRole('radio'),
+      ...within(sortBy).getAllByRole('radio'),
+      ...within(showOnly).getAllByRole('checkbox'),
+    ];
+    expect(controls.length).toBeGreaterThan(0);
+
+    for (const control of controls) {
+      expect(control).toHaveClass('peer');
+      const label = control.closest('label');
+      expect(label).not.toBeNull();
+      expect(label).toHaveClass('relative');
+      expect(
+        label?.querySelector('.peer-focus-visible\\:ring-2'),
+        `${control.getAttribute('type')} ${control.getAttribute('value') ?? control.getAttribute('aria-label')} needs a focus-visible ring`
+      ).not.toBeNull();
+    }
+  });
+
   it('creates a thread already bound to the folder it was started from', async () => {
     bindThreadToRoot('thread-a');
     renderThreadsPanel();
