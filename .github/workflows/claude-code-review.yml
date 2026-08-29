@@ -40,7 +40,10 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: anthropics/claude-code-action@v1
+      - name: Run Claude auto-review
+        id: claude-review
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
         if: ${{ steps.claude-workflow-change.outputs.changed != 'true' }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -48,13 +51,14 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Please review this pull request with a focus on:
+            Review only the exact pull request diff returned by `gh pr diff`, with a focus on:
             - Code quality and best practices
             - Potential bugs or issues
             - Security implications
             - Performance considerations
 
-            Note: The PR branch is already checked out in the current working directory.
+            Do not inspect or crawl the checked-out repository. Use `gh pr view` only for pull
+            request metadata and `gh pr diff` only for the exact pull request diff.
 
             Use `gh pr comment` for top-level feedback.
             Use `mcp__github_inline_comment__create_inline_comment` to highlight specific code issues.
@@ -64,3 +68,18 @@ jobs:
             --model claude-opus-5 --max-turns 80 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
+
+      - name: Report incomplete Claude review
+        if: ${{ steps.claude-review.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "## Claude auto-review did not complete
+
+          The review action failed before producing a completed review disposition. Review coverage is incomplete; this includes runs that reach the configured 80-turn limit.
+
+          Inspect the failed workflow run: $RUN_URL"
+          echo "::error::Claude auto-review did not complete; an incomplete-review disposition was posted."
+          exit 1

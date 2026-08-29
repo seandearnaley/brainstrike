@@ -686,6 +686,25 @@ measurement and worker-message validation modules remain in unit coverage, and
 the web L98/F85/B73/S89 thresholds are unchanged. Do not broaden this exception
 or replace it with a wildcard.
 
+### Claude auto-review fails with a visible incomplete disposition (BST-1412)
+
+Claude Auto Review is bounded to the exact pull request diff and the existing
+GitHub review surfaces: `gh pr view`, `gh pr diff`, `gh pr comment`, and the
+inline-comment MCP tool. It must not crawl the checked-out repository or use
+generic shell/git exploration. The explicit 80-turn budget remains unchanged;
+the observed `directory mismatch ... tsconfig.json` text in run `32562173635`
+was a comment printed by the action's own Bun launcher, not a Claude tool call
+or a repository tsconfig failure.
+
+The Claude action step uses `continue-on-error` only so a following failure
+handler can post an explicit `Claude auto-review did not complete` PR comment.
+That handler runs exclusively when the action step's outcome is `failure` and
+then exits non-zero, so successful reviews do not receive duplicate failure
+comments and incomplete reviews keep the workflow red. Contract coverage lives
+in `scripts/__tests__/claude-auto-review-contract.test.mjs`; it executes the
+handler with a fake `gh`, verifies the visible PR disposition, and proves the
+handler preserves a failing exit status.
+
 ### Cost-ranked Linux x64 jobs run on Ubicloud (BST-765)
 
 `unit-shard`, `build`, `native-electron`, `browser-tests`, `web-e2e`, and
