@@ -50,11 +50,26 @@ function closeServer(server: Server): Promise<void> {
   }
   return new Promise((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
+    server.closeAllConnections();
   });
 }
 
+function handlerFailureResponse(error: unknown): Response {
+  const message = error instanceof Error ? error.message : String(error);
+  return Response.json({ error: 'mcp_lab_handler_error', message }, { status: 500 });
+}
+
 export async function createMcpLabLoopback(handler: McpHttpHandler): Promise<McpLabLoopbackHandle> {
-  const nodeHandler = toNodeHandler(handler);
+  const nodeHandler = toNodeHandler({
+    ...handler,
+    async fetch(request, options) {
+      try {
+        return await handler.fetch(request, options);
+      } catch (error) {
+        return handlerFailureResponse(error);
+      }
+    },
+  });
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
   const server = createServer((request, response) => {
@@ -62,12 +77,13 @@ export async function createMcpLabLoopback(handler: McpHttpHandler): Promise<Mcp
       return;
     }
     void nodeHandler(toNodeRequest(request), response).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
       if (response.headersSent) {
         response.destroy(error instanceof Error ? error : undefined);
         return;
       }
       response.writeHead(500, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ error: 'mcp_lab_handler_error' }));
+      response.end(JSON.stringify({ error: 'mcp_lab_handler_error', message }));
     });
   });
   const port = await listenLoopback(server);

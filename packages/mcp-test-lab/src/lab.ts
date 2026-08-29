@@ -108,17 +108,19 @@ function createSession(
       if (closePromise) {
         return closePromise;
       }
-      closePromise = Promise.allSettled(
-        resources
-          .filter((resource) => !resource.closed)
-          .map(async (resource) => {
+      closePromise = (async () => {
+        const errors: unknown[] = [];
+        for (const resource of resources) {
+          if (resource.closed) {
+            continue;
+          }
+          try {
             await resource.close();
             resource.closed = true;
-          })
-      ).then((results) => {
-        const errors = results.flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : []
-        );
+          } catch (error) {
+            errors.push(error);
+          }
+        }
         if (errors.length > 0) {
           closePromise = undefined;
           throw errors.length === 1
@@ -133,7 +135,7 @@ function createSession(
           stdioTransportsClosed: 0,
           untriggeredFaultIds: Object.freeze([]),
         });
-      });
+      })();
       return closePromise;
     },
     get closed() {
