@@ -1966,6 +1966,13 @@ retained only as a byte count, and close proves the child is gone.
 `oauth-reference` remains `availability: 'declared'` until its owning layer
 lands an executable fixture and focused exchange tests.
 
+The private artifact-integrity core reads each unique reference once and in
+order, passes an explicit positive byte limit to the reader, rejects an
+oversized result, and copies Buffer, shared, or reader-owned bytes before
+SHA-256 and extraction. Text decoding is fatal UTF-8, screenshots require an
+explicit extractor, and dependency failures expose only bounded error codes,
+never artifact content. It remains non-public until the immutable facade lands.
+
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
 transport, fault coordinate, OAuth route, evidence guarantee, or runner before

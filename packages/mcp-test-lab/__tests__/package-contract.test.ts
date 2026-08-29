@@ -195,6 +195,8 @@ describe('MCP test lab package contract', () => {
       "`modern-reference` and `legacy-reference` have `availability: 'executable'`"
     );
     expect(normalizedContract).toContain("`oauth-reference` remains `availability: 'declared'`");
+    expect(normalizedContract).toContain('private artifact-integrity core reads each unique');
+    expect(normalizedContract).toContain('explicit positive byte limit');
     expect(normalizedContract).toContain('A package export may appear only in');
     expect(normalizedContract).toContain(
       `Current public verifier subpaths: ${publicSubpaths.map((key) => `\`${key}\``).join(', ')}.`
