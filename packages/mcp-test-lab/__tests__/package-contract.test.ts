@@ -64,15 +64,16 @@ describe('MCP test lab package contract', () => {
     });
   });
 
-  it('keeps SDK and conformance pins in the private verifier development graph', async () => {
+  it('declares executable runtime dependencies without promoting the test-only client', async () => {
     const manifest = await readManifest();
 
-    expect(manifest.dependencies).toBeUndefined();
+    expect(manifest.dependencies).toEqual({
+      '@modelcontextprotocol/server': '2.0.0',
+      zod: 'catalog:',
+    });
     expect(manifest.devDependencies).toMatchObject({
       '@modelcontextprotocol/client': '2.0.0',
       '@modelcontextprotocol/conformance': '0.2.0-alpha.10',
-      '@modelcontextprotocol/server': '2.0.0',
-      zod: 'catalog:',
     });
   });
 
