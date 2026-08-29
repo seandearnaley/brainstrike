@@ -202,5 +202,7 @@ describe('MCP test lab package contract', () => {
     expect(research).toContain(
       '[living provider contract](../assistant-providers.md#mcp-2026-host-architecture)'
     );
+    expect(contract).toContain('fault-core module remains internal');
+    expect(contract).toContain('No runtime may attach a plan');
   });
 });
