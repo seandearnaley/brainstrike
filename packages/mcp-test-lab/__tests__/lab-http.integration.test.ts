@@ -5,10 +5,16 @@ import {
   type McpLabSession,
   startMcpLabScenario,
 } from '../src/lab';
+import { expectReferenceToolContract } from './reference-tool-contract';
 
 type VersionNegotiation = NonNullable<
   NonNullable<ConstructorParameters<typeof Client>[1]>['versionNegotiation']
 >;
+
+const startUnchecked = startMcpLabScenario as unknown as (
+  id: string,
+  options: unknown
+) => Promise<McpLabSession>;
 
 function requireInProcessEndpoint(lab: McpLabSession): McpLabInProcessHttpEndpoint {
   if (lab.endpoint.kind !== 'in-process-http') {
@@ -73,7 +79,7 @@ async function verifyReferenceExchange(
       name: 'brainstrike-sdk-v2-reference',
       version: '2.0.0',
     });
-    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['echo']);
+    expectReferenceToolContract((await client.listTools()).tools);
     expect(
       await client.callTool({ arguments: { text: expectedVersion }, name: 'echo' })
     ).toMatchObject({
@@ -190,7 +196,7 @@ describe('MCP lab in-process HTTP references', () => {
   });
 
   it.each([
-    ['missing execution', 'modern-reference', {}, /expected only "execution"/],
+    ['missing execution', 'modern-reference', {}, /requires explicit execution/],
     [
       'unknown execution',
       'modern-reference',
@@ -201,7 +207,7 @@ describe('MCP lab in-process HTTP references', () => {
       'unknown option',
       'modern-reference',
       { execution: 'in-process', fallback: true },
-      /expected only "execution"/,
+      /expected only optional "execution"/,
     ],
     [
       'OAuth fixture',
@@ -213,9 +219,9 @@ describe('MCP lab in-process HTTP references', () => {
       'stdio fixture',
       'stdio-reference',
       { execution: 'in-process' },
-      /"stdio-reference" is not executable/,
+      /stdio scenario does not accept execution/,
     ],
   ])('rejects invalid or unavailable %s input', async (_label, scenarioId, options, expected) => {
-    await expect(startMcpLabScenario(scenarioId, options as never)).rejects.toThrow(expected);
+    await expect(startUnchecked(scenarioId, options)).rejects.toThrow(expected);
   });
 });

@@ -1,5 +1,8 @@
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/client';
-import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import {
+  DEFAULT_INHERITED_ENV_VARS,
+  StdioClientTransport,
+} from '@modelcontextprotocol/client/stdio';
 
 export interface McpLabStdioParameters {
   readonly args: readonly string[];
@@ -21,9 +24,21 @@ function chunkByteLength(chunk: unknown): number {
   return Buffer.byteLength(String(chunk));
 }
 
+function suppressDefaultEnvironment(
+  environment: Readonly<Record<string, string>>
+): Record<string, string> {
+  const suppressed: Record<string, string | undefined> = { ...environment };
+  for (const key of DEFAULT_INHERITED_ENV_VARS) {
+    suppressed[key] = undefined;
+  }
+  return suppressed as unknown as Record<string, string>;
+}
+
 export class McpLabOwnedStdioTransport implements Transport {
+  private closePromise: Promise<void> | undefined;
   private closed = false;
   private delegate: StdioClientTransport | undefined;
+  private spawned = false;
   onclose: (() => void) | undefined;
   onerror: ((error: Error) => void) | undefined;
   onmessage: ((message: JSONRPCMessage) => void) | undefined;
@@ -37,6 +52,10 @@ export class McpLabOwnedStdioTransport implements Transport {
     return this.delegate?.pid ?? null;
   }
 
+  get wasSpawned(): boolean {
+    return this.spawned;
+  }
+
   async start(): Promise<void> {
     if (this.closed) {
       throw new Error('MCP lab stdio transport is closed');
@@ -48,7 +67,7 @@ export class McpLabOwnedStdioTransport implements Transport {
       args: [...this.parameters.args],
       command: this.parameters.command,
       cwd: this.parameters.cwd,
-      env: { ...this.parameters.env },
+      env: suppressDefaultEnvironment(this.parameters.env),
       stderr: 'pipe',
     });
     delegate.onclose = () => {
@@ -60,14 +79,28 @@ export class McpLabOwnedStdioTransport implements Transport {
     delegate.stderr?.on('data', (chunk: unknown) => this.recordStderrBytes(chunkByteLength(chunk)));
     this.delegate = delegate;
     await delegate.start();
+    this.spawned = true;
   }
 
   async close(): Promise<void> {
-    if (this.closed) {
+    if (this.closePromise) {
+      return this.closePromise;
+    }
+    const delegate = this.delegate;
+    if (!delegate) {
+      this.closed = true;
       return;
     }
-    await this.delegate?.close();
-    this.closed = true;
+    this.closePromise = delegate.close().then(
+      () => {
+        this.closed = true;
+      },
+      (error: unknown) => {
+        this.closePromise = undefined;
+        throw error;
+      }
+    );
+    return this.closePromise;
   }
 
   async send(message: JSONRPCMessage): Promise<void> {

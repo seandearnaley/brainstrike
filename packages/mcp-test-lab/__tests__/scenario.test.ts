@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { findPackageJSON } from 'node:module';
 import { Client } from '@modelcontextprotocol/client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { startMcpLabScenario } from '../src/lab';
 import {
   getMcpLabScenario,
   MCP_LAB_CONFORMANCE_SOURCE,
@@ -11,6 +12,19 @@ import {
   MCP_LAB_SDK_SOURCE_SHA,
   MCP_LAB_SDK_VERSION,
 } from '../src/scenario';
+
+type AcceptsHttpWithoutExecution = typeof startMcpLabScenario extends (
+  id: 'modern-reference',
+  options: Record<string, never>
+) => unknown
+  ? true
+  : false;
+type AcceptsStdioExecution = typeof startMcpLabScenario extends (
+  id: 'stdio-reference',
+  options: { readonly execution: 'loopback' }
+) => unknown
+  ? true
+  : false;
 
 function readInstalledPackageVersion(packageName: string): string {
   const manifestPath = findPackageJSON(packageName, import.meta.url);
@@ -30,6 +44,15 @@ function readInstalledPackageVersion(packageName: string): string {
 }
 
 describe('MCP lab scenario manifest', () => {
+  it('keeps stdio optionless and HTTP execution explicit at the type boundary', () => {
+    expectTypeOf(startMcpLabScenario).toBeCallableWith('stdio-reference');
+    expectTypeOf(startMcpLabScenario).toBeCallableWith('modern-reference', {
+      execution: 'in-process',
+    });
+    expectTypeOf<AcceptsHttpWithoutExecution>().toEqualTypeOf<false>();
+    expectTypeOf<AcceptsStdioExecution>().toEqualTypeOf<false>();
+  });
+
   it('declares the Brainstrike fixture and pinned official version/tag metadata', () => {
     expect(getMcpLabScenario('modern-reference')).toEqual({
       authentication: 'none',
