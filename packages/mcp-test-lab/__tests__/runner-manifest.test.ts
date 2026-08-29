@@ -9,6 +9,8 @@ import {
   MCP_LAB_RUNNER_PROFILE_TIMEOUTS,
   MCP_LAB_RUNNER_PROFILES,
   McpLabRunnerDeadlineError,
+  MIN_MCP_LAB_CASE_TIMEOUT_MS,
+  MIN_MCP_LAB_RUN_TIMEOUT_MS,
   selectMcpLabRunnerCases,
 } from '../src/runner-manifest';
 import { MCP_LAB_SCENARIO_IDS } from '../src/scenario';
@@ -87,10 +89,10 @@ describe('MCP verifier runner manifest', () => {
   });
 
   it.each([
-    { caseTimeoutMs: 99, profile: 'pr' },
+    { caseTimeoutMs: MIN_MCP_LAB_CASE_TIMEOUT_MS - 1, profile: 'pr' },
     { caseTimeoutMs: MAX_MCP_LAB_CASE_TIMEOUT_MS + 1, profile: 'pr' },
     { caseTimeoutMs: 100.5, profile: 'pr' },
-    { profile: 'pr', runTimeoutMs: 99 },
+    { profile: 'pr', runTimeoutMs: MIN_MCP_LAB_RUN_TIMEOUT_MS - 1 },
     { profile: 'pr', runTimeoutMs: MAX_MCP_LAB_RUN_TIMEOUT_MS + 1 },
     { caseTimeoutMs: 2000, profile: 'pr', runTimeoutMs: 1999 },
   ])('rejects unbounded timeout selection %j', (input) => {

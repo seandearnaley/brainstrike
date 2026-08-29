@@ -100,6 +100,22 @@ function boundedInteger(value: unknown, field: string, minimum: number, maximum:
   return value;
 }
 
+const TIMEOUT_BOUNDS = Object.freeze({
+  caseTimeoutMs: Object.freeze({
+    maximum: MAX_MCP_LAB_CASE_TIMEOUT_MS,
+    minimum: MIN_MCP_LAB_CASE_TIMEOUT_MS,
+  }),
+  runTimeoutMs: Object.freeze({
+    maximum: MAX_MCP_LAB_RUN_TIMEOUT_MS,
+    minimum: MIN_MCP_LAB_RUN_TIMEOUT_MS,
+  }),
+});
+
+function boundedTimeout(value: unknown, field: keyof typeof TIMEOUT_BOUNDS): number {
+  const { maximum, minimum } = TIMEOUT_BOUNDS[field];
+  return boundedInteger(value, field, minimum, maximum);
+}
+
 function isRunnerCaseId(value: string): value is McpLabRunnerCaseId {
   return (MCP_LAB_RUNNER_CASE_IDS as readonly string[]).includes(value);
 }
@@ -148,22 +164,14 @@ export function selectMcpLabRunnerCases(input: unknown): McpLabRunnerSelection {
   }
   const profile = parseProfile(input['profile']);
   const defaults = MCP_LAB_RUNNER_PROFILE_TIMEOUTS[profile];
-  const caseTimeoutMs = Object.hasOwn(input, 'caseTimeoutMs')
-    ? boundedInteger(
-        input['caseTimeoutMs'],
-        'caseTimeoutMs',
-        MIN_MCP_LAB_RUN_TIMEOUT_MS,
-        MAX_MCP_LAB_CASE_TIMEOUT_MS
-      )
-    : defaults.caseTimeoutMs;
-  const runTimeoutMs = Object.hasOwn(input, 'runTimeoutMs')
-    ? boundedInteger(
-        input['runTimeoutMs'],
-        'runTimeoutMs',
-        MIN_MCP_LAB_CASE_TIMEOUT_MS,
-        MAX_MCP_LAB_RUN_TIMEOUT_MS
-      )
-    : defaults.runTimeoutMs;
+  const caseTimeoutMs = boundedTimeout(
+    Object.hasOwn(input, 'caseTimeoutMs') ? input['caseTimeoutMs'] : defaults.caseTimeoutMs,
+    'caseTimeoutMs'
+  );
+  const runTimeoutMs = boundedTimeout(
+    Object.hasOwn(input, 'runTimeoutMs') ? input['runTimeoutMs'] : defaults.runTimeoutMs,
+    'runTimeoutMs'
+  );
   if (runTimeoutMs < caseTimeoutMs) {
     invalidSelection('runTimeoutMs must be greater than or equal to caseTimeoutMs');
   }
