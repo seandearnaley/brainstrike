@@ -108,7 +108,6 @@ describe('MCP cleanup fault execution', () => {
   });
 
   it.each([
-    ['child-process', 'child/spawn'],
     ['initialization', 'server/discover'],
     ['operation', 'tools/list'],
     ['subscription', 'subscriptions/listen'],

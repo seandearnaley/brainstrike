@@ -9,6 +9,11 @@ export interface McpLabAppliedFault {
 }
 
 export interface McpLabFaultRuntime {
+  configuredFault(
+    phase: McpLabProtocolPhase,
+    method: McpLabProtocolMethod,
+    occurrence: number
+  ): McpLabFault | undefined;
   consume(
     phase: McpLabProtocolPhase,
     method: McpLabProtocolMethod,
@@ -47,6 +52,13 @@ export function createMcpLabFaultRuntime(
   const reservedCorrelations = new Set<string>();
   let correlationSequence = 0;
   return Object.freeze({
+    configuredFault(
+      phase: McpLabProtocolPhase,
+      method: McpLabProtocolMethod,
+      occurrence: number
+    ): McpLabFault | undefined {
+      return plan?.configuredFault({ method, occurrence, phase });
+    },
     consume(
       phase: McpLabProtocolPhase,
       method: McpLabProtocolMethod,

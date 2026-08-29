@@ -107,7 +107,7 @@ interface ParsedStartOptions extends Readonly<Partial<StartMcpLabScenarioOptions
 
 const STDIO_FAULT_PHASE_POLICY = {
   authorization: 'defer',
-  'child-process': 'defer',
+  'child-process': 'execute',
   initialization: 'defer',
   operation: 'defer',
   shutdown: 'execute',
@@ -342,14 +342,18 @@ function createStdioSession(
   const command = process.execPath;
   const cwd = fileURLToPath(new URL('..', import.meta.url));
   const env = Object.freeze({});
-  const transport = new McpLabOwnedStdioTransport({ args, command, cwd, env }, (byteCount) => {
-    stderrByteCount += byteCount;
-    diagnostics[0] = Object.freeze({
-      correlationId: 'stdio-reference:child:1',
-      kind: 'child-stderr' as const,
-      message: `captured ${stderrByteCount} stderr bytes`,
-    });
-  });
+  const transport = new McpLabOwnedStdioTransport(
+    { args, command, cwd, env },
+    (byteCount) => {
+      stderrByteCount += byteCount;
+      diagnostics[0] = Object.freeze({
+        correlationId: 'stdio-reference:child:1',
+        kind: 'child-stderr' as const,
+        message: `captured ${stderrByteCount} stderr bytes`,
+      });
+    },
+    faultRuntime
+  );
   return createSession(
     scenario,
     Object.freeze({ args, command, cwd, env, kind: 'stdio' as const, transport }),
@@ -398,9 +402,7 @@ export async function startMcpLabScenario(
           startOptions.faultPlan?.hasRemainingPhase(phase as McpLabProtocolPhase)
       )
     ) {
-      throw new Error(
-        'MCP lab stdio protocol and child fault execution is not available in this layer'
-      );
+      throw new Error('MCP lab stdio protocol fault execution is not available in this layer');
     }
     return startWithClaimedMcpLabFaultPlan(startOptions.faultPlan, (claimedFaultPlan) =>
       createStdioSession(scenario, claimedFaultPlan)

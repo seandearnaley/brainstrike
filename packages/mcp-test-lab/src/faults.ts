@@ -145,7 +145,8 @@ export interface McpLabChildStderrFault {
   readonly text: string;
 }
 
-const MCP_LAB_CHILD_SIGNALS = ['SIGABRT', 'SIGKILL', 'SIGTERM'] as const;
+const MCP_LAB_CHILD_SIGNALS = ['SIGKILL', 'SIGTERM'] as const;
+const MAX_MCP_LAB_CHILD_STDERR_BYTES = 4096;
 
 const MCP_LAB_CHILD_SIGNAL_SET = new Set<string>(MCP_LAB_CHILD_SIGNALS);
 const NON_CLIENT_EXECUTABLE_METHODS = new Set<McpLabProtocolMethod>([
@@ -397,6 +398,11 @@ function assertChildStderrFault(id: string, fault: UntypedFault): void {
   if (text.length === 0) {
     throw new Error(`Invalid MCP lab fault "${id}": child stderr text must be non-empty`);
   }
+  if (Buffer.byteLength(text) > MAX_MCP_LAB_CHILD_STDERR_BYTES) {
+    throw new Error(
+      `Invalid MCP lab fault "${id}": child stderr text exceeds ${MAX_MCP_LAB_CHILD_STDERR_BYTES} bytes`
+    );
+  }
   assertOnlyFaultKeys(
     id,
     fault,
@@ -533,10 +539,7 @@ function assertFaultCoordinate(declaration: McpLabFaultDeclaration): void {
     return;
   }
   if (match.phase === 'child-process') {
-    if (
-      match.method !== 'child/spawn' ||
-      (fault.kind !== 'delay' && fault.kind !== 'malformed_json')
-    ) {
+    if (match.method !== 'child/spawn' || fault.kind !== 'delay') {
       incompatibleCoordinate(declaration);
     }
     return;
@@ -949,6 +952,9 @@ export function createMcpLabFaultPlan(
   });
   const claimedPlan: McpLabClaimedFaultPlan = Object.freeze({
     [MCP_LAB_CLAIMED_PLAN]: true as const,
+    configuredFault(match: McpLabFaultMatch) {
+      return remaining.get(matchKey(match))?.fault;
+    },
     consume: consumeStrict,
     consumeIfConfigured: consumeOptional,
     hasRemainingPhase,
