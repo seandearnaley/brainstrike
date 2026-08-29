@@ -103,8 +103,14 @@ for (const config of NOTIFIERS) {
 
   test(`CONTROL: ${config.workflow} rejects swallowed label failures`, () => {
     const source = readFileSync(path.join(repoRoot, config.workflow), 'utf8');
-    const mutated = source.replace('--force \\', '--force 2>/dev/null || true \\');
+    const marker = `gh label create "${config.label}" \\`;
+    const mutated = source.replace(marker, `${marker.slice(0, -1)}2>/dev/null || true \\`);
     assert.notEqual(mutated, source, 'the control mutation matched nothing and would be vacuous.');
+    assert.notEqual(
+      labelScript(config, mutated),
+      labelScript(config, source),
+      'the control mutation must change the notifier label step.'
+    );
 
     assert.throws(
       () => assert.doesNotMatch(labelScript(config, mutated), /\|\|\s*true/),
