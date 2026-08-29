@@ -2721,15 +2721,18 @@ describe('ThreadsPanel folders', () => {
     ];
     expect(controls.length).toBeGreaterThan(0);
 
+    // JSDOM does not apply Tailwind, so these class names are the unit-level
+    // contract; the live browser check verifies the rendered focus state.
     for (const control of controls) {
-      expect(control).toHaveClass('peer');
       const label = control.closest('label');
-      expect(label).not.toBeNull();
-      expect(label).toHaveClass('relative');
-      expect(
-        label?.querySelector('.peer-focus-visible\\:ring-2'),
-        `${control.getAttribute('type')} ${control.getAttribute('value') ?? control.getAttribute('aria-label')} needs a focus-visible ring`
-      ).not.toBeNull();
+      if (!label) {
+        throw new Error('View-option controls must be wrapped by labels.');
+      }
+      expect(label).toHaveClass(
+        'has-[:focus-visible]:ring-2',
+        'has-[:focus-visible]:ring-ring',
+        'has-[:focus-visible]:ring-inset'
+      );
     }
   });
 

@@ -71,6 +71,9 @@ const RADIO_GROUP_NAMES = {
   sort: 'threads-sort-by',
 } as const;
 
+const VIEW_OPTION_LABEL_CLASS =
+  'flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-inset';
+
 function ViewOptionRadio({
   checked,
   groupName,
@@ -84,22 +87,14 @@ function ViewOptionRadio({
   readonly onSelect: () => void;
 }): ReactElement {
   return (
-    <label
-      className={`relative flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
-        checked ? 'bg-accent/60 font-medium' : ''
-      }`}
-    >
+    <label className={`${VIEW_OPTION_LABEL_CLASS} ${checked ? 'bg-accent/60 font-medium' : ''}`}>
       <input
         checked={checked}
-        className="peer sr-only"
+        className="sr-only"
         name={groupName}
         onChange={onSelect}
         type="radio"
         value={label}
-      />
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 rounded-md peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-popover"
       />
       <span>{label}</span>
       {checked ? <Check className="h-3.5 w-3.5" /> : null}
@@ -117,20 +112,12 @@ function ViewOptionCheckbox({
   readonly onToggle: (checked: boolean) => void;
 }): ReactElement {
   return (
-    <label
-      className={`relative flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
-        checked ? 'bg-accent/60 font-medium' : ''
-      }`}
-    >
+    <label className={`${VIEW_OPTION_LABEL_CLASS} ${checked ? 'bg-accent/60 font-medium' : ''}`}>
       <input
         checked={checked}
-        className="peer sr-only"
+        className="sr-only"
         onChange={(event) => onToggle(event.target.checked)}
         type="checkbox"
-      />
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 rounded-md peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-popover"
       />
       <span>{label}</span>
       {checked ? <Check className="h-3.5 w-3.5" /> : null}
