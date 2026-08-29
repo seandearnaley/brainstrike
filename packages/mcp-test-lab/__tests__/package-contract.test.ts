@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { getMcpLabScenario, MCP_LAB_SCENARIO_IDS } from '../src/scenario';
 
 interface PackageManifest {
   dependencies?: Record<string, string>;
@@ -157,5 +158,49 @@ describe('MCP test lab package contract', () => {
     }
 
     expect(offenders).toEqual([]);
+  });
+
+  it('keeps the living provider contract authoritative for the MCP 2026 host architecture', async () => {
+    const contract = await readFile(
+      new URL('../../../docs/agents/assistant-providers.md', import.meta.url),
+      'utf8'
+    );
+    const normalizedContract = contract.replace(/\s+/gu, ' ');
+    const research = await readFile(
+      new URL(
+        '../../../docs/agents/research/bst-1478-mcp-v2-oauth-architecture-spike.md',
+        import.meta.url
+      ),
+      'utf8'
+    );
+    const manifest = await readManifest();
+    const publicSubpaths = Object.keys(manifest.exports).filter((key) => key !== '.');
+    const everyScenarioIsDeclared = MCP_LAB_SCENARIO_IDS.every(
+      (id) => getMcpLabScenario(id).availability === 'declared'
+    );
+
+    expect(normalizedContract).toContain('`@brainstrike/mcp-test-lab`');
+    expect(normalizedContract).toContain('production-independent verifier');
+    expect(normalizedContract.includes("every scenario has `availability: 'declared'`")).toBe(
+      everyScenarioIsDeclared
+    );
+    expect(normalizedContract).toContain('A package export may appear only in');
+    expect(normalizedContract).toContain(
+      `Current public verifier subpaths: ${publicSubpaths.map((key) => `\`${key}\``).join(', ')}.`
+    );
+    expect(normalizedContract).toContain(
+      '`McpHostService` is the sole production SDK client owner'
+    );
+    expect(normalizedContract).toContain(
+      '`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`'
+    );
+    expect(normalizedContract).toContain('dedicated encrypted MCP credential store');
+    expect(normalizedContract).toContain('`@modelcontextprotocol/client@2.0.0`');
+    expect(normalizedContract).toContain('`cc4b41617ce3601b1290d67216ea0b194a3cd9ac`');
+    expect(normalizedContract).toContain('`2026-07-28`');
+    expect(research).toContain('Status: historical research evidence; decisions promoted to');
+    expect(research).toContain(
+      '[living provider contract](../assistant-providers.md#mcp-2026-host-architecture)'
+    );
   });
 });

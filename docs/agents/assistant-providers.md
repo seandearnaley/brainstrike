@@ -1947,6 +1947,77 @@ Primary references:
 When changing this flow, update this section and the focused agent + desktop
 real-protocol integration tests.
 
+### MCP verification harness
+
+`@brainstrike/mcp-test-lab` is a Node-only, production-independent verifier
+boundary. It is not a production MCP client and must not enter application
+dependency graphs. The package currently owns only a closed scenario manifest:
+scenario ids, fixture identities, protocol-era/revision pairs, and exact
+official SDK/conformance provenance are explicit and independently testable.
+Unknown scenario ids fail visibly, and every manifest records that it consumes
+no ambient credentials. In the foundation layer, every scenario has
+`availability: 'declared'`; this reserves an exact contract without claiming an
+executable server. The owning transport/OAuth layer changes availability only
+when the corresponding fixture and focused exchange tests land together.
+
+Add verifier capabilities incrementally. A package export may appear only in
+the layer that implements and independently tests it; do not advertise a
+transport, fault coordinate, OAuth route, evidence guarantee, or runner before
+that branch contains its executable path and focused verifier. Current public
+verifier subpaths: `./scenario`.
+
+### MCP 2026 host architecture
+
+This is the living production contract for the MCP 2026 migration. The dated
+[architecture spike](research/bst-1478-mcp-v2-oauth-architecture-spike.md)
+records source analysis and rejected alternatives; when it disagrees with this
+section, this section wins.
+
+`McpHostService` is the sole production SDK client owner. It is an Electron-main
+singleton; renderers, assistant adapters, and settings code never construct an
+SDK client, own an MCP child, or retain OAuth material. One server generation
+owns at most one steady-state client and one stdio child. A bounded negotiation
+probe may own a disposable child only when it is observed and reaped before the
+generation becomes ready.
+
+`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`:
+
+- `snapshot` returns token-free authority state, negotiated protocol revision,
+  server identity, capabilities, auth/lifecycle status, and bounded diagnostics.
+- `invoke` accepts a closed typed operation union. There is no raw
+  `request(method, params)` escape hatch and no method-per-SDK-verb public API.
+- `watch` is filtered and token-free. Subscribers cannot obtain the host, SDK
+  values, credential handles, or another server's private events.
+- `replaceConfig` is ordered with invocation and lifecycle work. It advances the
+  server generation, rejects new work against the retired generation, settles
+  or cancels owned work explicitly, and closes old transports before publishing
+  the replacement as ready. It never mutates a live client in place.
+- `close` is terminal and proves that every owned client, request, subscription,
+  callback listener, loopback port, probe, and child process is gone.
+
+Assistant adapters may discover and invoke but cannot mutate auth or
+configuration. Renderer IPC receives only snapshots and explicit Settings
+actions such as Authenticate, Reauthorize, Disconnect, Retry, and Replace
+Configuration. Opaque server, invocation, continuation, task, and Apps ids are
+never reconstructed from display names.
+
+Production migrates atomically to `@modelcontextprotocol/client@2.0.0`; v1 and
+v2 class instances never cross the host boundary. The release tag used by this
+contract peels to `cc4b41617ce3601b1290d67216ea0b194a3cd9ac`, and modern
+negotiation targets MCP `2026-07-28` while retaining explicit legacy policy.
+Post-release SDK behavior requires an explicit dependency update and its own
+regression proof; a transitive package or later upstream `main` is not evidence.
+
+Remote OAuth is owned entirely by Electron main through the SDK OAuth provider
+and a dedicated encrypted MCP credential store. The store is separate from
+model-provider credentials and partitions records by configured server,
+authorization issuer, protected-resource URI, client identity, and granted
+scope set. Browser redirects, PKCE verifiers, authorization codes, access and
+refresh tokens, and client secrets never cross preload or renderer IPC.
+Disconnect, config removal, revocation, and factory reset clear both encrypted
+records and in-memory refresh/session state; a storage failure is visible and
+never converted into an unauthenticated fallback.
+
 ---
 
 
