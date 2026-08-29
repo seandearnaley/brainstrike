@@ -273,6 +273,34 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/credential-assignment/i);
   });
 
+  it.each([
+    'OPENAI_API_KEY=sk-test',
+    'AWS_SECRET_ACCESS_KEY=x',
+    'client_secret="#"',
+    "client_secret=';'",
+  ])('detects namespaced or punctuation-only assignment %s', (text) => {
+    expect(scanEvidenceTextForSecrets(text)).toEqual([
+      expect.objectContaining({ kind: 'credential-assignment' }),
+    ]);
+  });
+
+  it('detects namespaced credential keys in parsed JSON', () => {
+    const bytes = new TextEncoder().encode('{"openai_api_key":"x"}');
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
   it('detects credentials inside serialized JSON string fields', () => {
     const bytes = new TextEncoder().encode(
       '{"body":"{\\"access\\\\u005ftoken\\":\\"opaque-0123456789abcdef\\"}"}'

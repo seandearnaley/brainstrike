@@ -162,12 +162,14 @@ const CREDENTIAL_KEYS = [
   'refresh_token',
   'token',
 ] as const;
-const CREDENTIAL_KEY_SET = new Set<string>(CREDENTIAL_KEYS);
+const CREDENTIAL_KEY_SUFFIXES = [...CREDENTIAL_KEYS, 'secret_access_key'] as const;
 const GENERIC_CREDENTIAL_KEYS = new Set(['authorization', 'code', 'token']);
 const MAX_SERIALIZED_JSON_SCAN_DEPTH = 4;
-const CREDENTIAL_ASSIGNMENT_KEYS = CREDENTIAL_KEYS.map((key) => key.replaceAll('_', '[_ -]'));
+const CREDENTIAL_ASSIGNMENT_KEYS = CREDENTIAL_KEY_SUFFIXES.map((key) =>
+  key.replaceAll('_', '[_ .-]')
+);
 const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
-  `\\b(${CREDENTIAL_ASSIGNMENT_KEYS.join('|')})\\b["']?[ \\t]*[:=][ \\t]*["']?[^\\s"',;&?#}\\]]+`,
+  `\\b((?:[a-z0-9]+[_.-])*(?:${CREDENTIAL_ASSIGNMENT_KEYS.join('|')}))["']?[ \\t]*[:=][ \\t]*(?:"([^"]+)"|'([^']+)'|([^\\s]+))`,
   'gi'
 );
 
@@ -197,19 +199,16 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
     if (urlRanges.some((range) => match.index >= range.start && match.index < range.end)) {
       continue;
     }
-    const label = match[1]?.toLowerCase().replaceAll(/[ -]/g, '_') ?? '';
-    const separatorIndex = match[0].search(/[:=]/u);
-    const assignedValue =
-      separatorIndex === -1
-        ? ''
-        : match[0]
-            .slice(separatorIndex + 1)
-            .trim()
-            .replace(/^["']/u, '');
+    const label = credentialLabelForKey(match[1] ?? '');
+    if (!label) {
+      continue;
+    }
+    const assignedValue = match[2] ?? match[3] ?? match[4] ?? '';
+    const diagnosticValue = assignedValue.replace(/[),.;\]}]+$/u, '');
     const prefix = text.slice(Math.max(0, match.index - 16), match.index);
     if (
       GENERIC_CREDENTIAL_KEYS.has(label) &&
-      isSafeDiagnosticAssignment(label, assignedValue, prefix)
+      isSafeDiagnosticAssignment(label, diagnosticValue, prefix)
     ) {
       continue;
     }
@@ -601,18 +600,18 @@ function assertSanitizedText(
   }
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = path === '$' ? `$.${key}` : `${path}.${key}`;
-    const normalizedKey = key.toLowerCase().replaceAll(/[ -]/g, '_');
+    const credentialLabel = credentialLabelForKey(key);
     if (
       scanDecodedKeys &&
       typeof entry === 'string' &&
       entry.length > 0 &&
-      CREDENTIAL_KEY_SET.has(normalizedKey) &&
-      !isSafeDiagnosticAssignment(normalizedKey, entry, '')
+      credentialLabel !== undefined &&
+      !isSafeDiagnosticAssignment(credentialLabel, entry, '')
     ) {
       fail(
         entryPath,
         'secret_detected',
-        `contains prohibited ${credentialAssignmentKind(normalizedKey)} material`,
+        `contains prohibited ${credentialAssignmentKind(credentialLabel)} material`,
         0
       );
     }
@@ -888,12 +887,18 @@ function fragmentParameters(hash: string): URLSearchParams {
 
 function hasCredentialParameter(parameters: URLSearchParams): boolean {
   for (const [key, value] of parameters) {
-    const normalizedKey = key.toLowerCase().replaceAll(/[ -]/g, '_');
-    if (value.length > 0 && CREDENTIAL_KEY_SET.has(normalizedKey)) {
+    if (value.length > 0 && credentialLabelForKey(key)) {
       return true;
     }
   }
   return false;
+}
+
+function credentialLabelForKey(key: string): string | undefined {
+  const normalizedKey = key.toLowerCase().replaceAll(/[ .-]/g, '_');
+  return CREDENTIAL_KEY_SUFFIXES.find(
+    (suffix) => normalizedKey === suffix || normalizedKey.endsWith(`_${suffix}`)
+  );
 }
 
 function credentialAssignmentKind(label: string): EvidenceSecretKind {
