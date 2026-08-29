@@ -125,7 +125,6 @@ describe('MCP HTTP fault executor', () => {
       'second-ingress',
     ]);
   });
-
   it('waits for active delay faults before closing the downstream handler', async () => {
     vi.useFakeTimers();
     let downstreamClosed = false;

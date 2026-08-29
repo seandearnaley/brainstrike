@@ -330,6 +330,25 @@ describe('MCP lab loopback HTTP references', () => {
     }
   });
 
+  it('closes the fault executor when handler construction fails after binding', async () => {
+    let executorCloseCalls = 0;
+    const faultExecutor = {
+      async close() {
+        executorCloseCalls += 1;
+      },
+    } as unknown as McpLabHttpFaultExecutor;
+
+    await expect(
+      createMcpLabLoopback(
+        () => {
+          throw new Error('handler construction failed');
+        },
+        { faultExecutor }
+      )
+    ).rejects.toThrow('handler construction failed');
+    expect(executorCloseCalls).toBe(1);
+  });
+
   it('rejects an accepted loopback alias when it differs from the faulted advertised authority', async () => {
     let handlerCalls = 0;
     let prepareCalls = 0;

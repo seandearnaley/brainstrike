@@ -44,7 +44,7 @@ describe('MCP lab fault runtime', () => {
     expect(runtime.untriggeredIds()).toEqual([]);
   });
 
-  it('allocates bounded deterministic correlations and detects remaining body coordinates', () => {
+  it('reserves unique deterministic correlations and detects remaining HTTP coordinates', () => {
     const plan = createMcpLabFaultPlan([
       {
         fault: { kind: 'http_status', status: 503 },
@@ -54,10 +54,15 @@ describe('MCP lab fault runtime', () => {
     ]);
     const runtime = createMcpLabFaultRuntime(plan, 'modern-reference');
 
-    expect(runtime.nextCorrelation()).toBe('modern-reference:exchange:1');
-    expect(runtime.nextCorrelation('dispatch')).toBe('modern-reference:dispatch:2');
+    expect(runtime.reserveCorrelation()).toBe('modern-reference:exchange:1');
+    expect(runtime.reserveCorrelation(undefined, 'dispatch')).toBe('modern-reference:dispatch:2');
+    expect(runtime.reserveCorrelation('caller.safe:1')).toBe('caller.safe:1');
+    expect(() => runtime.reserveCorrelation('caller.safe:1')).toThrow(/duplicate.*correlation/i);
+    expect(() => runtime.reserveCorrelation('unsafe correlation')).toThrow(/invalid.*correlation/i);
+    expect(runtime.requiresHttpQualification()).toBe(true);
     expect(runtime.requiresProtocolBodyCoordinate()).toBe(true);
     runtime.consume('operation', 'tools/list', 'correlation-tools');
+    expect(runtime.requiresHttpQualification()).toBe(false);
     expect(runtime.requiresProtocolBodyCoordinate()).toBe(false);
   });
 
@@ -89,5 +94,34 @@ describe('MCP lab fault runtime', () => {
     await expect(
       applyMcpLabHttpFault({ fault: { kind: 'cleanup_error' }, id: 'wrong-scope' })
     ).rejects.toThrow(/cannot target an HTTP exchange/);
+
+    for (const applied of [
+      { fault: { kind: 'http_status' as const, status: 503 }, id: 'replace-status' },
+      {
+        fault: { kind: 'malformed_json' as const, payload: '{"broken":' },
+        id: 'replace-malformed',
+      },
+    ]) {
+      const cancel = vi.fn();
+      const displaced = new Response(new ReadableStream({ cancel }));
+      await expect(applyMcpLabHttpFault(applied, displaced)).resolves.toBeDefined();
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+    const cancelDrop = vi.fn();
+    await expect(
+      applyMcpLabHttpFault(
+        { fault: { kind: 'drop_response' }, id: 'replace-drop' },
+        new Response(new ReadableStream({ cancel: cancelDrop }))
+      )
+    ).rejects.toBeInstanceOf(McpLabDroppedResponseError);
+    expect(cancelDrop).toHaveBeenCalledOnce();
+    const cancelDelay = vi.fn();
+    await expect(
+      applyMcpLabHttpFault(
+        { fault: { delayMs: 0, kind: 'delay' }, id: 'delay' },
+        new Response(new ReadableStream({ cancel: cancelDelay }))
+      )
+    ).resolves.toBeUndefined();
+    expect(cancelDelay).not.toHaveBeenCalled();
   });
 });
