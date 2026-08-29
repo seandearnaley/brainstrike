@@ -1,5 +1,6 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { NodeIncomingMessageLike } from '@modelcontextprotocol/node';
+import { isMcpLabCorrelationId } from './faults.js';
 
 export function listenLoopback(server: Server): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -34,6 +35,23 @@ export function toCorrelatedNodeRequest(
     ...(request.method === undefined ? {} : { method: request.method }),
     ...(request.url === undefined ? {} : { url: request.url }),
   };
+}
+
+export function correlationIdForNodeRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  nextCorrelation: () => string
+): string | undefined {
+  const supplied = request.headers['x-mcp-lab-correlation-id'];
+  if (supplied === undefined) {
+    return nextCorrelation();
+  }
+  if (!isMcpLabCorrelationId(supplied)) {
+    response.writeHead(400, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'invalid_correlation_id' }));
+    return;
+  }
+  return supplied;
 }
 
 export function closeLoopbackServer(server: Server): Promise<void> {

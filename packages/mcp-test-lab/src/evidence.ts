@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { decodeHTML } from 'entities';
 import {
   isSafeAuthorizationSchemeMatch,
   isSafeDiagnosticAssignment,
@@ -708,6 +709,11 @@ function assertSanitizedArtifactBytes(
   }
   assertSanitizedText(text, path);
   assertSanitizedParsedJson(text, path);
+  if (artifact.kind === 'report' && artifact.reference.toLowerCase().endsWith('.html')) {
+    const decodedHtml = decodeHTML(text);
+    assertSanitizedText(decodedHtml, path);
+    assertSanitizedParsedJson(decodedHtml, path);
+  }
 }
 
 function assertSanitizedParsedJson(text: string, path: string, serializedJsonDepth = -1): void {

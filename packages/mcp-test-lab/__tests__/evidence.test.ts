@@ -200,6 +200,31 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/bearer-token/i);
   });
 
+  it('decodes HTML character references before secret-scanning report artifacts', () => {
+    for (const encodedAssignment of [
+      'client_secret&#61;opaque-value',
+      'client_secret&#x3d;opaque-value',
+      'client_secret&equals;opaque-value',
+    ]) {
+      const bytes = new TextEncoder().encode(`<pre>${encodedAssignment}</pre>`);
+      const bundle = {
+        ...VALID_BUNDLE,
+        artifacts: [
+          {
+            kind: 'report',
+            reference: 'artifacts/oauth-report.html',
+            sanitized: true,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+          },
+        ],
+      };
+
+      expect(() =>
+        parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+      ).toThrowError(/artifacts\[0\]\.content.*credential-assignment/i);
+    }
+  });
+
   it('parses JSON-looking screenshot text before accepting it', () => {
     const bytes = Uint8Array.from([137, 80, 78, 71]);
     const bundle = {

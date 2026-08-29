@@ -34,6 +34,7 @@ import {
 } from './http-coordinates.js';
 import {
   closeLoopbackServer,
+  correlationIdForNodeRequest,
   listenLoopback,
   toCorrelatedNodeRequest,
   writeNodeResponse,
@@ -880,7 +881,12 @@ async function loopbackSession(
     if (!(validateHost(request, response) && validateOrigin(request, response))) {
       return;
     }
-    const correlationId = runtime.nextCorrelation();
+    const correlationId = correlationIdForNodeRequest(request, response, () =>
+      runtime.nextCorrelation()
+    );
+    if (correlationId === undefined) {
+      return;
+    }
     const activeDispatch = dispatch;
     if (!activeDispatch) {
       response.writeHead(503).end();

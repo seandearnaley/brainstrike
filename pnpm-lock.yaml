@@ -2589,6 +2589,9 @@ importers:
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0
+      entities:
+        specifier: 7.0.1
+        version: 7.0.1
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -17102,7 +17105,7 @@ snapshots:
       '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.4.3)
       diff: 8.0.4
       glob: 10.5.0
-      minimatch: 10.2.6
+      minimatch: 10.2.5
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - supports-color
@@ -20336,7 +20339,7 @@ snapshots:
       js-yaml: 4.3.0
       json5: 2.2.3
       lazy-val: 1.0.5
-      minimatch: 10.2.5
+      minimatch: 10.2.6
       pkijs: 3.4.0
       plist: 3.1.0
       proper-lockfile: 4.1.2

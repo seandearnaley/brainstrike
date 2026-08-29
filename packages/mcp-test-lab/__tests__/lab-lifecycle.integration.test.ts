@@ -591,6 +591,59 @@ describe('MCP lab fault and cleanup lifecycle', () => {
     });
   });
 
+  it('preserves valid caller correlation ids at the Node loopback fault boundary', async () => {
+    const correlationId = 'caller-provided-correlation-id';
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 418 },
+        id: 'caller-correlated-dispatch',
+        match: { method: 'node/dispatch', occurrence: 1, phase: 'transport' },
+      },
+    ]);
+    const lab = await startMcpLabScenario('modern-reference', { faultPlan });
+    if (lab.endpoint.kind !== 'loopback-http') {
+      throw new Error(`Expected loopback HTTP endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    try {
+      const response = await fetch(lab.endpoint.url, {
+        headers: { 'x-mcp-lab-correlation-id': correlationId },
+      });
+      expect(response.status).toBe(418);
+      expect(faultPlan.observations()).toEqual([
+        expect.objectContaining({ correlationId, faultId: 'caller-correlated-dispatch' }),
+      ]);
+    } finally {
+      await lab.close();
+    }
+  });
+
+  it('rejects malformed caller correlation ids before Node loopback fault consumption', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 418 },
+        id: 'valid-correlation-only',
+        match: { method: 'node/dispatch', occurrence: 1, phase: 'transport' },
+      },
+    ]);
+    const lab = await startMcpLabScenario('modern-reference', { faultPlan });
+    if (lab.endpoint.kind !== 'loopback-http') {
+      throw new Error(`Expected loopback HTTP endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    try {
+      const response = await fetch(lab.endpoint.url, {
+        headers: { 'x-mcp-lab-correlation-id': 'malformed id' },
+      });
+      expect(response.status).toBe(400);
+      expect(faultPlan.observations()).toEqual([]);
+      expect(faultPlan.untriggeredIds()).toEqual(['valid-correlation-only']);
+      expect(lab.diagnostics()).toEqual([]);
+    } finally {
+      await lab.close();
+    }
+  });
+
   it('drops the socket when a response fault reaches the outer loopback boundary', async () => {
     const faultPlan = createMcpLabFaultPlan([
       {
