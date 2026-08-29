@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
@@ -27,6 +28,7 @@ export interface ExplicitStdioMcpClientOptions {
   command: string;
   env?: Readonly<Record<string, string>>;
   name: string;
+  protocol?: McpProtocol;
 }
 
 interface ActiveConnection {
@@ -45,6 +47,7 @@ interface NormalizedClientOptions {
   };
   command: string;
   env?: Record<string, string>;
+  protocol: McpProtocol;
 }
 
 function closedClientError(): Error {
@@ -72,6 +75,7 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     command: validateNonEmpty(options.command, 'MCP stdio command'),
     ...(options.args ? { args: [...options.args] } : {}),
     ...(options.env ? { env: { ...options.env } } : {}),
+    protocol: options.protocol ?? 'legacy',
   };
 }
 
@@ -220,6 +224,7 @@ export class ExplicitStdioMcpClient {
       capabilities: {
         extensions: { [MCP_APPS_EXTENSION_ID]: {} },
       },
+      versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
     });
     const transport = new StdioClientTransport({
       command: this.options.command,

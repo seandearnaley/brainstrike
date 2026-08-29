@@ -279,8 +279,25 @@ export {
 } from './mastra/tool-projection-rewrite-processor';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
-export type { McpConfig, McpServer } from './mcp/config';
-export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
+export type {
+  McpConfig,
+  McpConfigInput,
+  McpProtocol,
+  McpProtocolMigration,
+  McpServer,
+  McpServerInput,
+  ResolvedMcpConfig,
+  ResolvedMcpServer,
+} from './mcp/config';
+export {
+  McpConfigSchema,
+  McpProtocolEnum,
+  McpServerSchema,
+  McpTransportEnum,
+  parseMcpConfig,
+  parseMcpConfigWithMigrations,
+  toMcpVersionNegotiation,
+} from './mcp/config';
 export {
   createDefaultToolPreferences,
   deleteToolPreferences,

@@ -87,11 +87,13 @@ describe('MCP runtime client', () => {
             command: 'node',
             env: { NODE_ENV: 'test' },
             name: 'local',
+            protocol: 'auto',
             transport: 'stdio',
           },
           {
             headers: { Authorization: 'Bearer streamable' },
             name: 'streamable',
+            protocol: '2026-07-28',
             transport: 'streamable-http',
             url: 'https://example.com/sse',
           },
@@ -113,16 +115,19 @@ describe('MCP runtime client', () => {
       command: 'node',
       env: { NODE_ENV: 'test' },
       name: 'local',
+      protocol: 'auto',
     });
     expect(createExplicitHttpClient).toHaveBeenNthCalledWith(1, {
       headers: { Authorization: 'Bearer streamable' },
       name: 'streamable',
+      protocol: '2026-07-28',
       transport: 'streamable-http',
       url: 'https://example.com/sse',
     });
     expect(createExplicitHttpClient).toHaveBeenNthCalledWith(2, {
       headers: { Authorization: 'Bearer legacy' },
       name: 'legacy',
+      protocol: 'legacy',
       transport: 'sse',
       url: 'https://example.com/mcp',
     });

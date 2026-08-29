@@ -4,6 +4,7 @@ import {
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+import { type McpProtocol, toMcpVersionNegotiation } from './config';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
@@ -45,6 +46,7 @@ export interface ExplicitHttpMcpClientOptions {
   fetch?: ExplicitHttpMcpFetch;
   headers?: Readonly<Record<string, string>>;
   name: string;
+  protocol?: McpProtocol;
   transport: ExplicitHttpMcpTransport;
   url: string | URL;
 }
@@ -62,6 +64,7 @@ interface NormalizedClientOptions {
     version: string;
   };
   fetch: ExplicitHttpMcpFetch;
+  protocol: McpProtocol;
   transport: ExplicitHttpMcpTransport;
   url: URL;
 }
@@ -146,6 +149,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
   return {
     clientInfo: { ...clientInfo },
     fetch: createHeaderPreservingFetch(baseFetch, options.headers),
+    protocol: options.protocol ?? 'legacy',
     transport: options.transport,
     url,
   };
@@ -333,6 +337,7 @@ export class ExplicitHttpMcpClient {
       capabilities: {
         extensions: { [MCP_APPS_EXTENSION_ID]: {} },
       },
+      versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
     });
     return { client, transport: this.createTransport() };
   }

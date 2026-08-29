@@ -53,6 +53,51 @@ describe('mcp-loader', () => {
     expect(config.servers[1]?.transport).toBe('sse');
   });
 
+  it('surfaces omitted protocol migration without rewriting the JSONC document', async () => {
+    const { loadMcpConfig, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const configPath = path.join(tempDir, 'mcp', 'protocol-migration.json');
+    const content = `{
+      // This comment and formatting must survive migration discovery.
+      "servers": [{ "command": "node", "name": "legacy", "transport": "stdio" }]
+    }`;
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, content, 'utf-8');
+    await setCustomMcpConfigPath(configPath);
+
+    const loaded = await loadMcpConfig();
+
+    expect(loaded.config?.servers[0]?.protocol).toBe('legacy');
+    expect(loaded.migrations).toEqual([
+      {
+        code: 'mcp_protocol_defaulted_to_legacy',
+        serverIndex: 0,
+        serverName: 'legacy',
+      },
+    ]);
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(content);
+  });
+
+  it('accepts explicit protocol modes and rejects modern policy on legacy SSE', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    const auto = { command: 'node', name: 'auto', protocol: 'auto', transport: 'stdio' };
+    expect(parseMcpConfig(JSON.stringify({ servers: [auto] })).servers[0]?.protocol).toBe('auto');
+
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              name: 'sse',
+              protocol: 'auto',
+              transport: 'sse',
+              url: 'https://example.com/sse',
+            },
+          ],
+        })
+      )
+    ).toThrow(/legacy SSE transport requires protocol "legacy"/u);
+  });
+
   it('decrypts encrypted values and applies to headers/env', async () => {
     decryptStringAsync.mockResolvedValue({ result: 'decrypted', shouldReEncrypt: false });
     const { decryptIfEncrypted, withDecryptedSecrets } = await import('../../mcp-loader');

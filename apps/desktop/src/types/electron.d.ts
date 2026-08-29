@@ -84,6 +84,7 @@ import type {
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
+import type { McpConfigStatus } from '../ipc-mcp';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type {
@@ -456,13 +457,7 @@ declare global {
       ) => (() => void) | undefined;
     };
     mcp: {
-      getConfig: () => Promise<{
-        path: string;
-        exists: boolean;
-        servers?: { name: string; transport: 'sse' | 'stdio' | 'streamable-http' }[];
-        loadedAt?: number;
-        error?: string;
-      }>;
+      getConfig: () => Promise<McpConfigStatus>;
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;
       getPath: () => Promise<string>;
@@ -480,15 +475,7 @@ declare global {
       >;
       selectPath: () => Promise<string | null>;
       createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
-      onConfigUpdated: (
-        callback: (config: {
-          path: string;
-          exists: boolean;
-          servers?: { name: string; transport: 'sse' | 'stdio' | 'streamable-http' }[];
-          loadedAt?: number;
-          error?: string;
-        }) => void
-      ) => () => void;
+      onConfigUpdated: (callback: (config: McpConfigStatus) => void) => () => void;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{

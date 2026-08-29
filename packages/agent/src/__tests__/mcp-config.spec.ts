@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { type McpConfig, McpConfigSchema, parseMcpConfig } from '../mcp/config';
+import {
+  type McpConfig,
+  McpConfigSchema,
+  parseMcpConfig,
+  parseMcpConfigWithMigrations,
+  toMcpVersionNegotiation,
+} from '../mcp/config';
 
 describe('MCP config parser', () => {
   it('parses valid stdio, Streamable HTTP, and legacy SSE servers explicitly', () => {
@@ -59,6 +65,57 @@ describe('MCP config parser', () => {
     );
 
     expect(cfg.servers.map((server) => server.transport)).toEqual(['streamable-http', 'sse']);
+  });
+
+  it('defaults omitted protocol policy visibly and preserves the effective policy on reload', () => {
+    const raw = JSON.stringify({
+      servers: [{ command: 'node', name: 'legacy-by-migration', transport: 'stdio' }],
+    });
+
+    const first = parseMcpConfigWithMigrations(raw);
+    expect(first.config.servers[0]?.protocol).toBe('legacy');
+    expect(first.migrations).toEqual([
+      {
+        code: 'mcp_protocol_defaulted_to_legacy',
+        serverIndex: 0,
+        serverName: 'legacy-by-migration',
+      },
+    ]);
+
+    const reloaded = parseMcpConfigWithMigrations(JSON.stringify(first.config));
+    expect(reloaded.config).toEqual(first.config);
+    expect(reloaded.migrations).toEqual([]);
+  });
+
+  it('accepts every explicit protocol mode and rejects incompatible or unknown modes', () => {
+    const parseServers = (servers: unknown[]) => parseMcpConfig(JSON.stringify({ servers }));
+    const config = parseServers([
+      { command: 'node', name: 'legacy', protocol: 'legacy', transport: 'stdio' },
+      { command: 'node', name: 'auto', protocol: 'auto', transport: 'stdio' },
+      {
+        name: 'modern',
+        protocol: '2026-07-28',
+        transport: 'streamable-http',
+        url: 'https://example.com/mcp',
+      },
+    ]);
+    expect(config.servers.map(({ protocol }) => protocol)).toEqual([
+      'legacy',
+      'auto',
+      '2026-07-28',
+    ]);
+    expect(toMcpVersionNegotiation('legacy')).toEqual({ mode: 'legacy' });
+    expect(toMcpVersionNegotiation('auto')).toEqual({ mode: 'auto' });
+    expect(toMcpVersionNegotiation('2026-07-28')).toEqual({ mode: { pin: '2026-07-28' } });
+
+    expect(() =>
+      parseServers([
+        { name: 'invalid-sse', protocol: 'auto', transport: 'sse', url: 'https://example.com/sse' },
+      ])
+    ).toThrow(/legacy SSE transport requires protocol/u);
+    expect(() =>
+      parseServers([{ command: 'node', name: 'future', protocol: 'future', transport: 'stdio' }])
+    ).toThrow(/invalid_mcp_config/u);
   });
 
   it('rejects duplicate server names across different transports at the duplicate path', () => {
