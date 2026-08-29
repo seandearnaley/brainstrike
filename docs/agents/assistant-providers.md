@@ -2079,9 +2079,24 @@ single-session and permanent even when later startup fails; a plan consumed
 through its public test API, attached twice serially or concurrently, or mutated
 publicly after claim fails visibly before another allocation. HTTP in-process,
 loopback, OAuth, and stdio sessions all execute `shutdown/transport/close` delay
-and cleanup-error faults. Stdio protocol and child-process coordinates remain
-unavailable until their executable layers; server-to-client, wrong-era, and
-fixture-unreachable coordinates fail at startup.
+and cleanup-error faults. Stdio also executes `child/spawn` delay and real
+`child/stderr` after spawn and `child/exit` only after the official server has
+answered the handshake and a post-handshake send occurs. Syntax-invalid child stdout is not an executable fault: the
+pinned reader skips it invisibly, so startup rejects that declaration. Stdio
+protocol coordinates remain unavailable until their executable layer;
+server-to-client, wrong-era, and fixture-unreachable coordinates fail at startup.
+
+The stdio owner peeks at child configuration without consuming it, then commits
+stderr and exit faults only after the corresponding control write or signal
+succeeds. Spawn failure therefore leaves stderr and exit untriggered. Injected
+stderr is emitted by the real child but diagnostics retain only a bounded byte
+aggregate. Exit-code control uses a private per-session mode-0600 temporary
+channel; signal exits target the captured PID only while the SDK delegate still
+owns it. Close tears down the delegate before joining blocked sends, waits only
+while that authoritative handle remains live, and removes the control directory
+only after child ownership is released; the verifier proves the captured PID
+reaches `ESRCH`. Diagnostics and reports never retain injected
+stderr, environment, argv, or control content.
 
 One private cleanup owner serially closes every session resource. An injected
 cleanup error occurs before any resource is touched. A failed or partial attempt

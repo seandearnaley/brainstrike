@@ -3,6 +3,8 @@ import {
   DEFAULT_INHERITED_ENV_VARS,
   StdioClientTransport,
 } from '@modelcontextprotocol/client/stdio';
+import type { McpLabFaultRuntime } from './fault-runtime.js';
+import { McpLabStdioChildFaults } from './stdio-child-faults.js';
 
 export interface McpLabStdioParameters {
   readonly args: readonly string[];
@@ -35,78 +37,185 @@ function suppressDefaultEnvironment(
 }
 
 export class McpLabOwnedStdioTransport implements Transport {
+  private readonly activeSends = new Set<Promise<void>>();
+  private readonly childFaults: McpLabStdioChildFaults;
+  private readonly sendAborters = new Set<(error: Error) => void>();
+  private capturedPid: number | null = null;
   private closePromise: Promise<void> | undefined;
   private closed = false;
+  private closing = false;
   private delegate: StdioClientTransport | undefined;
+  private delegateClosePromise: Promise<void> | undefined;
+  private receivedMessage = false;
   private spawned = false;
+  private spawnedPid: number | null = null;
+  private startPromise: Promise<void> | undefined;
   onclose: (() => void) | undefined;
   onerror: ((error: Error) => void) | undefined;
   onmessage: ((message: JSONRPCMessage) => void) | undefined;
 
   constructor(
     private readonly parameters: McpLabStdioParameters,
-    private readonly recordStderrBytes: (byteCount: number) => void
-  ) {}
+    private readonly recordStderrBytes: (byteCount: number) => void,
+    faultRuntime: McpLabFaultRuntime
+  ) {
+    this.childFaults = new McpLabStdioChildFaults(faultRuntime);
+  }
 
   get pid(): number | null {
-    return this.delegate?.pid ?? null;
+    return this.spawnedPid;
+  }
+
+  get lastSpawnedPid(): number | null {
+    return this.capturedPid;
   }
 
   get wasSpawned(): boolean {
     return this.spawned;
   }
 
-  async start(): Promise<void> {
-    if (this.closed) {
-      throw new Error('MCP lab stdio transport is closed');
+  start(): Promise<void> {
+    if (this.closed || this.closing) {
+      return Promise.reject(new Error('MCP lab stdio transport is closed'));
     }
-    if (this.delegate) {
-      throw new Error('MCP lab stdio transport is already started');
+    if (this.startPromise) {
+      return Promise.reject(new Error('MCP lab stdio transport is already started'));
     }
-    const delegate = new StdioClientTransport({
-      args: [...this.parameters.args],
-      command: this.parameters.command,
-      cwd: this.parameters.cwd,
-      env: suppressDefaultEnvironment(this.parameters.env),
-      stderr: 'pipe',
-    });
-    delegate.onclose = () => {
-      this.closed = true;
-      this.onclose?.();
-    };
-    delegate.onerror = (error) => this.onerror?.(error);
-    delegate.onmessage = (message) => this.onmessage?.(message);
-    delegate.stderr?.on('data', (chunk: unknown) => this.recordStderrBytes(chunkByteLength(chunk)));
-    this.delegate = delegate;
-    await delegate.start();
-    this.spawned = true;
+    const starting = this.startOnce();
+    this.startPromise = starting;
+    return starting;
   }
 
-  async close(): Promise<void> {
+  private async startOnce(): Promise<void> {
+    let delegate: StdioClientTransport | undefined;
+    try {
+      await this.childFaults.beforeSpawn();
+      if (this.closing) {
+        throw new Error('MCP lab stdio transport closed during startup');
+      }
+      const args = await this.childFaults.args(this.parameters.args);
+      if (this.closing) {
+        throw new Error('MCP lab stdio transport closed during startup');
+      }
+      delegate = new StdioClientTransport({
+        args: [...args],
+        command: this.parameters.command,
+        cwd: this.parameters.cwd,
+        env: suppressDefaultEnvironment(this.parameters.env),
+        stderr: 'pipe',
+      });
+      delegate.onclose = () => {
+        this.closing = true;
+        void this.finishDelegateClose();
+      };
+      delegate.onerror = (error) => this.onerror?.(error);
+      delegate.onmessage = (message) => {
+        this.receivedMessage = true;
+        this.onmessage?.(message);
+      };
+      delegate.stderr?.on('data', (chunk: unknown) =>
+        this.recordStderrBytes(chunkByteLength(chunk))
+      );
+      this.delegate = delegate;
+      await delegate.start();
+      this.spawned = true;
+      this.spawnedPid = delegate.pid;
+      this.capturedPid = this.spawnedPid;
+      if (this.spawnedPid === null) {
+        throw new Error('MCP lab stdio transport started without a child pid');
+      }
+      await this.childFaults.afterSpawn();
+    } catch {
+      if (delegate) {
+        try {
+          await delegate.close();
+        } catch {
+          // The public startup error below is deliberately fixed-shape.
+        }
+      }
+      try {
+        await this.childFaults.close(this.spawnedPid);
+      } catch {
+        // The public startup error below is deliberately fixed-shape.
+      }
+      throw new Error('MCP lab stdio transport failed to start');
+    }
+  }
+
+  close(): Promise<void> {
     if (this.closePromise) {
       return this.closePromise;
     }
-    const delegate = this.delegate;
-    if (!delegate) {
-      this.closed = true;
-      return;
-    }
-    this.closePromise = delegate.close().then(
-      () => {
-        this.closed = true;
-      },
-      (error: unknown) => {
-        this.closePromise = undefined;
-        throw error;
+    this.closing = true;
+    this.closePromise = (async () => {
+      await this.startPromise?.catch(() => undefined);
+      let cleanupFailed = false;
+      const delegate = this.delegate;
+      const closingError = new Error('MCP lab stdio transport closed during send');
+      for (const abort of this.sendAborters) {
+        abort(closingError);
       }
-    );
+      this.sendAborters.clear();
+      try {
+        await delegate?.close();
+      } catch {
+        cleanupFailed = true;
+      }
+      await this.waitForActiveSends();
+      try {
+        const pid = this.spawnedPid;
+        await this.childFaults.close(pid, () => pid !== null && delegate?.pid === pid);
+      } catch {
+        cleanupFailed = true;
+      }
+      if (cleanupFailed) {
+        this.closePromise = undefined;
+        throw new Error('MCP lab stdio transport cleanup failed');
+      }
+      this.closed = true;
+      this.spawnedPid = null;
+    })();
     return this.closePromise;
   }
 
-  async send(message: JSONRPCMessage): Promise<void> {
-    if (!this.delegate) {
-      throw new Error('MCP lab stdio transport is not started');
+  send(message: JSONRPCMessage): Promise<void> {
+    const delegate = this.delegate;
+    if (this.closing || !delegate) {
+      return Promise.reject(new Error('MCP lab stdio transport is not started'));
     }
-    await this.delegate.send(message);
+    const sending = this.sendOnce(message, delegate);
+    this.activeSends.add(sending);
+    void sending.finally(() => this.activeSends.delete(sending)).catch(() => undefined);
+    return sending;
+  }
+
+  private finishDelegateClose(): Promise<void> {
+    if (this.delegateClosePromise) {
+      return this.delegateClosePromise;
+    }
+    this.delegateClosePromise = (async () => {
+      await this.waitForActiveSends();
+      this.closed = true;
+      this.onclose?.();
+    })();
+    return this.delegateClosePromise;
+  }
+
+  private async sendOnce(message: JSONRPCMessage, delegate: StdioClientTransport): Promise<void> {
+    const { promise: aborted, reject: abort } = Promise.withResolvers<void>();
+    this.sendAborters.add(abort);
+    try {
+      await Promise.race([delegate.send(message), aborted]);
+    } finally {
+      this.sendAborters.delete(abort);
+    }
+    if (this.spawnedPid !== null) {
+      const pid = this.spawnedPid;
+      await this.childFaults.afterSend(pid, () => delegate.pid === pid, this.receivedMessage);
+    }
+  }
+
+  private async waitForActiveSends(): Promise<void> {
+    await Promise.all([...this.activeSends].map((sending) => sending.catch(() => undefined)));
   }
 }

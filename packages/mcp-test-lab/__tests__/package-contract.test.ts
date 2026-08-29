@@ -232,6 +232,10 @@ describe('MCP test lab package contract', () => {
       'One private cleanup owner serially closes every session resource'
     );
     expect(normalizedContract).toContain('concurrent callers share that attempt');
+    expect(normalizedContract).toContain(
+      'Spawn failure therefore leaves stderr and exit untriggered'
+    );
+    expect(normalizedContract).toContain('verifier proves the captured PID reaches `ESRCH`');
     expect(contract).toContain('bounds and snapshots declaration');
     expect(contract).toContain('@modelcontextprotocol/core@2.0.0');
     expect(contract).toContain('`assertScenarioFaultCompatibility`');
