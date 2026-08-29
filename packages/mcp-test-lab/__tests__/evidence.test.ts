@@ -510,7 +510,7 @@ describe('parseMcpEvidenceBundle', () => {
     'refresh_token',
     'token',
   ])('detects standalone %s assignments without returning their values', (credentialKey) => {
-    const credential = `opaque-${'0123456789abcdef'}`;
+    const credential = 'q';
     const equalsFindings = scanEvidenceTextForSecrets(`${credentialKey}=${credential}`);
     const jsonFindings = scanEvidenceTextForSecrets(`"${credentialKey}": "${credential}"`);
 

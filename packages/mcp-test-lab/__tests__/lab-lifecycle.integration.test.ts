@@ -171,6 +171,41 @@ describe('MCP lab fault and cleanup lifecycle', () => {
     expect(authorizationPlan.untriggeredIds()).toEqual(['token-only']);
   });
 
+  it('does not let an HTTP body consume the dedicated shutdown coordinate', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'unused-operation',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+      {
+        fault: { kind: 'cleanup_error' },
+        id: 'close-only',
+        match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
+      },
+    ]);
+    const lab = await startMcpLabScenario('modern-reference', {
+      execution: 'in-process',
+      faultPlan,
+    });
+    if (lab.endpoint.kind !== 'in-process-http') {
+      throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    await lab.endpoint.fetch(
+      new Request(lab.endpoint.url, {
+        body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'transport/close' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      })
+    );
+    expect(faultPlan.untriggeredIds()).toContain('close-only');
+    await expect(lab.close()).rejects.toThrow('close-only');
+    await expect(lab.close()).resolves.toMatchObject({
+      untriggeredFaultIds: ['unused-operation'],
+    });
+  });
+
   it('does not consume a child-exit fault until the lab-owned stdio transport starts', async () => {
     const faultPlan = createMcpLabFaultPlan([
       {

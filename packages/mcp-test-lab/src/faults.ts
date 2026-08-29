@@ -390,6 +390,12 @@ function faultSupportsTransport(
   if (declaration.match.phase === 'authorization' || declaration.match.phase === 'transport') {
     return false;
   }
+  if (
+    declaration.fault.kind === 'drop_response' &&
+    declaration.match.method.startsWith('notifications/')
+  ) {
+    return false;
+  }
   return declaration.fault.kind === 'delay' || declaration.fault.kind === 'drop_response';
 }
 

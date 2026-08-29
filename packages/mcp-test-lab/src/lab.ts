@@ -243,7 +243,10 @@ async function protocolCoordinate(
     return;
   }
   const phase = protocolPhaseForMethod(method);
-  return phase ? { method: method as McpLabProtocolMethod, phase } : undefined;
+  return phase &&
+    (HTTP_PROTOCOL_COORDINATE_PHASES as readonly McpLabProtocolPhase[]).includes(phase)
+    ? { method: method as McpLabProtocolMethod, phase }
+    : undefined;
 }
 
 async function applyHttpFault(applied: AppliedFault): Promise<Response | undefined> {

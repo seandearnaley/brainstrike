@@ -167,7 +167,7 @@ const GENERIC_CREDENTIAL_KEYS = new Set(['authorization', 'code', 'token']);
 const MAX_SERIALIZED_JSON_SCAN_DEPTH = 4;
 const CREDENTIAL_ASSIGNMENT_KEYS = CREDENTIAL_KEYS.map((key) => key.replaceAll('_', '[_ -]'));
 const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
-  `\\b(${CREDENTIAL_ASSIGNMENT_KEYS.join('|')})\\b["']?[ \\t]*[:=][ \\t]*["']?[^\\s"',;&?#}\\]]{8,}`,
+  `\\b(${CREDENTIAL_ASSIGNMENT_KEYS.join('|')})\\b["']?[ \\t]*[:=][ \\t]*["']?[^\\s"',;&?#}\\]]+`,
   'gi'
 );
 
@@ -229,6 +229,9 @@ function isSafeDiagnosticAssignment(label: string, value: string, prefix: string
     return true;
   }
   if (label === 'authorization' && /^not[-_ ]required(?:[-_ ].*)?$/iu.test(value)) {
+    return true;
+  }
+  if (label === 'authorization' && /^(?:basic|bearer)$/iu.test(value)) {
     return true;
   }
   return (
