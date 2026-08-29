@@ -1,21 +1,13 @@
 import { Client } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
 import { type McpLabSession, startMcpLabScenario } from '../src/lab';
+import { processIsGone } from './process-liveness';
 import { expectReferenceToolContract } from './reference-tool-contract';
 
 const startUnchecked = startMcpLabScenario as unknown as (
   id: string,
   options: unknown
 ) => Promise<McpLabSession>;
-
-function processIsGone(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch (error: unknown) {
-    return error instanceof Error && 'code' in error && error.code === 'ESRCH';
-  }
-}
 
 describe('MCP lab stdio reference', () => {
   it('reports no stdio teardown when the fixture was never spawned', async () => {
@@ -132,6 +124,28 @@ describe('MCP lab stdio reference', () => {
 
   it('rejects HTTP execution for the stdio fixture before spawning', async () => {
     await expect(startUnchecked('stdio-reference', { execution: 'loopback' })).rejects.toThrow(
+      /stdio.*does not accept execution/i
+    );
+  });
+
+  it('rejects an explicitly present undefined execution key for stdio', async () => {
+    await expect(startUnchecked('stdio-reference', { execution: undefined })).rejects.toThrow(
+      /stdio.*does not accept execution/i
+    );
+  });
+
+  it('preserves explicit execution presence when its getter deletes the property', async () => {
+    const options: Record<string, unknown> = {};
+    Object.defineProperty(options, 'execution', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        Reflect.deleteProperty(options, 'execution');
+        return;
+      },
+    });
+
+    await expect(startUnchecked('stdio-reference', options)).rejects.toThrow(
       /stdio.*does not accept execution/i
     );
   });

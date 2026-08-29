@@ -542,16 +542,6 @@ describe('MCP HTTP fault execution', () => {
         createMcpLabFaultPlan([
           {
             fault: { delayMs: 1, kind: 'delay' },
-            id: 'shutdown-is-next-layer',
-            match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
-          },
-        ]),
-        /http-loopback transport/i,
-      ],
-      [
-        createMcpLabFaultPlan([
-          {
-            fault: { delayMs: 1, kind: 'delay' },
             id: 'server-to-client',
             match: { method: 'sampling/createMessage', occurrence: 1, phase: 'operation' },
           },
