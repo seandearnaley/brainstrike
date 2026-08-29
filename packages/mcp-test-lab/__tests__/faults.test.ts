@@ -7,6 +7,182 @@ import {
 } from '../src/faults';
 
 describe('MCP lab fault plan', () => {
+  it.each([undefined, null, 42, '', '  '])('rejects invalid fault id %j', (id) => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { kind: 'drop_response' },
+          id,
+          match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+        },
+      ] as never)
+    ).toThrowError(/fault id.*lowercase identifier/i);
+  });
+
+  it.each([
+    {
+      extra: true,
+      fault: { kind: 'drop_response' },
+      id: 'extra-declaration-key',
+      match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+    },
+    {
+      fault: { kind: 'drop_response' },
+      id: 'extra-match-key',
+      match: {
+        method: 'tools/call',
+        occurrance: 2,
+        occurrence: 1,
+        phase: 'operation',
+      },
+    },
+  ])('rejects non-closed fault declaration %j', (declaration) => {
+    expect(() => createMcpLabFaultPlan([declaration] as never)).toThrowError(
+      /declaration.*only|match.*only/i
+    );
+  });
+
+  it.each([
+    [null, 'payload must be an object'],
+    [
+      { code: null, kind: 'child_exit', signal: null },
+      'child exit must provide a code from 0 to 255 or a supported terminating signal',
+    ],
+    [
+      { code: 3.7, kind: 'child_exit', signal: null },
+      'child exit must provide a code from 0 to 255 or a supported terminating signal',
+    ],
+    [
+      { code: -1, kind: 'child_exit', signal: null },
+      'child exit must provide a code from 0 to 255 or a supported terminating signal',
+    ],
+    [
+      { code: 256, kind: 'child_exit', signal: null },
+      'child exit must provide a code from 0 to 255 or a supported terminating signal',
+    ],
+    [
+      { code: null, kind: 'child_exit', signal: 'SIGNOTREAL' },
+      'child exit must provide a code from 0 to 255 or a supported terminating signal',
+    ],
+    [
+      { code: null, kind: 'child_exit', signal: 'SIGSTOP' },
+      'child exit must provide a code from 0 to 255 or a supported terminating signal',
+    ],
+    [
+      { code: 1, kind: 'child_exit', signal: 'SIGTERM' },
+      'child exit must provide a code from 0 to 255 or a supported terminating signal',
+    ],
+    [{ kind: 'child_stderr', text: 42 }, 'child stderr text must be a string'],
+    [{ kind: 'child_stderr', text: '' }, 'child stderr text must be non-empty'],
+    [
+      { extra: true, kind: 'child_stderr', text: 'message' },
+      'child stderr must contain only "kind" and "text"',
+    ],
+    [{ kind: 'malformed_json', payload: 42 }, 'malformed JSON payload must be a string'],
+    [{ kind: 'malformed_json', payload: '' }, 'malformed JSON payload must be non-empty'],
+    [
+      { kind: 'malformed_json', payload: '{}' },
+      'malformed JSON payload must be syntactically invalid JSON',
+    ],
+    [
+      { extra: true, kind: 'malformed_json', payload: '{' },
+      'malformed JSON must contain only "kind" and "payload"',
+    ],
+    [{ delayMs: 1, extra: true, kind: 'delay' }, 'delay must contain only "kind" and "delayMs"'],
+    [
+      { extra: true, kind: 'http_status', status: 503 },
+      'HTTP status must contain only "kind" and "status"',
+    ],
+    [
+      { code: 0, extra: true, kind: 'child_exit', signal: null },
+      'child exit must contain only "kind", "code", and "signal"',
+    ],
+    [{ kind: 'drop_response', reason: 'extra data' }, 'drop response must contain only "kind"'],
+    [{ kind: 'cleanup_error', reason: 'extra data' }, 'cleanup error must contain only "kind"'],
+  ])('rejects invalid untyped fault payload %j', (fault, expectedError) => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault,
+          id: 'invalid-payload',
+          match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+        },
+      ] as never)
+    ).toThrowError(`Invalid MCP lab fault "invalid-payload": ${expectedError}`);
+  });
+
+  it('rejects an enumerable __proto__ key in an untyped fault payload', () => {
+    const fault: unknown = JSON.parse('{"kind":"drop_response","__proto__":{"extra":true}}');
+
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault,
+          id: 'invalid-proto-payload',
+          match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+        },
+      ] as never)
+    ).toThrowError(
+      'Invalid MCP lab fault "invalid-proto-payload": drop response must contain only "kind"'
+    );
+  });
+
+  it.each([
+    { code: 0, kind: 'child_exit', signal: null },
+    { code: null, kind: 'child_exit', signal: 'SIGTERM' },
+  ] as const)('accepts a valid child exit payload %j', (fault) => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault,
+        id: 'valid-child-exit',
+        match: { method: 'child/exit', occurrence: 1, phase: 'child-process' },
+      },
+    ]);
+    expect(plan.hasRemainingPhase('child-process')).toBe(true);
+
+    expect(
+      plan.consume({
+        correlationId: 'corr-child-exit',
+        method: 'child/exit',
+        occurrence: 1,
+        phase: 'child-process',
+      })
+    ).toEqual(fault);
+  });
+
+  it('rejects an unknown phase with declaration context before method lookup', () => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { kind: 'drop_response' },
+          id: 'unknown-phase',
+          match: { method: 'tools/call', occurrence: 1, phase: 'authorisation' },
+        },
+      ] as never)
+    ).toThrowError('Invalid MCP lab fault "unknown-phase": unknown phase');
+  });
+
+  it.each([
+    [
+      { code: 7, kind: 'child_exit', signal: null },
+      { method: 'tools/call', occurrence: 1, phase: 'operation' },
+    ],
+    [
+      { kind: 'child_stderr', text: 'details' },
+      { method: 'child/exit', occurrence: 1, phase: 'child-process' },
+    ],
+    [
+      { kind: 'http_status', status: 503 },
+      { method: 'child/exit', occurrence: 1, phase: 'child-process' },
+    ],
+    [{ kind: 'drop_response' }, { method: 'transport/close', occurrence: 1, phase: 'shutdown' }],
+    [{ kind: 'cleanup_error' }, { method: 'tools/call', occurrence: 1, phase: 'operation' }],
+  ])('rejects fault %j at incompatible coordinate %j', (fault, match) => {
+    expect(() =>
+      createMcpLabFaultPlan([{ fault, id: 'incompatible-coordinate', match }] as never)
+    ).toThrowError(/incompatible.*coordinate/i);
+  });
+
   it('consumes an exact phase, method, and occurrence with a redacted observation', () => {
     const plan = createMcpLabFaultPlan([
       {
@@ -15,6 +191,7 @@ describe('MCP lab fault plan', () => {
         match: { method: 'tools/call', occurrence: 2, phase: 'operation' },
       },
     ]);
+    expect(plan.hasRemainingPhase('operation')).toBe(true);
 
     expect(
       plan.consume({
@@ -24,6 +201,8 @@ describe('MCP lab fault plan', () => {
         phase: 'operation',
       })
     ).toEqual({ delayMs: 25, kind: 'delay' });
+    expect(plan.hasRemainingPhase('operation')).toBe(false);
+    expect(plan.hasRemainingPhase('shutdown')).toBe(false);
     expect(plan.observations()).toEqual([
       {
         correlationId: 'corr-tools-2',
@@ -82,6 +261,11 @@ describe('MCP lab fault plan', () => {
         id: 'exit',
         match: { method: 'child/exit', occurrence: 6, phase: 'child-process' },
       },
+      {
+        fault: { kind: 'cleanup_error' },
+        id: 'cleanup',
+        match: { method: 'transport/close', occurrence: 7, phase: 'shutdown' },
+      },
     ] as const satisfies readonly McpLabFaultDeclaration[];
     const consumptions: readonly McpLabFaultConsumption[] = declarations.map(
       ({ match }, index) => ({ ...match, correlationId: `correlation-${index + 1}` })
@@ -105,17 +289,30 @@ describe('MCP lab fault plan', () => {
     ).toThrowError('Invalid MCP lab fault "unknown-kind": unknown fault kind');
   });
 
-  it('bounds hostile declaration arrays before indexed traversal', () => {
-    const declarations = new Proxy([], {
-      get(target, property, receiver) {
-        return property === 'length'
-          ? Number.POSITIVE_INFINITY
-          : Reflect.get(target, property, receiver);
-      },
-    });
+  it.each([Number.POSITIVE_INFINITY, -1, 1.5])(
+    'rejects invalid declaration count %s before indexed traversal',
+    (declarationCount) => {
+      const declarations = new Proxy([], {
+        get(target, property, receiver) {
+          return property === 'length' ? declarationCount : Reflect.get(target, property, receiver);
+        },
+      });
 
-    expect(() => createMcpLabFaultPlan(declarations)).toThrowError(
-      'Invalid MCP lab fault declarations: expected at most 1024 entries'
+      expect(() => createMcpLabFaultPlan(declarations)).toThrowError(
+        'Invalid MCP lab fault declarations: expected an integer count from 0 to 1024'
+      );
+    }
+  );
+
+  it.each([
+    [
+      { id: 'missing-fault', match: { method: 'tools/call', occurrence: 1, phase: 'operation' } },
+      'fault',
+    ],
+    [{ fault: { kind: 'drop_response' }, id: 'missing-match' }, 'match'],
+  ])('identifies a missing declaration %s field', (declaration, field) => {
+    expect(() => createMcpLabFaultPlan([declaration] as never)).toThrowError(
+      `Invalid MCP lab fault declaration: missing "${field}" field`
     );
   });
 
@@ -231,6 +428,25 @@ describe('MCP lab fault plan', () => {
     expect(Reflect.set(plan, 'consume', () => ({ kind: 'drop_response' }))).toBe(false);
   });
 
+  it.each(['1', 'abc', 'req-1'])('accepts short safe correlation id %s', (correlationId) => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'short-correlation',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+
+    expect(
+      plan.consume({
+        correlationId,
+        method: 'tools/call',
+        occurrence: 1,
+        phase: 'operation',
+      })
+    ).toEqual({ kind: 'drop_response' });
+  });
+
   it.each([399, 600, 503.5])('rejects invalid HTTP fault status %s', (status) => {
     expect(() =>
       createMcpLabFaultPlan([
@@ -298,6 +514,59 @@ describe('MCP lab fault plan', () => {
     expect(() =>
       plan.consume({ ...configured, correlationId: 'corr-second', occurrence: 2 })
     ).toThrowError('No MCP lab fault matches operation/tools/call occurrence 2');
+  });
+
+  it('optionally consumes configured faults without hiding exhausted coordinates', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'configured-drop',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const configured = {
+      correlationId: 'corr-configured',
+      method: 'tools/call',
+      occurrence: 1,
+      phase: 'operation',
+    } as const;
+
+    expect(
+      plan.consumeIfConfigured({ ...configured, correlationId: 'corr-unconfigured', occurrence: 2 })
+    ).toBeUndefined();
+    expect(plan.consumeIfConfigured(configured)).toEqual({ kind: 'drop_response' });
+    expect(() => plan.consumeIfConfigured(configured)).toThrowError(
+      'MCP lab fault "configured-drop" is exhausted for operation/tools/call occurrence 1'
+    );
+  });
+
+  it('reports sorted immutable untriggered fault ids', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'z-last',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+      {
+        fault: { kind: 'drop_response' },
+        id: 'a-first',
+        match: { method: 'tools/call', occurrence: 2, phase: 'operation' },
+      },
+    ]);
+
+    const ids = plan.untriggeredIds();
+    expect(ids).toEqual(['a-first', 'z-last']);
+    expect(Object.isFrozen(ids)).toBe(true);
+    expect(Reflect.set(ids, 0, 'mutated')).toBe(false);
+
+    plan.consume({
+      correlationId: 'corr-first',
+      method: 'tools/call',
+      occurrence: 1,
+      phase: 'operation',
+    });
+    expect(plan.untriggeredIds()).toEqual(['a-first']);
+    expect(ids).toEqual(['a-first', 'z-last']);
   });
 
   it('isolates immutable observations from caller data and credentials', () => {

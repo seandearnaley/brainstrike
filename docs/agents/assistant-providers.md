@@ -1964,7 +1964,7 @@ Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
 transport, fault coordinate, OAuth route, evidence guarantee, or runner before
 that branch contains its executable path and focused verifier. Current public
-verifier subpaths: `./scenario`.
+verifier subpaths: `./faults`, `./scenario`.
 
 ### MCP 2026 host architecture
 
@@ -2018,11 +2018,11 @@ Disconnect, config removal, revocation, and factory reset clear both encrypted
 records and in-memory refresh/session state; a storage failure is visible and
 never converted into an unauthenticated fallback.
 
-The fault-core module remains internal in this layer. It bounds and snapshots
-declaration arrays with indexed reads, validates diagnostic-safe ids and exact
-coordinates, freezes factory-branded plans, and snapshots each consumption
-before lookup. The package does not export a plan factory until every fault
-variant and closed declaration shape is validated in the next layer.
+The package exports `./faults` only after every fault variant, declaration key,
+match key, occurrence, reachability rule, and coordinate shape is validated.
+The factory bounds and snapshots declaration arrays with indexed reads,
+validates diagnostic-safe ids and exact coordinates, freezes factory-branded
+plans, and snapshots each consumption before lookup.
 No runtime may attach a plan until the upper BST-1479 layers add and verify the
 scenario compatibility gates.
 

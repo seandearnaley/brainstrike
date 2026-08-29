@@ -20,6 +20,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./faults": {
+      "types": "./dist/faults.d.ts",
+      "default": "./dist/faults.js"
+    },
     "./scenario": {
       "types": "./dist/scenario.d.ts",
       "default": "./dist/scenario.js"

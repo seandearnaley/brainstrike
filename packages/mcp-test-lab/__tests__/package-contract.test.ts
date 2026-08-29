@@ -46,6 +46,7 @@ describe('MCP test lab package contract', () => {
     expect(manifest.types).toBe('./dist/index.d.ts');
     expect(manifest.exports).toEqual({
       '.': { default: './dist/index.js', types: './dist/index.d.ts' },
+      './faults': { default: './dist/faults.js', types: './dist/faults.d.ts' },
       './scenario': { default: './dist/scenario.js', types: './dist/scenario.d.ts' },
     });
   });
@@ -202,7 +203,7 @@ describe('MCP test lab package contract', () => {
     expect(research).toContain(
       '[living provider contract](../assistant-providers.md#mcp-2026-host-architecture)'
     );
-    expect(contract).toContain('fault-core module remains internal');
+    expect(contract).toContain('exports `./faults` only after');
     expect(contract).toContain('No runtime may attach a plan');
   });
 });
