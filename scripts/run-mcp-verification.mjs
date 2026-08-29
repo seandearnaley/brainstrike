@@ -3,6 +3,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createSpawnInvocation } from './spawn-command.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
@@ -55,9 +56,13 @@ export function resolveGitEvidence({ env = process.env, runGit = runGitCommand }
   return { sha, workspaceState };
 }
 
-export function buildMcpVerificationInvocation({ forwardedArgs, sha, workspaceState }) {
-  return {
-    args: [
+export function buildMcpVerificationInvocation(
+  { forwardedArgs, sha, workspaceState },
+  platform = process.platform
+) {
+  return createSpawnInvocation(
+    'pnpm',
+    [
       '--filter',
       '@brainstrike/mcp-test-lab',
       'verify',
@@ -70,8 +75,8 @@ export function buildMcpVerificationInvocation({ forwardedArgs, sha, workspaceSt
       '--workspace-state',
       workspaceState,
     ],
-    command: 'pnpm',
-  };
+    platform
+  );
 }
 
 export function interpretChildResult(result) {
@@ -94,6 +99,7 @@ export function main(
   const result = spawn(invocation.command, invocation.args, {
     cwd: REPO_ROOT,
     env: process.env,
+    shell: invocation.shell,
     stdio: 'inherit',
   });
   return interpretChildResult(result);
