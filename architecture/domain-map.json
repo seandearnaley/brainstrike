@@ -157,6 +157,18 @@
       ]
     },
     {
+      "id": "test-infrastructure",
+      "title": "Production-independent test infrastructure",
+      "owner": "tooling",
+      "packages": [
+        "@brainstrike/mcp-test-lab"
+      ],
+      "mayDependOn": [
+        "shared-foundation",
+        "tooling"
+      ]
+    },
+    {
       "id": "tooling",
       "title": "Build, config, server config, and design tokens",
       "owner": "tooling",

@@ -433,6 +433,21 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/mcp-test-lab": {
+      "entry": ["__tests__/**/*.test.ts"],
+      "project": [
+        "src/**/*.ts",
+        "__tests__/**/*.test.ts"
+      ],
+      "ignoreDependencies": [
+        // Exact-pinned official runner provenance. The bounded conformance lane
+        // consumes its CLI/package entry rather than importing it from src/.
+        "@modelcontextprotocol/conformance"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/context-actions": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
