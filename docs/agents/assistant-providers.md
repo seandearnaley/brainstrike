@@ -1963,12 +1963,13 @@ when the corresponding fixture and focused exchange tests land together.
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
 transport, fault coordinate, OAuth route, evidence guarantee, or runner before
-that branch contains its executable path and focused verifier.
+that branch contains its executable path and focused verifier. Current public
+verifier subpaths: `./scenario`.
 
 ### MCP 2026 host architecture
 
 This is the living production contract for the MCP 2026 migration. The dated
-[architecture spike](research/mcp-v2-oauth-architecture-spike-2026-08-28.md)
+[architecture spike](research/bst-1478-mcp-v2-oauth-architecture-spike.md)
 records source analysis and rejected alternatives; when it disagrees with this
 section, this section wins.
 

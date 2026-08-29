@@ -107,7 +107,7 @@ gate. [spec](https://modelcontextprotocol.io/specification/2026-07-28),
 | Config/auth | Schema supports transport, URL/process fields, headers/env, and enabled tools only. [config](../../../packages/agent/src/mcp/config.ts#L3-L37) Desktop examples place bearer auth in headers. [template](../../../apps/desktop/src/mcp-loader.ts#L148-L180) | No OAuth/auth-mode contract or token-free secret reference. |
 | Client surface | Runtime and desktop contracts expose only list/call tools and close. [runtime](../../../packages/agent/src/mastra/mcp-runtime-client.ts#L32-L45), [desktop](../../../apps/desktop/src/mcp/types.ts#L3-L23) | No resources, prompts, completion, discovery metadata, subscriptions, elicitation, tasks, or auth state. |
 | Ownership | Settings maintains a desktop client map while assistant runs construct another set. [desktop owner](../../../apps/desktop/src/mcp/index.ts#L6-L36), [runtime owner](../../../packages/agent/src/mastra/mcp-runtime-client.ts#L62-L108) | Duplicate child/HTTP/auth/refresh/subscription lifecycles; unsafe for rotating refresh tokens. |
-| OAuth timeout | Desktop stdio connect has a fixed 10-second deadline. [stdio](../../../apps/desktop/src/mcp/stdio-client.ts#L7-L24) | Human authorization is incorrectly coupled to child connection when using a proxy. |
+| OAuth timeout | Desktop stdio connect has a 10-second default deadline, overridable only through `MCP_STDIO_CONNECT_TIMEOUT_MS`. [stdio](../../../apps/desktop/src/mcp/stdio-client.ts#L7-L24) | Human authorization is incorrectly coupled to child connection when using a proxy. |
 | Capability honesty | HTTP and stdio clients always advertise `io.modelcontextprotocol/ui: {}`. [HTTP](../../../packages/agent/src/mcp/explicit-http-client.ts#L336-L341), [stdio](../../../packages/agent/src/mcp/explicit-stdio-client.ts#L218-L223) | False MCP Apps claim; no resource reader/sandbox/postMessage host. |
 | Existing foundation | Provider OAuth already has main-process ownership, token-free statuses/IPC, loopback/browser patterns, refresh single-flight, and encrypted storage. [contract](../../../packages/assistant-contract/src/provider-auth.ts#L1-L46) | Reuse security/UI primitives, not its fixed endpoint descriptor or narrow credential shape; MCP SDK must own MCP OAuth algorithms. |
 | UI/diagnostics | MCP status is connected/disconnected/error plus tool count. [settings](../../../packages/settings-ui/src/settings/tools/types.ts#L84-L92) | No auth-required/reconnect/scope/era/capability states; child stderr and protocol phases are not durable status. |
@@ -189,8 +189,8 @@ path before closing. Protocol and lifecycle assertions use real SDK exchanges;
 mocks stop at OS, browser, clock, and credential-store boundaries. Intentional fault
 switches or mutation canaries prove that each harness layer can become red.
 
-The deterministic MCP lab starts with an exact-pinned official SDK v2 modern
-reference server for `2026-07-28`, a legacy server, lab-owned real stdio, and a
+The deterministic MCP lab starts with a Brainstrike-authored modern reference
+server built on the exact-pinned official SDK v2 for `2026-07-28`, a legacy server, lab-owned real stdio, and a
 loopback OAuth protected-resource/authorization server. The initial executable
 OAuth surface is protected-resource and authorization-server metadata, DCR,
 S256 PKCE, issuer/resource binding, authorization-code exchange, and bearer
