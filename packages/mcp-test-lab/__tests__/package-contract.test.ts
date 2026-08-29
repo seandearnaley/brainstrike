@@ -42,6 +42,7 @@ describe('MCP test lab package contract', () => {
     expect(manifest.scripts['test:integration']).toBe(
       'vitest run --config vitest.integration.config.mts'
     );
+    expect(manifest.scripts['verify']).toBe('pnpm run build && node dist/runner-cli.js');
     expect(manifest.files).toEqual(['dist', 'fixtures']);
     expect(manifest.types).toBe('./dist/index.d.ts');
     expect(manifest.exports).toEqual({
