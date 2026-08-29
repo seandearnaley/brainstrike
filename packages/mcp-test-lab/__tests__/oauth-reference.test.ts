@@ -38,6 +38,32 @@ function createFixture(
   };
 }
 
+async function issueAccessToken(handler: McpOAuthReferenceHandler): Promise<string> {
+  const clientId = await register(handler);
+  const authorization = await authorize(handler, clientId);
+  const code = new URL(authorization.headers.get('location') ?? 'missing:').searchParams.get(
+    'code'
+  );
+  if (!code) {
+    throw new Error('Expected an authorization code');
+  }
+  const token = await handler.fetch(
+    new Request(handler.endpoint.tokenUrl, {
+      body: new URLSearchParams({
+        client_id: clientId,
+        code,
+        code_verifier: VERIFIER,
+        grant_type: 'authorization_code',
+        redirect_uri: REDIRECT_URI,
+        resource: handler.endpoint.url.href,
+      }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      method: 'POST',
+    })
+  );
+  return String(((await token.json()) as Record<string, unknown>)['access_token']);
+}
+
 async function register(handler: McpOAuthReferenceHandler): Promise<string> {
   const response = await handler.fetch(
     new Request(handler.endpoint.registrationUrl, {
@@ -274,5 +300,127 @@ describe('MCP OAuth reference core', () => {
     expect(handler.stateCounts()).toEqual({ clients: 0, codes: 0, states: 0, tokens: 0 });
     await handler.close();
     expect(closeCalls()).toBe(2);
+  });
+
+  it('waits for an authenticated MCP dispatch before closing downstream state', async () => {
+    let dispatchStarted: (() => void) | undefined;
+    let releaseDispatch: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      dispatchStarted = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseDispatch = resolve;
+    });
+    let downstreamClosed = false;
+    const downstream = {
+      async close() {
+        downstreamClosed = true;
+      },
+      async fetch() {
+        dispatchStarted?.();
+        await released;
+        return Response.json({ ok: true });
+      },
+    } as unknown as McpHttpHandler;
+    const handler = createMcpOAuthReferenceHandler(
+      downstream,
+      createMcpOAuthReferenceEndpoint(ORIGIN)
+    );
+    const token = await issueAccessToken(handler);
+    const dispatch = handler.fetch(
+      new Request(handler.endpoint.url, {
+        body: '{}',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        method: 'POST',
+      })
+    );
+    await started;
+    let closeSettled = false;
+    const close = handler.close().then(() => {
+      closeSettled = true;
+    });
+    await Promise.resolve();
+    expect(closeSettled).toBe(false);
+    expect(downstreamClosed).toBe(false);
+
+    releaseDispatch?.();
+    await expect(dispatch).resolves.toMatchObject({ status: 200 });
+    await close;
+    expect(downstreamClosed).toBe(true);
+  });
+
+  it('serializes OAuth mutations while metadata remains directly available', async () => {
+    let blockedMethod: 'oauth/authorize' | 'oauth/token' | undefined;
+    let enterBlocked: (() => void) | undefined;
+    let releaseBlocked: (() => void) | undefined;
+    const armBlock = (method: 'oauth/authorize' | 'oauth/token') => {
+      blockedMethod = method;
+      const entered = new Promise<void>((resolve) => {
+        enterBlocked = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseBlocked = resolve;
+      });
+      return { entered, release: () => releaseBlocked?.(), released };
+    };
+    let activeBlock: ReturnType<typeof armBlock> | undefined;
+    const { handler } = createFixture({
+      async beforeAuthorizationMutation(_request, method) {
+        if (method !== blockedMethod || !activeBlock) {
+          return;
+        }
+        blockedMethod = undefined;
+        enterBlocked?.();
+        await activeBlock.released;
+      },
+    });
+    const clientId = await register(handler);
+
+    activeBlock = armBlock('oauth/authorize');
+    const firstAuthorization = authorize(handler, clientId);
+    await activeBlock.entered;
+    const secondAuthorization = authorize(handler, clientId);
+    expect(
+      (await handler.fetch(new Request(handler.endpoint.authorizationServerMetadataUrl))).status
+    ).toBe(200);
+    activeBlock.release();
+    const callbacks = await Promise.all([firstAuthorization, secondAuthorization]).then(
+      (responses) =>
+        responses.map((response) => new URL(response.headers.get('location') ?? 'missing:'))
+    );
+    expect(callbacks.filter((callback) => callback.searchParams.has('code'))).toHaveLength(1);
+    expect(
+      callbacks.filter((callback) => callback.searchParams.get('error') === 'invalid_request')
+    ).toHaveLength(1);
+
+    const code = callbacks
+      .find((callback) => callback.searchParams.has('code'))
+      ?.searchParams.get('code');
+    if (!code) {
+      throw new Error('Expected one successful authorization code');
+    }
+    const tokenRequest = () =>
+      new Request(handler.endpoint.tokenUrl, {
+        body: new URLSearchParams({
+          client_id: clientId,
+          code,
+          code_verifier: VERIFIER,
+          grant_type: 'authorization_code',
+          redirect_uri: REDIRECT_URI,
+          resource: handler.endpoint.url.href,
+        }),
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        method: 'POST',
+      });
+    activeBlock = armBlock('oauth/token');
+    const firstToken = handler.fetch(tokenRequest());
+    await activeBlock.entered;
+    const secondToken = handler.fetch(tokenRequest());
+    activeBlock.release();
+    const tokenResponses = await Promise.all([firstToken, secondToken]);
+    expect(tokenResponses.map((response) => response.status).sort()).toEqual([200, 400]);
+    const rejected = tokenResponses.find((response) => response.status === 400);
+    await expect(rejected?.json()).resolves.toMatchObject({ error: 'invalid_grant' });
+    await handler.close();
   });
 });
