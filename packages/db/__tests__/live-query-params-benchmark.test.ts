@@ -120,6 +120,27 @@ describe('live-query parameter benchmark', () => {
     ).toThrow('Live-query JSON benchmark scenario "unstable" is not stable');
   });
 
+  it('measures stable scenarios with no bind parameters', () => {
+    expect(
+      runLiveQueryParamBenchmark({
+        iterations: 2,
+        now: createDurationClock([2, 1]),
+        samples: 1,
+        scenarios: [{ createParams: () => [], name: 'no-params' }],
+        warmupIterations: 0,
+      })
+    ).toEqual([
+      {
+        currentJsonMedianMs: 2,
+        currentToLegacyRatio: 2,
+        iterations: 2,
+        legacyDeepEqualMedianMs: 1,
+        name: 'no-params',
+        samples: 1,
+      },
+    ]);
+  });
+
   it('rejects zero-duration medians instead of manufacturing a ratio', () => {
     expect(() =>
       runLiveQueryParamBenchmark({

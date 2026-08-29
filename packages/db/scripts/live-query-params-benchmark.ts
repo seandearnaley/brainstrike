@@ -168,7 +168,7 @@ function measureCurrentJsonStrategy(
   }
 
   const durationMs = now() - startedAt;
-  if (equalCount !== iterations || previous.length === 0) {
+  if (equalCount !== iterations) {
     throw new Error(`Live-query JSON benchmark scenario "${scenario.name}" is not stable`);
   }
   return durationMs;
@@ -193,7 +193,7 @@ function measureLegacyDeepEqualStrategy(
   }
 
   const durationMs = now() - startedAt;
-  if (equalCount !== iterations || previous.length === 0) {
+  if (equalCount !== iterations) {
     throw new Error(`Live-query deep-equality benchmark scenario "${scenario.name}" is not stable`);
   }
   return durationMs;
