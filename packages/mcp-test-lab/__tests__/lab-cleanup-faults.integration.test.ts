@@ -1,6 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
-import { claimMcpLabFaultPlan } from '../src/fault-plan-claim';
 import { createMcpLabFaultPlan } from '../src/faults';
 import { startMcpLabScenario } from '../src/lab';
 import { processIsGone } from './process-liveness';
@@ -106,26 +105,4 @@ describe('MCP cleanup fault execution', () => {
     await expect.poll(() => processIsGone(childPid), { timeout: 2000 }).toBe(true);
     await client.close();
   });
-
-  it.each([
-    ['initialization', 'server/discover'],
-    ['operation', 'tools/list'],
-    ['subscription', 'subscriptions/listen'],
-  ] as const)(
-    'rejects deferred stdio phase %s before claiming or spawning',
-    async (phase, method) => {
-      const plan = createMcpLabFaultPlan([
-        {
-          fault: { delayMs: 1, kind: 'delay' },
-          id: `stdio-deferred-${phase}`,
-          match: { method, occurrence: 1, phase },
-        },
-      ]);
-
-      await expect(startMcpLabScenario('stdio-reference', { faultPlan: plan })).rejects.toThrow(
-        /not available in this layer/i
-      );
-      expect(claimMcpLabFaultPlan(plan)).toBeDefined();
-    }
-  );
 });

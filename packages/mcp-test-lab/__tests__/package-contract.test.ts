@@ -236,6 +236,8 @@ describe('MCP test lab package contract', () => {
       'Spawn failure therefore leaves stderr and exit untriggered'
     );
     expect(normalizedContract).toContain('verifier proves the captured PID reaches `ESRCH`');
+    expect(normalizedContract).toContain('Stdio protocol sends are serialized in invocation order');
+    expect(normalizedContract).toContain('distinguishing numeric `1` from string `"1"`');
     expect(contract).toContain('bounds and snapshots declaration');
     expect(contract).toContain('@modelcontextprotocol/core@2.0.0');
     expect(contract).toContain('`assertScenarioFaultCompatibility`');

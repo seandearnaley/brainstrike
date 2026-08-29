@@ -2081,10 +2081,12 @@ publicly after claim fails visibly before another allocation. HTTP in-process,
 loopback, OAuth, and stdio sessions all execute `shutdown/transport/close` delay
 and cleanup-error faults. Stdio also executes `child/spawn` delay and real
 `child/stderr` after spawn and `child/exit` only after the official server has
-answered the handshake and a post-handshake send occurs. Syntax-invalid child stdout is not an executable fault: the
-pinned reader skips it invisibly, so startup rejects that declaration. Stdio
-protocol coordinates remain unavailable until their executable layer;
-server-to-client, wrong-era, and fixture-unreachable coordinates fail at startup.
+answered the handshake and a post-handshake send occurs. Syntax-invalid child
+stdout is not executable: the pinned reader skips it invisibly. Modern
+stdio delay and response-drop execution covers `server/discover`, `tools/list`,
+`tools/call`, and `subscriptions/listen`; cancellation and progress notifications
+accept delay only. Server-to-client, wrong-era, and fixture-unreachable
+coordinates fail at startup.
 
 The stdio owner peeks at child configuration without consuming it, then commits
 stderr and exit faults only after the corresponding control write or signal
@@ -2097,6 +2099,18 @@ while that authoritative handle remains live, and removes the control directory
 only after child ownership is released; the verifier proves the captured PID
 reaches `ESRCH`. Diagnostics and reports never retain injected
 stderr, environment, argv, or control content.
+
+Stdio protocol sends are serialized in invocation order and qualified with the
+pinned SDK client schemas plus its era classifier. Response-shaped, batch,
+structurally invalid, wrong-era, and unsupported messages still reach the
+delegate but never advance occurrences. A delay precedes the matching delegate
+send; the runtime commits it only after that send succeeds. Response drop is
+also committed only after successful send and suppresses exactly one matching
+typed response id, distinguishing numeric `1` from string `"1"`. The official
+client then owns bounded timeout/cancellation, and the next request remains
+healthy. Close rejects new sends, aborts blocked delegate writes, closes the
+delegate, drains the protocol tail, clears pending dropped ids, and only then
+tears down child-fault state.
 
 One private cleanup owner serially closes every session resource. An injected
 cleanup error occurs before any resource is touched. A failed or partial attempt

@@ -154,7 +154,13 @@ describe('MCP stdio child fault execution', () => {
     ]);
     const runtime = createMcpLabFaultRuntime(claimMcpLabFaultPlan(plan), 'spawn-failure');
     const transport = new McpLabOwnedStdioTransport(
-      { args: [], command: '/brainstrike/definitely-missing-node', cwd: process.cwd(), env: {} },
+      {
+        args: [],
+        command: '/brainstrike/definitely-missing-node',
+        cwd: process.cwd(),
+        env: {},
+        era: 'modern',
+      },
       () => undefined,
       runtime
     );
