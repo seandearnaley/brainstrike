@@ -76,8 +76,6 @@ test('builds the single package CLI invocation with repository-owned evidence', 
   assert.deepEqual(
     buildMcpVerificationInvocation({
       forwardedArgs: ['--profile', 'pr', '--output', 'artifacts/pr-evidence.json'],
-      sha: SHA,
-      workspaceState: 'clean',
     }),
     {
       args: [
@@ -91,10 +89,6 @@ test('builds the single package CLI invocation with repository-owned evidence', 
         'artifacts/pr-evidence.json',
         '--ticket',
         'BST-1486',
-        '--sha',
-        SHA,
-        '--workspace-state',
-        'clean',
       ],
       command: 'pnpm',
       shell: false,
@@ -106,8 +100,6 @@ test('uses the shared Windows shell adapter for the pnpm command shim', () => {
   const invocation = buildMcpVerificationInvocation(
     {
       forwardedArgs: ['--profile', 'pr', '--output', 'artifacts/pr-evidence.json'],
-      sha: SHA,
-      workspaceState: 'clean',
     },
     'win32'
   );

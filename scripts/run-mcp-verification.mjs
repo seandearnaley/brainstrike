@@ -66,10 +66,7 @@ export function resolveGitEvidence({ env = process.env, runGit = runGitCommand }
   return { sha, workspaceState };
 }
 
-export function buildMcpVerificationInvocation(
-  { forwardedArgs, sha, workspaceState },
-  platform = process.platform
-) {
+export function buildMcpVerificationInvocation({ forwardedArgs }, platform = process.platform) {
   return createSpawnInvocation(
     'pnpm',
     [
@@ -80,10 +77,6 @@ export function buildMcpVerificationInvocation(
       ...forwardedArgs,
       '--ticket',
       'BST-1486',
-      '--sha',
-      sha,
-      '--workspace-state',
-      workspaceState,
     ],
     platform
   );
@@ -104,8 +97,8 @@ export function main(
   { resolveEvidence = resolveGitEvidence, spawn = spawnSync } = {}
 ) {
   const forwardedArgs = normalizeForwardedArgs(rawArgs);
-  const evidence = resolveEvidence();
-  const invocation = buildMcpVerificationInvocation({ forwardedArgs, ...evidence });
+  resolveEvidence();
+  const invocation = buildMcpVerificationInvocation({ forwardedArgs });
   const result = spawn(invocation.command, invocation.args, {
     cwd: REPO_ROOT,
     env: process.env,

@@ -41,11 +41,11 @@ bound, and uploads the exact-SHA sanitized evidence for 14 days. Its triggers
 must remain `schedule` plus `workflow_dispatch`; adding PR or push ownership
 would duplicate the required representative gate.
 
-`scripts/run-mcp-verification.mjs` is an identity adapter, not a planner. It
-derives `HEAD` and porcelain workspace state, rejects caller-provided ticket,
-SHA, or workspace-state values, and under GitHub Actions requires `GITHUB_SHA`
-to equal `HEAD` and the checkout to be clean. It then invokes the one package
-CLI with the fixed parent ticket `BST-1486`. The wrapper accepts exactly one
+`scripts/run-mcp-verification.mjs` is an identity guard, not a planner. It
+derives `HEAD` and porcelain workspace state and under GitHub Actions requires
+`GITHUB_SHA` to equal `HEAD` and the checkout to be clean. It then invokes the
+one package CLI with the fixed parent ticket `BST-1486`; that CLI independently
+derives the Git identity recorded in evidence. The wrapper accepts exactly one
 closed profile and one safe JSON output below `artifacts/`; unknown, duplicate,
 or shell-sensitive input fails before platform-specific spawning. The paired script tests control
 identity mismatch and dirty-checkout failures; the CI contract test pins the
