@@ -11,7 +11,6 @@ export {
   recordEmbeddingPipelineCacheTelemetry,
   recordEmbeddingTelemetryFailure,
   removeEmbeddingTelemetrySource,
-  resetEmbeddingTelemetryForTests,
   subscribeEmbeddingTelemetry,
   subscribeEmbeddingTelemetryThrottled,
 } from './embedding-telemetry';

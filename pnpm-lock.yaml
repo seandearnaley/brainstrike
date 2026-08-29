@@ -1122,6 +1122,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@brainstrike/embedding-worker':
+        specifier: workspace:*
+        version: link:../embedding-worker
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils

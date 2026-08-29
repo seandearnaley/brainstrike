@@ -40,6 +40,7 @@
     "lucide-react": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",

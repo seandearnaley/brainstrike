@@ -85,7 +85,7 @@ describe('SystemDiagnosticsPanel', () => {
               cache: {
                 entries: [
                   {
-                    cacheKey: 'model-a|webgpu|fp16',
+                    cacheKey: 'private-model-a|webgpu|fp16',
                     createdAt: 0,
                     device: 'webgpu',
                     dtype: 'fp16',
@@ -95,12 +95,12 @@ describe('SystemDiagnosticsPanel', () => {
                       heapBytes: 0,
                       reason: 'model-size-estimate',
                     },
-                    model: 'model-a',
+                    model: 'private-model-a',
                     residencyMs: 60_000,
                     sourceId: 'worker-a',
                   },
                   {
-                    cacheKey: 'model-a|webgpu|fp16',
+                    cacheKey: 'private-model-a|webgpu|fp16',
                     createdAt: 0,
                     device: 'webgpu',
                     dtype: 'fp16',
@@ -110,12 +110,12 @@ describe('SystemDiagnosticsPanel', () => {
                       heapBytes: 0,
                       reason: 'model-size-estimate',
                     },
-                    model: 'model-a-copy',
+                    model: 'private-model-a-copy',
                     residencyMs: 60_000,
-                    sourceId: 'worker-b',
+                    sourceId: 'private-worker-b',
                   },
                 ],
-                estimatedGpuBytes: 300 * 1024 * 1024,
+                estimatedGpuBytes: 600 * 1024 * 1024,
                 estimatedHeapBytes: 0,
                 memoryEstimateUnavailableCount: 0,
                 residentCount: 2,
@@ -137,14 +137,14 @@ describe('SystemDiagnosticsPanel', () => {
       expect(await screen.findByText('Embedding Runtime')).toBeInTheDocument();
       expect(screen.getByText('2 resident')).toBeInTheDocument();
       expect(screen.getByText('28 KiB')).toBeInTheDocument();
-      expect(screen.getByText('300 MiB')).toBeInTheDocument();
-      expect(screen.getByText('model-a')).toBeInTheDocument();
-      expect(screen.getByText('model-a-copy')).toBeInTheDocument();
+      expect(screen.getByText('600 MiB')).toBeInTheDocument();
+      expect(screen.getByText('2 WebGPU · 0 WASM')).toBeInTheDocument();
+      expect(screen.queryByText('private-model-a')).not.toBeInTheDocument();
+      expect(screen.queryByText('private-model-a-copy')).not.toBeInTheDocument();
       expect(screen.getByText('4 vectors')).toBeInTheDocument();
       expect(screen.getByText('Telemetry degraded')).toBeInTheDocument();
-      expect(
-        screen.getByText(/1 telemetry failure: Workerpool result arrived without/)
-      ).toBeInTheDocument();
+      expect(screen.getByText('1 telemetry failure')).toBeInTheDocument();
+      expect(screen.queryByText(/Workerpool result arrived without/)).not.toBeInTheDocument();
       expect(consoleError.mock.calls.flat().join(' ')).not.toContain(
         'Encountered two children with the same key'
       );
@@ -173,7 +173,22 @@ describe('SystemDiagnosticsPanel', () => {
             state: 'idle',
           },
           reset: { userDataPath: '/tmp/brainstrike-user-data' },
-          telemetry: { backgroundRuntimeMetrics: [], embedding: 'invalid-telemetry' },
+          telemetry: {
+            backgroundRuntimeMetrics: [],
+            embedding: {
+              batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
+              cache: {
+                entries: [],
+                estimatedGpuBytes: 0,
+                estimatedHeapBytes: 0,
+                memoryEstimateUnavailableCount: 0,
+                residentCount: 0,
+              },
+              health: { failureCount: 1, lastFailure: null },
+              lastUpdatedAt: 1000,
+              peakVectorsInFlight: 0,
+            },
+          },
         })),
       };
 
@@ -181,10 +196,18 @@ describe('SystemDiagnosticsPanel', () => {
 
       expect(
         await screen.findByText(
-          'Desktop embedding telemetry is invalid: Embedding telemetry snapshot must be an object.'
+          'Desktop embedding telemetry is invalid: Embedding telemetry health requires lastFailure exactly when failureCount is non-zero.'
         )
       ).toBeInTheDocument();
-      expect(screen.queryByText('invalid-telemetry')).not.toBeInTheDocument();
+      expect(screen.queryByText('1000')).not.toBeInTheDocument();
+    });
+
+    it('presents an empty embedding telemetry window as neutral', () => {
+      render(<SystemDiagnosticsPanel />);
+
+      const card = screen.getByText('Embedding Runtime').closest('[data-slot="card"]');
+      expect(card?.querySelector('[data-status]')).toHaveAttribute('data-status', 'neutral');
+      expect(card).toHaveTextContent('No samples');
     });
 
     it('refreshes desktop embedding telemetry when the hidden host reports status', async () => {
@@ -228,7 +251,15 @@ describe('SystemDiagnosticsPanel', () => {
             backgroundRuntimeMetrics: [],
             embedding: {
               ...telemetry,
-              batchTransfer: { ...telemetry.batchTransfer, totalBytes },
+              batchTransfer:
+                totalBytes === 0
+                  ? telemetry.batchTransfer
+                  : {
+                      batchCount: 1,
+                      lastBytes: totalBytes,
+                      peakBytes: totalBytes,
+                      totalBytes,
+                    },
               lastUpdatedAt: totalBytes === 0 ? null : 1000,
             },
           },
