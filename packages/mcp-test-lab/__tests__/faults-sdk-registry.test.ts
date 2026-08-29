@@ -1,10 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { createMcpLabFaultPlan, protocolPhaseForMethod } from '../src/faults';
+import {
+  createMcpLabFaultPlan,
+  isExecutableProtocolMethod,
+  protocolPhaseForMethod,
+} from '../src/faults';
 
 interface InstalledSdkEraMethods {
-  readonly legacyOnly: readonly string[];
-  readonly modernOnly: readonly string[];
+  readonly legacy: ReadonlySet<string>;
+  readonly modern: ReadonlySet<string>;
 }
 
 function readRegistryMethods(
@@ -63,40 +67,66 @@ async function readInstalledSdkEraMethods(): Promise<InstalledSdkEraMethods> {
     'notificationMethodKeys'
   );
   return {
-    legacyOnly: [...legacy].filter((method) => !modern.has(method)).sort(),
-    modernOnly: [...modern].filter((method) => !legacy.has(method)).sort(),
+    legacy,
+    modern,
   };
 }
 
 describe('MCP fault compatibility against the installed SDK', () => {
-  it('derives protocol-era differences from the pinned SDK registries', async () => {
-    const { legacyOnly, modernOnly } = await readInstalledSdkEraMethods();
-    expect(legacyOnly.length).toBeGreaterThan(0);
-    expect(modernOnly.length).toBeGreaterThan(0);
+  it('pins the executable client-direction subset to the installed SDK registries', async () => {
+    const installed = await readInstalledSdkEraMethods();
+    const expected = {
+      legacy: [
+        'initialize',
+        'notifications/cancelled',
+        'notifications/initialized',
+        'notifications/progress',
+        'notifications/roots/list_changed',
+        'ping',
+        'tools/call',
+        'tools/list',
+      ],
+      modern: [
+        'notifications/cancelled',
+        'notifications/progress',
+        'server/discover',
+        'subscriptions/listen',
+        'tools/call',
+        'tools/list',
+      ],
+    } as const;
 
-    for (const [era, methods] of [
-      ['legacy', legacyOnly],
-      ['modern', modernOnly],
-    ] as const) {
-      for (const method of methods) {
-        const phase = protocolPhaseForMethod(method);
-        if (!phase) {
-          throw new Error('Installed MCP SDK registry contains an unmapped protocol method');
-        }
-        const plan = createMcpLabFaultPlan([
-          {
-            fault: { delayMs: 1, kind: 'delay' },
-            id: `${era}-only`,
-            match: { method, occurrence: 1, phase },
-          },
-        ] as never);
-
-        const incompatibleEra = era === 'legacy' ? 'modern' : 'legacy';
-        expect(() => plan.assertCompatibleWithProtocolEra(incompatibleEra)).toThrowError(
-          new RegExp(`${incompatibleEra} protocol`, 'iu')
-        );
-        expect(() => plan.assertCompatibleWithProtocolEra(era)).not.toThrow();
+    for (const era of ['legacy', 'modern'] as const) {
+      const executable = [...installed[era]].filter((method) =>
+        isExecutableProtocolMethod(method, era)
+      );
+      expect(executable.sort()).toEqual([...expected[era]].sort());
+      for (const method of expected[era]) {
+        expect(installed[era]).toContain(method);
       }
+    }
+
+    for (const [era, method] of [
+      ['modern', 'notifications/subscriptions/acknowledged'],
+      ['legacy', 'notifications/elicitation/complete'],
+      ['legacy', 'notifications/tasks/status'],
+      ['legacy', 'sampling/createMessage'],
+    ] as const) {
+      const phase = protocolPhaseForMethod(method);
+      if (!phase) {
+        throw new Error('Installed MCP SDK method is not represented by the fault vocabulary');
+      }
+      const plan = createMcpLabFaultPlan([
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'unreachable-direction',
+          match: { method, occurrence: 1, phase },
+        },
+      ]);
+      expect(() => plan.assertCompatibleWithProtocolEra(era)).not.toThrow();
+      expect(() => plan.assertCompatibleWithTransport('http-loopback')).toThrowError(
+        /http-loopback transport/iu
+      );
     }
   });
 });
