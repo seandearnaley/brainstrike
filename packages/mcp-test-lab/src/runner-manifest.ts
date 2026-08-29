@@ -1,6 +1,5 @@
 import type { McpLabScenarioId } from './scenario.js';
 
-export const MAX_MCP_LAB_RUNNER_CASES = 64;
 export const MIN_MCP_LAB_CASE_TIMEOUT_MS = 100;
 export const MAX_MCP_LAB_CASE_TIMEOUT_MS = 60_000;
 export const MAX_MCP_LAB_RUN_TIMEOUT_MS = 600_000;
@@ -45,7 +44,7 @@ const CASE_BY_ID: ReadonlyMap<McpLabRunnerCaseId, McpLabRunnerCase> = new Map(
   MCP_LAB_RUNNER_CASES.map((entry) => [entry.id, entry])
 );
 
-const PROFILE_CASE_IDS = Object.freeze({
+export const MCP_LAB_RUNNER_PROFILE_CASE_IDS = Object.freeze({
   exhaustive: MCP_LAB_RUNNER_CASE_IDS,
   pr: Object.freeze([
     'modern-http-in-process',
@@ -55,7 +54,7 @@ const PROFILE_CASE_IDS = Object.freeze({
   ] as const satisfies readonly McpLabRunnerCaseId[]),
 } as const satisfies Readonly<Record<McpLabRunnerProfile, readonly McpLabRunnerCaseId[]>>);
 
-const PROFILE_TIMEOUTS = Object.freeze({
+export const MCP_LAB_RUNNER_PROFILE_TIMEOUTS = Object.freeze({
   exhaustive: Object.freeze({ caseTimeoutMs: 20_000, runTimeoutMs: 180_000 }),
   pr: Object.freeze({ caseTimeoutMs: 10_000, runTimeoutMs: 60_000 }),
 } as const satisfies Readonly<
@@ -108,9 +107,9 @@ function selectCaseIds(
   input: unknown,
   profile: McpLabRunnerProfile
 ): readonly McpLabRunnerCaseId[] {
-  const profileIds: readonly McpLabRunnerCaseId[] = PROFILE_CASE_IDS[profile];
-  if (!Array.isArray(input) || input.length < 1 || input.length > MAX_MCP_LAB_RUNNER_CASES) {
-    invalidSelection(`caseIds must contain from 1 to ${MAX_MCP_LAB_RUNNER_CASES} entries`);
+  const profileIds: readonly McpLabRunnerCaseId[] = MCP_LAB_RUNNER_PROFILE_CASE_IDS[profile];
+  if (!Array.isArray(input) || input.length < 1 || input.length > profileIds.length) {
+    invalidSelection(`caseIds must contain from 1 to ${profileIds.length} entries`);
   }
   const selected: McpLabRunnerCaseId[] = [];
   const seen = new Set<McpLabRunnerCaseId>();
@@ -144,7 +143,7 @@ export function selectMcpLabRunnerCases(input: unknown): McpLabRunnerSelection {
     invalidSelection('profile is required');
   }
   const profile = parseProfile(input['profile']);
-  const defaults = PROFILE_TIMEOUTS[profile];
+  const defaults = MCP_LAB_RUNNER_PROFILE_TIMEOUTS[profile];
   const caseTimeoutMs = Object.hasOwn(input, 'caseTimeoutMs')
     ? boundedInteger(
         input['caseTimeoutMs'],
@@ -166,7 +165,7 @@ export function selectMcpLabRunnerCases(input: unknown): McpLabRunnerSelection {
   }
   const caseIds = Object.hasOwn(input, 'caseIds')
     ? selectCaseIds(input['caseIds'], profile)
-    : PROFILE_CASE_IDS[profile];
+    : MCP_LAB_RUNNER_PROFILE_CASE_IDS[profile];
   const cases = Object.freeze(
     caseIds.map((id) => {
       const entry = CASE_BY_ID.get(id);
@@ -188,12 +187,14 @@ export class McpLabRunnerDeadlineError extends Error {
 
 export interface McpLabRunnerDeadline {
   assertActive(caseId: string): void;
+  /** Reads and records the monotonic clock; throws if that clock moves backwards. */
   remainingMs(): number;
 }
 
 export function createMcpLabRunnerDeadline(
   timeoutMs: number,
-  readNow: () => number
+  /** Must return a monotonic clock value. Wall-clock sources such as Date.now are invalid. */
+  readNow: () => number = () => performance.now()
 ): McpLabRunnerDeadline {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_MCP_LAB_RUN_TIMEOUT_MS) {
     throw new Error('Invalid MCP lab runner deadline timeout');

@@ -34,17 +34,6 @@ async function readTypeScriptConfig(url: URL): Promise<TypeScriptConfig> {
 }
 
 describe('MCP test lab package contract', () => {
-  it('documents the closed runner profiles and their exact default budgets', async () => {
-    const contract = await readFile(
-      new URL('../../../docs/agents/assistant-providers.md', import.meta.url),
-      'utf8'
-    );
-
-    expect(contract).toContain('`pr`: 4 cases, 10,000 ms per case, 60,000 ms per run');
-    expect(contract).toContain('`exhaustive`: 6 cases, 20,000 ms per case, 180,000 ms per run');
-    expect(contract).toContain('Explicit `undefined` values are malformed');
-  });
-
   it('emits every public entry as Node-compatible JavaScript plus declarations', async () => {
     const manifest = await readManifest();
 

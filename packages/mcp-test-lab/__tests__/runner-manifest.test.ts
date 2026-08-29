@@ -1,10 +1,12 @@
+import { readFile } from 'node:fs/promises';
 import {
   createMcpLabRunnerDeadline,
   MAX_MCP_LAB_CASE_TIMEOUT_MS,
   MAX_MCP_LAB_RUN_TIMEOUT_MS,
-  MAX_MCP_LAB_RUNNER_CASES,
   MCP_LAB_RUNNER_CASE_IDS,
   MCP_LAB_RUNNER_CASES,
+  MCP_LAB_RUNNER_PROFILE_CASE_IDS,
+  MCP_LAB_RUNNER_PROFILE_TIMEOUTS,
   MCP_LAB_RUNNER_PROFILES,
   McpLabRunnerDeadlineError,
   selectMcpLabRunnerCases,
@@ -77,8 +79,8 @@ describe('MCP verifier runner manifest', () => {
     { caseTimeoutMs: undefined, profile: 'pr' },
     { profile: 'pr', runTimeoutMs: undefined },
     {
-      caseIds: new Array(MAX_MCP_LAB_RUNNER_CASES + 1).fill('modern-stdio'),
-      profile: 'exhaustive',
+      caseIds: new Array(MCP_LAB_RUNNER_PROFILE_CASE_IDS.pr.length + 1).fill('modern-stdio'),
+      profile: 'pr',
     },
   ])('rejects malformed or ambiguous selection %j', (input) => {
     expect(() => selectMcpLabRunnerCases(input)).toThrow(/invalid MCP lab runner selection/i);
@@ -107,6 +109,21 @@ describe('MCP verifier runner manifest', () => {
     expect(selected).toMatchObject({ caseTimeoutMs: 2500, runTimeoutMs: 12_000 });
   });
 
+  it('keeps the living contract coupled to the executable profile defaults', async () => {
+    const contract = await readFile(
+      new URL('../../../docs/agents/assistant-providers.md', import.meta.url),
+      'utf8'
+    );
+
+    for (const profile of MCP_LAB_RUNNER_PROFILES) {
+      const timeouts = MCP_LAB_RUNNER_PROFILE_TIMEOUTS[profile];
+      expect(contract).toContain(
+        `\`${profile}\`: ${MCP_LAB_RUNNER_PROFILE_CASE_IDS[profile].length} cases, ${timeouts.caseTimeoutMs.toLocaleString('en-US')} ms per case, ${timeouts.runTimeoutMs.toLocaleString('en-US')} ms per run`
+      );
+    }
+    expect(contract).toContain('Explicit `undefined` values are malformed');
+  });
+
   it('provides a monotonic injectable deadline that fails visibly on expiry or clock regression', () => {
     let now = 100;
     const deadline = createMcpLabRunnerDeadline(50, () => now);
@@ -122,5 +139,10 @@ describe('MCP verifier runner manifest', () => {
 
     now = 99;
     expect(() => deadline.remainingMs()).toThrow(/clock moved backwards/i);
+  });
+
+  it('uses a monotonic clock by default', () => {
+    const deadline = createMcpLabRunnerDeadline(100);
+    expect(deadline.remainingMs()).toBeGreaterThan(0);
   });
 });

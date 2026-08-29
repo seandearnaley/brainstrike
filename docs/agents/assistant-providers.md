@@ -2011,9 +2011,11 @@ runner manifest owns two closed deterministic profiles over six case ids:
 Selection accepts only `profile`, `caseIds`, `caseTimeoutMs`, and
 `runTimeoutMs`; unknown fields, duplicate/foreign case ids, and out-of-bound
 timeouts fail visibly. Omitted optional fields use the profile defaults.
-Explicit `undefined` values are malformed and never treated as omission. A run
-may select at most 64 cases, a case timeout stays within 100–60,000 ms, and a
-run timeout stays within 100–600,000 ms without falling below its case timeout.
+Explicit `undefined` values are malformed and never treated as omission. An
+explicit selection cannot exceed its closed profile, a case timeout stays
+within 100–60,000 ms, and a run timeout stays within 100–600,000 ms without
+falling below its case timeout. Case limits are per-case ceilings, not reserved
+runtime, so the whole-run ceiling need not equal their sum.
 Current public verifier subpaths: `./evidence`, `./faults`, `./lab`,
 `./scenario`.
 
