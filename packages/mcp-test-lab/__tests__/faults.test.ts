@@ -88,6 +88,22 @@ describe('MCP lab fault plan', () => {
     ).toThrowError(`Invalid MCP lab fault "invalid-payload": ${expectedError}`);
   });
 
+  it('rejects an enumerable __proto__ key in an untyped fault payload', () => {
+    const fault: unknown = JSON.parse('{"kind":"drop_response","__proto__":{"extra":true}}');
+
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault,
+          id: 'invalid-proto-payload',
+          match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+        },
+      ] as never)
+    ).toThrowError(
+      'Invalid MCP lab fault "invalid-proto-payload": drop response must contain only "kind"'
+    );
+  });
+
   it.each([
     { code: 0, kind: 'child_exit', signal: null },
     { code: null, kind: 'child_exit', signal: 'SIGTERM' },

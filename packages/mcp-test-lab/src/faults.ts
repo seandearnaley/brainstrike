@@ -174,7 +174,7 @@ function snapshotRecord(value: unknown): Readonly<Record<string, unknown>> {
   if (!isRecord(value)) {
     throw new Error('Invalid MCP lab fault declaration: expected an object');
   }
-  const snapshot: Record<string, unknown> = {};
+  const snapshot: Record<string, unknown> = Object.create(null);
   try {
     for (const key of Object.keys(value)) {
       snapshot[key] = value[key];
