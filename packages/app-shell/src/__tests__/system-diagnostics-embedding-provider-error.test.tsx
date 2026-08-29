@@ -29,7 +29,10 @@ describe('SystemDiagnosticsPanel embedding provider errors', () => {
           sourceState: 'running',
           state: 'idle',
         },
-        errors: { embeddingTelemetry: 'embedding telemetry unavailable' },
+        errors: {
+          embeddingTelemetry:
+            'Embedding provider failed for private-model at /Users/private/workspace',
+        },
         llmHost: {
           active: false,
           lastError: null,
@@ -62,9 +65,12 @@ describe('SystemDiagnosticsPanel embedding provider errors', () => {
       onStatus: vi.fn(() => () => undefined),
     };
 
-    render(<SystemDiagnosticsPanel />);
+    const { container } = render(<SystemDiagnosticsPanel />);
 
     expect(await screen.findByText('Embedding telemetry unavailable')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent('embedding telemetry unavailable');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Embedding telemetry provider failed. See internal diagnostics for details.'
+    );
+    expect(container.innerHTML).not.toMatch(/private-model|Users\/private|workspace/);
   });
 });

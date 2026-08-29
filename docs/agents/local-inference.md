@@ -11,7 +11,9 @@ Renderer-only execution is mandatory.
 - The System Diagnostics embedding card presents aggregate transfer, residency,
   memory-estimate, device-count, and health-count data only. It must not render cache
   keys, model names, source ids, failure strings, user content, or vectors. An empty
-  observation window is neutral (`No samples`), not a warning or degraded state.
+  observation window is neutral (`No samples`), not a warning or degraded state. A
+  desktop telemetry-provider failure renders a fixed unavailable message; its raw
+  error text remains internal and must not reach the diagnostics DOM.
 - `EmbeddingTelemetrySnapshot.peakVectorsInFlight` is a per-batch high-water mark.
   In streaming mode it is the largest batch waiting for acknowledgement; the worker
   waits for that acknowledgement before sending the next batch. In workerpool mode the

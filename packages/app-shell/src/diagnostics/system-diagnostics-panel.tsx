@@ -43,6 +43,8 @@ import {
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
 const EMPTY_EMBEDDING_TELEMETRY = createEmptyEmbeddingTelemetrySnapshot();
+const EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE =
+  'Embedding telemetry provider failed. See internal diagnostics for details.';
 const LazyQueueDiagnosticsPanel = lazy(async () => {
   const module = await import('@brainstrike/vector-management');
   return { default: module.QueueDiagnosticsPanel };
@@ -600,7 +602,7 @@ function EmbeddingRuntimeDiagnosticsCard({
       <div className="space-y-2 text-xs">
         {providerError ? (
           <div className="text-destructive" role="alert">
-            {providerError}
+            {EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE}
           </div>
         ) : null}
         <div className="flex items-center justify-between">
