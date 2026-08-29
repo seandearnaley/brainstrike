@@ -4,6 +4,17 @@ import {
   isLegacyRequest,
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
+import {
+  createMcpLabFaultRuntime,
+  McpLabDroppedResponseError,
+  type McpLabFaultRuntime,
+} from './fault-runtime.js';
+import {
+  assertScenarioFaultCompatibility,
+  isMcpLabFaultPlan,
+  type McpLabFaultPlan,
+} from './faults.js';
+import { IN_PROCESS_HTTP_FAULT_SCOPES, withMcpLabHttpFaults } from './http-fault-handler.js';
 import { createMcpLabLoopback } from './loopback-http.js';
 import {
   createMcpOAuthReferenceEndpoint,
@@ -60,7 +71,7 @@ export {
 
 export interface McpLabDiagnostic {
   readonly correlationId: string;
-  readonly kind: 'child-stderr';
+  readonly kind: 'child-stderr' | 'handler-error';
   readonly message: string;
 }
 
@@ -74,6 +85,7 @@ export interface McpLabSession {
 
 export interface StartMcpLabScenarioOptions {
   readonly execution: 'in-process' | 'loopback';
+  readonly faultPlan?: McpLabFaultPlan;
 }
 
 type McpLabHttpScenarioId = Exclude<McpLabScenarioId, 'stdio-reference'>;
@@ -89,7 +101,8 @@ interface CloseResource {
 
 function createCleanupReport(
   resources: readonly CloseResource[],
-  oauthStateCounts?: () => McpOAuthReferenceStateCounts
+  oauthStateCounts?: () => McpOAuthReferenceStateCounts,
+  faultRuntime?: McpLabFaultRuntime
 ): McpLabCleanupReport {
   return Object.freeze({
     httpListenersClosed: resources.filter(
@@ -102,7 +115,7 @@ function createCleanupReport(
       (resource) =>
         resource.kind === 'stdio-transport' && resource.closed && (resource.counted?.() ?? true)
     ).length,
-    untriggeredFaultIds: Object.freeze([]),
+    untriggeredFaultIds: faultRuntime?.untriggeredIds() ?? Object.freeze([]),
   });
 }
 
@@ -112,22 +125,49 @@ function parseStartOptions(options: unknown): ParsedStartOptions {
   }
   const record = options as Readonly<Record<string, unknown>>;
   const keys = Reflect.ownKeys(record);
-  if (keys.some((key) => key !== 'execution')) {
-    throw new Error('Invalid MCP lab start options: expected only optional "execution"');
-  }
-  if (!Object.hasOwn(record, 'execution')) {
-    return Object.freeze({});
+  if (keys.some((key) => key !== 'execution' && key !== 'faultPlan')) {
+    throw new Error(
+      'Invalid MCP lab start options: expected only optional "execution" and "faultPlan"'
+    );
   }
   let execution: unknown;
+  let faultPlan: unknown;
   try {
-    execution = record['execution'];
+    execution = Object.hasOwn(record, 'execution') ? record['execution'] : undefined;
+    faultPlan = Object.hasOwn(record, 'faultPlan') ? record['faultPlan'] : undefined;
   } catch {
-    throw new Error('Invalid MCP lab start options: could not snapshot execution');
+    throw new Error('Invalid MCP lab start options: could not snapshot input');
   }
   if (execution !== undefined && execution !== 'in-process' && execution !== 'loopback') {
     throw new Error('Invalid MCP lab start options: execution must be "in-process" or "loopback"');
   }
-  return Object.freeze(execution === undefined ? {} : { execution });
+  if (faultPlan !== undefined && !isMcpLabFaultPlan(faultPlan)) {
+    throw new Error('Invalid MCP lab fault plan');
+  }
+  return Object.freeze({
+    ...(execution === undefined ? {} : { execution }),
+    ...(faultPlan === undefined ? {} : { faultPlan }),
+  });
+}
+
+function recordHandlerError(
+  diagnostics: McpLabDiagnostic[],
+  correlationId: string,
+  error: unknown
+): void {
+  if (diagnostics.length >= 64) {
+    return;
+  }
+  diagnostics.push(
+    Object.freeze({
+      correlationId,
+      kind: 'handler-error' as const,
+      message:
+        error instanceof McpLabDroppedResponseError
+          ? `MCP lab fault "${error.faultId}" dropped the response`
+          : 'MCP lab HTTP handler failed',
+    })
+  );
 }
 
 function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
@@ -155,7 +195,8 @@ function createSession(
   endpoint: McpLabEndpoint,
   resources: CloseResource[],
   diagnostics: McpLabDiagnostic[] = [],
-  oauthStateCounts?: () => McpOAuthReferenceStateCounts
+  oauthStateCounts?: () => McpOAuthReferenceStateCounts,
+  faultRuntime?: McpLabFaultRuntime
 ): McpLabSession {
   let closed = false;
   let closePromise: Promise<McpLabCleanupReport> | undefined;
@@ -196,7 +237,7 @@ function createSession(
             : new AggregateError(errors, 'MCP lab cleanup failed');
         }
         closed = resources.every((resource) => resource.closed);
-        return createCleanupReport(resources, oauthStateCounts);
+        return createCleanupReport(resources, oauthStateCounts, faultRuntime);
       })();
       return closePromise;
     },
@@ -209,8 +250,20 @@ function createSession(
   });
 }
 
-function createInProcessSession(scenario: McpLabScenario): McpLabSession {
+function createInProcessSession(
+  scenario: McpLabScenario,
+  faultPlan: McpLabFaultPlan | undefined
+): McpLabSession {
+  const diagnostics: McpLabDiagnostic[] = [];
+  const faultRuntime = createMcpLabFaultRuntime(faultPlan, scenario.id);
   const handler = createReferenceHandler(scenario);
+  const guarded = withMcpLabHttpFaults(
+    handler,
+    faultRuntime,
+    (correlationId, error) => recordHandlerError(diagnostics, correlationId, error),
+    scenario.protocol.era,
+    IN_PROCESS_HTTP_FAULT_SCOPES
+  );
   const endpointUrl = new URL('http://mcp-lab.invalid/mcp');
   return createSession(
     scenario,
@@ -222,12 +275,15 @@ function createInProcessSession(scenario: McpLabScenario): McpLabSession {
             `MCP lab request URL does not match the advertised endpoint: expected ${endpointUrl.href}, received ${request.url}`
           );
         }
-        return handler.fetch(request);
+        return guarded.fetch(request);
       },
       kind: 'in-process-http' as const,
       url: endpointUrl,
     }),
-    [{ close: handler.close, closed: false, kind: 'handler' }]
+    [{ close: guarded.close, closed: false, kind: 'handler' }],
+    diagnostics,
+    undefined,
+    faultRuntime
   );
 }
 
@@ -325,6 +381,9 @@ export async function startMcpLabScenario(
   const startOptions = parseStartOptions(options);
   const scenario = getMcpLabScenario(id);
   if (scenario.id === 'stdio-reference') {
+    if (startOptions.faultPlan) {
+      throw new Error('MCP lab stdio fault execution is not available in this layer');
+    }
     if (startOptions.execution !== undefined) {
       throw new Error('MCP lab stdio scenario does not accept execution');
     }
@@ -339,7 +398,11 @@ export async function startMcpLabScenario(
   if (scenario.id === 'oauth-reference' && startOptions.execution !== 'loopback') {
     throw new Error('MCP lab OAuth scenario requires a loopback listener');
   }
+  if (startOptions.execution === 'loopback' && startOptions.faultPlan) {
+    throw new Error('MCP lab loopback fault execution is not available in this layer');
+  }
+  assertScenarioFaultCompatibility(startOptions.faultPlan, scenario, startOptions.execution);
   return startOptions.execution === 'in-process'
-    ? createInProcessSession(scenario)
+    ? createInProcessSession(scenario, startOptions.faultPlan)
     : createLoopbackSession(scenario);
 }
