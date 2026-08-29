@@ -24,6 +24,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./evidence": {
+      "types": "./dist/evidence.d.ts",
+      "default": "./dist/evidence.js"
+    },
     "./faults": {
       "types": "./dist/faults.d.ts",
       "default": "./dist/faults.js"
