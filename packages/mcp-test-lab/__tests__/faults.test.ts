@@ -166,6 +166,18 @@ describe('MCP lab fault plan', () => {
     ).toThrowError(/incompatible.*coordinate/i);
   });
 
+  it('rejects child-process occurrences after the one start attempt', () => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { code: 7, kind: 'child_exit', signal: null },
+          id: 'second-child-exit',
+          match: { method: 'child/exit', occurrence: 2, phase: 'child-process' },
+        },
+      ])
+    ).toThrowError(/child-process.*occurrence 1/i);
+  });
+
   it('consumes an exact phase, method, and occurrence with a redacted observation', () => {
     const plan = createMcpLabFaultPlan([
       {
@@ -237,12 +249,12 @@ describe('MCP lab fault plan', () => {
       {
         fault: { kind: 'child_stderr', text: 'simulated child failure' },
         id: 'stderr',
-        match: { method: 'child/stderr', occurrence: 5, phase: 'child-process' },
+        match: { method: 'child/stderr', occurrence: 1, phase: 'child-process' },
       },
       {
         fault: { code: null, kind: 'child_exit', signal: 'SIGTERM' },
         id: 'exit',
-        match: { method: 'child/exit', occurrence: 6, phase: 'child-process' },
+        match: { method: 'child/exit', occurrence: 1, phase: 'child-process' },
       },
       {
         fault: { kind: 'cleanup_error' },

@@ -450,6 +450,11 @@ function assertMatchProtocol(declaration: McpLabFaultDeclaration): void {
       `Invalid MCP lab fault "${declaration.id}": method "${declaration.match.method}" does not belong to phase "${declaration.match.phase}"`
     );
   }
+  if (untypedPhase === 'child-process' && declaration.match.occurrence !== 1) {
+    throw new Error(
+      `Invalid MCP lab fault "${declaration.id}": child-process coordinates require occurrence 1`
+    );
+  }
   assertFaultCoordinate(declaration);
 }
 

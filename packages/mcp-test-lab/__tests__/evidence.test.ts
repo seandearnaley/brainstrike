@@ -325,6 +325,45 @@ describe('parseMcpEvidenceBundle', () => {
     ).toMatchObject({ ticket: 'BST-1475' });
   });
 
+  it('detects trusted GH token keys across raw, parsed, and URL evidence', () => {
+    expect(scanEvidenceTextForSecrets('GH_TOKEN=opaque-value')).toEqual([
+      expect.objectContaining({ kind: 'credential-assignment' }),
+    ]);
+    expect(scanEvidenceTextForSecrets('https://example.test/callback?github-token=x')).toEqual([
+      expect.objectContaining({ kind: 'credential-bearing-url' }),
+    ]);
+
+    const bytes = new TextEncoder().encode('{"github_token":"x"}');
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
+  it('rejects nested values under decoded credential keys', () => {
+    const bytes = new TextEncoder().encode('{"access\\u005ftoken":["abc"]}');
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
   it('detects credentials inside serialized JSON string fields', () => {
     const bytes = new TextEncoder().encode(
       '{"body":"{\\"access\\\\u005ftoken\\":\\"opaque-0123456789abcdef\\"}"}'

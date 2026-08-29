@@ -164,6 +164,10 @@ const CREDENTIAL_KEYS = [
 ] as const;
 const CREDENTIAL_KEY_SUFFIXES = [...CREDENTIAL_KEYS, 'secret_access_key'] as const;
 const AMBIGUOUS_CREDENTIAL_KEYS = ['authorization', 'code', 'token'] as const;
+const TRUSTED_NAMESPACED_CREDENTIAL_LABELS = new Map<string, string>([
+  ['gh_token', 'token'],
+  ['github_token', 'token'],
+]);
 const NAMESPACED_CREDENTIAL_KEY_SUFFIXES = CREDENTIAL_KEY_SUFFIXES.filter(
   (key) => !(AMBIGUOUS_CREDENTIAL_KEYS as readonly string[]).includes(key)
 );
@@ -172,11 +176,14 @@ const MAX_SERIALIZED_JSON_SCAN_DEPTH = 4;
 const AMBIGUOUS_ASSIGNMENT_KEYS = AMBIGUOUS_CREDENTIAL_KEYS.map((key) =>
   key.replaceAll('_', '[_ .-]')
 );
+const TRUSTED_NAMESPACED_ASSIGNMENT_KEYS = [...TRUSTED_NAMESPACED_CREDENTIAL_LABELS.keys()].map(
+  (key) => key.replaceAll('_', '[_ .-]')
+);
 const NAMESPACED_ASSIGNMENT_KEYS = NAMESPACED_CREDENTIAL_KEY_SUFFIXES.map((key) =>
   key.replaceAll('_', '[_ .-]')
 );
 const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
-  `(?<![a-z0-9_.-])((?:${AMBIGUOUS_ASSIGNMENT_KEYS.join('|')})|(?:[a-z0-9]+[_.-])*(?:${NAMESPACED_ASSIGNMENT_KEYS.join('|')}))["']?[ \\t]*[:=][ \\t]*(?:"([^"]+)"|'([^']+)'|([^\\s]+))`,
+  `(?<![a-z0-9_.-])((?:${AMBIGUOUS_ASSIGNMENT_KEYS.join('|')})|(?:${TRUSTED_NAMESPACED_ASSIGNMENT_KEYS.join('|')})|(?:[a-z0-9]+[_.-])*(?:${NAMESPACED_ASSIGNMENT_KEYS.join('|')}))["']?[ \\t]*[:=][ \\t]*(?:"([^"]+)"|'([^']+)'|([^\\s]+))`,
   'gi'
 );
 
@@ -608,22 +615,34 @@ function assertSanitizedText(
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = path === '$' ? `$.${key}` : `${path}.${key}`;
     const credentialLabel = credentialLabelForKey(key);
-    if (
-      scanDecodedKeys &&
-      typeof entry === 'string' &&
-      entry.length > 0 &&
-      credentialLabel !== undefined &&
-      !isSafeDiagnosticAssignment(credentialLabel, entry, '')
-    ) {
-      fail(
-        entryPath,
-        'secret_detected',
-        `contains prohibited ${credentialAssignmentKind(credentialLabel)} material`,
-        0
-      );
+    if (scanDecodedKeys && credentialLabel !== undefined) {
+      assertDecodedCredentialValue(credentialLabel, entry, entryPath);
     }
     assertSanitizedText(entry, entryPath, scanDecodedKeys, serializedJsonDepth);
   }
+}
+
+function assertDecodedCredentialValue(label: string, value: unknown, path: string): void {
+  if (value === null || value === undefined) {
+    return;
+  }
+  if (typeof value === 'string') {
+    if (value.length === 0 || isSafeDiagnosticAssignment(label, value, '')) {
+      return;
+    }
+  } else if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return;
+    }
+  } else if (isRecord(value) && Object.keys(value).length === 0) {
+    return;
+  }
+  fail(
+    path,
+    'secret_detected',
+    `contains prohibited ${credentialAssignmentKind(label)} material`,
+    0
+  );
 }
 
 function assertSanitizedArtifacts(
@@ -906,6 +925,10 @@ function credentialLabelForKey(key: string): string | undefined {
   const exact = CREDENTIAL_KEYS.find((candidate) => normalizedKey === candidate);
   if (exact) {
     return exact;
+  }
+  const trusted = TRUSTED_NAMESPACED_CREDENTIAL_LABELS.get(normalizedKey);
+  if (trusted) {
+    return trusted;
   }
   return NAMESPACED_CREDENTIAL_KEY_SUFFIXES.find((suffix) => normalizedKey.endsWith(`_${suffix}`));
 }
