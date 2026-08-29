@@ -80,8 +80,9 @@ describe('MCP official reference runner', () => {
     const owner = dependencies.createPhaseOwner(runnerCase, 'green');
     const controller = new AbortController();
     const running = owner.run(controller.signal);
+    await expect(owner.run(controller.signal)).rejects.toThrow(/already ran/i);
     controller.abort();
-    const cleanup = owner.close();
+    const cleanup = owner.close(new AbortController().signal);
 
     await expect(Promise.race([cleanup, Promise.resolve('pending')])).resolves.toBe('pending');
     releaseStart();

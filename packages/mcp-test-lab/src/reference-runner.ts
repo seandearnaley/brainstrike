@@ -36,7 +36,7 @@ function stringValue(value: unknown, label: string): string {
   return value;
 }
 
-async function authorize(lab: McpLabSession): Promise<string> {
+async function authorize(lab: McpLabSession, signal: AbortSignal): Promise<string> {
   if (lab.endpoint.kind !== 'oauth-loopback-http') {
     throw new Error(`Expected OAuth endpoint, received ${lab.endpoint.kind}`);
   }
@@ -52,6 +52,7 @@ async function authorize(lab: McpLabSession): Promise<string> {
     }),
     headers: { 'content-type': 'application/json' },
     method: 'POST',
+    signal,
   });
   if (registrationResponse.status !== 201) {
     throw new Error('MCP reference runner OAuth registration failed');
@@ -70,7 +71,7 @@ async function authorize(lab: McpLabSession): Promise<string> {
     scope: 'mcp',
     state,
   }).toString();
-  const authorization = await fetch(authorizationUrl, { redirect: 'manual' });
+  const authorization = await fetch(authorizationUrl, { redirect: 'manual', signal });
   if (authorization.status !== 302) {
     throw new Error('MCP reference runner OAuth authorization failed');
   }
@@ -91,6 +92,7 @@ async function authorize(lab: McpLabSession): Promise<string> {
     }),
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     method: 'POST',
+    signal,
   });
   if (tokenResponse.status !== 200) {
     throw new Error('MCP reference runner OAuth token exchange failed');
@@ -157,13 +159,17 @@ function echoText(value: unknown): string | undefined {
 async function runEchoTest(
   client: Client,
   phase: McpLabRunnerPhase,
-  value: string
+  value: string,
+  signal: AbortSignal
 ): Promise<boolean> {
   if (phase !== 'red') {
-    return echoText(await client.callTool({ arguments: { text: value }, name: 'echo' })) === value;
+    return (
+      echoText(await client.callTool({ arguments: { text: value }, name: 'echo' }, { signal })) ===
+      value
+    );
   }
   try {
-    await client.callTool({ arguments: { text: value }, name: 'missing-red-mutation' });
+    await client.callTool({ arguments: { text: value }, name: 'missing-red-mutation' }, { signal });
   } catch (error) {
     if (isMissingToolProtocolError(error, 'missing-red-mutation')) {
       return false;
@@ -185,7 +191,7 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
     private readonly start: (runnerCase: McpLabRunnerCase) => Promise<McpLabSession>
   ) {}
 
-  close(): Promise<{ readonly details: string; readonly verified: true }> {
+  close(_signal: AbortSignal): Promise<{ readonly details: string; readonly verified: true }> {
     if (this.closePromise) {
       return this.closePromise;
     }
@@ -222,78 +228,73 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
   }
 
   async run(signal: AbortSignal): Promise<McpLabRunnerCaseObservation> {
-    if (this.lab) {
+    if (this.startPromise || this.closePromise) {
       throw new Error('MCP reference runner phase already ran');
     }
-    const abort = () => void this.close().catch(() => undefined);
-    signal.addEventListener('abort', abort, { once: true });
-    try {
-      this.startPromise = this.start(this.runnerCase);
-      this.lab = await this.startPromise;
-      signal.throwIfAborted();
-      const protocol = this.lab.scenario.protocol;
-      this.client = new Client(
-        { name: 'brainstrike-mcp-verifier-runner', version: '1.0.0' },
-        {
-          versionNegotiation:
-            protocol.era === 'legacy' ? { mode: 'legacy' } : { mode: { pin: protocol.version } },
-        }
-      );
-      const endpoint = this.lab.endpoint;
-      if (endpoint.kind === 'stdio') {
-        await this.client.connect(endpoint.transport);
-      } else {
-        const accessToken =
-          endpoint.kind === 'oauth-loopback-http' ? await authorize(this.lab) : undefined;
-        signal.throwIfAborted();
-        await this.client.connect(
-          new StreamableHTTPClientTransport(endpoint.url, {
-            ...(endpoint.kind === 'in-process-http' ? { fetch: endpoint.fetch } : {}),
-            ...(accessToken
-              ? { requestInit: { headers: { authorization: `Bearer ${accessToken}` } } }
-              : {}),
-          })
-        );
+    this.startPromise = this.start(this.runnerCase);
+    this.lab = await this.startPromise;
+    signal.throwIfAborted();
+    const protocol = this.lab.scenario.protocol;
+    this.client = new Client(
+      { name: 'brainstrike-mcp-verifier-runner', version: '1.0.0' },
+      {
+        versionNegotiation:
+          protocol.era === 'legacy' ? { mode: 'legacy' } : { mode: { pin: protocol.version } },
       }
+    );
+    const endpoint = this.lab.endpoint;
+    if (endpoint.kind === 'stdio') {
+      await this.client.connect(endpoint.transport, { signal });
+    } else {
+      const accessToken =
+        endpoint.kind === 'oauth-loopback-http' ? await authorize(this.lab, signal) : undefined;
       signal.throwIfAborted();
-      const tools = await this.client.listTools();
-      signal.throwIfAborted();
-      if (!tools.tools.some(({ name }) => name === 'echo')) {
-        throw new Error('MCP reference runner server does not expose the echo tool');
-      }
-      const value = `${this.runnerCase.id}-${this.phase}`;
-      const passed = await runEchoTest(this.client, this.phase, value);
-      signal.throwIfAborted();
-      const negotiated = this.client.getNegotiatedProtocolVersion();
-      if (negotiated !== protocol.version) {
-        throw new Error(
-          `MCP reference runner negotiated ${String(negotiated)} instead of ${protocol.version}`
-        );
-      }
-      const serverCapabilities = this.client.getServerCapabilities();
-      if (!serverCapabilities) {
-        throw new Error('MCP reference runner has no negotiated server capabilities');
-      }
-      return Object.freeze({
-        capabilities: Object.freeze(Object.keys(serverCapabilities).sort()),
-        correlationIds: Object.freeze([
-          `${this.runnerCase.id}-${this.phase}${this.phase === 'red' ? '-tool-rejection' : ''}`,
-        ]),
-        exitStatus: passed ? 0 : 1,
-        negotiation:
-          protocol.era === 'legacy'
-            ? { era: protocol.era, revision: protocol.version }
-            : { era: protocol.era, revision: protocol.version },
-        tests: Object.freeze({
-          failed: passed ? 0 : 1,
-          passed: passed ? 1 : 0,
-          skipped: 0,
-          total: 1,
+      await this.client.connect(
+        new StreamableHTTPClientTransport(endpoint.url, {
+          ...(endpoint.kind === 'in-process-http' ? { fetch: endpoint.fetch } : {}),
+          ...(accessToken
+            ? { requestInit: { headers: { authorization: `Bearer ${accessToken}` } } }
+            : {}),
         }),
-      });
-    } finally {
-      signal.removeEventListener('abort', abort);
+        { signal }
+      );
     }
+    signal.throwIfAborted();
+    const tools = await this.client.listTools(undefined, { signal });
+    signal.throwIfAborted();
+    if (!tools.tools.some(({ name }) => name === 'echo')) {
+      throw new Error('MCP reference runner server does not expose the echo tool');
+    }
+    const value = `${this.runnerCase.id}-${this.phase}`;
+    const passed = await runEchoTest(this.client, this.phase, value, signal);
+    signal.throwIfAborted();
+    const negotiated = this.client.getNegotiatedProtocolVersion();
+    if (negotiated !== protocol.version) {
+      throw new Error(
+        `MCP reference runner negotiated ${String(negotiated)} instead of ${protocol.version}`
+      );
+    }
+    const serverCapabilities = this.client.getServerCapabilities();
+    if (!serverCapabilities) {
+      throw new Error('MCP reference runner has no negotiated server capabilities');
+    }
+    return Object.freeze({
+      capabilities: Object.freeze(Object.keys(serverCapabilities).sort()),
+      correlationIds: Object.freeze([
+        `${this.runnerCase.id}-${this.phase}${this.phase === 'red' ? '-tool-rejection' : ''}`,
+      ]),
+      exitStatus: passed ? 0 : 1,
+      negotiation:
+        protocol.era === 'legacy'
+          ? { era: protocol.era, revision: protocol.version }
+          : { era: protocol.era, revision: protocol.version },
+      tests: Object.freeze({
+        failed: passed ? 0 : 1,
+        passed: passed ? 1 : 0,
+        skipped: 0,
+        total: 1,
+      }),
+    });
   }
 }
 
