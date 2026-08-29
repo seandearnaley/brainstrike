@@ -100,8 +100,8 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = Object.fre
   }),
   'oauth-reference': freezeScenario({
     authentication: 'oauth',
-    availability: 'declared',
-    description: 'Declared OAuth reference contract; executable fixture lands in BST-1481',
+    availability: 'executable',
+    description: 'Executable OAuth reference over a bearer-protected SDK v2 loopback fixture',
     fixture: 'brainstrike-oauth-reference',
     id: 'oauth-reference',
     network: 'loopback-only',

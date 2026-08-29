@@ -5,12 +5,20 @@ import {
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
 import { createMcpLabLoopback } from './loopback-http.js';
+import {
+  createMcpOAuthReferenceEndpoint,
+  createMcpOAuthReferenceHandler,
+  type McpOAuthReferenceEndpoint,
+  type McpOAuthReferenceHandler,
+  type McpOAuthReferenceStateCounts,
+} from './oauth-reference.js';
 import { createReferenceServer } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario, type McpLabScenarioId } from './scenario.js';
 import { McpLabOwnedStdioTransport } from './stdio-transport.js';
 
 export interface McpLabCleanupReport {
   readonly httpListenersClosed: number;
+  readonly oauthRecordsRemaining?: McpOAuthReferenceStateCounts;
   readonly stdioTransportsClosed: number;
   readonly untriggeredFaultIds: readonly string[];
 }
@@ -26,6 +34,10 @@ export interface McpLabLoopbackHttpEndpoint {
   readonly url: URL;
 }
 
+export interface McpLabOAuthReferenceEndpoint extends McpOAuthReferenceEndpoint {
+  stateCounts(): McpOAuthReferenceStateCounts;
+}
+
 export interface McpLabStdioEndpoint {
   readonly args: readonly string[];
   readonly command: string;
@@ -38,7 +50,13 @@ export interface McpLabStdioEndpoint {
 export type McpLabEndpoint =
   | McpLabInProcessHttpEndpoint
   | McpLabLoopbackHttpEndpoint
+  | McpLabOAuthReferenceEndpoint
   | McpLabStdioEndpoint;
+
+export {
+  createMcpOAuthAuthorizationResponseVerifier,
+  type McpOAuthAuthorizationResponseVerifierOptions,
+} from './oauth-reference.js';
 
 export interface McpLabDiagnostic {
   readonly correlationId: string;
@@ -59,6 +77,7 @@ export interface StartMcpLabScenarioOptions {
 }
 
 type McpLabHttpScenarioId = Exclude<McpLabScenarioId, 'stdio-reference'>;
+type McpLabNonOAuthHttpScenarioId = Exclude<McpLabHttpScenarioId, 'oauth-reference'>;
 type ParsedStartOptions = Readonly<Partial<StartMcpLabScenarioOptions>>;
 
 interface CloseResource {
@@ -66,6 +85,25 @@ interface CloseResource {
   closed: boolean;
   readonly counted?: () => boolean;
   readonly kind: 'handler' | 'http-listener' | 'stdio-transport';
+}
+
+function createCleanupReport(
+  resources: readonly CloseResource[],
+  oauthStateCounts?: () => McpOAuthReferenceStateCounts
+): McpLabCleanupReport {
+  return Object.freeze({
+    httpListenersClosed: resources.filter(
+      (resource) => resource.kind === 'http-listener' && resource.closed
+    ).length,
+    ...(oauthStateCounts
+      ? { oauthRecordsRemaining: Object.freeze({ ...oauthStateCounts() }) }
+      : {}),
+    stdioTransportsClosed: resources.filter(
+      (resource) =>
+        resource.kind === 'stdio-transport' && resource.closed && (resource.counted?.() ?? true)
+    ).length,
+    untriggeredFaultIds: Object.freeze([]),
+  });
 }
 
 function parseStartOptions(options: unknown): ParsedStartOptions {
@@ -116,7 +154,8 @@ function createSession(
   scenario: McpLabScenario,
   endpoint: McpLabEndpoint,
   resources: CloseResource[],
-  diagnostics: McpLabDiagnostic[] = []
+  diagnostics: McpLabDiagnostic[] = [],
+  oauthStateCounts?: () => McpOAuthReferenceStateCounts
 ): McpLabSession {
   let closed = false;
   let closePromise: Promise<McpLabCleanupReport> | undefined;
@@ -157,18 +196,7 @@ function createSession(
             : new AggregateError(errors, 'MCP lab cleanup failed');
         }
         closed = resources.every((resource) => resource.closed);
-        return Object.freeze({
-          httpListenersClosed: resources.filter(
-            (resource) => resource.kind === 'http-listener' && resource.closed
-          ).length,
-          stdioTransportsClosed: resources.filter(
-            (resource) =>
-              resource.kind === 'stdio-transport' &&
-              resource.closed &&
-              (resource.counted?.() ?? true)
-          ).length,
-          untriggeredFaultIds: Object.freeze([]),
-        });
+        return createCleanupReport(resources, oauthStateCounts);
       })();
       return closePromise;
     },
@@ -204,25 +232,45 @@ function createInProcessSession(scenario: McpLabScenario): McpLabSession {
 }
 
 async function createLoopbackSession(scenario: McpLabScenario): Promise<McpLabSession> {
-  const handler = createReferenceHandler(scenario);
+  const downstream = createReferenceHandler(scenario);
   let loopback: Awaited<ReturnType<typeof createMcpLabLoopback>>;
+  let oauthHandler: McpOAuthReferenceHandler | undefined;
   try {
-    loopback = await createMcpLabLoopback(handler);
+    loopback = await createMcpLabLoopback(
+      scenario.id === 'oauth-reference'
+        ? (origin) => {
+            oauthHandler = createMcpOAuthReferenceHandler(
+              downstream,
+              createMcpOAuthReferenceEndpoint(origin)
+            );
+            return oauthHandler;
+          }
+        : downstream
+    );
   } catch (startError) {
     try {
-      await handler.close();
+      await downstream.close();
     } catch (cleanupError) {
       throw new AggregateError([startError, cleanupError], 'MCP lab loopback startup failed');
     }
     throw startError;
   }
+  const activeOAuthHandler = oauthHandler;
+  const endpoint: McpLabEndpoint = activeOAuthHandler
+    ? Object.freeze({
+        ...activeOAuthHandler.endpoint,
+        stateCounts: () => activeOAuthHandler.stateCounts(),
+      })
+    : Object.freeze({ kind: 'loopback-http' as const, url: loopback.url });
   return createSession(
     scenario,
-    Object.freeze({ kind: 'loopback-http' as const, url: loopback.url }),
+    endpoint,
     [
       { close: loopback.close, closed: false, kind: 'http-listener' },
-      { close: handler.close, closed: false, kind: 'handler' },
-    ]
+      { close: loopback.handler.close, closed: false, kind: 'handler' },
+    ],
+    [],
+    activeOAuthHandler ? () => activeOAuthHandler.stateCounts() : undefined
   );
 }
 
@@ -263,7 +311,11 @@ export function startMcpLabScenario(
   options?: Readonly<Record<string, never>>
 ): Promise<McpLabSession>;
 export function startMcpLabScenario(
-  id: McpLabHttpScenarioId,
+  id: 'oauth-reference',
+  options: { readonly execution: 'loopback' }
+): Promise<McpLabSession>;
+export function startMcpLabScenario(
+  id: McpLabNonOAuthHttpScenarioId,
   options: StartMcpLabScenarioOptions
 ): Promise<McpLabSession>;
 export async function startMcpLabScenario(
@@ -283,6 +335,9 @@ export async function startMcpLabScenario(
   }
   if (startOptions.execution === undefined) {
     throw new Error('MCP lab HTTP scenario requires explicit execution');
+  }
+  if (scenario.id === 'oauth-reference' && startOptions.execution !== 'loopback') {
+    throw new Error('MCP lab OAuth scenario requires a loopback listener');
   }
   return startOptions.execution === 'in-process'
     ? createInProcessSession(scenario)

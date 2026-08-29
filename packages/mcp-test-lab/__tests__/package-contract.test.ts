@@ -192,11 +192,14 @@ describe('MCP test lab package contract', () => {
       'modern-reference',
       'legacy-reference',
       'stdio-reference',
+      'oauth-reference',
     ]);
     expect(normalizedContract).toContain(
       "`modern-reference` and `legacy-reference` have `availability: 'executable'`"
     );
-    expect(normalizedContract).toContain("`oauth-reference` remains `availability: 'declared'`");
+    expect(normalizedContract).toContain(
+      '`oauth-reference` is executable only over an ephemeral loopback listener'
+    );
     expect(normalizedContract).toContain('private artifact-integrity core reads each unique');
     expect(normalizedContract).toContain('explicit positive byte limit');
     expect(normalizedContract).toContain('sanitizes schema metadata and every extracted artifact');

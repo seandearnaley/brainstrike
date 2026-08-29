@@ -136,7 +136,7 @@ describe('MCP lab scenario manifest', () => {
       ['modern-reference', 'executable'],
       ['legacy-reference', 'executable'],
       ['stdio-reference', 'executable'],
-      ['oauth-reference', 'declared'],
+      ['oauth-reference', 'executable'],
     ]);
   });
 
