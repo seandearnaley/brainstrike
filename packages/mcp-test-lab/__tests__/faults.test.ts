@@ -266,17 +266,30 @@ describe('MCP lab fault plan', () => {
     ).toThrowError('Invalid MCP lab fault "unknown-kind": unknown fault kind');
   });
 
-  it('bounds hostile declaration arrays before indexed traversal', () => {
-    const declarations = new Proxy([], {
-      get(target, property, receiver) {
-        return property === 'length'
-          ? Number.POSITIVE_INFINITY
-          : Reflect.get(target, property, receiver);
-      },
-    });
+  it.each([Number.POSITIVE_INFINITY, -1, 1.5])(
+    'rejects invalid declaration count %s before indexed traversal',
+    (declarationCount) => {
+      const declarations = new Proxy([], {
+        get(target, property, receiver) {
+          return property === 'length' ? declarationCount : Reflect.get(target, property, receiver);
+        },
+      });
 
-    expect(() => createMcpLabFaultPlan(declarations)).toThrowError(
-      'Invalid MCP lab fault declarations: expected at most 1024 entries'
+      expect(() => createMcpLabFaultPlan(declarations)).toThrowError(
+        'Invalid MCP lab fault declarations: expected an integer count from 0 to 1024'
+      );
+    }
+  );
+
+  it.each([
+    [
+      { id: 'missing-fault', match: { method: 'tools/call', occurrence: 1, phase: 'operation' } },
+      'fault',
+    ],
+    [{ fault: { kind: 'drop_response' }, id: 'missing-match' }, 'match'],
+  ])('identifies a missing declaration %s field', (declaration, field) => {
+    expect(() => createMcpLabFaultPlan([declaration] as never)).toThrowError(
+      `Invalid MCP lab fault declaration: missing "${field}" field`
     );
   });
 

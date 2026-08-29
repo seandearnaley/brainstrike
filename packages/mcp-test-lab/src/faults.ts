@@ -187,6 +187,12 @@ function snapshotRecord(value: unknown): Readonly<Record<string, unknown>> {
 
 function snapshotDeclaration(value: unknown): McpLabFaultDeclaration {
   const declaration = snapshotRecord(value);
+  if (!Object.hasOwn(declaration, 'fault')) {
+    throw new Error('Invalid MCP lab fault declaration: missing "fault" field');
+  }
+  if (!Object.hasOwn(declaration, 'match')) {
+    throw new Error('Invalid MCP lab fault declaration: missing "match" field');
+  }
   const untypedFault = declaration['fault'];
   const untypedMatch = declaration['match'];
   const fault = isRecord(untypedFault) ? snapshotRecord(untypedFault) : untypedFault;
@@ -464,7 +470,7 @@ function snapshotDeclarations(value: unknown): readonly McpLabFaultDeclaration[]
     declarationCount > MAX_MCP_LAB_FAULT_DECLARATIONS
   ) {
     throw new Error(
-      `Invalid MCP lab fault declarations: expected at most ${MAX_MCP_LAB_FAULT_DECLARATIONS} entries`
+      `Invalid MCP lab fault declarations: expected an integer count from 0 to ${MAX_MCP_LAB_FAULT_DECLARATIONS}`
     );
   }
   const snapshots: McpLabFaultDeclaration[] = [];
