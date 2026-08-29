@@ -225,4 +225,99 @@ describe('MCP bounded verification runner', () => {
     ).rejects.toThrow(/modern.*2026-07-28/i);
     expect(events).toContain('close:modern-stdio:red');
   });
+
+  it('treats reordered capabilities as the same negotiated set', async () => {
+    const events: string[] = [];
+    const deps = dependencies(events);
+    const createPhaseOwner = deps.createPhaseOwner;
+    const result = await runMcpLabVerification(
+      input('pr', { selection: { caseIds: ['modern-stdio'], profile: 'pr' } }),
+      {
+        ...deps,
+        createPhaseOwner(runnerCase, phase) {
+          const owner = createPhaseOwner(runnerCase, phase);
+          return {
+            close: owner.close,
+            async run(signal) {
+              return {
+                ...(await owner.run(signal)),
+                capabilities: phase === 'green' ? ['resources', 'tools'] : ['tools', 'resources'],
+              };
+            },
+          };
+        },
+      },
+      { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+    );
+
+    expect(result).toHaveLength(1);
+  });
+
+  it('caps cleanup at the remaining whole-run budget', async () => {
+    let now = 0;
+    const failure = runMcpLabVerification(
+      input('pr', {
+        selection: {
+          caseIds: ['modern-stdio'],
+          caseTimeoutMs: 100,
+          profile: 'pr',
+          runTimeoutMs: 100,
+        },
+      }),
+      {
+        createPhaseOwner(runnerCase, phase) {
+          return {
+            async close() {
+              await new Promise(() => undefined);
+              return { details: 'unreachable', verified: true };
+            },
+            async run() {
+              now = 90;
+              return observation(runnerCase, phase);
+            },
+          };
+        },
+        now: () => now,
+      },
+      { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+    );
+
+    await expect(failure).rejects.toThrow(/modern-stdio.*red.*cleanup.*10 ms/i);
+  });
+
+  it('checks the whole-run deadline again before emitting final evidence', async () => {
+    let now = 0;
+    await expect(
+      runMcpLabVerification(
+        input('pr', {
+          selection: {
+            caseIds: ['modern-stdio'],
+            caseTimeoutMs: 100,
+            profile: 'pr',
+            runTimeoutMs: 100,
+          },
+        }),
+        {
+          createPhaseOwner(runnerCase, phase) {
+            return {
+              async close() {
+                if (phase === 'verification') {
+                  now = 100;
+                }
+                return { details: 'closed', verified: true };
+              },
+              async run() {
+                if (phase === 'verification') {
+                  now = 99;
+                }
+                return observation(runnerCase, phase);
+              },
+            };
+          },
+          now: () => now,
+        },
+        { maxArtifactBytes: 1024, readArtifactContent: () => new Uint8Array() }
+      )
+    ).rejects.toThrow(/modern-stdio.*evidence.*100 ms/i);
+  });
 });

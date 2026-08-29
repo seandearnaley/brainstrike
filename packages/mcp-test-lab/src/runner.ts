@@ -91,6 +91,7 @@ async function runPhase(
   runnerCase: McpLabRunnerCase,
   phase: McpLabRunnerPhase,
   timeoutMs: number,
+  remainingRunMs: () => number,
   dependencies: McpLabRunnerDependencies
 ): Promise<CompletedPhase> {
   const owner = dependencies.createPhaseOwner(runnerCase, phase);
@@ -110,10 +111,11 @@ async function runPhase(
   let cleanupDetails: string | undefined;
   let cleanupError: Error | undefined;
   try {
+    const cleanupTimeoutMs = Math.ceil(Math.min(timeoutMs, remainingRunMs()));
     cleanupDetails = validateCleanup(
       await deadlinePromise(
         Promise.resolve().then(() => owner.close()),
-        timeoutMs,
+        cleanupTimeoutMs,
         `${runnerCase.id}/${phase}/cleanup`
       )
     );
@@ -138,8 +140,13 @@ async function runPhase(
   return Object.freeze({ cleanupDetails, observation, phase });
 }
 
-function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+function capabilitySetsEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 function assertCanonicalObservation(
@@ -160,7 +167,7 @@ function assertCanonicalObservation(
         `MCP lab runner case "${runnerCase.id}" expected ${scenario.protocol.era} ${scenario.protocol.version} negotiation`
       );
     }
-    if (!arraysEqual(observation.capabilities, first.capabilities)) {
+    if (!capabilitySetsEqual(observation.capabilities, first.capabilities)) {
       throw new Error(`MCP lab runner case "${runnerCase.id}" changed capabilities between phases`);
     }
   }
@@ -240,8 +247,11 @@ export async function runMcpLabVerification(
     for (const phase of MCP_LAB_RUNNER_PHASES) {
       runDeadline.assertActive(`${runnerCase.id}/${phase}`);
       const timeoutMs = Math.ceil(Math.min(selection.caseTimeoutMs, runDeadline.remainingMs()));
-      completed.push(await runPhase(runnerCase, phase, timeoutMs, dependencies));
+      completed.push(
+        await runPhase(runnerCase, phase, timeoutMs, runDeadline.remainingMs, dependencies)
+      );
     }
+    runDeadline.assertActive(`${runnerCase.id}/evidence`);
     bundles.push(await buildEvidence(runnerCase, completed, input, integrity));
   }
   return Object.freeze(bundles);
