@@ -11,6 +11,7 @@ describe('worker-error-recovery', () => {
     it.each([
       'accurate token counting unavailable: encoder missing',
       ' Error: TIKTOKEN encoder failed to initialize ',
+      '  Error: Accurate token counting unavailable: encoder missing  ',
     ])('classifies terminal tokenizer failures: %s', (message) => {
       expect(isTerminalTokenizerError(message)).toBe(true);
     });

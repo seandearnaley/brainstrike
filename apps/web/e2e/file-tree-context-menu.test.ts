@@ -3,7 +3,8 @@ import type { FileExplorerPage } from './page-objects/file-explorer-page';
 import { bootstrapFileExplorer } from './utils/file-explorer-setup';
 import type { FileTree } from './utils/mock-fs';
 
-// DEFAULT_STATE's include filters are opt-in; see
+// Extensions here are arbitrary: DEFAULT_STATE.includeFilters is empty (include
+// filters are opt-in), so nothing in this fixture is filtered out. See
 // packages/types/src/file-explorer-state-types.ts.
 const tree: FileTree = {
   docs: {
