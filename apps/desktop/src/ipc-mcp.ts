@@ -35,7 +35,7 @@ const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
 export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
 
-interface McpConfigStatus {
+export interface McpConfigStatus {
   error?: string;
   exists: boolean;
   loadedAt?: number;
@@ -59,7 +59,7 @@ function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
   if (config.loadedAt !== undefined) {
     status.loadedAt = config.loadedAt;
   }
-  if (config.migrations !== undefined) {
+  if (config.migrations && config.migrations.length > 0) {
     status.migrations = config.migrations;
   }
   const servers = config.servers ?? config.config?.servers;

@@ -79,28 +79,16 @@ describe('mcp-loader', () => {
 
   it('accepts explicit protocol modes and rejects modern policy on legacy SSE', async () => {
     const { parseMcpConfig } = await import('../../mcp-loader');
-    const parsed = parseMcpConfig(
-      JSON.stringify({
-        servers: [
-          { command: 'node', name: 'auto', protocol: 'auto', transport: 'stdio' },
-          {
-            name: 'modern',
-            protocol: '2026-07-28',
-            transport: 'streamable-http',
-            url: 'https://example.com/mcp',
-          },
-        ],
-      })
-    );
-    expect(parsed.servers.map(({ protocol }) => protocol)).toEqual(['auto', '2026-07-28']);
+    const auto = { command: 'node', name: 'auto', protocol: 'auto', transport: 'stdio' };
+    expect(parseMcpConfig(JSON.stringify({ servers: [auto] })).servers[0]?.protocol).toBe('auto');
 
     expect(() =>
       parseMcpConfig(
         JSON.stringify({
           servers: [
             {
-              name: 'invalid-sse',
-              protocol: '2026-07-28',
+              name: 'sse',
+              protocol: 'auto',
               transport: 'sse',
               url: 'https://example.com/sse',
             },

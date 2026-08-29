@@ -1,3 +1,4 @@
+import { toMcpVersionNegotiation } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -70,7 +71,10 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
     connectPromise = (async () => {
       const client = new Client(
         { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
-        { capabilities: {} }
+        {
+          capabilities: {},
+          versionNegotiation: toMcpVersionNegotiation(server.protocol ?? 'legacy'),
+        }
       );
       const transportOptions = {
         command: server.command,

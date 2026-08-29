@@ -7,6 +7,7 @@ type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffP
 type Changeset = import('@brainstrike/types').Changeset;
 type WorktreeAdoptParams = import('@brainstrike/types').WorktreeAdoptParams;
 type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
+type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -835,25 +836,8 @@ contextBridge.exposeInMainWorld('mcp', {
   getToolStats: () => ipcRenderer.invoke(MCP_TOOLS_GET_STATS_CHANNEL),
   // Tool management
   listTools: () => ipcRenderer.invoke(MCP_TOOLS_LIST_CHANNEL),
-  onConfigUpdated: (
-    callback: (config: {
-      error?: string;
-      exists: boolean;
-      loadedAt?: number;
-      path: string;
-      servers?: Array<{ name: string; transport: 'sse' | 'stdio' | 'streamable-http' }>;
-    }) => void
-  ) => {
-    const listener = (
-      _event: unknown,
-      config: {
-        error?: string;
-        exists: boolean;
-        loadedAt?: number;
-        path: string;
-        servers?: Array<{ name: string; transport: 'sse' | 'stdio' | 'streamable-http' }>;
-      }
-    ) => callback(config);
+  onConfigUpdated: (callback: (config: McpConfigStatus) => void) => {
+    const listener = (_event: unknown, config: McpConfigStatus) => callback(config);
     ipcRenderer.on(MCP_CONFIG_UPDATED_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(MCP_CONFIG_UPDATED_EVENT, listener);

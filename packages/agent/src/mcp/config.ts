@@ -2,10 +2,18 @@ import { z } from 'zod';
 
 export const McpTransportEnum = z.enum(['stdio', 'streamable-http', 'sse']);
 export const McpProtocolEnum = z.enum(['legacy', 'auto', '2026-07-28']);
+export type McpProtocol = z.infer<typeof McpProtocolEnum>;
+export function toMcpVersionNegotiation(protocol: McpProtocol): {
+  mode: 'auto' | 'legacy' | { pin: '2026-07-28' };
+} {
+  if (protocol === '2026-07-28') {
+    return { mode: { pin: protocol } };
+  }
+  return { mode: protocol };
+}
 
 const ProtocolPolicySchema = {
   protocol: McpProtocolEnum.optional(),
-  protocolSource: z.never().optional(),
 };
 
 const StdioSchema = z.object({
@@ -71,13 +79,18 @@ const McpConfigInputSchema = z
   });
 
 export const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
-  servers: config.servers.map((server) => McpServerSchema.parse(server)),
+  servers: config.servers.map((server) => ({
+    ...server,
+    protocol: server.protocol ?? ('legacy' as const),
+  })),
 }));
 
-export type McpServer = z.input<typeof McpServerSchema>;
-export type ResolvedMcpServer = z.output<typeof McpServerSchema>;
-export type McpConfig = z.input<typeof McpConfigSchema>;
-export type ResolvedMcpConfig = z.output<typeof McpConfigSchema>;
+export type McpServerInput = z.input<typeof McpServerSchema>;
+export type McpServer = z.output<typeof McpServerSchema>;
+export type ResolvedMcpServer = McpServer;
+export type McpConfigInput = z.input<typeof McpConfigSchema>;
+export type McpConfig = z.output<typeof McpConfigSchema>;
+export type ResolvedMcpConfig = McpConfig;
 export interface McpProtocolMigration {
   code: 'mcp_protocol_defaulted_to_legacy';
   serverIndex: number;

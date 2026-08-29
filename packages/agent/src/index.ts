@@ -281,8 +281,11 @@ export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type {
   McpConfig,
+  McpConfigInput,
+  McpProtocol,
   McpProtocolMigration,
   McpServer,
+  McpServerInput,
   ResolvedMcpConfig,
   ResolvedMcpServer,
 } from './mcp/config';
@@ -293,6 +296,7 @@ export {
   McpTransportEnum,
   parseMcpConfig,
   parseMcpConfigWithMigrations,
+  toMcpVersionNegotiation,
 } from './mcp/config';
 export {
   createDefaultToolPreferences,

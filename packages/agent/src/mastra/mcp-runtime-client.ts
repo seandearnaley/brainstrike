@@ -3,7 +3,7 @@ import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
 import { fromJSONSchema } from 'zod';
-import { type McpConfig, McpConfigSchema, type McpServer } from '../mcp/config';
+import { type McpConfigInput, McpConfigSchema, type McpServer } from '../mcp/config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
@@ -47,7 +47,7 @@ export interface McpRuntimeClientDependencies {
 }
 
 export interface CreateMcpRuntimeClientOptions {
-  config: McpConfig | undefined;
+  config: McpConfigInput | undefined;
   dependencies?: McpRuntimeClientDependencies;
 }
 
@@ -88,6 +88,7 @@ export async function createMcpRuntimeClient(
       const clientOptions: ExplicitStdioMcpClientOptions = {
         command: server.command,
         name: server.name,
+        protocol: server.protocol,
         ...(server.args ? { args: server.args } : {}),
         ...(server.env ? { env: server.env } : {}),
       };
@@ -98,6 +99,7 @@ export async function createMcpRuntimeClient(
     }
     const clientOptions: ExplicitHttpMcpClientOptions = {
       name: server.name,
+      protocol: server.protocol,
       transport: server.transport,
       url: server.url,
       ...(server.headers ? { headers: server.headers } : {}),

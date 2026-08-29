@@ -86,6 +86,7 @@ describe('stdio client', () => {
       args: ['/root'],
       command: 'node',
       name: 'filesystem',
+      protocol: 'auto',
       transport: 'stdio',
     });
 
@@ -100,6 +101,10 @@ describe('stdio client', () => {
       },
     });
     expect(clientConnectMock).toHaveBeenCalledTimes(1);
+    expect(clientCtorMock).toHaveBeenCalledWith(expect.anything(), {
+      capabilities: {},
+      versionNegotiation: { mode: 'auto' },
+    });
     expect(clientListToolsMock).toHaveBeenCalledTimes(1);
   });
 

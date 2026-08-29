@@ -10,6 +10,7 @@ export function createHttpClient(server: HttpMcpServer): McpClient {
     ...(server.headers ? { headers: server.headers } : {}),
     clientInfo: { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
     name: server.name,
+    protocol: server.protocol ?? 'legacy',
     transport: server.transport,
     url: server.url,
   });

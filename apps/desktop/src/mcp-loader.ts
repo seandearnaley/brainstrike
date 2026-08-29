@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { McpProtocolEnum, type McpProtocolMigration } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
 import { app, safeStorage } from 'electron';
 import {
@@ -91,9 +92,8 @@ const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
     }
   }
 });
-const McpProtocolSchema = z.enum(['legacy', 'auto', '2026-07-28']);
 const ProtocolPolicySchema = {
-  protocol: McpProtocolSchema.optional(),
+  protocol: McpProtocolEnum.optional(),
 };
 
 const StdioServerSchema = z.strictObject({
@@ -156,19 +156,16 @@ const McpConfigInputSchema = z
     }
   });
 const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
-  servers: config.servers.map((server) => McpServerSchema.parse(server)),
+  servers: config.servers.map((server) => ({
+    ...server,
+    protocol: server.protocol ?? ('legacy' as const),
+  })),
 }));
 
 export type McpServer = z.input<typeof McpServerSchema>;
 export type ResolvedMcpServer = z.output<typeof McpServerSchema>;
 export type McpConfig = z.input<typeof McpConfigSchema>;
 export type ResolvedMcpConfig = z.output<typeof McpConfigSchema>;
-export interface McpProtocolMigration {
-  code: 'mcp_protocol_defaulted_to_legacy';
-  serverIndex: number;
-  serverName: string;
-}
-
 const logger = createLogger('DesktopMcpLoader');
 
 const DEFAULT_MCP_CONFIG_TEMPLATE = `{
