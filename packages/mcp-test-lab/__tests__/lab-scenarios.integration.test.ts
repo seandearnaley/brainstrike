@@ -202,4 +202,74 @@ describe('MCP lab advertised scenarios', () => {
 
     expect(lab.closed).toBe(true);
   });
+
+  it('rejects PKCE verifiers outside the RFC 7636 grammar', async () => {
+    const lab = await startMcpLabScenario('oauth-reference');
+    if (lab.endpoint.kind !== 'oauth-loopback-http') {
+      throw new Error(`Expected OAuth loopback endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    try {
+      const redirectUri = 'http://127.0.0.1:54321/callback';
+      const registrationResponse = await fetch(lab.endpoint.registrationUrl, {
+        body: JSON.stringify({
+          application_type: 'native',
+          client_name: 'Brainstrike Invalid PKCE Test',
+          redirect_uris: [redirectUri],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      const registration = expectRecord(await registrationResponse.json(), 'registration');
+      const clientId = expectString(registration['client_id'], 'client_id');
+      const invalidChallengeUrl = new URL(lab.endpoint.authorizationUrl);
+      invalidChallengeUrl.search = new URLSearchParams({
+        client_id: clientId,
+        code_challenge: 'x',
+        code_challenge_method: 'S256',
+        redirect_uri: redirectUri,
+        resource: lab.endpoint.url.href,
+        response_type: 'code',
+        state: 'invalid-challenge-state',
+      }).toString();
+      const invalidChallengeResponse = await fetch(invalidChallengeUrl, { redirect: 'manual' });
+      expect(invalidChallengeResponse.status).toBe(400);
+      expect(await invalidChallengeResponse.json()).toMatchObject({ error: 'invalid_request' });
+
+      for (const [index, verifier] of ['x', 'a'.repeat(129), `${'a'.repeat(42)}%`].entries()) {
+        const authorizeUrl = new URL(lab.endpoint.authorizationUrl);
+        authorizeUrl.search = new URLSearchParams({
+          client_id: clientId,
+          code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          resource: lab.endpoint.url.href,
+          response_type: 'code',
+          state: `invalid-verifier-state-${index}`,
+        }).toString();
+        const authorizationResponse = await fetch(authorizeUrl, { redirect: 'manual' });
+        const callback = new URL(
+          expectString(authorizationResponse.headers.get('location'), 'location')
+        );
+
+        const tokenResponse = await fetch(lab.endpoint.tokenUrl, {
+          body: new URLSearchParams({
+            client_id: clientId,
+            code: expectString(callback.searchParams.get('code'), 'authorization code'),
+            code_verifier: verifier,
+            grant_type: 'authorization_code',
+            redirect_uri: redirectUri,
+            resource: lab.endpoint.url.href,
+          }),
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          method: 'POST',
+        });
+
+        expect(tokenResponse.status).toBe(400);
+        expect(await tokenResponse.json()).toMatchObject({ error: 'invalid_grant' });
+      }
+    } finally {
+      await lab.close();
+    }
+  });
 });

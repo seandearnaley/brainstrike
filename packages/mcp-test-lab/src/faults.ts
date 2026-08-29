@@ -160,6 +160,23 @@ export interface McpLabFaultPlan {
   untriggeredIds(): readonly string[];
 }
 
+const CREATED_MCP_LAB_FAULT_PLANS = new WeakSet<object>();
+const MCP_LAB_CORRELATION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/u;
+
+export function isMcpLabFaultPlan(value: unknown): value is McpLabFaultPlan {
+  return typeof value === 'object' && value !== null && CREATED_MCP_LAB_FAULT_PLANS.has(value);
+}
+
+export function isMcpLabCorrelationId(value: unknown): value is string {
+  return typeof value === 'string' && MCP_LAB_CORRELATION_ID_PATTERN.test(value);
+}
+
+function assertMcpLabCorrelationId(value: unknown): asserts value is string {
+  if (!isMcpLabCorrelationId(value)) {
+    throw new Error('Invalid MCP lab correlation id');
+  }
+}
+
 function matchKey(match: McpLabFaultMatch): string {
   return `${match.phase}\u0000${match.method}\u0000${match.occurrence}`;
 }
@@ -419,6 +436,9 @@ function assertDeclarationShape(declaration: McpLabFaultDeclaration): void {
   if (typeof untypedId !== 'string' || untypedId.trim().length === 0) {
     throw new Error('Invalid MCP lab fault id: expected a non-empty string');
   }
+  if (untypedId.length > 128 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(untypedId)) {
+    throw new Error('Invalid MCP lab fault id: expected a lowercase identifier');
+  }
   if (!hasOnlyKeys(untypedDeclaration, ['fault', 'id', 'match'])) {
     throw new Error(
       `Invalid MCP lab fault "${untypedId}": declaration must contain only "fault", "id", and "match"`
@@ -548,8 +568,8 @@ export function createMcpLabFaultPlan(
     return Object.freeze([...remaining.values()].map((declaration) => declaration.id).sort());
   }
 
-  return {
-    assertCompatibleWithTransport(transport) {
+  const plan: McpLabFaultPlan = Object.freeze({
+    assertCompatibleWithTransport(transport: McpLabTransportKind) {
       const incompatible = immutableDeclarations.find(
         (declaration) => !faultSupportsTransport(declaration, transport)
       );
@@ -566,7 +586,8 @@ export function createMcpLabFaultPlan(
       }
       throw new Error(`Untriggered MCP lab faults: ${untriggeredIds().join(', ')}`);
     },
-    consume(consumption) {
+    consume(consumption: McpLabFaultConsumption) {
+      assertMcpLabCorrelationId(consumption.correlationId);
       const key = matchKey(consumption);
       const declaration = remaining.get(key);
       if (!declaration) {
@@ -582,7 +603,8 @@ export function createMcpLabFaultPlan(
       }
       return consumeDeclaration(consumption, declaration);
     },
-    consumeIfConfigured(consumption) {
+    consumeIfConfigured(consumption: McpLabFaultConsumption) {
+      assertMcpLabCorrelationId(consumption.correlationId);
       const key = matchKey(consumption);
       const declaration = remaining.get(key);
       if (declaration) {
@@ -596,12 +618,14 @@ export function createMcpLabFaultPlan(
       }
       return;
     },
-    hasRemainingPhase(phase) {
+    hasRemainingPhase(phase: McpLabProtocolPhase) {
       return [...remaining.values()].some((declaration) => declaration.match.phase === phase);
     },
     observations() {
       return Object.freeze(observations.slice());
     },
     untriggeredIds,
-  };
+  });
+  CREATED_MCP_LAB_FAULT_PLANS.add(plan);
+  return plan;
 }

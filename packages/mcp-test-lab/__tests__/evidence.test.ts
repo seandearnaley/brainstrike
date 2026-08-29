@@ -524,6 +524,17 @@ describe('parseMcpEvidenceBundle', () => {
     };
 
     expect(() => parseEvidence(unrelatedGreen)).toThrowError(/GREEN.*matching RED|proof/i);
+
+    const sameProofIdDifferentCommand = {
+      ...VALID_BUNDLE,
+      commands: [
+        { ...VALID_BUNDLE.commands[0], command: 'pnpm vitest run -t focused-behavior' },
+        { ...VALID_BUNDLE.commands[1], command: 'true' },
+      ],
+    };
+    expect(() => parseEvidence(sameProofIdDifferentCommand)).toThrowError(
+      /GREEN.*same command.*RED/i
+    );
   });
 
   it('requires observed protocol identity, unique capabilities, and correlation IDs', () => {
@@ -769,6 +780,42 @@ describe('parseMcpEvidenceBundle', () => {
     } catch (error: unknown) {
       expect(String(error)).not.toContain(credential);
     }
+  });
+
+  it('detects escaped JSON credentials embedded in prefixed log lines', () => {
+    const bytes = new TextEncoder().encode(
+      'INFO meta={"safe":true} body={\\"access_token\\":\\"opaque-secret\\"}'
+    );
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
+  it('fails closed when a prefixed line exceeds the embedded JSON scan bound', () => {
+    const bytes = new TextEncoder().encode(`INFO ${'{'.repeat(65)}`);
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/embedded JSON candidate count exceeds.*limit/i);
   });
 
   it('does not expose artifact reader errors that may contain credential material', () => {

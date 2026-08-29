@@ -385,6 +385,64 @@ describe('MCP lab fault and cleanup lifecycle', () => {
     await expect(lab.close()).resolves.toMatchObject({ untriggeredFaultIds: [] });
   });
 
+  it('rejects an mcp-method header instead of consuming a body-mismatched fault', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 418 },
+        id: 'tools-call-only',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const lab = await startMcpLabScenario('modern-reference', {
+      execution: 'in-process',
+      faultPlan,
+    });
+    if (lab.endpoint.kind !== 'in-process-http') {
+      throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    await expect(
+      lab.endpoint.fetch(lab.endpoint.url, {
+        body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'ping' }),
+        headers: { 'content-type': 'application/json', 'mcp-method': 'tools/call' },
+        method: 'POST',
+      })
+    ).rejects.toThrow(/mcp-method.*match.*JSON-RPC body/i);
+    expect(faultPlan.untriggeredIds()).toEqual(['tools-call-only']);
+    await expect(lab.close()).resolves.toMatchObject({
+      untriggeredFaultIds: ['tools-call-only'],
+    });
+  });
+
+  it('rejects unsafe caller correlation ids before they reach diagnostics or faults', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'safe-fault-id',
+        match: { method: 'http/request', occurrence: 1, phase: 'transport' },
+      },
+    ]);
+    const lab = await startMcpLabScenario('modern-reference', {
+      execution: 'in-process',
+      faultPlan,
+    });
+    if (lab.endpoint.kind !== 'in-process-http') {
+      throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
+    }
+    const credential = 'Authorization: Bearer opaque-secret';
+
+    await expect(
+      lab.endpoint.fetch(lab.endpoint.url, {
+        headers: { 'x-mcp-lab-correlation-id': credential },
+      })
+    ).rejects.toThrow(/correlation id/i);
+    expect(JSON.stringify(lab.diagnostics())).not.toContain(credential);
+    expect(faultPlan.untriggeredIds()).toEqual(['safe-fault-id']);
+    await expect(lab.close()).resolves.toMatchObject({
+      untriggeredFaultIds: ['safe-fault-id'],
+    });
+  });
+
   it('drops the socket when a response fault reaches the outer loopback boundary', async () => {
     const faultPlan = createMcpLabFaultPlan([
       {

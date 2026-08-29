@@ -172,6 +172,7 @@ const NAMESPACED_CREDENTIAL_KEY_SUFFIXES = CREDENTIAL_KEY_SUFFIXES.filter(
   (key) => !(AMBIGUOUS_CREDENTIAL_KEYS as readonly string[]).includes(key)
 );
 const MAX_SERIALIZED_JSON_SCAN_DEPTH = 4;
+const MAX_EMBEDDED_JSON_CANDIDATES_PER_LINE = 64;
 const AMBIGUOUS_ASSIGNMENT_KEYS = AMBIGUOUS_CREDENTIAL_KEYS.map((key) =>
   key.replaceAll('_', '[_ .-]')
 );
@@ -501,7 +502,7 @@ function assertProofOrder(commands: readonly McpEvidenceCommand[]): void {
     invalid('$.commands', 'RED proof must be first');
   }
 
-  const pendingRed = new Set<string>();
+  const pendingRed = new Map<string, string>();
   const completedGreen = new Set<string>();
   for (const [index, command] of commands.entries()) {
     validateProofCommand(command, index, pendingRed, completedGreen);
@@ -518,7 +519,7 @@ function assertProofOrder(commands: readonly McpEvidenceCommand[]): void {
 function validateProofCommand(
   command: McpEvidenceCommand,
   index: number,
-  pendingRed: Set<string>,
+  pendingRed: Map<string, string>,
   completedGreen: Set<string>
 ): void {
   const path = `$.commands[${index}]`;
@@ -527,14 +528,19 @@ function validateProofCommand(
     if (pendingRed.has(command.proofId) || completedGreen.has(command.proofId)) {
       invalid(`${path}.proofId`, 'RED proof id must be unique');
     }
-    pendingRed.add(command.proofId);
+    pendingRed.set(command.proofId, command.command);
     return;
   }
   if (command.phase === 'green') {
     validateGreenProof(command, path);
-    if (!pendingRed.delete(command.proofId)) {
+    const redCommand = pendingRed.get(command.proofId);
+    if (redCommand === undefined) {
       invalid(`${path}.proofId`, 'GREEN proof requires a matching prior RED proof');
     }
+    if (command.command !== redCommand) {
+      invalid(`${path}.command`, 'GREEN proof must run the same command as its matching RED proof');
+    }
+    pendingRed.delete(command.proofId);
     completedGreen.add(command.proofId);
     return;
   }
@@ -707,30 +713,57 @@ function assertSanitizedArtifactBytes(
   assertSanitizedParsedJson(text, path);
 }
 
+function parseJsonCandidate(candidate: string): { readonly value: unknown } | undefined {
+  try {
+    return { value: JSON.parse(candidate) as unknown };
+  } catch {
+    // A prefixed log may carry a JSON value whose quotes remain escaped.
+  }
+  try {
+    const decoded: unknown = JSON.parse(`"${candidate}"`);
+    if (typeof decoded === 'string') {
+      return { value: JSON.parse(decoded) as unknown };
+    }
+  } catch {
+    return;
+  }
+  return;
+}
+
 function assertSanitizedParsedJson(text: string, path: string): void {
   const trimmed = text.trim();
   if (trimmed.length === 0) {
     return;
   }
-  try {
-    assertSanitizedText(JSON.parse(trimmed) as unknown, path, true);
+  const parsedDocument = parseJsonCandidate(trimmed);
+  if (parsedDocument) {
+    assertSanitizedText(parsedDocument.value, path, true);
     return;
-  } catch (error) {
-    if (error instanceof McpEvidenceValidationError) {
-      throw error;
-    }
   }
 
   for (const [index, line] of text.split(/\r?\n/u).entries()) {
-    const candidate = line.trim();
-    if (!(candidate.startsWith('{') || candidate.startsWith('['))) {
-      continue;
+    const starts: number[] = [];
+    for (let start = 0; start < line.length; start += 1) {
+      const character = line[start];
+      if (character !== '{' && character !== '[') {
+        continue;
+      }
+      if (starts.length >= MAX_EMBEDDED_JSON_CANDIDATES_PER_LINE) {
+        invalid(
+          `${path}.embeddedJson[${index}]`,
+          'embedded JSON candidate count exceeds the evidence scan limit'
+        );
+      }
+      starts.push(start);
     }
-    try {
-      assertSanitizedText(JSON.parse(candidate) as unknown, `${path}.ndjson[${index}]`, true);
-    } catch (error) {
-      if (error instanceof McpEvidenceValidationError) {
-        throw error;
+    for (const [candidateIndex, start] of starts.entries()) {
+      const parsedCandidate = parseJsonCandidate(line.slice(start).trim());
+      if (parsedCandidate) {
+        assertSanitizedText(
+          parsedCandidate.value,
+          `${path}.embeddedJson[${index}][${candidateIndex}]`,
+          true
+        );
       }
     }
   }

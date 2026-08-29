@@ -10,6 +10,28 @@ describe('MCP lab modern reference', () => {
     ['false execution', { execution: false }],
     ['unknown option', { unexpected: true }],
     ['null fault plan', { faultPlan: null }],
+    [
+      'fabricated fault plan',
+      {
+        faultPlan: {
+          assertCompatibleWithTransport() {},
+          assertFullyConsumed() {},
+          consume() {
+            throw new Error('impostor consume');
+          },
+          consumeIfConfigured() {},
+          hasRemainingPhase() {
+            return false;
+          },
+          observations() {
+            return [];
+          },
+          untriggeredIds() {
+            return [];
+          },
+        },
+      },
+    ],
     ['null options', null],
   ])('rejects %s before dispatching a scenario', async (_label, options) => {
     let lab: Awaited<ReturnType<typeof startMcpLabScenario>> | undefined;

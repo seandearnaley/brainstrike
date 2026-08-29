@@ -18,6 +18,25 @@ describe('MCP lab fault plan', () => {
     ).toThrowError(/fault id.*non-empty string/i);
   });
 
+  it.each(['Authorization: Bearer opaque-secret', 'a'.repeat(129)])(
+    'rejects unsafe or oversized fault ids without echoing their contents',
+    (invalidId) => {
+      try {
+        createMcpLabFaultPlan([
+          {
+            fault: { kind: 'drop_response' },
+            id: invalidId,
+            match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+          },
+        ]);
+        throw new Error('expected the unsafe fault id to be rejected');
+      } catch (error: unknown) {
+        expect(String(error)).toMatch(/fault id.*lowercase identifier/i);
+        expect(String(error)).not.toContain(invalidId);
+      }
+    }
+  );
+
   it.each([
     {
       extra: true,
@@ -307,7 +326,7 @@ describe('MCP lab fault plan', () => {
       },
     ] as const satisfies readonly McpLabFaultDeclaration[];
     const consumptions: readonly McpLabFaultConsumption[] = declarations.map(
-      ({ match }, index) => ({ ...match, correlationId: `corr-${index + 1}` })
+      ({ match }, index) => ({ ...match, correlationId: `correlation-${index + 1}` })
     );
     const plan = createMcpLabFaultPlan(declarations);
 
@@ -333,12 +352,12 @@ describe('MCP lab fault plan', () => {
       createMcpLabFaultPlan([
         {
           fault: { kind: 'http_status', status },
-          id: `status-${status}`,
+          id: 'invalid-status',
           match: { method: 'http/response', occurrence: 1, phase: 'transport' },
         },
       ])
     ).toThrowError(
-      `Invalid MCP lab fault "status-${status}": HTTP status must be an integer from 400 to 599`
+      'Invalid MCP lab fault "invalid-status": HTTP status must be an integer from 400 to 599'
     );
   });
 
@@ -347,12 +366,12 @@ describe('MCP lab fault plan', () => {
       createMcpLabFaultPlan([
         {
           fault: { delayMs, kind: 'delay' },
-          id: `delay-${delayMs}`,
+          id: 'invalid-delay',
           match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
         },
       ])
     ).toThrowError(
-      `Invalid MCP lab fault "delay-${delayMs}": delay must be an integer from 1 to 60000 ms`
+      'Invalid MCP lab fault "invalid-delay": delay must be an integer from 1 to 60000 ms'
     );
   });
 
@@ -363,12 +382,12 @@ describe('MCP lab fault plan', () => {
         createMcpLabFaultPlan([
           {
             fault: { kind: 'drop_response' },
-            id: `occurrence-${occurrence}`,
+            id: 'invalid-occurrence',
             match: { method: 'tools/call', occurrence, phase: 'operation' },
           },
         ])
       ).toThrowError(
-        `Invalid MCP lab fault "occurrence-${occurrence}": occurrence must be a positive safe integer`
+        'Invalid MCP lab fault "invalid-occurrence": occurrence must be a positive safe integer'
       );
     }
   );
@@ -457,6 +476,8 @@ describe('MCP lab fault plan', () => {
       match: { method: 'tools/call' as const, occurrence: 1, phase: 'operation' as const },
     };
     const plan = createMcpLabFaultPlan([declaration]);
+    expect(Object.isFrozen(plan)).toBe(true);
+    expect(Reflect.set(plan, 'consume', () => undefined)).toBe(false);
     declaration.fault.delayMs = 30;
 
     const consumed = plan.consume({
@@ -477,6 +498,28 @@ describe('MCP lab fault plan', () => {
     expect(JSON.stringify(observations)).toBe(
       '[{"correlationId":"corr-safe","faultId":"immutable-delay","faultKind":"delay","method":"tools/call","occurrence":1,"phase":"operation"}]'
     );
+  });
+
+  it('rejects unsafe correlation ids before consuming or recording a fault', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'safe-correlation-only',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const credential = 'Authorization: Bearer opaque-secret';
+
+    expect(() =>
+      plan.consume({
+        correlationId: credential,
+        method: 'tools/call',
+        occurrence: 1,
+        phase: 'operation',
+      })
+    ).toThrowError(/correlation id/i);
+    expect(JSON.stringify(plan.observations())).not.toContain(credential);
+    expect(plan.untriggeredIds()).toEqual(['safe-correlation-only']);
   });
 
   it('rejects duplicate fault ids and duplicate match coordinates', () => {

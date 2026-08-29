@@ -1,4 +1,4 @@
-import type { McpLabFaultPlan } from './faults.js';
+import { isMcpLabFaultPlan, type McpLabFaultPlan } from './faults.js';
 
 export interface StartMcpLabScenarioOptions {
   readonly execution?: 'in-process' | 'loopback';
@@ -27,19 +27,7 @@ export function assertStartOptions(
   if (faultPlan === undefined) {
     return;
   }
-  const requiredMethods = [
-    'assertCompatibleWithTransport',
-    'assertFullyConsumed',
-    'consume',
-    'consumeIfConfigured',
-    'hasRemainingPhase',
-    'observations',
-    'untriggeredIds',
-  ] as const;
-  if (
-    !isRecord(faultPlan) ||
-    requiredMethods.some((method) => typeof faultPlan[method] !== 'function')
-  ) {
+  if (!isMcpLabFaultPlan(faultPlan)) {
     throw new Error(
       'Invalid MCP lab start options: faultPlan must be created by createMcpLabFaultPlan'
     );

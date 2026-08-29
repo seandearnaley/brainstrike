@@ -27,6 +27,12 @@ import type {
 } from './faults.js';
 import { protocolPhaseForMethod } from './faults.js';
 import {
+  correlationIdForRequest,
+  HTTP_PROTOCOL_COORDINATE_PHASES,
+  oauthFaultMethod,
+  protocolCoordinate,
+} from './http-coordinates.js';
+import {
   closeLoopbackServer,
   listenLoopback,
   toCorrelatedNodeRequest,
@@ -99,11 +105,7 @@ interface AppliedFault {
   readonly id: string;
 }
 
-const HTTP_PROTOCOL_COORDINATE_PHASES = [
-  'initialization',
-  'operation',
-  'subscription',
-] as const satisfies readonly McpLabProtocolPhase[];
+const PKCE_VALUE_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/u;
 
 interface CloseResource {
   close: () => Promise<void>;
@@ -197,58 +199,6 @@ function createFaultRuntime(plan: McpLabFaultPlan | undefined, scenarioId: strin
 
 type FaultRuntime = ReturnType<typeof createFaultRuntime>;
 
-function oauthFaultMethod(pathname: string): McpLabProtocolMethod | undefined {
-  switch (pathname) {
-    case '/.well-known/oauth-protected-resource/mcp':
-      return 'oauth/protected-resource';
-    case '/.well-known/oauth-authorization-server':
-      return 'oauth/authorization-server';
-    case '/authorize':
-      return 'oauth/authorize';
-    case '/callback':
-      return 'oauth/callback';
-    case '/register':
-      return 'oauth/register';
-    case '/revoke':
-      return 'oauth/revoke';
-    case '/token':
-      return 'oauth/token';
-    default:
-      return;
-  }
-}
-
-async function protocolCoordinate(
-  request: Request
-): Promise<
-  { readonly method: McpLabProtocolMethod; readonly phase: McpLabProtocolPhase } | undefined
-> {
-  const oauth = oauthFaultMethod(new URL(request.url).pathname);
-  if (oauth) {
-    return { method: oauth, phase: 'authorization' };
-  }
-  let method = request.headers.get('mcp-method') ?? undefined;
-  if (!method && request.method === 'POST') {
-    try {
-      const body: unknown = await request.clone().json();
-      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
-        const candidate = (body as Record<string, unknown>)['method'];
-        method = typeof candidate === 'string' ? candidate : undefined;
-      }
-    } catch {
-      return;
-    }
-  }
-  if (!method) {
-    return;
-  }
-  const phase = protocolPhaseForMethod(method);
-  return phase &&
-    (HTTP_PROTOCOL_COORDINATE_PHASES as readonly McpLabProtocolPhase[]).includes(phase)
-    ? { method: method as McpLabProtocolMethod, phase }
-    : undefined;
-}
-
 async function applyHttpFault(applied: AppliedFault): Promise<Response | undefined> {
   switch (applied.fault.kind) {
     case 'delay': {
@@ -312,8 +262,7 @@ function withFaults(
     bus: handler.bus,
     close: handler.close,
     async fetch(request, options) {
-      const correlationId =
-        request.headers.get('x-mcp-lab-correlation-id') ?? runtime.nextCorrelation();
+      const correlationId = correlationIdForRequest(request, () => runtime.nextCorrelation());
       try {
         const requestFaultResponse = await consumeHttpFault(
           runtime,
@@ -467,6 +416,7 @@ function authorizeOAuthClient(
     !clientId ||
     !redirectUri ||
     !challenge ||
+    !PKCE_VALUE_PATTERN.test(challenge) ||
     !state ||
     resource !== endpoint.url.href ||
     !runtime.clients.get(clientId)?.redirectUris.includes(redirectUri)
@@ -496,9 +446,10 @@ async function exchangeOAuthCode(request: Request, runtime: OAuthRuntime): Promi
   const code = form.get('code');
   const record = code ? runtime.codes.get(code) : undefined;
   const verifier = form.get('code_verifier');
-  const challenge = verifier
-    ? createHash('sha256').update(verifier).digest('base64url')
-    : undefined;
+  const challenge =
+    verifier && PKCE_VALUE_PATTERN.test(verifier)
+      ? createHash('sha256').update(verifier).digest('base64url')
+      : undefined;
   if (
     form.get('grant_type') !== 'authorization_code' ||
     !code ||

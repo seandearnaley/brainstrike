@@ -1960,9 +1960,17 @@ never child output.
 The fault-plan vocabulary and runtime dispatcher are one contract: every
 accepted protocol method must resolve to an executable phase, and the dedicated
 `node/dispatch` coordinate verifies the outer Node response error boundary
-rather than an SDK-internal JSON-RPC error. Cleanup reports listener and stdio
-transport counts plus immutable untriggered fault ids; a failed close remains
-retryable, including a delegated stdio close that rejects. Fault kinds are
+rather than an SDK-internal JSON-RPC error. Start options accept only plans
+created by `createMcpLabFaultPlan`, not structural substitutes; created plans
+are immutable, and fault ids are diagnostic-safe lowercase identifiers. Every
+fault consumption and caller-supplied request correlation id must match the
+bounded evidence identifier grammar; rejected values never enter diagnostics.
+The SDK `mcp-method` header may accelerate routing only when it
+agrees with the JSON-RPC body, which remains authoritative. Cleanup reports
+listener and stdio transport counts plus immutable untriggered fault ids; a failed close remains
+retryable, including a delegated stdio close that rejects. Configured shutdown
+occurrences form a contiguous sequence beginning at one, and only an explicit
+`cleanup_error` makes the next occurrence reachable. Fault kinds are
 validated against their coordinates before a plan can start: child exit/stderr
 are bound to their matching child events, stdio startup mutations are bound to
 `child/spawn`, and `cleanup_error` is bound only to `shutdown/transport/close`.
@@ -1975,11 +1983,17 @@ and stdio accepts the selected tool request but never replies until the caller
 cancels or times out. It must never be represented as a structured HTTP 500 or
 an immediate child exit.
 
+The OAuth fixture enforces RFC 7636 for both `code_challenge` and
+`code_verifier`: each is 43-128 ASCII unreserved characters, and token exchange
+still requires the exact S256 binding recorded at authorization.
+
 Evidence parsing reads each referenced artifact once as exact bytes. Text
 artifacts are scanned both as raw UTF-8 and as parsed JSON/NDJSON so escaped
 credentials, serialized JSON bodies, Basic authorization, and bearer material
-cannot evade detection. Parseable serialized JSON is scanned recursively to a
-bounded depth and fails closed if another JSON container exceeds the bound.
+cannot evade detection. JSON containers embedded in prefixed log lines are
+also decoded and scanned, including quote-escaped bodies. Parseable serialized
+JSON is scanned recursively to a bounded depth and fails closed if another JSON
+container exceeds the bound.
 Screenshot artifacts require a text/OCR
 extractor that the verifier invokes with a copy of those exact bytes; absent or
 failed extraction rejects the bundle. The verifier recomputes the lowercase
@@ -1994,12 +2008,14 @@ independently verifiable file digests without JSON reserialization drift. A
 syntactically valid digest is not evidence. RED
 proof requires a non-zero command and at least one internally consistent failed
 test. Every command carries a lowercase `proofId`: GREEN must match one prior
-RED with the same id, and verification must match an already completed GREEN.
+RED with the same id and rerun the exact RED command; verification must match an
+already completed GREEN.
 Negotiation evidence accepts only the closed era/revision pairs legacy/
-`2025-11-25` and modern/`2026-07-28`. GREEN and later verification must be
-successful. Keep these invariants
-paired with `packages/mcp-test-lab/__tests__/package-contract.test.ts` and the
-focused unit/integration suites.
+`2025-11-25` and modern/`2026-07-28`, and `versions.spec` must equal the
+negotiated revision. GREEN and later verification must be successful. Keep
+these invariants paired with
+`packages/mcp-test-lab/__tests__/package-contract.test.ts` and the focused
+unit/integration suites.
 
 ---
 
