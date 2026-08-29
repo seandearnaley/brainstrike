@@ -1,5 +1,6 @@
 import { InMemoryServerEventBus, type McpHttpHandler } from '@modelcontextprotocol/server';
 import { describe, expect, it, vi } from 'vitest';
+import { claimMcpLabFaultPlan } from '../src/fault-plan-claim';
 import { createMcpLabFaultRuntime } from '../src/fault-runtime';
 import { createMcpLabFaultPlan } from '../src/faults';
 import { withMcpLabHttpFaults } from '../src/http-fault-handler';
@@ -56,7 +57,7 @@ describe('MCP HTTP fault executor', () => {
     };
     const handler = withMcpLabHttpFaults(
       downstream,
-      createMcpLabFaultRuntime(plan, 'modern-reference'),
+      createMcpLabFaultRuntime(claimMcpLabFaultPlan(plan), 'modern-reference'),
       () => undefined,
       'modern'
     );
@@ -94,7 +95,7 @@ describe('MCP HTTP fault executor', () => {
     };
     const handler = withMcpLabHttpFaults(
       downstream,
-      createMcpLabFaultRuntime(plan, 'modern-reference'),
+      createMcpLabFaultRuntime(claimMcpLabFaultPlan(plan), 'modern-reference'),
       () => undefined,
       'modern'
     );
@@ -149,7 +150,7 @@ describe('MCP HTTP fault executor', () => {
           toolsChanged: () => undefined,
         },
       },
-      createMcpLabFaultRuntime(plan, 'modern-reference'),
+      createMcpLabFaultRuntime(claimMcpLabFaultPlan(plan), 'modern-reference'),
       () => undefined,
       'modern'
     );

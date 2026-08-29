@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { claimMcpLabFaultPlan } from '../src/fault-plan-claim';
 import {
   applyMcpLabHttpFault,
   createMcpLabFaultRuntime,
@@ -20,7 +21,7 @@ describe('MCP lab fault runtime', () => {
         match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
       },
     ]);
-    const runtime = createMcpLabFaultRuntime(plan, 'modern-reference');
+    const runtime = createMcpLabFaultRuntime(claimMcpLabFaultPlan(plan), 'modern-reference');
 
     expect(runtime.consume('operation', 'tools/list', 'correlation-list-1')).toBeUndefined();
     expect(runtime.consume('operation', 'tools/call', 'correlation-call-1')).toMatchObject({
@@ -52,7 +53,7 @@ describe('MCP lab fault runtime', () => {
         match: { method: 'tools/list', occurrence: 1, phase: 'operation' },
       },
     ]);
-    const runtime = createMcpLabFaultRuntime(plan, 'modern-reference');
+    const runtime = createMcpLabFaultRuntime(claimMcpLabFaultPlan(plan), 'modern-reference');
 
     expect(runtime.reserveCorrelation()).toBe('modern-reference:exchange:1');
     expect(runtime.reserveCorrelation(undefined, 'dispatch')).toBe('modern-reference:dispatch:2');

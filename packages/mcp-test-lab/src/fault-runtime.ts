@@ -1,9 +1,5 @@
-import type {
-  McpLabFault,
-  McpLabFaultPlan,
-  McpLabProtocolMethod,
-  McpLabProtocolPhase,
-} from './faults.js';
+import type { McpLabClaimedFaultPlan } from './fault-plan-claim.js';
+import type { McpLabFault, McpLabProtocolMethod, McpLabProtocolPhase } from './faults.js';
 import { isMcpLabCorrelationId } from './faults.js';
 import { HTTP_PROTOCOL_COORDINATE_PHASES } from './http-coordinates.js';
 
@@ -44,7 +40,7 @@ export class McpLabCorrelationError extends Error {
 }
 
 export function createMcpLabFaultRuntime(
-  plan: McpLabFaultPlan | undefined,
+  plan: McpLabClaimedFaultPlan | undefined,
   scenarioId: string
 ): McpLabFaultRuntime {
   const occurrences = new Map<string, number>();
