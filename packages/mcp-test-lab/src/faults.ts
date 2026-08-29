@@ -63,6 +63,29 @@ const OPERATIONS_BY_FIXTURE: Readonly<Record<McpLabFixture, readonly McpLabOpera
     'brainstrike-stdio-reference': ECHO_FIXTURE_OPERATIONS,
   });
 
+// Exact client-to-server coordinates implemented by the reference fixtures.
+// The complete pinned SDK era registry remains a separate compatibility gate below.
+const EXECUTABLE_PROTOCOL_METHODS_BY_ERA = Object.freeze({
+  legacy: new Set<McpLabProtocolMethod>([
+    'initialize',
+    'notifications/cancelled',
+    'notifications/initialized',
+    'notifications/progress',
+    'notifications/roots/list_changed',
+    'ping',
+    'tools/call',
+    'tools/list',
+  ]),
+  modern: new Set<McpLabProtocolMethod>([
+    'notifications/cancelled',
+    'notifications/progress',
+    'server/discover',
+    'subscriptions/listen',
+    'tools/call',
+    'tools/list',
+  ]),
+});
+
 export function protocolPhaseForMethod(method: string): McpLabProtocolPhase | undefined {
   if ((PROTOCOL_METHODS_BY_PHASE.authorization as readonly string[]).includes(method)) {
     return 'authorization';
@@ -119,12 +142,15 @@ export interface McpLabChildStderrFault {
 const MCP_LAB_CHILD_SIGNALS = ['SIGABRT', 'SIGKILL', 'SIGTERM'] as const;
 
 const MCP_LAB_CHILD_SIGNAL_SET = new Set<string>(MCP_LAB_CHILD_SIGNALS);
-const SERVER_TO_CLIENT_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+const NON_CLIENT_EXECUTABLE_METHODS = new Set<McpLabProtocolMethod>([
   'elicitation/create',
+  'notifications/elicitation/complete',
   'notifications/message',
   'notifications/prompts/list_changed',
   'notifications/resources/list_changed',
   'notifications/resources/updated',
+  'notifications/subscriptions/acknowledged',
+  'notifications/tasks/status',
   'notifications/tools/list_changed',
   'roots/list',
   'sampling/createMessage',
@@ -134,7 +160,7 @@ const MODERN_ONLY_METHODS = new Set<McpLabProtocolMethod>([
   'server/discover',
   'subscriptions/listen',
 ]);
-// Exact @modelcontextprotocol/core@2.0.0 codec registry at cc4b416.
+// Exact @modelcontextprotocol/core@2.0.0 codec-registry difference at cc4b416.
 const LEGACY_ONLY_METHODS = new Set<McpLabProtocolMethod>([
   'initialize',
   'notifications/elicitation/complete',
@@ -153,7 +179,6 @@ const LEGACY_ONLY_METHODS = new Set<McpLabProtocolMethod>([
   'tasks/list',
   'tasks/result',
 ]);
-
 export type McpLabChildSignal = (typeof MCP_LAB_CHILD_SIGNALS)[number];
 
 export type McpLabChildExitFault =
@@ -229,8 +254,11 @@ export function isMcpLabCorrelationId(value: unknown): value is string {
   return typeof value === 'string' && MCP_LAB_CORRELATION_ID_PATTERN.test(value);
 }
 
-export function isServerToClientOnlyMethod(method: string): boolean {
-  return SERVER_TO_CLIENT_ONLY_METHODS.has(method as McpLabProtocolMethod);
+export function isExecutableProtocolMethod(
+  method: string,
+  era: McpLabProtocolEra
+): method is McpLabProtocolMethod {
+  return EXECUTABLE_PROTOCOL_METHODS_BY_ERA[era].has(method as McpLabProtocolMethod);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -642,9 +670,9 @@ function faultSupportsTransport(
   transport: McpLabTransportKind
 ): boolean {
   if (declaration.match.phase === 'shutdown') {
-    return true;
+    return transport === 'stdio';
   }
-  if (isServerToClientOnlyMethod(declaration.match.method)) {
+  if (NON_CLIENT_EXECUTABLE_METHODS.has(declaration.match.method)) {
     return false;
   }
   if (transport !== 'stdio') {
@@ -672,10 +700,17 @@ function faultSupportsProtocolEra(
   declaration: McpLabFaultDeclaration,
   era: McpLabProtocolEra
 ): boolean {
-  if (era === 'modern') {
-    return !LEGACY_ONLY_METHODS.has(declaration.match.method);
+  if (
+    declaration.match.phase === 'authorization' ||
+    declaration.match.phase === 'child-process' ||
+    declaration.match.phase === 'shutdown' ||
+    declaration.match.phase === 'transport'
+  ) {
+    return true;
   }
-  return !MODERN_ONLY_METHODS.has(declaration.match.method);
+  return era === 'modern'
+    ? !LEGACY_ONLY_METHODS.has(declaration.match.method)
+    : !MODERN_ONLY_METHODS.has(declaration.match.method);
 }
 
 function transportForScenario(
@@ -802,7 +837,7 @@ export function createMcpLabFaultPlan(
         return;
       }
       throw new Error(
-        `MCP lab fault "${incompatible.id}" at ${incompatible.match.phase}/${incompatible.match.method} is incompatible with ${era} protocol`
+        `MCP lab fault "${incompatible.id}" at ${incompatible.match.phase}/${incompatible.match.method} is absent from the ${era} protocol registry`
       );
     },
     assertCompatibleWithTransport(transport: McpLabTransportKind) {

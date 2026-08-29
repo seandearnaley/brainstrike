@@ -1,0 +1,93 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  applyMcpLabHttpFault,
+  createMcpLabFaultRuntime,
+  McpLabDroppedResponseError,
+} from '../src/fault-runtime';
+import { createMcpLabFaultPlan } from '../src/faults';
+
+describe('MCP lab fault runtime', () => {
+  it('accounts for occurrences per accepted coordinate and preserves correlation', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 418 },
+        id: 'second-tools-list',
+        match: { method: 'tools/list', occurrence: 2, phase: 'operation' },
+      },
+      {
+        fault: { kind: 'malformed_json', payload: '{"broken":' },
+        id: 'first-tools-call',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const runtime = createMcpLabFaultRuntime(plan, 'modern-reference');
+
+    expect(runtime.consume('operation', 'tools/list', 'correlation-list-1')).toBeUndefined();
+    expect(runtime.consume('operation', 'tools/call', 'correlation-call-1')).toMatchObject({
+      id: 'first-tools-call',
+    });
+    expect(runtime.consume('operation', 'tools/list', 'correlation-list-2')).toMatchObject({
+      id: 'second-tools-list',
+    });
+    expect(plan.observations()).toEqual([
+      expect.objectContaining({
+        correlationId: 'correlation-call-1',
+        faultId: 'first-tools-call',
+        occurrence: 1,
+      }),
+      expect.objectContaining({
+        correlationId: 'correlation-list-2',
+        faultId: 'second-tools-list',
+        occurrence: 2,
+      }),
+    ]);
+    expect(runtime.untriggeredIds()).toEqual([]);
+  });
+
+  it('allocates bounded deterministic correlations and detects remaining body coordinates', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 503 },
+        id: 'pending-tools-list',
+        match: { method: 'tools/list', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const runtime = createMcpLabFaultRuntime(plan, 'modern-reference');
+
+    expect(runtime.nextCorrelation()).toBe('modern-reference:exchange:1');
+    expect(runtime.nextCorrelation('dispatch')).toBe('modern-reference:dispatch:2');
+    expect(runtime.requiresProtocolBodyCoordinate()).toBe(true);
+    runtime.consume('operation', 'tools/list', 'correlation-tools');
+    expect(runtime.requiresProtocolBodyCoordinate()).toBe(false);
+  });
+
+  it('applies every HTTP-compatible fault without degrading unsupported kinds', async () => {
+    vi.useFakeTimers();
+    try {
+      const delayed = applyMcpLabHttpFault({
+        fault: { delayMs: 25, kind: 'delay' },
+        id: 'delay-response',
+      });
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(delayed).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await expect(
+      applyMcpLabHttpFault({ fault: { kind: 'http_status', status: 429 }, id: 'rate-limit' })
+    ).resolves.toMatchObject({ status: 429 });
+    const malformed = await applyMcpLabHttpFault({
+      fault: { kind: 'malformed_json', payload: '{"broken":' },
+      id: 'malformed-response',
+    });
+    expect(await malformed?.text()).toBe('{"broken":');
+    expect(malformed?.headers.get('content-type')).toContain('application/json');
+    await expect(
+      applyMcpLabHttpFault({ fault: { kind: 'drop_response' }, id: 'drop-response' })
+    ).rejects.toBeInstanceOf(McpLabDroppedResponseError);
+    await expect(
+      applyMcpLabHttpFault({ fault: { kind: 'cleanup_error' }, id: 'wrong-scope' })
+    ).rejects.toThrow(/cannot target an HTTP exchange/);
+  });
+});

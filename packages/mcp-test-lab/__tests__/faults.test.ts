@@ -427,6 +427,19 @@ describe('MCP lab fault plan', () => {
     expect(() =>
       assertScenarioFaultCompatibility(nodeDispatchPlan, modern, 'loopback')
     ).not.toThrow();
+    const shutdownPlan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'shutdown-next-layer',
+        match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
+      },
+    ]);
+    expect(() => assertScenarioFaultCompatibility(shutdownPlan, modern, 'in-process')).toThrowError(
+      /http-in-process transport/i
+    );
+    expect(() => assertScenarioFaultCompatibility(shutdownPlan, modern, 'loopback')).toThrowError(
+      /http-loopback transport/i
+    );
     expect(() =>
       assertScenarioFaultCompatibility(createMcpLabFaultPlan([]), modern, undefined)
     ).toThrowError('MCP lab streamable HTTP scenario requires an execution mode');
