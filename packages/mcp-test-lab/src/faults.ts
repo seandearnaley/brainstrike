@@ -197,7 +197,7 @@ function snapshotDeclaration(value: unknown): McpLabFaultDeclaration {
   const untypedMatch = declaration['match'];
   const fault = isRecord(untypedFault) ? snapshotRecord(untypedFault) : untypedFault;
   const match = isRecord(untypedMatch) ? snapshotRecord(untypedMatch) : untypedMatch;
-  return { fault, id: declaration['id'], match } as unknown as McpLabFaultDeclaration;
+  return { ...declaration, fault, match } as unknown as McpLabFaultDeclaration;
 }
 
 function snapshotConsumption(value: unknown): McpLabFaultConsumption {
@@ -486,6 +486,28 @@ function snapshotDeclarations(value: unknown): readonly McpLabFaultDeclaration[]
   return snapshots;
 }
 
+function assertDeclarationShape(declaration: McpLabFaultDeclaration): void {
+  const untypedDeclaration: unknown = declaration;
+  if (!isRecord(untypedDeclaration)) {
+    throw new Error('Invalid MCP lab fault declaration: expected an object');
+  }
+  const id = untypedDeclaration['id'];
+  if (typeof id !== 'string' || id.length > 128 || !MCP_LAB_FAULT_ID_PATTERN.test(id)) {
+    throw new Error('Invalid MCP lab fault id: expected a lowercase identifier');
+  }
+  if (!hasOnlyKeys(untypedDeclaration, ['fault', 'id', 'match'])) {
+    throw new Error(
+      `Invalid MCP lab fault "${id}": declaration must contain only "fault", "id", and "match"`
+    );
+  }
+  const match = untypedDeclaration['match'];
+  if (!(isRecord(match) && hasOnlyKeys(match, ['phase', 'method', 'occurrence']))) {
+    throw new Error(
+      `Invalid MCP lab fault "${id}": match must contain only "phase", "method", and "occurrence"`
+    );
+  }
+}
+
 export function createMcpLabFaultPlan(
   declarations: readonly McpLabFaultDeclaration[]
 ): McpLabFaultPlan {
@@ -493,13 +515,7 @@ export function createMcpLabFaultPlan(
   const declaredIds = new Set<string>();
   const declaredMatches = new Map<string, string>();
   for (const declaration of snapshots) {
-    if (
-      typeof declaration.id !== 'string' ||
-      declaration.id.length > 128 ||
-      !MCP_LAB_FAULT_ID_PATTERN.test(declaration.id)
-    ) {
-      throw new Error('Invalid MCP lab fault id: expected a lowercase identifier');
-    }
+    assertDeclarationShape(declaration);
     assertFaultPayload(declaration);
     if (!Number.isSafeInteger(declaration.match.occurrence) || declaration.match.occurrence < 1) {
       throw new Error(

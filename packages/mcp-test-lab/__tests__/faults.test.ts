@@ -20,6 +20,29 @@ describe('MCP lab fault plan', () => {
   });
 
   it.each([
+    {
+      extra: true,
+      fault: { kind: 'drop_response' },
+      id: 'extra-declaration-key',
+      match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+    },
+    {
+      fault: { kind: 'drop_response' },
+      id: 'extra-match-key',
+      match: {
+        method: 'tools/call',
+        occurrance: 2,
+        occurrence: 1,
+        phase: 'operation',
+      },
+    },
+  ])('rejects non-closed fault declaration %j', (declaration) => {
+    expect(() => createMcpLabFaultPlan([declaration] as never)).toThrowError(
+      /declaration.*only|match.*only/i
+    );
+  });
+
+  it.each([
     [null, 'payload must be an object'],
     [
       { code: null, kind: 'child_exit', signal: null },
