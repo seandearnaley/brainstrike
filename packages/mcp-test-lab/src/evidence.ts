@@ -580,19 +580,10 @@ function validateVerificationProof(
 
 function assertSerializedJsonText(value: string, path: string, serializedJsonDepth: number): void {
   const trimmed = value.trim();
-  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+  if (!(trimmed.includes('{') || trimmed.includes('['))) {
     return;
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed) as unknown;
-  } catch {
-    return;
-  }
-  if (serializedJsonDepth >= MAX_SERIALIZED_JSON_SCAN_DEPTH) {
-    invalid(path, 'serialized JSON nesting exceeds the evidence scan limit');
-  }
-  assertSanitizedText(parsed, `${path}.serializedJson`, true, serializedJsonDepth + 1);
+  assertSanitizedParsedJson(value, `${path}.serializedJson`, serializedJsonDepth);
 }
 
 function assertSanitizedText(
@@ -730,14 +721,20 @@ function parseJsonCandidate(candidate: string): { readonly value: unknown } | un
   return;
 }
 
-function assertSanitizedParsedJson(text: string, path: string): void {
+function assertSanitizedParsedJson(text: string, path: string, serializedJsonDepth = -1): void {
+  const assertParsedValue = (value: unknown, parsedPath: string): void => {
+    if (serializedJsonDepth >= MAX_SERIALIZED_JSON_SCAN_DEPTH) {
+      invalid(path, 'serialized JSON nesting exceeds the evidence scan limit');
+    }
+    assertSanitizedText(value, parsedPath, true, serializedJsonDepth + 1);
+  };
   const trimmed = text.trim();
   if (trimmed.length === 0) {
     return;
   }
   const parsedDocument = parseJsonCandidate(trimmed);
   if (parsedDocument) {
-    assertSanitizedText(parsedDocument.value, path, true);
+    assertParsedValue(parsedDocument.value, path);
     return;
   }
 
@@ -759,10 +756,9 @@ function assertSanitizedParsedJson(text: string, path: string): void {
     for (const [candidateIndex, start] of starts.entries()) {
       const parsedCandidate = parseJsonCandidate(line.slice(start).trim());
       if (parsedCandidate) {
-        assertSanitizedText(
+        assertParsedValue(
           parsedCandidate.value,
-          `${path}.embeddedJson[${index}][${candidateIndex}]`,
-          true
+          `${path}.embeddedJson[${index}][${candidateIndex}]`
         );
       }
     }
@@ -948,7 +944,8 @@ function fragmentParameters(hash: string): URLSearchParams {
 
 function hasCredentialParameter(parameters: URLSearchParams): boolean {
   for (const [key, value] of parameters) {
-    if (value.length > 0 && credentialLabelForKey(key)) {
+    const label = credentialLabelForKey(key);
+    if (value.length > 0 && label && !isSafeDiagnosticAssignment(label, value, '')) {
       return true;
     }
   }

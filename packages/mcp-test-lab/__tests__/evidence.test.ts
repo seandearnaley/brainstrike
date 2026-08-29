@@ -383,6 +383,24 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/credential-assignment/i);
   });
 
+  it('detects credentials inside serialized NDJSON string fields', () => {
+    const nestedNdjson = '{"ok":true}\n{"access\\u005ftoken":"x"}';
+    const bytes = new TextEncoder().encode(JSON.stringify({ body: nestedNdjson }));
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toThrowError(/credential-assignment/i);
+  });
+
   it('rejects missing and unknown fields at every strict object boundary', () => {
     const missingTicket = {
       artifacts: VALID_BUNDLE.artifacts,
@@ -716,6 +734,9 @@ describe('parseMcpEvidenceBundle', () => {
 
   it('accepts canonical safe sentinels for every recognized credential key', () => {
     expect(scanEvidenceTextForSecrets('client_secret=redacted')).toEqual([]);
+    expect(
+      scanEvidenceTextForSecrets('https://example.test/callback?client_secret=redacted')
+    ).toEqual([]);
 
     const bytes = new TextEncoder().encode('{"client_secret":"redacted"}');
     const bundle = {

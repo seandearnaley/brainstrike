@@ -1992,8 +1992,10 @@ artifacts are scanned both as raw UTF-8 and as parsed JSON/NDJSON so escaped
 credentials, serialized JSON bodies, Basic authorization, and bearer material
 cannot evade detection. JSON containers embedded in prefixed log lines are
 also decoded and scanned, including quote-escaped bodies. Parseable serialized
-JSON is scanned recursively to a bounded depth and fails closed if another JSON
-container exceeds the bound.
+JSON and multi-root NDJSON string fields are scanned recursively to a bounded
+depth and fail closed if another JSON container exceeds the bound. Canonical
+disabled/none/redacted sentinels are accepted consistently in raw assignments,
+decoded fields, and URL parameters; other credential-bearing values fail.
 Screenshot artifacts require a text/OCR
 extractor that the verifier invokes with a copy of those exact bytes; absent or
 failed extraction rejects the bundle. The verifier recomputes the lowercase
