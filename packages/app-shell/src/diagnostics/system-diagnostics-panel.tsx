@@ -497,7 +497,7 @@ type TokenIndexerDiagnosticsSnapshot = Pick<
 };
 
 function formatLatency(latencyMs: number | null): string {
-  return latencyMs === null ? 'No samples' : `${Math.round(latencyMs)} ms`;
+  return latencyMs === null ? '—' : `${Math.round(latencyMs)} ms`;
 }
 
 function TokenIndexerTelemetrySection({
@@ -541,7 +541,7 @@ function TokenIndexerTelemetrySection({
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Throughput</span>
           <span className="font-medium" data-testid="token-indexer-throughput">
-            {Math.round(snapshot.totalFilesPerMinute)} files/min
+            {formatCount(Math.round(snapshot.totalFilesPerMinute), 'file', 'files')}/min
           </span>
         </div>
         <div className="flex items-center justify-between">

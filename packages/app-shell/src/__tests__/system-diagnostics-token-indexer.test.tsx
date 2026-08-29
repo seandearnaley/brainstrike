@@ -24,7 +24,7 @@ describe('SystemDiagnosticsPanel token indexer telemetry', () => {
   });
 
   it('renders aggregate performance without exposing event identity', async () => {
-    render(<SystemDiagnosticsPanel />);
+    const { container } = render(<SystemDiagnosticsPanel />);
 
     act(() => {
       emitIndexedFile({
@@ -76,8 +76,33 @@ describe('SystemDiagnosticsPanel token indexer telemetry', () => {
     expect(screen.getByTestId('token-indexer-throughput')).toHaveTextContent('3 files/min');
     expect(screen.getByTestId('token-indexer-error-count')).toHaveTextContent('1 error');
     expect(screen.getByText('300 tokens')).toBeInTheDocument();
-    expect(screen.queryByText(/secret-key|private-folder|private\/secret|secret indexing/)).toBe(
-      null
+    expect(container.innerHTML).not.toMatch(
+      /secret-key|private-folder|private\/secret|secret indexing/
     );
+  });
+
+  it('distinguishes cache-hit events from an empty telemetry window', async () => {
+    render(<SystemDiagnosticsPanel />);
+
+    act(() => {
+      emitIndexedFile({
+        compositeKey: 'cache-hit-key',
+        elapsedMs: 1,
+        filePath: '/private/cache-hit.ts',
+        fileSize: 1024,
+        folderId: 'private-folder',
+        mode: 'accurate',
+        skipped: true,
+        tokenCount: 0,
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(screen.getByTestId('token-indexer-latency')).toHaveTextContent('avg — · p50 — · p95 —');
+    expect(screen.getByTestId('token-indexer-cache-hit-rate')).toHaveTextContent('100%');
+    expect(screen.getByTestId('token-indexer-throughput')).toHaveTextContent('1 file/min');
+    expect(screen.getByText('1 sample')).toBeInTheDocument();
   });
 });
