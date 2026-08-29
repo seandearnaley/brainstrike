@@ -2018,6 +2018,12 @@ Disconnect, config removal, revocation, and factory reset clear both encrypted
 records and in-memory refresh/session state; a storage failure is visible and
 never converted into an unauthenticated fallback.
 
+The fault-core export is declarative only. It bounds and snapshots declaration
+arrays with indexed reads, validates diagnostic-safe ids and exact coordinates,
+freezes factory-branded plans, and snapshots each consumption before lookup.
+No runtime may attach a plan until the upper BST-1479 layers add and verify the
+scenario compatibility gates.
+
 ---
 
 
