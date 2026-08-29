@@ -1,4 +1,5 @@
 import { once } from 'node:events';
+import { request as nodeRequest } from 'node:http';
 import { connect } from 'node:net';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
@@ -24,6 +25,21 @@ function timeoutAfter(milliseconds: number): {
       }
     },
   };
+}
+
+function postWithHeaders(url: URL, headers: Readonly<Record<string, string>>): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = nodeRequest(
+      url,
+      { headers: { 'content-type': 'application/json', ...headers }, method: 'POST' },
+      (response) => {
+        response.resume();
+        response.once('end', () => resolve(response.statusCode ?? 0));
+      }
+    );
+    request.once('error', reject);
+    request.end('{}');
+  });
 }
 
 describe('MCP lab loopback HTTP references', () => {
@@ -135,6 +151,27 @@ describe('MCP lab loopback HTTP references', () => {
         error: 'mcp_lab_handler_error',
         message: 'reference handler exploded',
       });
+    } finally {
+      await loopback.close();
+    }
+  });
+
+  it.each([
+    ['host', (url: URL) => ({ host: 'attacker.invalid', origin: url.origin })],
+    ['origin', (url: URL) => ({ host: url.host, origin: 'https://attacker.invalid' })],
+  ] as const)('rejects a hostile %s before invoking the MCP handler', async (_kind, headers) => {
+    let handlerCalls = 0;
+    const handler = {
+      fetch: async () => {
+        handlerCalls += 1;
+        return Response.json({ ok: true });
+      },
+    } as unknown as McpHttpHandler;
+    const loopback = await createMcpLabLoopback(handler);
+
+    try {
+      await expect(postWithHeaders(loopback.url, headers(loopback.url))).resolves.toBe(403);
+      expect(handlerCalls).toBe(0);
     } finally {
       await loopback.close();
     }
