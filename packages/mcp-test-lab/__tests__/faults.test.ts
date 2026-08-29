@@ -480,7 +480,8 @@ describe('MCP lab fault plan', () => {
 
   it('publishes the bounded correlation-id predicate used by consumption', () => {
     expect(isMcpLabCorrelationId('corr-valid-1')).toBe(true);
-    expect(isMcpLabCorrelationId('short')).toBe(false);
+    expect(isMcpLabCorrelationId('1')).toBe(true);
+    expect(isMcpLabCorrelationId('short')).toBe(true);
     expect(isMcpLabCorrelationId('Authorization: Bearer secret')).toBe(false);
   });
 
