@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertScenarioFaultCompatibility,
   createMcpLabFaultPlan,
+  isMcpLabCorrelationId,
   isMcpLabFaultPlan,
   type McpLabFaultConsumption,
   type McpLabFaultDeclaration,
 } from '../src/faults';
+import { getMcpLabScenario } from '../src/scenario';
 
 describe('MCP lab fault plan', () => {
   it.each([undefined, null, 42, '', '  '])('rejects invalid fault id %j', (id) => {
@@ -17,6 +20,83 @@ describe('MCP lab fault plan', () => {
         },
       ] as never)
     ).toThrowError(/fault id.*lowercase identifier/i);
+  });
+
+  it.each(['Authorization: Bearer opaque-secret', 'a'.repeat(129)])(
+    'rejects unsafe or oversized fault ids without echoing their contents',
+    (invalidId) => {
+      try {
+        createMcpLabFaultPlan([
+          {
+            fault: { kind: 'drop_response' },
+            id: invalidId,
+            match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+          },
+        ]);
+        throw new Error('expected the unsafe fault id to be rejected');
+      } catch (error: unknown) {
+        expect(String(error)).toMatch(/fault id.*lowercase identifier/i);
+        expect(String(error)).not.toContain(invalidId);
+      }
+    }
+  );
+
+  it('snapshots accessor-backed declarations exactly once before validation', () => {
+    let faultReads = 0;
+    const declaration = Object.defineProperty(
+      {
+        id: 'accessor-backed-fault',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+      'fault',
+      {
+        enumerable: true,
+        get() {
+          faultReads += 1;
+          return faultReads === 1 ? { delayMs: 1, kind: 'delay' } : { kind: 'cleanup_error' };
+        },
+      }
+    );
+
+    const plan = createMcpLabFaultPlan([declaration] as never);
+    expect(faultReads).toBe(1);
+    expect(
+      plan.consume({
+        correlationId: 'accessor-correlation',
+        method: 'tools/call',
+        occurrence: 1,
+        phase: 'operation',
+      })
+    ).toEqual({ delayMs: 1, kind: 'delay' });
+  });
+
+  it('does not invoke a caller-controlled map while snapshotting declaration arrays', () => {
+    let faultReads = 0;
+    const declaration = Object.defineProperty(
+      {
+        id: 'proxied-declaration-array',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+      'fault',
+      {
+        enumerable: true,
+        get() {
+          faultReads += 1;
+          return { delayMs: 1, kind: 'delay' };
+        },
+      }
+    );
+    const declarations = new Proxy([declaration], {
+      get(target, property, receiver) {
+        if (property === 'map') {
+          return () => [declaration];
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    createMcpLabFaultPlan(declarations as never);
+    expect(faultReads).toBe(1);
   });
 
   it.each([
@@ -183,6 +263,62 @@ describe('MCP lab fault plan', () => {
     ).toThrowError(/incompatible.*coordinate/i);
   });
 
+  it('rejects child-process occurrences after the one start attempt', () => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { code: 7, kind: 'child_exit', signal: null },
+          id: 'second-child-exit',
+          match: { method: 'child/exit', occurrence: 2, phase: 'child-process' },
+        },
+      ])
+    ).toThrowError(/child-process.*occurrence 1/i);
+  });
+
+  it('rejects shutdown occurrences that cannot be reached by retries', () => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { kind: 'cleanup_error' },
+          id: 'unreachable-second-close',
+          match: { method: 'transport/close', occurrence: 2, phase: 'shutdown' },
+        },
+      ])
+    ).toThrowError(/shutdown.*occurrence 2.*unreachable/i);
+
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'successful-first-close',
+          match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
+        },
+        {
+          fault: { kind: 'cleanup_error' },
+          id: 'unreachable-after-success',
+          match: { method: 'transport/close', occurrence: 2, phase: 'shutdown' },
+        },
+      ])
+    ).toThrowError(/shutdown.*occurrence 2.*unreachable/i);
+  });
+
+  it('accepts contiguous shutdown retries after explicit cleanup failures', () => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { kind: 'cleanup_error' },
+          id: 'failed-first-close',
+          match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
+        },
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'delayed-second-close',
+          match: { method: 'transport/close', occurrence: 2, phase: 'shutdown' },
+        },
+      ])
+    ).not.toThrow();
+  });
+
   it('consumes an exact phase, method, and occurrence with a redacted observation', () => {
     const plan = createMcpLabFaultPlan([
       {
@@ -229,6 +365,103 @@ describe('MCP lab fault plan', () => {
     );
   });
 
+  it.each(['oauth/callback', 'oauth/revoke'])(
+    'rejects unsupported authorization coordinate %s',
+    (method) => {
+      expect(() =>
+        createMcpLabFaultPlan([
+          {
+            fault: { delayMs: 1, kind: 'delay' },
+            id: 'unsupported-authorization',
+            match: { method, occurrence: 1, phase: 'authorization' },
+          },
+        ] as never)
+      ).toThrowError(/method.*does not belong|unknown/i);
+    }
+  );
+
+  it('rejects operation coordinates unsupported by the selected fixture', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'unsupported-resource-subscription',
+        match: { method: 'resources/subscribe', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+
+    expect(() => plan.assertCompatibleWithFixture('brainstrike-sdk-v2-reference')).toThrowError(
+      /resources\/subscribe.*fixture/i
+    );
+  });
+
+  it('rejects unknown compatibility discriminators instead of selecting a branch', () => {
+    const plan = createMcpLabFaultPlan([]);
+
+    expect(() => plan.assertCompatibleWithAuthentication('other' as never)).toThrowError(
+      'Invalid MCP lab authentication mode'
+    );
+    expect(() => plan.assertCompatibleWithProtocolEra('other' as never)).toThrowError(
+      'Invalid MCP lab protocol era'
+    );
+    expect(() => plan.assertCompatibleWithTransport('streamable-http' as never)).toThrowError(
+      'Invalid MCP lab transport'
+    );
+    expect(() => plan.assertCompatibleWithFixture('other' as never)).toThrowError(
+      'Invalid MCP lab fixture'
+    );
+  });
+
+  it('maps canonical scenarios and execution topology through one compatibility gate', () => {
+    const nodeDispatchPlan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'node-dispatch',
+        match: { method: 'node/dispatch', occurrence: 1, phase: 'transport' },
+      },
+    ]);
+    const modern = getMcpLabScenario('modern-reference');
+
+    expect(() =>
+      assertScenarioFaultCompatibility(nodeDispatchPlan, modern, 'in-process')
+    ).toThrowError(/http-in-process transport/i);
+    expect(() =>
+      assertScenarioFaultCompatibility(nodeDispatchPlan, modern, 'loopback')
+    ).not.toThrow();
+    expect(() =>
+      assertScenarioFaultCompatibility(createMcpLabFaultPlan([]), modern, undefined)
+    ).toThrowError('MCP lab streamable HTTP scenario requires an execution mode');
+    expect(() => assertScenarioFaultCompatibility(undefined, modern, undefined)).toThrowError(
+      'MCP lab streamable HTTP scenario requires an execution mode'
+    );
+    expect(() => assertScenarioFaultCompatibility(null as never, modern, 'loopback')).toThrowError(
+      'Invalid MCP lab fault plan'
+    );
+    expect(() =>
+      assertScenarioFaultCompatibility(undefined, { ...modern } as never, 'loopback')
+    ).toThrowError('Invalid MCP lab scenario manifest');
+    expect(() =>
+      assertScenarioFaultCompatibility(
+        createMcpLabFaultPlan([]),
+        getMcpLabScenario('stdio-reference'),
+        'loopback'
+      )
+    ).toThrowError('MCP lab stdio scenario does not accept an execution mode');
+    expect(() =>
+      assertScenarioFaultCompatibility(
+        createMcpLabFaultPlan([]),
+        { ...modern } as never,
+        'loopback'
+      )
+    ).toThrowError('Invalid MCP lab scenario manifest');
+  });
+
+  it('publishes the bounded correlation-id predicate used by consumption', () => {
+    expect(isMcpLabCorrelationId('corr-valid-1')).toBe(true);
+    expect(isMcpLabCorrelationId('1')).toBe(true);
+    expect(isMcpLabCorrelationId('short')).toBe(true);
+    expect(isMcpLabCorrelationId('Authorization: Bearer secret')).toBe(false);
+  });
+
   it('supports every declared fault as typed deterministic data', () => {
     const declarations = [
       {
@@ -254,17 +487,17 @@ describe('MCP lab fault plan', () => {
       {
         fault: { kind: 'child_stderr', text: 'simulated child failure' },
         id: 'stderr',
-        match: { method: 'child/stderr', occurrence: 5, phase: 'child-process' },
+        match: { method: 'child/stderr', occurrence: 1, phase: 'child-process' },
       },
       {
         fault: { code: null, kind: 'child_exit', signal: 'SIGTERM' },
         id: 'exit',
-        match: { method: 'child/exit', occurrence: 6, phase: 'child-process' },
+        match: { method: 'child/exit', occurrence: 1, phase: 'child-process' },
       },
       {
         fault: { kind: 'cleanup_error' },
         id: 'cleanup',
-        match: { method: 'transport/close', occurrence: 7, phase: 'shutdown' },
+        match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
       },
     ] as const satisfies readonly McpLabFaultDeclaration[];
     const consumptions: readonly McpLabFaultConsumption[] = declarations.map(
@@ -576,6 +809,8 @@ describe('MCP lab fault plan', () => {
       match: { method: 'tools/call' as const, occurrence: 1, phase: 'operation' as const },
     };
     const plan = createMcpLabFaultPlan([declaration]);
+    expect(Object.isFrozen(plan)).toBe(true);
+    expect(Reflect.set(plan, 'consume', () => undefined)).toBe(false);
     declaration.fault.delayMs = 30;
 
     const consumed = plan.consume({
@@ -597,6 +832,90 @@ describe('MCP lab fault plan', () => {
       '[{"correlationId":"corr-safe","faultId":"immutable-delay","faultKind":"delay","method":"tools/call","occurrence":1,"phase":"operation"}]'
     );
   });
+
+  it('rejects unsafe correlation ids before consuming or recording a fault', () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'safe-correlation-only',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const credential = 'Authorization: Bearer opaque-secret';
+
+    expect(() =>
+      plan.consume({
+        correlationId: credential,
+        method: 'tools/call',
+        occurrence: 1,
+        phase: 'operation',
+      })
+    ).toThrowError(/correlation id/i);
+    expect(JSON.stringify(plan.observations())).not.toContain(credential);
+    expect(plan.untriggeredIds()).toEqual(['safe-correlation-only']);
+  });
+
+  it.each(['consume', 'consumeIfConfigured'] as const)(
+    'snapshots accessor-backed consumptions exactly once in %s',
+    (methodName) => {
+      const plan = createMcpLabFaultPlan([
+        {
+          fault: { kind: 'drop_response' },
+          id: 'snapshot-consumption',
+          match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+        },
+      ]);
+      const reads = { correlationId: 0, method: 0, occurrence: 0, phase: 0 };
+      const credential = 'Authorization: Bearer must-not-be-recorded';
+      const consumption = Object.defineProperties(
+        {},
+        {
+          correlationId: {
+            enumerable: true,
+            get() {
+              reads.correlationId += 1;
+              return reads.correlationId === 1 ? 'corr-safe' : credential;
+            },
+          },
+          method: {
+            enumerable: true,
+            get() {
+              reads.method += 1;
+              return reads.method === 1 ? 'tools/call' : 'ping';
+            },
+          },
+          occurrence: {
+            enumerable: true,
+            get() {
+              reads.occurrence += 1;
+              return reads.occurrence === 1 ? 1 : 2;
+            },
+          },
+          phase: {
+            enumerable: true,
+            get() {
+              reads.phase += 1;
+              return reads.phase === 1 ? 'operation' : 'initialization';
+            },
+          },
+        }
+      ) as McpLabFaultConsumption;
+
+      expect(plan[methodName](consumption)).toEqual({ kind: 'drop_response' });
+      expect(reads).toEqual({ correlationId: 1, method: 1, occurrence: 1, phase: 1 });
+      expect(plan.observations()).toEqual([
+        {
+          correlationId: 'corr-safe',
+          faultId: 'snapshot-consumption',
+          faultKind: 'drop_response',
+          method: 'tools/call',
+          occurrence: 1,
+          phase: 'operation',
+        },
+      ]);
+      expect(JSON.stringify(plan.observations())).not.toContain(credential);
+    }
+  );
 
   it('rejects duplicate fault ids and duplicate match coordinates', () => {
     expect(() =>

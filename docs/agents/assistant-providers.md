@@ -2020,11 +2020,20 @@ never converted into an unauthenticated fallback.
 
 The package exports `./faults` only after every fault variant, declaration key,
 match key, occurrence, reachability rule, and coordinate shape is validated.
-The factory bounds and snapshots declaration arrays with indexed reads,
-validates diagnostic-safe ids and exact coordinates, freezes factory-branded
-plans, and snapshots each consumption before lookup.
-No runtime may attach a plan until the upper BST-1479 layers add and verify the
-scenario compatibility gates.
+Fault plans are closed declarative data created only by
+`createMcpLabFaultPlan`; structural substitutes are rejected. The factory
+bounds and snapshots declaration arrays with indexed reads, validates
+diagnostic-safe ids and exact coordinates, freezes factory-branded plans, and
+snapshots each consumption before lookup. Occurrences must be reachable, and
+fault kinds are bound to compatible coordinates.
+
+The era method sets match the released `@modelcontextprotocol/core@2.0.0`
+codec registry at `cc4b416`. Authentication, era, transport, fixture, and
+execution discriminators are closed. `assertScenarioFaultCompatibility` is the
+single mapping from a canonical scenario plus execution topology to those
+validators; callers never translate `streamable-http` into a lab transport.
+No runtime may attach a plan until the runtime layers add and verify their
+session-ownership and cleanup gates.
 
 ---
 
