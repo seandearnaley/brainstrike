@@ -83,9 +83,13 @@ export function parseMcpLabRunnerCliArgs(argv: unknown): McpLabRunnerCliArgs {
   return Object.freeze({ output: relativeJsonPath(output), profile, sha, ticket, workspaceState });
 }
 
+export function mcpLabRunnerEvidenceCommand(args: McpLabRunnerCliArgs): string {
+  return `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile ${args.profile} --ticket ${args.ticket} --output ${args.output} --sha ${args.sha} --workspace-state ${args.workspaceState}`;
+}
+
 export async function runMcpLabRunnerCli(argv: readonly string[]): Promise<void> {
   const args = parseMcpLabRunnerCliArgs(argv);
-  const command = `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile ${args.profile}`;
+  const command = mcpLabRunnerEvidenceCommand(args);
   const bundles = await runMcpLabVerification(
     {
       blockers: [],

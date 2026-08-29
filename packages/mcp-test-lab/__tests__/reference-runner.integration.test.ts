@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { startMcpLabScenario } from '../src/lab';
 import { createMcpLabReferenceRunnerDependencies } from '../src/reference-runner';
 import { runMcpLabVerification } from '../src/runner';
+import { MCP_LAB_RUNNER_CASES } from '../src/runner-manifest';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
 const COMMAND = 'pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr';
@@ -49,9 +51,45 @@ describe('MCP official reference runner', () => {
       ]);
       expect(schema.cleanup).toMatchObject({ exitStatus: 0, verified: true });
       expect(schema.correlationIds).toHaveLength(3);
+      expect(schema.negotiation.capabilities).toEqual(['tools']);
     }
     expect(JSON.stringify(bundles)).not.toMatch(/bearer|access[_-]?token|client[_-]?secret/i);
   }, 30_000);
+
+  it('waits for an aborted startup allocation and closes the resulting lab', async () => {
+    let releaseStart: (() => void) | undefined;
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    const runnerCase = MCP_LAB_RUNNER_CASES.find(({ id }) => id === 'modern-http-in-process');
+    if (!(runnerCase && releaseStart)) {
+      throw new Error('reference runner race fixture is unavailable');
+    }
+    const dependencies = createMcpLabReferenceRunnerDependencies({
+      async startCase() {
+        await startGate;
+        return startMcpLabScenario('modern-reference', { execution: 'in-process' });
+      },
+    });
+    const owner = dependencies.createPhaseOwner(runnerCase, 'green');
+    const controller = new AbortController();
+    const running = owner.run(controller.signal);
+    controller.abort();
+    const cleanup = owner.close();
+    let cleanupSettled = false;
+    void cleanup.finally(() => {
+      cleanupSettled = true;
+    });
+
+    await Promise.resolve();
+    expect(cleanupSettled).toBe(false);
+    releaseStart();
+    await expect(running).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(cleanup).resolves.toEqual({
+      details: 'closed listeners=0 stdio=0',
+      verified: true,
+    });
+  });
 
   it('executes the exhaustive-only HTTP topologies through the same owner', async () => {
     const bundles = await runMcpLabVerification(

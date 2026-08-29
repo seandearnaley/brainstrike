@@ -145,10 +145,12 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
   private client: Client | undefined;
   private closePromise: Promise<{ readonly details: string; readonly verified: true }> | undefined;
   private lab: McpLabSession | undefined;
+  private startPromise: Promise<McpLabSession> | undefined;
 
   constructor(
     private readonly runnerCase: McpLabRunnerCase,
-    private readonly phase: McpLabRunnerPhase
+    private readonly phase: McpLabRunnerPhase,
+    private readonly start: (runnerCase: McpLabRunnerCase) => Promise<McpLabSession>
   ) {}
 
   close(): Promise<{ readonly details: string; readonly verified: true }> {
@@ -157,6 +159,13 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
     }
     this.closePromise = (async () => {
       const failures: Error[] = [];
+      if (this.startPromise) {
+        try {
+          this.lab ??= await this.startPromise;
+        } catch {
+          // The primary run path owns and reports startup failure. No lab was allocated.
+        }
+      }
       try {
         await this.client?.close();
       } catch (error) {
@@ -187,7 +196,9 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
     const abort = () => void this.close().catch(() => undefined);
     signal.addEventListener('abort', abort, { once: true });
     try {
-      this.lab = await startCase(this.runnerCase);
+      this.startPromise = this.start(this.runnerCase);
+      this.lab = await this.startPromise;
+      signal.throwIfAborted();
       const version = this.lab.scenario.protocol.version;
       this.client = new Client(
         { name: 'brainstrike-mcp-verifier-runner', version: '1.0.0' },
@@ -204,6 +215,7 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
       } else {
         const accessToken =
           endpoint.kind === 'oauth-loopback-http' ? await authorize(this.lab) : undefined;
+        signal.throwIfAborted();
         await this.client.connect(
           new StreamableHTTPClientTransport(endpoint.url, {
             ...(endpoint.kind === 'in-process-http' ? { fetch: endpoint.fetch } : {}),
@@ -213,11 +225,17 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
           })
         );
       }
+      signal.throwIfAborted();
       const tools = await this.client.listTools();
+      signal.throwIfAborted();
+      if (!tools.tools.some(({ name }) => name === 'echo')) {
+        throw new Error('MCP reference runner server does not expose the echo tool');
+      }
       const value = `${this.runnerCase.id}-${this.phase}`;
       const actual = echoText(
         await this.client.callTool({ arguments: { text: value }, name: 'echo' })
       );
+      signal.throwIfAborted();
       const expected = this.phase === 'red' ? `${value}-mutation-canary` : value;
       const passed = actual === expected;
       const negotiated = this.client.getNegotiatedProtocolVersion();
@@ -226,8 +244,12 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
           `MCP reference runner negotiated ${String(negotiated)} instead of ${version}`
         );
       }
+      const serverCapabilities = this.client.getServerCapabilities();
+      if (!serverCapabilities) {
+        throw new Error('MCP reference runner has no negotiated server capabilities');
+      }
       return Object.freeze({
-        capabilities: Object.freeze(tools.tools.map(({ name }) => name)),
+        capabilities: Object.freeze(Object.keys(serverCapabilities).sort()),
         correlationIds: Object.freeze([`${this.runnerCase.id}-${this.phase}`]),
         exitStatus: passed ? 0 : 1,
         negotiation:
@@ -247,10 +269,17 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
   }
 }
 
-export function createMcpLabReferenceRunnerDependencies(): McpLabRunnerDependencies {
+export interface McpLabReferenceRunnerDependencyOptions {
+  readonly startCase?: (runnerCase: McpLabRunnerCase) => Promise<McpLabSession>;
+}
+
+export function createMcpLabReferenceRunnerDependencies(
+  options: McpLabReferenceRunnerDependencyOptions = {}
+): McpLabRunnerDependencies {
+  const start = options.startCase ?? startCase;
   return Object.freeze({
     createPhaseOwner(runnerCase: McpLabRunnerCase, phase: McpLabRunnerPhase) {
-      return new ReferencePhaseOwner(runnerCase, phase);
+      return new ReferencePhaseOwner(runnerCase, phase, start);
     },
     now: () => performance.now(),
   });

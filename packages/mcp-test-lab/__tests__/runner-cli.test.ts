@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMcpLabRunnerCliArgs } from '../src/runner-cli';
+import { mcpLabRunnerEvidenceCommand, parseMcpLabRunnerCliArgs } from '../src/runner-cli';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
 
@@ -27,6 +27,9 @@ describe('MCP verifier runner CLI', () => {
       workspaceState: 'clean',
     });
     expect(Object.isFrozen(parsed)).toBe(true);
+    expect(mcpLabRunnerEvidenceCommand(parsed)).toBe(
+      `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr --ticket BST-1496 --output artifacts/mcp-pr.json --sha ${SHA} --workspace-state clean`
+    );
   });
 
   it.each(
