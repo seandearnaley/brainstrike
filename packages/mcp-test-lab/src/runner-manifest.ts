@@ -1,6 +1,7 @@
 import type { McpLabScenarioId } from './scenario.js';
 
 export const MIN_MCP_LAB_CASE_TIMEOUT_MS = 100;
+export const MIN_MCP_LAB_RUN_TIMEOUT_MS = 100;
 export const MAX_MCP_LAB_CASE_TIMEOUT_MS = 60_000;
 export const MAX_MCP_LAB_RUN_TIMEOUT_MS = 600_000;
 
@@ -89,8 +90,8 @@ function parseProfile(value: unknown): McpLabRunnerProfile {
 
 function boundedInteger(value: unknown, field: string, minimum: number, maximum: number): number {
   if (
-    !Number.isSafeInteger(value) ||
     typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
     value < minimum ||
     value > maximum
   ) {
@@ -108,7 +109,10 @@ function selectCaseIds(
   profile: McpLabRunnerProfile
 ): readonly McpLabRunnerCaseId[] {
   const profileIds: readonly McpLabRunnerCaseId[] = MCP_LAB_RUNNER_PROFILE_CASE_IDS[profile];
-  if (!Array.isArray(input) || input.length < 1 || input.length > profileIds.length) {
+  if (!Array.isArray(input)) {
+    invalidSelection('caseIds must be an array');
+  }
+  if (input.length < 1 || input.length > profileIds.length) {
     invalidSelection(`caseIds must contain from 1 to ${profileIds.length} entries`);
   }
   const selected: McpLabRunnerCaseId[] = [];
@@ -148,7 +152,7 @@ export function selectMcpLabRunnerCases(input: unknown): McpLabRunnerSelection {
     ? boundedInteger(
         input['caseTimeoutMs'],
         'caseTimeoutMs',
-        MIN_MCP_LAB_CASE_TIMEOUT_MS,
+        MIN_MCP_LAB_RUN_TIMEOUT_MS,
         MAX_MCP_LAB_CASE_TIMEOUT_MS
       )
     : defaults.caseTimeoutMs;
