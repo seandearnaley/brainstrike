@@ -5,6 +5,10 @@ import {
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
 import {
+  type McpLabClaimedFaultPlan,
+  startWithClaimedMcpLabFaultPlan,
+} from './fault-plan-claim.js';
+import {
   createMcpLabFaultRuntime,
   McpLabDroppedResponseError,
   type McpLabFaultRuntime,
@@ -258,7 +262,7 @@ function createSession(
 
 function createInProcessSession(
   scenario: McpLabScenario,
-  faultPlan: McpLabFaultPlan | undefined
+  faultPlan: McpLabClaimedFaultPlan | undefined
 ): McpLabSession {
   const diagnostics: McpLabDiagnostic[] = [];
   const faultRuntime = createMcpLabFaultRuntime(faultPlan, scenario.id);
@@ -295,7 +299,7 @@ function createInProcessSession(
 
 async function createLoopbackSession(
   scenario: McpLabScenario,
-  faultPlan: McpLabFaultPlan | undefined
+  faultPlan: McpLabClaimedFaultPlan | undefined
 ): Promise<McpLabSession> {
   const diagnostics: McpLabDiagnostic[] = [];
   const faultRuntime = createMcpLabFaultRuntime(faultPlan, scenario.id);
@@ -431,7 +435,9 @@ export async function startMcpLabScenario(
     throw new Error('MCP lab OAuth scenario requires a loopback listener');
   }
   assertScenarioFaultCompatibility(startOptions.faultPlan, scenario, startOptions.execution);
-  return startOptions.execution === 'in-process'
-    ? createInProcessSession(scenario, startOptions.faultPlan)
-    : createLoopbackSession(scenario, startOptions.faultPlan);
+  return startWithClaimedMcpLabFaultPlan(startOptions.faultPlan, (claimedFaultPlan) =>
+    startOptions.execution === 'in-process'
+      ? createInProcessSession(scenario, claimedFaultPlan)
+      : createLoopbackSession(scenario, claimedFaultPlan)
+  );
 }

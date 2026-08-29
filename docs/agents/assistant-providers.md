@@ -2073,10 +2073,14 @@ validators; callers never translate `streamable-http` into a lab transport.
 HTTP fault execution is private package machinery; the executor, qualifier,
 correlation registry, OAuth hooks, and dropped-response sentinel are not public
 exports. A scenario snapshots and compatibility-checks its branded plan before
-allocating a handler, listener, OAuth record, or child. This layer accepts only
-HTTP in-process and loopback coordinates. Stdio, child-process, shutdown,
-server-to-client, wrong-era, and fixture-unreachable coordinates fail at
-startup; their execution belongs to later verifier layers.
+atomically claiming it and before allocating a handler, listener, OAuth record,
+or child. Only the private claimed capability may consume faults. A claim is
+single-session and permanent even when later startup fails; a plan consumed
+through its public test API, attached twice serially or concurrently, or mutated
+publicly after claim fails visibly before another allocation. This layer accepts
+only HTTP in-process and loopback coordinates. Stdio, child-process, shutdown,
+server-to-client, wrong-era, and fixture-unreachable coordinates fail at startup;
+their execution belongs to later verifier layers.
 
 An MCP request can advance an HTTP or protocol occurrence only after one
 serialized ingress qualifier proves the exact advertised `/mcp` URL with no

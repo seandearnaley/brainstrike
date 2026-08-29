@@ -1,3 +1,9 @@
+import {
+  isRegisteredMcpLabFaultPlan,
+  MCP_LAB_CLAIMED_PLAN,
+  type McpLabClaimedFaultPlan,
+  registerMcpLabFaultPlanClaim,
+} from './fault-plan-claim.js';
 import { getMcpLabScenario, type McpLabFixture, type McpLabScenario } from './scenario.js';
 
 const PROTOCOL_METHODS_BY_PHASE = {
@@ -241,13 +247,12 @@ export interface McpLabFaultPlan {
   untriggeredIds(): readonly string[];
 }
 
-const CREATED_MCP_LAB_FAULT_PLANS = new WeakSet<object>();
 const MAX_MCP_LAB_FAULT_DECLARATIONS = 1024;
 const MCP_LAB_CORRELATION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/u;
 const MCP_LAB_FAULT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 export function isMcpLabFaultPlan(value: unknown): value is McpLabFaultPlan {
-  return typeof value === 'object' && value !== null && CREATED_MCP_LAB_FAULT_PLANS.has(value);
+  return isRegisteredMcpLabFaultPlan(value);
 }
 
 export function isMcpLabCorrelationId(value: unknown): value is string {
@@ -765,6 +770,7 @@ export function createMcpLabFaultPlan(
   );
   const consumed = new Map<string, McpLabFaultDeclaration>();
   const observations: McpLabFaultObservation[] = [];
+  let ownership: 'claimed' | 'fresh' | 'preconsumed' = 'fresh';
 
   function consumeDeclaration(
     consumption: McpLabFaultConsumption,
@@ -786,8 +792,65 @@ export function createMcpLabFaultPlan(
     return declaration.fault;
   }
 
+  function assertPublicMutationAllowed(): void {
+    if (ownership === 'claimed') {
+      throw new Error('MCP lab fault plan is claimed by a session');
+    }
+  }
+
   function exhaustedFault(key: string): McpLabFaultDeclaration | undefined {
     return consumed.get(key);
+  }
+
+  function consumeOptional(
+    consumption: McpLabFaultConsumption,
+    beforeMutation?: () => void
+  ): McpLabFault | undefined {
+    const snapshot = snapshotConsumption(consumption);
+    beforeMutation?.();
+    const key = matchKey(snapshot);
+    const declaration = remaining.get(key);
+    if (declaration) {
+      return consumeDeclaration(snapshot, declaration);
+    }
+    const exhausted = exhaustedFault(key);
+    if (exhausted) {
+      throw new Error(
+        `MCP lab fault "${exhausted.id}" is exhausted for ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
+      );
+    }
+    return;
+  }
+
+  function consumeStrict(
+    consumption: McpLabFaultConsumption,
+    beforeMutation?: () => void
+  ): McpLabFault {
+    const snapshot = snapshotConsumption(consumption);
+    beforeMutation?.();
+    const key = matchKey(snapshot);
+    const declaration = remaining.get(key);
+    if (declaration) {
+      return consumeDeclaration(snapshot, declaration);
+    }
+    const exhausted = exhaustedFault(key);
+    if (exhausted) {
+      throw new Error(
+        `MCP lab fault "${exhausted.id}" is exhausted for ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
+      );
+    }
+    throw new Error(
+      `No MCP lab fault matches ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
+    );
+  }
+
+  function hasRemainingPhase(phase: McpLabProtocolPhase): boolean {
+    for (const declaration of remaining.values()) {
+      if (declaration.match.phase === phase) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function untriggeredIds(): readonly string[] {
@@ -865,45 +928,45 @@ export function createMcpLabFaultPlan(
       throw new Error(`Untriggered MCP lab faults: ${untriggeredIds().join(', ')}`);
     },
     consume(consumption: McpLabFaultConsumption) {
-      const snapshot = snapshotConsumption(consumption);
-      const key = matchKey(snapshot);
-      const declaration = remaining.get(key);
-      if (!declaration) {
-        const exhausted = exhaustedFault(key);
-        if (exhausted) {
-          throw new Error(
-            `MCP lab fault "${exhausted.id}" is exhausted for ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
-          );
-        }
-        throw new Error(
-          `No MCP lab fault matches ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
-        );
-      }
-      return consumeDeclaration(snapshot, declaration);
+      assertPublicMutationAllowed();
+      const fault = consumeStrict(consumption, assertPublicMutationAllowed);
+      ownership = 'preconsumed';
+      return fault;
     },
     consumeIfConfigured(consumption: McpLabFaultConsumption) {
-      const snapshot = snapshotConsumption(consumption);
-      const key = matchKey(snapshot);
-      const declaration = remaining.get(key);
-      if (declaration) {
-        return consumeDeclaration(snapshot, declaration);
+      assertPublicMutationAllowed();
+      const fault = consumeOptional(consumption, assertPublicMutationAllowed);
+      if (fault) {
+        ownership = 'preconsumed';
       }
-      const exhausted = exhaustedFault(key);
-      if (exhausted) {
-        throw new Error(
-          `MCP lab fault "${exhausted.id}" is exhausted for ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
-        );
-      }
-      return;
+      return fault;
     },
-    hasRemainingPhase(phase: McpLabProtocolPhase) {
-      return [...remaining.values()].some((declaration) => declaration.match.phase === phase);
-    },
+    hasRemainingPhase,
     observations() {
       return Object.freeze(observations.slice());
     },
     untriggeredIds,
   });
-  CREATED_MCP_LAB_FAULT_PLANS.add(plan);
+  const claimedPlan: McpLabClaimedFaultPlan = Object.freeze({
+    [MCP_LAB_CLAIMED_PLAN]: true as const,
+    consume: consumeStrict,
+    consumeIfConfigured: consumeOptional,
+    hasRemainingPhase,
+    observations() {
+      return Object.freeze(observations.slice());
+    },
+    untriggeredIds,
+  });
+  registerMcpLabFaultPlanClaim(plan, () => {
+    if (ownership !== 'fresh') {
+      throw new Error(
+        ownership === 'claimed'
+          ? 'MCP lab fault plan is already claimed by a session'
+          : 'MCP lab fault plan was consumed before session startup'
+      );
+    }
+    ownership = 'claimed';
+    return claimedPlan;
+  });
   return plan;
 }

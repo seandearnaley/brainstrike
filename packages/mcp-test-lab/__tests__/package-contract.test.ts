@@ -224,6 +224,10 @@ describe('MCP test lab package contract', () => {
     );
     expect(contract).toContain('exports `./faults` only after');
     expect(contract).toContain('HTTP fault execution is private package machinery');
+    expect(normalizedContract).toContain('Only the private claimed capability may consume faults');
+    expect(normalizedContract).toContain(
+      'single-session and permanent even when later startup fails'
+    );
     expect(contract).toContain('bounds and snapshots declaration');
     expect(contract).toContain('@modelcontextprotocol/core@2.0.0');
     expect(contract).toContain('`assertScenarioFaultCompatibility`');
