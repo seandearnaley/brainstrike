@@ -2,7 +2,12 @@
 
 Date: 2026-08-28
 
-Status: canonical research spike; no production behavior changed
+Status: historical research evidence; decisions promoted to the
+[living provider contract](../assistant-providers.md#mcp-2026-host-architecture)
+
+This document preserves the source analysis and rejected alternatives from the
+spike date. It is not the authority for current implementation behavior; the
+living provider contract above is.
 
 Scope: Brainstrike desktop as an MCP host/client. Linear is the motivating
 compatibility case, not a provider-specific design.

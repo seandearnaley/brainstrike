@@ -159,9 +159,16 @@ describe('MCP test lab package contract', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('keeps the living provider contract honest about the initial boundary', async () => {
+  it('keeps the living provider contract authoritative for the MCP 2026 host architecture', async () => {
     const contract = await readFile(
       new URL('../../../docs/agents/assistant-providers.md', import.meta.url),
+      'utf8'
+    );
+    const research = await readFile(
+      new URL(
+        '../../../docs/agents/research/mcp-v2-oauth-architecture-spike-2026-08-28.md',
+        import.meta.url
+      ),
       'utf8'
     );
 
@@ -169,5 +176,17 @@ describe('MCP test lab package contract', () => {
     expect(contract).toContain('production-independent verifier');
     expect(contract).toContain("`availability: 'declared'`");
     expect(contract).toContain('A package export may appear only in');
+    expect(contract).toContain('`McpHostService` is the sole production SDK client owner');
+    expect(contract).toContain(
+      '`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`'
+    );
+    expect(contract).toContain('dedicated encrypted MCP credential store');
+    expect(contract).toContain('`@modelcontextprotocol/client@2.0.0`');
+    expect(contract).toContain('`cc4b41617ce3601b1290d67216ea0b194a3cd9ac`');
+    expect(contract).toContain('`2026-07-28`');
+    expect(research).toContain('Status: historical research evidence; decisions promoted to');
+    expect(research).toContain(
+      '[living provider contract](../assistant-providers.md#mcp-2026-host-architecture)'
+    );
   });
 });
