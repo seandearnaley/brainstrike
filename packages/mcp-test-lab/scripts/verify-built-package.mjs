@@ -4,6 +4,7 @@ import { access } from 'node:fs/promises';
 const entry = await import('../dist/index.js');
 const evidence = await import('../dist/evidence.js');
 const lab = await import('../dist/lab.js');
+const runner = await import('../dist/runner.js');
 const scenario = await import('../dist/scenario.js');
 
 assert.equal(typeof entry.getMcpLabScenario, 'function');
@@ -38,6 +39,8 @@ assert.equal(typeof lab.startMcpLabScenario, 'function');
 assert.equal(typeof lab.createMcpOAuthAuthorizationResponseVerifier, 'function');
 assert.equal('createMcpOAuthReferenceHandler' in lab, false);
 assert.equal('createMcpOAuthReferenceEndpoint' in lab, false);
+assert.equal(typeof runner.runMcpLabVerification, 'function');
+assert.deepEqual(runner.MCP_LAB_RUNNER_PHASES, ['red', 'green', 'verification']);
 assert.equal(typeof scenario.getMcpLabScenario, 'function');
 assert.equal(scenario.MCP_LAB_SDK_VERSION, '2.0.0');
 await access(new URL('../fixtures/stdio-reference-server.mjs', import.meta.url));

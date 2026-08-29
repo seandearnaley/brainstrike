@@ -49,6 +49,7 @@ describe('MCP test lab package contract', () => {
       './evidence': { default: './dist/evidence.js', types: './dist/evidence.d.ts' },
       './faults': { default: './dist/faults.js', types: './dist/faults.d.ts' },
       './lab': { default: './dist/lab.js', types: './dist/lab.d.ts' },
+      './runner': { default: './dist/runner.js', types: './dist/runner.d.ts' },
       './scenario': { default: './dist/scenario.js', types: './dist/scenario.d.ts' },
     });
   });
