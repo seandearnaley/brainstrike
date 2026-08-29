@@ -686,6 +686,9 @@ function transportForScenario(
     }
     return 'stdio';
   }
+  if (execution === undefined) {
+    throw new Error('MCP lab streamable HTTP scenario requires an execution mode');
+  }
   return execution === 'in-process' ? 'http-in-process' : 'http-loopback';
 }
 

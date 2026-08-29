@@ -503,6 +503,9 @@ describe('MCP lab fault plan', () => {
       assertScenarioFaultCompatibility(nodeDispatchPlan, modern, 'loopback')
     ).not.toThrow();
     expect(() =>
+      assertScenarioFaultCompatibility(createMcpLabFaultPlan([]), modern, undefined)
+    ).toThrowError('MCP lab streamable HTTP scenario requires an execution mode');
+    expect(() =>
       assertScenarioFaultCompatibility(
         createMcpLabFaultPlan([]),
         getMcpLabScenario('stdio-reference'),
