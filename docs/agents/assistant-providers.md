@@ -2077,10 +2077,19 @@ atomically claiming it and before allocating a handler, listener, OAuth record,
 or child. Only the private claimed capability may consume faults. A claim is
 single-session and permanent even when later startup fails; a plan consumed
 through its public test API, attached twice serially or concurrently, or mutated
-publicly after claim fails visibly before another allocation. This layer accepts
-only HTTP in-process and loopback coordinates. Stdio, child-process, shutdown,
-server-to-client, wrong-era, and fixture-unreachable coordinates fail at startup;
-their execution belongs to later verifier layers.
+publicly after claim fails visibly before another allocation. HTTP in-process,
+loopback, OAuth, and stdio sessions all execute `shutdown/transport/close` delay
+and cleanup-error faults. Stdio protocol and child-process coordinates remain
+unavailable until their executable layers; server-to-client, wrong-era, and
+fixture-unreachable coordinates fail at startup.
+
+One private cleanup owner serially closes every session resource. An injected
+cleanup error occurs before any resource is touched. A failed or partial attempt
+retains unresolved ownership, concurrent callers share that attempt, and retry
+skips resources already closed. Only complete success freezes the final report;
+later close calls return that same deeply frozen report object. Reports contain
+only aggregate listener/transport counts, frozen OAuth record counts, and safe
+untriggered fault ids—never raw resource errors or injected content.
 
 An MCP request can advance an HTTP or protocol occurrence only after one
 serialized ingress qualifier proves the exact advertised `/mcp` URL with no

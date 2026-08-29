@@ -17,6 +17,7 @@ import {
   assertScenarioFaultCompatibility,
   isMcpLabFaultPlan,
   type McpLabFaultPlan,
+  type McpLabProtocolPhase,
 } from './faults.js';
 import {
   IN_PROCESS_HTTP_FAULT_SCOPES,
@@ -35,14 +36,14 @@ import {
 } from './oauth-reference.js';
 import { createReferenceServer } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario, type McpLabScenarioId } from './scenario.js';
+import {
+  createMcpLabSessionCleanup,
+  type McpLabCleanupReport,
+  type McpLabCleanupResource,
+} from './session-cleanup.js';
 import { McpLabOwnedStdioTransport } from './stdio-transport.js';
 
-export interface McpLabCleanupReport {
-  readonly httpListenersClosed: number;
-  readonly oauthRecordsRemaining?: McpOAuthReferenceStateCounts;
-  readonly stdioTransportsClosed: number;
-  readonly untriggeredFaultIds: readonly string[];
-}
+export type { McpLabCleanupReport } from './session-cleanup.js';
 
 export interface McpLabInProcessHttpEndpoint {
   readonly fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -100,34 +101,19 @@ export interface StartMcpLabScenarioOptions {
 
 type McpLabHttpScenarioId = Exclude<McpLabScenarioId, 'stdio-reference'>;
 type McpLabNonOAuthHttpScenarioId = Exclude<McpLabHttpScenarioId, 'oauth-reference'>;
-type ParsedStartOptions = Readonly<Partial<StartMcpLabScenarioOptions>>;
-
-interface CloseResource {
-  close(): Promise<void>;
-  closed: boolean;
-  readonly counted?: () => boolean;
-  readonly kind: 'handler' | 'http-listener' | 'stdio-transport';
+interface ParsedStartOptions extends Readonly<Partial<StartMcpLabScenarioOptions>> {
+  readonly executionProvided: boolean;
 }
 
-function createCleanupReport(
-  resources: readonly CloseResource[],
-  oauthStateCounts?: () => McpOAuthReferenceStateCounts,
-  faultRuntime?: McpLabFaultRuntime
-): McpLabCleanupReport {
-  return Object.freeze({
-    httpListenersClosed: resources.filter(
-      (resource) => resource.kind === 'http-listener' && resource.closed
-    ).length,
-    ...(oauthStateCounts
-      ? { oauthRecordsRemaining: Object.freeze({ ...oauthStateCounts() }) }
-      : {}),
-    stdioTransportsClosed: resources.filter(
-      (resource) =>
-        resource.kind === 'stdio-transport' && resource.closed && (resource.counted?.() ?? true)
-    ).length,
-    untriggeredFaultIds: faultRuntime?.untriggeredIds() ?? Object.freeze([]),
-  });
-}
+const STDIO_FAULT_PHASE_POLICY = {
+  authorization: 'defer',
+  'child-process': 'defer',
+  initialization: 'defer',
+  operation: 'defer',
+  shutdown: 'execute',
+  subscription: 'defer',
+  transport: 'defer',
+} as const satisfies Readonly<Record<McpLabProtocolPhase, 'defer' | 'execute'>>;
 
 function parseStartOptions(options: unknown): ParsedStartOptions {
   if (typeof options !== 'object' || options === null || Array.isArray(options)) {
@@ -156,6 +142,7 @@ function parseStartOptions(options: unknown): ParsedStartOptions {
   }
   return Object.freeze({
     ...(execution === undefined ? {} : { execution }),
+    executionProvided: keys.includes('execution'),
     ...(faultPlan === undefined ? {} : { faultPlan }),
   });
 }
@@ -203,19 +190,22 @@ function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
 function createSession(
   scenario: McpLabScenario,
   endpoint: McpLabEndpoint,
-  resources: CloseResource[],
+  resources: McpLabCleanupResource[],
   diagnostics: McpLabDiagnostic[] = [],
   oauthStateCounts?: () => McpOAuthReferenceStateCounts,
   faultRuntime?: McpLabFaultRuntime
 ): McpLabSession {
-  let closed = false;
-  let closePromise: Promise<McpLabCleanupReport> | undefined;
+  const cleanup = createMcpLabSessionCleanup({
+    faultRuntime,
+    oauthStateCounts,
+    resources,
+  });
   const guardedEndpoint =
     endpoint.kind === 'in-process-http'
       ? Object.freeze({
           ...endpoint,
           fetch: async (input: string | URL | Request, init?: RequestInit) => {
-            if (closed) {
+            if (cleanup.closed) {
               throw new Error('MCP lab session is closed');
             }
             return endpoint.fetch(input, init);
@@ -223,36 +213,9 @@ function createSession(
         })
       : endpoint;
   return Object.freeze({
-    close(): Promise<McpLabCleanupReport> {
-      if (closePromise) {
-        return closePromise;
-      }
-      closePromise = (async () => {
-        const errors: unknown[] = [];
-        for (const resource of resources) {
-          if (resource.closed) {
-            continue;
-          }
-          try {
-            await resource.close();
-            resource.closed = true;
-          } catch (error) {
-            errors.push(error);
-          }
-        }
-        if (errors.length > 0) {
-          closePromise = undefined;
-          throw errors.length === 1
-            ? errors[0]
-            : new AggregateError(errors, 'MCP lab cleanup failed');
-        }
-        closed = resources.every((resource) => resource.closed);
-        return createCleanupReport(resources, oauthStateCounts, faultRuntime);
-      })();
-      return closePromise;
-    },
+    close: cleanup.close,
     get closed() {
-      return closed;
+      return cleanup.closed;
     },
     diagnostics: () => Object.freeze(diagnostics.map((value) => Object.freeze({ ...value }))),
     endpoint: guardedEndpoint,
@@ -366,8 +329,12 @@ async function createLoopbackSession(
   );
 }
 
-function createStdioSession(scenario: McpLabScenario): McpLabSession {
+function createStdioSession(
+  scenario: McpLabScenario,
+  faultPlan: McpLabClaimedFaultPlan | undefined
+): McpLabSession {
   const diagnostics: McpLabDiagnostic[] = [];
+  const faultRuntime = createMcpLabFaultRuntime(faultPlan, scenario.id);
   let stderrByteCount = 0;
   const args = Object.freeze([
     fileURLToPath(new URL('../fixtures/stdio-reference-server.mjs', import.meta.url)),
@@ -394,13 +361,15 @@ function createStdioSession(scenario: McpLabScenario): McpLabSession {
         kind: 'stdio-transport',
       },
     ],
-    diagnostics
+    diagnostics,
+    undefined,
+    faultRuntime
   );
 }
 
 export function startMcpLabScenario(
   id: 'stdio-reference',
-  options?: Readonly<Record<string, never>>
+  options?: { readonly execution?: never; readonly faultPlan?: McpLabFaultPlan }
 ): Promise<McpLabSession>;
 export function startMcpLabScenario(
   id: 'oauth-reference',
@@ -417,13 +386,25 @@ export async function startMcpLabScenario(
   const startOptions = parseStartOptions(options);
   const scenario = getMcpLabScenario(id);
   if (scenario.id === 'stdio-reference') {
-    if (startOptions.faultPlan) {
-      throw new Error('MCP lab stdio fault execution is not available in this layer');
-    }
-    if (startOptions.execution !== undefined) {
+    if (startOptions.executionProvided) {
       throw new Error('MCP lab stdio scenario does not accept execution');
     }
-    return createStdioSession(scenario);
+    assertScenarioFaultCompatibility(startOptions.faultPlan, scenario, undefined);
+    if (
+      startOptions.faultPlan &&
+      Object.entries(STDIO_FAULT_PHASE_POLICY).some(
+        ([phase, policy]) =>
+          policy === 'defer' &&
+          startOptions.faultPlan?.hasRemainingPhase(phase as McpLabProtocolPhase)
+      )
+    ) {
+      throw new Error(
+        'MCP lab stdio protocol and child fault execution is not available in this layer'
+      );
+    }
+    return startWithClaimedMcpLabFaultPlan(startOptions.faultPlan, (claimedFaultPlan) =>
+      createStdioSession(scenario, claimedFaultPlan)
+    );
   }
   if (scenario.availability !== 'executable' || scenario.transport !== 'streamable-http') {
     throw new Error(`MCP lab scenario "${scenario.id}" is not executable`);

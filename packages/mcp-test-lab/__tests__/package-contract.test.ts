@@ -228,6 +228,10 @@ describe('MCP test lab package contract', () => {
     expect(normalizedContract).toContain(
       'single-session and permanent even when later startup fails'
     );
+    expect(normalizedContract).toContain(
+      'One private cleanup owner serially closes every session resource'
+    );
+    expect(normalizedContract).toContain('concurrent callers share that attempt');
     expect(contract).toContain('bounds and snapshots declaration');
     expect(contract).toContain('@modelcontextprotocol/core@2.0.0');
     expect(contract).toContain('`assertScenarioFaultCompatibility`');

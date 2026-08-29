@@ -675,7 +675,7 @@ function faultSupportsTransport(
   transport: McpLabTransportKind
 ): boolean {
   if (declaration.match.phase === 'shutdown') {
-    return transport === 'stdio';
+    return true;
   }
   if (NON_CLIENT_EXECUTABLE_METHODS.has(declaration.match.method)) {
     return false;
