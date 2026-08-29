@@ -54,6 +54,25 @@ async function verifyReferenceExchange(
 }
 
 describe('MCP lab in-process HTTP references', () => {
+  it('snapshots accessor-backed execution exactly once before routing', async () => {
+    let executionReads = 0;
+    const options = Object.defineProperty({}, 'execution', {
+      enumerable: true,
+      get() {
+        executionReads += 1;
+        return executionReads === 1 ? 'in-process' : 'loopback';
+      },
+    });
+    const lab = await startMcpLabScenario('modern-reference', options as never);
+
+    try {
+      expect(lab.endpoint.kind).toBe('in-process-http');
+      expect(executionReads).toBe(1);
+    } finally {
+      await lab.close();
+    }
+  });
+
   it('negotiates the pinned modern protocol through a real SDK exchange', async () => {
     await verifyReferenceExchange(
       'modern-reference',
