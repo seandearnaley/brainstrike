@@ -178,6 +178,50 @@ describe('MCP lab fault plan', () => {
     ).toThrowError(/child-process.*occurrence 1/i);
   });
 
+  it('rejects shutdown occurrences that cannot be reached by retries', () => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { kind: 'cleanup_error' },
+          id: 'unreachable-second-close',
+          match: { method: 'transport/close', occurrence: 2, phase: 'shutdown' },
+        },
+      ])
+    ).toThrowError(/shutdown.*occurrence 2.*unreachable/i);
+
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'successful-first-close',
+          match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
+        },
+        {
+          fault: { kind: 'cleanup_error' },
+          id: 'unreachable-after-success',
+          match: { method: 'transport/close', occurrence: 2, phase: 'shutdown' },
+        },
+      ])
+    ).toThrowError(/shutdown.*occurrence 2.*unreachable/i);
+  });
+
+  it('accepts contiguous shutdown retries after explicit cleanup failures', () => {
+    expect(() =>
+      createMcpLabFaultPlan([
+        {
+          fault: { kind: 'cleanup_error' },
+          id: 'failed-first-close',
+          match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
+        },
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'delayed-second-close',
+          match: { method: 'transport/close', occurrence: 2, phase: 'shutdown' },
+        },
+      ])
+    ).not.toThrow();
+  });
+
   it('consumes an exact phase, method, and occurrence with a redacted observation', () => {
     const plan = createMcpLabFaultPlan([
       {
@@ -259,7 +303,7 @@ describe('MCP lab fault plan', () => {
       {
         fault: { kind: 'cleanup_error' },
         id: 'cleanup',
-        match: { method: 'transport/close', occurrence: 7, phase: 'shutdown' },
+        match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
       },
     ] as const satisfies readonly McpLabFaultDeclaration[];
     const consumptions: readonly McpLabFaultConsumption[] = declarations.map(

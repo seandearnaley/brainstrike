@@ -416,6 +416,11 @@ describe('MCP lab fault and cleanup lifecycle', () => {
         id: 'fail-first-close',
         match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
       },
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'delay-retried-close',
+        match: { method: 'transport/close', occurrence: 2, phase: 'shutdown' },
+      },
     ]);
     const lab = await startMcpLabScenario('modern-reference', { faultPlan });
     if (lab.endpoint.kind !== 'loopback-http') {

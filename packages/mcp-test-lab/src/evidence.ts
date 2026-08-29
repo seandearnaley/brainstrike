@@ -171,7 +171,6 @@ const TRUSTED_NAMESPACED_CREDENTIAL_LABELS = new Map<string, string>([
 const NAMESPACED_CREDENTIAL_KEY_SUFFIXES = CREDENTIAL_KEY_SUFFIXES.filter(
   (key) => !(AMBIGUOUS_CREDENTIAL_KEYS as readonly string[]).includes(key)
 );
-const GENERIC_CREDENTIAL_KEYS = new Set(['authorization', 'code', 'token']);
 const MAX_SERIALIZED_JSON_SCAN_DEPTH = 4;
 const AMBIGUOUS_ASSIGNMENT_KEYS = AMBIGUOUS_CREDENTIAL_KEYS.map((key) =>
   key.replaceAll('_', '[_ .-]')
@@ -220,10 +219,7 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
     const assignedValue = match[2] ?? match[3] ?? match[4] ?? '';
     const diagnosticValue = assignedValue.replace(/[),.;\]}]+$/u, '');
     const prefix = text.slice(Math.max(0, match.index - 16), match.index);
-    if (
-      GENERIC_CREDENTIAL_KEYS.has(label) &&
-      isSafeDiagnosticAssignment(label, diagnosticValue, prefix)
-    ) {
+    if (isSafeDiagnosticAssignment(label, diagnosticValue, prefix)) {
       continue;
     }
     findings.push({
@@ -297,6 +293,12 @@ export function parseMcpEvidenceBundle(
     versions: parseVersions(root['versions']),
   };
 
+  if (bundle.versions.spec !== bundle.negotiation.revision) {
+    invalid(
+      '$.versions.spec',
+      `must equal $.negotiation.revision "${bundle.negotiation.revision}"`
+    );
+  }
   assertProofOrder(bundle.commands);
   assertSanitizedText(bundle, '$');
   assertSanitizedArtifacts(bundle.artifacts, dependencies);

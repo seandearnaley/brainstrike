@@ -548,6 +548,15 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/era.*revision|revision.*era/i);
   });
 
+  it('binds the recorded spec version to the negotiated revision', () => {
+    expect(() =>
+      parseEvidence({
+        ...VALID_BUNDLE,
+        versions: { ...VALID_BUNDLE.versions, spec: '2025-11-25' },
+      })
+    ).toThrowError(/versions\.spec.*negotiation\.revision/i);
+  });
+
   it('requires explicit blocker records when the scenario is blocked', () => {
     const blockedBundle = {
       ...VALID_BUNDLE,
@@ -692,6 +701,25 @@ describe('parseMcpEvidenceBundle', () => {
     expect(scanEvidenceTextForSecrets('token=SECRETSECRET')).not.toEqual([]);
     expect(scanEvidenceTextForSecrets('authorization=BEARERTOKEN')).not.toEqual([]);
     expect(scanEvidenceTextForSecrets('code=ABCDEFGH')).not.toEqual([]);
+  });
+
+  it('accepts canonical safe sentinels for every recognized credential key', () => {
+    expect(scanEvidenceTextForSecrets('client_secret=redacted')).toEqual([]);
+
+    const bytes = new TextEncoder().encode('{"client_secret":"redacted"}');
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          ...VALID_BUNDLE.artifacts[0],
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(
+      parseMcpEvidenceBundle(bundle, { readArtifactContent: () => ({ bytes }) })
+    ).toMatchObject({ ticket: 'BST-1475' });
   });
 
   it('secret-scans textual evidence recursively and reports only its path and secret class', () => {

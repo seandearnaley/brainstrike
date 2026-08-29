@@ -477,6 +477,25 @@ function registerUniqueDeclaration(
   declaredMatches.set(key, declaration.id);
 }
 
+function assertReachableShutdownDeclarations(
+  declarations: readonly McpLabFaultDeclaration[]
+): void {
+  const shutdownDeclarations = declarations
+    .filter((declaration) => declaration.match.phase === 'shutdown')
+    .toSorted((left, right) => left.match.occurrence - right.match.occurrence);
+  let expectedOccurrence = 1;
+  let previousAttemptFailed = true;
+  for (const declaration of shutdownDeclarations) {
+    if (declaration.match.occurrence !== expectedOccurrence || !previousAttemptFailed) {
+      throw new Error(
+        `Invalid MCP lab fault "${declaration.id}": shutdown occurrence ${declaration.match.occurrence} is unreachable`
+      );
+    }
+    previousAttemptFailed = declaration.fault.kind === 'cleanup_error';
+    expectedOccurrence += 1;
+  }
+}
+
 function validateFaultDeclarations(declarations: readonly McpLabFaultDeclaration[]): void {
   const declaredIds = new Set<string>();
   const declaredMatches = new Map<string, string>();
@@ -486,6 +505,7 @@ function validateFaultDeclarations(declarations: readonly McpLabFaultDeclaration
     assertMatchProtocol(declaration);
     registerUniqueDeclaration(declaration, declaredIds, declaredMatches);
   }
+  assertReachableShutdownDeclarations(declarations);
 }
 
 export function createMcpLabFaultPlan(
