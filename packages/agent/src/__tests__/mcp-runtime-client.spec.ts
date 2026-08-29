@@ -281,6 +281,9 @@ describe('MCP runtime client', () => {
       required: ['value'],
       type: 'object',
     });
+    expect((tool.inputSchema as StandardSchemaWithJSON)['~standard'].validate({})).toMatchObject({
+      issues: expect.any(Array),
+    });
     expect(standardSchemaToJSONSchema(tool.outputSchema as StandardSchemaWithJSON)).toMatchObject({
       properties: { echoed: { type: 'string' } },
       required: ['echoed'],

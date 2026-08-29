@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AgentMessage, StreamChunk } from '../index';
 import { isMastraAgentError } from '../mastra/mastra-agent-error';
 
+vi.mock('@brainstrike/agent/mcp-client', async () => ({
+  ...(await import('../mcp/explicit-http-client')),
+  ...(await import('../mcp/explicit-stdio-client')),
+}));
+
 // Import the runtime functions - we'll need to expose some internal functions for testing
 // or test them through their public interfaces
 

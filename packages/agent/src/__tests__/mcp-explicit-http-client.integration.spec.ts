@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/client';
+import { SdkHttpError } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { Transport } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
@@ -583,8 +583,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     controller.abort();
 
     await expect(client.listTools({ signal: controller.signal })).rejects.toMatchObject({
-      code: SdkErrorCode.RequestTimeout,
-      message: expect.stringContaining('AbortError'),
+      name: 'AbortError',
     });
     await client.close();
     await client.close();

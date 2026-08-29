@@ -292,6 +292,7 @@ export class ExplicitHttpMcpClient {
       if (!connected) {
         await client.close().catch(() => undefined);
       }
+      options?.signal?.throwIfAborted();
       throw error;
     }
   }
@@ -344,9 +345,9 @@ export class ExplicitHttpMcpClient {
     try {
       return await request(connection.client);
     } catch (error) {
+      options?.signal?.throwIfAborted();
       if (
         this.closed ||
-        options?.signal?.aborted ||
         !(connection.transport instanceof StreamableHTTPClientTransport) ||
         !isReconnectableSessionError(error, connection.transport.sessionId !== undefined)
       ) {

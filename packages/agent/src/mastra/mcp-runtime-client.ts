@@ -2,6 +2,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
+import { fromJSONSchema } from 'zod';
 import { type McpConfig, McpConfigSchema, type McpServer } from '../mcp/config';
 import type {
   ExplicitHttpMcpCallToolParams,
@@ -181,7 +182,9 @@ function createMcpTool(
   return createTool({
     description: tool.description ?? '',
     id: `${server.name}_${tool.name}`,
-    inputSchema: createMcpInputSchema(tool.inputSchema),
+    inputSchema: toStandardSchema(
+      fromJSONSchema(tool.inputSchema as Parameters<typeof fromJSONSchema>[0])
+    ),
     ...(tool.outputSchema
       ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
       : {}),
@@ -191,31 +194,6 @@ function createMcpTool(
       executeMcpTool(client, server.name, tool.name, requireToolArguments(input), context),
     mcpMetadata: { serverName: server.name },
   });
-}
-
-function createMcpInputSchema(
-  inputSchema: ExplicitHttpMcpTool['inputSchema']
-): StandardSchemaWithJSON<Record<string, unknown>> {
-  return {
-    '~standard': {
-      jsonSchema: {
-        input: () => ({ ...inputSchema }),
-        output: () => ({ ...inputSchema }),
-      },
-      validate: (value: unknown) => {
-        if (!isRecord(value)) {
-          return { issues: [{ message: 'MCP tool arguments must be an object' }] };
-        }
-        return { value };
-      },
-      vendor: 'brainstrike-mcp',
-      version: 1,
-    },
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 /**

@@ -13,10 +13,7 @@ const hostedOutputs = [
 ];
 const mcpFreeOutputs = [
   ...hostedOutputs,
-  'dist/browser-safe.js',
-  'dist/browser-safe.mjs',
-  'dist/index.js',
-  'dist/index.mjs',
+  ...['browser-safe', 'index'].flatMap((entry) => [`dist/${entry}.js`, `dist/${entry}.mjs`]),
 ];
 const forbiddenRuntimeImports = [
   {
