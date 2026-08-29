@@ -37,6 +37,10 @@
       "types": "./dist/lab.d.ts",
       "default": "./dist/lab.js"
     },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "default": "./dist/runner.js"
+    },
     "./scenario": {
       "types": "./dist/scenario.d.ts",
       "default": "./dist/scenario.js"

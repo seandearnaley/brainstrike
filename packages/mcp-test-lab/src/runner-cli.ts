@@ -8,14 +8,13 @@ import { runMcpLabVerification } from './runner.js';
 export interface McpLabRunnerCliArgs {
   readonly output: string;
   readonly profile: 'exhaustive' | 'pr';
-  readonly ticket: string;
 }
 
 function invalid(message: string): never {
   throw new Error(`Invalid MCP lab runner arguments: ${message}`);
 }
 
-const CLI_FLAGS = new Set(['--profile', '--ticket', '--output']);
+const CLI_FLAGS = new Set(['--profile', '--output']);
 const PORTABLE_OUTPUT_PATH = /^[A-Za-z0-9._/-]+\.json$/u;
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
@@ -42,7 +41,7 @@ function collectValues(argv: unknown): ReadonlyMap<string, string> {
     }
   }
   if (values.size !== CLI_FLAGS.size) {
-    invalid('profile, ticket, and output are required');
+    invalid('profile and output are required');
   }
   return values;
 }
@@ -62,22 +61,18 @@ function relativeJsonPath(value: string): string {
 export function parseMcpLabRunnerCliArgs(argv: unknown): McpLabRunnerCliArgs {
   const values = collectValues(argv);
   const profile = values.get('--profile');
-  const ticket = values.get('--ticket');
   const output = values.get('--output');
   if (profile !== 'pr' && profile !== 'exhaustive') {
     invalid('profile must be "pr" or "exhaustive"');
   }
-  if (!(ticket && /^BST-[1-9]\d*$/u.test(ticket))) {
-    invalid('ticket must be a BST identifier');
-  }
   if (!output) {
     invalid('output is required');
   }
-  return Object.freeze({ output: relativeJsonPath(output), profile, ticket });
+  return Object.freeze({ output: relativeJsonPath(output), profile });
 }
 
 export function mcpLabRunnerEvidenceCommand(args: McpLabRunnerCliArgs): string {
-  return `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile ${args.profile} --ticket ${args.ticket} --output ${args.output}`;
+  return `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile ${args.profile} --output ${args.output}`;
 }
 
 export function resolveMcpLabRunnerGitEvidence(
@@ -102,7 +97,7 @@ export async function runMcpLabRunnerCli(argv: readonly string[]): Promise<void>
       command,
       git,
       selection: { profile: args.profile },
-      ticket: args.ticket,
+      ticket: 'BST-1486',
     },
     createMcpLabReferenceRunnerDependencies(),
     {

@@ -6,7 +6,7 @@ import {
 } from '../src/runner-cli';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
-const VALID_ARGS = ['--profile', 'pr', '--ticket', 'BST-1496', '--output', 'artifacts/mcp-pr.json'];
+const VALID_ARGS = ['--profile', 'pr', '--output', 'artifacts/mcp-pr.json'];
 
 function replaceValue(index: number, value: string): string[] {
   const args = [...VALID_ARGS];
@@ -21,11 +21,10 @@ describe('MCP verifier runner CLI', () => {
     expect(parsed).toEqual({
       output: 'artifacts/mcp-pr.json',
       profile: 'pr',
-      ticket: 'BST-1496',
     });
     expect(Object.isFrozen(parsed)).toBe(true);
     expect(mcpLabRunnerEvidenceCommand(parsed)).toBe(
-      'pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr --ticket BST-1496 --output artifacts/mcp-pr.json'
+      'pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr --output artifacts/mcp-pr.json'
     );
   });
 
@@ -42,11 +41,10 @@ describe('MCP verifier runner CLI', () => {
       [],
       ['--profile', 'pr'],
       replaceValue(1, 'missing'),
-      replaceValue(3, '1496'),
-      replaceValue(5, '../a.json'),
-      replaceValue(5, 'a.txt'),
-      replaceValue(5, 'artifacts/mcp report.json'),
-      replaceValue(5, 'artifacts/mcp;report.json'),
+      replaceValue(3, '../a.json'),
+      replaceValue(3, 'a.txt'),
+      replaceValue(3, 'artifacts/mcp report.json'),
+      replaceValue(3, 'artifacts/mcp;report.json'),
       [...VALID_ARGS, '--profile', 'pr'],
     ].map((argv) => [argv] as const)
   )('fails closed for malformed argv %j', (argv) => {
