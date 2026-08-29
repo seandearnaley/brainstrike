@@ -1027,6 +1027,26 @@ lives in
 Drizzle token/file repository tests, and
 `packages/app-shell/src/__tests__/system-diagnostics-panel.test.tsx`.
 
+The background token indexer has a separate renderer-local telemetry stream in
+`packages/token-cache/src/telemetry.ts`. System Diagnostics subscribes only
+while the panel is mounted: `useIndexerTelemetry` creates the subscribing
+aggregator inside its effect, and every effect instance disposes that aggregator.
+Do not move subscription creation into render or a memo initializer; StrictMode
+and abandoned concurrent renders can otherwise retain a raw-event listener after
+the panel closes. The panel shows rolling one-minute aggregate latency, cache-hit
+rate, throughput, token count, error count, and explicit retained event count.
+Expected binary-file exclusions remain terminal file outcomes but never emit an
+`indexing_error` event or contribute to that error count.
+Cache-hit-only windows render a neutral latency glyph because they contain events
+but no timed indexing work; `No samples` remains the whole-window state. The view
+receives a deliberately projected aggregate object: raw
+events contain composite keys, folder ids, paths, and error messages and must
+never cross into the diagnostics card. Token-cache database duration and lookup
+hit rate remain owned by the `token-estimation` feature above. The old
+selection-change-to-estimate metric is no longer a meaningful asynchronous seam:
+selected-token summaries read the already-built in-memory map synchronously, so
+do not add a timer or debounce around that read solely for diagnostics.
+
 ---
 
 ## DIAGNOSTIC EVENTS (FLIGHT RECORDER P1)
