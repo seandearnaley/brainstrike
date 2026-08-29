@@ -50,6 +50,9 @@ import { join } from 'node:path';
 // Packages that must NOT be blanket source-aliased. Excludable/overridable via
 // the `exclude` option; these are the always-on defaults with their reason.
 export const DEFAULT_SRC_ALIAS_EXCLUSIONS = Object.freeze([
+  // Verification-only package: application packages must never gain an
+  // undeclared source-resolution path into the MCP lab.
+  '@brainstrike/mcp-test-lab',
   // @brainstrike/agent's root + most subpaths pull Mastra / Node-only deps that
   // cannot load in a browser/happy-dom test. Consumers that need agent code use
   // the curated `createAgentBrowserSafeAliasEntries` helper
