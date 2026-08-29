@@ -46,6 +46,7 @@ describe('MCP test lab package contract', () => {
     expect(manifest.types).toBe('./dist/index.d.ts');
     expect(manifest.exports).toEqual({
       '.': { default: './dist/index.js', types: './dist/index.d.ts' },
+      './evidence': { default: './dist/evidence.js', types: './dist/evidence.d.ts' },
       './faults': { default: './dist/faults.js', types: './dist/faults.d.ts' },
       './lab': { default: './dist/lab.js', types: './dist/lab.d.ts' },
       './scenario': { default: './dist/scenario.js', types: './dist/scenario.d.ts' },
