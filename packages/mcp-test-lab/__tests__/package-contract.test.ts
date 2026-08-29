@@ -223,9 +223,20 @@ describe('MCP test lab package contract', () => {
       '[living provider contract](../assistant-providers.md#mcp-2026-host-architecture)'
     );
     expect(contract).toContain('exports `./faults` only after');
-    expect(contract).toContain('No runtime may attach a plan');
+    expect(contract).toContain('HTTP fault execution is private package machinery');
     expect(contract).toContain('bounds and snapshots declaration');
     expect(contract).toContain('@modelcontextprotocol/core@2.0.0');
     expect(contract).toContain('`assertScenarioFaultCompatibility`');
+    expect(normalizedContract).toContain(
+      "pinned SDK's `classifyInboundRequest` and `specTypeSchemas`"
+    );
+    expect(normalizedContract).toContain('Occurrences are independent per exact phase/method');
+    expect(normalizedContract).toContain(
+      'after bearer authentication and bounded body preparation'
+    );
+    expect(normalizedContract).toContain('destroys the socket before status bytes are written');
+    expect(normalizedContract).toContain('response-stage replacements cancel the displaced body');
+    expect(normalizedContract).toContain('diagnostics are capped at 64 per session');
+    expect(normalizedContract).toContain('Session close waits for active fault delays');
   });
 });
