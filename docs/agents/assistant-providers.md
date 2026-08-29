@@ -1964,7 +1964,7 @@ Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
 transport, fault coordinate, OAuth route, evidence guarantee, or runner before
 that branch contains its executable path and focused verifier. Current public
-verifier subpaths: `./scenario`.
+verifier subpaths: `./faults`, `./scenario`.
 
 ### MCP 2026 host architecture
 
