@@ -1961,12 +1961,14 @@ The fault-plan vocabulary and runtime dispatcher are one contract: every
 accepted protocol method must resolve to an executable phase, and the dedicated
 `node/dispatch` coordinate verifies the outer Node response error boundary
 rather than an SDK-internal JSON-RPC error. Start options accept only plans
-created by `createMcpLabFaultPlan`, not structural substitutes; created plans
-are immutable, and fault ids are diagnostic-safe lowercase identifiers. Every
+created by `createMcpLabFaultPlan`, not structural substitutes. Declarations
+are snapshotted once before validation, created plans are immutable, and fault
+ids are diagnostic-safe lowercase identifiers. Every
 fault consumption and caller-supplied request correlation id must match the
 bounded evidence identifier grammar; rejected values never enter diagnostics.
-The SDK `mcp-method` header may accelerate routing only when it
-agrees with the JSON-RPC body, which remains authoritative. Cleanup reports
+The SDK `mcp-method` header may accelerate routing only on POST when it agrees
+with the JSON-RPC body, which remains authoritative; bodyless requests cannot
+consume protocol faults. Cleanup reports
 listener and stdio transport counts plus immutable untriggered fault ids; a failed close remains
 retryable, including a delegated stdio close that rejects. Configured shutdown
 occurrences form a contiguous sequence beginning at one, and only an explicit
@@ -1976,7 +1978,9 @@ are bound to their matching child events, stdio startup mutations are bound to
 `child/spawn`, and `cleanup_error` is bound only to `shutdown/transport/close`.
 The selected scenario transport validates the complete plan before opening a
 listener or starting a child: HTTP-only response faults cannot be consumed by
-stdio, and child-process coordinates cannot enter HTTP sessions.
+stdio, child-process coordinates cannot enter HTTP sessions, and stdio rejects
+server-to-client-only request coordinates that its outbound transport cannot
+execute.
 `drop_response`
 means a real transport failure: loopback destroys the socket without headers,
 and stdio accepts the selected tool request but never replies until the caller
@@ -1990,12 +1994,16 @@ still requires the exact S256 binding recorded at authorization.
 Evidence parsing reads each referenced artifact once as exact bytes. Text
 artifacts are scanned both as raw UTF-8 and as parsed JSON/NDJSON so escaped
 credentials, serialized JSON bodies, Basic authorization, and bearer material
-cannot evade detection. JSON containers embedded in prefixed log lines are
-also decoded and scanned, including quote-escaped bodies. Parseable serialized
+cannot evade detection. Balanced JSON containers embedded in prefixed or
+suffixed log text are also decoded and scanned, including quote-escaped bodies.
+Parseable serialized
 JSON and multi-root NDJSON string fields are scanned recursively to a bounded
 depth and fail closed if another JSON container exceeds the bound. Canonical
 disabled/none/redacted sentinels are accepted consistently in raw assignments,
-decoded fields, and URL parameters; other credential-bearing values fail.
+decoded fields, and URL parameters only when the entire captured value is the
+sentinel; quoted punctuation remains part of the value. Repository-explicit
+token names such as GitHub and AWS session/Bedrock tokens are classified
+without treating every ambiguous namespaced `_token` field as a credential.
 Screenshot artifacts require a text/OCR
 extractor that the verifier invokes with a copy of those exact bytes; absent or
 failed extraction rejects the bundle. The verifier recomputes the lowercase

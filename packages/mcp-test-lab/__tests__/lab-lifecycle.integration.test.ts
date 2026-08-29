@@ -409,6 +409,13 @@ describe('MCP lab fault and cleanup lifecycle', () => {
       })
     ).rejects.toThrow(/mcp-method.*match.*JSON-RPC body/i);
     expect(faultPlan.untriggeredIds()).toEqual(['tools-call-only']);
+
+    const getResponse = await lab.endpoint.fetch(lab.endpoint.url, {
+      headers: { 'mcp-method': 'tools/call' },
+      method: 'GET',
+    });
+    expect(getResponse.status).not.toBe(418);
+    expect(faultPlan.untriggeredIds()).toEqual(['tools-call-only']);
     await expect(lab.close()).resolves.toMatchObject({
       untriggeredFaultIds: ['tools-call-only'],
     });

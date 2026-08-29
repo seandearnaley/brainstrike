@@ -37,6 +37,35 @@ describe('MCP lab fault plan', () => {
     }
   );
 
+  it('snapshots accessor-backed declarations exactly once before validation', () => {
+    let faultReads = 0;
+    const declaration = Object.defineProperty(
+      {
+        id: 'accessor-backed-fault',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+      'fault',
+      {
+        enumerable: true,
+        get() {
+          faultReads += 1;
+          return faultReads === 1 ? { delayMs: 1, kind: 'delay' } : { kind: 'cleanup_error' };
+        },
+      }
+    );
+
+    const plan = createMcpLabFaultPlan([declaration] as never);
+    expect(faultReads).toBe(1);
+    expect(
+      plan.consume({
+        correlationId: 'accessor-correlation',
+        method: 'tools/call',
+        occurrence: 1,
+        phase: 'operation',
+      })
+    ).toEqual({ delayMs: 1, kind: 'delay' });
+  });
+
   it.each([
     {
       extra: true,

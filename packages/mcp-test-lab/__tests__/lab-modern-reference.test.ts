@@ -96,6 +96,30 @@ describe('MCP lab modern reference', () => {
     expect(String(caught)).toMatch(/incompatible.*stdio/i);
   });
 
+  it.each(['elicitation/create', 'roots/list', 'sampling/createMessage'] as const)(
+    'rejects inbound-only %s faults before starting stdio',
+    async (method) => {
+      const faultPlan = createMcpLabFaultPlan([
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'inbound-only-stdio',
+          match: { method, occurrence: 1, phase: 'operation' },
+        },
+      ]);
+      let lab: Awaited<ReturnType<typeof startMcpLabScenario>> | undefined;
+      let caught: unknown;
+      try {
+        lab = await startMcpLabScenario('stdio-reference', { faultPlan });
+      } catch (error) {
+        caught = error;
+      } finally {
+        await lab?.close();
+      }
+
+      expect(String(caught)).toMatch(/incompatible.*stdio/i);
+    }
+  );
+
   it('rejects node/dispatch faults for in-process HTTP execution', async () => {
     const faultPlan = createMcpLabFaultPlan([
       {

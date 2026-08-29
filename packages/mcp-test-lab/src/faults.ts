@@ -103,6 +103,11 @@ export interface McpLabChildStderrFault {
 const MCP_LAB_CHILD_SIGNALS = ['SIGABRT', 'SIGKILL', 'SIGTERM'] as const;
 
 const MCP_LAB_CHILD_SIGNAL_SET = new Set<string>(MCP_LAB_CHILD_SIGNALS);
+const STDIO_INBOUND_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+  'elicitation/create',
+  'roots/list',
+  'sampling/createMessage',
+]);
 
 export type McpLabChildSignal = (typeof MCP_LAB_CHILD_SIGNALS)[number];
 
@@ -410,6 +415,9 @@ function faultSupportsTransport(
   if (declaration.match.phase === 'authorization' || declaration.match.phase === 'transport') {
     return false;
   }
+  if (STDIO_INBOUND_ONLY_METHODS.has(declaration.match.method)) {
+    return false;
+  }
   if (
     declaration.fault.kind === 'drop_response' &&
     declaration.match.method.startsWith('notifications/')
@@ -425,6 +433,36 @@ function freezeDeclaration(declaration: McpLabFaultDeclaration): McpLabFaultDecl
     id: declaration.id,
     match: Object.freeze({ ...declaration.match }),
   });
+}
+
+function snapshotRecord(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const snapshot: Record<string, unknown> = {};
+  try {
+    for (const key of Object.keys(value)) {
+      snapshot[key] = value[key];
+    }
+  } catch {
+    throw new Error('Invalid MCP lab fault declaration: could not snapshot input');
+  }
+  return snapshot;
+}
+
+function snapshotDeclaration(declaration: unknown): McpLabFaultDeclaration {
+  const snapshot = snapshotRecord(declaration);
+  if (!isRecord(snapshot)) {
+    return snapshot as McpLabFaultDeclaration;
+  }
+  const mutableSnapshot: Record<string, unknown> = { ...snapshot };
+  if (Object.hasOwn(mutableSnapshot, 'fault')) {
+    mutableSnapshot['fault'] = snapshotRecord(mutableSnapshot['fault']);
+  }
+  if (Object.hasOwn(mutableSnapshot, 'match')) {
+    mutableSnapshot['match'] = snapshotRecord(mutableSnapshot['match']);
+  }
+  return mutableSnapshot as unknown as McpLabFaultDeclaration;
 }
 
 function assertDeclarationShape(declaration: McpLabFaultDeclaration): void {
@@ -531,9 +569,10 @@ function validateFaultDeclarations(declarations: readonly McpLabFaultDeclaration
 export function createMcpLabFaultPlan(
   declarations: readonly McpLabFaultDeclaration[]
 ): McpLabFaultPlan {
-  validateFaultDeclarations(declarations);
+  const snapshots = declarations.map((declaration) => snapshotDeclaration(declaration));
+  validateFaultDeclarations(snapshots);
 
-  const immutableDeclarations = declarations.map(freezeDeclaration);
+  const immutableDeclarations = snapshots.map(freezeDeclaration);
   const remaining = new Map(
     immutableDeclarations.map((declaration) => [matchKey(declaration.match), declaration] as const)
   );

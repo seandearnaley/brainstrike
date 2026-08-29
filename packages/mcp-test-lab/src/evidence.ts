@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { balancedJsonCandidates, embeddedJsonStarts, parseJsonCandidate } from './embedded-json.js';
 
 export const MCP_EVIDENCE_SCHEMA_VERSION = '1.0.0' as const;
 
@@ -165,6 +166,8 @@ const CREDENTIAL_KEYS = [
 const CREDENTIAL_KEY_SUFFIXES = [...CREDENTIAL_KEYS, 'secret_access_key'] as const;
 const AMBIGUOUS_CREDENTIAL_KEYS = ['authorization', 'code', 'token'] as const;
 const TRUSTED_NAMESPACED_CREDENTIAL_LABELS = new Map<string, string>([
+  ['aws_bearer_token_bedrock', 'token'],
+  ['aws_session_token', 'token'],
   ['gh_token', 'token'],
   ['github_token', 'token'],
 ]);
@@ -218,7 +221,8 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
       continue;
     }
     const assignedValue = match[2] ?? match[3] ?? match[4] ?? '';
-    const diagnosticValue = assignedValue.replace(/[),.;\]}]+$/u, '');
+    const diagnosticValue =
+      match[4] === undefined ? assignedValue : assignedValue.replace(/[),.;\]}]+$/u, '');
     const prefix = text.slice(Math.max(0, match.index - 16), match.index);
     if (isSafeDiagnosticAssignment(label, diagnosticValue, prefix)) {
       continue;
@@ -704,23 +708,6 @@ function assertSanitizedArtifactBytes(
   assertSanitizedParsedJson(text, path);
 }
 
-function parseJsonCandidate(candidate: string): { readonly value: unknown } | undefined {
-  try {
-    return { value: JSON.parse(candidate) as unknown };
-  } catch {
-    // A prefixed log may carry a JSON value whose quotes remain escaped.
-  }
-  try {
-    const decoded: unknown = JSON.parse(`"${candidate}"`);
-    if (typeof decoded === 'string') {
-      return { value: JSON.parse(decoded) as unknown };
-    }
-  } catch {
-    return;
-  }
-  return;
-}
-
 function assertSanitizedParsedJson(text: string, path: string, serializedJsonDepth = -1): void {
   const assertParsedValue = (value: unknown, parsedPath: string): void => {
     if (serializedJsonDepth >= MAX_SERIALIZED_JSON_SCAN_DEPTH) {
@@ -739,27 +726,23 @@ function assertSanitizedParsedJson(text: string, path: string, serializedJsonDep
   }
 
   for (const [index, line] of text.split(/\r?\n/u).entries()) {
-    const starts: number[] = [];
-    for (let start = 0; start < line.length; start += 1) {
-      const character = line[start];
-      if (character !== '{' && character !== '[') {
-        continue;
-      }
-      if (starts.length >= MAX_EMBEDDED_JSON_CANDIDATES_PER_LINE) {
-        invalid(
-          `${path}.embeddedJson[${index}]`,
-          'embedded JSON candidate count exceeds the evidence scan limit'
-        );
-      }
-      starts.push(start);
+    const starts = embeddedJsonStarts(line, MAX_EMBEDDED_JSON_CANDIDATES_PER_LINE);
+    if (!starts) {
+      invalid(
+        `${path}.embeddedJson[${index}]`,
+        'embedded JSON candidate count exceeds the evidence scan limit'
+      );
     }
     for (const [candidateIndex, start] of starts.entries()) {
-      const parsedCandidate = parseJsonCandidate(line.slice(start).trim());
-      if (parsedCandidate) {
-        assertParsedValue(
-          parsedCandidate.value,
-          `${path}.embeddedJson[${index}][${candidateIndex}]`
-        );
+      const candidates = balancedJsonCandidates(line.slice(start));
+      for (const [variantIndex, candidate] of candidates.entries()) {
+        const parsedCandidate = parseJsonCandidate(candidate);
+        if (parsedCandidate) {
+          assertParsedValue(
+            parsedCandidate.value,
+            `${path}.embeddedJson[${index}][${candidateIndex}][${variantIndex}]`
+          );
+        }
       }
     }
   }

@@ -56,7 +56,7 @@ export async function protocolCoordinate(
   }
   const headerMethod = request.headers.get('mcp-method') ?? undefined;
   if (request.method !== 'POST') {
-    return protocolCoordinateForMethod(headerMethod);
+    return;
   }
   try {
     const body: unknown = await request.clone().json();
