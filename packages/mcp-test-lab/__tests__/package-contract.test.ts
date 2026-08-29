@@ -205,5 +205,8 @@ describe('MCP test lab package contract', () => {
     );
     expect(contract).toContain('exports `./faults` only after');
     expect(contract).toContain('No runtime may attach a plan');
+    expect(contract).toContain('bounds and snapshots declaration');
+    expect(contract).toContain('@modelcontextprotocol/core@2.0.0');
+    expect(contract).toContain('`assertScenarioFaultCompatibility`');
   });
 });

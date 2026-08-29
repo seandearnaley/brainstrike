@@ -1,15 +1,15 @@
+import { getMcpLabScenario, type McpLabFixture, type McpLabScenario } from './scenario.js';
+
 const PROTOCOL_METHODS_BY_PHASE = {
   authorization: [
     'oauth/protected-resource',
     'oauth/authorization-server',
     'oauth/register',
     'oauth/authorize',
-    'oauth/callback',
     'oauth/token',
-    'oauth/revoke',
   ],
   'child-process': ['child/spawn', 'child/stderr', 'child/exit'],
-  initialization: ['initialize', 'notifications/initialized', 'ping'],
+  initialization: ['initialize', 'notifications/initialized', 'ping', 'server/discover'],
   operation: [
     'completion/complete',
     'elicitation/create',
@@ -46,6 +46,18 @@ const PROTOCOL_METHODS_BY_PHASE = {
 
 export type McpLabProtocolPhase = keyof typeof PROTOCOL_METHODS_BY_PHASE;
 export type McpLabProtocolMethod = (typeof PROTOCOL_METHODS_BY_PHASE)[McpLabProtocolPhase][number];
+export type McpLabOperationMethod = (typeof PROTOCOL_METHODS_BY_PHASE)['operation'][number];
+
+const ECHO_FIXTURE_OPERATIONS = Object.freeze([
+  'tools/call',
+  'tools/list',
+] as const satisfies readonly McpLabOperationMethod[]);
+const OPERATIONS_BY_FIXTURE: Readonly<Record<McpLabFixture, readonly McpLabOperationMethod[]>> =
+  Object.freeze({
+    'brainstrike-oauth-reference': ECHO_FIXTURE_OPERATIONS,
+    'brainstrike-sdk-v2-reference': ECHO_FIXTURE_OPERATIONS,
+    'brainstrike-stdio-reference': ECHO_FIXTURE_OPERATIONS,
+  });
 
 export function protocolPhaseForMethod(method: string): McpLabProtocolPhase | undefined {
   if ((PROTOCOL_METHODS_BY_PHASE.authorization as readonly string[]).includes(method)) {
@@ -103,6 +115,36 @@ export interface McpLabChildStderrFault {
 const MCP_LAB_CHILD_SIGNALS = ['SIGABRT', 'SIGKILL', 'SIGTERM'] as const;
 
 const MCP_LAB_CHILD_SIGNAL_SET = new Set<string>(MCP_LAB_CHILD_SIGNALS);
+const SERVER_TO_CLIENT_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+  'elicitation/create',
+  'notifications/message',
+  'notifications/prompts/list_changed',
+  'notifications/resources/list_changed',
+  'notifications/resources/updated',
+  'notifications/tools/list_changed',
+  'roots/list',
+  'sampling/createMessage',
+]);
+const MODERN_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+  'server/discover',
+  'subscriptions/listen',
+]);
+// Exact @modelcontextprotocol/core@2.0.0 codec registry at cc4b416.
+const LEGACY_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+  'initialize',
+  'notifications/initialized',
+  'ping',
+  'elicitation/create',
+  'logging/setLevel',
+  'resources/subscribe',
+  'resources/unsubscribe',
+  'roots/list',
+  'sampling/createMessage',
+  'tasks/cancel',
+  'tasks/get',
+  'tasks/list',
+  'tasks/result',
+]);
 
 export type McpLabChildSignal = (typeof MCP_LAB_CHILD_SIGNALS)[number];
 
@@ -148,7 +190,16 @@ export interface McpLabFaultObservation extends McpLabFaultConsumption {
   readonly faultKind: McpLabFault['kind'];
 }
 
+export type McpLabTransportKind = 'http-in-process' | 'http-loopback' | 'stdio';
+export type McpLabProtocolEra = 'legacy' | 'modern';
+export type McpLabAuthentication = 'none' | 'oauth';
+export type McpLabExecution = 'in-process' | 'loopback' | undefined;
+
 export interface McpLabFaultPlan {
+  assertCompatibleWithAuthentication(authentication: McpLabAuthentication): void;
+  assertCompatibleWithFixture(fixture: McpLabFixture): void;
+  assertCompatibleWithProtocolEra(era: McpLabProtocolEra): void;
+  assertCompatibleWithTransport(transport: McpLabTransportKind): void;
   assertFullyConsumed(): void;
   consume(consumption: McpLabFaultConsumption): McpLabFault;
   consumeIfConfigured(consumption: McpLabFaultConsumption): McpLabFault | undefined;
@@ -164,6 +215,14 @@ const MCP_LAB_FAULT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 export function isMcpLabFaultPlan(value: unknown): value is McpLabFaultPlan {
   return typeof value === 'object' && value !== null && CREATED_MCP_LAB_FAULT_PLANS.has(value);
+}
+
+export function isMcpLabCorrelationId(value: unknown): value is string {
+  return typeof value === 'string' && MCP_LAB_CORRELATION_ID_PATTERN.test(value);
+}
+
+export function isServerToClientOnlyMethod(method: string): boolean {
+  return SERVER_TO_CLIENT_ONLY_METHODS.has(method as McpLabProtocolMethod);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -508,36 +567,42 @@ function assertDeclarationShape(declaration: McpLabFaultDeclaration): void {
   }
 }
 
-export function createMcpLabFaultPlan(
-  declarations: readonly McpLabFaultDeclaration[]
-): McpLabFaultPlan {
-  const snapshots = snapshotDeclarations(declarations);
+function assertMatchProtocol(declaration: McpLabFaultDeclaration): void {
+  if (!Number.isSafeInteger(declaration.match.occurrence) || declaration.match.occurrence < 1) {
+    throw new Error(
+      `Invalid MCP lab fault "${declaration.id}": occurrence must be a positive safe integer`
+    );
+  }
+  const phase: unknown = declaration.match.phase;
+  if (typeof phase !== 'string' || !Object.hasOwn(PROTOCOL_METHODS_BY_PHASE, phase)) {
+    throw new Error(`Invalid MCP lab fault "${declaration.id}": unknown phase`);
+  }
+  const methods = PROTOCOL_METHODS_BY_PHASE[phase as McpLabProtocolPhase];
+  if (!(methods as readonly string[]).includes(declaration.match.method)) {
+    throw new Error(
+      `Invalid MCP lab fault "${declaration.id}": method "${declaration.match.method}" does not belong to phase "${declaration.match.phase}"`
+    );
+  }
+  if (phase === 'child-process' && declaration.match.occurrence !== 1) {
+    throw new Error(
+      `Invalid MCP lab fault "${declaration.id}": child-process coordinates require occurrence 1`
+    );
+  }
+  assertFaultCoordinate(declaration);
+}
+
+function validateFaultDeclarations(declarations: readonly McpLabFaultDeclaration[]): void {
   const declaredIds = new Set<string>();
   const declaredMatches = new Map<string, string>();
-  for (const declaration of snapshots) {
+  const shutdownDeclarations: McpLabFaultDeclaration[] = [];
+  for (const declaration of declarations) {
     assertDeclarationShape(declaration);
     assertFaultPayload(declaration);
-    if (!Number.isSafeInteger(declaration.match.occurrence) || declaration.match.occurrence < 1) {
-      throw new Error(
-        `Invalid MCP lab fault "${declaration.id}": occurrence must be a positive safe integer`
-      );
-    }
-    const phase: unknown = declaration.match.phase;
-    if (typeof phase !== 'string' || !Object.hasOwn(PROTOCOL_METHODS_BY_PHASE, phase)) {
-      throw new Error(`Invalid MCP lab fault "${declaration.id}": unknown phase`);
-    }
-    const methods = PROTOCOL_METHODS_BY_PHASE[phase as McpLabProtocolPhase];
-    if (!(methods as readonly string[]).includes(declaration.match.method)) {
-      throw new Error(
-        `Invalid MCP lab fault "${declaration.id}": method "${declaration.match.method}" does not belong to phase "${declaration.match.phase}"`
-      );
-    }
-    assertFaultCoordinate(declaration);
+    assertMatchProtocol(declaration);
     if (declaredIds.has(declaration.id)) {
       throw new Error(`Duplicate MCP lab fault id: ${declaration.id}`);
     }
     declaredIds.add(declaration.id);
-
     const key = matchKey(declaration.match);
     const existingId = declaredMatches.get(key);
     if (existingId) {
@@ -546,7 +611,106 @@ export function createMcpLabFaultPlan(
       );
     }
     declaredMatches.set(key, declaration.id);
+    if (declaration.match.phase === 'shutdown') {
+      shutdownDeclarations.push(declaration);
+    }
   }
+  shutdownDeclarations.sort((left, right) => left.match.occurrence - right.match.occurrence);
+  let expectedOccurrence = 1;
+  let previousAttemptFailed = true;
+  for (const declaration of shutdownDeclarations) {
+    if (declaration.match.occurrence !== expectedOccurrence || !previousAttemptFailed) {
+      throw new Error(
+        `Invalid MCP lab fault "${declaration.id}": shutdown occurrence ${declaration.match.occurrence} is unreachable`
+      );
+    }
+    previousAttemptFailed = declaration.fault.kind === 'cleanup_error';
+    expectedOccurrence += 1;
+  }
+}
+
+function faultSupportsTransport(
+  declaration: McpLabFaultDeclaration,
+  transport: McpLabTransportKind
+): boolean {
+  if (declaration.match.phase === 'shutdown') {
+    return true;
+  }
+  if (isServerToClientOnlyMethod(declaration.match.method)) {
+    return false;
+  }
+  if (transport !== 'stdio') {
+    if (declaration.match.phase === 'child-process') {
+      return false;
+    }
+    return !(transport === 'http-in-process' && declaration.match.method === 'node/dispatch');
+  }
+  if (declaration.match.phase === 'child-process') {
+    return true;
+  }
+  if (declaration.match.phase === 'authorization' || declaration.match.phase === 'transport') {
+    return false;
+  }
+  if (
+    declaration.fault.kind === 'drop_response' &&
+    declaration.match.method.startsWith('notifications/')
+  ) {
+    return false;
+  }
+  return declaration.fault.kind === 'delay' || declaration.fault.kind === 'drop_response';
+}
+
+function faultSupportsProtocolEra(
+  declaration: McpLabFaultDeclaration,
+  era: McpLabProtocolEra
+): boolean {
+  if (era === 'modern') {
+    return !LEGACY_ONLY_METHODS.has(declaration.match.method);
+  }
+  return !MODERN_ONLY_METHODS.has(declaration.match.method);
+}
+
+function transportForScenario(
+  scenario: McpLabScenario,
+  execution: McpLabExecution
+): McpLabTransportKind {
+  if (execution !== undefined && execution !== 'in-process' && execution !== 'loopback') {
+    throw new Error('Invalid MCP lab execution mode');
+  }
+  if (getMcpLabScenario(scenario.id) !== scenario) {
+    throw new Error('Invalid MCP lab scenario manifest');
+  }
+  if (scenario.transport === 'stdio') {
+    if (execution !== undefined) {
+      throw new Error('MCP lab stdio scenario does not accept an execution mode');
+    }
+    return 'stdio';
+  }
+  return execution === 'in-process' ? 'http-in-process' : 'http-loopback';
+}
+
+export function assertScenarioFaultCompatibility(
+  faultPlan: McpLabFaultPlan | undefined,
+  scenario: McpLabScenario,
+  execution: McpLabExecution
+): void {
+  if (!faultPlan) {
+    return;
+  }
+  if (!isMcpLabFaultPlan(faultPlan)) {
+    throw new Error('Invalid MCP lab fault plan');
+  }
+  faultPlan.assertCompatibleWithAuthentication(scenario.authentication);
+  faultPlan.assertCompatibleWithProtocolEra(scenario.protocol.era);
+  faultPlan.assertCompatibleWithTransport(transportForScenario(scenario, execution));
+  faultPlan.assertCompatibleWithFixture(scenario.fixture);
+}
+
+export function createMcpLabFaultPlan(
+  declarations: readonly McpLabFaultDeclaration[]
+): McpLabFaultPlan {
+  const snapshots = snapshotDeclarations(declarations);
+  validateFaultDeclarations(snapshots);
 
   const immutableDeclarations = snapshots.map(freezeDeclaration);
   const remaining = new Map(
@@ -584,6 +748,69 @@ export function createMcpLabFaultPlan(
   }
 
   const plan: McpLabFaultPlan = Object.freeze({
+    assertCompatibleWithAuthentication(authentication: McpLabAuthentication) {
+      if (authentication !== 'none' && authentication !== 'oauth') {
+        throw new Error('Invalid MCP lab authentication mode');
+      }
+      const incompatible = immutableDeclarations.find(
+        (declaration) => declaration.match.phase === 'authorization' && authentication !== 'oauth'
+      );
+      if (!incompatible) {
+        return;
+      }
+      throw new Error(
+        `MCP lab fault "${incompatible.id}" at ${incompatible.match.phase}/${incompatible.match.method} is incompatible with ${authentication} authentication`
+      );
+    },
+    assertCompatibleWithFixture(fixture: McpLabFixture) {
+      if (!Object.hasOwn(OPERATIONS_BY_FIXTURE, fixture)) {
+        throw new Error('Invalid MCP lab fixture');
+      }
+      const supportedOperations = OPERATIONS_BY_FIXTURE[fixture];
+      const incompatible = immutableDeclarations.find(
+        (declaration) =>
+          declaration.match.phase === 'operation' &&
+          !supportedOperations.includes(declaration.match.method as McpLabOperationMethod)
+      );
+      if (!incompatible) {
+        return;
+      }
+      throw new Error(
+        `MCP lab fault "${incompatible.id}" at operation/${incompatible.match.method} is unsupported by fixture ${fixture}`
+      );
+    },
+    assertCompatibleWithProtocolEra(era: McpLabProtocolEra) {
+      if (era !== 'legacy' && era !== 'modern') {
+        throw new Error('Invalid MCP lab protocol era');
+      }
+      const incompatible = immutableDeclarations.find(
+        (declaration) => !faultSupportsProtocolEra(declaration, era)
+      );
+      if (!incompatible) {
+        return;
+      }
+      throw new Error(
+        `MCP lab fault "${incompatible.id}" at ${incompatible.match.phase}/${incompatible.match.method} is incompatible with ${era} protocol`
+      );
+    },
+    assertCompatibleWithTransport(transport: McpLabTransportKind) {
+      if (
+        transport !== 'http-in-process' &&
+        transport !== 'http-loopback' &&
+        transport !== 'stdio'
+      ) {
+        throw new Error('Invalid MCP lab transport');
+      }
+      const incompatible = immutableDeclarations.find(
+        (declaration) => !faultSupportsTransport(declaration, transport)
+      );
+      if (!incompatible) {
+        return;
+      }
+      throw new Error(
+        `MCP lab fault "${incompatible.id}" of kind "${incompatible.fault.kind}" at ${incompatible.match.phase}/${incompatible.match.method} is incompatible with ${transport} transport`
+      );
+    },
     assertFullyConsumed() {
       if (remaining.size === 0) {
         return;
