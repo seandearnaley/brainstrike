@@ -119,6 +119,26 @@ describe('MCP lab fault plan', () => {
     );
   });
 
+  it('contains hostile indexed accessor failures without echoing caller text', () => {
+    const credential = 'Authorization: Bearer index-secret';
+    const declarations = [
+      {
+        fault: { kind: 'drop_response' },
+        id: 'indexed-accessor',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ] as McpLabFaultDeclaration[];
+    Object.defineProperty(declarations, '0', {
+      get() {
+        throw new Error(credential);
+      },
+    });
+
+    expect(() => createMcpLabFaultPlan(declarations)).toThrowError(
+      'Invalid MCP lab fault declarations: could not snapshot entry'
+    );
+  });
+
   it('uses indexed snapshots without caller-controlled iteration or map', () => {
     const reads = { fault: 0, id: 0, match: 0 };
     const declaration = Object.defineProperties(

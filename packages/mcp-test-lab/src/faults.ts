@@ -290,7 +290,13 @@ function snapshotDeclarations(value: unknown): readonly McpLabFaultDeclaration[]
   }
   const snapshots: McpLabFaultDeclaration[] = [];
   for (let index = 0; index < declarationCount; index += 1) {
-    snapshots.push(freezeDeclaration(snapshotDeclaration(value[index])));
+    let declaration: unknown;
+    try {
+      declaration = value[index];
+    } catch {
+      throw new Error('Invalid MCP lab fault declarations: could not snapshot entry');
+    }
+    snapshots.push(freezeDeclaration(snapshotDeclaration(declaration)));
   }
   return snapshots;
 }
