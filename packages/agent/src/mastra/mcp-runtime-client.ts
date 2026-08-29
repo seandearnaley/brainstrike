@@ -2,20 +2,17 @@ import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
+import { fromJSONSchema } from 'zod';
 import { type McpConfig, McpConfigSchema, type McpServer } from '../mcp/config';
-import {
-  type ExplicitHttpMcpCallToolParams,
-  type ExplicitHttpMcpCallToolResult,
-  ExplicitHttpMcpClient,
-  type ExplicitHttpMcpClientOptions,
-  type ExplicitHttpMcpListToolsResult,
-  type ExplicitHttpMcpRequestOptions,
-  type ExplicitHttpMcpTool,
+import type {
+  ExplicitHttpMcpCallToolParams,
+  ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpClientOptions,
+  ExplicitHttpMcpListToolsResult,
+  ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpTool,
 } from '../mcp/explicit-http-client';
-import {
-  ExplicitStdioMcpClient,
-  type ExplicitStdioMcpClientOptions,
-} from '../mcp/explicit-stdio-client';
+import type { ExplicitStdioMcpClientOptions } from '../mcp/explicit-stdio-client';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import type { StreamChunk } from '../types';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
@@ -59,19 +56,24 @@ interface TransportOwnedServerClient {
   server: McpServer;
 }
 
-const defaultDependencies: McpRuntimeClientDependencies = {
-  createExplicitHttpClient: (options) => new ExplicitHttpMcpClient(options),
-  createExplicitStdioClient: (options) => new ExplicitStdioMcpClient(options),
-};
+async function loadDefaultDependencies(): Promise<McpRuntimeClientDependencies> {
+  const { ExplicitHttpMcpClient, ExplicitStdioMcpClient } = await import(
+    '@brainstrike/agent/mcp-client'
+  );
+  return {
+    createExplicitHttpClient: (options) => new ExplicitHttpMcpClient(options),
+    createExplicitStdioClient: (options) => new ExplicitStdioMcpClient(options),
+  };
+}
 
 /**
  * Build one structural runtime client while keeping transport ownership explicit:
  * the official MCP SDK owns every selected transport without probing, path
  * inference, response-shape collapse, or fallback.
  */
-export function createMcpRuntimeClient(
+export async function createMcpRuntimeClient(
   options: CreateMcpRuntimeClientOptions
-): McpRuntimeClient | undefined {
+): Promise<McpRuntimeClient | undefined> {
   if (!options.config) {
     return;
   }
@@ -80,7 +82,7 @@ export function createMcpRuntimeClient(
   }
   const { servers } = McpConfigSchema.parse(options.config);
 
-  const dependencies = options.dependencies ?? defaultDependencies;
+  const dependencies = options.dependencies ?? (await loadDefaultDependencies());
   const serverClients = servers.map((server): TransportOwnedServerClient => {
     if (server.transport === 'stdio') {
       const clientOptions: ExplicitStdioMcpClientOptions = {
@@ -180,7 +182,9 @@ function createMcpTool(
   return createTool({
     description: tool.description ?? '',
     id: `${server.name}_${tool.name}`,
-    inputSchema: tool.inputSchema,
+    inputSchema: toStandardSchema(
+      fromJSONSchema(tool.inputSchema as Parameters<typeof fromJSONSchema>[0])
+    ),
     ...(tool.outputSchema
       ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
       : {}),

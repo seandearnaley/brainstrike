@@ -1,9 +1,9 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import {
+  Client,
+  SdkHttpError,
+  SSEClientTransport,
   StreamableHTTPClientTransport,
-  StreamableHTTPError,
-} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+} from '@modelcontextprotocol/client';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
@@ -24,12 +24,13 @@ export type ExplicitHttpMcpTransport = 'sse' | 'streamable-http';
 export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 type SdkRequestOptions = NonNullable<Parameters<Client['listTools']>[1]>;
-type SdkTransport = Parameters<Client['connect']>[0];
-
-export type ExplicitHttpMcpRequestOptions = Pick<
-  SdkRequestOptions,
-  'maxTotalTimeout' | 'onprogress' | 'resetTimeoutOnProgress' | 'signal' | 'timeout'
->;
+export interface ExplicitHttpMcpRequestOptions {
+  maxTotalTimeout?: NonNullable<SdkRequestOptions['maxTotalTimeout']>;
+  onprogress?: NonNullable<SdkRequestOptions['onprogress']>;
+  resetTimeoutOnProgress?: NonNullable<SdkRequestOptions['resetTimeoutOnProgress']>;
+  signal?: NonNullable<SdkRequestOptions['signal']>;
+  timeout?: NonNullable<SdkRequestOptions['timeout']>;
+}
 
 export type ExplicitHttpMcpListToolsResult = Awaited<ReturnType<Client['listTools']>>;
 export type ExplicitHttpMcpTool = ExplicitHttpMcpListToolsResult['tools'][number];
@@ -85,7 +86,7 @@ function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | u
 }
 
 function isReconnectableSessionError(error: unknown, hadSession: boolean): boolean {
-  return hadSession && error instanceof StreamableHTTPError && error.code === 404;
+  return hadSession && error instanceof SdkHttpError && error.status === 404;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -187,10 +188,7 @@ export class ExplicitHttpMcpClient {
     params: ExplicitHttpMcpCallToolParams,
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<ExplicitHttpMcpCallToolResult> {
-    return this.runWithSessionRecovery(
-      (client) => client.callTool(params, undefined, options),
-      options
-    );
+    return this.runWithSessionRecovery((client) => client.callTool(params, options), options);
   }
 
   close(): Promise<void> {
@@ -283,11 +281,7 @@ export class ExplicitHttpMcpClient {
     const { client, transport } = connection;
     let connected = false;
     try {
-      // SDK 1.29.0's concrete Streamable transport exposes `sessionId` as
-      // `string | undefined`, while its Transport interface models the optional
-      // property as present-only `string` under exactOptionalPropertyTypes.
-      // The shipped class is the intended implementation despite that d.ts gap.
-      await client.connect(transport as unknown as SdkTransport, options);
+      await client.connect(transport, options);
       connected = true;
       if (this.closed) {
         await client.close();
@@ -298,6 +292,7 @@ export class ExplicitHttpMcpClient {
       if (!connected) {
         await client.close().catch(() => undefined);
       }
+      options?.signal?.throwIfAborted();
       throw error;
     }
   }
@@ -350,9 +345,9 @@ export class ExplicitHttpMcpClient {
     try {
       return await request(connection.client);
     } catch (error) {
+      options?.signal?.throwIfAborted();
       if (
         this.closed ||
-        options?.signal?.aborted ||
         !(connection.transport instanceof StreamableHTTPClientTransport) ||
         !isReconnectableSessionError(error, connection.transport.sessionId !== undefined)
       ) {

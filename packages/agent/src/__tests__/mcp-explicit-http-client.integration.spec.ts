@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { SdkHttpError } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import type { Transport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
@@ -30,6 +30,7 @@ interface ExpiringStatefulServer extends RunningServer {
 }
 
 const cleanupTasks: Array<() => Promise<void>> = [];
+const MCP_CONNECTION_CLOSED_PROTOCOL_CODE = -32_000;
 
 afterEach(async () => {
   const tasks = cleanupTasks.splice(0).reverse();
@@ -45,8 +46,8 @@ function createEchoServer(): McpServer {
     'echo',
     {
       description: 'Echo a value',
-      inputSchema: { value: z.string() },
-      outputSchema: { echoed: z.string() },
+      inputSchema: z.object({ value: z.string() }),
+      outputSchema: z.object({ echoed: z.string() }),
     },
     async ({ value }) => ({
       content: [{ text: value, type: 'text' }],
@@ -112,7 +113,7 @@ async function startStreamableServer(options: {
 }): Promise<RunningServer> {
   let failInitializations = options.failInitializations ?? 0;
   let failToolRequests = options.failToolRequests ?? 0;
-  const transports = new Set<StreamableHTTPServerTransport>();
+  const transports = new Set<NodeStreamableHTTPServerTransport>();
   const mcpServers = new Set<McpServer>();
 
   const server = createServer(async (request, response) => {
@@ -151,7 +152,7 @@ async function startStreamableServer(options: {
 
     // Stateless mode: `sessionIdGenerator` stays unset (exactOptionalPropertyTypes
     // forbids an explicit `undefined`).
-    const transport = new StreamableHTTPServerTransport({
+    const transport = new NodeStreamableHTTPServerTransport({
       enableJsonResponse: true,
     });
     const mcpServer = createEchoServer();
@@ -221,7 +222,7 @@ async function startStatefulStreamableServer(options: {
   pathname: string;
   requests: RecordedRequest[];
 }): Promise<RunningServer> {
-  const transport = new StreamableHTTPServerTransport({
+  const transport = new NodeStreamableHTTPServerTransport({
     enableJsonResponse: true,
     sessionIdGenerator: () => 'explicit-http-test-session',
   });
@@ -337,7 +338,7 @@ async function startExpiringStatefulServer(options: {
         connectionClosedToolCalls -= 1;
         response.writeHead(200, { 'content-type': 'application/json' }).end(
           JSON.stringify({
-            error: { code: ErrorCode.ConnectionClosed, message: 'Connection closed' },
+            error: { code: MCP_CONNECTION_CLOSED_PROTOCOL_CODE, message: 'Connection closed' },
             id: requestId,
             jsonrpc: '2.0',
           })
@@ -513,7 +514,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       url: running.url,
     });
 
-    await expect(client.connect()).rejects.toThrow(/Streamable HTTP error/);
+    const failure = client.connect();
+    await expect(failure).rejects.toBeInstanceOf(SdkHttpError);
+    await expect(failure).rejects.toMatchObject({ status: 404 });
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     expect(requests).toHaveLength(1);
@@ -557,7 +560,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       url: server.url,
     });
 
-    await expect(client.connect()).rejects.toThrow(/Streamable HTTP error/);
+    await expect(client.connect()).rejects.toMatchObject({ status: 404 });
     const [first, second] = await Promise.all([client.listTools(), client.listTools()]);
 
     expect(first.tools).toHaveLength(2);
@@ -753,7 +756,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     });
     await client.connect();
 
-    await expect(client.listTools()).rejects.toThrow(/Streamable HTTP error/);
+    await expect(client.listTools()).rejects.toMatchObject({ status: 404 });
     expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
       1
     );
@@ -777,8 +780,8 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     await client.connect();
 
     await expect(client.callTool({ name: 'mutating-tool' })).rejects.toMatchObject({
-      code: ErrorCode.ConnectionClosed,
-      message: 'MCP error -32000: Connection closed',
+      code: MCP_CONNECTION_CLOSED_PROTOCOL_CODE,
+      message: 'Connection closed',
     });
     expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
       1

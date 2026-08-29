@@ -71,9 +71,9 @@ describe('MCP test lab package contract', () => {
     const manifest = await readManifest();
 
     expect(manifest.dependencies).toEqual({
-      '@modelcontextprotocol/client': '2.0.0',
-      '@modelcontextprotocol/node': '2.0.0',
-      '@modelcontextprotocol/server': '2.0.0',
+      '@modelcontextprotocol/client': 'catalog:',
+      '@modelcontextprotocol/node': 'catalog:',
+      '@modelcontextprotocol/server': 'catalog:',
       entities: '7.0.1',
       zod: 'catalog:',
     });

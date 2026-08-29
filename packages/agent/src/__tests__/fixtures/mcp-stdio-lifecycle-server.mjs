@@ -1,7 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { Server } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 const stateFile = process.env['BRAINSTRIKE_STDIO_TEST_STATE_FILE'];
 if (!stateFile) {
@@ -35,7 +34,7 @@ const server = new Server(
   { capabilities: { tools: {} } }
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
+server.setRequestHandler('tools/list', async () => ({
   tools: [
     {
       description: 'Expose the configured test environment and inherited PATH presence.',
@@ -76,7 +75,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   ],
 }));
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler('tools/call', async (request) => {
   if (request.params.name === 'inspect_env') {
     const configuredValue = process.env['BRAINSTRIKE_STDIO_TEST_OVERLAY'];
     if (!configuredValue) {

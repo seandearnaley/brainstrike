@@ -436,7 +436,7 @@ export interface RuntimeToolMapResult {
 export async function composeRuntimeToolMap(
   params: RuntimeToolMapParams
 ): Promise<RuntimeToolMapResult> {
-  const mcpClient = createMcpRuntimeClient({
+  const mcpClient = await createMcpRuntimeClient({
     config: params.mcpConfig,
   });
 

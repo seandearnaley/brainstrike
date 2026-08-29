@@ -27,11 +27,11 @@ function requireExecutableTool(tool: ToolsInput[string] | undefined): Executable
 }
 
 describe('MCP runtime client', () => {
-  it('rejects duplicate server names before constructing any transport client', () => {
+  it('rejects duplicate server names before constructing any transport client', async () => {
     const createExplicitHttpClient = vi.fn();
     const createExplicitStdioClient = vi.fn();
 
-    expect(() =>
+    await expect(
       createMcpRuntimeClient({
         config: {
           servers: [
@@ -45,7 +45,7 @@ describe('MCP runtime client', () => {
         },
         dependencies: { createExplicitHttpClient, createExplicitStdioClient },
       })
-    ).toThrow('duplicate server name');
+    ).rejects.toThrow('duplicate server name');
     expect(createExplicitStdioClient).not.toHaveBeenCalled();
     expect(createExplicitHttpClient).not.toHaveBeenCalled();
   });
@@ -79,7 +79,7 @@ describe('MCP runtime client', () => {
       options.name === 'streamable' ? streamableClient : sseClient
     );
 
-    const runtimeClient = createMcpRuntimeClient({
+    const runtimeClient = await createMcpRuntimeClient({
       config: {
         servers: [
           {
@@ -157,7 +157,7 @@ describe('MCP runtime client', () => {
       close: vi.fn().mockResolvedValue(undefined),
       listTools: vi.fn().mockResolvedValue({ tools: [] }),
     };
-    const runtimeClient = createMcpRuntimeClient({
+    const runtimeClient = await createMcpRuntimeClient({
       config: {
         servers: [
           {
@@ -240,7 +240,7 @@ describe('MCP runtime client', () => {
         ],
       }),
     };
-    const runtimeClient = createMcpRuntimeClient({
+    const runtimeClient = await createMcpRuntimeClient({
       config: {
         servers: [
           {
@@ -280,6 +280,9 @@ describe('MCP runtime client', () => {
       properties: { value: { type: 'string' } },
       required: ['value'],
       type: 'object',
+    });
+    expect((tool.inputSchema as StandardSchemaWithJSON)['~standard'].validate({})).toMatchObject({
+      issues: expect.any(Array),
     });
     expect(standardSchemaToJSONSchema(tool.outputSchema as StandardSchemaWithJSON)).toMatchObject({
       properties: { echoed: { type: 'string' } },
@@ -406,7 +409,7 @@ describe('MCP runtime client', () => {
       close: vi.fn().mockResolvedValue(undefined),
       listTools: vi.fn().mockRejectedValue(new Error('connection refused')),
     };
-    const runtimeClient = createMcpRuntimeClient({
+    const runtimeClient = await createMcpRuntimeClient({
       config: {
         servers: [
           {

@@ -48,11 +48,11 @@ const {
   };
 });
 
-vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
+vi.mock('@modelcontextprotocol/client', () => ({
   Client: clientCtorMock,
 }));
 
-vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
+vi.mock('@modelcontextprotocol/client/stdio', () => ({
   StdioClientTransport: transportCtorMock,
 }));
 
@@ -119,7 +119,6 @@ describe('stdio client', () => {
         arguments: { path: '/root' },
         name: 'list_directory',
       },
-      undefined,
       expect.objectContaining({
         resetTimeoutOnProgress: true,
       })
