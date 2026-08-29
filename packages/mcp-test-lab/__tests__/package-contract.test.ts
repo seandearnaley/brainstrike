@@ -42,6 +42,7 @@ describe('MCP test lab package contract', () => {
     expect(manifest.scripts['test:integration']).toBe(
       'vitest run --config vitest.integration.config.mts'
     );
+    expect(manifest.scripts['verify']).toBe('pnpm run build && node dist/runner-cli.js');
     expect(manifest.files).toEqual(['dist', 'fixtures']);
     expect(manifest.types).toBe('./dist/index.d.ts');
     expect(manifest.exports).toEqual({
@@ -49,6 +50,7 @@ describe('MCP test lab package contract', () => {
       './evidence': { default: './dist/evidence.js', types: './dist/evidence.d.ts' },
       './faults': { default: './dist/faults.js', types: './dist/faults.d.ts' },
       './lab': { default: './dist/lab.js', types: './dist/lab.d.ts' },
+      './runner': { default: './dist/runner.js', types: './dist/runner.d.ts' },
       './scenario': { default: './dist/scenario.js', types: './dist/scenario.d.ts' },
     });
   });
