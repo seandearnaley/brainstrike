@@ -34,11 +34,15 @@ const PROTOCOL_METHODS_BY_PHASE = {
   subscription: [
     'subscriptions/listen',
     'notifications/cancelled',
+    'notifications/elicitation/complete',
     'notifications/message',
     'notifications/progress',
     'notifications/prompts/list_changed',
     'notifications/resources/list_changed',
     'notifications/resources/updated',
+    'notifications/roots/list_changed',
+    'notifications/subscriptions/acknowledged',
+    'notifications/tasks/status',
     'notifications/tools/list_changed',
   ],
   transport: ['http/request', 'http/response', 'node/dispatch'],
@@ -126,13 +130,17 @@ const SERVER_TO_CLIENT_ONLY_METHODS = new Set<McpLabProtocolMethod>([
   'sampling/createMessage',
 ]);
 const MODERN_ONLY_METHODS = new Set<McpLabProtocolMethod>([
+  'notifications/subscriptions/acknowledged',
   'server/discover',
   'subscriptions/listen',
 ]);
 // Exact @modelcontextprotocol/core@2.0.0 codec registry at cc4b416.
 const LEGACY_ONLY_METHODS = new Set<McpLabProtocolMethod>([
   'initialize',
+  'notifications/elicitation/complete',
   'notifications/initialized',
+  'notifications/roots/list_changed',
+  'notifications/tasks/status',
   'ping',
   'elicitation/create',
   'logging/setLevel',
@@ -697,7 +705,8 @@ export function assertScenarioFaultCompatibility(
   scenario: McpLabScenario,
   execution: McpLabExecution
 ): void {
-  if (!faultPlan) {
+  const transport = transportForScenario(scenario, execution);
+  if (faultPlan === undefined) {
     return;
   }
   if (!isMcpLabFaultPlan(faultPlan)) {
@@ -705,7 +714,7 @@ export function assertScenarioFaultCompatibility(
   }
   faultPlan.assertCompatibleWithAuthentication(scenario.authentication);
   faultPlan.assertCompatibleWithProtocolEra(scenario.protocol.era);
-  faultPlan.assertCompatibleWithTransport(transportForScenario(scenario, execution));
+  faultPlan.assertCompatibleWithTransport(transport);
   faultPlan.assertCompatibleWithFixture(scenario.fixture);
 }
 

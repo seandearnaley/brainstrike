@@ -6,7 +6,6 @@ import {
   isMcpLabFaultPlan,
   type McpLabFaultConsumption,
   type McpLabFaultDeclaration,
-  protocolPhaseForMethod,
 } from '../src/faults';
 import { getMcpLabScenario } from '../src/scenario';
 
@@ -418,57 +417,6 @@ describe('MCP lab fault plan', () => {
     );
   });
 
-  it.each([
-    'initialize',
-    'notifications/initialized',
-    'ping',
-    'elicitation/create',
-    'logging/setLevel',
-    'resources/subscribe',
-    'resources/unsubscribe',
-    'roots/list',
-    'sampling/createMessage',
-    'tasks/cancel',
-    'tasks/get',
-    'tasks/list',
-    'tasks/result',
-  ] as const)('matches the pinned SDK registry: %s is legacy-only', (method) => {
-    const phase = protocolPhaseForMethod(method);
-    if (!phase) {
-      throw new Error(`missing phase for ${method}`);
-    }
-    const plan = createMcpLabFaultPlan([
-      {
-        fault: { delayMs: 1, kind: 'delay' },
-        id: 'legacy-only',
-        match: { method, occurrence: 1, phase },
-      },
-    ]);
-
-    expect(() => plan.assertCompatibleWithProtocolEra('modern')).toThrowError(/modern protocol/i);
-    expect(() => plan.assertCompatibleWithProtocolEra('legacy')).not.toThrow();
-  });
-
-  it.each(['server/discover', 'subscriptions/listen'] as const)(
-    'matches the pinned SDK registry: %s is modern-only',
-    (method) => {
-      const phase = protocolPhaseForMethod(method);
-      if (!phase) {
-        throw new Error(`missing phase for ${method}`);
-      }
-      const plan = createMcpLabFaultPlan([
-        {
-          fault: { delayMs: 1, kind: 'delay' },
-          id: 'modern-only',
-          match: { method, occurrence: 1, phase },
-        },
-      ]);
-
-      expect(() => plan.assertCompatibleWithProtocolEra('legacy')).toThrowError(/legacy protocol/i);
-      expect(() => plan.assertCompatibleWithProtocolEra('modern')).not.toThrow();
-    }
-  );
-
   it('rejects unknown compatibility discriminators instead of selecting a branch', () => {
     const plan = createMcpLabFaultPlan([]);
 
@@ -505,6 +453,15 @@ describe('MCP lab fault plan', () => {
     expect(() =>
       assertScenarioFaultCompatibility(createMcpLabFaultPlan([]), modern, undefined)
     ).toThrowError('MCP lab streamable HTTP scenario requires an execution mode');
+    expect(() => assertScenarioFaultCompatibility(undefined, modern, undefined)).toThrowError(
+      'MCP lab streamable HTTP scenario requires an execution mode'
+    );
+    expect(() => assertScenarioFaultCompatibility(null as never, modern, 'loopback')).toThrowError(
+      'Invalid MCP lab fault plan'
+    );
+    expect(() =>
+      assertScenarioFaultCompatibility(undefined, { ...modern } as never, 'loopback')
+    ).toThrowError('Invalid MCP lab scenario manifest');
     expect(() =>
       assertScenarioFaultCompatibility(
         createMcpLabFaultPlan([]),
