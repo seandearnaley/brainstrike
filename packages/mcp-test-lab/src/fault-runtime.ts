@@ -4,6 +4,7 @@ import type {
   McpLabProtocolMethod,
   McpLabProtocolPhase,
 } from './faults.js';
+import { isMcpLabCorrelationId } from './faults.js';
 import { HTTP_PROTOCOL_COORDINATE_PHASES } from './http-coordinates.js';
 
 export interface McpLabAppliedFault {
@@ -17,8 +18,11 @@ export interface McpLabFaultRuntime {
     method: McpLabProtocolMethod,
     correlationId: string
   ): McpLabAppliedFault | undefined;
+  hasRemainingPhase(phase: McpLabProtocolPhase): boolean;
   nextCorrelation(label?: string): string;
+  requiresHttpQualification(): boolean;
   requiresProtocolBodyCoordinate(): boolean;
+  reserveCorrelation(supplied?: string, label?: string): string;
   untriggeredIds(): readonly string[];
 }
 
@@ -32,11 +36,19 @@ export class McpLabDroppedResponseError extends Error {
   }
 }
 
+export class McpLabCorrelationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'McpLabCorrelationError';
+  }
+}
+
 export function createMcpLabFaultRuntime(
   plan: McpLabFaultPlan | undefined,
   scenarioId: string
 ): McpLabFaultRuntime {
   const occurrences = new Map<string, number>();
+  const reservedCorrelations = new Set<string>();
   let correlationSequence = 0;
   return Object.freeze({
     consume(
@@ -66,15 +78,40 @@ export function createMcpLabFaultRuntime(
       }
       return Object.freeze({ fault, id: observation.faultId });
     },
+    hasRemainingPhase(phase: McpLabProtocolPhase): boolean {
+      return plan?.hasRemainingPhase(phase) ?? false;
+    },
     nextCorrelation(label = 'exchange'): string {
-      correlationSequence += 1;
-      return `${scenarioId}:${label}:${correlationSequence}`;
+      return this.reserveCorrelation(undefined, label);
+    },
+    requiresHttpQualification(): boolean {
+      return (
+        plan !== undefined &&
+        (
+          ['authorization', 'initialization', 'operation', 'subscription', 'transport'] as const
+        ).some((phase) => plan.hasRemainingPhase(phase))
+      );
     },
     requiresProtocolBodyCoordinate(): boolean {
       return (
         plan !== undefined &&
         HTTP_PROTOCOL_COORDINATE_PHASES.some((phase) => plan.hasRemainingPhase(phase))
       );
+    },
+    reserveCorrelation(supplied: string | undefined, label = 'exchange'): string {
+      let correlationId = supplied;
+      if (correlationId === undefined) {
+        correlationSequence += 1;
+        correlationId = `${scenarioId}:${label}:${correlationSequence}`;
+      }
+      if (!isMcpLabCorrelationId(correlationId)) {
+        throw new McpLabCorrelationError('Invalid MCP lab correlation id');
+      }
+      if (reservedCorrelations.has(correlationId)) {
+        throw new McpLabCorrelationError(`Duplicate MCP lab correlation id: ${correlationId}`);
+      }
+      reservedCorrelations.add(correlationId);
+      return correlationId;
     },
     untriggeredIds(): readonly string[] {
       return plan?.untriggeredIds() ?? Object.freeze([]);
@@ -83,8 +120,12 @@ export function createMcpLabFaultRuntime(
 }
 
 export async function applyMcpLabHttpFault(
-  applied: McpLabAppliedFault
+  applied: McpLabAppliedFault,
+  displacedResponse?: Response
 ): Promise<Response | undefined> {
+  if (applied.fault.kind !== 'delay' && displacedResponse?.body) {
+    await displacedResponse.body.cancel();
+  }
   switch (applied.fault.kind) {
     case 'delay': {
       const { delayMs } = applied.fault;
