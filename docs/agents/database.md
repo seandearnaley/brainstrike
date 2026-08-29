@@ -708,6 +708,17 @@ extension control file" error on that path only:
   local-first search data needs an explicit invalidation owner before cached
   answers can be correct.
 
+  Live-query parameter comparison evidence is produced by the manual, uncached
+  `pnpm --filter @brainstrike/db bench:live-query-params` command. It compares
+  the current JSON-key strategy with the pre-PR-#728 recursive `deepEqual`
+  baseline using freshly allocated primitive, array, and complex-object params.
+  Both strategies warm up, their measurement order alternates, and the report
+  uses nine-sample medians. The retained baseline and interpretation live in
+  `docs/performance/live-query-parameter-benchmarks.md`; it currently refutes a
+  lower-cost claim for the JSON-key path, so do not describe PR #728 as a
+  measured render-cost improvement or change the default from this isolated
+  microbenchmark alone.
+
   **Recorded exception (BST-1063, 2026-08-01):** the 1.3.1 re-qualification
   above shipped on macOS-arm64-only gate evidence, short of the "every
   supported desktop platform" bar this paragraph states, because the PGlite
