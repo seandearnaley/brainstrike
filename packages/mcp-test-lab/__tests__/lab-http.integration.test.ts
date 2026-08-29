@@ -1,0 +1,206 @@
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { describe, expect, it } from 'vitest';
+import { startMcpLabScenario } from '../src/lab';
+
+type VersionNegotiation = NonNullable<
+  NonNullable<ConstructorParameters<typeof Client>[1]>['versionNegotiation']
+>;
+
+function createInitializeRequest(
+  url: URL,
+  protocolVersion: '2025-11-25' | '2026-07-28',
+  modernEnvelope: boolean
+): Request {
+  return new Request(url, {
+    body: JSON.stringify({
+      id: 1,
+      jsonrpc: '2.0',
+      method: 'initialize',
+      params: {
+        ...(modernEnvelope
+          ? {
+              _meta: {
+                'io.modelcontextprotocol/clientCapabilities': {},
+                'io.modelcontextprotocol/clientInfo': {
+                  name: 'brainstrike-era-isolation-test',
+                  version: '1.0.0',
+                },
+                'io.modelcontextprotocol/protocolVersion': protocolVersion,
+              },
+            }
+          : {}),
+        capabilities: {},
+        clientInfo: { name: 'brainstrike-era-isolation-test', version: '1.0.0' },
+        protocolVersion,
+      },
+    }),
+    headers: { 'content-type': 'application/json' },
+    method: 'POST',
+  });
+}
+
+async function verifyReferenceExchange(
+  scenarioId: 'legacy-reference' | 'modern-reference',
+  versionNegotiation: VersionNegotiation,
+  expectedVersion: '2025-11-25' | '2026-07-28'
+): Promise<void> {
+  const lab = await startMcpLabScenario(scenarioId, { execution: 'in-process' });
+  if (lab.endpoint.kind !== 'in-process-http') {
+    throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
+  }
+  const client = new Client(
+    { name: 'brainstrike-mcp-lab-http-test', version: '1.0.0' },
+    { versionNegotiation }
+  );
+
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(lab.endpoint.url, { fetch: lab.endpoint.fetch })
+    );
+    expect(client.getNegotiatedProtocolVersion()).toBe(expectedVersion);
+    expect(client.getServerVersion()).toEqual({
+      name: 'brainstrike-sdk-v2-reference',
+      version: '2.0.0',
+    });
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['echo']);
+    expect(
+      await client.callTool({ arguments: { text: expectedVersion }, name: 'echo' })
+    ).toMatchObject({
+      content: [{ text: expectedVersion, type: 'text' }],
+      structuredContent: { text: expectedVersion },
+    });
+  } finally {
+    await client.close();
+  }
+
+  const firstReport = await lab.close();
+  const secondReport = await lab.close();
+  expect(firstReport).toBe(secondReport);
+  expect(firstReport).toEqual({
+    httpListenersClosed: 0,
+    stdioTransportsClosed: 0,
+    untriggeredFaultIds: [],
+  });
+  expect(lab.closed).toBe(true);
+  expect(lab.scenario.availability).toBe('executable');
+  expect(lab.scenario.usesAmbientCredentials).toBe(false);
+}
+
+describe('MCP lab in-process HTTP references', () => {
+  it('advertises a non-routable endpoint and rejects requests for any other URL', async () => {
+    const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+
+    try {
+      expect(lab.endpoint.url.hostname).toBe('mcp-lab.invalid');
+      await expect(
+        lab.endpoint.fetch(new URL('/wrong', lab.endpoint.url), {
+          method: 'POST',
+        })
+      ).rejects.toThrow(/does not match the advertised endpoint/);
+    } finally {
+      await lab.close();
+    }
+  });
+
+  it('rejects endpoint use after the lab session closes', async () => {
+    const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+    await lab.close();
+
+    await expect(
+      lab.endpoint.fetch(lab.endpoint.url, {
+        body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'initialize', params: {} }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      })
+    ).rejects.toThrow('MCP lab session is closed');
+  });
+
+  it('rejects a modern initialize request at the legacy-only reference', async () => {
+    const lab = await startMcpLabScenario('legacy-reference', { execution: 'in-process' });
+
+    try {
+      const response = await lab.endpoint.fetch(
+        createInitializeRequest(lab.endpoint.url, '2026-07-28', true)
+      );
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ error: 'mcp_lab_legacy_only' });
+    } finally {
+      await lab.close();
+    }
+  });
+
+  it('rejects a legacy initialize request at the modern-only reference', async () => {
+    const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+
+    try {
+      const response = await lab.endpoint.fetch(
+        createInitializeRequest(lab.endpoint.url, '2025-11-25', false)
+      );
+      expect(response.status).toBe(400);
+      await expect(response.text()).resolves.toContain('Unsupported protocol version');
+    } finally {
+      await lab.close();
+    }
+  });
+
+  it('snapshots accessor-backed execution exactly once before routing', async () => {
+    let executionReads = 0;
+    const options = Object.defineProperty({}, 'execution', {
+      enumerable: true,
+      get() {
+        executionReads += 1;
+        return executionReads === 1 ? 'in-process' : 'loopback';
+      },
+    });
+    const lab = await startMcpLabScenario('modern-reference', options as never);
+
+    try {
+      expect(lab.endpoint.kind).toBe('in-process-http');
+      expect(executionReads).toBe(1);
+    } finally {
+      await lab.close();
+    }
+  });
+
+  it('negotiates the pinned modern protocol through a real SDK exchange', async () => {
+    await verifyReferenceExchange(
+      'modern-reference',
+      { mode: { pin: '2026-07-28' } },
+      '2026-07-28'
+    );
+  });
+
+  it('negotiates the explicit legacy protocol through a real SDK exchange', async () => {
+    await verifyReferenceExchange('legacy-reference', { mode: 'legacy' }, '2025-11-25');
+  });
+
+  it.each([
+    ['missing execution', 'modern-reference', {}, /expected only "execution"/],
+    [
+      'unknown execution',
+      'modern-reference',
+      { execution: 'automatic' },
+      /execution must be "in-process"/,
+    ],
+    [
+      'unknown option',
+      'modern-reference',
+      { execution: 'in-process', fallback: true },
+      /expected only "execution"/,
+    ],
+    [
+      'OAuth fixture',
+      'oauth-reference',
+      { execution: 'in-process' },
+      /"oauth-reference" is not executable/,
+    ],
+    [
+      'stdio fixture',
+      'stdio-reference',
+      { execution: 'in-process' },
+      /"stdio-reference" is not executable/,
+    ],
+  ])('rejects invalid or unavailable %s input', async (_label, scenarioId, options, expected) => {
+    await expect(startMcpLabScenario(scenarioId, options as never)).rejects.toThrow(expected);
+  });
+});

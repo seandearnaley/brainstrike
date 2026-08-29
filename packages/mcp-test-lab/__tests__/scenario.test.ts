@@ -33,8 +33,8 @@ describe('MCP lab scenario manifest', () => {
   it('declares the Brainstrike fixture and pinned official version/tag metadata', () => {
     expect(getMcpLabScenario('modern-reference')).toEqual({
       authentication: 'none',
-      availability: 'declared',
-      description: 'Declared modern reference contract; executable transport lands in BST-1480',
+      availability: 'executable',
+      description: 'Executable modern reference over the Brainstrike-owned SDK v2 echo fixture',
       fixture: 'brainstrike-sdk-v2-reference',
       id: 'modern-reference',
       network: 'loopback-only',
@@ -109,9 +109,12 @@ describe('MCP lab scenario manifest', () => {
       'oauth-reference',
     ]);
     expect(new Set(MCP_LAB_SCENARIO_IDS).size).toBe(MCP_LAB_SCENARIO_IDS.length);
-    for (const id of MCP_LAB_SCENARIO_IDS) {
-      expect(getMcpLabScenario(id).availability).toBe('declared');
-    }
+    expect(MCP_LAB_SCENARIO_IDS.map((id) => [id, getMcpLabScenario(id).availability])).toEqual([
+      ['modern-reference', 'executable'],
+      ['legacy-reference', 'executable'],
+      ['stdio-reference', 'declared'],
+      ['oauth-reference', 'declared'],
+    ]);
   });
 
   it('rejects an unknown scenario instead of selecting a default', () => {

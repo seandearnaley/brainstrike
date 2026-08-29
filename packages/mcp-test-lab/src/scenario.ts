@@ -32,7 +32,7 @@ export type McpLabFixture =
 
 export interface McpLabScenario {
   readonly authentication: 'none' | 'oauth';
-  readonly availability: 'declared';
+  readonly availability: 'declared' | 'executable';
   readonly description: string;
   readonly fixture: McpLabFixture;
   readonly id: McpLabScenarioId;
@@ -76,8 +76,8 @@ function freezeScenario(scenario: McpLabScenario): McpLabScenario {
 const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = Object.freeze({
   'legacy-reference': freezeScenario({
     authentication: 'none',
-    availability: 'declared',
-    description: 'Declared legacy-era reference contract; executable transport lands in BST-1480',
+    availability: 'executable',
+    description: 'Executable legacy-era reference over the Brainstrike-owned SDK v2 echo fixture',
     fixture: 'brainstrike-sdk-v2-reference',
     id: 'legacy-reference',
     network: 'loopback-only',
@@ -88,8 +88,8 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = Object.fre
   }),
   'modern-reference': freezeScenario({
     authentication: 'none',
-    availability: 'declared',
-    description: 'Declared modern reference contract; executable transport lands in BST-1480',
+    availability: 'executable',
+    description: 'Executable modern reference over the Brainstrike-owned SDK v2 echo fixture',
     fixture: 'brainstrike-sdk-v2-reference',
     id: 'modern-reference',
     network: 'loopback-only',

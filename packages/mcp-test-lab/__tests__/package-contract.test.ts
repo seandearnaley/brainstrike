@@ -47,6 +47,7 @@ describe('MCP test lab package contract', () => {
     expect(manifest.exports).toEqual({
       '.': { default: './dist/index.js', types: './dist/index.d.ts' },
       './faults': { default: './dist/faults.js', types: './dist/faults.d.ts' },
+      './lab': { default: './dist/lab.js', types: './dist/lab.d.ts' },
       './scenario': { default: './dist/scenario.js', types: './dist/scenario.d.ts' },
     });
   });
@@ -63,14 +64,16 @@ describe('MCP test lab package contract', () => {
     });
   });
 
-  it('keeps SDK and conformance pins in the private verifier development graph', async () => {
+  it('declares executable runtime dependencies without promoting the test-only client', async () => {
     const manifest = await readManifest();
 
-    expect(manifest.dependencies).toBeUndefined();
+    expect(manifest.dependencies).toEqual({
+      '@modelcontextprotocol/server': '2.0.0',
+      zod: 'catalog:',
+    });
     expect(manifest.devDependencies).toMatchObject({
       '@modelcontextprotocol/client': '2.0.0',
       '@modelcontextprotocol/conformance': '0.2.0-alpha.10',
-      '@modelcontextprotocol/server': '2.0.0',
     });
   });
 
@@ -176,14 +179,18 @@ describe('MCP test lab package contract', () => {
     );
     const manifest = await readManifest();
     const publicSubpaths = Object.keys(manifest.exports).filter((key) => key !== '.');
-    const everyScenarioIsDeclared = MCP_LAB_SCENARIO_IDS.every(
-      (id) => getMcpLabScenario(id).availability === 'declared'
+    const executableScenarioIds = MCP_LAB_SCENARIO_IDS.filter(
+      (id) => getMcpLabScenario(id).availability === 'executable'
     );
 
     expect(normalizedContract).toContain('`@brainstrike/mcp-test-lab`');
     expect(normalizedContract).toContain('production-independent verifier');
-    expect(normalizedContract.includes("every scenario has `availability: 'declared'`")).toBe(
-      everyScenarioIsDeclared
+    expect(executableScenarioIds).toEqual(['modern-reference', 'legacy-reference']);
+    expect(normalizedContract).toContain(
+      "`modern-reference` and `legacy-reference` have `availability: 'executable'`"
+    );
+    expect(normalizedContract).toContain(
+      "`stdio-reference` and `oauth-reference` remain `availability: 'declared'`"
     );
     expect(normalizedContract).toContain('A package export may appear only in');
     expect(normalizedContract).toContain(
