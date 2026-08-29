@@ -123,6 +123,7 @@ export const CI_GATE_PLAN_IDS = new Map([
   ['static › Script tests', ['script-tests']],
   ['static › Lint', ['lint']],
   ['static › Type check', ['type-check']],
+  ['static › MCP representative verification', ['mcp-verification']],
   ['unit-shard › Pull request affected unit tests', ['unit-tests']],
   ['unit-shard › Pull request affected integration tests', ['integration-tests']],
   ['unit-shard › Push and manual unit tests', ['unit-tests']],
@@ -312,6 +313,11 @@ export function buildPlan(options = {}) {
     command: 'pnpm -s run type-check',
     id: 'type-check',
     label: 'type-check',
+  });
+  plan.push({
+    command: 'pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json',
+    id: 'mcp-verification',
+    label: 'MCP representative verification',
   });
 
   // --- Build -------------------------------------------------------------

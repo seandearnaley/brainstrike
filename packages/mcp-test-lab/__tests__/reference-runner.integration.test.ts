@@ -5,7 +5,7 @@ import { runMcpLabVerification } from '../src/runner';
 import { MCP_LAB_RUNNER_CASES } from '../src/runner-manifest';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
-const COMMAND = 'pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr';
+const COMMAND = 'pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json';
 const integrity = {
   maxArtifactBytes: 1024,
   readArtifactContent: () => new Uint8Array(),
@@ -56,6 +56,8 @@ describe('MCP official reference runner', () => {
         }),
       ]);
       expect(schema.cleanup).toMatchObject({ exitStatus: 0, verified: true });
+      expect(schema.cleanup.command).toBe(COMMAND);
+      expect(schema.commands.every(({ command }) => command === COMMAND)).toBe(true);
       expect(schema.correlationIds).toHaveLength(3);
       expect(schema.correlationIds[0]).toBe(`${caseIds[index]}-red-tool-rejection`);
       expect(schema.negotiation.capabilities).toEqual(['tools']);

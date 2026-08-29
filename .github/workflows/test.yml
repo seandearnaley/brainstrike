@@ -176,6 +176,9 @@ jobs:
           TURBO_CONCURRENCY: 4
         run: pnpm run type-check
 
+      - name: MCP representative verification
+        run: pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json
+
   unit-shard:
     name: Unit (${{ matrix.shard }})
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
