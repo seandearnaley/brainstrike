@@ -1,3 +1,5 @@
+// The web E2E graph is ESM, so the barrel's `./hmr-utils.js` re-export (which
+// contains `import.meta` syntax) is supported directly.
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { BACKGROUND_INDEXING_POLICY_OPTIONS } from '@brainstrike/utils';
 import type { Page } from '@playwright/test';
