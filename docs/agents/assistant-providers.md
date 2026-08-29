@@ -1976,10 +1976,21 @@ never artifact content. It remains non-public behind the immutable facade.
 The `./evidence` verifier accepts a closed exact-head schema, binds RED, GREEN,
 and verification commands, reads each unique artifact exactly once, hashes the
 original bytes, decodes text with fatal UTF-8 handling, and requires explicit
-screenshot text extraction. It returns only a detached, deeply frozen bundle.
-Reader and extractor failures are replaced with bounded diagnostics that never
-reflect artifact content. Credential-pattern and structured-secret inspection
-remain a separate sanitization layer.
+screenshot text extraction. Before returning, it sanitizes schema metadata and
+every extracted artifact without trusting the schema's `sanitized` assertion.
+Schema metadata is sanitized before artifact dependency I/O, so credential-bearing
+references cannot reach readers or integrity-error diagnostics.
+The private scanner detects explicit credential assignments and credential
+formats, then applies bounded HTML-entity and structured JSON decoding to catch
+nested, escaped, prefixed, multiline, percent-encoded, and screenshot-extracted
+credentials. Text, node, candidate, decoding-depth, and embedded-work budgets
+are cumulative across the bundle and fail closed. Each artifact is read once,
+hashed, extracted once, and sanitized before the next artifact begins, so a
+dirty artifact stops later readers and extractors. It returns only a detached,
+deeply frozen bundle. Reader, extractor, and sanitization failures use bounded
+diagnostics that never reflect artifact content. Raw scanners, sanitizer
+sessions, and decoders remain private implementation details; only the safe
+error class and issue metadata are public.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a

@@ -51,16 +51,26 @@ export interface McpArtifactIntegrityResult {
   readonly schema: McpEvidenceSchema;
 }
 
+export type McpExtractedTextVerifier = (text: string, artifactIndex: number) => void;
+
 export async function verifyMcpEvidenceArtifactIntegrity(
   input: unknown,
   dependencies: McpArtifactIntegrityDependencies
 ): Promise<McpArtifactIntegrityResult> {
   const schema = parseMcpEvidenceSchema(input);
+  return verifyParsedMcpEvidenceArtifactIntegrity(schema, dependencies, () => undefined);
+}
+
+export async function verifyParsedMcpEvidenceArtifactIntegrity(
+  schema: McpEvidenceSchema,
+  dependencies: McpArtifactIntegrityDependencies,
+  verifyExtractedText: McpExtractedTextVerifier
+): Promise<McpArtifactIntegrityResult> {
   const maxArtifactBytes = validateArtifactLimit(dependencies.maxArtifactBytes);
   const artifacts: McpVerifiedArtifact[] = [];
   // Schema uniqueness plus sequential reads preserve read-once behavior,
   // deterministic error ordering, and a bounded in-flight working set.
-  for (const artifact of schema.artifacts) {
+  for (const [index, artifact] of schema.artifacts.entries()) {
     const bytes = await readArtifactOnce(
       artifact.reference,
       maxArtifactBytes,
@@ -73,6 +83,7 @@ export async function verifyMcpEvidenceArtifactIntegrity(
       bytes,
       dependencies.extractScreenshotText
     );
+    verifyExtractedText(extractedText, index);
     artifacts.push({
       extractedText,
       kind: artifact.kind,
