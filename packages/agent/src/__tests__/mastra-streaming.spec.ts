@@ -72,6 +72,14 @@ vi.mock(
   async () => (await import('./fixtures/mastra-stream-harness')).explicitStdioMcpClientModuleMock
 );
 
+vi.mock('@brainstrike/agent/mcp-client', async () => {
+  const { explicitStdioMcpClientModuleMock } = await import('./fixtures/mastra-stream-harness');
+  return {
+    ExplicitHttpMcpClient: explicitStdioMcpClientModuleMock.ExplicitStdioMcpClient,
+    ...explicitStdioMcpClientModuleMock,
+  };
+});
+
 function makeTitleMemory(options?: {
   generateTitle?: unknown;
   getThreadById?: ReturnType<typeof vi.fn>;

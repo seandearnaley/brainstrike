@@ -1,5 +1,5 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
 
 const server = new McpServer({
@@ -11,11 +11,11 @@ server.registerTool(
   'multimodal',
   {
     description: 'Return structured content with bounded text, image, and audio.',
-    inputSchema: {},
-    outputSchema: {
+    inputSchema: z.object({}),
+    outputSchema: z.object({
       mediaCount: z.number(),
       provenance: z.string(),
-    },
+    }),
   },
   async () => ({
     content: [
@@ -45,10 +45,10 @@ server.registerTool(
   'structured_only',
   {
     description: 'Return structured content without media.',
-    inputSchema: {},
-    outputSchema: {
+    inputSchema: z.object({}),
+    outputSchema: z.object({
       value: z.string(),
-    },
+    }),
   },
   async () => ({
     content: [{ text: 'legacy unstructured duplicate', type: 'text' }],

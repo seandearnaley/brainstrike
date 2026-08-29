@@ -1919,11 +1919,14 @@ Ownership and flow:
    contract. Public renderer status exposes only server name + transport.
 2. Official clients — `packages/agent/src/mcp/explicit-stdio-client.ts` and
    `explicit-http-client.ts`, exported only from
-   `@brainstrike/agent/mcp-client`, own the SDK 1.29 transports,
+   `@brainstrike/agent/mcp-client`, own the stable SDK v2 split-package transports,
    lazy/concurrency-safe connection, request forwarding, and idempotent close.
    The HTTP client additionally owns header composition and Streamable HTTP
-   session termination. Keep the SDK package external in the agent build; do
-   not pull this edge into browser-safe/root exports.
+   session termination. The dedicated package subpath is dynamically loaded only
+   after validated non-empty MCP config reaches the runtime. Agent root,
+   browser-safe, and Hosted Web bundles contain no `@modelcontextprotocol/*`
+   runtime or stdio transport; the build verifier enforces that boundary. Keep
+   the split SDK packages external in the agent build.
 3. Desktop — `apps/desktop/src/mcp/http-client.ts` adapts that shared client to
    the desktop `McpClient` discovery/call contract. `sse-client.ts` is only a
    compatibility factory delegating to the canonical adapter; no bespoke SSE
@@ -1942,7 +1945,7 @@ Ownership and flow:
 
 Primary references:
 - https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
-- https://github.com/modelcontextprotocol/typescript-sdk/blob/v1.x/docs/client.md
+- https://github.com/modelcontextprotocol/typescript-sdk/blob/%40modelcontextprotocol%2Fclient%402.0.0/docs/migration/upgrade-to-v2.md
 
 When changing this flow, update this section and the focused agent + desktop
 real-protocol integration tests.

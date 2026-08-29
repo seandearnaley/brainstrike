@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { SdkHttpError } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import { createHttpClient } from '../../mcp/http-client';
@@ -34,17 +35,17 @@ function createFixtureMcpServer(): McpServer {
     'echo',
     {
       description: 'Echoes text',
-      inputSchema: { text: z.string() },
-      outputSchema: { echo: z.string() },
+      inputSchema: z.object({ text: z.string() }),
+      outputSchema: z.object({ echo: z.string() }),
     },
-    async ({ text }, extra) => {
-      if (extra._meta?.progressToken !== undefined) {
-        await extra.sendNotification({
+    async ({ text }, ctx) => {
+      if (ctx.mcpReq._meta?.progressToken !== undefined) {
+        await ctx.mcpReq.notify({
           method: 'notifications/progress',
           params: {
             message: 'echoing',
             progress: 1,
-            progressToken: extra._meta.progressToken,
+            progressToken: ctx.mcpReq._meta.progressToken,
             total: 1,
           },
         });
@@ -139,7 +140,7 @@ async function startStreamableHttpServer(pathname = '/sse'): Promise<RunningMcpS
     requests.push(observed);
 
     const mcp = createFixtureMcpServer();
-    const transport = new StreamableHTTPServerTransport({
+    const transport = new NodeStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
     await mcp.connect(transport);
@@ -284,7 +285,9 @@ describe('desktop explicit HTTP MCP client', () => {
     });
     cleanup.push(async () => client.dispose());
 
-    await expect(client.listTools()).rejects.toThrow(/Streamable HTTP error/u);
+    const failure = client.listTools();
+    await expect(failure).rejects.toBeInstanceOf(SdkHttpError);
+    await expect(failure).rejects.toMatchObject({ status: 404 });
     expect(requests).toEqual([{ method: 'POST', pathname: '/sse' }]);
   });
 

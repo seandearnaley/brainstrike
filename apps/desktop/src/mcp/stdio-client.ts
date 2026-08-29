@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { McpServer } from '../mcp-loader';
 import type { McpClient, McpDiscoveredTool } from './types';
 
@@ -146,7 +146,6 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
           arguments: params ?? {},
           name: rawToolName,
         },
-        undefined,
         {
           ...(opts?.onProgress
             ? {

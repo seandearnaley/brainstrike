@@ -1456,7 +1456,7 @@ describe('agent-runtime edge cases', () => {
     it('handles dispose errors gracefully during stream failure', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
-      const { ExplicitStdioMcpClient } = await import('../mcp/explicit-stdio-client');
+      const { ExplicitStdioMcpClient } = await import('@brainstrike/agent/mcp-client');
 
       const originalStream = Agent.prototype.stream;
       const listToolsSpy = vi

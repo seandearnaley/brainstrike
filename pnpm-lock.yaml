@@ -54,9 +54,6 @@ catalogs:
     '@huggingface/transformers':
       specifier: ^4.2.0
       version: 4.2.0
-    '@modelcontextprotocol/sdk':
-      specifier: ^1.30.0
-      version: 1.30.0
     '@openrouter/ai-sdk-provider':
       specifier: 2.10.0
       version: 2.10.0
@@ -510,9 +507,9 @@ importers:
       '@fontsource-variable/geist-mono':
         specifier: 'catalog:'
         version: 5.3.0
-      '@modelcontextprotocol/sdk':
-        specifier: 'catalog:'
-        version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
       '@typescript/old':
         specifier: 'catalog:'
         version: typescript@6.0.3
@@ -598,9 +595,18 @@ importers:
       '@brainstrike/windows-job-native':
         specifier: workspace:*
         version: link:../../packages/windows-job-native
+      '@modelcontextprotocol/node':
+        specifier: 2.0.0
+        version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.27)
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
       '@modelcontextprotocol/server-filesystem':
         specifier: ^2026.7.10
         version: 2026.7.10(supports-color@10.2.2)(zod@4.4.3)
+      '@modelcontextprotocol/server-legacy':
+        specifier: 2.0.0
+        version: 2.0.0(express@5.2.1(supports-color@10.2.2))
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.62.1
@@ -1103,9 +1109,9 @@ importers:
       '@mastra/memory':
         specifier: 1.26.0
         version: 1.26.0(@mastra/core@1.59.0(ai@6.0.256(zod@4.4.3))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3))(supports-color@10.2.2)
-      '@modelcontextprotocol/sdk':
-        specifier: 'catalog:'
-        version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
       '@openrouter/ai-sdk-provider':
         specifier: 'catalog:'
         version: 2.10.0(ai@6.0.256(zod@4.4.3))(zod@4.4.3)
@@ -1131,6 +1137,15 @@ importers:
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
         version: 0.0.6(@electric-sql/pglite@0.5.5)
+      '@modelcontextprotocol/node':
+        specifier: 2.0.0
+        version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.27)
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@modelcontextprotocol/server-legacy':
+        specifier: 2.0.0
+        version: 2.0.0(express@5.2.1(supports-color@10.2.2))
       '@smithy/eventstream-codec':
         specifier: 'catalog:'
         version: 4.5.2
@@ -5914,6 +5929,16 @@ packages:
   '@modelcontextprotocol/server-filesystem@2026.7.10':
     resolution: {integrity: sha512-Mmjg4anFBD5OzbPnGJOA0jPPN8645ERhQk38HQLpSenx1ox9bfdPkmAzUnNjeQtqQGFLtKe13J20RtLBmUKMZA==}
     hasBin: true
+
+  '@modelcontextprotocol/server-legacy@2.0.0':
+    resolution: {integrity: sha512-LnffC1BSqFMHtMQxEz92lqDpHWma+ErV3ghdHDgdkCyYzVcCYKcUT5loq4kflty+Bf9C9qjJqbnphyBWyCqo8Q==}
+    engines: {node: '>=20'}
+    deprecated: This package is a frozen copy of v1's SSE transport and OAuth Authorization Server helpers for migration purposes only. Use StreamableHTTP from @modelcontextprotocol/server and a dedicated OAuth server in production. Will not receive new features.
+    peerDependencies:
+      express: ^4.18.0 || ^5.0.0
+    peerDependenciesMeta:
+      express:
+        optional: true
 
   '@modelcontextprotocol/server@2.0.0':
     resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
@@ -17116,6 +17141,18 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
       - zod
+
+  '@modelcontextprotocol/server-legacy@2.0.0(express@5.2.1(supports-color@10.2.2))':
+    dependencies:
+      '@modelcontextprotocol/core': 2.0.0
+      content-type: 1.0.5
+      cors: 2.8.6
+      express-rate-limit: 8.5.2(express@5.2.1(supports-color@10.2.2))
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.4.3
+    optionalDependencies:
+      express: 5.2.1(supports-color@10.2.2)
 
   '@modelcontextprotocol/server@2.0.0':
     dependencies:

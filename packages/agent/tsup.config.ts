@@ -1,7 +1,9 @@
 import { defineConfig } from 'tsup';
 
 const assistantContractExternal = /^@brainstrike\/assistant-contract(?:\/.*)?$/;
-const modelContextProtocolSdkExternal = /^@modelcontextprotocol\/sdk(?:\/.*)?$/;
+const agentMcpClientExternal = /^@brainstrike\/agent\/mcp-client$/;
+const modelContextProtocolV2External =
+  /^@modelcontextprotocol\/(?:client|core|node|server|server-legacy)(?:\/.*)?$/;
 
 const hostedWebEntries = ['src/hosted-web.ts', 'src/request-boundary.ts'];
 const broadEntries = [
@@ -21,7 +23,8 @@ const broadEntries = [
   'src/pglite-mastra-memory/schema.ts',
 ];
 const sharedExternal = [
-  modelContextProtocolSdkExternal,
+  agentMcpClientExternal,
+  modelContextProtocolV2External,
   // Node-only: spawns platform sandbox tooling and proxy servers. Bundling it
   // would drag that into every consumer, including browser entries.
   '@anthropic-ai/sandbox-runtime',

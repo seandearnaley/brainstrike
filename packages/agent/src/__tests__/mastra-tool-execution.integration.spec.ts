@@ -32,9 +32,9 @@ import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { Agent } from '@mastra/core/agent';
 import { RegexFilterProcessor } from '@mastra/core/processors';
 import { createTool } from '@mastra/core/tools';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import type { Transport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
@@ -235,7 +235,7 @@ async function listenForMcp(server: Server): Promise<string> {
 async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
   const executions: string[] = [];
   const activeServers = new Set<McpServer>();
-  const activeTransports = new Set<StreamableHTTPServerTransport>();
+  const activeTransports = new Set<NodeStreamableHTTPServerTransport>();
   const httpServer = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     if (request.method === 'GET' && url.pathname === '/sse') {
@@ -253,18 +253,18 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
       'echo',
       {
         description: 'Echo a value through a real remote MCP server.',
-        inputSchema: { value: z.string() },
-        outputSchema: { echoed: z.string() },
+        inputSchema: z.object({ value: z.string() }),
+        outputSchema: z.object({ echoed: z.string() }),
       },
-      async ({ value }, extra) => {
+      async ({ value }, ctx) => {
         executions.push(value);
-        if (extra._meta?.progressToken !== undefined) {
-          await extra.sendNotification({
+        if (ctx.mcpReq._meta?.progressToken !== undefined) {
+          await ctx.mcpReq.notify({
             method: 'notifications/progress',
             params: {
               message: 'echoing remotely',
               progress: 1,
-              progressToken: extra._meta.progressToken,
+              progressToken: ctx.mcpReq._meta.progressToken,
               total: 1,
             },
           });
@@ -279,11 +279,11 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
       'multimodal',
       {
         description: 'Return bounded text with image and audio through a real remote MCP server.',
-        inputSchema: {},
-        outputSchema: {
+        inputSchema: z.object({}),
+        outputSchema: z.object({
           mediaCount: z.number(),
           provenance: z.string(),
-        },
+        }),
       },
       async () => {
         executions.push('multimodal');
@@ -313,7 +313,7 @@ async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
     );
     // Stateless mode: omit sessionIdGenerator entirely (exactOptionalPropertyTypes
     // forbids passing an explicit `undefined` for the optional property).
-    const transport = new StreamableHTTPServerTransport({});
+    const transport = new NodeStreamableHTTPServerTransport({});
     activeServers.add(mcpServer);
     activeTransports.add(transport);
     try {
