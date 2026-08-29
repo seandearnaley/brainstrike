@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished } from 'vitest';
 import type { WorktreeSetupInput } from '../../assistant-server/worktree-service';
 import {
   parseWorktreeInclude,
@@ -450,12 +450,17 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     async () => {
       const pidPath = path.join(tempRoot, 'grandchild.pid');
       const input = baseInput();
+      const grandchildScript = [
+        "const fs = require('node:fs');",
+        "process.on('SIGTERM', () => { fs.closeSync(1); fs.closeSync(2); });",
+        'fs.writeFileSync(process.argv[1], String(process.pid));',
+        'setInterval(() => {}, 30_000);',
+      ].join(' ');
       const script = [
         "const { spawn } = require('node:child_process');",
-        "const fs = require('node:fs');",
-        "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 30_000)'], { stdio: ['ignore', 'inherit', 'inherit'] });",
-        'fs.writeFileSync(process.argv[1], String(child.pid));',
+        `const child = spawn(process.execPath, ['-e', ${JSON.stringify(grandchildScript)}, process.argv[1]], { stdio: ['ignore', 'inherit', 'inherit'] });`,
         'child.unref();',
+        'setInterval(() => {}, 30_000);',
       ].join(' ');
       const startedAt = Date.now();
 
@@ -470,6 +475,15 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
       });
 
       const grandchildPid = Number.parseInt(readFileSync(pidPath, 'utf8'), 10);
+      onTestFinished(() => {
+        try {
+          process.kill(grandchildPid, 'SIGKILL');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+            throw error;
+          }
+        }
+      });
       expect(outcome.status).toBe('failed');
       expect(outcome.reason).toBe('Setup command timed out after 0.15s.');
       expect(Date.now() - startedAt).toBeLessThan(1500);

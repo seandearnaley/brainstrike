@@ -565,9 +565,13 @@ spawned as `/bin/sh <absolute-script-path>`; configured argv is spawned
 directly. Neither path nor argv is interpolated into a command line. Stdout and
 stderr are consumed to completion while their retained bytes are bounded;
 overflow marks the outcome truncated and is discarded without killing the
-process. Timeout, spawn, signal, and non-zero-exit failures remain visible but
-non-blocking: the worktree is usable, and the bounded `WorktreeSetupOutcome` is
-returned and its status/output persisted on the ledger row rather than dropped.
+process. A timed-out POSIX command cannot settle merely because the process
+leader and inherited output pipes closed: settlement waits for the dedicated
+process group to disappear, while the existing post-escalation deadline keeps
+the outcome bounded. Timeout, spawn, signal, and non-zero-exit failures remain
+visible but non-blocking: the worktree is usable, and the bounded
+`WorktreeSetupOutcome` is returned and its status/output persisted on the ledger
+row rather than dropped.
 
 ### MANAGED WORKTREE ARCHIVE SNAPSHOTS (BST-1390) — not shadow git
 

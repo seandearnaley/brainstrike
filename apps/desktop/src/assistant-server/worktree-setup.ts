@@ -434,6 +434,7 @@ function resolveTerminationGraceMs(input: WorktreeSetupInput): number {
 }
 
 const isWindows = process.platform === 'win32';
+const PROCESS_TREE_EXIT_POLL_MS = 10;
 
 /**
  * Signal the setup shell and every descendant. POSIX setup commands run in a
@@ -451,6 +452,18 @@ function signalProcessTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signa
     // The group may have raced to completion. A direct signal still covers a
     // surviving leader and keeps the timeout's termination attempt explicit.
     child.kill(signal);
+  }
+}
+
+function isProcessTreeAlive(child: ReturnType<typeof spawn>): boolean {
+  if (isWindows || typeof child.pid !== 'number') {
+    return false;
+  }
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (error) {
+    return !hasErrorCode(error, 'ESRCH');
   }
 }
 
@@ -513,6 +526,7 @@ async function executeSetupCommand(
     let settled = false;
     let escalationTimer: ReturnType<typeof setTimeout> | undefined;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let processTreeExitTimer: ReturnType<typeof setTimeout> | undefined;
     const child = spawn(file, args, {
       cwd: input.worktree.path,
       detached: !isWindows,
@@ -535,6 +549,7 @@ async function executeSetupCommand(
       if (deadlineTimer !== undefined) {
         clearTimeout(deadlineTimer);
       }
+      clearTimeout(processTreeExitTimer);
       child.stdout.off('data', onStdout);
       child.stderr.off('data', onStderr);
       child.stdout.destroy();
@@ -566,6 +581,21 @@ async function executeSetupCommand(
       resolve({ copiedPaths, output, reason, skippedCopies, status: 'failed', truncated });
     };
 
+    const settleAfterProcessTreeExit = (
+      code: number | null,
+      signal: NodeJS.Signals | null
+    ): void => {
+      if (!isProcessTreeAlive(child)) {
+        settle(code, signal);
+        return;
+      }
+      processTreeExitTimer = setTimeout(
+        () => settleAfterProcessTreeExit(code, signal),
+        PROCESS_TREE_EXIT_POLL_MS
+      );
+      processTreeExitTimer.unref?.();
+    };
+
     const timeout = setTimeout(() => {
       timedOut = true;
       signalProcessTree(child, 'SIGTERM');
@@ -586,6 +616,10 @@ async function executeSetupCommand(
       settle(null, null, error);
     });
     child.once('close', (code, signal) => {
+      if (timedOut && !isWindows) {
+        settleAfterProcessTreeExit(code, signal);
+        return;
+      }
       settle(code, signal);
     });
   });
