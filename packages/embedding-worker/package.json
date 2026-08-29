@@ -41,6 +41,10 @@
       "import": "./dist/test-runtime-bootstrap.js",
       "require": "./dist/test-runtime-bootstrap.cjs"
     },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "import": "./src/testing.ts"
+    },
     "./vite": {
       "types": "./src/vite.ts",
       "import": "./src/vite.ts"

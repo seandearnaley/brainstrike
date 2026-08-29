@@ -43,12 +43,21 @@ import {
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
 const EMPTY_EMBEDDING_TELEMETRY = createEmptyEmbeddingTelemetrySnapshot();
+const EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE =
+  'Embedding telemetry provider failed. See internal diagnostics for details.';
 const LazyQueueDiagnosticsPanel = lazy(async () => {
   const module = await import('@brainstrike/vector-management');
   return { default: module.QueueDiagnosticsPanel };
 });
 
-type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
+type StatusVariant = 'success' | 'warning' | 'error' | 'loading' | 'neutral';
+const STATUS_BADGE_VARIANTS: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
+  error: 'destructive',
+  loading: 'secondary',
+  neutral: 'secondary',
+  success: 'default',
+  warning: 'secondary',
+};
 
 type RuntimeHostPlatformState =
   | 'active'
@@ -198,15 +207,12 @@ interface StatusBadgeProps {
 }
 
 function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
-  const variantMap: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
-    error: 'destructive',
-    loading: 'secondary',
-    success: 'default',
-    warning: 'secondary',
-  };
-
   return (
-    <Badge className="h-5 px-2 text-[10px]" data-status={status} variant={variantMap[status]}>
+    <Badge
+      className="h-5 px-2 text-[10px]"
+      data-status={status}
+      variant={STATUS_BADGE_VARIANTS[status]}
+    >
       {label}
     </Badge>
   );
@@ -570,11 +576,18 @@ function EmbeddingRuntimeDiagnosticsCard({
 }): ReactElement {
   const hasSamples = telemetry.lastUpdatedAt !== null;
   const hasFailures = providerError !== null || telemetry.health.failureCount > 0;
+  const residentDeviceCounts = telemetry.cache.entries.reduce(
+    (counts, entry) => {
+      counts[entry.device] += 1;
+      return counts;
+    },
+    { wasm: 0, webgpu: 0 }
+  );
   return (
     <DiagnosticCard
       description="Worker transfer and model residency"
       icon={<Activity className="h-4 w-4 text-primary" />}
-      status={hasFailures ? 'error' : hasSamples ? 'success' : 'warning'}
+      status={hasFailures ? 'error' : hasSamples ? 'success' : 'neutral'}
       statusLabel={
         providerError
           ? 'Embedding telemetry unavailable'
@@ -589,7 +602,7 @@ function EmbeddingRuntimeDiagnosticsCard({
       <div className="space-y-2 text-xs">
         {providerError ? (
           <div className="text-destructive" role="alert">
-            {providerError}
+            {EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE}
           </div>
         ) : null}
         <div className="flex items-center justify-between">
@@ -622,15 +635,14 @@ function EmbeddingRuntimeDiagnosticsCard({
             {formatCount(telemetry.peakVectorsInFlight, 'vector', 'vectors')}
           </span>
         </div>
-        {telemetry.cache.entries.map((entry) => (
-          <div
-            className="flex items-center justify-between"
-            key={`${entry.sourceId}:${entry.cacheKey}`}
-          >
-            <span className="max-w-48 truncate text-muted-foreground">{entry.model}</span>
-            <span className="font-mono text-[10px]">{entry.device}</span>
+        {telemetry.cache.entries.length > 0 && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Resident Devices</span>
+            <span className="font-mono text-[10px]">
+              {`${residentDeviceCounts.webgpu} WebGPU · ${residentDeviceCounts.wasm} WASM`}
+            </span>
           </div>
-        ))}
+        )}
         {telemetry.cache.memoryEstimateUnavailableCount > 0 && (
           <div className="text-[10px] text-amber-700 dark:text-amber-300">
             {formatCount(
@@ -640,10 +652,9 @@ function EmbeddingRuntimeDiagnosticsCard({
             )}
           </div>
         )}
-        {telemetry.health.lastFailure !== null && (
+        {telemetry.health.failureCount > 0 && (
           <div className="text-[10px] text-destructive">
-            {formatCount(telemetry.health.failureCount, 'telemetry failure', 'telemetry failures')}:{' '}
-            {telemetry.health.lastFailure}
+            {formatCount(telemetry.health.failureCount, 'telemetry failure', 'telemetry failures')}
           </div>
         )}
       </div>

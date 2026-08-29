@@ -32,6 +32,13 @@ export interface EmbeddingTelemetrySnapshot {
     readonly lastFailure: string | null;
   };
   readonly lastUpdatedAt: number | null;
+  /**
+   * Largest vector count retained by one reported batch. Streaming workers report the
+   * high-water mark for a batch awaiting its acknowledgement before the next batch can
+   * be sent. Workerpool adapters report the complete vector count returned by one task
+   * as a synthetic batch. Aggregation takes the maximum across sources; it never sums
+   * concurrent workerpool tasks.
+   */
   readonly peakVectorsInFlight: number;
 }
 
