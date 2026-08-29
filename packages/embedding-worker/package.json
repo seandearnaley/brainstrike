@@ -43,8 +43,7 @@
     },
     "./testing": {
       "types": "./src/testing.ts",
-      "import": "./dist/testing.js",
-      "require": "./dist/testing.cjs"
+      "import": "./src/testing.ts"
     },
     "./vite": {
       "types": "./src/vite.ts",

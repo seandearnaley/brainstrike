@@ -49,6 +49,13 @@ const LazyQueueDiagnosticsPanel = lazy(async () => {
 });
 
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading' | 'neutral';
+const STATUS_BADGE_VARIANTS: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
+  error: 'destructive',
+  loading: 'secondary',
+  neutral: 'secondary',
+  success: 'default',
+  warning: 'secondary',
+};
 
 type RuntimeHostPlatformState =
   | 'active'
@@ -198,16 +205,12 @@ interface StatusBadgeProps {
 }
 
 function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
-  const variantMap: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
-    error: 'destructive',
-    loading: 'secondary',
-    neutral: 'secondary',
-    success: 'default',
-    warning: 'secondary',
-  };
-
   return (
-    <Badge className="h-5 px-2 text-[10px]" data-status={status} variant={variantMap[status]}>
+    <Badge
+      className="h-5 px-2 text-[10px]"
+      data-status={status}
+      variant={STATUS_BADGE_VARIANTS[status]}
+    >
       {label}
     </Badge>
   );
@@ -630,7 +633,7 @@ function EmbeddingRuntimeDiagnosticsCard({
             {formatCount(telemetry.peakVectorsInFlight, 'vector', 'vectors')}
           </span>
         </div>
-        {telemetry.cache.residentCount > 0 && (
+        {telemetry.cache.entries.length > 0 && (
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Resident Devices</span>
             <span className="font-mono text-[10px]">

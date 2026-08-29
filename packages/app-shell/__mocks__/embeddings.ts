@@ -1,16 +1,13 @@
 import {
-  assertEmbeddingTelemetrySnapshot as assertProductionEmbeddingTelemetrySnapshot,
-  createEmptyEmbeddingTelemetrySnapshot as createProductionEmptyEmbeddingTelemetrySnapshot,
+  createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
 
-export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelemetrySnapshot {
-  return assertProductionEmbeddingTelemetrySnapshot(value);
-}
-
-export function createEmptyEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
-  return createProductionEmptyEmbeddingTelemetrySnapshot();
-}
+export {
+  assertEmbeddingTelemetrySnapshot,
+  createEmptyEmbeddingTelemetrySnapshot,
+  type EmbeddingTelemetrySnapshot,
+} from '@brainstrike/embedding-worker';
 
 const embeddingTelemetrySnapshot = createEmptyEmbeddingTelemetrySnapshot();
 

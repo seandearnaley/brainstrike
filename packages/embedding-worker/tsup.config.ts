@@ -37,7 +37,6 @@ export default defineConfig({
     'src/embedding.worker.ts',
     'src/pipeline-cache-controller.ts',
     'src/test-runtime-bootstrap.ts',
-    'src/testing.ts',
   ],
   esbuildPlugins: [stripErroneousSourcemaps],
   external: ['onnxruntime-node', 'sharp', 'worker_threads', 'os', 'child_process'],
