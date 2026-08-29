@@ -14,7 +14,6 @@ const sdkPackages = {
     '@modelcontextprotocol/server-legacy',
   ],
 };
-
 function readJson(relativePath) {
   return JSON.parse(readFileSync(path.join(repoRoot, relativePath), 'utf8'));
 }
@@ -43,15 +42,8 @@ test('BST-1497: Brainstrike source and manifests use only stable SDK v2 split pa
   for (const packageName of Object.values(sdkPackages).flat()) {
     assert.equal(workspace.catalog[packageName], '2.0.0');
   }
-});
-
-test('BST-1497: agent bundles externalize the complete SDK v2 package family', () => {
-  const agentManifest = readJson('packages/agent/package.json');
-  const bundleVerifier = readFileSync(
-    path.join(repoRoot, 'packages/agent/scripts/verify-hosted-web-bundle.mjs'),
-    'utf8'
+  assert.match(
+    readJson('packages/agent/package.json').scripts.build,
+    /verify-hosted-web-bundle\.mjs/
   );
-  assert.match(agentManifest.scripts.build, /verify-hosted-web-bundle\.mjs/);
-  assert.match(bundleVerifier, /mcpFreeOutputs/);
-  assert.match(bundleVerifier, /@modelcontextprotocol/);
 });

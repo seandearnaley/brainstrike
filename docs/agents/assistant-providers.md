@@ -1922,11 +1922,8 @@ Ownership and flow:
    `@brainstrike/agent/mcp-client`, own the stable SDK v2 split-package transports,
    lazy/concurrency-safe connection, request forwarding, and idempotent close.
    The HTTP client additionally owns header composition and Streamable HTTP
-   session termination. The dedicated package subpath is dynamically loaded only
-   after validated non-empty MCP config reaches the runtime. Agent root,
-   browser-safe, and Hosted Web bundles contain no `@modelcontextprotocol/*`
-   runtime or stdio transport; the build verifier enforces that boundary. Keep
-   the split SDK packages external in the agent build.
+   session termination. Only non-empty MCP config loads the dedicated subpath; keep
+   split SDK packages out of root/browser-safe/Hosted Web bundles (the emitted-bundle verifier enforces this).
 3. Desktop — `apps/desktop/src/mcp/http-client.ts` adapts that shared client to
    the desktop `McpClient` discovery/call contract. `sse-client.ts` is only a
    compatibility factory delegating to the canonical adapter; no bespoke SSE

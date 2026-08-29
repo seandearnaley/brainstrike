@@ -2,11 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AgentMessage, StreamChunk } from '../index';
 import { isMastraAgentError } from '../mastra/mastra-agent-error';
 
-vi.mock('@brainstrike/agent/mcp-client', async () => ({
-  ...(await import('../mcp/explicit-http-client')),
-  ...(await import('../mcp/explicit-stdio-client')),
-}));
-
 // Import the runtime functions - we'll need to expose some internal functions for testing
 // or test them through their public interfaces
 
@@ -1461,7 +1456,7 @@ describe('agent-runtime edge cases', () => {
     it('handles dispose errors gracefully during stream failure', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
-      const { ExplicitStdioMcpClient } = await import('@brainstrike/agent/mcp-client');
+      const { ExplicitStdioMcpClient } = await import('../mcp/explicit-stdio-client');
 
       const originalStream = Agent.prototype.stream;
       const listToolsSpy = vi
