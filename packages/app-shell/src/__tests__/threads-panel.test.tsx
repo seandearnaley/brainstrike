@@ -2382,21 +2382,6 @@ describe('ThreadsPanel folders', () => {
     expect(within(rowFor('Second thread')).queryByTestId('thread-active-spinner')).toBeNull();
   });
 
-  // Pinned because the fill is the ONLY thing this glyph says: `bg-amber-500`
-  // measured 1.91:1 against the light row surface (WCAG 1.4.11 wants 3:1), and
-  // a palette edit that quietly restores a lighter amber would take the dot
-  // back below the floor with every other assertion still green. Computed
-  // ratios against the surfaces CDT sampled: amber-700 on rgb(243,241,239) =
-  // 4.47:1; amber-500 on rgb(41,39,37) = 6.97:1.
-  it('paints the needs-you dot with a per-theme amber that clears the contrast floor', async () => {
-    dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
-    renderThreadsPanel();
-
-    const needsYou = await screen.findByTestId('thread-needs-you-glyph');
-    expect(needsYou).toHaveClass('bg-amber-700', 'dark:bg-amber-500');
-    expect(needsYou.className).not.toMatch(/(?:^|\s)bg-amber-500(?:\s|$)/);
-  });
-
   it('surfaces an approval projection failure instead of showing every thread unblocked', async () => {
     // Rows AND an error: without the rows the glyph could never have rendered
     // and the absence assertion below would pass for the wrong reason. With

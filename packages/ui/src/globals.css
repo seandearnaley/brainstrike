@@ -78,8 +78,8 @@
   /* Semantic Status Colors */
   --bs-success: 152 55% 41%; /* #2F9E6E - Green */
   --bs-success-foreground: 0 0% 100%; /* White */
-  --bs-warning: 38 92% 50%; /* #F59E0B - Amber */
-  --bs-warning-foreground: 25 20% 14%; /* Dark text for contrast */
+  --bs-warning: 30 90% 34%; /* Deep amber; 4.66:1 against the light muted surface */
+  --bs-warning-foreground: 0 0% 100%; /* White text on deep amber */
   --bs-info: 215 50% 50%; /* #4080B3 - Muted blue */
   --bs-info-foreground: 0 0% 100%; /* White */
 
@@ -102,6 +102,8 @@
   --accent-foreground: var(--bs-accent-foreground);
   --destructive: var(--bs-destructive);
   --destructive-foreground: var(--bs-destructive-foreground);
+  --warning: var(--bs-warning);
+  --warning-foreground: var(--bs-warning-foreground);
   --border: var(--bs-border);
   --panel-divider: var(--bs-panel-divider);
   --panel-surface: var(--bs-panel-surface);
@@ -213,6 +215,8 @@
   --accent-foreground: var(--bs-accent-foreground);
   --destructive: var(--bs-destructive);
   --destructive-foreground: var(--bs-destructive-foreground);
+  --warning: var(--bs-warning);
+  --warning-foreground: var(--bs-warning-foreground);
   --border: var(--bs-border);
   --panel-divider: var(--bs-panel-divider);
   --panel-surface: var(--bs-panel-surface);
