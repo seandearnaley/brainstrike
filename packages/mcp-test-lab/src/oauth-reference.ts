@@ -4,6 +4,8 @@ import {
   type McpHttpHandler,
   OAuthError,
   OAuthErrorCode,
+  type OAuthMetadata,
+  type OAuthProtectedResourceMetadata,
   requireBearerAuth,
 } from '@modelcontextprotocol/server';
 
@@ -37,6 +39,7 @@ const TOKEN_KEYS = new Set([
   'redirect_uri',
   'resource',
 ]);
+const CALLBACK_KEYS = new Set(['code', 'error', 'error_description', 'error_uri', 'iss', 'state']);
 
 interface RegisteredClient {
   readonly redirectUris: readonly string[];
@@ -98,6 +101,12 @@ export interface McpOAuthReferenceHandlerOptions {
   readonly randomBytes?: (size: number) => Uint8Array;
 }
 
+export interface McpOAuthAuthorizationResponseVerifierOptions {
+  readonly endpoint: McpOAuthReferenceEndpoint;
+  readonly expectedRedirectUri: string;
+  readonly expectedState: string;
+}
+
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -135,6 +144,22 @@ function authorizationError(
     headers: { 'cache-control': 'no-store', location: callback.href },
     status: 302,
   });
+}
+
+function metadataResponse(value: OAuthMetadata | OAuthProtectedResourceMetadata): Response {
+  return Response.json(value, { headers: { 'cache-control': 'no-store' } });
+}
+
+function serveMetadata(
+  request: Request,
+  value: OAuthMetadata | OAuthProtectedResourceMetadata
+): Response {
+  if (request.method !== 'GET') {
+    return methodNotAllowed('GET');
+  }
+  return new URL(request.url).search
+    ? oauthError('invalid_request', 'Metadata request is invalid')
+    : metadataResponse(value);
 }
 
 function hasContentType(request: Request, expected: string): boolean {
@@ -274,6 +299,33 @@ function pkceMatches(verifier: string, expectedChallenge: string): boolean {
   const actual = Buffer.from(createHash('sha256').update(verifier, 'ascii').digest('base64url'));
   const expected = Buffer.from(expectedChallenge);
   return actual.byteLength === expected.byteLength && timingSafeEqual(actual, expected);
+}
+
+function createAuthorizationMetadata(endpoint: McpOAuthReferenceEndpoint): OAuthMetadata {
+  return {
+    ['authorization_endpoint']: endpoint.authorizationUrl.href,
+    ['authorization_response_iss_parameter_supported']: true,
+    ['code_challenge_methods_supported']: ['S256'],
+    ['grant_types_supported']: ['authorization_code'],
+    issuer: endpoint.issuer.href,
+    ['registration_endpoint']: endpoint.registrationUrl.href,
+    ['response_types_supported']: ['code'],
+    ['scopes_supported']: ['mcp'],
+    ['token_endpoint']: endpoint.tokenUrl.href,
+    ['token_endpoint_auth_methods_supported']: ['none'],
+  };
+}
+
+function createProtectedResourceMetadata(
+  endpoint: McpOAuthReferenceEndpoint
+): OAuthProtectedResourceMetadata {
+  return {
+    ['authorization_servers']: [endpoint.issuer.href],
+    ['bearer_methods_supported']: ['header'],
+    resource: endpoint.url.href,
+    ['resource_name']: 'Brainstrike MCP Lab',
+    ['scopes_supported']: ['mcp'],
+  };
 }
 
 async function registerClient(request: Request, runtime: OAuthRuntime): Promise<Response> {
@@ -562,6 +614,79 @@ export function createMcpOAuthReferenceEndpoint(origin: URL): McpOAuthReferenceE
   });
 }
 
+function hasExactExpectedRedirectQuery(callback: URL, expectedRedirect: URL): boolean {
+  for (const key of new Set(expectedRedirect.searchParams.keys())) {
+    const expectedValues = expectedRedirect.searchParams.getAll(key);
+    const actualValues = callback.searchParams.getAll(key);
+    if (
+      actualValues.length !== expectedValues.length ||
+      actualValues.some((value, index) => value !== expectedValues[index])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function readAuthorizationResponseCode(values: Readonly<Record<string, string>>): string {
+  if (values['error']) {
+    if (values['code']) {
+      throw new Error('MCP OAuth authorization response contains both code and error');
+    }
+    const description = values['error_description'];
+    throw new Error(
+      `MCP OAuth authorization error: ${values['error']}${description ? ` (${description})` : ''}`
+    );
+  }
+  const code = values['code'];
+  if (!code) {
+    throw new Error('MCP OAuth authorization response is missing an authorization code');
+  }
+  return code;
+}
+
+export function createMcpOAuthAuthorizationResponseVerifier(
+  options: McpOAuthAuthorizationResponseVerifierOptions
+): (callback: URL) => string {
+  const expectedRedirect = new URL(options.expectedRedirectUri);
+  if (
+    !(isLoopbackRedirect(expectedRedirect.href) && STATE_PATTERN.test(options.expectedState)) ||
+    [...expectedRedirect.searchParams.keys()].some((key) => CALLBACK_KEYS.has(key))
+  ) {
+    throw new Error('MCP OAuth callback verifier configuration is invalid');
+  }
+  let consumed = false;
+  return (callback: URL): string => {
+    if (consumed) {
+      throw new Error('MCP OAuth authorization response was already consumed');
+    }
+    if (
+      callback.origin !== expectedRedirect.origin ||
+      callback.pathname !== expectedRedirect.pathname ||
+      callback.hash !== expectedRedirect.hash ||
+      !hasExactExpectedRedirectQuery(callback, expectedRedirect)
+    ) {
+      throw new Error('MCP OAuth authorization response redirect mismatch');
+    }
+    if (Buffer.byteLength(callback.href) > MAX_URL_BYTES) {
+      throw new Error('MCP OAuth authorization response exceeds the fixture limit');
+    }
+    const values = readKnownParams(callback.searchParams, CALLBACK_KEYS);
+    if (!values) {
+      throw new Error('MCP OAuth authorization response repeats a known parameter');
+    }
+    if (values['state'] !== options.expectedState) {
+      throw new Error('MCP OAuth authorization response state mismatch');
+    }
+    if (values['iss'] !== options.endpoint.issuer.href) {
+      throw new Error('MCP OAuth authorization response issuer mismatch');
+    }
+    const code = readAuthorizationResponseCode(values);
+    consumed = true;
+    return code;
+  };
+}
+
 export function createMcpOAuthReferenceHandler(
   downstream: McpHttpHandler,
   endpoint: McpOAuthReferenceEndpoint,
@@ -575,6 +700,8 @@ export function createMcpOAuthReferenceHandler(
   }
   const now = options.now ?? (() => Date.now());
   const runtime = createRuntime(options.randomBytes ?? createRandomBytes);
+  const authorizationMetadata = createAuthorizationMetadata(endpoint);
+  const protectedResourceMetadata = createProtectedResourceMetadata(endpoint);
   const gate = requireBearerAuth({
     requiredScopes: ['mcp'],
     resourceMetadataUrl: endpoint.protectedResourceMetadataUrl.href,
@@ -601,6 +728,14 @@ export function createMcpOAuthReferenceHandler(
     },
   });
   const routes = new Map<string, (request: Request) => Promise<Response> | Response>([
+    [
+      endpoint.authorizationServerMetadataUrl.pathname,
+      (request) => serveMetadata(request, authorizationMetadata),
+    ],
+    [
+      endpoint.protectedResourceMetadataUrl.pathname,
+      (request) => serveMetadata(request, protectedResourceMetadata),
+    ],
     [endpoint.registrationUrl.pathname, (request) => registerClient(request, runtime)],
     [
       endpoint.authorizationUrl.pathname,
