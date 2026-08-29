@@ -9,8 +9,11 @@ import type { McpHttpHandler } from '@modelcontextprotocol/server';
 
 export interface McpLabLoopbackHandle {
   close(): Promise<void>;
+  readonly handler: McpHttpHandler;
   readonly url: URL;
 }
+
+export type McpLabLoopbackHandlerFactory = (origin: URL) => McpHttpHandler;
 
 function listenLoopback(server: Server): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -59,21 +62,24 @@ function handlerFailureResponse(error: unknown): Response {
   return Response.json({ error: 'mcp_lab_handler_error', message }, { status: 500 });
 }
 
-export async function createMcpLabLoopback(handler: McpHttpHandler): Promise<McpLabLoopbackHandle> {
-  const nodeHandler = toNodeHandler({
-    ...handler,
-    async fetch(request, options) {
-      try {
-        return await handler.fetch(request, options);
-      } catch (error) {
-        return handlerFailureResponse(error);
-      }
-    },
-  });
+export async function createMcpLabLoopback(
+  handlerOrFactory: McpHttpHandler | McpLabLoopbackHandlerFactory
+): Promise<McpLabLoopbackHandle> {
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
+  let nodeHandler: ReturnType<typeof toNodeHandler> | undefined;
   const server = createServer((request, response) => {
     if (!(validateHost(request, response) && validateOrigin(request, response))) {
+      return;
+    }
+    if (!nodeHandler) {
+      response.writeHead(500, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          error: 'mcp_lab_handler_error',
+          message: 'MCP lab listener accepted a request before its handler was installed',
+        })
+      );
       return;
     }
     void nodeHandler(toNodeRequest(request), response).catch((error: unknown) => {
@@ -87,8 +93,27 @@ export async function createMcpLabLoopback(handler: McpHttpHandler): Promise<Mcp
     });
   });
   const port = await listenLoopback(server);
+  const origin = new URL(`http://127.0.0.1:${port}/`);
+  let handler: McpHttpHandler;
+  try {
+    handler = typeof handlerOrFactory === 'function' ? handlerOrFactory(origin) : handlerOrFactory;
+    nodeHandler = toNodeHandler({
+      ...handler,
+      async fetch(request, options) {
+        try {
+          return await handler.fetch(request, options);
+        } catch (error) {
+          return handlerFailureResponse(error);
+        }
+      },
+    });
+  } catch (error) {
+    await closeServer(server);
+    throw error;
+  }
   return Object.freeze({
     close: () => closeServer(server),
-    url: new URL(`http://127.0.0.1:${port}/mcp`),
+    handler,
+    url: new URL('/mcp', origin),
   });
 }

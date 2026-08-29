@@ -213,7 +213,7 @@ describe('MCP lab in-process HTTP references', () => {
       'OAuth fixture',
       'oauth-reference',
       { execution: 'in-process' },
-      /"oauth-reference" is not executable/,
+      /requires a loopback listener/,
     ],
     [
       'stdio fixture',

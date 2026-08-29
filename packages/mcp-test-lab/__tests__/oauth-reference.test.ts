@@ -124,6 +124,12 @@ describe('MCP OAuth reference core', () => {
         })
       );
     expect((await protectedRequest()).status).toBe(200);
+    for (const [length, status] of [
+      [1024 * 1024, 200],
+      [1024 * 1024 + 1, 413],
+    ] as const) {
+      expect((await protectedRequest(' '.repeat(length))).status).toBe(status);
+    }
     const invalidUtf8 = await protectedRequest(new Uint8Array([255]));
     expect(invalidUtf8.status).toBe(400);
     await expect(invalidUtf8.json()).resolves.toEqual({ error: 'mcp_lab_body_invalid_utf8' });

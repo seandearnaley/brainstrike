@@ -1963,8 +1963,13 @@ ephemeral port, apply the SDK localhost Host/Origin validators, and close before
 the session reports completion. `stdio-reference` is also executable through
 one lab-owned spawned child with an explicit empty environment; stderr is
 retained only as a byte count, and close proves the child is gone.
-`oauth-reference` remains `availability: 'declared'` until its owning layer
-lands an executable fixture and focused exchange tests.
+`oauth-reference` is executable only over an ephemeral loopback listener. It
+publishes authorization-server and RFC 9728 protected-resource metadata, accepts
+bounded native-public-client registration, binds one-shot authorization codes to
+S256 PKCE and the RFC 8707 resource, emits and verifies the RFC 9207 issuer, and
+protects the real SDK v2 MCP handler with bearer authentication. Callback state
+and issuer verification is one-shot, route state is bounded, and close reports
+token-free zero counts for clients, states, codes, and tokens after clearing them.
 
 The private artifact-integrity core reads each unique reference once and in
 order, passes an explicit positive byte limit to the reader, rejects an
