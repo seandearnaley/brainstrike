@@ -108,10 +108,10 @@ interface ParsedStartOptions extends Readonly<Partial<StartMcpLabScenarioOptions
 const STDIO_FAULT_PHASE_POLICY = {
   authorization: 'defer',
   'child-process': 'execute',
-  initialization: 'defer',
-  operation: 'defer',
+  initialization: 'execute',
+  operation: 'execute',
   shutdown: 'execute',
-  subscription: 'defer',
+  subscription: 'execute',
   transport: 'defer',
 } as const satisfies Readonly<Record<McpLabProtocolPhase, 'defer' | 'execute'>>;
 
@@ -343,7 +343,7 @@ function createStdioSession(
   const cwd = fileURLToPath(new URL('..', import.meta.url));
   const env = Object.freeze({});
   const transport = new McpLabOwnedStdioTransport(
-    { args, command, cwd, env },
+    { args, command, cwd, env, era: scenario.protocol.era },
     (byteCount) => {
       stderrByteCount += byteCount;
       diagnostics[0] = Object.freeze({

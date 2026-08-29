@@ -4,13 +4,16 @@ import {
   StdioClientTransport,
 } from '@modelcontextprotocol/client/stdio';
 import type { McpLabFaultRuntime } from './fault-runtime.js';
+import type { McpLabProtocolEra } from './faults.js';
 import { McpLabStdioChildFaults } from './stdio-child-faults.js';
+import { McpLabStdioProtocolFaults } from './stdio-protocol-faults.js';
 
 export interface McpLabStdioParameters {
   readonly args: readonly string[];
   readonly command: string;
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
+  readonly era: McpLabProtocolEra;
 }
 
 function chunkByteLength(chunk: unknown): number {
@@ -40,6 +43,7 @@ export class McpLabOwnedStdioTransport implements Transport {
   private readonly activeSends = new Set<Promise<void>>();
   private readonly childFaults: McpLabStdioChildFaults;
   private readonly sendAborters = new Set<(error: Error) => void>();
+  private readonly protocolFaults: McpLabStdioProtocolFaults;
   private capturedPid: number | null = null;
   private closePromise: Promise<void> | undefined;
   private closed = false;
@@ -60,6 +64,7 @@ export class McpLabOwnedStdioTransport implements Transport {
     faultRuntime: McpLabFaultRuntime
   ) {
     this.childFaults = new McpLabStdioChildFaults(faultRuntime);
+    this.protocolFaults = new McpLabStdioProtocolFaults(faultRuntime, parameters.era);
   }
 
   get pid(): number | null {
@@ -111,7 +116,7 @@ export class McpLabOwnedStdioTransport implements Transport {
       delegate.onerror = (error) => this.onerror?.(error);
       delegate.onmessage = (message) => {
         this.receivedMessage = true;
-        this.onmessage?.(message);
+        this.protocolFaults.receive(message, () => this.onmessage?.(message));
       };
       delegate.stderr?.on('data', (chunk: unknown) =>
         this.recordStderrBytes(chunkByteLength(chunk))
@@ -161,7 +166,13 @@ export class McpLabOwnedStdioTransport implements Transport {
       } catch {
         cleanupFailed = true;
       }
+      try {
+        await this.protocolFaults.close();
+      } catch {
+        cleanupFailed = true;
+      }
       await this.waitForActiveSends();
+      this.protocolFaults.finishClose();
       try {
         const pid = this.spawnedPid;
         await this.childFaults.close(pid, () => pid !== null && delegate?.pid === pid);
@@ -203,9 +214,12 @@ export class McpLabOwnedStdioTransport implements Transport {
 
   private async sendOnce(message: JSONRPCMessage, delegate: StdioClientTransport): Promise<void> {
     const { promise: aborted, reject: abort } = Promise.withResolvers<void>();
+    void aborted.catch(() => undefined);
     this.sendAborters.add(abort);
     try {
-      await Promise.race([delegate.send(message), aborted]);
+      await this.protocolFaults.send(message, () =>
+        Promise.race([aborted, delegate.send(message)])
+      );
     } finally {
       this.sendAborters.delete(abort);
     }

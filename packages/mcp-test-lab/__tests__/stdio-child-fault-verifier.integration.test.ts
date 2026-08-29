@@ -202,6 +202,50 @@ describe('MCP stdio child fault verifier', () => {
     });
   });
 
+  it('observes a close abort before a protocol delay defers the delegate send', async () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 25, kind: 'delay' },
+        id: 'deferred-send-close',
+        match: { method: 'tools/list', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const transport = new McpLabOwnedStdioTransport(
+      {
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+        command: process.execPath,
+        cwd: process.cwd(),
+        env: {},
+        era: 'modern',
+      },
+      () => undefined,
+      createMcpLabFaultRuntime(claimMcpLabFaultPlan(plan), 'deferred-send-close')
+    );
+    await transport.start();
+    const childPid = transport.lastSpawnedPid;
+    try {
+      const send = transport.send({
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'tools/list',
+        params: {
+          _meta: {
+            'io.modelcontextprotocol/clientCapabilities': {},
+            'io.modelcontextprotocol/clientInfo': { name: 'close-race', version: '1' },
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          },
+        },
+      });
+      const closing = transport.close();
+
+      await expect(send).rejects.toThrow(/closed during send/i);
+      await expect(closing).resolves.toBeUndefined();
+      expect(plan.untriggeredIds()).toEqual(['deferred-send-close']);
+    } finally {
+      await forceReapTransport(transport, childPid);
+    }
+  });
+
   it('cancels a 10 MB backpressured send before joining it during close', async () => {
     const transport = new McpLabOwnedStdioTransport(
       {
@@ -209,6 +253,7 @@ describe('MCP stdio child fault verifier', () => {
         command: process.execPath,
         cwd: process.cwd(),
         env: {},
+        era: 'modern',
       },
       () => undefined,
       createMcpLabFaultRuntime(undefined, 'backpressure-close')
