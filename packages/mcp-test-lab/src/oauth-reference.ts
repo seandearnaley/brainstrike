@@ -8,6 +8,7 @@ import {
   type OAuthProtectedResourceMetadata,
   requireBearerAuth,
 } from '@modelcontextprotocol/server';
+import type { McpLabProtocolMethod } from './faults.js';
 
 const BODY_LIMIT_BYTES = 16 * 1024;
 const CODE_LIFETIME_SECONDS = 300;
@@ -97,6 +98,11 @@ export interface McpOAuthReferenceHandler extends McpHttpHandler {
 }
 
 export interface McpOAuthReferenceHandlerOptions {
+  readonly beforeAuthorizationMutation?: (
+    request: Request,
+    method: McpLabProtocolMethod
+  ) => Promise<void>;
+  readonly beforeMcpDispatch?: (request: Request, boundedRequest: Request) => Promise<unknown>;
   readonly now?: () => number;
   readonly randomBytes?: (size: number) => Uint8Array;
 }
@@ -150,16 +156,20 @@ function metadataResponse(value: OAuthMetadata | OAuthProtectedResourceMetadata)
   return Response.json(value, { headers: { 'cache-control': 'no-store' } });
 }
 
-function serveMetadata(
+async function serveMetadata(
   request: Request,
-  value: OAuthMetadata | OAuthProtectedResourceMetadata
-): Response {
+  value: OAuthMetadata | OAuthProtectedResourceMetadata,
+  method: McpLabProtocolMethod,
+  beforeMutation: McpOAuthReferenceHandlerOptions['beforeAuthorizationMutation']
+): Promise<Response> {
   if (request.method !== 'GET') {
     return methodNotAllowed('GET');
   }
-  return new URL(request.url).search
-    ? oauthError('invalid_request', 'Metadata request is invalid')
-    : metadataResponse(value);
+  if (new URL(request.url).search) {
+    return oauthError('invalid_request', 'Metadata request is invalid');
+  }
+  await beforeMutation?.(request, method);
+  return metadataResponse(value);
 }
 
 function hasContentType(request: Request, expected: string): boolean {
@@ -328,7 +338,11 @@ function createProtectedResourceMetadata(
   };
 }
 
-async function registerClient(request: Request, runtime: OAuthRuntime): Promise<Response> {
+async function registerClient(
+  request: Request,
+  runtime: OAuthRuntime,
+  beforeMutation: McpOAuthReferenceHandlerOptions['beforeAuthorizationMutation']
+): Promise<Response> {
   if (request.method !== 'POST') {
     return methodNotAllowed('POST');
   }
@@ -372,6 +386,7 @@ async function registerClient(request: Request, runtime: OAuthRuntime): Promise<
   if (runtime.clients.size >= MAX_CLIENTS) {
     return oauthError('invalid_client_metadata', 'Client registration capacity was reached');
   }
+  await beforeMutation?.(request, 'oauth/register');
   const clientId = runtime.nextClientId();
   runtime.clients.set(clientId, { redirectUris: Object.freeze([...redirectUris]) });
   return Response.json(
@@ -390,12 +405,13 @@ async function registerClient(request: Request, runtime: OAuthRuntime): Promise<
   );
 }
 
-function authorizeClient(
+async function authorizeClient(
   request: Request,
   endpoint: McpOAuthReferenceEndpoint,
   runtime: OAuthRuntime,
-  nowSeconds: number
-): Response {
+  nowSeconds: number,
+  beforeMutation: McpOAuthReferenceHandlerOptions['beforeAuthorizationMutation']
+): Promise<Response> {
   if (request.method !== 'GET') {
     return methodNotAllowed('GET');
   }
@@ -461,6 +477,7 @@ function authorizeClient(
       state
     );
   }
+  await beforeMutation?.(request, 'oauth/authorize');
   runtime.states.set(state, nowSeconds + STATE_LIFETIME_SECONDS);
   const code = runtime.nextAuthorizationCode();
   runtime.codes.set(code, {
@@ -482,7 +499,8 @@ async function exchangeCode(
   request: Request,
   endpoint: McpOAuthReferenceEndpoint,
   runtime: OAuthRuntime,
-  nowSeconds: number
+  nowSeconds: number,
+  beforeMutation: McpOAuthReferenceHandlerOptions['beforeAuthorizationMutation']
 ): Promise<Response> {
   if (request.method !== 'POST') {
     return methodNotAllowed('POST');
@@ -537,6 +555,7 @@ async function exchangeCode(
   if (runtime.tokens.size >= MAX_TOKENS) {
     return oauthError('temporarily_unavailable', 'Token capacity was reached');
   }
+  await beforeMutation?.(request, 'oauth/token');
   runtime.codes.delete(code);
   const accessToken = runtime.nextAccessToken();
   runtime.tokens.set(accessToken, {
@@ -692,6 +711,15 @@ export function createMcpOAuthReferenceHandler(
   endpoint: McpOAuthReferenceEndpoint,
   options: McpOAuthReferenceHandlerOptions = {}
 ): McpOAuthReferenceHandler {
+  if (
+    options.beforeAuthorizationMutation !== undefined &&
+    typeof options.beforeAuthorizationMutation !== 'function'
+  ) {
+    throw new Error('MCP OAuth reference authorization hook must be a function');
+  }
+  if (options.beforeMcpDispatch !== undefined && typeof options.beforeMcpDispatch !== 'function') {
+    throw new Error('MCP OAuth reference MCP dispatch hook must be a function');
+  }
   if (options.now !== undefined && typeof options.now !== 'function') {
     throw new Error('MCP OAuth reference clock must be a function');
   }
@@ -702,6 +730,17 @@ export function createMcpOAuthReferenceHandler(
   const runtime = createRuntime(options.randomBytes ?? createRandomBytes);
   const authorizationMetadata = createAuthorizationMetadata(endpoint);
   const protectedResourceMetadata = createProtectedResourceMetadata(endpoint);
+  let authorizationMutationTail = Promise.resolve();
+  const serializeAuthorizationMutation = <Result>(
+    mutation: () => Promise<Result>
+  ): Promise<Result> => {
+    const result = authorizationMutationTail.then(mutation);
+    authorizationMutationTail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
+  };
   const gate = requireBearerAuth({
     requiredScopes: ['mcp'],
     resourceMetadataUrl: endpoint.protectedResourceMetadataUrl.href,
@@ -730,20 +769,56 @@ export function createMcpOAuthReferenceHandler(
   const routes = new Map<string, (request: Request) => Promise<Response> | Response>([
     [
       endpoint.authorizationServerMetadataUrl.pathname,
-      (request) => serveMetadata(request, authorizationMetadata),
+      (request) =>
+        serveMetadata(
+          request,
+          authorizationMetadata,
+          'oauth/authorization-server',
+          options.beforeAuthorizationMutation
+        ),
     ],
     [
       endpoint.protectedResourceMetadataUrl.pathname,
-      (request) => serveMetadata(request, protectedResourceMetadata),
+      (request) =>
+        serveMetadata(
+          request,
+          protectedResourceMetadata,
+          'oauth/protected-resource',
+          options.beforeAuthorizationMutation
+        ),
     ],
-    [endpoint.registrationUrl.pathname, (request) => registerClient(request, runtime)],
+    [
+      endpoint.registrationUrl.pathname,
+      (request) =>
+        serializeAuthorizationMutation(() =>
+          registerClient(request, runtime, options.beforeAuthorizationMutation)
+        ),
+    ],
     [
       endpoint.authorizationUrl.pathname,
-      (request) => authorizeClient(request, endpoint, runtime, Math.floor(now() / 1000)),
+      (request) =>
+        serializeAuthorizationMutation(() =>
+          authorizeClient(
+            request,
+            endpoint,
+            runtime,
+            Math.floor(now() / 1000),
+            options.beforeAuthorizationMutation
+          )
+        ),
     ],
     [
       endpoint.tokenUrl.pathname,
-      (request) => exchangeCode(request, endpoint, runtime, Math.floor(now() / 1000)),
+      (request) =>
+        serializeAuthorizationMutation(() =>
+          exchangeCode(
+            request,
+            endpoint,
+            runtime,
+            Math.floor(now() / 1000),
+            options.beforeAuthorizationMutation
+          )
+        ),
     ],
   ]);
   let closed = false;
@@ -769,7 +844,7 @@ export function createMcpOAuthReferenceHandler(
       return closePromise;
     },
     endpoint,
-    async fetch(request, options) {
+    async fetch(request, requestOptions) {
       if (closed) {
         throw new Error('MCP OAuth reference handler is closed');
       }
@@ -792,9 +867,15 @@ export function createMcpOAuthReferenceHandler(
           return auth;
         }
         const boundedRequest = await prepareMcpRequest(request);
-        return boundedRequest instanceof Response
-          ? boundedRequest
-          : await downstream.fetch(boundedRequest, { ...options, authInfo: auth });
+        if (boundedRequest instanceof Response) {
+          return boundedRequest;
+        }
+        const parsedBody = await options.beforeMcpDispatch?.(request, boundedRequest);
+        return await downstream.fetch(boundedRequest, {
+          ...requestOptions,
+          authInfo: auth,
+          ...(parsedBody === undefined ? {} : { parsedBody }),
+        });
       } finally {
         inFlightRequests.delete(requestFinished);
         finishRequest?.();

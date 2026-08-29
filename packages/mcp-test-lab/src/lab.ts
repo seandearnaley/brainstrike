@@ -14,7 +14,13 @@ import {
   isMcpLabFaultPlan,
   type McpLabFaultPlan,
 } from './faults.js';
-import { IN_PROCESS_HTTP_FAULT_SCOPES, withMcpLabHttpFaults } from './http-fault-handler.js';
+import {
+  IN_PROCESS_HTTP_FAULT_SCOPES,
+  LOOPBACK_HTTP_FAULT_SCOPES,
+  McpLabHttpFaultExecutor,
+  OAUTH_OUTER_FAULT_SCOPES,
+  withMcpLabHttpFaults,
+} from './http-fault-handler.js';
 import { createMcpLabLoopback } from './loopback-http.js';
 import {
   createMcpOAuthReferenceEndpoint,
@@ -287,7 +293,19 @@ function createInProcessSession(
   );
 }
 
-async function createLoopbackSession(scenario: McpLabScenario): Promise<McpLabSession> {
+async function createLoopbackSession(
+  scenario: McpLabScenario,
+  faultPlan: McpLabFaultPlan | undefined
+): Promise<McpLabSession> {
+  const diagnostics: McpLabDiagnostic[] = [];
+  const faultRuntime = createMcpLabFaultRuntime(faultPlan, scenario.id);
+  const recordError = (correlationId: string, error: unknown) =>
+    recordHandlerError(diagnostics, correlationId, error);
+  const faultExecutor = new McpLabHttpFaultExecutor(
+    faultRuntime,
+    scenario.protocol.era,
+    recordError
+  );
   const downstream = createReferenceHandler(scenario);
   let loopback: Awaited<ReturnType<typeof createMcpLabLoopback>>;
   let oauthHandler: McpOAuthReferenceHandler | undefined;
@@ -297,11 +315,24 @@ async function createLoopbackSession(scenario: McpLabScenario): Promise<McpLabSe
         ? (origin) => {
             oauthHandler = createMcpOAuthReferenceHandler(
               downstream,
-              createMcpOAuthReferenceEndpoint(origin)
+              createMcpOAuthReferenceEndpoint(origin),
+              {
+                beforeAuthorizationMutation: (request, method) =>
+                  faultExecutor.injectAuthorizationFault(request, method),
+                async beforeMcpDispatch(request) {
+                  await faultExecutor.injectAuthenticatedProtocolFault(request);
+                  return faultExecutor.parsedBodyFor(request);
+                },
+              }
             );
             return oauthHandler;
           }
-        : downstream
+        : downstream,
+      {
+        faultExecutor,
+        faultScopes:
+          scenario.id === 'oauth-reference' ? OAUTH_OUTER_FAULT_SCOPES : LOOPBACK_HTTP_FAULT_SCOPES,
+      }
     );
   } catch (startError) {
     try {
@@ -325,8 +356,9 @@ async function createLoopbackSession(scenario: McpLabScenario): Promise<McpLabSe
       { close: loopback.close, closed: false, kind: 'http-listener' },
       { close: loopback.handler.close, closed: false, kind: 'handler' },
     ],
-    [],
-    activeOAuthHandler ? () => activeOAuthHandler.stateCounts() : undefined
+    diagnostics,
+    activeOAuthHandler ? () => activeOAuthHandler.stateCounts() : undefined,
+    faultRuntime
   );
 }
 
@@ -368,7 +400,7 @@ export function startMcpLabScenario(
 ): Promise<McpLabSession>;
 export function startMcpLabScenario(
   id: 'oauth-reference',
-  options: { readonly execution: 'loopback' }
+  options: { readonly execution: 'loopback'; readonly faultPlan?: McpLabFaultPlan }
 ): Promise<McpLabSession>;
 export function startMcpLabScenario(
   id: McpLabNonOAuthHttpScenarioId,
@@ -398,11 +430,8 @@ export async function startMcpLabScenario(
   if (scenario.id === 'oauth-reference' && startOptions.execution !== 'loopback') {
     throw new Error('MCP lab OAuth scenario requires a loopback listener');
   }
-  if (startOptions.execution === 'loopback' && startOptions.faultPlan) {
-    throw new Error('MCP lab loopback fault execution is not available in this layer');
-  }
   assertScenarioFaultCompatibility(startOptions.faultPlan, scenario, startOptions.execution);
   return startOptions.execution === 'in-process'
     ? createInProcessSession(scenario, startOptions.faultPlan)
-    : createLoopbackSession(scenario);
+    : createLoopbackSession(scenario, startOptions.faultPlan);
 }

@@ -30,7 +30,7 @@ export const IN_PROCESS_HTTP_FAULT_SCOPES: McpLabHttpFaultScopes = Object.freeze
 export const OAUTH_OUTER_FAULT_SCOPES: McpLabHttpFaultScopes = Object.freeze({
   authorization: true,
   deferProtocol: true,
-  nodeDispatch: false,
+  nodeDispatch: true,
   protocol: false,
   transport: true,
 });

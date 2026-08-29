@@ -4,6 +4,10 @@ import { connect } from 'node:net';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { describe, expect, it } from 'vitest';
+import {
+  LOOPBACK_HTTP_FAULT_SCOPES,
+  type McpLabHttpFaultExecutor,
+} from '../src/http-fault-handler';
 import { startMcpLabScenario } from '../src/lab';
 import { createMcpLabLoopback } from '../src/loopback-http';
 
@@ -39,6 +43,31 @@ function postWithHeaders(url: URL, headers: Readonly<Record<string, string>>): P
     );
     request.once('error', reject);
     request.end('{}');
+  });
+}
+
+function requestLoopback(
+  url: URL,
+  method: string
+): Promise<{
+  readonly body: string;
+  readonly rawHeaders: readonly string[];
+  readonly status: number;
+}> {
+  return new Promise((resolve, reject) => {
+    const request = nodeRequest(url, { headers: { origin: url.origin }, method }, (response) => {
+      const chunks: Uint8Array[] = [];
+      response.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+      response.once('end', () =>
+        resolve({
+          body: Buffer.concat(chunks).toString(),
+          rawHeaders: response.rawHeaders,
+          status: response.statusCode ?? 0,
+        })
+      );
+    });
+    request.once('error', reject);
+    request.end();
   });
 }
 
@@ -151,6 +180,185 @@ describe('MCP lab loopback HTTP references', () => {
         error: 'mcp_lab_handler_error',
         message: 'reference handler exploded',
       });
+    } finally {
+      await loopback.close();
+    }
+  });
+
+  it('preserves repeated Set-Cookie headers and cancels bodies forbidden by HTTP semantics', async () => {
+    let cancelledBodies = 0;
+    const handler = {
+      fetch: async (request: Request) => {
+        if (new URL(request.url).pathname === '/cookies') {
+          const headers = new Headers();
+          headers.append('set-cookie', 'first=one; Path=/');
+          headers.append('set-cookie', 'second=two; Path=/');
+          return new Response('payload', { headers });
+        }
+        const body = new ReadableStream<Uint8Array>({
+          cancel() {
+            cancelledBodies += 1;
+          },
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('forbidden'));
+            controller.close();
+          },
+        });
+        const response = new Response(body);
+        const forcedStatus = Number(new URL(request.url).pathname.slice(1));
+        if (Number.isInteger(forcedStatus)) {
+          Object.defineProperty(response, 'status', { value: forcedStatus });
+        }
+        return response;
+      },
+    } as unknown as McpHttpHandler;
+    const loopback = await createMcpLabLoopback(handler);
+
+    try {
+      const cookies = await requestLoopback(new URL('/cookies', loopback.url), 'GET');
+      expect(cookies.body).toBe('payload');
+      expect(
+        cookies.rawHeaders.filter((value) => value.toLowerCase().startsWith('first='))
+      ).toEqual(['first=one; Path=/']);
+      expect(
+        cookies.rawHeaders.filter((value) => value.toLowerCase().startsWith('second='))
+      ).toEqual(['second=two; Path=/']);
+      for (const [method, status] of [
+        ['HEAD', 200],
+        ['GET', 204],
+        ['GET', 304],
+      ] as const) {
+        const result = await requestLoopback(new URL(`/${status}`, loopback.url), method);
+        expect(result).toMatchObject({ body: '', status });
+      }
+      expect(cancelledBodies).toBe(3);
+    } finally {
+      await loopback.close();
+    }
+  });
+
+  it('cancels a streaming response when the client disconnects under backpressure', async () => {
+    let cancelled: (() => void) | undefined;
+    const bodyCancelled = new Promise<void>((resolve) => {
+      cancelled = resolve;
+    });
+    const handler = {
+      fetch: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            cancel() {
+              cancelled?.();
+            },
+            pull(controller) {
+              controller.enqueue(new Uint8Array(1024 * 1024));
+            },
+          })
+        ),
+    } as unknown as McpHttpHandler;
+    const loopback = await createMcpLabLoopback(handler);
+    const request = nodeRequest(
+      loopback.url,
+      { headers: { origin: loopback.url.origin }, method: 'GET' },
+      (response) => {
+        response.once('data', () => response.destroy());
+      }
+    );
+    request.on('error', () => {
+      // The deliberate disconnect may reset the request.
+    });
+    request.end();
+    const timeout = timeoutAfter(500);
+
+    try {
+      await expect(Promise.race([bodyCancelled, timeout.promise])).resolves.toBeUndefined();
+    } finally {
+      timeout.stop();
+      request.destroy();
+      await loopback.close();
+    }
+  });
+
+  it('aborts the web request when the client disconnects during handler dispatch', async () => {
+    let dispatchStarted: (() => void) | undefined;
+    let requestAborted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      dispatchStarted = resolve;
+    });
+    const aborted = new Promise<void>((resolve) => {
+      requestAborted = resolve;
+    });
+    const handler = {
+      fetch: async (request: Request) => {
+        dispatchStarted?.();
+        await new Promise<void>((resolve) => {
+          if (request.signal.aborted) {
+            requestAborted?.();
+            resolve();
+            return;
+          }
+          request.signal.addEventListener(
+            'abort',
+            () => {
+              requestAborted?.();
+              resolve();
+            },
+            { once: true }
+          );
+        });
+        return Response.json({ aborted: true });
+      },
+    } as unknown as McpHttpHandler;
+    const loopback = await createMcpLabLoopback(handler);
+    const request = nodeRequest(loopback.url, {
+      headers: { origin: loopback.url.origin },
+      method: 'GET',
+    });
+    request.on('error', () => {
+      // The deliberate disconnect may reset the request.
+    });
+    request.end();
+    const timeout = timeoutAfter(500);
+
+    try {
+      await started;
+      request.destroy();
+      await expect(Promise.race([aborted, timeout.promise])).resolves.toBeUndefined();
+    } finally {
+      timeout.stop();
+      request.destroy();
+      await loopback.close();
+    }
+  });
+
+  it('rejects an accepted loopback alias when it differs from the faulted advertised authority', async () => {
+    let handlerCalls = 0;
+    let prepareCalls = 0;
+    const handler = {
+      fetch: async () => {
+        handlerCalls += 1;
+        return Response.json({ ok: true });
+      },
+    } as unknown as McpHttpHandler;
+    const faultExecutor = {
+      async close() {},
+      async prepare() {
+        prepareCalls += 1;
+      },
+    } as unknown as McpLabHttpFaultExecutor;
+    const loopback = await createMcpLabLoopback(handler, {
+      faultExecutor,
+      faultScopes: LOOPBACK_HTTP_FAULT_SCOPES,
+    });
+
+    try {
+      await expect(
+        postWithHeaders(loopback.url, {
+          host: `localhost:${loopback.url.port}`,
+          origin: loopback.url.origin,
+        })
+      ).resolves.toBe(400);
+      expect(handlerCalls).toBe(0);
+      expect(prepareCalls).toBe(0);
     } finally {
       await loopback.close();
     }

@@ -11,6 +11,7 @@ import {
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
+import { createMcpLabFaultPlan } from '../src/faults';
 import {
   createMcpOAuthAuthorizationResponseVerifier,
   type McpLabSession,
@@ -108,6 +109,50 @@ const startUnchecked = startMcpLabScenario as unknown as (
 ) => Promise<McpLabSession>;
 
 describe('MCP OAuth loopback reference', () => {
+  it('executes accepted Node-dispatch faults before OAuth authentication', async () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 418 },
+        id: 'oauth-node-dispatch',
+        match: { method: 'node/dispatch', occurrence: 1, phase: 'transport' },
+      },
+    ]);
+    const lab = await startMcpLabScenario('oauth-reference', {
+      execution: 'loopback',
+      faultPlan: plan,
+    });
+    if (lab.endpoint.kind !== 'oauth-loopback-http') {
+      throw new Error(`Expected OAuth loopback endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    try {
+      const response = await fetch(lab.endpoint.url, {
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: '2.0',
+          method: 'tools/list',
+          params: {
+            _meta: {
+              'io.modelcontextprotocol/clientCapabilities': {},
+              'io.modelcontextprotocol/clientInfo': { name: 'oauth-fault-test', version: '1' },
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            },
+          },
+        }),
+        headers: {
+          'content-type': 'application/json',
+          'mcp-method': 'tools/list',
+          'mcp-protocol-version': '2026-07-28',
+        },
+        method: 'POST',
+      });
+      expect(response.status).toBe(418);
+      expect(plan.untriggeredIds()).toEqual([]);
+    } finally {
+      await lab.close();
+    }
+  });
+
   it('runs discovery, DCR, PKCE, issuer/resource verification, and a protected SDK exchange', async () => {
     const lab = await startMcpLabScenario('oauth-reference', { execution: 'loopback' });
     if (lab.endpoint.kind !== 'oauth-loopback-http') {
