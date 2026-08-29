@@ -100,7 +100,12 @@ export async function runMcpLabRunnerCli(argv: readonly string[]): Promise<void>
       ticket: args.ticket,
     },
     createMcpLabReferenceRunnerDependencies(),
-    { maxArtifactBytes: 1, readArtifactContent: () => new Uint8Array() }
+    {
+      maxArtifactBytes: 1,
+      readArtifactContent: () => {
+        throw new Error('MCP reference runner does not emit external artifacts');
+      },
+    }
   );
   const outputPath = normalize(args.output);
   const temporaryPath = `${outputPath}.tmp-${process.pid}`;

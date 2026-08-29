@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import {
+  Client,
+  ProtocolError,
+  ProtocolErrorCode,
+  StreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
 import {
   createMcpOAuthAuthorizationResponseVerifier,
   type McpLabCleanupReport,
@@ -109,6 +114,14 @@ function startCase(runnerCase: McpLabRunnerCase): Promise<McpLabSession> {
   return startMcpLabScenario(runnerCase.scenarioId, { execution: runnerCase.execution });
 }
 
+export function isMissingToolProtocolError(error: unknown, toolName: string): boolean {
+  return (
+    error instanceof ProtocolError &&
+    error.code === ProtocolErrorCode.InvalidParams &&
+    error.message.includes(toolName)
+  );
+}
+
 function assertCleanup(runnerCase: McpLabRunnerCase, report: McpLabCleanupReport): string {
   if (report.untriggeredFaultIds.length !== 0) {
     throw new Error(`MCP reference runner case "${runnerCase.id}" left faults untriggered`);
@@ -152,7 +165,7 @@ async function runEchoTest(
   try {
     await client.callTool({ arguments: { text: value }, name: 'missing-red-mutation' });
   } catch (error) {
-    if (error instanceof Error && /missing-red-mutation|not found|unknown/iu.test(error.message)) {
+    if (isMissingToolProtocolError(error, 'missing-red-mutation')) {
       return false;
     }
     throw error;
@@ -218,14 +231,12 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
       this.startPromise = this.start(this.runnerCase);
       this.lab = await this.startPromise;
       signal.throwIfAborted();
-      const version = this.lab.scenario.protocol.version;
+      const protocol = this.lab.scenario.protocol;
       this.client = new Client(
         { name: 'brainstrike-mcp-verifier-runner', version: '1.0.0' },
         {
           versionNegotiation:
-            this.lab.scenario.protocol.era === 'legacy'
-              ? { mode: 'legacy' }
-              : { mode: { pin: '2026-07-28' } },
+            protocol.era === 'legacy' ? { mode: 'legacy' } : { mode: { pin: protocol.version } },
         }
       );
       const endpoint = this.lab.endpoint;
@@ -254,9 +265,9 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
       const passed = await runEchoTest(this.client, this.phase, value);
       signal.throwIfAborted();
       const negotiated = this.client.getNegotiatedProtocolVersion();
-      if (negotiated !== version) {
+      if (negotiated !== protocol.version) {
         throw new Error(
-          `MCP reference runner negotiated ${String(negotiated)} instead of ${version}`
+          `MCP reference runner negotiated ${String(negotiated)} instead of ${protocol.version}`
         );
       }
       const serverCapabilities = this.client.getServerCapabilities();
@@ -270,9 +281,9 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
         ]),
         exitStatus: passed ? 0 : 1,
         negotiation:
-          this.lab.scenario.protocol.era === 'legacy'
-            ? ({ era: 'legacy', revision: '2025-11-25' } as const)
-            : ({ era: 'modern', revision: '2026-07-28' } as const),
+          protocol.era === 'legacy'
+            ? { era: protocol.era, revision: protocol.version }
+            : { era: protocol.era, revision: protocol.version },
         tests: Object.freeze({
           failed: passed ? 0 : 1,
           passed: passed ? 1 : 0,

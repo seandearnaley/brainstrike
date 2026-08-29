@@ -26,12 +26,18 @@ describe('MCP official reference runner', () => {
     );
 
     expect(bundles.map(({ schema }) => schema.scenarioId)).toEqual([
+      'modern-reference',
+      'legacy-reference',
+      'oauth-reference',
+      'stdio-reference',
+    ]);
+    const caseIds = [
       'modern-http-in-process',
       'legacy-http-loopback',
       'oauth-http-loopback',
       'modern-stdio',
-    ]);
-    for (const { schema } of bundles) {
+    ];
+    for (const [index, { schema }] of bundles.entries()) {
       expect(schema.commands).toEqual([
         expect.objectContaining({
           exitStatus: 1,
@@ -51,7 +57,7 @@ describe('MCP official reference runner', () => {
       ]);
       expect(schema.cleanup).toMatchObject({ exitStatus: 0, verified: true });
       expect(schema.correlationIds).toHaveLength(3);
-      expect(schema.correlationIds[0]).toBe(`${schema.scenarioId}-red-tool-rejection`);
+      expect(schema.correlationIds[0]).toBe(`${caseIds[index]}-red-tool-rejection`);
       expect(schema.negotiation.capabilities).toEqual(['tools']);
     }
     expect(JSON.stringify(bundles)).not.toMatch(/bearer|access[_-]?token|client[_-]?secret/i);
@@ -100,8 +106,8 @@ describe('MCP official reference runner', () => {
     );
 
     expect(bundles.map(({ schema }) => schema.scenarioId)).toEqual([
-      'modern-http-loopback',
-      'legacy-http-in-process',
+      'modern-reference',
+      'legacy-reference',
     ]);
     expect(bundles.every(({ schema }) => schema.cleanup.verified)).toBe(true);
   }, 30_000);
