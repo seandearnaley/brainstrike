@@ -1,11 +1,11 @@
 import {
   LIVE_QUERY_PARAM_BENCHMARK_SCENARIOS,
   runLiveQueryParamBenchmark,
-} from '../src/live-query-params-benchmark.js';
+} from './live-query-params-benchmark.js';
 
 const results = runLiveQueryParamBenchmark({
   iterations: 100_000,
-  samples: 9,
+  samples: 10,
   scenarios: LIVE_QUERY_PARAM_BENCHMARK_SCENARIOS,
   warmupIterations: 10_000,
 });

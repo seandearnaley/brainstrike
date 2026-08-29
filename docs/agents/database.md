@@ -710,10 +710,12 @@ extension control file" error on that path only:
 
   Live-query parameter comparison evidence is produced by the manual, uncached
   `pnpm --filter @brainstrike/db bench:live-query-params` command. It compares
-  the current JSON-key strategy with the pre-PR-#728 recursive `deepEqual`
-  baseline using freshly allocated primitive, array, and complex-object params.
-  Both strategies warm up, their measurement order alternates, and the report
-  uses nine-sample medians. The retained baseline and interpretation live in
+  the current JSON-key strategy with the exact pre-PR-#728 recursive `deepEqual`
+  snapshot from `a801ed0c8e63be7065d2ff596bfd2a2e0aea8b7d`, vendored in the
+  manual script so production refactors cannot rewrite the baseline. It uses
+  freshly allocated primitive, array, and complex-object params. Both strategies
+  warm in balanced order, their measured order alternates, and the report uses
+  ten-sample medians. The retained baseline and interpretation live in
   `docs/performance/live-query-parameter-benchmarks.md`; it currently refutes a
   lower-cost claim for the JSON-key path, so do not describe PR #728 as a
   measured render-cost improvement or change the default from this isolated

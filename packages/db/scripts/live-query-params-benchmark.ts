@@ -1,8 +1,6 @@
-import { deepEqual } from './use-live-query.js';
-
 export interface LiveQueryParamBenchmarkScenario {
   readonly createParams: () => readonly unknown[];
-  readonly name: 'array' | 'complex-object' | 'primitive';
+  readonly name: string;
 }
 
 export interface LiveQueryParamBenchmarkResult {
@@ -63,8 +61,89 @@ function assertNonNegativeInteger(value: number, label: string): void {
 }
 
 function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)] ?? 0;
+  const sorted = values.toSorted((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) {
+    return sorted[middle] as number;
+  }
+  return ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2;
+}
+
+/*
+ * Exact pre-PR #728 comparator from a801ed0c8e63be7065d2ff596bfd2a2e0aea8b7d.
+ * Keep this snapshot local to the benchmark so later production changes cannot
+ * silently rewrite the historical baseline.
+ */
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function areArraysDeepEqual(arrayA: readonly unknown[], arrayB: readonly unknown[]): boolean {
+  if (arrayA.length !== arrayB.length) {
+    return false;
+  }
+  for (let index = 0; index < arrayA.length; index += 1) {
+    if (!historicalDeepEqual(arrayA[index], arrayB[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areUint8ArraysEqual(arrayA: Uint8Array, arrayB: Uint8Array): boolean {
+  if (arrayA.length !== arrayB.length) {
+    return false;
+  }
+  for (let index = 0; index < arrayA.length; index += 1) {
+    if (arrayA[index] !== arrayB[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areObjectsDeepEqual(
+  objectA: Record<string, unknown>,
+  objectB: Record<string, unknown>
+): boolean {
+  const keysA = Object.keys(objectA);
+  const keysB = Object.keys(objectB);
+  if (keysA.length !== keysB.length) {
+    return false;
+  }
+  for (const key of keysA) {
+    if (!(Object.hasOwn(objectB, key) && historicalDeepEqual(objectA[key], objectB[key]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function historicalDeepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!(isObjectLike(a) && isObjectLike(b))) {
+    return false;
+  }
+  if (a.constructor !== b.constructor) {
+    return false;
+  }
+
+  if (Array.isArray(a)) {
+    return Array.isArray(b) && areArraysDeepEqual(a, b);
+  }
+  if (a instanceof Date) {
+    return b instanceof Date && a.getTime() === b.getTime();
+  }
+  if (a instanceof Uint8Array) {
+    return b instanceof Uint8Array && areUint8ArraysEqual(a, b);
+  }
+  if (a instanceof RegExp) {
+    return b instanceof RegExp && a.source === b.source && a.flags === b.flags;
+  }
+
+  return areObjectsDeepEqual(a, b);
 }
 
 function measureCurrentJsonStrategy(
@@ -106,7 +185,7 @@ function measureLegacyDeepEqualStrategy(
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const next = scenario.createParams();
-    if (deepEqual(next, previous)) {
+    if (historicalDeepEqual(next, previous)) {
       equalCount += 1;
     } else {
       previous = next;
@@ -118,6 +197,17 @@ function measureLegacyDeepEqualStrategy(
     throw new Error(`Live-query deep-equality benchmark scenario "${scenario.name}" is not stable`);
   }
   return durationMs;
+}
+
+function warmBothStrategies(
+  scenario: LiveQueryParamBenchmarkScenario,
+  iterations: number,
+  now: () => number
+): void {
+  measureCurrentJsonStrategy(scenario, iterations, now);
+  measureLegacyDeepEqualStrategy(scenario, iterations, now);
+  measureLegacyDeepEqualStrategy(scenario, iterations, now);
+  measureCurrentJsonStrategy(scenario, iterations, now);
 }
 
 export function runLiveQueryParamBenchmark({
@@ -136,8 +226,7 @@ export function runLiveQueryParamBenchmark({
 
   return scenarios.map((scenario) => {
     if (warmupIterations > 0) {
-      measureCurrentJsonStrategy(scenario, warmupIterations, now);
-      measureLegacyDeepEqualStrategy(scenario, warmupIterations, now);
+      warmBothStrategies(scenario, warmupIterations, now);
     }
     const currentSamples: number[] = [];
     const legacySamples: number[] = [];
@@ -152,9 +241,14 @@ export function runLiveQueryParamBenchmark({
     }
     const currentJsonMedianMs = median(currentSamples);
     const legacyDeepEqualMedianMs = median(legacySamples);
+    if (!(currentJsonMedianMs > 0 && legacyDeepEqualMedianMs > 0)) {
+      throw new Error(
+        `Live-query benchmark scenario "${scenario.name}" produced a zero-duration median; increase iterations`
+      );
+    }
     return {
       currentJsonMedianMs,
-      currentToLegacyRatio: currentJsonMedianMs / Math.max(legacyDeepEqualMedianMs, Number.EPSILON),
+      currentToLegacyRatio: currentJsonMedianMs / legacyDeepEqualMedianMs,
       iterations,
       legacyDeepEqualMedianMs,
       name: scenario.name,
