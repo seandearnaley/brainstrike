@@ -2,13 +2,11 @@
   "name": "@brainstrike/mcp-test-lab",
   "description": "Deterministic MCP protocol fixtures, faults, and verification evidence for Brainstrike tests",
   "version": "0.1.0",
-  "dependencies": {
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/server": "2.0.0"
-  },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/conformance": "0.2.0-alpha.10",
+    "@modelcontextprotocol/server": "2.0.0",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -37,6 +35,7 @@
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },

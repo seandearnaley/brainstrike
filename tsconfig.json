@@ -38,9 +38,6 @@
       "@brainstrike/local-runtime/*": [
         "./packages/local-runtime/src/*"
       ],
-      "@brainstrike/mcp-test-lab": [
-        "./packages/mcp-test-lab/src"
-      ],
       "@brainstrike/assistant-wire": [
         "./packages/assistant-wire/src"
       ],

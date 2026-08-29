@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 interface PackageManifest {
@@ -14,19 +15,32 @@ interface PackageManifest {
   types: string;
 }
 
+interface TypeScriptConfig {
+  compilerOptions?: Record<string, unknown>;
+}
+
 async function readManifest(): Promise<PackageManifest> {
   const text = await readFile(new URL('../package.json', import.meta.url), 'utf8');
   return JSON.parse(text) as PackageManifest;
+}
+
+async function readTypeScriptConfig(url: URL): Promise<TypeScriptConfig> {
+  const result = ts.parseConfigFileTextToJson(url.pathname, await readFile(url, 'utf8'));
+  if (result.error) {
+    throw new Error('Could not parse TypeScript config');
+  }
+  return result.config as TypeScriptConfig;
 }
 
 describe('MCP test lab package contract', () => {
   it('emits every public entry as Node-compatible JavaScript plus declarations', async () => {
     const manifest = await readManifest();
 
-    expect(manifest.scripts['build']).toBe(
-      'node ../../scripts/prune-stale-dist.mjs && tsc -b . && node scripts/verify-built-package.mjs'
+    expect(manifest.scripts['build']).toContain('tsc -b .');
+    expect(manifest.scripts['build']).toContain('node scripts/verify-built-package.mjs');
+    expect(manifest.scripts['test:integration']).toBe(
+      'vitest run --config vitest.integration.config.mts'
     );
-    expect(manifest.scripts['test:integration']).toBeUndefined();
     expect(manifest.files).toEqual(['dist']);
     expect(manifest.types).toBe('./dist/index.d.ts');
     expect(manifest.exports).toEqual({
@@ -35,14 +49,64 @@ describe('MCP test lab package contract', () => {
     });
   });
 
+  it('keeps test type-checking isolated from build incremental state', async () => {
+    const config = await readTypeScriptConfig(new URL('../tsconfig.test.json', import.meta.url));
+
+    expect(config.compilerOptions).toMatchObject({
+      composite: false,
+      declaration: false,
+      declarationMap: false,
+      incremental: false,
+      noEmit: true,
+    });
+  });
+
+  it('keeps SDK and conformance pins in the private verifier development graph', async () => {
+    const manifest = await readManifest();
+
+    expect(manifest.dependencies).toBeUndefined();
+    expect(manifest.devDependencies).toMatchObject({
+      '@modelcontextprotocol/client': '2.0.0',
+      '@modelcontextprotocol/conformance': '0.2.0-alpha.10',
+      '@modelcontextprotocol/server': '2.0.0',
+    });
+  });
+
+  it('cannot be imported through root TypeScript paths or shared source aliases', async () => {
+    const repositoryRoot = new URL('../../../', import.meta.url);
+    const rootConfig = await readTypeScriptConfig(new URL('tsconfig.json', repositoryRoot));
+    const aliasModule: unknown = await import(
+      new URL('packages/test-utils/workspace-src-aliases.mjs', repositoryRoot).href
+    );
+    if (
+      typeof aliasModule !== 'object' ||
+      aliasModule === null ||
+      !('workspaceSrcAliases' in aliasModule) ||
+      typeof aliasModule.workspaceSrcAliases !== 'function'
+    ) {
+      throw new Error('Workspace source alias registry has no callable export');
+    }
+    const aliases: readonly { readonly replacement: string }[] = aliasModule.workspaceSrcAliases(
+      new URL('packages/', repositoryRoot).pathname
+    );
+
+    const paths = rootConfig.compilerOptions?.['paths'] as Record<string, unknown> | undefined;
+    expect(paths?.['@brainstrike/mcp-test-lab']).toBeUndefined();
+    expect(aliases.some(({ replacement }) => replacement.includes('/mcp-test-lab/src/'))).toBe(
+      false
+    );
+  });
+
   it('uses NodeNext-compatible extensions for every relative source import and export', async () => {
     const sourceDirectory = new URL('../src/', import.meta.url);
-    const sourceFiles = (await readdir(sourceDirectory)).filter((name) => extname(name) === '.ts');
+    const sourceFiles = (await readdir(sourceDirectory, { recursive: true })).filter(
+      (name) => extname(name) === '.ts'
+    );
     const invalid: string[] = [];
 
     for (const sourceFile of sourceFiles) {
       const text = await readFile(new URL(sourceFile, sourceDirectory), 'utf8');
-      for (const match of text.matchAll(/(?:from|export\s+\*)\s+['"](\.[^'"]+)['"]/gu)) {
+      for (const match of text.matchAll(/(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]/gu)) {
         const specifier = match[1];
         if (specifier && !specifier.endsWith('.js')) {
           invalid.push(`${sourceFile}: ${specifier}`);
@@ -56,8 +120,9 @@ describe('MCP test lab package contract', () => {
   it('stays absent from every other workspace package dependency graph', async () => {
     const repositoryRoot = new URL('../../../', import.meta.url);
     const offenders: string[] = [];
+    const manifestUrls = [new URL('package.json', repositoryRoot)];
 
-    for (const workspaceRoot of ['apps', 'packages']) {
+    for (const workspaceRoot of ['apps', 'packages', 'packages/config']) {
       const directories = await readdir(new URL(`${workspaceRoot}/`, repositoryRoot), {
         withFileTypes: true,
       });
@@ -65,28 +130,29 @@ describe('MCP test lab package contract', () => {
         if (!(directory.isDirectory() && directory.name !== 'mcp-test-lab')) {
           continue;
         }
-        const manifestUrl = new URL(
-          `${workspaceRoot}/${directory.name}/package.json`,
-          repositoryRoot
+        manifestUrls.push(
+          new URL(`${workspaceRoot}/${directory.name}/package.json`, repositoryRoot)
         );
-        let manifest: PackageManifest;
-        try {
-          manifest = JSON.parse(await readFile(manifestUrl, 'utf8')) as PackageManifest;
-        } catch (error: unknown) {
-          if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-            continue;
-          }
-          throw error;
+      }
+    }
+    for (const manifestUrl of manifestUrls) {
+      let manifest: PackageManifest;
+      try {
+        manifest = JSON.parse(await readFile(manifestUrl, 'utf8')) as PackageManifest;
+      } catch (error: unknown) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+          continue;
         }
-        const dependencyGroups = [
-          manifest.dependencies,
-          manifest.devDependencies,
-          manifest.optionalDependencies,
-          manifest.peerDependencies,
-        ];
-        if (dependencyGroups.some((group) => group?.['@brainstrike/mcp-test-lab'] !== undefined)) {
-          offenders.push(manifest.name ?? `${workspaceRoot}/${directory.name}`);
-        }
+        throw error;
+      }
+      const dependencyGroups = [
+        manifest.dependencies,
+        manifest.devDependencies,
+        manifest.optionalDependencies,
+        manifest.peerDependencies,
+      ];
+      if (dependencyGroups.some((group) => group?.['@brainstrike/mcp-test-lab'] !== undefined)) {
+        offenders.push(manifest.name ?? manifestUrl.pathname);
       }
     }
 
