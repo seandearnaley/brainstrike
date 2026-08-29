@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, normalize } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,17 +8,16 @@ import { runMcpLabVerification } from './runner.js';
 export interface McpLabRunnerCliArgs {
   readonly output: string;
   readonly profile: 'exhaustive' | 'pr';
-  readonly sha: string;
   readonly ticket: string;
-  readonly workspaceState: 'clean' | 'dirty';
 }
 
 function invalid(message: string): never {
   throw new Error(`Invalid MCP lab runner arguments: ${message}`);
 }
 
-const CLI_FLAGS = new Set(['--profile', '--ticket', '--output', '--sha', '--workspace-state']);
+const CLI_FLAGS = new Set(['--profile', '--ticket', '--output']);
 const PORTABLE_OUTPUT_PATH = /^[A-Za-z0-9._/-]+\.json$/u;
+const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
 function collectValues(argv: unknown): ReadonlyMap<string, string> {
   if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) {
@@ -42,7 +42,7 @@ function collectValues(argv: unknown): ReadonlyMap<string, string> {
     }
   }
   if (values.size !== CLI_FLAGS.size) {
-    invalid('profile, ticket, output, sha, and workspace-state are required');
+    invalid('profile, ticket, and output are required');
   }
   return values;
 }
@@ -64,38 +64,43 @@ export function parseMcpLabRunnerCliArgs(argv: unknown): McpLabRunnerCliArgs {
   const profile = values.get('--profile');
   const ticket = values.get('--ticket');
   const output = values.get('--output');
-  const sha = values.get('--sha');
-  const workspaceState = values.get('--workspace-state');
   if (profile !== 'pr' && profile !== 'exhaustive') {
     invalid('profile must be "pr" or "exhaustive"');
   }
   if (!(ticket && /^BST-[1-9]\d*$/u.test(ticket))) {
     invalid('ticket must be a BST identifier');
   }
-  if (!(sha && /^[0-9a-f]{40}$/u.test(sha))) {
-    invalid('sha must be a full lowercase commit SHA');
-  }
-  if (workspaceState !== 'clean' && workspaceState !== 'dirty') {
-    invalid('workspace-state must be "clean" or "dirty"');
-  }
   if (!output) {
     invalid('output is required');
   }
-  return Object.freeze({ output: relativeJsonPath(output), profile, sha, ticket, workspaceState });
+  return Object.freeze({ output: relativeJsonPath(output), profile, ticket });
 }
 
 export function mcpLabRunnerEvidenceCommand(args: McpLabRunnerCliArgs): string {
-  return `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile ${args.profile} --ticket ${args.ticket} --output ${args.output} --sha ${args.sha} --workspace-state ${args.workspaceState}`;
+  return `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile ${args.profile} --ticket ${args.ticket} --output ${args.output}`;
+}
+
+export function resolveMcpLabRunnerGitEvidence(
+  runGit: (args: readonly string[]) => string = (args) =>
+    execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+): { readonly commitSha: string; readonly workspaceState: 'clean' | 'dirty' } {
+  const commitSha = runGit(['rev-parse', '--verify', 'HEAD']).trim();
+  if (!SHA_PATTERN.test(commitSha)) {
+    throw new Error('MCP lab runner git identity is not a full lowercase commit SHA');
+  }
+  const status = runGit(['status', '--porcelain=v1', '--untracked-files=normal']);
+  return { commitSha, workspaceState: status.trim() === '' ? 'clean' : 'dirty' };
 }
 
 export async function runMcpLabRunnerCli(argv: readonly string[]): Promise<void> {
   const args = parseMcpLabRunnerCliArgs(argv);
   const command = mcpLabRunnerEvidenceCommand(args);
+  const git = resolveMcpLabRunnerGitEvidence();
   const bundles = await runMcpLabVerification(
     {
       blockers: [],
       command,
-      git: { commitSha: args.sha, workspaceState: args.workspaceState },
+      git,
       selection: { profile: args.profile },
       ticket: args.ticket,
     },

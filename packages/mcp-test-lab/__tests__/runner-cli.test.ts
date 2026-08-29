@@ -1,19 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { mcpLabRunnerEvidenceCommand, parseMcpLabRunnerCliArgs } from '../src/runner-cli';
+import {
+  mcpLabRunnerEvidenceCommand,
+  parseMcpLabRunnerCliArgs,
+  resolveMcpLabRunnerGitEvidence,
+} from '../src/runner-cli';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
-const VALID_ARGS = [
-  '--profile',
-  'pr',
-  '--ticket',
-  'BST-1496',
-  '--output',
-  'artifacts/mcp-pr.json',
-  '--sha',
-  SHA,
-  '--workspace-state',
-  'clean',
-];
+const VALID_ARGS = ['--profile', 'pr', '--ticket', 'BST-1496', '--output', 'artifacts/mcp-pr.json'];
 
 function replaceValue(index: number, value: string): string[] {
   const args = [...VALID_ARGS];
@@ -28,14 +21,20 @@ describe('MCP verifier runner CLI', () => {
     expect(parsed).toEqual({
       output: 'artifacts/mcp-pr.json',
       profile: 'pr',
-      sha: SHA,
       ticket: 'BST-1496',
-      workspaceState: 'clean',
     });
     expect(Object.isFrozen(parsed)).toBe(true);
     expect(mcpLabRunnerEvidenceCommand(parsed)).toBe(
-      `pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr --ticket BST-1496 --output artifacts/mcp-pr.json --sha ${SHA} --workspace-state clean`
+      'pnpm --filter @brainstrike/mcp-test-lab verify -- --profile pr --ticket BST-1496 --output artifacts/mcp-pr.json'
     );
+  });
+
+  it('derives exact Git evidence instead of accepting it from argv', () => {
+    const runGit = (args: readonly string[]) => (args[0] === 'rev-parse' ? SHA : ' M file.ts');
+    expect(resolveMcpLabRunnerGitEvidence(runGit)).toEqual({
+      commitSha: SHA,
+      workspaceState: 'dirty',
+    });
   });
 
   it.each(
@@ -48,8 +47,6 @@ describe('MCP verifier runner CLI', () => {
       replaceValue(5, 'a.txt'),
       replaceValue(5, 'artifacts/mcp report.json'),
       replaceValue(5, 'artifacts/mcp;report.json'),
-      replaceValue(7, 'abc'),
-      replaceValue(9, 'unknown'),
       [...VALID_ARGS, '--profile', 'pr'],
     ].map((argv) => [argv] as const)
   )('fails closed for malformed argv %j', (argv) => {
