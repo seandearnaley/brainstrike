@@ -1993,7 +1993,11 @@ sanitized view that disagrees with the hashed artifact. This supports
 independently verifiable file digests without JSON reserialization drift. A
 syntactically valid digest is not evidence. RED
 proof requires a non-zero command and at least one internally consistent failed
-test; GREEN and later verification must be successful. Keep these invariants
+test. Every command carries a lowercase `proofId`: GREEN must match one prior
+RED with the same id, and verification must match an already completed GREEN.
+Negotiation evidence accepts only the closed era/revision pairs legacy/
+`2025-11-25` and modern/`2026-07-28`. GREEN and later verification must be
+successful. Keep these invariants
 paired with `packages/mcp-test-lab/__tests__/package-contract.test.ts` and the
 focused unit/integration suites.
 

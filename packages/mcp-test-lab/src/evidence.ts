@@ -21,6 +21,7 @@ export interface McpEvidenceCommand {
   readonly command: string;
   readonly exitStatus: number;
   readonly phase: McpCommandPhase;
+  readonly proofId: string;
   readonly tests: McpTestCounts;
 }
 
@@ -134,7 +135,7 @@ const SECRET_PATTERNS: readonly SecretPattern[] = [
   },
   {
     kind: 'bearer-token',
-    pattern: /\bbearer[ \t]+[a-z0-9._~+/-]{12,}={0,2}/gi,
+    pattern: /\bbearer[ \t]+[a-z0-9._~+/-]+={0,2}/gi,
   },
   {
     kind: 'private-key',
@@ -328,11 +329,17 @@ function parseCommands(input: unknown): readonly McpEvidenceCommand[] {
   const commands = nonEmptyArray(input, '$.commands');
   return commands.map((entry, index) => {
     const path = `$.commands[${index}]`;
-    const value = strictObject(entry, path, ['phase', 'command', 'exitStatus', 'tests']);
+    const value = strictObject(entry, path, ['phase', 'proofId', 'command', 'exitStatus', 'tests']);
     return {
       command: nonEmptyString(value['command'], `${path}.command`),
       exitStatus: integerInRange(value['exitStatus'], `${path}.exitStatus`, 0, 255),
       phase: oneOf(value['phase'], `${path}.phase`, ['red', 'green', 'verification']),
+      proofId: matchingString(
+        value['proofId'],
+        `${path}.proofId`,
+        /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+        'lowercase proof id'
+      ),
       tests: parseTestCounts(value['tests'], `${path}.tests`),
     };
   });
@@ -364,11 +371,20 @@ function parseNegotiation(input: unknown): McpEvidenceBundle['negotiation'] {
       )
   );
   assertUnique(capabilities, '$.negotiation.capabilities');
+  const era = oneOf(value['era'], '$.negotiation.era', ['legacy', 'modern']);
+  const revision = protocolRevision(value['revision'], '$.negotiation.revision');
+  const expectedRevision = era === 'legacy' ? '2025-11-25' : '2026-07-28';
+  if (revision !== expectedRevision) {
+    invalid(
+      '$.negotiation',
+      `era "${era}" requires revision "${expectedRevision}", received "${revision}"`
+    );
+  }
 
   return {
     capabilities,
-    era: oneOf(value['era'], '$.negotiation.era', ['legacy', 'modern']),
-    revision: protocolRevision(value['revision'], '$.negotiation.revision'),
+    era,
+    revision,
   };
 }
 
@@ -467,38 +483,47 @@ function assertProofOrder(commands: readonly McpEvidenceCommand[]): void {
     invalid('$.commands', 'RED proof must be first');
   }
 
-  let greenObserved = false;
+  const pendingRed = new Set<string>();
+  const completedGreen = new Set<string>();
   for (const [index, command] of commands.entries()) {
-    greenObserved = validateProofCommand(command, index, greenObserved);
+    validateProofCommand(command, index, pendingRed, completedGreen);
   }
 
-  if (!greenObserved) {
+  if (completedGreen.size === 0) {
     invalid('$.commands', 'at least one successful GREEN proof is required');
+  }
+  if (pendingRed.size > 0) {
+    invalid('$.commands', `RED proof is missing GREEN proof for: ${[...pendingRed].join(', ')}`);
   }
 }
 
 function validateProofCommand(
   command: McpEvidenceCommand,
   index: number,
-  greenObserved: boolean
-): boolean {
+  pendingRed: Set<string>,
+  completedGreen: Set<string>
+): void {
   const path = `$.commands[${index}]`;
   if (command.phase === 'red') {
-    validateRedProof(command, path, greenObserved);
-    return false;
+    validateRedProof(command, path);
+    if (pendingRed.has(command.proofId) || completedGreen.has(command.proofId)) {
+      invalid(`${path}.proofId`, 'RED proof id must be unique');
+    }
+    pendingRed.add(command.proofId);
+    return;
   }
   if (command.phase === 'green') {
     validateGreenProof(command, path);
-    return true;
+    if (!pendingRed.delete(command.proofId)) {
+      invalid(`${path}.proofId`, 'GREEN proof requires a matching prior RED proof');
+    }
+    completedGreen.add(command.proofId);
+    return;
   }
-  validateVerificationProof(command, path, greenObserved);
-  return greenObserved;
+  validateVerificationProof(command, path, completedGreen.has(command.proofId));
 }
 
-function validateRedProof(command: McpEvidenceCommand, path: string, greenObserved: boolean): void {
-  if (greenObserved) {
-    invalid(path, 'RED proof cannot appear after GREEN proof');
-  }
+function validateRedProof(command: McpEvidenceCommand, path: string): void {
   if (command.exitStatus === 0) {
     invalid(`${path}.exitStatus`, 'RED proof must have a non-zero exit status');
   }
@@ -519,10 +544,10 @@ function validateGreenProof(command: McpEvidenceCommand, path: string): void {
 function validateVerificationProof(
   command: McpEvidenceCommand,
   path: string,
-  greenObserved: boolean
+  matchingGreenObserved: boolean
 ): void {
-  if (!greenObserved) {
-    invalid(path, 'verification commands require prior GREEN proof');
+  if (!matchingGreenObserved) {
+    invalid(path, 'verification commands require prior GREEN proof with the same proof id');
   }
   if (command.exitStatus !== 0 || command.tests.failed !== 0) {
     invalid(path, 'verification command must have zero exit status and zero failed tests');

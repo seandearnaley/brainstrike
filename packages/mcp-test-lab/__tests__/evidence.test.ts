@@ -33,12 +33,14 @@ const VALID_BUNDLE = {
       command: 'pnpm vitest run evidence.test.ts',
       exitStatus: 1,
       phase: 'red',
+      proofId: 'evidence-secret-scan',
       tests: { failed: 1, passed: 0, skipped: 0, total: 1 },
     },
     {
       command: 'pnpm vitest run evidence.test.ts',
       exitStatus: 0,
       phase: 'green',
+      proofId: 'evidence-secret-scan',
       tests: { failed: 0, passed: 1, skipped: 0, total: 1 },
     },
   ],
@@ -378,6 +380,22 @@ describe('parseMcpEvidenceBundle', () => {
     expect(() => parseEvidence(invalidRed)).toThrowError(/tests\.total.*equal/i);
   });
 
+  it('binds each GREEN proof to the behavior exercised by its RED proof', () => {
+    const unrelatedGreen = {
+      ...VALID_BUNDLE,
+      commands: [
+        { ...VALID_BUNDLE.commands[0], command: 'pnpm vitest run -t failing-behavior' },
+        {
+          ...VALID_BUNDLE.commands[1],
+          command: 'pnpm vitest run -t unrelated-behavior',
+          proofId: 'unrelated-behavior',
+        },
+      ],
+    };
+
+    expect(() => parseEvidence(unrelatedGreen)).toThrowError(/GREEN.*matching RED|proof/i);
+  });
+
   it('requires observed protocol identity, unique capabilities, and correlation IDs', () => {
     expect(() =>
       parseEvidence({
@@ -392,6 +410,12 @@ describe('parseMcpEvidenceBundle', () => {
     expect(() => parseEvidence({ ...VALID_BUNDLE, correlationIds: [] })).toThrowError(
       /correlationIds.*non-empty/i
     );
+    expect(() =>
+      parseEvidence({
+        ...VALID_BUNDLE,
+        negotiation: { ...VALID_BUNDLE.negotiation, revision: '2025-11-25' },
+      })
+    ).toThrowError(/era.*revision|revision.*era/i);
   });
 
   it('requires explicit blocker records when the scenario is blocked', () => {
@@ -416,7 +440,7 @@ describe('parseMcpEvidenceBundle', () => {
   });
 
   it.each([
-    ['bearer token', 'Authorization: Bearer mcp_live_0123456789abcdef'],
+    ['bearer token', 'Authorization: Bearer abc'],
     ['Basic authorization', 'Authorization: Basic dTpw'],
     ['authorization code', 'authorization_code=SplxlOBeZQQYbYS6WxSbIA'],
     ['PKCE verifier', 'code_verifier: dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'],

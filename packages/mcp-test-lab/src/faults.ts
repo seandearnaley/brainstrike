@@ -401,57 +401,83 @@ function freezeDeclaration(declaration: McpLabFaultDeclaration): McpLabFaultDecl
   });
 }
 
-export function createMcpLabFaultPlan(
-  declarations: readonly McpLabFaultDeclaration[]
-): McpLabFaultPlan {
+function assertDeclarationShape(declaration: McpLabFaultDeclaration): void {
+  const untypedDeclaration: unknown = declaration;
+  if (!isRecord(untypedDeclaration)) {
+    throw new Error('Invalid MCP lab fault declaration: expected an object');
+  }
+  const untypedId = untypedDeclaration['id'];
+  if (typeof untypedId !== 'string' || untypedId.trim().length === 0) {
+    throw new Error('Invalid MCP lab fault id: expected a non-empty string');
+  }
+  if (!hasOnlyKeys(untypedDeclaration, ['fault', 'id', 'match'])) {
+    throw new Error(
+      `Invalid MCP lab fault "${untypedId}": declaration must contain only "fault", "id", and "match"`
+    );
+  }
+  const untypedMatch = untypedDeclaration['match'];
+  if (!(isRecord(untypedMatch) && hasOnlyKeys(untypedMatch, ['phase', 'method', 'occurrence']))) {
+    throw new Error(
+      `Invalid MCP lab fault "${untypedId}": match must contain only "phase", "method", and "occurrence"`
+    );
+  }
+}
+
+function assertMatchProtocol(declaration: McpLabFaultDeclaration): void {
+  if (!Number.isSafeInteger(declaration.match.occurrence) || declaration.match.occurrence < 1) {
+    throw new Error(
+      `Invalid MCP lab fault "${declaration.id}": occurrence must be a positive safe integer`
+    );
+  }
+  const untypedPhase: unknown = declaration.match.phase;
+  if (typeof untypedPhase !== 'string' || !Object.hasOwn(PROTOCOL_METHODS_BY_PHASE, untypedPhase)) {
+    throw new Error(
+      `Invalid MCP lab fault "${declaration.id}": unknown phase "${String(untypedPhase)}"`
+    );
+  }
+  const methods = PROTOCOL_METHODS_BY_PHASE[untypedPhase as McpLabProtocolPhase];
+  if (!(methods as readonly string[]).includes(declaration.match.method)) {
+    throw new Error(
+      `Invalid MCP lab fault "${declaration.id}": method "${declaration.match.method}" does not belong to phase "${declaration.match.phase}"`
+    );
+  }
+  assertFaultCoordinate(declaration);
+}
+
+function registerUniqueDeclaration(
+  declaration: McpLabFaultDeclaration,
+  declaredIds: Set<string>,
+  declaredMatches: Map<string, string>
+): void {
+  if (declaredIds.has(declaration.id)) {
+    throw new Error(`Duplicate MCP lab fault id: ${declaration.id}`);
+  }
+  declaredIds.add(declaration.id);
+  const key = matchKey(declaration.match);
+  const existingId = declaredMatches.get(key);
+  if (existingId) {
+    throw new Error(
+      `Duplicate MCP lab fault match for ${declaration.match.phase}/${declaration.match.method} occurrence ${declaration.match.occurrence}: ${existingId}, ${declaration.id}`
+    );
+  }
+  declaredMatches.set(key, declaration.id);
+}
+
+function validateFaultDeclarations(declarations: readonly McpLabFaultDeclaration[]): void {
   const declaredIds = new Set<string>();
   const declaredMatches = new Map<string, string>();
   for (const declaration of declarations) {
-    const untypedDeclaration: unknown = declaration;
-    if (!isRecord(untypedDeclaration)) {
-      throw new Error('Invalid MCP lab fault declaration: expected an object');
-    }
-    const untypedId = untypedDeclaration['id'];
-    if (typeof untypedId !== 'string' || untypedId.trim().length === 0) {
-      throw new Error('Invalid MCP lab fault id: expected a non-empty string');
-    }
+    assertDeclarationShape(declaration);
     assertFaultPayload(declaration);
-    if (!Number.isSafeInteger(declaration.match.occurrence) || declaration.match.occurrence < 1) {
-      throw new Error(
-        `Invalid MCP lab fault "${declaration.id}": occurrence must be a positive safe integer`
-      );
-    }
-    const untypedPhase: unknown = declaration.match.phase;
-    if (
-      typeof untypedPhase !== 'string' ||
-      !Object.hasOwn(PROTOCOL_METHODS_BY_PHASE, untypedPhase)
-    ) {
-      throw new Error(
-        `Invalid MCP lab fault "${declaration.id}": unknown phase "${String(untypedPhase)}"`
-      );
-    }
-    const phase = untypedPhase as McpLabProtocolPhase;
-    const methods = PROTOCOL_METHODS_BY_PHASE[phase];
-    if (!(methods as readonly string[]).includes(declaration.match.method)) {
-      throw new Error(
-        `Invalid MCP lab fault "${declaration.id}": method "${declaration.match.method}" does not belong to phase "${declaration.match.phase}"`
-      );
-    }
-    assertFaultCoordinate(declaration);
-    if (declaredIds.has(declaration.id)) {
-      throw new Error(`Duplicate MCP lab fault id: ${declaration.id}`);
-    }
-    declaredIds.add(declaration.id);
-
-    const key = matchKey(declaration.match);
-    const existingId = declaredMatches.get(key);
-    if (existingId) {
-      throw new Error(
-        `Duplicate MCP lab fault match for ${declaration.match.phase}/${declaration.match.method} occurrence ${declaration.match.occurrence}: ${existingId}, ${declaration.id}`
-      );
-    }
-    declaredMatches.set(key, declaration.id);
+    assertMatchProtocol(declaration);
+    registerUniqueDeclaration(declaration, declaredIds, declaredMatches);
   }
+}
+
+export function createMcpLabFaultPlan(
+  declarations: readonly McpLabFaultDeclaration[]
+): McpLabFaultPlan {
+  validateFaultDeclarations(declarations);
 
   const immutableDeclarations = declarations.map(freezeDeclaration);
   const remaining = new Map(
