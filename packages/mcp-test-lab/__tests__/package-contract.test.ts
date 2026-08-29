@@ -158,4 +158,16 @@ describe('MCP test lab package contract', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it('keeps the living provider contract honest about the initial boundary', async () => {
+    const contract = await readFile(
+      new URL('../../../docs/agents/assistant-providers.md', import.meta.url),
+      'utf8'
+    );
+
+    expect(contract).toContain('`@brainstrike/mcp-test-lab`');
+    expect(contract).toContain('production-independent verifier');
+    expect(contract).toContain("`availability: 'declared'`");
+    expect(contract).toContain('A package export may appear only in');
+  });
 });

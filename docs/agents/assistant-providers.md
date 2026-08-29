@@ -1947,6 +1947,24 @@ Primary references:
 When changing this flow, update this section and the focused agent + desktop
 real-protocol integration tests.
 
+### MCP verification harness
+
+`@brainstrike/mcp-test-lab` is a Node-only, production-independent verifier
+boundary. It is not a production MCP client and must not enter application
+dependency graphs. The package currently owns only a closed scenario manifest:
+scenario ids, fixture identities, protocol-era/revision pairs, and exact
+official SDK/conformance provenance are explicit and independently testable.
+Unknown scenario ids fail visibly, and every manifest records that it consumes
+no ambient credentials. In the foundation layer, every scenario has
+`availability: 'declared'`; this reserves an exact contract without claiming an
+executable server. The owning transport/OAuth layer changes availability only
+when the corresponding fixture and focused exchange tests land together.
+
+Add verifier capabilities incrementally. A package export may appear only in
+the layer that implements and independently tests it; do not advertise a
+transport, fault coordinate, OAuth route, evidence guarantee, or runner before
+that branch contains its executable path and focused verifier.
+
 ---
 
 
