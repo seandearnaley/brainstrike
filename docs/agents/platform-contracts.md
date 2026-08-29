@@ -1035,6 +1035,8 @@ Do not move subscription creation into render or a memo initializer; StrictMode
 and abandoned concurrent renders can otherwise retain a raw-event listener after
 the panel closes. The panel shows rolling one-minute aggregate latency, cache-hit
 rate, throughput, token count, error count, and explicit retained event count.
+Expected binary-file exclusions remain terminal file outcomes but never emit an
+`indexing_error` event or contribute to that error count.
 Cache-hit-only windows render a neutral latency glyph because they contain events
 but no timed indexing work; `No samples` remains the whole-window state. The view
 receives a deliberately projected aggregate object: raw

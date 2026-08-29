@@ -782,12 +782,6 @@ export function useBackgroundTokenIndexer({
       pendingFilesRef.current.delete(error.compositeKey);
       settleBatchTrackersForCompositeKey(error.compositeKey);
 
-      // Emit telemetry for indexing error (BST-154)
-      emitIndexingError({
-        compositeKey: error.compositeKey,
-        errorMessage: error.error,
-      });
-
       const currentOnFileError = onFileErrorRef.current;
       if (currentOnFileError) {
         currentOnFileError(error.compositeKey, error.error, error.reason);
@@ -802,6 +796,10 @@ export function useBackgroundTokenIndexer({
           reason: error.reason,
         });
       } else {
+        emitIndexingError({
+          compositeKey: error.compositeKey,
+          errorMessage: error.error,
+        });
         logger.warn('Background token indexer file error', {
           compositeKey: error.compositeKey,
           error: error.error,
