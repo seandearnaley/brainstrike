@@ -663,6 +663,7 @@ function assertSanitizedArtifactBytes(
       invalid(path, 'screenshot text extraction must return a string');
     }
     assertSanitizedText(extractedText, path);
+    assertSanitizedParsedJson(extractedText, path);
     return;
   }
 
@@ -888,7 +889,8 @@ function fragmentParameters(hash: string): URLSearchParams {
 
 function hasCredentialParameter(parameters: URLSearchParams): boolean {
   for (const [key, value] of parameters) {
-    if (value.length > 0 && CREDENTIAL_KEY_SET.has(key.toLowerCase())) {
+    const normalizedKey = key.toLowerCase().replaceAll(/[ -]/g, '_');
+    if (value.length > 0 && CREDENTIAL_KEY_SET.has(normalizedKey)) {
       return true;
     }
   }

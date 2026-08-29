@@ -74,6 +74,30 @@ describe('MCP lab modern reference', () => {
     expect(String(caught)).toMatch(/incompatible.*stdio/i);
   });
 
+  it('rejects node/dispatch faults for in-process HTTP execution', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'node-dispatch-only',
+        match: { method: 'node/dispatch', occurrence: 1, phase: 'transport' },
+      },
+    ]);
+    let lab: Awaited<ReturnType<typeof startMcpLabScenario>> | undefined;
+    let caught: unknown;
+    try {
+      lab = await startMcpLabScenario('modern-reference', {
+        execution: 'in-process',
+        faultPlan,
+      });
+    } catch (error) {
+      caught = error;
+    } finally {
+      await lab?.close();
+    }
+
+    expect(String(caught)).toMatch(/incompatible.*in-process/i);
+  });
+
   it('negotiates 2026-07-28 and exercises a real official SDK tool exchange', async () => {
     const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
     if (lab.endpoint.kind !== 'in-process-http') {

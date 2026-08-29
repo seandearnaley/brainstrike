@@ -200,6 +200,28 @@ describe('parseMcpEvidenceBundle', () => {
     ).toThrowError(/bearer-token/i);
   });
 
+  it('parses JSON-looking screenshot text before accepting it', () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71]);
+    const bundle = {
+      ...VALID_BUNDLE,
+      artifacts: [
+        {
+          kind: 'screenshot',
+          reference: 'artifacts/oauth-dialog.png',
+          sanitized: true,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    };
+
+    expect(() =>
+      parseMcpEvidenceBundle(bundle, {
+        extractScreenshotText: () => '{"access\\u005ftoken":"q"}',
+        readArtifactContent: () => ({ bytes }),
+      })
+    ).toThrowError(/credential-assignment/i);
+  });
+
   it('detects secrets decoded from JSON escapes in the exact artifact bytes', () => {
     const bytes = new TextEncoder().encode('{"message":"Be\\u0061rer mcp_live_0123456789abcdef"}');
     const bundle = {
@@ -537,6 +559,12 @@ describe('parseMcpEvidenceBundle', () => {
 
     expect(findings).toEqual([expect.objectContaining({ kind: 'credential-bearing-url' })]);
     expect(JSON.stringify(findings)).not.toContain(credential);
+  });
+
+  it('normalizes hyphenated credential keys inside URLs', () => {
+    expect(scanEvidenceTextForSecrets('https://example.test/callback?api-key=q')).toEqual([
+      expect.objectContaining({ kind: 'credential-bearing-url' }),
+    ]);
   });
 
   it('does not mistake exact-head hashes or ordinary verifier prose for secrets', () => {

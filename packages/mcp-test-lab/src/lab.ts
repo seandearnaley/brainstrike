@@ -976,7 +976,11 @@ export async function startMcpLabScenario(
   assertStartOptions(options);
   const scenario = getMcpLabScenario(id);
   options.faultPlan?.assertCompatibleWithTransport(
-    scenario.id === 'stdio-reference' ? 'stdio' : 'http'
+    scenario.id === 'stdio-reference'
+      ? 'stdio'
+      : options.execution === 'in-process'
+        ? 'http-in-process'
+        : 'http-loopback'
   );
   if (scenario.id === 'stdio-reference') {
     if (options.execution) {

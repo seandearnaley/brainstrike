@@ -148,7 +148,7 @@ export interface McpLabFaultObservation extends McpLabFaultConsumption {
   readonly faultKind: McpLabFault['kind'];
 }
 
-export type McpLabTransportKind = 'http' | 'stdio';
+export type McpLabTransportKind = 'http-in-process' | 'http-loopback' | 'stdio';
 
 export interface McpLabFaultPlan {
   assertCompatibleWithTransport(transport: McpLabTransportKind): void;
@@ -381,8 +381,11 @@ function faultSupportsTransport(
   if (declaration.match.phase === 'shutdown') {
     return true;
   }
-  if (transport === 'http') {
-    return declaration.match.phase !== 'child-process';
+  if (transport !== 'stdio') {
+    if (declaration.match.phase === 'child-process') {
+      return false;
+    }
+    return !(transport === 'http-in-process' && declaration.match.method === 'node/dispatch');
   }
   if (declaration.match.phase === 'child-process') {
     return true;
