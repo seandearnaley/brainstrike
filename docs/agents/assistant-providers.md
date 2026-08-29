@@ -1987,6 +1987,11 @@ server-to-client-only requests and notifications that its outbound transport
 cannot execute. Scenario validation also closes the protocol era:
 `server/discover` and `subscriptions/listen` are modern, while the legacy
 initialize/initialized/ping handshake cannot be claimed by a modern run.
+Authorization coordinates are accepted only by the OAuth scenario and only for
+implemented routes with their owned verbs (metadata/authorize use GET;
+registration/token use POST). OAuth transport and authorization faults wrap
+the authentication boundary, while MCP protocol faults sit inside it, so an
+unauthenticated request cannot consume an operation fault.
 `drop_response`
 means a real transport failure: loopback destroys the socket without headers,
 and stdio accepts the selected tool request but never replies until the caller
@@ -2009,8 +2014,10 @@ disabled/none/redacted sentinels are accepted consistently in raw assignments,
 decoded fields, and URL parameters only when the entire captured value is the
 sentinel; quoted punctuation remains part of the value. Repository-explicit
 token names such as GitHub, GitHub Enterprise, and AWS session/Bedrock tokens
-are classified without treating every ambiguous namespaced `_token` field as a
-credential.
+plus AWS access-key ids are classified without treating every ambiguous
+namespaced `_token` or `_id` field as a credential. Canonical redaction
+sentinels are also accepted as the entire Basic/Bearer payload; real scheme
+credentials remain prohibited.
 Screenshot artifacts require a text/OCR
 extractor that the verifier invokes with a copy of those exact bytes; absent or
 failed extraction rejects the bundle. The verifier recomputes the lowercase

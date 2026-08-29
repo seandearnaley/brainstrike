@@ -12,21 +12,18 @@ export const HTTP_PROTOCOL_COORDINATE_PHASES = [
   'subscription',
 ] as const satisfies readonly McpLabProtocolPhase[];
 
-export function oauthFaultMethod(pathname: string): McpLabProtocolMethod | undefined {
-  switch (pathname) {
-    case '/.well-known/oauth-protected-resource/mcp':
+export function oauthFaultMethod(request: Request): McpLabProtocolMethod | undefined {
+  const pathname = new URL(request.url).pathname;
+  switch (`${request.method} ${pathname}`) {
+    case 'GET /.well-known/oauth-protected-resource/mcp':
       return 'oauth/protected-resource';
-    case '/.well-known/oauth-authorization-server':
+    case 'GET /.well-known/oauth-authorization-server':
       return 'oauth/authorization-server';
-    case '/authorize':
+    case 'GET /authorize':
       return 'oauth/authorize';
-    case '/callback':
-      return 'oauth/callback';
-    case '/register':
+    case 'POST /register':
       return 'oauth/register';
-    case '/revoke':
-      return 'oauth/revoke';
-    case '/token':
+    case 'POST /token':
       return 'oauth/token';
     default:
       return;
@@ -77,10 +74,6 @@ export async function protocolCoordinate(
 ): Promise<
   { readonly method: McpLabProtocolMethod; readonly phase: McpLabProtocolPhase } | undefined
 > {
-  const oauth = oauthFaultMethod(new URL(request.url).pathname);
-  if (oauth) {
-    return { method: oauth, phase: 'authorization' };
-  }
   const headerMethod = request.headers.get('mcp-method') ?? undefined;
   if (request.method !== 'POST') {
     return;

@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
+  isSafeAuthorizationSchemeMatch,
+  isSafeDiagnosticAssignment,
+} from './credential-sentinels.js';
+import {
   advanceLineOffset,
   balancedJsonCandidates,
   decodeJsonUnicodeEscapes,
@@ -173,6 +177,7 @@ const CREDENTIAL_KEY_SUFFIXES = [...CREDENTIAL_KEYS, 'secret_access_key'] as con
 const AMBIGUOUS_CREDENTIAL_KEYS = ['authorization', 'code', 'token'] as const;
 const TRUSTED_NAMESPACED_CREDENTIAL_LABELS = new Map<string, string>([
   ['aws_bearer_token_bedrock', 'token'],
+  ['aws_access_key_id', 'api_key'],
   ['aws_session_token', 'token'],
   ['gh_enterprise_token', 'token'],
   ['gh_token', 'token'],
@@ -216,6 +221,9 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
 
   for (const secretPattern of SECRET_PATTERNS) {
     for (const match of text.matchAll(secretPattern.pattern)) {
+      if (isSafeAuthorizationSchemeMatch(secretPattern.kind, match[0])) {
+        continue;
+      }
       findings.push({ index: match.index, kind: secretPattern.kind });
     }
   }
@@ -243,21 +251,6 @@ export function scanEvidenceTextForSecrets(text: string): readonly EvidenceSecre
 
   return findings.sort(
     (left, right) => left.index - right.index || left.kind.localeCompare(right.kind)
-  );
-}
-
-function isSafeDiagnosticAssignment(label: string, value: string, prefix: string): boolean {
-  if (/^(?:disabled|none|redacted)$/iu.test(value)) {
-    return true;
-  }
-  if (label === 'authorization' && /^not[-_ ]required(?:[-_ ].*)?$/iu.test(value)) {
-    return true;
-  }
-  if (label === 'authorization' && /^(?:basic|bearer)$/iu.test(value)) {
-    return true;
-  }
-  return (
-    label === 'code' && /(?:error|exit)[ \t]+$/iu.test(prefix) && /^[A-Z][A-Z0-9_]*$/u.test(value)
   );
 }
 

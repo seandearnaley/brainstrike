@@ -351,6 +351,7 @@ describe('parseMcpEvidenceBundle', () => {
   it.each([
     'AWS_SESSION_TOKEN',
     'AWS_BEARER_TOKEN_BEDROCK',
+    'AWS_ACCESS_KEY_ID',
     'GH_ENTERPRISE_TOKEN',
     'GITHUB_ENTERPRISE_TOKEN',
   ])('detects the repository-supported %s credential key', (credentialKey) => {
@@ -791,6 +792,13 @@ describe('parseMcpEvidenceBundle', () => {
       expect.objectContaining({ kind: 'credential-assignment' }),
     ]);
     expect(scanEvidenceTextForSecrets('client_secret=redacted)')).toEqual([]);
+  });
+
+  it('accepts canonical redaction sentinels in Authorization schemes only', () => {
+    expect(scanEvidenceTextForSecrets('Authorization: Bearer redacted')).toEqual([]);
+    expect(scanEvidenceTextForSecrets('Authorization: Basic none')).toEqual([]);
+    expect(scanEvidenceTextForSecrets('Authorization: Bearer opaque-secret')).not.toEqual([]);
+    expect(scanEvidenceTextForSecrets('Authorization: Basic dTpw')).not.toEqual([]);
   });
 
   it('secret-scans textual evidence recursively and reports only its path and secret class', () => {

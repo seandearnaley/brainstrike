@@ -345,6 +345,21 @@ describe('MCP lab fault plan', () => {
     );
   });
 
+  it.each(['oauth/callback', 'oauth/revoke'])(
+    'rejects unsupported authorization coordinate %s',
+    (method) => {
+      expect(() =>
+        createMcpLabFaultPlan([
+          {
+            fault: { delayMs: 1, kind: 'delay' },
+            id: 'unsupported-authorization',
+            match: { method, occurrence: 1, phase: 'authorization' },
+          },
+        ] as never)
+      ).toThrowError(/method.*does not belong|unknown/i);
+    }
+  );
+
   it('supports every declared fault as typed deterministic data', () => {
     const declarations = [
       {

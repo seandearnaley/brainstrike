@@ -239,10 +239,6 @@ async function consumeProtocolHttpFault(
   request: Request,
   correlationId: string
 ): Promise<Response | undefined> {
-  const oauthMethod = oauthFaultMethod(new URL(request.url).pathname);
-  if (oauthMethod) {
-    return consumeHttpFault(runtime, 'authorization', oauthMethod, correlationId);
-  }
   const hasProtocolFault = runtime.requiresProtocolBodyCoordinate();
   if (!(hasProtocolFault || request.headers.has('mcp-method'))) {
     return;
@@ -254,10 +250,46 @@ async function consumeProtocolHttpFault(
   return consumeHttpFault(runtime, coordinate.phase, coordinate.method, correlationId);
 }
 
+async function consumeAuthorizationHttpFault(
+  runtime: FaultRuntime,
+  request: Request,
+  correlationId: string
+): Promise<Response | undefined> {
+  const method = oauthFaultMethod(request);
+  return method ? consumeHttpFault(runtime, 'authorization', method, correlationId) : undefined;
+}
+
+interface FaultWrapperOptions {
+  readonly authorization: boolean;
+  readonly protocol: boolean;
+  readonly recordErrors: boolean;
+  readonly transport: boolean;
+}
+
+const ALL_FAULT_SCOPES: FaultWrapperOptions = Object.freeze({
+  authorization: true,
+  protocol: true,
+  recordErrors: true,
+  transport: true,
+});
+const OAUTH_OUTER_FAULT_SCOPES: FaultWrapperOptions = Object.freeze({
+  authorization: true,
+  protocol: false,
+  recordErrors: true,
+  transport: true,
+});
+const OAUTH_PROTOCOL_FAULT_SCOPES: FaultWrapperOptions = Object.freeze({
+  authorization: false,
+  protocol: true,
+  recordErrors: false,
+  transport: false,
+});
+
 function withFaults(
   handler: McpHttpHandler,
   runtime: FaultRuntime,
-  diagnostics: McpLabDiagnostic[]
+  diagnostics: McpLabDiagnostic[],
+  scopes: FaultWrapperOptions = ALL_FAULT_SCOPES
 ): McpHttpHandler {
   return {
     bus: handler.bus,
@@ -265,33 +297,37 @@ function withFaults(
     async fetch(request, options) {
       const correlationId = correlationIdForRequest(request, () => runtime.nextCorrelation());
       try {
-        const requestFaultResponse = await consumeHttpFault(
-          runtime,
-          'transport',
-          'http/request',
-          correlationId
-        );
+        const requestFaultResponse = scopes.transport
+          ? await consumeHttpFault(runtime, 'transport', 'http/request', correlationId)
+          : undefined;
         if (requestFaultResponse) {
           return requestFaultResponse;
         }
-        const protocolFaultResponse = await consumeProtocolHttpFault(
-          runtime,
-          request,
-          correlationId
-        );
+        const authorizationFaultResponse = scopes.authorization
+          ? await consumeAuthorizationHttpFault(runtime, request, correlationId)
+          : undefined;
+        if (authorizationFaultResponse) {
+          return authorizationFaultResponse;
+        }
+        const protocolFaultResponse = scopes.protocol
+          ? await consumeProtocolHttpFault(runtime, request, correlationId)
+          : undefined;
         if (protocolFaultResponse) {
           return protocolFaultResponse;
         }
         const response = await handler.fetch(request, options);
-        return (
-          (await consumeHttpFault(runtime, 'transport', 'http/response', correlationId)) ?? response
-        );
+        return scopes.transport
+          ? ((await consumeHttpFault(runtime, 'transport', 'http/response', correlationId)) ??
+              response)
+          : response;
       } catch (error) {
-        recordDiagnostic(diagnostics, {
-          correlationId,
-          kind: 'handler-error',
-          message: messageOf(error),
-        });
+        if (scopes.recordErrors) {
+          recordDiagnostic(diagnostics, {
+            correlationId,
+            kind: 'handler-error',
+            message: messageOf(error),
+          });
+        }
         throw error;
       }
     },
@@ -904,11 +940,17 @@ async function loopbackSession(
       tokenUrl: new URL('/token', origin),
       url,
     });
-    handler = oauthHandler(handler, endpoint);
+    const protocolHandler = withFaults(handler, runtime, diagnostics, OAUTH_PROTOCOL_FAULT_SCOPES);
+    handler = oauthHandler(protocolHandler, endpoint);
   } else {
     endpoint = Object.freeze({ kind: 'loopback-http', url });
   }
-  dispatch = withFaults(handler, runtime, diagnostics);
+  dispatch = withFaults(
+    handler,
+    runtime,
+    diagnostics,
+    scenario.id === 'oauth-reference' ? OAUTH_OUTER_FAULT_SCOPES : ALL_FAULT_SCOPES
+  );
   return session(
     endpoint,
     scenario,
@@ -927,6 +969,7 @@ export async function startMcpLabScenario(
 ): Promise<McpLabSession> {
   assertStartOptions(options);
   const scenario = getMcpLabScenario(id);
+  options.faultPlan?.assertCompatibleWithAuthentication(scenario.authentication);
   options.faultPlan?.assertCompatibleWithProtocolEra(scenario.protocol.era);
   options.faultPlan?.assertCompatibleWithTransport(
     scenario.id === 'stdio-reference'

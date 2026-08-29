@@ -160,6 +160,22 @@ describe('MCP lab modern reference', () => {
     ).rejects.toThrow(/incompatible.*in-process/i);
   });
 
+  it.each(['modern-reference', 'legacy-reference'] as const)(
+    'rejects authorization faults for non-OAuth scenario %s',
+    async (scenarioId) => {
+      const faultPlan = createMcpLabFaultPlan([
+        {
+          fault: { delayMs: 1, kind: 'delay' },
+          id: 'oauth-token-without-oauth',
+          match: { method: 'oauth/token', occurrence: 1, phase: 'authorization' },
+        },
+      ]);
+      await expect(startMcpLabScenario(scenarioId, { faultPlan })).rejects.toThrow(
+        /incompatible.*authentication|OAuth/i
+      );
+    }
+  );
+
   it.each(['initialize', 'notifications/initialized', 'ping'] as const)(
     'rejects legacy-only %s faults for modern scenarios',
     async (method) => {

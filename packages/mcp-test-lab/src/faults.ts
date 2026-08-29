@@ -4,9 +4,7 @@ const PROTOCOL_METHODS_BY_PHASE = {
     'oauth/authorization-server',
     'oauth/register',
     'oauth/authorize',
-    'oauth/callback',
     'oauth/token',
-    'oauth/revoke',
   ],
   'child-process': ['child/spawn', 'child/stderr', 'child/exit'],
   initialization: ['initialize', 'notifications/initialized', 'ping', 'server/discover'],
@@ -169,8 +167,10 @@ export interface McpLabFaultObservation extends McpLabFaultConsumption {
 
 export type McpLabTransportKind = 'http-in-process' | 'http-loopback' | 'stdio';
 export type McpLabProtocolEra = 'legacy' | 'modern';
+export type McpLabAuthentication = 'none' | 'oauth';
 
 export interface McpLabFaultPlan {
+  assertCompatibleWithAuthentication(authentication: McpLabAuthentication): void;
   assertCompatibleWithProtocolEra(era: McpLabProtocolEra): void;
   assertCompatibleWithTransport(transport: McpLabTransportKind): void;
   assertFullyConsumed(): void;
@@ -645,6 +645,17 @@ export function createMcpLabFaultPlan(
   }
 
   const plan: McpLabFaultPlan = Object.freeze({
+    assertCompatibleWithAuthentication(authentication: McpLabAuthentication) {
+      const incompatible = immutableDeclarations.find(
+        (declaration) => declaration.match.phase === 'authorization' && authentication !== 'oauth'
+      );
+      if (!incompatible) {
+        return;
+      }
+      throw new Error(
+        `MCP lab fault "${incompatible.id}" at ${incompatible.match.phase}/${incompatible.match.method} is incompatible with ${authentication} authentication`
+      );
+    },
     assertCompatibleWithProtocolEra(era: McpLabProtocolEra) {
       const incompatible = immutableDeclarations.find(
         (declaration) => !faultSupportsProtocolEra(declaration, era)

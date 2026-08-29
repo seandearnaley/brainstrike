@@ -108,11 +108,11 @@ describe('MCP lab fault and cleanup lifecycle', () => {
         match: { method: 'server/discover', occurrence: 1, phase: 'initialization' },
       },
     ]);
-    const authorizationPlan = createMcpLabFaultPlan([
+    const cleanupPlan = createMcpLabFaultPlan([
       {
-        fault: { kind: 'http_status', status: 418 },
-        id: 'token-only',
-        match: { method: 'oauth/token', occurrence: 1, phase: 'authorization' },
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'cleanup-only',
+        match: { method: 'transport/close', occurrence: 1, phase: 'shutdown' },
       },
     ]);
     const baselineLab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
@@ -120,11 +120,11 @@ describe('MCP lab fault and cleanup lifecycle', () => {
       execution: 'in-process',
       faultPlan: discoveryPlan,
     });
-    const authorizationLab = await startMcpLabScenario('modern-reference', {
+    const cleanupLab = await startMcpLabScenario('modern-reference', {
       execution: 'in-process',
-      faultPlan: authorizationPlan,
+      faultPlan: cleanupPlan,
     });
-    for (const lab of [baselineLab, discoveryLab, authorizationLab]) {
+    for (const lab of [baselineLab, discoveryLab, cleanupLab]) {
       if (lab.endpoint.kind !== 'in-process-http') {
         throw new Error(`Expected in-process HTTP endpoint, received ${lab.endpoint.kind}`);
       }
@@ -132,7 +132,7 @@ describe('MCP lab fault and cleanup lifecycle', () => {
     if (
       baselineLab.endpoint.kind !== 'in-process-http' ||
       discoveryLab.endpoint.kind !== 'in-process-http' ||
-      authorizationLab.endpoint.kind !== 'in-process-http'
+      cleanupLab.endpoint.kind !== 'in-process-http'
     ) {
       throw new Error('MCP lab endpoint narrowing failed');
     }
@@ -160,19 +160,17 @@ describe('MCP lab fault and cleanup lifecycle', () => {
       expect(clone).toHaveBeenCalledTimes(baselineCount);
       clone.mockClear();
 
-      await (
-        await authorizationLab.endpoint.fetch(authorizationLab.endpoint.url, requestInit)
-      ).arrayBuffer();
+      await (await cleanupLab.endpoint.fetch(cleanupLab.endpoint.url, requestInit)).arrayBuffer();
       expect(clone).toHaveBeenCalledTimes(baselineCount);
     } finally {
       clone.mockRestore();
       await baselineLab.close();
       await discoveryLab.close();
-      await authorizationLab.close();
+      await cleanupLab.close();
     }
 
     expect(discoveryPlan.untriggeredIds()).toEqual([]);
-    expect(authorizationPlan.untriggeredIds()).toEqual(['token-only']);
+    expect(cleanupPlan.untriggeredIds()).toEqual([]);
   });
 
   it('does not let an HTTP body consume the dedicated shutdown coordinate', async () => {
@@ -502,6 +500,66 @@ describe('MCP lab fault and cleanup lifecycle', () => {
     ).rejects.toThrow(/JSON-RPC/i);
     expect(faultPlan.untriggeredIds()).toEqual(['valid-tools-call-only']);
     await lab.close();
+  });
+
+  it.each([
+    ['oauth/authorize', 'POST', '/authorize', 400],
+    ['oauth/token', 'GET', '/token', 405],
+  ] as const)(
+    'validates the HTTP verb before consuming %s faults',
+    async (method, requestMethod, pathname, expectedStatus) => {
+      const faultPlan = createMcpLabFaultPlan([
+        {
+          fault: { kind: 'http_status', status: 418 },
+          id: 'verb-bound-oauth-fault',
+          match: { method, occurrence: 1, phase: 'authorization' },
+        },
+      ]);
+      const lab = await startMcpLabScenario('oauth-reference', { faultPlan });
+      if (lab.endpoint.kind !== 'oauth-loopback-http') {
+        throw new Error(`Expected OAuth loopback endpoint, received ${lab.endpoint.kind}`);
+      }
+
+      try {
+        expect(
+          (
+            await fetch(new URL(pathname, lab.endpoint.url), {
+              method: requestMethod,
+              redirect: 'manual',
+            })
+          ).status
+        ).toBe(expectedStatus);
+        expect(faultPlan.untriggeredIds()).toEqual(['verb-bound-oauth-fault']);
+      } finally {
+        await lab.close();
+      }
+    }
+  );
+
+  it('authenticates OAuth MCP requests before consuming operation faults', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'http_status', status: 418 },
+        id: 'authenticated-tools-call-only',
+        match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const lab = await startMcpLabScenario('oauth-reference', { faultPlan });
+    if (lab.endpoint.kind !== 'oauth-loopback-http') {
+      throw new Error(`Expected OAuth loopback endpoint, received ${lab.endpoint.kind}`);
+    }
+
+    try {
+      const response = await fetch(lab.endpoint.url, {
+        body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'tools/call', params: {} }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      expect(response.status).toBe(401);
+      expect(faultPlan.untriggeredIds()).toEqual(['authenticated-tools-call-only']);
+    } finally {
+      await lab.close();
+    }
   });
 
   it('rejects unsafe caller correlation ids before they reach diagnostics or faults', async () => {
