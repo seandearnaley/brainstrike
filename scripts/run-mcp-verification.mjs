@@ -7,21 +7,31 @@ import { createSpawnInvocation } from './spawn-command.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
-const REPOSITORY_OWNED_ARGUMENTS = ['--sha', '--ticket', '--workspace-state'];
+const OUTPUT_PATTERN = /^artifacts\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.json$/;
 
 export function normalizeForwardedArgs(rawArgs) {
-  const forwardedArgs = rawArgs[0] === '--' ? rawArgs.slice(1) : [...rawArgs];
-
-  for (const argument of forwardedArgs) {
-    const ownedArgument = REPOSITORY_OWNED_ARGUMENTS.find(
-      (candidate) => argument === candidate || argument.startsWith(`${candidate}=`)
-    );
-    if (ownedArgument) {
-      throw new Error(`${ownedArgument} is owned by the repository verifier`);
-    }
+  const args = rawArgs[0] === '--' ? rawArgs.slice(1) : [...rawArgs];
+  if (args.length !== 4) {
+    throw new Error('MCP verification requires exactly --profile and --output');
   }
-
-  return forwardedArgs;
+  const values = new Map();
+  for (let index = 0; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if ((flag !== '--profile' && flag !== '--output') || !value || values.has(flag)) {
+      throw new Error('MCP verification accepts one --profile and one --output');
+    }
+    values.set(flag, value);
+  }
+  const profile = values.get('--profile');
+  const output = values.get('--output');
+  if (profile !== 'pr' && profile !== 'exhaustive') {
+    throw new Error('MCP verification profile must be pr or exhaustive');
+  }
+  if (!(OUTPUT_PATTERN.test(output) && output.split('/').every((part) => part !== '..'))) {
+    throw new Error('MCP verification output must be a safe JSON path below artifacts/');
+  }
+  return ['--profile', profile, '--output', output];
 }
 
 function runGitCommand(args) {

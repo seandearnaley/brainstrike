@@ -11,17 +11,25 @@ import {
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
 
-test('forwards only runner-owned profile and output arguments', () => {
+test('forwards one canonical profile and safe artifact output', () => {
   assert.deepEqual(
     normalizeForwardedArgs(['--', '--profile', 'pr', '--output', 'artifacts/pr-evidence.json']),
     ['--profile', 'pr', '--output', 'artifacts/pr-evidence.json']
   );
 
-  for (const ownedArgument of ['--sha', '--workspace-state', '--ticket']) {
-    assert.throws(
-      () => normalizeForwardedArgs(['--profile', 'pr', ownedArgument, 'forged']),
-      new RegExp(`${ownedArgument} is owned by the repository verifier`)
-    );
+  for (const invalidArgs of [
+    ['--profile', 'pr', '--sha', SHA],
+    ['--profile', 'pr', '--profile', 'exhaustive'],
+    ['--profile', 'unknown', '--output', 'artifacts/a.json'],
+    ['--profile', 'pr', '--output', '../a.json'],
+    ['--profile', 'pr', '--output', 'outside/a.json'],
+    ['--profile', 'pr', '--output', 'artifacts/a b.json'],
+    ['--profile', 'pr', '--output', 'artifacts/%TEMP%.json'],
+    ['--profile', 'pr', '--output', 'artifacts/a!b.json'],
+    ['--profile', 'pr', '--output', 'artifacts/a&b.json'],
+    ['--profile=pr', '--output=artifacts/a.json'],
+  ]) {
+    assert.throws(() => normalizeForwardedArgs(invalidArgs), /MCP verification/);
   }
 });
 
@@ -107,6 +115,7 @@ test('uses the shared Windows shell adapter for the pnpm command shim', () => {
   assert.equal(invocation.shell, true);
   assert.deepEqual(invocation.args, []);
   assert.match(invocation.command, /^pnpm --filter @brainstrike\/mcp-test-lab verify /);
+  assert.match(invocation.command, /--output artifacts\/pr-evidence\.json/);
 });
 
 test('propagates child failure, signal termination, and spawn errors', () => {

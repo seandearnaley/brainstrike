@@ -56,6 +56,7 @@ test('exhaustive verification is schedule and manual only with bounded artifact 
     workflow.jobs.verify.steps.indexOf(uploadStep) > workflow.jobs.verify.steps.indexOf(verifyStep)
   );
   assert.equal(uploadStep.uses, 'actions/upload-artifact@v7');
+  assert.equal(uploadStep.if, undefined);
   assert.equal(uploadStep['continue-on-error'], undefined);
   assert.equal(uploadStep.with.name, `mcp-verification-${'$'}{{ github.sha }}`);
   assert.equal(uploadStep.with.path, 'packages/mcp-test-lab/artifacts/exhaustive-evidence.json');

@@ -45,10 +45,13 @@ would duplicate the required representative gate.
 derives `HEAD` and porcelain workspace state, rejects caller-provided ticket,
 SHA, or workspace-state values, and under GitHub Actions requires `GITHUB_SHA`
 to equal `HEAD` and the checkout to be clean. It then invokes the one package
-CLI with the fixed parent ticket `BST-1486`. The paired script tests control
+CLI with the fixed parent ticket `BST-1486`. The wrapper accepts exactly one
+closed profile and one safe JSON output below `artifacts/`; unknown, duplicate,
+or shell-sensitive input fails before platform-specific spawning. The paired script tests control
 identity mismatch and dirty-checkout failures; the CI contract test pins the
 commands, profile ownership, timeouts, artifact path/retention, and local-check
-mapping.
+mapping. Exhaustive artifacts are uploaded only after complete verification;
+failed or partial runs never emit an artifact that could be mistaken for proof.
 
 ### Open PR to Linear conformance (BST-521)
 
