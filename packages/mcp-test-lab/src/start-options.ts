@@ -9,9 +9,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function assertStartOptions(
-  options: unknown
-): asserts options is StartMcpLabScenarioOptions {
+export function parseStartOptions(options: unknown): Readonly<StartMcpLabScenarioOptions> {
   if (!isRecord(options)) {
     throw new Error('Invalid MCP lab start options: expected an object');
   }
@@ -19,17 +17,24 @@ export function assertStartOptions(
   if (unknownKey) {
     throw new Error(`Invalid MCP lab start options: unknown field "${unknownKey}"`);
   }
-  const execution = options['execution'];
+  let execution: unknown;
+  let faultPlan: unknown;
+  try {
+    execution = options['execution'];
+    faultPlan = options['faultPlan'];
+  } catch {
+    throw new Error('Invalid MCP lab start options: could not snapshot input');
+  }
   if (execution !== undefined && execution !== 'in-process' && execution !== 'loopback') {
     throw new Error('Invalid MCP lab start options: execution must be "in-process" or "loopback"');
   }
-  const faultPlan = options['faultPlan'];
-  if (faultPlan === undefined) {
-    return;
-  }
-  if (!isMcpLabFaultPlan(faultPlan)) {
+  if (faultPlan !== undefined && !isMcpLabFaultPlan(faultPlan)) {
     throw new Error(
       'Invalid MCP lab start options: faultPlan must be created by createMcpLabFaultPlan'
     );
   }
+  return Object.freeze({
+    ...(execution === undefined ? {} : { execution }),
+    ...(faultPlan === undefined ? {} : { faultPlan }),
+  });
 }

@@ -4,6 +4,50 @@ import { createMcpLabFaultPlan } from '../src/faults';
 import { startMcpLabScenario } from '../src/lab';
 
 describe('MCP lab modern reference', () => {
+  it('snapshots accessor-backed start options exactly once before validation and startup', async () => {
+    const faultPlan = createMcpLabFaultPlan([
+      {
+        fault: { kind: 'drop_response' },
+        id: 'loopback-dispatch-only',
+        match: { method: 'node/dispatch', occurrence: 1, phase: 'transport' },
+      },
+    ]);
+    let executionReads = 0;
+    let faultPlanReads = 0;
+    const options = Object.defineProperties(
+      {},
+      {
+        execution: {
+          enumerable: true,
+          get() {
+            executionReads += 1;
+            return executionReads === 1 ? 'in-process' : 'loopback';
+          },
+        },
+        faultPlan: {
+          enumerable: true,
+          get() {
+            faultPlanReads += 1;
+            return faultPlanReads === 1 ? faultPlan : undefined;
+          },
+        },
+      }
+    );
+    let lab: Awaited<ReturnType<typeof startMcpLabScenario>> | undefined;
+    let caught: unknown;
+    try {
+      lab = await startMcpLabScenario('modern-reference', options);
+    } catch (error) {
+      caught = error;
+    } finally {
+      await lab?.close();
+    }
+
+    expect(String(caught)).toMatch(/incompatible.*http-in-process/i);
+    expect(executionReads).toBe(1);
+    expect(faultPlanReads).toBe(1);
+  });
+
   it.each([
     ['unknown execution', { execution: 'typo' }],
     ['null execution', { execution: null }],

@@ -202,6 +202,40 @@ function assertMcpLabCorrelationId(value: unknown): asserts value is string {
   }
 }
 
+function snapshotFaultConsumption(consumption: unknown): McpLabFaultConsumption {
+  if (!isRecord(consumption)) {
+    throw new Error('Invalid MCP lab fault consumption: expected an object');
+  }
+  let snapshot: Readonly<Record<string, unknown>>;
+  try {
+    snapshot = Object.freeze({
+      correlationId: consumption['correlationId'],
+      method: consumption['method'],
+      occurrence: consumption['occurrence'],
+      phase: consumption['phase'],
+    });
+  } catch {
+    throw new Error('Invalid MCP lab fault consumption: could not snapshot input');
+  }
+  assertMcpLabCorrelationId(snapshot['correlationId']);
+  if (!Number.isSafeInteger(snapshot['occurrence']) || Number(snapshot['occurrence']) < 1) {
+    throw new Error('Invalid MCP lab fault consumption occurrence');
+  }
+  const phase = snapshot['phase'];
+  if (typeof phase !== 'string' || !Object.hasOwn(PROTOCOL_METHODS_BY_PHASE, phase)) {
+    throw new Error('Invalid MCP lab fault consumption phase');
+  }
+  const method = snapshot['method'];
+  if (
+    !(PROTOCOL_METHODS_BY_PHASE[phase as McpLabProtocolPhase] as readonly unknown[]).includes(
+      method
+    )
+  ) {
+    throw new Error('Invalid MCP lab fault consumption method');
+  }
+  return snapshot as unknown as McpLabFaultConsumption;
+}
+
 function matchKey(match: McpLabFaultMatch): string {
   return `${match.phase}\u0000${match.method}\u0000${match.occurrence}`;
 }
@@ -685,33 +719,33 @@ export function createMcpLabFaultPlan(
       throw new Error(`Untriggered MCP lab faults: ${untriggeredIds().join(', ')}`);
     },
     consume(consumption: McpLabFaultConsumption) {
-      assertMcpLabCorrelationId(consumption.correlationId);
-      const key = matchKey(consumption);
+      const snapshot = snapshotFaultConsumption(consumption);
+      const key = matchKey(snapshot);
       const declaration = remaining.get(key);
       if (!declaration) {
         const exhausted = exhaustedFault(key);
         if (exhausted) {
           throw new Error(
-            `MCP lab fault "${exhausted.id}" is exhausted for ${consumption.phase}/${consumption.method} occurrence ${consumption.occurrence}`
+            `MCP lab fault "${exhausted.id}" is exhausted for ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
           );
         }
         throw new Error(
-          `No MCP lab fault matches ${consumption.phase}/${consumption.method} occurrence ${consumption.occurrence}`
+          `No MCP lab fault matches ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
         );
       }
-      return consumeDeclaration(consumption, declaration);
+      return consumeDeclaration(snapshot, declaration);
     },
     consumeIfConfigured(consumption: McpLabFaultConsumption) {
-      assertMcpLabCorrelationId(consumption.correlationId);
-      const key = matchKey(consumption);
+      const snapshot = snapshotFaultConsumption(consumption);
+      const key = matchKey(snapshot);
       const declaration = remaining.get(key);
       if (declaration) {
-        return consumeDeclaration(consumption, declaration);
+        return consumeDeclaration(snapshot, declaration);
       }
       const exhausted = exhaustedFault(key);
       if (exhausted) {
         throw new Error(
-          `MCP lab fault "${exhausted.id}" is exhausted for ${consumption.phase}/${consumption.method} occurrence ${consumption.occurrence}`
+          `MCP lab fault "${exhausted.id}" is exhausted for ${snapshot.phase}/${snapshot.method} occurrence ${snapshot.occurrence}`
         );
       }
       return;

@@ -595,6 +595,68 @@ describe('MCP lab fault plan', () => {
     expect(plan.untriggeredIds()).toEqual(['safe-correlation-only']);
   });
 
+  it.each(['consume', 'consumeIfConfigured'] as const)(
+    'snapshots accessor-backed consumptions exactly once in %s',
+    (methodName) => {
+      const plan = createMcpLabFaultPlan([
+        {
+          fault: { kind: 'drop_response' },
+          id: 'snapshot-consumption',
+          match: { method: 'tools/call', occurrence: 1, phase: 'operation' },
+        },
+      ]);
+      const reads = { correlationId: 0, method: 0, occurrence: 0, phase: 0 };
+      const credential = 'Authorization: Bearer must-not-be-recorded';
+      const consumption = Object.defineProperties(
+        {},
+        {
+          correlationId: {
+            enumerable: true,
+            get() {
+              reads.correlationId += 1;
+              return reads.correlationId === 1 ? 'corr-safe' : credential;
+            },
+          },
+          method: {
+            enumerable: true,
+            get() {
+              reads.method += 1;
+              return reads.method === 1 ? 'tools/call' : 'ping';
+            },
+          },
+          occurrence: {
+            enumerable: true,
+            get() {
+              reads.occurrence += 1;
+              return reads.occurrence === 1 ? 1 : 2;
+            },
+          },
+          phase: {
+            enumerable: true,
+            get() {
+              reads.phase += 1;
+              return reads.phase === 1 ? 'operation' : 'initialization';
+            },
+          },
+        }
+      ) as McpLabFaultConsumption;
+
+      expect(plan[methodName](consumption)).toEqual({ kind: 'drop_response' });
+      expect(reads).toEqual({ correlationId: 1, method: 1, occurrence: 1, phase: 1 });
+      expect(plan.observations()).toEqual([
+        {
+          correlationId: 'corr-safe',
+          faultId: 'snapshot-consumption',
+          faultKind: 'drop_response',
+          method: 'tools/call',
+          occurrence: 1,
+          phase: 'operation',
+        },
+      ]);
+      expect(JSON.stringify(plan.observations())).not.toContain(credential);
+    }
+  );
+
   it('rejects duplicate fault ids and duplicate match coordinates', () => {
     expect(() =>
       createMcpLabFaultPlan([

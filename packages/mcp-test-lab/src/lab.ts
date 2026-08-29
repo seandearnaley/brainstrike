@@ -41,7 +41,7 @@ import {
 } from './node-loopback.js';
 import { createReferenceServer } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario } from './scenario.js';
-import { assertStartOptions, type StartMcpLabScenarioOptions } from './start-options.js';
+import { parseStartOptions, type StartMcpLabScenarioOptions } from './start-options.js';
 import {
   requestIdKey,
   requestMethodFromMessage,
@@ -973,28 +973,28 @@ export async function startMcpLabScenario(
   id: string,
   options: StartMcpLabScenarioOptions = {}
 ): Promise<McpLabSession> {
-  assertStartOptions(options);
+  const startOptions = parseStartOptions(options);
   const scenario = getMcpLabScenario(id);
-  options.faultPlan?.assertCompatibleWithAuthentication(scenario.authentication);
-  options.faultPlan?.assertCompatibleWithProtocolEra(scenario.protocol.era);
-  options.faultPlan?.assertCompatibleWithTransport(
+  startOptions.faultPlan?.assertCompatibleWithAuthentication(scenario.authentication);
+  startOptions.faultPlan?.assertCompatibleWithProtocolEra(scenario.protocol.era);
+  startOptions.faultPlan?.assertCompatibleWithTransport(
     scenario.id === 'stdio-reference'
       ? 'stdio'
-      : options.execution === 'in-process'
+      : startOptions.execution === 'in-process'
         ? 'http-in-process'
         : 'http-loopback'
   );
   if (scenario.id === 'stdio-reference') {
-    if (options.execution) {
-      throw new Error(`MCP lab stdio scenario does not accept execution=${options.execution}`);
+    if (startOptions.execution) {
+      throw new Error(`MCP lab stdio scenario does not accept execution=${startOptions.execution}`);
     }
-    return stdioSession(scenario, options.faultPlan);
+    return stdioSession(scenario, startOptions.faultPlan);
   }
-  if (options.execution === 'in-process') {
+  if (startOptions.execution === 'in-process') {
     if (scenario.id === 'oauth-reference') {
       throw new Error('MCP lab OAuth scenario requires a loopback listener');
     }
-    return inProcessSession(scenario, options.faultPlan);
+    return inProcessSession(scenario, startOptions.faultPlan);
   }
-  return loopbackSession(scenario, options.faultPlan);
+  return loopbackSession(scenario, startOptions.faultPlan);
 }
