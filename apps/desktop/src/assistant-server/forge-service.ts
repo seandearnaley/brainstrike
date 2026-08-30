@@ -81,6 +81,19 @@ export interface ForgeService {
     rootId: string,
     reason: ForgeRefreshReason
   ) => Promise<ForgeResult<ForgePrStatus>>;
+  readonly stop: () => Promise<void>;
+}
+
+/** Upper bound on waiting for a dependency that ignores the shutdown abort signal. */
+export const FORGE_STOP_DRAIN_TIMEOUT_MS = 2000;
+
+const FORGE_STOPPED_ERROR = 'Forge service has stopped.';
+
+class ForgeServiceStoppedError extends Error {
+  constructor() {
+    super(FORGE_STOPPED_ERROR);
+    this.name = 'ForgeServiceStoppedError';
+  }
 }
 
 interface ResolvedTarget {
@@ -144,6 +157,20 @@ interface AuthProbeState {
 export function createForgeService(options: ForgeServiceOptions): ForgeService {
   const { getDatabase, onPrUpdated, resolveRepository, run } = options;
   const now = options.now ?? (() => Date.now());
+  const abortController = new AbortController();
+  const inFlightOperations = new Set<Promise<unknown>>();
+  let stopped = false;
+  let stopPromise: Promise<void> | undefined;
+  const runUntilStopped: ForgeCommandRunner = async (params) => {
+    const result = await run({ ...params, signal: abortController.signal });
+    if (abortController.signal.aborted) {
+      logger.info('Forge gh command aborted during shutdown', {
+        command: params.args[0] ?? '',
+        host: params.host,
+      });
+    }
+    return result;
+  };
   /** Resolved once per app session — gh either exists or it does not. */
   let ghDetection: Promise<ForgeUnavailable | null> | undefined;
   // A bracketed IPv6 host is a safe key: Map compares exact strings, and
@@ -165,6 +192,40 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
   /** repo common dir -> root ids the renderer has actually asked about. */
   const rootIdsByCommonDir = new Map<string, Set<string>>();
 
+  function assertRunning(): void {
+    if (stopped) {
+      throw new ForgeServiceStoppedError();
+    }
+  }
+
+  function rethrowStopped(error: unknown): void {
+    if (error instanceof ForgeServiceStoppedError) {
+      throw error;
+    }
+  }
+
+  function stoppedResult<T>(): ForgeResult<T> {
+    return { error: FORGE_STOPPED_ERROR, ok: false };
+  }
+
+  function track<T>(operation: Promise<T>): Promise<T> {
+    inFlightOperations.add(operation);
+    operation.then(
+      () => inFlightOperations.delete(operation),
+      () => inFlightOperations.delete(operation)
+    );
+    return operation;
+  }
+
+  function toStoppedResult<T>(operation: Promise<ForgeResult<T>>): Promise<ForgeResult<T>> {
+    return operation.catch((error: unknown) => {
+      if (error instanceof ForgeServiceStoppedError) {
+        return stoppedResult<T>();
+      }
+      throw error;
+    });
+  }
+
   async function resolveTarget(
     rootId: string
   ): Promise<
@@ -173,6 +234,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     >
   > {
     const resolved = await resolveRepository(rootId);
+    assertRunning();
     if (!resolved.ok) {
       return resolved;
     }
@@ -251,7 +313,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
    * the same rejection forever) and resolves to a structured failure instead.
    */
   function detectGhCliSettled(cwd: string): Promise<ForgeUnavailable | null> {
-    return detectGhCli(run, cwd).catch((error: unknown) => {
+    return detectGhCli(runUntilStopped, cwd).catch((error: unknown) => {
       ghDetection = undefined;
       return settledFailure(error, 'gh --version could not be run');
     });
@@ -259,7 +321,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
 
   /** Same discipline as `detectGhCliSettled`, for the in-flight auth probe (R3). */
   function probeGhAuthSettled(cwd: string, host: string): Promise<ForgeUnavailable | null> {
-    return probeGhAuth(run, cwd, host).catch((error: unknown) => {
+    return probeGhAuth(runUntilStopped, cwd, host).catch((error: unknown) => {
       inFlightAuthByHost.delete(host);
       return settledFailure(error, 'gh auth status could not be run');
     });
@@ -374,12 +436,13 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     const failure = overrideFailure ?? lastFailureByKey.get(key) ?? null;
     let cached: Awaited<ReturnType<typeof readForgePrCacheEntry>> = null;
     try {
-      cached = await readForgePrCacheEntry(
-        await getDatabase(),
-        target.repoCommonDir,
-        target.branch
-      );
+      assertRunning();
+      const database = await getDatabase();
+      assertRunning();
+      cached = await readForgePrCacheEntry(database, target.repoCommonDir, target.branch);
+      assertRunning();
     } catch (error) {
+      rethrowStopped(error);
       const detail = error instanceof Error ? error.message : String(error);
       logger.error('Forge PR cache read failed', { detail, key });
       return unavailable({ detail, reason: 'fetch-failed' });
@@ -407,12 +470,13 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     }
     let cached: Awaited<ReturnType<typeof readForgePrCacheEntry>>;
     try {
-      cached = await readForgePrCacheEntry(
-        await getDatabase(),
-        target.repoCommonDir,
-        target.branch
-      );
+      assertRunning();
+      const database = await getDatabase();
+      assertRunning();
+      cached = await readForgePrCacheEntry(database, target.repoCommonDir, target.branch);
+      assertRunning();
     } catch (error) {
+      rethrowStopped(error);
       const detail = error instanceof Error ? error.message : String(error);
       logger.error('Forge PR cache seed read failed; diffing against no prior observation', {
         detail,
@@ -446,7 +510,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     // R3: `fetchForgePullRequest` itself never rejects (every failure path is
     // a resolved `{ ok: false }`), but the injected `run` it awaits internally
     // could — this seam guarantees `statusFor`/`refresh` never reject either.
-    const fetched = await fetchForgePullRequest(run, {
+    const fetched = await fetchForgePullRequest(runUntilStopped, {
       branch: target.branch,
       cwd: target.cwd,
       host: target.host,
@@ -456,6 +520,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       failure: settledFailure(error, 'gh pr list could not be run'),
       ok: false as const,
     }));
+    assertRunning();
     if (!fetched.ok) {
       lastFailureByKey.set(key, fetched.failure);
       logger.warn('Forge PR refresh failed', { detail: fetched.failure.detail, key });
@@ -471,14 +536,18 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       // (same discipline as the PR write below) rather than silently leaving
       // a stale PR row the list-wide projection would still show.
       try {
+        assertRunning();
         const database = await getDatabase();
+        assertRunning();
         await writeForgePrCacheEntry(database, {
           branch: target.branch,
           observedAt,
           pullRequest: null,
           repoCommonDir: target.repoCommonDir,
         });
+        assertRunning();
       } catch (error) {
+        rethrowStopped(error);
         const detail = error instanceof Error ? error.message : String(error);
         logger.error(
           'Forge PR cache write failed (observed absence); a stale cached PR row may remain',
@@ -506,14 +575,18 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     // call that gh already answered. Logged at error (not swallowed) so the
     // failure is still visible.
     try {
+      assertRunning();
       const database = await getDatabase();
+      assertRunning();
       await writeForgePrCacheEntry(database, {
         branch: target.branch,
         observedAt,
         pullRequest,
         repoCommonDir: target.repoCommonDir,
       });
+      assertRunning();
     } catch (error) {
+      rethrowStopped(error);
       const detail = error instanceof Error ? error.message : String(error);
       logger.error('Forge PR cache write failed; delivering the fetched pull request uncached', {
         detail,
@@ -561,6 +634,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     rootId: string,
     reason: ForgeRefreshReason | null
   ): Promise<ForgeResult<ForgePrStatus>> {
+    assertRunning();
     const resolved = await resolveTarget(rootId);
     if (!resolved.ok) {
       return resolved;
@@ -577,6 +651,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       return { ok: true, value: await readCached(target) };
     }
     const ghFailure = await requireGh(target, reason);
+    assertRunning();
     if (ghFailure) {
       // R6: fall back to the durable cache (as `stale`) instead of a bare
       // `unavailable` that would hide a durable observation behind a
@@ -592,30 +667,80 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     return { ok: true, value: await fetchAndStore(target) };
   }
 
-  return {
-    identity: async (rootId) => {
-      const resolved = await resolveTarget(rootId);
-      if (!resolved.ok) {
-        return resolved;
+  function trackedStatusFor(
+    rootId: string,
+    reason: ForgeRefreshReason | null
+  ): Promise<ForgeResult<ForgePrStatus>> {
+    if (stopped) {
+      return Promise.resolve(stoppedResult());
+    }
+    return track(toStoppedResult(statusFor(rootId, reason)));
+  }
+
+  function stop(): Promise<void> {
+    if (stopPromise) {
+      return stopPromise;
+    }
+    stopped = true;
+    abortController.abort();
+    const pending = [...inFlightOperations];
+    stopPromise = (async () => {
+      if (pending.length === 0) {
+        return;
       }
-      if ('failure' in resolved.value) {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const settledInTime = await Promise.race([
+          Promise.allSettled(pending).then(() => true),
+          new Promise<boolean>((resolve) => {
+            timeout = setTimeout(() => resolve(false), FORGE_STOP_DRAIN_TIMEOUT_MS);
+          }),
+        ]);
+        if (!settledInTime) {
+          logger.error('Forge service stop timed out while draining in-flight operations', {
+            drainTimeoutMs: FORGE_STOP_DRAIN_TIMEOUT_MS,
+            pendingOperations: pending.length,
+          });
+        }
+      } finally {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      }
+    })();
+    return stopPromise;
+  }
+
+  return {
+    identity: (rootId) => {
+      if (stopped) {
+        return Promise.resolve(stoppedResult());
+      }
+      const operation: Promise<ForgeResult<ForgeIdentityState>> = (async () => {
+        const resolved = await resolveTarget(rootId);
+        if (!resolved.ok) {
+          return resolved;
+        }
+        if ('failure' in resolved.value) {
+          return {
+            ok: true,
+            value: {
+              failure: resolved.value.failure,
+              identity: null,
+              repoCommonDir: resolved.value.repoCommonDir,
+            },
+          };
+        }
         return {
           ok: true,
           value: {
-            failure: resolved.value.failure,
-            identity: null,
+            failure: null,
+            identity: resolved.value.identity,
             repoCommonDir: resolved.value.repoCommonDir,
           },
         };
-      }
-      return {
-        ok: true,
-        value: {
-          failure: null,
-          identity: resolved.value.identity,
-          repoCommonDir: resolved.value.repoCommonDir,
-        },
-      };
+      })();
+      return track(toStoppedResult(operation));
     },
     onRepositoryInvalidated: (gitCommonDir) => {
       const rootIds = rootIdsByCommonDir.get(gitCommonDir);
@@ -623,12 +748,13 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
         return;
       }
       for (const rootId of rootIds) {
-        statusFor(rootId, 'invalidation').catch((error: unknown) => {
+        trackedStatusFor(rootId, 'invalidation').catch((error: unknown) => {
           logger.error('Forge invalidation refresh threw', { error, gitCommonDir, rootId });
         });
       }
     },
-    prStatus: (rootId) => statusFor(rootId, null),
-    refresh: (rootId, reason) => statusFor(rootId, reason),
+    prStatus: (rootId) => trackedStatusFor(rootId, null),
+    refresh: (rootId, reason) => trackedStatusFor(rootId, reason),
+    stop,
   };
 }

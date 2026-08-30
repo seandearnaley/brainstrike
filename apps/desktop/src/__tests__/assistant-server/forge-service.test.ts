@@ -7,8 +7,10 @@ import type { ForgeCacheDatabase } from '../../assistant-server/forge-pr-cache';
 import {
   createForgeService,
   FORGE_REFRESH_MIN_INTERVAL_MS,
+  FORGE_STOP_DRAIN_TIMEOUT_MS,
   type ForgeRepositoryResolver,
 } from '../../assistant-server/forge-service';
+import { desktopAssistantServerLogger } from '../../assistant-server/logger';
 
 const ROOT_ID = 'root-1';
 const COMMON_DIR = '/repos/widgets/.git';
@@ -110,12 +112,12 @@ describe('createForgeService', () => {
   });
   const now = () => clock;
 
-  it('never free-runs: the module contains no timer', () => {
+  it('never free-runs: the module contains no interval timer', () => {
     const source = readFileSync(
       path.join(import.meta.dirname, '../../assistant-server/forge-service.ts'),
       'utf8'
     );
-    expect(source).not.toMatch(/setInterval|setTimeout/u);
+    expect(source).not.toContain('setInterval');
   });
 
   it('fetches, caches and reports a pull request', async () => {
@@ -627,6 +629,111 @@ describe('createForgeService', () => {
     expect(a.ok && a.value.kind).toBe('pr');
     expect(b.ok && b.value.kind).toBe('pr');
     expect(countArgCalls(run, 'pr')).toBe(1);
+  });
+
+  it('stops new refresh work, aborts an in-flight gh command, and drains before resolving', async () => {
+    const database = fakeDatabase();
+    const getDatabase = vi.fn(async () => database);
+    let resolvePrStarted: ((signal: AbortSignal) => void) | undefined;
+    const prStarted = new Promise<AbortSignal>((resolve) => {
+      resolvePrStarted = resolve;
+    });
+    const run: ForgeCommandRunner = vi.fn(async ({ args, signal }) => {
+      if (args[0] !== 'pr') {
+        return HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun;
+      }
+      if (!signal) {
+        throw new Error('Forge refresh did not provide an abort signal.');
+      }
+      resolvePrStarted?.(signal);
+      await new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true })
+      );
+      return { exitCode: null, stderr: 'aborted', stdout: '' };
+    });
+    const service = createForgeService({
+      getDatabase,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+
+    const refresh = service.refresh(ROOT_ID, 'user');
+    const signal = await prStarted;
+    const stop = service.stop();
+
+    expect(signal.aborted).toBe(true);
+    await expect(stop).resolves.toBeUndefined();
+    await expect(refresh).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
+    await expect(service.refresh(ROOT_ID, 'user')).resolves.toEqual({
+      error: 'Forge service has stopped.',
+      ok: false,
+    });
+    expect(getDatabase).toHaveBeenCalledTimes(1);
+    expect(countArgCalls(run, 'pr')).toBe(1);
+  });
+
+  it('bounds stop when an aborted gh command does not settle and fences its late continuation from the database', async () => {
+    vi.useFakeTimers();
+    const loggerError = vi
+      .spyOn(desktopAssistantServerLogger, 'error')
+      .mockImplementation(() => {});
+    const database = fakeDatabase();
+    const getDatabase = vi.fn(async () => database);
+    let resolvePrStarted: ((signal: AbortSignal) => void) | undefined;
+    const prStarted = new Promise<AbortSignal>((resolve) => {
+      resolvePrStarted = resolve;
+    });
+    let resolvePr: ((run: ForgeCommandRun) => void) | undefined;
+    const pendingPr = new Promise<ForgeCommandRun>((resolve) => {
+      resolvePr = resolve;
+    });
+    const run: ForgeCommandRunner = vi.fn(async ({ args, signal }) => {
+      if (args[0] !== 'pr') {
+        return HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun;
+      }
+      if (!signal) {
+        throw new Error('Forge refresh did not provide an abort signal.');
+      }
+      resolvePrStarted?.(signal);
+      return await pendingPr;
+    });
+    const service = createForgeService({
+      getDatabase,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+
+    try {
+      const refresh = service.refresh(ROOT_ID, 'user');
+      const signal = await prStarted;
+      let stopSettled = false;
+      const stop = service.stop().then(() => {
+        stopSettled = true;
+      });
+
+      expect(signal.aborted).toBe(true);
+      await vi.advanceTimersByTimeAsync(FORGE_STOP_DRAIN_TIMEOUT_MS - 1);
+      expect(stopSettled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await stop;
+      expect(stopSettled).toBe(true);
+      expect(loggerError).toHaveBeenCalledWith(
+        'Forge service stop timed out while draining in-flight operations',
+        { drainTimeoutMs: FORGE_STOP_DRAIN_TIMEOUT_MS, pendingOperations: 1 }
+      );
+
+      resolvePr?.(HEALTHY_GH['pr'] as ForgeCommandRun);
+      await expect(refresh).resolves.toEqual({ error: 'Forge service has stopped.', ok: false });
+      expect(getDatabase).toHaveBeenCalledTimes(1);
+    } finally {
+      resolvePr?.(HEALTHY_GH['pr'] as ForgeCommandRun);
+      loggerError.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('fails loudly on a corrupted cached review decision rather than silently coercing to null', async () => {
