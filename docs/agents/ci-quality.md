@@ -1947,13 +1947,45 @@ That test invokes Turbo's JavaScript entrypoint through `process.execPath`;
 do not execute the generated `turbo.cmd` shim directly, because Node 24 rejects
 batch files passed to `execFileSync` on Windows.
 
+### Worktree-scoped local Turbo caches (BST-1312)
+
+The bounded Turbo wrapper's default local cache remains outside the checkout,
+but it is scoped by the canonical Git worktree root under the platform cache
+home (`.../BrainStrike/turbo/worktrees/<name>-<path-hash>`). Package-level and
+root invocations in one worktree therefore share one cache and nested-run lock;
+different worktrees do not share local cache sidecars. Explicit
+`TURBO_CACHE_DIR` / `BRAINSTRIKE_TURBO_CACHE_DIR` values remain exact operator
+overrides and are not silently rewritten.
+
+This isolation is a correctness boundary for Turbo 2.10's restore manifests,
+not a response to `.tsbuildinfo` restoration or cache pruning. A deterministic
+two-worktree reproduction created different four-byte outputs with identical
+mtime, size, and mode. Both worktrees wrote the same HOME-level cache before
+one selected the other's task hash. Turbo's `<hash>-manifest.json` records only
+path plus size/mtime/mode and is stored beside the shared archive; it contains
+neither output bytes nor checkout identity. The second worktree therefore
+reported a cache hit while retaining the first worktree's wrong bytes. The
+25-GiB prune was below its cap and did not participate.
+
+Scoping deliberately gives up machine-local hits between worktrees because the
+metadata-only sidecar makes those hits unsafe. It preserves local hits across
+commands and branch changes within one worktree, and Turbo's independently
+configured remote cache remains shareable across worktrees and machines. It
+also confines the wrapper's post-run pruning and nested-run lock to the active
+worktree, so one interrupted or maintained lane cannot remove or block another
+lane's usable local entries. Do not collapse these directories back into one
+HOME-level cache unless Turbo's restore identity becomes content- or
+checkout-aware and the paired same-size/same-mtime concurrency regression proves
+the shared topology safe.
+
 ### Stale-dist pruning before non-cleaning tsc builds (2026-07-30 cache poisoning)
 
 tsc's incremental builder never deletes outputs whose sources are gone, and the
 nested Turbo run by apps/web + apps/desktop `prebuild`/`predev`
 (`scripts/run-turbo-command.mjs`) snapshots each package's whole `dist/**` into
-the machine-global cache (`~/Library/Caches/BrainStrike/turbo`). A branch
-switch that deletes sources therefore leaves orphaned compiled files in `dist`,
+the wrapper's cache (the machine-global `~/Library/Caches/BrainStrike/turbo` at
+the time of this incident; worktree-scoped after BST-1312). A branch switch that
+deletes sources therefore leaves orphaned compiled files in `dist`,
 and the next cache save immortalizes them: cold runs restore the poisoned
 archive verbatim even after local deletion, tripping `turbo boundaries`
 (2026-07-30 incident: 16 boundary issues, 125 poisoned archives purged).

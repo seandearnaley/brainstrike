@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -19,6 +20,29 @@ export function isProcessAlive(pid) {
   } catch (error) {
     return error instanceof Error && 'code' in error && error.code === 'EPERM';
   }
+}
+
+export function resolveGitWorktreeRoot(cwd = process.cwd(), options = {}) {
+  const fileSystem = options.fs ?? fs;
+  let current = fileSystem.realpathSync(cwd);
+
+  for (;;) {
+    if (fileSystem.existsSync(path.join(current, '.git'))) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error(`Unable to resolve a Git worktree root from ${cwd}.`);
+    }
+    current = parent;
+  }
+}
+
+function getWorktreeCacheNamespace(worktreeRoot) {
+  const name = path.basename(worktreeRoot).replaceAll(/[^a-zA-Z0-9._-]/gu, '-');
+  const digest = createHash('sha256').update(worktreeRoot).digest('hex').slice(0, 12);
+  return `${name || 'worktree'}-${digest}`;
 }
 
 function sleepSync(ms) {
@@ -101,23 +125,31 @@ export function acquireNestedTurboRunLock(cacheDir, options = {}) {
   }
 }
 
-export function resolveTurboCacheDir({ env = process.env, platform = process.platform } = {}) {
+export function resolveTurboCacheDir({
+  cwd = process.cwd(),
+  env = process.env,
+  fs: fileSystem = fs,
+  platform = process.platform,
+} = {}) {
   const configuredCacheDir = env['TURBO_CACHE_DIR'] || env['BRAINSTRIKE_TURBO_CACHE_DIR'];
   if (configuredCacheDir) {
     return configuredCacheDir;
   }
+
+  const worktreeRoot = resolveGitWorktreeRoot(cwd, { fs: fileSystem });
+  const namespace = getWorktreeCacheNamespace(worktreeRoot);
 
   if (platform === 'darwin') {
     const home = env['HOME'];
     if (!home) {
       throw new Error('HOME is required to resolve the default Turborepo cache directory.');
     }
-    return path.join(home, 'Library', 'Caches', 'BrainStrike', 'turbo');
+    return path.join(home, 'Library', 'Caches', 'BrainStrike', 'turbo', 'worktrees', namespace);
   }
 
   const xdgCacheHome = env['XDG_CACHE_HOME'];
   if (xdgCacheHome) {
-    return path.join(xdgCacheHome, 'brainstrike', 'turbo');
+    return path.join(xdgCacheHome, 'brainstrike', 'turbo', 'worktrees', namespace);
   }
 
   const home = env['HOME'] || env['USERPROFILE'];
@@ -126,7 +158,7 @@ export function resolveTurboCacheDir({ env = process.env, platform = process.pla
       'HOME, USERPROFILE, or XDG_CACHE_HOME is required to resolve the Turborepo cache directory.'
     );
   }
-  return path.join(home, '.cache', 'brainstrike', 'turbo');
+  return path.join(home, '.cache', 'brainstrike', 'turbo', 'worktrees', namespace);
 }
 
 export function buildTurboArgs(args, options = {}) {

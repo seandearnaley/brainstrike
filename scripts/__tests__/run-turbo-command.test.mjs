@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -27,20 +27,37 @@ function makeFakeHome() {
 const sweepIgnoredDirectories = new Set(['.claude', '.git', '.turbo', 'dist', 'node_modules']);
 
 describe('run turbo command helper', () => {
-  it('uses an explicit cache directory outside the repo when no cache is configured', () => {
+  it('uses a worktree-scoped cache directory outside the repo when no cache is configured', () => {
     assert.equal(typeof turboCommand.buildTurboArgs, 'function');
 
     const args = turboCommand.buildTurboArgs(['run', 'build'], {
-      cwd: '/repo',
+      cwd: process.cwd(),
       env: { HOME: '/Users/tester' },
       platform: 'darwin',
     });
 
-    assert.deepEqual(args, [
-      'run',
-      'build',
-      '--cache-dir=/Users/tester/Library/Caches/BrainStrike/turbo',
-    ]);
+    assert.deepEqual(args.slice(0, 2), ['run', 'build']);
+    assert.match(
+      args[2],
+      /^--cache-dir=\/Users\/tester\/Library\/Caches\/BrainStrike\/turbo\/worktrees\/[a-zA-Z0-9._-]+-[a-f0-9]{12}$/u
+    );
+  });
+
+  it('isolates default local caches by canonical Git worktree root', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'turbo-cache-scope-'));
+    const laneA = join(fixtureRoot, 'lane-a');
+    const laneB = join(fixtureRoot, 'lane-b');
+    const laneAPackage = join(laneA, 'packages/output');
+    mkdirSync(join(laneA, '.git'), { recursive: true });
+    mkdirSync(join(laneB, '.git'), { recursive: true });
+    mkdirSync(laneAPackage, { recursive: true });
+    const options = { env: { HOME: '/Users/tester' }, platform: 'darwin' };
+    const laneACache = turboCommand.resolveTurboCacheDir({ ...options, cwd: laneA });
+    const laneAPackageCache = turboCommand.resolveTurboCacheDir({ ...options, cwd: laneAPackage });
+    const laneBCache = turboCommand.resolveTurboCacheDir({ ...options, cwd: laneB });
+    assert.equal(laneACache, laneAPackageCache);
+    assert.notEqual(laneACache, laneBCache);
+    assert.equal(resolve(laneACache, '..'), resolve(laneBCache, '..'));
   });
 
   it('does not override an explicit turbo cache directory', () => {
@@ -53,6 +70,151 @@ describe('run turbo command helper', () => {
     });
 
     assert.deepEqual(args, ['run', 'build', '--cache-dir=.turbo']);
+  });
+
+  it('restores correct bytes when default-cache worktrees build concurrently', async (t) => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'turbo-worktree-concurrency-'));
+    const home = makeFakeHome();
+    t.after(() => {
+      rmSync(fixtureRoot, { force: true, recursive: true });
+      rmSync(home, { force: true, recursive: true });
+    });
+    const laneA = join(fixtureRoot, 'lane-a');
+    const laneB = join(fixtureRoot, 'lane-b');
+    const packageDir = join(laneA, 'packages/output');
+    const wrapperPath = resolve(process.cwd(), 'scripts/run-turbo-command.mjs');
+    const packageManager = `npm@${execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim()}`;
+
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(join(laneA, '.gitignore'), '**/.turbo/\nnode_modules/\n');
+    writeFileSync(
+      join(laneA, 'package.json'),
+      `${JSON.stringify({ name: 'cache-concurrency-fixture', packageManager, private: true, workspaces: ['packages/*'] }, null, 2)}\n`
+    );
+    writeFileSync(
+      join(laneA, 'package-lock.json'),
+      `${JSON.stringify(
+        {
+          lockfileVersion: 3,
+          name: 'cache-concurrency-fixture',
+          packages: {
+            '': { name: 'cache-concurrency-fixture', workspaces: ['packages/*'] },
+            'packages/output': { name: 'fixture-output' },
+          },
+          requires: true,
+        },
+        null,
+        2
+      )}\n`
+    );
+    writeFileSync(
+      join(laneA, 'turbo.json'),
+      `${JSON.stringify({ tasks: { build: { outputs: ['dist/**'] } } }, null, 2)}\n`
+    );
+    writeFileSync(
+      join(packageDir, 'package.json'),
+      `${JSON.stringify({ name: 'fixture-output', private: true, scripts: { build: 'node build.mjs' } }, null, 2)}\n`
+    );
+    writeFileSync(join(packageDir, '.gitignore'), 'dist/\n');
+    writeFileSync(
+      join(packageDir, 'build.mjs'),
+      [
+        "import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';",
+        "const lane = readFileSync(new URL('input.txt', import.meta.url), 'utf8').trim();",
+        'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);',
+        "mkdirSync(new URL('dist', import.meta.url), { recursive: true });",
+        "const output = new URL('dist/index.d.ts', import.meta.url);",
+        `writeFileSync(output, \`export const lane = "\${lane}";\\n\`);`,
+        'const fixedTime = new Date(1_700_000_000_000);',
+        'utimesSync(output, fixedTime, fixedTime);',
+        '',
+      ].join('\n')
+    );
+    writeFileSync(join(packageDir, 'input.txt'), 'AAAA\n');
+
+    execFileSync('git', ['init', '--initial-branch=lane-a'], { cwd: laneA });
+    execFileSync('git', ['config', 'user.email', 'fixture@example.invalid'], { cwd: laneA });
+    execFileSync('git', ['config', 'user.name', 'Fixture'], { cwd: laneA });
+    execFileSync('git', ['add', '.'], { cwd: laneA });
+    execFileSync('git', ['commit', '-m', 'lane A'], { cwd: laneA });
+    execFileSync('git', ['worktree', 'add', '-b', 'lane-b', laneB], { cwd: laneA });
+    writeFileSync(join(laneB, 'packages/output/input.txt'), 'BBBB\n');
+    execFileSync('git', ['add', 'packages/output/input.txt'], { cwd: laneB });
+    execFileSync('git', ['commit', '-m', 'lane B'], { cwd: laneB });
+
+    const env = {
+      ...process.env,
+      HOME: home,
+      NO_UPDATE_NOTIFIER: '1',
+      PATH: `${resolve(process.cwd(), 'node_modules/.bin')}:${process.env.PATH ?? ''}`,
+      TURBO_TELEMETRY_DISABLED: '1',
+    };
+    env.BRAINSTRIKE_TURBO_CACHE_DIR = undefined;
+    env.TURBO_CACHE_DIR = undefined;
+    env.TURBO_HASH = undefined;
+
+    const runBuild = (cwd) =>
+      new Promise((resolveRun, rejectRun) => {
+        const child = spawn(process.execPath, [wrapperPath, '--', 'run', 'build'], {
+          cwd,
+          env,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        let output = '';
+        child.stdout.on('data', (chunk) => {
+          output += chunk;
+        });
+        child.stderr.on('data', (chunk) => {
+          output += chunk;
+        });
+        child.once('error', rejectRun);
+        child.once('close', (status) => resolveRun({ output, status }));
+      });
+
+    const primeResults = await Promise.all([runBuild(laneA), runBuild(laneB)]);
+    assert.deepEqual(
+      primeResults.map(({ status }) => status),
+      [0, 0],
+      primeResults.map(({ output }) => output).join('\n--- concurrent lane ---\n')
+    );
+
+    // Select lane B's hash in lane A while retaining lane A's stale
+    // same-size/same-mtime output. With the old shared cache, Turbo 2.10's
+    // metadata-only restore manifest reported a cache hit and retained AAAA.
+    // The worktree-scoped cache must miss instead and produce the correct bytes.
+    writeFileSync(join(laneA, 'packages/output/input.txt'), 'BBBB\n');
+    const dryTask = (cwd) =>
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [require.resolve('turbo/bin/turbo'), 'run', 'build', '--dry=json'],
+          { cwd, encoding: 'utf8', env }
+        )
+      ).tasks[0];
+    const laneATask = dryTask(laneA);
+    const laneBTask = dryTask(laneB);
+    assert.equal(
+      laneATask.hash,
+      laneBTask.hash,
+      JSON.stringify({ laneA: laneATask, laneB: laneBTask }, null, 2)
+    );
+    const restoreResult = await runBuild(laneA);
+    assert.equal(restoreResult.status, 0, restoreResult.output);
+    assert.match(restoreResult.output, /cache miss, executing/u, restoreResult.output);
+    assert.equal(
+      readFileSync(join(laneA, 'packages/output/dist/index.d.ts'), 'utf8'),
+      'export const lane = "BBBB";\n',
+      `lane A retained stale bytes from its previous hash:\n${restoreResult.output}`
+    );
+
+    rmSync(join(laneA, 'packages/output/dist'), { force: true, recursive: true });
+    const sameWorktreeHit = await runBuild(laneA);
+    assert.equal(sameWorktreeHit.status, 0, sameWorktreeHit.output);
+    assert.match(sameWorktreeHit.output, /cache hit/u, sameWorktreeHit.output);
+    assert.equal(
+      readFileSync(join(laneA, 'packages/output/dist/index.d.ts'), 'utf8'),
+      'export const lane = "BBBB";\n'
+    );
   });
 
   it('routes workspace turbo scripts through the bounded wrapper', () => {
@@ -324,7 +486,10 @@ describe('nested turbo run lock', () => {
   // nested predev children wait on it forever.
   it('holds the cache-dir lock while spawning a nested invocation and releases it after', () => {
     const home = makeFakeHome();
-    const lockDir = join(home, 'Library/Caches/BrainStrike/turbo', 'nested-turbo-run.lock');
+    const lockDir = join(
+      turboCommand.resolveTurboCacheDir({ env: { HOME: home }, platform: 'darwin' }),
+      'nested-turbo-run.lock'
+    );
     const lockSeenDuringSpawn = [];
 
     const status = turboCommand.runTurboCommand(
@@ -348,7 +513,10 @@ describe('nested turbo run lock', () => {
 
   it('releases the lock even when the nested invocation fails', () => {
     const home = makeFakeHome();
-    const lockDir = join(home, 'Library/Caches/BrainStrike/turbo', 'nested-turbo-run.lock');
+    const lockDir = join(
+      turboCommand.resolveTurboCacheDir({ env: { HOME: home }, platform: 'darwin' }),
+      'nested-turbo-run.lock'
+    );
 
     const status = turboCommand.runTurboCommand(
       ['node', 'run-turbo-command.mjs', '--', 'run', 'desktop-dev-dependencies'],
@@ -367,7 +535,10 @@ describe('nested turbo run lock', () => {
 
   it('does not take the lock for root invocations', () => {
     const home = makeFakeHome();
-    const lockDir = join(home, 'Library/Caches/BrainStrike/turbo', 'nested-turbo-run.lock');
+    const lockDir = join(
+      turboCommand.resolveTurboCacheDir({ env: { HOME: home }, platform: 'darwin' }),
+      'nested-turbo-run.lock'
+    );
     const lockSeenDuringSpawn = [];
 
     const status = turboCommand.runTurboCommand(
