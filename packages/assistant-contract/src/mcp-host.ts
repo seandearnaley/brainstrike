@@ -74,6 +74,7 @@ export const McpHostErrorSchema: z.ZodType<McpHostError> = z.strictObject({
 interface McpHostServerSnapshotBase {
   configuredProtocol: McpConfiguredProtocol;
   configuredServerId: ConfiguredMcpServerId;
+  enabledTools?: readonly string[];
   generation: number;
   transport: McpStatusTransport;
 }
@@ -187,7 +188,13 @@ export interface McpHostWatchEvent {
   servers: readonly McpHostServerSnapshot[];
 }
 export interface McpHostInvokeOptions {
+  onProgress?: (progress: McpHostProgress) => void;
   signal?: AbortSignal;
+}
+export interface McpHostProgress {
+  message?: string | undefined;
+  progress: number;
+  total?: number | undefined;
 }
 type McpHostCloseCounter =
   | 'callbacksClosed'

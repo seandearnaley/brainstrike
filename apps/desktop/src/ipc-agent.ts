@@ -7,7 +7,7 @@ import {
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
-import { loadMcpConfig } from './mcp-loader';
+import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { readOpenAIApiKey } from './openai-api-key';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
@@ -47,15 +47,14 @@ async function runAgentChat(
   }
 
   const agentModule = resolveAgentModule();
-  const config = await loadMcpConfig();
   const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
 
   const maybeStream = agentModule.streamMastraAgent(messages, {
+    mcpHost: getDesktopMcpHostRuntime().host,
     runtime: {
       ...runtimeWithoutMcpConfig,
       apiKey,
       provider,
-      ...(config.config ? { mcpConfig: config.config } : {}),
     },
   });
 

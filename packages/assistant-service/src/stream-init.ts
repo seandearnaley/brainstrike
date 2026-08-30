@@ -28,7 +28,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { type McpHostPort, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import {
@@ -37,7 +37,7 @@ import {
   resolveLocalLlmHostClient,
 } from './local-provider-runtime.js';
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets.js';
-import type { AssistantLlmHostManager } from './ports.js';
+import type { AssistantLlmHostManager, AssistantStreamRuntimeOptions } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
 import type { PreRequestCompactionCapabilityResult } from './stream-init-compaction.js';
 import {
@@ -73,19 +73,7 @@ async function readThreadTaskListForTurn<K extends AgentStreamCapabilityKinds>(
   }
 }
 
-interface InitialStreamMemoryOptions {
-  /**
-   * Provider auth input (BST-1352): rides the STREAM OPTIONS (a direct
-   * parameter into toAiSdkStyleStream / the resume actions), never
-   * RuntimeData — RequestContext.toJSON drops functions, so a custom_fetch
-   * closure on the runtime would vanish silently.
-   */
-  authInput?: ProviderAuthInput;
-  memory?: AgentStreamMemoryResult['memory'];
-  storage?: AgentStreamMemoryResult['storage'];
-  toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
-  toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
-}
+type InitialStreamMemoryOptions = AssistantStreamRuntimeOptions;
 
 interface ToolOutputArtifactCapabilities {
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader;
@@ -181,10 +169,12 @@ function buildInitialStreamMemoryOptions(
   memoryResult: AgentStreamMemoryResult | undefined,
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
   webExtractInlineMaxSerializedChars: number,
-  authInput: ProviderAuthInput | undefined
+  authInput: ProviderAuthInput | undefined,
+  mcpHost: McpHostPort | undefined
 ): InitialStreamMemoryOptions {
   return {
     ...(authInput ? { authInput } : {}),
+    ...(mcpHost ? { mcpHost } : {}),
     ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
     ...(toolOutputArtifactStore
       ? {
@@ -757,6 +747,7 @@ export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKind
   readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
   readonly logger: ScopedLogger;
   readonly mcpConfig: McpConfig | undefined;
+  readonly mcpHost?: McpHostPort;
   // Deliberately the mutable array type: this exact array is handed through
   // runUserPromptSubmitGate and resolveInitialAgentStream into
   // @brainstrike/agent's toAiSdkStyleStream, whose signature is AgentMessage[].
@@ -787,6 +778,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     runtimeData: incomingRuntimeData,
     authInput,
     mcpConfig,
+    mcpHost,
     signal,
     runId,
     toolApprovalAction,
@@ -1012,7 +1004,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
         capabilities.webExtractInlineMaxSerializedChars,
         resolvedToolResultBudget.domainModelResultCharBudget
       ),
-      authInput
+      authInput,
+      mcpHost
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/
