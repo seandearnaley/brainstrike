@@ -68,6 +68,18 @@ describe('run turbo command helper', () => {
     assert.deepEqual(directTurboScripts, []);
   });
 
+  it('serializes root build-producing graphs on Windows', () => {
+    const rootManifest = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
+
+    for (const scriptName of ['build', 'type-check']) {
+      assert.match(
+        rootManifest.scripts[scriptName],
+        /^node scripts\/run-turbo-command\.mjs --windows-concurrency=1 -- run\b/u,
+        `${scriptName} can schedule both native addon builds, which must not link concurrently on Windows`
+      );
+    }
+  });
+
   it('routes automation-script turbo spawns through the bounded wrapper', () => {
     // The package.json sweep above cannot see turbo spawns buried inside .mjs
     // helpers (e.g. spawnSync('pnpm', ['turbo', ...])), which resolve the
