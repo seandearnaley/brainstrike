@@ -1817,7 +1817,11 @@ Flow (desktop assistant server → agent runtime):
    selected-workspace default). Its local guard mirrors the strict agent
    schema, including unknown-key rejection; malformed arguments show the
    existing visible preview error and unmodified raw arguments rather than a
-   guessed command. Live and rediscovered approvals share this component.
+   guessed command. File-edit previews label the target path and optional
+   workspace root separately in their combined text, with an explicit
+   separator; long identifiers truncate only visually while their complete
+   text remains available to assistive technology and on hover. Live and
+   rediscovered approvals share this component.
    `brainstrike.runSkillScript` uses a separate semantic preview that names the
    activated skill and skill-relative script while showing the explicit
    mounted root, root-relative cwd, runtime, and structured argv. It never
