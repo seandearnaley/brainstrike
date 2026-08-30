@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  getLlmModelDefinition,
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataSnapshot,
   parseOpenRouterModelMetadata,
@@ -54,6 +55,27 @@ function toVisibleError(error: unknown): string {
   return message.slice(0, MAX_VISIBLE_ERROR_CHARS);
 }
 
+function mergeCatalogBudgetCeilings(metadata: OpenRouterModelMetadata): OpenRouterModelMetadata {
+  if (metadata.id !== 'qwen/qwen3.8-flash') {
+    return metadata;
+  }
+  // This fixed OpenRouter route is narrower than the aggregate model listing;
+  // its catalogued route limits remain hard ceilings on live metadata.
+  const catalogModel = getLlmModelDefinition('openrouter', metadata.id);
+  const contextWindow = Math.min(metadata.contextWindow, catalogModel.contextWindow);
+  const outputCeilings = [
+    metadata.maxOutputTokens,
+    catalogModel.maxOutputTokens,
+    contextWindow,
+  ].filter((value): value is number => value !== undefined);
+  const maxOutputTokens = Math.min(...outputCeilings);
+  return {
+    ...metadata,
+    contextWindow,
+    maxOutputTokens,
+  };
+}
+
 export function createOpenRouterModelMetadataService(
   options: OpenRouterModelMetadataServiceOptions = {}
 ): OpenRouterModelMetadataService {
@@ -101,7 +123,9 @@ export function createOpenRouterModelMetadataService(
       if (!response.ok) {
         throw new Error(`OpenRouter Models API returned status ${response.status}`);
       }
-      const metadata = parseOpenRouterModelMetadata(await response.json(), modelId, now());
+      const metadata = mergeCatalogBudgetCeilings(
+        parseOpenRouterModelMetadata(await response.json(), modelId, now())
+      );
       retain(metadata);
       return { freshness: 'live', metadata };
     } catch (error) {

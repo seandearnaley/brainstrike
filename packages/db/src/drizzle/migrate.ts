@@ -102,6 +102,7 @@ import { migration109Worktrees } from '../migrations/109-worktrees.js';
 import { migration110ForgePrCache } from '../migrations/110-forge-pr-cache.js';
 import { migration111RootsWorktreeKind } from '../migrations/111-roots-worktree-kind.js';
 import { migration112WorktreeSetupReason } from '../migrations/112-worktree-setup-reason.js';
+import { migration113OpenRouterQwen38Flash } from '../migrations/113-openrouter-qwen-3-8-flash.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -348,6 +349,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-110-forge-pr-cache', migration110ForgePrCache),
   customMigration('custom-111-roots-worktree-kind', migration111RootsWorktreeKind),
   customMigration('custom-112-worktree-setup-reason', migration112WorktreeSetupReason),
+  customMigration('custom-113-openrouter-qwen-3-8-flash', migration113OpenRouterQwen38Flash),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

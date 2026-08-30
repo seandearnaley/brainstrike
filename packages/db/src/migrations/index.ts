@@ -111,6 +111,7 @@ import { migration109Worktrees } from './109-worktrees.js';
 import { migration110ForgePrCache } from './110-forge-pr-cache.js';
 import { migration111RootsWorktreeKind } from './111-roots-worktree-kind.js';
 import { migration112WorktreeSetupReason } from './112-worktree-setup-reason.js';
+import { migration113OpenRouterQwen38Flash } from './113-openrouter-qwen-3-8-flash.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -228,6 +229,7 @@ export const migrations: Migration[] = [
   migration110ForgePrCache,
   migration111RootsWorktreeKind,
   migration112WorktreeSetupReason,
+  migration113OpenRouterQwen38Flash,
 ];
 
 // Export base migrations (without chunks table) for test environments
