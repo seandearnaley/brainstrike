@@ -3100,6 +3100,11 @@ original validators. Those failures stay observable through the ordinary
 Mastra validation result or desktop `ToolInputValidationError`—there is no
 coercion, retry, or fallback. Unknown `null` properties remain visible to strict
 validation, while nested object-array properties follow the same omission rule.
+An optional/defaulted catalog field must not use `null` as a meaningful
+third-state such as "clear this value"; model that intent with an explicit action
+or discriminator instead. Because provider `null` reaches the same path as
+omission, omitted/default behavior must also be the least-capability behavior
+and never more permissive than leaving the field unspecified.
 The catalog's `ZodPreprocess`-constrained map makes the wrapper exhaustive for
 newly registered schemas; server-owned MCP schemas and deprecated or otherwise
 unregistered internal schemas are outside this native catalog rule.
