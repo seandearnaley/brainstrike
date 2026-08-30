@@ -3085,12 +3085,13 @@ Provider-emitted `null` has one fleet-wide meaning for the registered native
 catalog: on an optional or defaulted field it is omission, never a second domain
 value. `providerCompatibleInputSchema` in
 `packages/agent/src/tools/provider-compatible-input.ts` wraps each complete
-registered input once and removes only object-property `null` values that the
-authored Zod schema rejects as the wrong type and its input JSON Schema declares
-optional/defaulted. Dynamic record values (`additionalProperties`) are not
-omittable fields. The inner parse then applies the ordinary optional/default
-behavior before execution. Null-free calls take the original one-parse path,
-and the wrapper leaves provider JSON Schema unchanged.
+registered input once. One immutable traversal of its strict input JSON Schema
+removes `null` only from declared properties absent from `required`, including
+properties nested in arrays and uniquely const-matched `oneOf`/`anyOf`
+branches. Dynamic record values (`additionalProperties`) and ambiguous union
+branches are not omittable fields. The authored Zod schema then runs exactly
+once, applying ordinary optional/default behavior before execution, while the
+wrapper leaves provider JSON Schema unchanged.
 Required fields still reject `null`; invalid non-null values still fail their
 original validators. Those failures stay observable through the ordinary
 Mastra validation result or desktop `ToolInputValidationError`—there is no
