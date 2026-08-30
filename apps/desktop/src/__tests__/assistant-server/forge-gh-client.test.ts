@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createPinnedGhEnvironment,
   detectGhCli,
+  execFileGhRunner,
   type ForgeCommandRun,
   type ForgeCommandRunner,
   fetchForgePullRequest,
@@ -10,6 +11,23 @@ import {
 
 const ok = (stdout: string): ForgeCommandRun => ({ exitCode: 0, stderr: '', stdout });
 const failed = (stderr: string): ForgeCommandRun => ({ exitCode: 1, stderr, stdout: '' });
+
+describe('execFileGhRunner', () => {
+  it('reports an explicitly aborted command separately from a timeout', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      execFileGhRunner({
+        args: ['--version'],
+        cwd: '/tmp',
+        host: 'github.com',
+        signal: controller.signal,
+        timeoutMs: 20_000,
+      })
+    ).resolves.toMatchObject({ exitCode: null, failureReason: 'abort' });
+  });
+});
 
 function runnerReturning(...runs: readonly ForgeCommandRun[]): ForgeCommandRunner {
   const queue = [...runs];

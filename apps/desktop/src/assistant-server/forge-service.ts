@@ -154,6 +154,12 @@ interface AuthProbeState {
   readonly probedAt: number;
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
+}
+
 export function createForgeService(options: ForgeServiceOptions): ForgeService {
   const { getDatabase, onPrUpdated, resolveRepository, run } = options;
   const now = options.now ?? (() => Date.now());
@@ -161,15 +167,32 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
   const inFlightOperations = new Set<Promise<unknown>>();
   let stopped = false;
   let stopPromise: Promise<void> | undefined;
+  const logShutdownCommandAbort = (
+    params: Parameters<ForgeCommandRunner>[0],
+    outcome: 'rejected' | 'resolved'
+  ): void => {
+    logger.info('Forge gh command aborted during shutdown', {
+      command: params.args[0] ?? '',
+      host: params.host,
+      outcome,
+    });
+  };
   const runUntilStopped: ForgeCommandRunner = async (params) => {
-    const result = await run({ ...params, signal: abortController.signal });
-    if (abortController.signal.aborted) {
-      logger.info('Forge gh command aborted during shutdown', {
-        command: params.args[0] ?? '',
-        host: params.host,
-      });
+    const signal = params.signal
+      ? AbortSignal.any([params.signal, abortController.signal])
+      : abortController.signal;
+    try {
+      const result = await run({ ...params, signal });
+      if (abortController.signal.aborted && result.failureReason === 'abort') {
+        logShutdownCommandAbort(params, 'resolved');
+      }
+      return result;
+    } catch (error) {
+      if (abortController.signal.aborted && isAbortError(error)) {
+        logShutdownCommandAbort(params, 'rejected');
+      }
+      throw error;
     }
-    return result;
   };
   /** Resolved once per app session — gh either exists or it does not. */
   let ghDetection: Promise<ForgeUnavailable | null> | undefined;
@@ -699,7 +722,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
         if (!settledInTime) {
           logger.error('Forge service stop timed out while draining in-flight operations', {
             drainTimeoutMs: FORGE_STOP_DRAIN_TIMEOUT_MS,
-            pendingOperations: pending.length,
+            pendingOperations: inFlightOperations.size,
           });
         }
       } finally {
