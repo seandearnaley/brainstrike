@@ -2008,7 +2008,9 @@ Ownership and flow:
 4. Desktop authority — startup configuration and tool discovery flow through the
    singleton `DesktopMcpHostRuntime`; malformed reloads preserve the last valid
    authority, absent config installs explicit empty authority, and stale
-   discovery epochs cannot overwrite a newer config projection. The legacy
+   discovery epochs cannot overwrite a newer config projection. File-watcher
+   projections are serialized, stale loads are discarded, and reload failures
+   remain distinct from projection callback failures. The legacy
    desktop client registry remains only on the invocation/status migration
    boundary until its dedicated consumer layers remove it.
 5. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` constructs
