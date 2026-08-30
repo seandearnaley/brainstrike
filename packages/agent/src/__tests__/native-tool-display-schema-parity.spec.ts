@@ -43,6 +43,10 @@ function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
       current = current.def.innerType as z.ZodTypeAny;
       continue;
     }
+    if (current instanceof z.ZodPipe) {
+      current = current.out as z.ZodTypeAny;
+      continue;
+    }
     return current;
   }
 }

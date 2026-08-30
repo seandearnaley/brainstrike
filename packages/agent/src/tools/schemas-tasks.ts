@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { providerCompatibleInputSchema } from './provider-compatible-input';
 
 // ============================================================================
 // Manage Task List Tool Schema
@@ -50,27 +51,29 @@ const SubmitPlanStepSchema = z
   })
   .strict();
 
-export const SubmitPlanInputSchema = z
-  .object({
-    overview: z
-      .string()
-      .min(1)
-      .max(4000)
-      .describe('One or two paragraphs summarizing the plan and its goal.'),
-    risks: z
-      .string()
-      .max(4000)
-      .optional()
-      .describe('Optional risks, tradeoffs, or things that could go wrong.'),
-    steps: z.array(SubmitPlanStepSchema).min(1).max(30).describe('Ordered implementation steps.'),
-    title: z.string().min(1).max(300).describe('Short title for the plan.'),
-    verification: z
-      .string()
-      .max(4000)
-      .optional()
-      .describe('Optional how-to-verify: tests, checks, or acceptance criteria.'),
-  })
-  .strict();
+export const SubmitPlanInputSchema = providerCompatibleInputSchema(
+  z
+    .object({
+      overview: z
+        .string()
+        .min(1)
+        .max(4000)
+        .describe('One or two paragraphs summarizing the plan and its goal.'),
+      risks: z
+        .string()
+        .max(4000)
+        .optional()
+        .describe('Optional risks, tradeoffs, or things that could go wrong.'),
+      steps: z.array(SubmitPlanStepSchema).min(1).max(30).describe('Ordered implementation steps.'),
+      title: z.string().min(1).max(300).describe('Short title for the plan.'),
+      verification: z
+        .string()
+        .max(4000)
+        .optional()
+        .describe('Optional how-to-verify: tests, checks, or acceptance criteria.'),
+    })
+    .strict()
+);
 
 export type SubmitPlanInput = z.infer<typeof SubmitPlanInputSchema>;
 
@@ -89,20 +92,28 @@ const AskUserOptionSchema = z
   })
   .strict();
 
-export const AskUserInputSchema = z
-  .object({
-    options: z
-      .array(AskUserOptionSchema)
-      .min(1)
-      .max(10)
-      .optional()
-      .describe('Optional choices. Omit for a free-text question.'),
-    question: z.string().min(1).max(2000).describe('The clear, specific question to ask the user.'),
-    selectionMode: z
-      .enum(['single_select', 'multi_select'])
-      .optional()
-      .describe('How many options the user may pick. Requires options; defaults to single_select.'),
-  })
-  .strict();
+export const AskUserInputSchema = providerCompatibleInputSchema(
+  z
+    .object({
+      options: z
+        .array(AskUserOptionSchema)
+        .min(1)
+        .max(10)
+        .optional()
+        .describe('Optional choices. Omit for a free-text question.'),
+      question: z
+        .string()
+        .min(1)
+        .max(2000)
+        .describe('The clear, specific question to ask the user.'),
+      selectionMode: z
+        .enum(['single_select', 'multi_select'])
+        .optional()
+        .describe(
+          'How many options the user may pick. Requires options; defaults to single_select.'
+        ),
+    })
+    .strict()
+);
 
 export type AskUserInput = z.infer<typeof AskUserInputSchema>;

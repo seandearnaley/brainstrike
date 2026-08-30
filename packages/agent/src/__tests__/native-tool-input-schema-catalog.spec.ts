@@ -1,85 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { providerCompatibleInputSchema } from '../tools/provider-compatible-input';
 import * as toolSchemas from '../tools/schemas';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function schemaAllowsNull(schema: unknown): boolean {
-  if (schema === true) {
-    return true;
-  }
-  if (!isRecord(schema)) {
-    return false;
-  }
-
-  const type = schema.type;
-  if (type === 'null' || (Array.isArray(type) && type.includes('null'))) {
-    return true;
-  }
-  if (schema.const === null || (Array.isArray(schema.enum) && schema.enum.includes(null))) {
-    return true;
-  }
-
-  for (const keyword of ['anyOf', 'oneOf'] as const) {
-    const branches = schema[keyword];
-    if (Array.isArray(branches) && branches.some((branch) => schemaAllowsNull(branch))) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function findNonNullableOptionalFields(schema: unknown, path: readonly string[] = []): string[] {
-  if (!isRecord(schema)) {
-    return [];
-  }
-
-  const failures: string[] = [];
-  const properties = schema.properties;
-  if (isRecord(properties)) {
-    const required = new Set(
-      Array.isArray(schema.required)
-        ? schema.required.filter((value): value is string => typeof value === 'string')
-        : []
-    );
-    for (const [key, propertySchema] of Object.entries(properties)) {
-      const propertyPath = [...path, key];
-      const hasDefault = isRecord(propertySchema) && 'default' in propertySchema;
-      if ((!required.has(key) || hasDefault) && !schemaAllowsNull(propertySchema)) {
-        failures.push(propertyPath.join('.'));
-      }
-      failures.push(...findNonNullableOptionalFields(propertySchema, propertyPath));
-    }
-  }
-
-  for (const keyword of ['$defs', 'allOf', 'anyOf', 'oneOf'] as const) {
-    const nested = schema[keyword];
-    if (Array.isArray(nested)) {
-      for (const branch of nested) {
-        failures.push(...findNonNullableOptionalFields(branch, path));
-      }
-      continue;
-    }
-    if (isRecord(nested)) {
-      for (const [key, branch] of Object.entries(nested)) {
-        failures.push(...findNonNullableOptionalFields(branch, [...path, key]));
-      }
-    }
-  }
-
-  const items = schema.items;
-  if (Array.isArray(items)) {
-    for (const item of items) {
-      failures.push(...findNonNullableOptionalFields(item, path));
-    }
-  } else {
-    failures.push(...findNonNullableOptionalFields(items, path));
-  }
-
-  return failures;
-}
 
 const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.askUser',
@@ -234,24 +156,115 @@ describe('native tool input schema catalog', () => {
       const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS[testCase.toolId];
       const parsed = schema.safeParse(testCase.providerInput);
 
-      expect(parsed.success, testCase.toolId).toBe(true);
+      expect(
+        parsed.success,
+        parsed.success ? testCase.toolId : `${testCase.toolId}: ${parsed.error.message}`
+      ).toBe(true);
       if (!parsed.success) {
         continue;
       }
       expect(parsed.data, testCase.toolId).toEqual(testCase.expected);
       expect(schema.safeParse(testCase.invalidInput).success, testCase.toolId).toBe(false);
     }
+
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.writeWorkspaceFile'].safeParse({
+        content: null,
+        path: '/src/new.ts',
+      }).success
+    ).toBe(false);
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.grepSearch'].safeParse({ pattern: null })
+        .success
+    ).toBe(false);
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.executeCommand'].safeParse({
+        command: null,
+      }).success
+    ).toBe(false);
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.writeWorkspaceFile'].safeParse({
+        content: 'export {};',
+        path: '/src/new.ts',
+        unknownProviderField: null,
+      }).success
+    ).toBe(false);
+
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'].parse({
+        overview: 'Implement the contract.',
+        risks: null,
+        steps: [{ detail: null, title: 'Implement' }],
+        title: 'Provider compatibility',
+        verification: null,
+      })
+    ).toEqual({
+      overview: 'Implement the contract.',
+      steps: [{ title: 'Implement' }],
+      title: 'Provider compatibility',
+    });
+
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'].parse({
+        operation: { action: 'list', offset: null },
+        root: null,
+      })
+    ).toEqual({ operation: { action: 'list' } });
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.submitPlan'].safeParse({
+        overview: 'Implement the contract.',
+        steps: [{ detail: null, title: null }],
+        title: 'Provider compatibility',
+      }).success
+    ).toBe(false);
+    expect(
+      toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.inspectCommandSessions'].safeParse({
+        operation: { action: 'unknown', offset: null },
+      }).success
+    ).toBe(false);
   });
 
-  it('declares null-as-omission for every optional field in the registered catalog', () => {
-    const failures = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS).flatMap(
-      ([toolId, schema]) =>
-        findNonNullableOptionalFields(z.toJSONSchema(schema)).map(
-          (fieldPath) => `${toolId}.${fieldPath}`
-        )
+  it('wraps every registered schema without widening its provider JSON Schema', () => {
+    for (const [toolId, schema] of Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS)) {
+      expect(schema, toolId).toBeInstanceOf(z.ZodPipe);
+      if (!(schema instanceof z.ZodPipe)) {
+        continue;
+      }
+      const options = { cycles: 'throw', io: 'input', reused: 'inline' } as const;
+      const wrappedJsonSchema = z.toJSONSchema(schema, options);
+      const authoredJsonSchema = z.toJSONSchema(schema.out, options);
+      expect(wrappedJsonSchema, toolId).toEqual(authoredJsonSchema);
+      expect(JSON.stringify(wrappedJsonSchema), toolId).toBe(JSON.stringify(authoredJsonSchema));
+    }
+  });
+
+  it('normalizes direct factory schemas through Standard Schema without mutating input', async () => {
+    const providerInput = {
+      options: [{ description: null, label: 'Continue' }],
+      question: 'Continue?',
+      selectionMode: null,
+    };
+
+    const result = await toolSchemas.AskUserInputSchema['~standard'].validate(providerInput);
+    expect(result).toEqual({
+      value: {
+        options: [{ label: 'Continue' }],
+        question: 'Continue?',
+      },
+    });
+    expect(providerInput).toEqual({
+      options: [{ description: null, label: 'Continue' }],
+      question: 'Continue?',
+      selectionMode: null,
+    });
+  });
+
+  it('keeps null values in dynamic records visible to validation', () => {
+    const schema = providerCompatibleInputSchema(
+      z.object({ headers: z.record(z.string(), z.string()).optional() }).strict()
     );
 
-    expect(failures).toEqual([]);
+    expect(schema.safeParse({ headers: { Authorization: null } }).success).toBe(false);
   });
 
   it('validates the manageCanvas action union, tolerating cross-action extras (model-idiomatic)', () => {
