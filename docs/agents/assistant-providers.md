@@ -3087,11 +3087,14 @@ value. `providerCompatibleInputSchema` in
 `packages/agent/src/tools/provider-compatible-input.ts` wraps each complete
 registered input once. One immutable traversal of its strict input JSON Schema
 removes `null` only from declared properties absent from `required`, including
-properties nested in arrays and uniquely const-matched `oneOf`/`anyOf`
-branches. Dynamic record values (`additionalProperties`) and ambiguous union
-branches are not omittable fields. The authored Zod schema then runs exactly
-once, applying ordinary optional/default behavior before execution, while the
-wrapper leaves provider JSON Schema unchanged.
+properties nested in arrays, tuple positions, uniquely const-matched
+`oneOf`/`anyOf` branches, and unions with exactly one structured branch matching
+the input's object/array kind. Dynamic record values (`additionalProperties`)
+and ambiguous union branches are not omittable fields. Input JSON Schema is
+derived lazily on the wrapper's first parse and memoized for that wrapper. The
+authored Zod schema then runs exactly once, applying ordinary optional/default
+behavior before execution, while the wrapper leaves provider JSON Schema
+unchanged.
 Required fields still reject `null`; invalid non-null values still fail their
 original validators. Those failures stay observable through the ordinary
 Mastra validation result or desktop `ToolInputValidationError`—there is no

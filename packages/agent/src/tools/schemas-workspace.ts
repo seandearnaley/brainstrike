@@ -108,7 +108,7 @@ export const ReadWorkspaceFileInputSchema = z
     cursor: z
       .string()
       .regex(/^rfh_[A-Za-z0-9_-]{22}$/)
-      .optional()
+      .nullish()
       .describe(
         'Short nextCursor handle from the previous page. Pass it unchanged with optional maxChars and omit every other field'
       ),
@@ -116,22 +116,22 @@ export const ReadWorkspaceFileInputSchema = z
       .number()
       .int()
       .positive()
-      .optional()
+      .nullish()
       .describe(
         'Last 1-based line; omit with cursor unless replaying the original value unchanged'
       ),
-    maxChars: z.number().int().positive().max(50_000).optional().describe('Output character cap'),
+    maxChars: z.number().int().positive().max(50_000).nullish().describe('Output character cap'),
     path: z
       .string()
       .min(1)
-      .optional()
+      .nullish()
       .describe('Workspace-relative file path; required only when starting a new read'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+    root: z.string().nullish().describe(ROOT_QUALIFIER_DESCRIPTION),
     startLine: z
       .number()
       .int()
       .positive()
-      .optional()
+      .nullish()
       .describe(
         'First 1-based line; omit with cursor unless replaying the original value unchanged'
       ),

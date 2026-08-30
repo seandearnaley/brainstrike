@@ -79,6 +79,17 @@ describe('native tool input schema catalog', () => {
     ).toBe(true);
     expect(schema.safeParse({ cursor, path: '/src/main.ts' }).success).toBe(false);
     expect(schema.safeParse({ cursor, root: 'other-root' }).success).toBe(false);
+
+    expect(
+      toolSchemas.ReadWorkspaceFileInputSchema.safeParse({
+        cursor: null,
+        endLine: null,
+        maxChars: null,
+        path: '/src/main.ts',
+        root: null,
+        startLine: null,
+      }).success
+    ).toBe(true);
   });
 
   it('accepts provider null for optional fields, normalizes it to omission, and rejects malformed values', () => {
@@ -310,11 +321,7 @@ describe('native tool input schema catalog', () => {
     const schema = providerCompatibleInputSchema(
       z
         .object({
-          config: z
-            .object({ note: z.string().optional() })
-            .strict()
-            .nullable()
-            .optional(),
+          config: z.object({ note: z.string().optional() }).strict().nullable().optional(),
           entries: z
             .array(z.object({ note: z.string().optional() }).strict())
             .nullable()
@@ -394,17 +401,16 @@ describe('native tool input schema catalog', () => {
     const toJSONSchema = vi.fn(actualZod.z.toJSONSchema);
     const mockedZ = new Proxy(actualZod.z, {
       get(target, property, receiver) {
-        return property === 'toJSONSchema'
-          ? toJSONSchema
-          : Reflect.get(target, property, receiver);
+        return property === 'toJSONSchema' ? toJSONSchema : Reflect.get(target, property, receiver);
       },
     });
     vi.doMock('zod', () => ({ ...actualZod, z: mockedZ }));
 
     try {
       const { z: isolatedZ } = await import('zod');
-      const { providerCompatibleInputSchema: isolatedProviderCompatibleInputSchema } =
-        await import('../tools/provider-compatible-input');
+      const { providerCompatibleInputSchema: isolatedProviderCompatibleInputSchema } = await import(
+        '../tools/provider-compatible-input'
+      );
       const schema = isolatedProviderCompatibleInputSchema(
         isolatedZ.object({ note: isolatedZ.string().optional() }).strict()
       );

@@ -36,15 +36,40 @@ function constMatchedBranch(branches: readonly unknown[], value: unknown): unkno
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+function uniqueStructuredBranch(branches: readonly unknown[], value: unknown): unknown {
+  const expectedType = Array.isArray(value) ? 'array' : isRecord(value) ? 'object' : undefined;
+  if (expectedType === undefined) {
+    return;
+  }
+
+  const matches = branches.filter((branch) => {
+    if (!isRecord(branch)) {
+      return false;
+    }
+    if (branch['type'] === expectedType) {
+      return true;
+    }
+    return expectedType === 'object'
+      ? isRecord(branch['properties'])
+      : branch['items'] !== undefined || Array.isArray(branch['prefixItems']);
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 function normalizeArrayItems(value: unknown[], schema: Record<string, unknown>): unknown {
+  const prefixItems = Array.isArray(schema['prefixItems']) ? schema['prefixItems'] : undefined;
   const itemSchema = schema['items'];
-  if (itemSchema === undefined) {
+  if (prefixItems === undefined && itemSchema === undefined) {
     return value;
   }
 
   let changed = false;
-  const normalizedItems = value.map((item) => {
-    const normalizedItem = normalizeProviderNulls(item, itemSchema);
+  const normalizedItems = value.map((item, index) => {
+    const indexedSchema = prefixItems?.[index] ?? itemSchema;
+    if (indexedSchema === undefined) {
+      return item;
+    }
+    const normalizedItem = normalizeProviderNulls(item, indexedSchema);
     changed ||= normalizedItem !== item;
     return normalizedItem;
   });
@@ -92,7 +117,8 @@ function normalizeProviderNulls(value: unknown, schema: unknown): unknown {
 
   const unionBranches = Array.isArray(schema['oneOf']) ? schema['oneOf'] : schema['anyOf'];
   if (Array.isArray(unionBranches)) {
-    const branch = constMatchedBranch(unionBranches, value);
+    const branch =
+      constMatchedBranch(unionBranches, value) ?? uniqueStructuredBranch(unionBranches, value);
     return branch === undefined ? value : normalizeProviderNulls(value, branch);
   }
   if (Array.isArray(value)) {
@@ -110,10 +136,13 @@ function normalizeProviderNulls(value: unknown, schema: unknown): unknown {
 export function providerCompatibleInputSchema<Schema extends z.ZodType>(
   schema: Schema
 ): ProviderCompatibleInputSchema<Schema> {
-  const jsonSchema = z.toJSONSchema(schema, {
-    cycles: 'throw',
-    io: 'input',
-    reused: 'inline',
-  });
-  return z.preprocess((rawInput) => normalizeProviderNulls(rawInput, jsonSchema), schema);
+  let jsonSchema: unknown;
+  return z.preprocess((rawInput) => {
+    jsonSchema ??= z.toJSONSchema(schema, {
+      cycles: 'throw',
+      io: 'input',
+      reused: 'inline',
+    });
+    return normalizeProviderNulls(rawInput, jsonSchema);
+  }, schema);
 }
