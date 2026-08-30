@@ -17,8 +17,12 @@ const desktopDevDependencyBuildArgs = [
   '--filter=@brainstrike/desktop',
 ];
 
-export function getDesktopDevDependencyBuildArgs() {
-  return [...desktopDevDependencyBuildArgs];
+export function getDesktopDevDependencyBuildArgs(platform = process.platform) {
+  const args = [...desktopDevDependencyBuildArgs];
+  if (platform === 'win32') {
+    args.splice(args.indexOf('--'), 0, '--windows-concurrency=1');
+  }
+  return args;
 }
 
 export function runDesktopDevDependencyBuild({

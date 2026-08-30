@@ -10,7 +10,7 @@ import {
 } from '../ensure-desktop-dev-deps.mjs';
 
 test('derives the desktop development dependency graph through the bounded turbo wrapper', () => {
-  const args = getDesktopDevDependencyBuildArgs();
+  const args = getDesktopDevDependencyBuildArgs('linux');
 
   assert.deepEqual(args, [
     'scripts/run-turbo-command.mjs',
@@ -24,6 +24,18 @@ test('derives the desktop development dependency graph through the bounded turbo
     args.some((argument) => argument.includes('^')),
     false
   );
+});
+
+test('serializes the desktop dependency graph on Windows so native MSVC links cannot overlap', () => {
+  assert.deepEqual(getDesktopDevDependencyBuildArgs('win32'), [
+    'scripts/run-turbo-command.mjs',
+    '--skip-under-prepared-dev',
+    '--windows-concurrency=1',
+    '--',
+    'run',
+    'desktop-dev-dependencies',
+    '--filter=@brainstrike/desktop',
+  ]);
 });
 
 test('spawns the wrapper entrypoint that exists at the repository root', () => {
