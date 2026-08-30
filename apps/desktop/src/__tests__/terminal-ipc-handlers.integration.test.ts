@@ -99,6 +99,10 @@ function castOwner(
   return owner as unknown as Parameters<ReturnType<typeof createTerminalIpcHandlers>['create']>[0];
 }
 
+function quotePosixShellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /** Poll `predicate` until true or timeout; returns whether it became true. */
 async function waitFor(predicate: () => boolean, timeoutMs = 4000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
@@ -109,6 +113,25 @@ async function waitFor(predicate: () => boolean, timeoutMs = 4000): Promise<bool
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   return predicate();
+}
+
+/** Read a child-owned readiness file once it exists and contains a value. */
+async function waitForFile(pathname: string, timeoutMs = 4000): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const value = await fsPromises.readFile(pathname, 'utf8');
+      if (value.length > 0) {
+        return value;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return null;
 }
 
 /** True if a process with `pid` is currently alive. */
@@ -411,7 +434,7 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     // Regression: tree-kill walks descendants by parent-pid, so a child that is
     // disowned/nohup'd and re-parents to PID 1 when the shell dies escapes a
     // leader-first kill. killTerminalTree runs the tree-kill walk (shell still
-    // alive) + a process-group kill to close that gap. Probe is deterministic.
+    // alive) + a process-group kill to close that gap.
     const dir = await makeDir();
     const handlers = createTerminalIpcHandlers({
       resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
@@ -423,17 +446,30 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
       throw new Error(`create failed: ${created.error}`);
     }
     const { terminalId } = created.value;
+    const readyPath = path.join(dir, 'child-ready');
+    const childScriptPath = path.join(dir, 'long-lived-child.cjs');
+    await fsPromises.writeFile(
+      childScriptPath,
+      "const fs = require('node:fs');\nfs.writeFileSync(process.argv[2], String(process.pid));\nsetInterval(() => {}, 60_000);\n"
+    );
 
-    // Start a nohup'd background sleep, disown it, and print its pid. nohup makes
-    // it ignore SIGHUP (so node-pty's leader SIGHUP can't reap it); disown +
-    // job control put it in its OWN process group — the orphan the reviewer found.
+    // The child itself writes readiness only after Node has successfully exec'd
+    // and established its long-lived event loop. A shell-owned `$!` marker alone
+    // races child startup: under process pressure the attempted child can exit
+    // before the test observes it, producing a dead pid unrelated to destroy.
+    // nohup makes the live child ignore SIGHUP; disown/job control put it in its
+    // own process group — the orphan that terminal destroy must reap.
     handlers.write(
-      { data: 'nohup sleep 600 >/dev/null 2>&1 & C=$!; disown $C; echo CHILD=$C\r', terminalId },
+      {
+        data: `nohup ${quotePosixShellArg(process.execPath)} ${quotePosixShellArg(childScriptPath)} ${quotePosixShellArg(readyPath)} >/dev/null 2>&1 & C=$!; disown $C; echo DISOWNED=$C\r`,
+        terminalId,
+      },
       owner.id
     );
-    await waitFor(() => /CHILD=\d+/.test(owner.aggregatedData));
-    const childPid = Number(owner.aggregatedData.match(/CHILD=(\d+)/)?.[1]);
+    expect(await waitFor(() => /DISOWNED=\d+/.test(owner.aggregatedData))).toBe(true);
+    const childPid = Number(await waitForFile(readyPath));
     expect(Number.isInteger(childPid)).toBe(true);
+    expect(owner.aggregatedData).toContain(`DISOWNED=${childPid}`);
     expect(isPidAlive(childPid)).toBe(true);
 
     const destroyResult = handlers.destroy({ terminalId }, owner.id);
