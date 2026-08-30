@@ -723,18 +723,19 @@ function ToolsPanelContent({
                 <span className="font-medium">{server.name}</span>
                 <span className="text-muted-foreground">{server.state}</span>
                 <span className="text-muted-foreground">
-                  {server.transport} · policy {server.configuredProtocol}
+                  transport {server.transport} · policy {server.configuredProtocol}
                 </span>
               </div>
               {server.state === 'connected' && (
                 <div className="text-muted-foreground text-xs">
-                  {server.negotiated.era} · {server.negotiated.revision}
+                  era {server.negotiated.era} · revision {server.negotiated.revision}
                   {server.negotiated.serverIdentity
                     ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
                     : ''}
-                  {server.negotiated.advertisedCapabilityIds
-                    ? ` · capabilities: ${server.negotiated.advertisedCapabilityIds.join(', ') || 'none'}`
-                    : ''}
+                  {` · capabilities: ${
+                    server.negotiated.advertisedCapabilityIds?.join(', ') ||
+                    (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
+                  }`}
                 </div>
               )}
               {server.state === 'error' && (

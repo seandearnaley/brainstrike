@@ -947,9 +947,29 @@ describe('UnifiedToolsSettings', () => {
 
       const statusList = await screen.findByTestId('mcp-server-status-list');
       expect(statusList).toHaveTextContent('github');
-      expect(statusList).toHaveTextContent('modern · 2026-07-28');
+      expect(statusList).toHaveTextContent('era modern · revision 2026-07-28');
       expect(statusList).toHaveTextContent('github-server 2.0.0');
       expect(statusList).toHaveTextContent('capabilities: tools');
+    });
+
+    it('shows an error server in both the accordion and diagnostic row', async () => {
+      const operations = createMockOperations();
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue([
+        {
+          configuredProtocol: 'auto',
+          error: 'MCP connection failed (HTTP 503)',
+          name: 'github',
+          state: 'error',
+          transport: 'streamable-http',
+        },
+      ]);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(await screen.findByTestId('connection-status-mcp-github')).toHaveTextContent('error');
+      expect(screen.getByTestId('mcp-server-status-list')).toHaveTextContent(
+        'MCP connection failed (HTTP 503)'
+      );
     });
 
     it('opens the MCP config from an MCP group header action', async () => {

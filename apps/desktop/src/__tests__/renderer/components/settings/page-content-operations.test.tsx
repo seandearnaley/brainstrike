@@ -418,11 +418,18 @@ describe('desktop SettingsPageContent tool operations', () => {
     if (!capturedOperations) {
       throw new Error('Expected tools operations to be captured');
     }
-    const listTools = getDesktopWindow().mcp?.listTools;
-    const callsBeforeStatus = vi.mocked(listTools!).mock.calls.length;
-    const status = capturedOperations.getMcpServerStatus();
-    expect.soft(listTools).toHaveBeenCalledTimes(callsBeforeStatus);
-    await expect(status).resolves.toEqual(serverStatuses);
+    const mcp = getDesktopWindow().mcp;
+    if (!mcp?.listTools) {
+      throw new Error('Expected MCP tool bridge to be available');
+    }
+    const callsBeforeStatus = vi.mocked(mcp.listTools).mock.calls.length;
+    await expect(capturedOperations.getMcpServerStatus()).resolves.toEqual(serverStatuses);
+    expect(mcp.listTools).toHaveBeenCalledTimes(callsBeforeStatus);
+
+    Reflect.deleteProperty(mcp, 'getServerStatuses');
+    await expect(capturedOperations.getMcpServerStatus()).rejects.toThrow(
+      'MCP bridge is missing getServerStatuses'
+    );
   });
 
   it('passes status provider key sources into assistant memory model settings', async () => {

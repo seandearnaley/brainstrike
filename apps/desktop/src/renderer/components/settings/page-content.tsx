@@ -190,7 +190,13 @@ export default function SettingsPageContent() {
           await window.mcp?.enableTools?.(mcpToolIds);
         }
       },
-      getMcpServerStatus: async () => (await window.mcp?.getServerStatuses?.()) ?? [],
+      getMcpServerStatus: async () => {
+        const getServerStatuses = window.mcp?.getServerStatuses;
+        if (!getServerStatuses) {
+          throw new Error('MCP bridge is missing getServerStatuses');
+        }
+        return await getServerStatuses();
+      },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
         const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);
