@@ -535,8 +535,6 @@
     "**/*.d.ts",
     // react-doctor auto-discovers doctor.config.ts by convention (`pnpm run react-doctor` + react-doctor.yml)
     "doctor.config.ts",
-    // Ignore husky hook file
-    ".husky/commit-msg.js",
     // Ignore Playwright merge config - used by CI workflows via shell commands
     "playwright-merge.config.js",
     // Ignore all scripts - utility scripts run directly, not imported
@@ -557,11 +555,8 @@
     // These might need re-evaluation after running Knip
     "dompurify",
     "@babel/core",
-    "glob",
-    "husky",
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
-    "ts-node", // Likely used for scripts/configs
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
     "babel-plugin-react-compiler", // Resolved indirectly by reactCompilerPreset in Vite config
