@@ -77,6 +77,7 @@ describe('McpHostRevisionPublisher', () => {
   });
 
   it('detaches values, isolates listener failures, and honors unsubscribe before flush', async () => {
+    const listenerFailure = new Error('Authorization: Bearer secret-value');
     const diagnostic = vi.fn(() => {
       throw new Error('diagnostic unavailable');
     });
@@ -84,7 +85,7 @@ describe('McpHostRevisionPublisher', () => {
     const unsubscribed = vi.fn();
     const publisher = new McpHostRevisionPublisher({ onDiagnostic: diagnostic });
     publisher.watch({}, () => {
-      throw new Error('Authorization: Bearer secret-value');
+      throw listenerFailure;
     });
     publisher.watch({}, (event) => {
       Reflect.set(event.servers[0] ?? {}, 'generation', 99);
@@ -99,10 +100,13 @@ describe('McpHostRevisionPublisher', () => {
     Reflect.set(input, 'generation', 42);
     await flush();
 
-    expect(diagnostic).toHaveBeenCalledWith({
-      code: 'mcp-host-watch-listener-failed',
-      message: 'MCP host watch listener failed',
-    });
+    expect(diagnostic).toHaveBeenCalledWith(
+      {
+        code: 'mcp-host-watch-listener-failed',
+        message: 'MCP host watch listener failed',
+      },
+      listenerFailure
+    );
     expect(safeListener).toHaveBeenCalledWith({ revision: 1, servers: [server('alpha')] });
     expect(unsubscribed).not.toHaveBeenCalled();
     expect(structuredClone(publisher.snapshot())).toEqual({
@@ -112,6 +116,7 @@ describe('McpHostRevisionPublisher', () => {
   });
 
   it('isolates asynchronous listener rejections through the diagnostic sink', async () => {
+    const listenerFailure = new Error('Authorization: Bearer secret-value');
     const diagnostic = vi.fn(async () => {
       await Promise.resolve();
       throw new Error('diagnostic sink unavailable');
@@ -119,7 +124,7 @@ describe('McpHostRevisionPublisher', () => {
     const publisher = new McpHostRevisionPublisher({ onDiagnostic: diagnostic });
     publisher.watch({}, async () => {
       await Promise.resolve();
-      throw new Error('Authorization: Bearer secret-value');
+      throw listenerFailure;
     });
 
     publisher.publishConfigSet([server('alpha')]);
@@ -127,10 +132,13 @@ describe('McpHostRevisionPublisher', () => {
     await flush();
 
     expect(diagnostic).toHaveBeenCalledOnce();
-    expect(diagnostic).toHaveBeenCalledWith({
-      code: 'mcp-host-watch-listener-failed',
-      message: 'MCP host watch listener failed',
-    });
+    expect(diagnostic).toHaveBeenCalledWith(
+      {
+        code: 'mcp-host-watch-listener-failed',
+        message: 'MCP host watch listener failed',
+      },
+      listenerFailure
+    );
   });
 
   it('invalidates queued registrations and rejects watches after terminal close', async () => {

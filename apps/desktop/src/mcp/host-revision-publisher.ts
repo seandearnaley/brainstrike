@@ -13,7 +13,7 @@ export interface McpHostPublisherDiagnostic {
 }
 
 export interface McpHostRevisionPublisherOptions {
-  onDiagnostic(diagnostic: McpHostPublisherDiagnostic): Promise<void> | void;
+  onDiagnostic(diagnostic: McpHostPublisherDiagnostic, cause: unknown): Promise<void> | void;
 }
 
 interface WatchRegistration {
@@ -156,19 +156,24 @@ export class McpHostRevisionPublisher {
         const delivery = registration.listener(
           structuredClone({ revision: event.revision, servers })
         );
-        void Promise.resolve(delivery).catch(() => this.reportWatchListenerFailure());
-      } catch {
-        this.reportWatchListenerFailure();
+        void Promise.resolve(delivery).catch((cause: unknown) =>
+          this.reportWatchListenerFailure(cause)
+        );
+      } catch (cause) {
+        this.reportWatchListenerFailure(cause);
       }
     }
   }
 
-  private reportWatchListenerFailure(): void {
+  private reportWatchListenerFailure(cause: unknown): void {
     try {
-      const reporting = this.options.onDiagnostic({
-        code: 'mcp-host-watch-listener-failed',
-        message: 'MCP host watch listener failed',
-      });
+      const reporting = this.options.onDiagnostic(
+        {
+          code: 'mcp-host-watch-listener-failed',
+          message: 'MCP host watch listener failed',
+        },
+        cause
+      );
       void Promise.resolve(reporting).catch(() => {});
     } catch {}
   }
