@@ -1,9 +1,22 @@
 import { ExplicitHttpMcpClient } from '@brainstrike/agent/mcp-client';
+import type { McpServerStatusSnapshot } from '@brainstrike/assistant-contract';
 import type { McpServer } from '../mcp-loader';
-import type { McpCallOptions, McpClient, McpDiscoveredTool } from './types';
+import {
+  connectedStatus,
+  type McpCallOptions,
+  type McpClient,
+  type McpDiscoveredTool,
+  mcpStatusErrorMessage,
+} from './types';
 
 type HttpMcpServer = Extract<McpServer, { transport: 'sse' | 'streamable-http' }>;
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
+
+function assertHttpClientActive(disposed: boolean): void {
+  if (disposed) {
+    throw new Error(CLOSED_ERROR_MESSAGE);
+  }
+}
 
 export function createHttpClient(server: HttpMcpServer): McpClient {
   const client = new ExplicitHttpMcpClient({
@@ -15,10 +28,28 @@ export function createHttpClient(server: HttpMcpServer): McpClient {
     url: server.url,
   });
   const discoveredToolNames = new Map<string, string>();
+  const statusBase = {
+    configuredProtocol: server.protocol ?? ('legacy' as const),
+    name: server.name,
+    transport: server.transport,
+  };
   let disposed = false;
+  let status: McpServerStatusSnapshot = { ...statusBase, state: 'disconnected' };
 
   async function discoverTools(signal?: AbortSignal): Promise<Record<string, McpDiscoveredTool>> {
-    const result = await client.listTools(signal ? { signal } : undefined);
+    assertHttpClientActive(disposed);
+    status = { ...statusBase, state: 'connecting' };
+    let result: Awaited<ReturnType<typeof client.listTools>>;
+    try {
+      result = await client.listTools(signal ? { signal } : undefined);
+      assertHttpClientActive(disposed);
+      status = connectedStatus(client, statusBase);
+    } catch (error) {
+      status = disposed
+        ? status
+        : { ...statusBase, error: mcpStatusErrorMessage(error), state: 'error' };
+      throw error;
+    }
     const discovered: Record<string, McpDiscoveredTool> = {};
     const nextToolNames = new Map<string, string>();
 
@@ -34,9 +65,6 @@ export function createHttpClient(server: HttpMcpServer): McpClient {
       };
     }
 
-    if (disposed) {
-      throw new Error(CLOSED_ERROR_MESSAGE);
-    }
     discoveredToolNames.clear();
     for (const [toolId, rawToolName] of nextToolNames) {
       discoveredToolNames.set(toolId, rawToolName);
@@ -79,6 +107,7 @@ export function createHttpClient(server: HttpMcpServer): McpClient {
     },
     async dispose(): Promise<void> {
       disposed = true;
+      status = { ...statusBase, state: 'disconnected' };
       discoveredToolNames.clear();
       try {
         await client.close();
@@ -86,6 +115,7 @@ export function createHttpClient(server: HttpMcpServer): McpClient {
         discoveredToolNames.clear();
       }
     },
+    getStatus: () => status,
     listTools: discoverTools,
     name: server.name,
     supportsTool(toolId: string): boolean {

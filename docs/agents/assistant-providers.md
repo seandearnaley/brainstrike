@@ -1916,6 +1916,8 @@ with expensive or non-idempotent startup should use an explicit policy. These
 getters—not exported latest-version constants—are the authority for the actual
 negotiated revision.
 
+Desktop Settings consumes browser-safe `McpServerStatusSnapshot` through read-only `mcp:status:get` IPC; the registry holds each client's synchronous snapshot without a second cache. Tool presence never implies connection success, connected zero-tool servers and negotiation errors remain visible, and config reads never initialize or dispose clients. BST-1465 later moves this contract behind the single host authority.
+
 Remote transport rules:
 - `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK
   inherits its documented safe environment allowlist and overlays only the

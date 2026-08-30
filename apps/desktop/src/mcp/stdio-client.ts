@@ -1,13 +1,26 @@
 import { toMcpVersionNegotiation } from '@brainstrike/agent';
+import type { McpServerStatusSnapshot } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { McpServer } from '../mcp-loader';
-import type { McpClient, McpDiscoveredTool } from './types';
+import {
+  connectedStatus,
+  type McpClient,
+  type McpDiscoveredTool,
+  mcpStatusErrorMessage,
+} from './types';
 
 const logger = createLogger('DesktopStdioMcpClient');
+const CLOSED_ERROR_MESSAGE = 'Explicit stdio MCP client is closed';
 const DEFAULT_STDIO_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_STDIO_CONNECT_FAILURE_COOLDOWN_MS = 3000;
+
+function assertStdioClientActive(disposed: boolean): void {
+  if (disposed) {
+    throw new Error(CLOSED_ERROR_MESSAGE);
+  }
+}
 
 interface ConnectedClient {
   client: Client;
@@ -44,16 +57,25 @@ function toError(error: unknown): Error {
 
 export function createStdioClient(server: Extract<McpServer, { transport: 'stdio' }>): McpClient {
   const discoveredToolNames = new Map<string, string>();
+  const statusBase = {
+    configuredProtocol: server.protocol ?? ('legacy' as const),
+    name: server.name,
+    transport: 'stdio' as const,
+  };
   let connected: ConnectedClient | undefined;
+  let connecting: ConnectedClient | undefined;
   let connectPromise: Promise<ConnectedClient> | undefined;
+  let disposed = false;
   let lastConnectFailure:
     | {
         error: Error;
         failedAt: number;
       }
     | undefined;
+  let status: McpServerStatusSnapshot = { ...statusBase, state: 'disconnected' };
 
   async function ensureConnected(): Promise<ConnectedClient> {
+    assertStdioClientActive(disposed);
     if (connected) {
       return connected;
     }
@@ -69,6 +91,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
     }
 
     connectPromise = (async () => {
+      status = { ...statusBase, state: 'connecting' };
       const client = new Client(
         { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
         {
@@ -82,10 +105,19 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         ...(server.env ? { env: server.env } : {}),
       };
       const transport = new StdioClientTransport(transportOptions);
+      const next = { client, transport };
+      connecting = next;
+      client.onclose = () => {
+        if (connected?.client === client) {
+          connected = undefined;
+          status = { ...statusBase, state: 'disconnected' };
+        }
+      };
       try {
         await client.connect(transport, { timeout: getConnectTimeoutMs() });
-        const next = { client, transport };
+        assertStdioClientActive(disposed);
         connected = next;
+        status = connectedStatus(client, statusBase);
         lastConnectFailure = undefined;
         logger.info('Connected MCP stdio client', {
           command: server.command,
@@ -93,13 +125,15 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         });
         return next;
       } catch (error) {
-        const nextError = toError(error);
-        lastConnectFailure = {
-          error: nextError,
-          failedAt: Date.now(),
-        };
-        await transport.close().catch(() => undefined);
+        const nextError = disposed ? new Error(CLOSED_ERROR_MESSAGE) : toError(error);
+        if (!disposed) {
+          status = { ...statusBase, error: mcpStatusErrorMessage(error), state: 'error' };
+          lastConnectFailure = { error: nextError, failedAt: Date.now() };
+          await transport.close().catch(() => undefined);
+        }
         throw nextError;
+      } finally {
+        connecting = undefined;
       }
     })().finally(() => {
       connectPromise = undefined;
@@ -163,10 +197,12 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
       );
     },
     async dispose(): Promise<void> {
-      const current = connected;
+      disposed = true;
+      const current = connected ?? connecting;
       connected = undefined;
       lastConnectFailure = undefined;
       discoveredToolNames.clear();
+      status = { ...statusBase, state: 'disconnected' };
 
       if (!current) {
         return;
@@ -178,6 +214,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         await current.transport.close();
       }
     },
+    getStatus: () => status,
     listTools,
     name: server.name,
     supportsTool(toolId: string): boolean {
