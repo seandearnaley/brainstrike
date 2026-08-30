@@ -40,22 +40,35 @@ const SOURCE_PATTERNS = [
 ];
 
 const IGNORE_PATTERNS = [
+  '**/node_modules',
   '**/node_modules/**',
+  '**/.git',
   '**/.git/**',
+  '**/dist',
   '**/dist/**',
+  '**/.turbo',
   '**/.turbo/**',
+  '**/build',
   '**/build/**',
+  '**/coverage',
   '**/coverage/**',
+  '**/playwright-report',
   '**/playwright-report/**',
+  '**/test-results',
   '**/test-results/**',
+  '**/.vite',
   '**/.vite/**',
+  '**/blob-report',
   '**/blob-report/**',
+  '**/reports',
   '**/reports/**',
   // Tests may reference the producer freely; they cannot introduce a
   // production request path.
+  '**/__tests__',
   '**/__tests__/**',
   '**/*.test.*',
   '**/*.spec.*',
+  '**/e2e',
   '**/e2e/**',
 ];
 
@@ -130,9 +143,14 @@ export async function findAssistantRunIdProducerViolations({ root = REPO_ROOT } 
       glob(SOURCE_PATTERNS, {
         cwd: root,
         exclude: IGNORE_PATTERNS,
+        withFileTypes: true,
       })
     )
-  ).map((filePath) => filePath.split(path.sep).join('/'));
+  )
+    .filter((entry) => entry.isFile())
+    .map((entry) =>
+      path.relative(root, path.join(entry.parentPath, entry.name)).split(path.sep).join('/')
+    );
 
   const violations = [];
   let declarationCount = 0;

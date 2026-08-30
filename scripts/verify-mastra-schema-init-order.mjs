@@ -77,19 +77,28 @@ const SOURCE_PATTERNS = [
 ];
 
 const IGNORE_PATTERNS = [
+  '**/node_modules',
   '**/node_modules/**',
+  '**/dist',
   '**/dist/**',
+  '**/build',
   '**/build/**',
+  '**/.turbo',
   '**/.turbo/**',
+  '**/coverage',
   '**/coverage/**',
+  '**/playwright-report',
   '**/playwright-report/**',
+  '**/test-results',
   '**/test-results/**',
   // Tests are never bundled into a renderer chunk graph: Vitest and Playwright
   // evaluate modules in dependency order, so a module-scope read there cannot
   // reproduce this defect and forbidding it would be noise.
+  '**/__tests__',
   '**/__tests__/**',
   '**/*.test.*',
   '**/*.spec.*',
+  '**/e2e',
   '**/e2e/**',
 ];
 
@@ -444,9 +453,14 @@ export async function findMastraSchemaModuleScopeReads({ root = REPO_ROOT } = {}
       glob(SOURCE_PATTERNS, {
         cwd: root,
         exclude: IGNORE_PATTERNS,
+        withFileTypes: true,
       })
     )
-  ).map((filePath) => filePath.split(path.sep).join('/'));
+  )
+    .filter((entry) => entry.isFile())
+    .map((entry) =>
+      path.relative(root, path.join(entry.parentPath, entry.name)).split(path.sep).join('/')
+    );
   if (sourceFiles.length < MIN_SOURCE_FILES) {
     throw new Error(
       `Discovered only ${sourceFiles.length} source file(s) under ${root}, below the floor of ` +
