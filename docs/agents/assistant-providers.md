@@ -2140,6 +2140,19 @@ and must never cross renderer IPC or bypass the platform redaction path.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 
+The host publisher alone owns a monotonic revision sequence beginning at zero.
+Config and actor publications advance it only for a material state change; each
+queued event is a detached authority snapshot. Filtered watches receive only
+events affecting one of their configured server ids and may therefore observe
+revision holes. Empty configured-server-id filters are rejected visibly rather
+than registered as silent no-op subscriptions. A late transition from a retired
+generation, or from a server removed by configuration, throws a typed error that
+names the configured server id; it never regresses or resurrects authority state.
+Listener failures are isolated and reported through bounded diagnostics.
+Terminal host close invalidates queued and future watch registrations because
+the closed watch DTO has no terminal event variant; a future terminal event
+requires an explicit contract/schema revision rather than an invented payload.
+
 Assistant adapters may discover and invoke but cannot mutate auth or
 configuration. Renderer IPC receives only snapshots and explicit Settings
 actions such as Authenticate, Reauthorize, Disconnect, Retry, and Replace
