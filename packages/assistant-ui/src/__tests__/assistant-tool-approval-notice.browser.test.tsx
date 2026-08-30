@@ -126,15 +126,15 @@ describe('approval file target rendering', () => {
     });
 
     const summary = screen.getByTestId('approval-file-target-summary');
-    const rootLabel = screen.getByTestId('approval-workspace-root');
+    const rootBadge = screen.getByTestId('approval-workspace-root');
     const rootValue = screen.getByTestId('approval-workspace-root-value');
     const summaryRect = summary.getBoundingClientRect();
-    const rootLabelRect = rootLabel.getBoundingClientRect();
-    const rootLabelStyle = getComputedStyle(rootLabel);
+    const rootBadgeRect = rootBadge.getBoundingClientRect();
+    const rootBadgeStyle = getComputedStyle(rootBadge);
     const rootValueStyle = getComputedStyle(rootValue);
     const summaryStyle = getComputedStyle(summary);
-    const rootFontSize = Number.parseFloat(rootLabelStyle.fontSize);
-    const rootLineHeight = Number.parseFloat(rootLabelStyle.lineHeight);
+    const rootFontSize = Number.parseFloat(rootBadgeStyle.fontSize);
+    const rootLineHeight = Number.parseFloat(rootBadgeStyle.lineHeight);
     const summaryFontSize = Number.parseFloat(summaryStyle.fontSize);
     const summaryLineHeight = Number.parseFloat(summaryStyle.lineHeight);
 
@@ -143,16 +143,19 @@ describe('approval file target rendering', () => {
     expect(rootFontSize).toBeLessThan(summaryFontSize);
     expect(rootLineHeight).toBeLessThan(summaryLineHeight);
     expect(rootLineHeight / rootFontSize).toBeCloseTo(summaryLineHeight / summaryFontSize, 2);
-    expect(Number.parseFloat(rootLabelStyle.paddingLeft)).toBeGreaterThan(0);
-    expect(Number.parseFloat(rootLabelStyle.paddingTop)).toBeGreaterThan(0);
-    expect(Number.parseFloat(rootLabelStyle.borderLeftWidth)).toBeGreaterThan(0);
-    expect(rootLabelStyle.boxSizing).toBe('border-box');
+    expect(Number.parseFloat(rootBadgeStyle.paddingLeft)).toBeGreaterThan(0);
+    expect(Number.parseFloat(rootBadgeStyle.paddingTop)).toBeGreaterThan(0);
+    expect(Number.parseFloat(rootBadgeStyle.borderLeftWidth)).toBeGreaterThan(0);
+    expect(rootBadgeStyle.boxSizing).toBe('border-box');
+    // A flex item blockifies specified inline-flex to computed flex. Without
+    // the inline-flex utility this badge computes to block instead.
+    expect(rootBadgeStyle.display).toBe('flex');
     expect(rootValueStyle.whiteSpace).toBe('nowrap');
     expect(rootValueStyle.textOverflow).toBe('ellipsis');
-    expect(rootLabelRect.height).toBeLessThan(2 * rootLineHeight);
+    expect(rootValue.getBoundingClientRect().height).toBeLessThan(2 * rootLineHeight);
     expect(rootValue.clientWidth).toBeGreaterThan(0);
     expect(rootValue.scrollWidth).toBeGreaterThan(rootValue.clientWidth);
-    expect(rootLabelRect.width).toBeLessThanOrEqual(summaryRect.width + 1);
-    expect(rootLabelRect.right).toBeLessThanOrEqual(summaryRect.right + 1);
+    expect(rootBadgeRect.width).toBeLessThanOrEqual(summaryRect.width + 1);
+    expect(rootBadgeRect.right).toBeLessThanOrEqual(summaryRect.right + 1);
   });
 });
