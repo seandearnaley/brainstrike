@@ -396,6 +396,12 @@ including all five stable required contexts (`Static`, `Unit`, `Build`,
 db/ui/storage/assistant-ui/embedding-worker in the pinned Playwright container;
 expensive enough that it keeps the same
 quiet-head gate, and `quiet-head-admission-contract.test.mjs` verifies it).
+Vitest generated failure captures stay in ignored package-local
+`__screenshots__` directories. Intentional `toMatchScreenshot` references are
+rerouted by `@brainstrike/config` to trackable `__image_snapshots__`
+directories; the db and storage projects that construct browser options
+directly use the same resolver. Keep those paths separate so failure debris
+cannot be committed and a new visual baseline cannot disappear from git.
 Web and desktop E2E retain their `build` dependency. Push and
 `workflow_dispatch` events are admitted immediately, so their behavior is
 unchanged apart from the dependency edge.
