@@ -19,6 +19,7 @@ const PROCESS_TREE_KILL_GRACE_MS = 2000;
 const PROFILE_REMOVAL_RETRIES = 3;
 const PROFILE_REMOVAL_RETRY_DELAY_MS = 150;
 const PROFILE_PREFIX = 'brainstrike-agent-devtools-';
+export const PNPM_SHIM_PREFIX = 'brainstrike-agent-pnpm-';
 const OWNER_MARKER_FILENAME = 'agent-devtools-owner.json';
 const LEGACY_REPORT_LIMIT = 10;
 // `os.uptime()` has second granularity; require a marker to predate the boot by
@@ -217,7 +218,7 @@ export async function createWindowsPnpmShimEnvironment({
 } = {}) {
   const descendantEnv = { ...env };
   if (platform !== 'win32') {
-    return { cleanup: async () => {}, env: descendantEnv };
+    return { cleanup: async () => {}, directory: null, env: descendantEnv };
   }
 
   if (
@@ -238,13 +239,29 @@ export async function createWindowsPnpmShimEnvironment({
   };
   const nodeCommand = quoteBatchPath(invocation.command);
   const pnpmEntrypoint = quoteBatchPath(invocation.argsPrefix[0]);
-  const shimDir = await makeTempDir(path.join(os.tmpdir(), 'brainstrike-agent-pnpm-'));
-  const shimPath = path.join(shimDir, 'pnpm.cmd');
-  await fs.writeFile(
-    shimPath,
-    `@echo off\r\nsetlocal DisableDelayedExpansion\r\n${nodeCommand} ${pnpmEntrypoint} %*\r\n`,
-    'utf8'
-  );
+  const shimDir = await makeTempDir(path.join(os.tmpdir(), PNPM_SHIM_PREFIX));
+  try {
+    // The launcher can be terminated before its async signal cleanup settles
+    // (notably when an outer package-manager PTY closes). Mark the directory
+    // so the next launch can safely reclaim it after proving this pid is gone.
+    await writeProfileOwnerMarker(shimDir);
+    const shimPath = path.join(shimDir, 'pnpm.cmd');
+    await fs.writeFile(
+      shimPath,
+      `@echo off\r\nsetlocal DisableDelayedExpansion\r\n${nodeCommand} ${pnpmEntrypoint} %*\r\n`,
+      'utf8'
+    );
+  } catch (setupError) {
+    try {
+      await fs.rm(shimDir, { force: true, recursive: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [setupError, cleanupError],
+        `Agent DevTools pnpm shim setup and cleanup both failed for ${shimDir}.`
+      );
+    }
+    throw setupError;
+  }
 
   const pathKey = Object.keys(descendantEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path';
   descendantEnv[pathKey] = descendantEnv[pathKey]
@@ -253,6 +270,7 @@ export async function createWindowsPnpmShimEnvironment({
 
   return {
     cleanup: () => fs.rm(shimDir, { force: true, recursive: true }),
+    directory: shimDir,
     env: descendantEnv,
   };
 }
@@ -503,6 +521,7 @@ export async function sweepStaleProfiles(options = {}) {
     currentUserDataDir,
     hasLiveProcessGroupMembers: groupHasMembers = hasLiveProcessGroupMembers,
     isOwnerAlive: ownerAlive = isOwnerAlive,
+    prefix = PROFILE_PREFIX,
     removeProfile = removeUserDataDir,
     tempDirectory = os.tmpdir(),
   } = options;
@@ -517,7 +536,7 @@ export async function sweepStaleProfiles(options = {}) {
   }
 
   const owned = entries
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith(PROFILE_PREFIX))
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
     .map((entry) => path.join(tempDirectory, entry.name))
     .sort();
 
@@ -581,23 +600,28 @@ async function classifyProfile(marker, { bootTimeMs, groupHasMembers, ownerAlive
   return (await groupHasMembers(marker.pgid)) ? 'skippedLive' : 'reclaim';
 }
 
-export function reportSweep(result, log = console.log, logError = console.error) {
+export function reportSweep(
+  result,
+  log = console.log,
+  logError = console.error,
+  { prefix = PROFILE_PREFIX, resourceName = 'profile' } = {}
+) {
   if (result.scanError) {
-    logError('Agent DevTools could not scan for stale profiles:', result.scanError);
+    logError(`Agent DevTools could not scan for stale ${resourceName}s:`, result.scanError);
   }
   if (result.removed.length > 0) {
-    log(`Agent DevTools reclaimed ${result.removed.length} abandoned profile(s).`);
+    log(`Agent DevTools reclaimed ${result.removed.length} abandoned ${resourceName}(s).`);
   }
   if (result.skippedLive.length > 0) {
     // Skipping is the safe answer, but a machine where the sweep never reclaims
     // anything must not look identical to one with nothing to reclaim.
     log(
-      `Agent DevTools left ${result.skippedLive.length} profile(s) still in use by a running ` +
+      `Agent DevTools left ${result.skippedLive.length} ${resourceName}(s) still in use by a running ` +
         'launcher or an orphaned process tree.'
     );
   }
   for (const { error, userDataDir } of result.failed) {
-    logError(`Agent DevTools could not reclaim abandoned profile ${userDataDir}:`, error);
+    logError(`Agent DevTools could not reclaim abandoned ${resourceName} ${userDataDir}:`, error);
   }
   if (result.legacy.length > 0) {
     // These predate the owner marker, so staleness cannot be proven. Surface
@@ -608,7 +632,7 @@ export function reportSweep(result, log = console.log, logError = console.error)
     // now, so pasting it would destroy a live database. An exact list is the
     // only form of this report that is safe to act on.
     log(
-      `Agent DevTools found ${result.legacy.length} profile(s) with no ownership marker. ` +
+      `Agent DevTools found ${result.legacy.length} ${resourceName}(s) with no ownership marker. ` +
         'These predate ownership tracking, cannot be proven abandoned, and were left ' +
         'untouched. Remove any you recognise as finished:'
     );
@@ -620,7 +644,7 @@ export function reportSweep(result, log = console.log, logError = console.error)
       // A glob is safe to suggest for listing, never for removal.
       log(
         `  ...and ${remaining} more; list them all with:\n` +
-          `    ls -d ${path.join(os.tmpdir(), `${PROFILE_PREFIX}*`)}`
+          `    ls -d ${path.join(os.tmpdir(), `${prefix}*`)}`
       );
     }
   }
@@ -978,6 +1002,15 @@ async function main() {
       // hygiene and must not sit in front of the dev server the user asked for.
       // It now overlaps with startup instead.
       reportSweep(await sweepStaleProfiles({ currentUserDataDir: userDataDir }));
+      reportSweep(
+        await sweepStaleProfiles({
+          currentUserDataDir: pnpmShim.directory,
+          prefix: PNPM_SHIM_PREFIX,
+        }),
+        console.log,
+        console.error,
+        { prefix: PNPM_SHIM_PREFIX, resourceName: 'pnpm shim' }
+      );
       await waitForEndpointOrChildExit(endpoint, child, spawnErrorCapture);
       console.log('\nMCP config:\n');
       console.log(formatMcpConfig(endpoint));

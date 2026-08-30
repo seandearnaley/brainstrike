@@ -17,6 +17,7 @@ import {
   formatMcpConfig,
   getAgentDebugPnpmPreflightCommands,
   initializeWindowsJob,
+  PNPM_SHIM_PREFIX,
   parsePort,
   readProfileOwnerMarker,
   removeUserDataDir,
@@ -129,6 +130,8 @@ test('pins Windows pnpm descendants to the validated Node and pnpm entrypoint', 
     );
     assert.equal('BRAINSTRIKE_AGENT_DEBUG_NODE' in shim.env, false);
     assert.equal('BRAINSTRIKE_AGENT_DEBUG_PNPM' in shim.env, false);
+    assert.equal(shim.directory, root);
+    assert.equal((await readProfileOwnerMarker(root)).pid, process.pid);
   } finally {
     await rm(root, { force: true, recursive: true });
   }
@@ -773,6 +776,49 @@ test('sweepStaleProfiles reclaims a sibling profile whose owning launcher is gon
   } finally {
     await rm(temp, { force: true, recursive: true });
   }
+});
+
+test('sweepStaleProfiles can reclaim interrupted Windows pnpm shims without touching profiles', async () => {
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-dead01': 4242,
+    'brainstrike-agent-pnpm-dead01': 4243,
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      prefix: PNPM_SHIM_PREFIX,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, [profiles['brainstrike-agent-pnpm-dead01']]);
+    await assert.rejects(stat(profiles['brainstrike-agent-pnpm-dead01']), { code: 'ENOENT' });
+    await stat(profiles['brainstrike-agent-devtools-dead01']);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('reportSweep uses the requested pnpm shim label and listing prefix', () => {
+  const lines = [];
+  reportSweep(
+    {
+      failed: [],
+      legacy: Array.from({ length: 11 }, (_, index) => `/tmp/${PNPM_SHIM_PREFIX}${index}`),
+      removed: ['/tmp/removed'],
+      scanError: null,
+      skippedLive: [],
+    },
+    (line) => lines.push(line),
+    (line) => lines.push(line),
+    { prefix: PNPM_SHIM_PREFIX, resourceName: 'pnpm shim' }
+  );
+
+  const report = lines.join('\n');
+  assert.match(report, /reclaimed 1 abandoned pnpm shim\(s\)/);
+  assert.match(report, /found 11 pnpm shim\(s\)/);
+  assert.match(report, /brainstrike-agent-pnpm-\*/);
+  assert.doesNotMatch(report, /brainstrike-agent-devtools-\*/);
 });
 
 test('sweepStaleProfiles never removes a concurrent session, however old it is', async () => {
