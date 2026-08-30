@@ -1,3 +1,4 @@
+import { ConfiguredMcpServerIdSchema } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 
 export const McpTransportEnum = z.enum(['stdio', 'streamable-http', 'sse']);
@@ -21,7 +22,7 @@ const StdioSchema = z.object({
   command: z.string().min(1),
   enabledTools: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  name: z.string().min(1),
+  name: ConfiguredMcpServerIdSchema,
   ...ProtocolPolicySchema,
   transport: z.literal('stdio'),
 });
@@ -29,7 +30,7 @@ const StdioSchema = z.object({
 const HttpServerSchema = z.object({
   enabledTools: z.array(z.string()).optional(),
   headers: z.record(z.string(), z.string()).optional(),
-  name: z.string().min(1),
+  name: ConfiguredMcpServerIdSchema,
   ...ProtocolPolicySchema,
   url: z.string().url(),
 });

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseMcpConfig as parseAgentMcpConfig } from '@brainstrike/agent';
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { McpConfig } from '../../mcp-loader';
 
@@ -51,6 +53,16 @@ describe('mcp-loader', () => {
     expect(config.servers).toHaveLength(2);
     expect(config.servers[0]?.transport).toBe('stdio');
     expect(config.servers[1]?.transport).toBe('sse');
+  });
+
+  it('applies one configured-server identity policy at every parser boundary', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    for (const name of ['', ' linear', 'linear ', '__proto__', 'linear\nproduction']) {
+      expect(() => parseConfiguredMcpServerId(name)).toThrow();
+      const input = JSON.stringify({ servers: [{ command: 'node', name, transport: 'stdio' }] });
+      expect(() => parseAgentMcpConfig(input)).toThrow();
+      expect(() => parseMcpConfig(input)).toThrow();
+    }
   });
 
   it('surfaces omitted protocol migration without rewriting the JSONC document', async () => {

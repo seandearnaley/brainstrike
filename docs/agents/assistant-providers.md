@@ -2105,6 +2105,9 @@ generation becomes ready.
 
 `McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`:
 
+`server.name` is branded and carried explicitly, never recovered from dotted tool/display names; lifecycle/error vocabularies are closed.
+Browser-safe config carries only main-owned transport UUIDs, non-secret policy, and typed credential-store references; decrypted material stays in Electron main; strict parsers guard ingress and SDK-v2-derived result DTOs narrow open metadata to cloneable JSON.
+
 - `snapshot` returns token-free authority state, negotiated protocol revision,
   server identity, capabilities, auth/lifecycle status, and bounded diagnostics.
 - `invoke` accepts a closed typed operation union. There is no raw
