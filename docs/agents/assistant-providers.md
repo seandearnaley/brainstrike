@@ -2165,6 +2165,7 @@ and must never cross renderer IPC or bypass the platform redaction path.
   server generation, rejects new work against the retired generation, settles
   or cancels owned work explicitly, and closes old transports before publishing
   the replacement as ready. It never mutates a live client in place.
+  Caller cancellation stays distinct from `mcp_generation_retired`; unexpected closure replaces only that server without replay.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 

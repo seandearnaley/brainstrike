@@ -186,6 +186,9 @@ export interface McpHostWatchEvent {
   revision: number;
   servers: readonly McpHostServerSnapshot[];
 }
+export interface McpHostInvokeOptions {
+  signal?: AbortSignal;
+}
 type McpHostCloseCounter =
   | 'callbacksClosed'
   | 'childProcessesClosed'
@@ -199,7 +202,10 @@ export type McpHostCloseReport = Readonly<Record<McpHostCloseCounter, number>> &
 };
 export interface McpHostPort {
   close(): Promise<McpHostCloseReport>;
-  invoke(operation: McpHostOperation): Promise<McpHostOperationResult>;
+  invoke(
+    operation: McpHostOperation,
+    options?: McpHostInvokeOptions
+  ): Promise<McpHostOperationResult>;
   replaceConfig(config: McpHostConfig): Promise<McpHostSnapshot>;
   snapshot(): McpHostSnapshot;
   watch(filter: McpHostWatchFilter, listener: (event: McpHostWatchEvent) => void): () => void;
