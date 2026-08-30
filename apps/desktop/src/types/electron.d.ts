@@ -5,6 +5,7 @@ import type {
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
   AssistantRewindResult,
+  McpServerStatusSnapshot,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
@@ -461,6 +462,7 @@ declare global {
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;
       getPath: () => Promise<string>;
+      getServerStatuses: () => Promise<McpServerStatusSnapshot[]>;
       setPath: (configPath: string | null) => Promise<{ success: boolean; path: string }>;
       readConfigText: () => Promise<{
         path: string;

@@ -229,11 +229,27 @@ describe('desktop explicit HTTP MCP client', () => {
     });
     cleanup.push(async () => client.dispose());
 
+    expect(client.getStatus()).toEqual({
+      configuredProtocol: 'legacy',
+      name: 'remote',
+      state: 'disconnected',
+      transport: 'streamable-http',
+    });
+
     await expect(client.listTools()).resolves.toMatchObject({
       'remote.echo': {
         description: 'Echoes text',
         inputSchema: expect.any(Object),
       },
+    });
+    expect(client.getStatus()).toMatchObject({
+      negotiated: {
+        advertisedCapabilityIds: ['tools'],
+        era: 'legacy',
+        revision: '2025-11-25',
+        serverIdentity: { name: 'desktop-http-fixture', version: '1.0.0' },
+      },
+      state: 'connected',
     });
 
     const progress: Array<{ meta?: { id?: string }; payload: unknown }> = [];
@@ -271,7 +287,7 @@ describe('desktop explicit HTTP MCP client', () => {
       requests.push({ method: request.method ?? 'GET', pathname: url.pathname });
       if (request.method === 'POST') {
         await readJsonBody(request);
-        response.writeHead(404).end();
+        response.writeHead(404).end(request.headers['x-api-key']);
         return;
       }
       response.writeHead(500).end();
@@ -279,6 +295,7 @@ describe('desktop explicit HTTP MCP client', () => {
     const running = await listen(rawServer);
     cleanup.push(running.close);
     const client = createHttpClient({
+      headers: { 'X-API-Key': 'reflected-secret' },
       name: 'remote',
       transport: 'streamable-http',
       url: `${running.origin}/sse`,
@@ -288,6 +305,7 @@ describe('desktop explicit HTTP MCP client', () => {
     const failure = client.listTools();
     await expect(failure).rejects.toBeInstanceOf(SdkHttpError);
     await expect(failure).rejects.toMatchObject({ status: 404 });
+    expect(client.getStatus()).toMatchObject({ error: 'MCP connection failed (HTTP 404)' });
     expect(requests).toEqual([{ method: 'POST', pathname: '/sse' }]);
   });
 
@@ -359,5 +377,6 @@ describe('desktop explicit HTTP MCP client', () => {
 
     expect(client.supportsTool('remote.echo')).toBe(false);
     await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
+    expect(client.getStatus()).toMatchObject({ state: 'disconnected' });
   });
 });

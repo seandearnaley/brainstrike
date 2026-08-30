@@ -32,6 +32,10 @@ const {
     this['listTools'] = listTools;
     this['callTool'] = callTool;
     this['close'] = closeClient;
+    this['getNegotiatedProtocolVersion'] = () => '2026-07-28';
+    this['getProtocolEra'] = () => 'modern';
+    this['getServerCapabilities'] = () => ({ tools: {} });
+    this['getServerVersion'] = () => ({ name: 'test-server', version: '2.0.0' });
   }
   function MockTransport(this: Record<string, unknown>) {
     this['close'] = closeTransport;
@@ -90,6 +94,8 @@ describe('stdio client', () => {
       transport: 'stdio',
     });
 
+    expect(client.getStatus()).toMatchObject({ state: 'disconnected' });
+
     await expect(client.listTools()).resolves.toEqual({
       'filesystem.list_directory': {
         description: 'List a directory',
@@ -106,6 +112,14 @@ describe('stdio client', () => {
       versionNegotiation: { mode: 'auto' },
     });
     expect(clientListToolsMock).toHaveBeenCalledTimes(1);
+    expect(client.getStatus()).toMatchObject({
+      negotiated: {
+        advertisedCapabilityIds: ['tools'],
+        era: 'modern',
+        revision: '2026-07-28',
+      },
+      state: 'connected',
+    });
   });
 
   it('calls tools using the raw MCP tool name discovered from tools/list', async () => {
@@ -141,7 +155,9 @@ describe('stdio client', () => {
     await expect(client.callTool('unknown.tool')).rejects.toThrow('Unsupported MCP tool');
   });
 
-  it('disposes the SDK client and transport safely', async () => {
+  it('disposes an in-flight connection without publishing it as connected', async () => {
+    const connect = Promise.withResolvers<void>();
+    clientConnectMock.mockReturnValueOnce(connect.promise);
     const client = createStdioClient({
       args: ['/root'],
       command: 'node',
@@ -149,8 +165,12 @@ describe('stdio client', () => {
       transport: 'stdio',
     });
 
-    await client.listTools();
+    const listing = client.listTools();
+    await vi.waitFor(() => expect(clientConnectMock).toHaveBeenCalledTimes(1));
     await expect(client.dispose()).resolves.toBeUndefined();
+    connect.resolve();
+    await expect(listing).rejects.toThrow('Explicit stdio MCP client is closed');
+    expect(client.getStatus()).toMatchObject({ state: 'disconnected' });
     expect(clientCloseMock).toHaveBeenCalledTimes(1);
     expect(transportCloseMock).toHaveBeenCalledTimes(1);
   });

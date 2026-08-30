@@ -9,7 +9,7 @@ import {
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import { disposeClients, getClient, initClients } from './mcp';
+import { disposeClients, getClient, getClientStatuses, initClients } from './mcp';
 import {
   getDefaultMcpConfigTemplate,
   getMcpConfigPath,
@@ -28,6 +28,7 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
 let lastUserSelectedConfigPath: string | null = null;
+let mcpLifecycleBarrier: Promise<void> = Promise.resolve();
 const logger = createLogger('DesktopMcpIpc');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
@@ -94,7 +95,7 @@ function isPlaceholderServer(server: McpServer): boolean {
  * Handles config changes by clearing the registry and reinitializing clients.
  * Shared callback for both manual config changes and file watch events.
  */
-function handleConfigChange(cfg: LoadedMcpConfig): void {
+async function applyConfigChange(cfg: LoadedMcpConfig): Promise<void> {
   last = cfg;
   notifyMcpConfigUpdated(cfg);
   mcpToolRegistry.clear();
@@ -107,14 +108,20 @@ function handleConfigChange(cfg: LoadedMcpConfig): void {
   }
   if (cfg.config) {
     initClients(cfg.config);
-    void discoverToolsFromConfig(cfg.config).catch((error: unknown) => {
+    await discoverToolsFromConfig(cfg.config).catch((error: unknown) => {
       logger.error('Tool discovery failed after config change', {
         error: error instanceof Error ? error.message : String(error),
       });
     });
   } else {
-    void disposeClients();
+    await disposeClients();
   }
+}
+
+function handleConfigChange(cfg: LoadedMcpConfig): Promise<void> {
+  const nextLifecycle = mcpLifecycleBarrier.then(() => applyConfigChange(cfg));
+  mcpLifecycleBarrier = nextLifecycle;
+  return nextLifecycle;
 }
 
 function notifyMcpConfigUpdated(config: LoadedMcpConfig): void {
@@ -194,14 +201,15 @@ export function registerMcpIpcHandlers(): () => void {
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
     async (): Promise<McpConfigStatus> => {
       last = await loadMcpConfig();
-      // Initialize MCP clients if config is valid
-      if (last.config) {
-        initClients(last.config);
-      } else {
-        await disposeClients();
-      }
       return toMcpConfigStatus(last);
     }
+  );
+
+  registry.registerInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
+    (): Promise<ReturnType<typeof getClientStatuses>> =>
+      mcpLifecycleBarrier.then(() => structuredClone(getClientStatuses()))
   );
 
   registry.registerInvoke(
@@ -218,7 +226,7 @@ export function registerMcpIpcHandlers(): () => void {
       const newPath = await getMcpConfigPath();
 
       logger.info('Loading config from new path', { path: newPath });
-      handleConfigChange(await loadMcpConfig());
+      await handleConfigChange(await loadMcpConfig());
 
       // Restart the watcher to watch the new path
       await restartConfigWatcher();
@@ -273,12 +281,15 @@ export function registerMcpIpcHandlers(): () => void {
         };
       }
 
+      const restartWatcher = unwatch !== null;
+      stopConfigWatcher();
       const result = await writeMcpConfigText(content);
+      if (restartWatcher) {
+        await restartConfigWatcher();
+      }
       if (result.success) {
         logger.info('MCP config text updated', { path: result.path });
-        // Path changes restart the watcher in mcp:config:setPath.
-        // A write targets the current path, so a watcher restart is unnecessary here.
-        handleConfigChange(await loadMcpConfig());
+        await handleConfigChange(await loadMcpConfig());
       }
       return result;
     }
@@ -324,6 +335,7 @@ export function registerMcpIpcHandlers(): () => void {
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUnwatch,
     async (): Promise<{ watching: false }> => {
+      await mcpLifecycleBarrier;
       stopConfigWatcher();
       return { watching: false };
     }
@@ -418,7 +430,7 @@ export function registerMcpIpcHandlers(): () => void {
         logger.info('Created sample MCP config', { path: configPath });
 
         // Clear existing tools, reload config, and ensure file watcher tracks the new file.
-        handleConfigChange(await loadMcpConfig());
+        await handleConfigChange(await loadMcpConfig());
         await restartConfigWatcher();
 
         return { path: configPath, success: true };
@@ -431,7 +443,10 @@ export function registerMcpIpcHandlers(): () => void {
   );
 
   // Discover tools when config changes; saved preferences are applied after discovery completes
-  void discoverMcpToolsOnStartup();
+  mcpLifecycleBarrier = discoverMcpToolsOnStartup().then(restartConfigWatcher);
+  void mcpLifecycleBarrier.catch((error: unknown) => {
+    logger.error('MCP runtime startup failed', { error });
+  });
 
   return () => {
     registry.unregisterAll();

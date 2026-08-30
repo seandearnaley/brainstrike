@@ -1,3 +1,4 @@
+import type { McpServerStatusSnapshot } from '@brainstrike/assistant-contract';
 import type { McpConfig, McpServer } from '../mcp-loader';
 import { createHttpClient } from './http-client';
 import { createStdioClient } from './stdio-client';
@@ -38,6 +39,10 @@ export async function disposeClients(): Promise<void> {
 
 export function getClient(name: string): McpClient | undefined {
   return clients.get(name);
+}
+
+export function getClientStatuses(): McpServerStatusSnapshot[] {
+  return Array.from(clients.values(), (client) => client.getStatus());
 }
 
 export async function callTool(

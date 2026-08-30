@@ -1,8 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+function disconnectedStatus<T extends 'sse' | 'stdio' | 'streamable-http'>(
+  name: string,
+  transport: T
+) {
+  return { configuredProtocol: 'legacy', name, state: 'disconnected', transport } as const;
+}
+const sseStatus = disconnectedStatus('remote', 'sse');
+const streamableStatus = disconnectedStatus('streamable', 'streamable-http');
+const stdioStatus = disconnectedStatus('filesystem', 'stdio');
+
 const sseClient = {
   callTool: vi.fn(async () => 'sse-result'),
   dispose: vi.fn(),
+  getStatus: vi.fn(() => sseStatus),
   listTools: vi.fn(async () => ({})),
   name: 'remote',
   supportsTool: vi.fn((toolId: string) => toolId.startsWith('remote.')),
@@ -11,6 +22,7 @@ const sseClient = {
 const streamableHttpClient = {
   callTool: vi.fn(async () => 'streamable-http-result'),
   dispose: vi.fn(),
+  getStatus: vi.fn(() => streamableStatus),
   listTools: vi.fn(async () => ({})),
   name: 'streamable',
   supportsTool: vi.fn((toolId: string) => toolId.startsWith('streamable.')),
@@ -19,6 +31,7 @@ const streamableHttpClient = {
 const stdioClient = {
   callTool: vi.fn(async () => 'stdio-result'),
   dispose: vi.fn(),
+  getStatus: vi.fn(() => stdioStatus),
   listTools: vi.fn(async () => ({
     'filesystem.list_directory': { description: 'List files' },
   })),
@@ -41,7 +54,7 @@ vi.mock('../../mcp/stdio-client', () => ({
   createStdioClient: vi.fn(() => stdioClient),
 }));
 
-import { callTool, disposeClients, getClient, initClients } from '../../mcp';
+import { callTool, disposeClients, getClient, getClientStatuses, initClients } from '../../mcp';
 
 describe('mcp index', () => {
   beforeEach(() => {
@@ -102,13 +115,16 @@ describe('mcp index', () => {
       servers: [
         { args: ['/tmp'], command: 'node', name: 'filesystem', transport: 'stdio' },
         { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
+        { name: 'streamable', transport: 'streamable-http', url: 'https://example.com/mcp' },
       ],
     });
 
+    expect(getClientStatuses()).toEqual([stdioStatus, sseStatus, streamableStatus]);
     await disposeClients();
 
     expect(stdioClient.dispose).toHaveBeenCalled();
     expect(sseClient.dispose).toHaveBeenCalled();
     expect(getClient('filesystem')).toBeUndefined();
+    expect(getClientStatuses()).toEqual([]);
   });
 });
