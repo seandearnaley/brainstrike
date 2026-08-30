@@ -11,7 +11,8 @@ const require = createRequire(import.meta.url);
 const DEFAULT_PORT = agentDevToolsDefaults.defaultPort;
 const MIN_PORT = agentDevToolsDefaults.minPort;
 const MAX_PORT = agentDevToolsDefaults.maxPort;
-export const AGENT_DEBUG_ENDPOINT_TIMEOUT_MS = 90_000;
+const DEFAULT_AGENT_DEBUG_ENDPOINT_TIMEOUT_MS = 30_000;
+const WINDOWS_AGENT_DEBUG_ENDPOINT_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 500;
 const PROCESS_TREE_POLL_INTERVAL_MS = 50;
 const PROCESS_TREE_TERM_GRACE_MS = 2000;
@@ -40,6 +41,12 @@ export function parsePort(value) {
 
 export function resolveEndpoint(port) {
   return `http://127.0.0.1:${port}`;
+}
+
+export function resolveAgentDebugEndpointTimeoutMs(platform = process.platform) {
+  return platform === 'win32'
+    ? WINDOWS_AGENT_DEBUG_ENDPOINT_TIMEOUT_MS
+    : DEFAULT_AGENT_DEBUG_ENDPOINT_TIMEOUT_MS;
 }
 
 export function formatMcpConfig(endpoint) {
@@ -164,7 +171,8 @@ export async function waitForEndpoint(endpoint, options = {}) {
   const startedAt = Date.now();
   const url = `${endpoint}/json/version`;
   const { signal } = options;
-  while (Date.now() - startedAt < AGENT_DEBUG_ENDPOINT_TIMEOUT_MS) {
+  const timeoutMs = options.timeoutMs ?? resolveAgentDebugEndpointTimeoutMs();
+  while (Date.now() - startedAt < timeoutMs) {
     throwIfAborted(signal);
     try {
       const response = await fetch(url, { signal });
@@ -1016,15 +1024,17 @@ async function main() {
       // hygiene and must not sit in front of the dev server the user asked for.
       // It now overlaps with startup instead.
       reportSweep(await sweepStaleProfiles({ currentUserDataDir: userDataDir }));
-      reportSweep(
-        await sweepStaleProfiles({
-          currentUserDataDir: pnpmShim.directory,
-          prefix: PNPM_SHIM_PREFIX,
-        }),
-        console.log,
-        console.error,
-        { prefix: PNPM_SHIM_PREFIX, resourceName: 'pnpm shim' }
-      );
+      if (pnpmShim.directory) {
+        reportSweep(
+          await sweepStaleProfiles({
+            currentUserDataDir: pnpmShim.directory,
+            prefix: PNPM_SHIM_PREFIX,
+          }),
+          console.log,
+          console.error,
+          { prefix: PNPM_SHIM_PREFIX, resourceName: 'pnpm shim' }
+        );
+      }
       await waitForEndpointOrChildExit(endpoint, child, spawnErrorCapture);
       console.log('\nMCP config:\n');
       console.log(formatMcpConfig(endpoint));

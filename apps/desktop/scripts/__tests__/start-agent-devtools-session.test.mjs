@@ -7,7 +7,6 @@ import path from 'node:path';
 import test from 'node:test';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
-  AGENT_DEBUG_ENDPOINT_TIMEOUT_MS,
   captureChildSpawnError,
   cleanupAgentDebugSession,
   cleanupChildAndProfile,
@@ -23,6 +22,7 @@ import {
   readProfileOwnerMarker,
   removeUserDataDir,
   reportSweep,
+  resolveAgentDebugEndpointTimeoutMs,
   resolveEndpoint,
   resolvePnpmInvocation,
   resolvePnpmSpawnOptions,
@@ -36,8 +36,10 @@ import {
   writeProfileOwnerMarker,
 } from '../start-agent-devtools-session.mjs';
 
-test('allows a bounded Windows cold start to exceed thirty seconds', () => {
-  assert.equal(AGENT_DEBUG_ENDPOINT_TIMEOUT_MS, 90_000);
+test('allows a bounded Windows cold start without delaying failures on other platforms', () => {
+  assert.equal(resolveAgentDebugEndpointTimeoutMs('win32'), 90_000);
+  assert.equal(resolveAgentDebugEndpointTimeoutMs('darwin'), 30_000);
+  assert.equal(resolveAgentDebugEndpointTimeoutMs('linux'), 30_000);
 });
 
 const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
