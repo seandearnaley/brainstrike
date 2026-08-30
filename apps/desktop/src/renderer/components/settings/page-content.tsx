@@ -294,10 +294,26 @@ export default function SettingsPageContent() {
         useNativeToolPreferencesStore.getState().resetTools();
         await window.mcp?.resetTools?.();
       },
+      subscribeMcpConfig: (
+        listener: (info: { error?: string; exists: boolean; path: string }) => void
+      ) => {
+        const onConfigUpdated = window.mcp?.onConfigUpdated;
+        if (!onConfigUpdated) {
+          throw new Error('MCP bridge is missing onConfigUpdated');
+        }
+        return onConfigUpdated(listener);
+      },
       ...(onServerStatusUpdated && {
         subscribeMcpServerStatus: (listener: (event: McpHostWatchEvent) => void) =>
           onServerStatusUpdated(listener),
       }),
+      subscribeMcpTools: (listener: () => void) => {
+        const onToolsUpdated = window.mcp?.onToolsUpdated;
+        if (!onToolsUpdated) {
+          throw new Error('MCP bridge is missing onToolsUpdated');
+        }
+        return onToolsUpdated(() => listener());
+      },
       ...(window.mcp?.getPath && {
         getMcpConfigPath: async () => (await window.mcp?.getPath?.()) ?? '',
       }),
