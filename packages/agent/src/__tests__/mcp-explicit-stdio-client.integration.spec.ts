@@ -26,6 +26,7 @@ const FIXTURE_TOOL_NAMES = ['inspect_env', 'exit_once', 'invalid_output'];
 
 interface FixtureState {
   exitToolCalls: number;
+  listToolCalls: number;
   starts: number;
 }
 
@@ -135,6 +136,7 @@ describe('ExplicitStdioMcpClient integration', () => {
 
     await expect(readStateFile(stateFile)).resolves.toEqual({
       exitToolCalls: 0,
+      listToolCalls: 0,
       starts: 2,
     });
     expect(client.getProtocolEra()).toBe('legacy');
@@ -154,6 +156,7 @@ describe('ExplicitStdioMcpClient integration', () => {
     });
     await expect(readStateFile(stateFile)).resolves.toEqual({
       exitToolCalls: 0,
+      listToolCalls: 0,
       starts: 1,
     });
   });
@@ -177,8 +180,18 @@ describe('ExplicitStdioMcpClient integration', () => {
     });
     await expect(readStateFile(stateFile)).resolves.toEqual({
       exitToolCalls: 0,
+      listToolCalls: 1,
       starts: 1,
     });
+  });
+
+  it('does not repeat parameterized first-page discovery before a tool call', async () => {
+    const { client, stateFile } = await createFixture();
+
+    await client.listTools(undefined, { _meta: { traceId: 'trace-1' } });
+    await client.callTool({ arguments: {}, name: 'inspect_env' });
+
+    await expect(readStateFile(stateFile)).resolves.toMatchObject({ listToolCalls: 1 });
   });
 
   it('shares one terminal close operation and rejects later requests', async () => {
@@ -228,6 +241,7 @@ describe('ExplicitStdioMcpClient integration', () => {
     );
     await expect(readStateFile(stateFile)).resolves.toEqual({
       exitToolCalls: 1,
+      listToolCalls: 1,
       starts: 1,
     });
     expect(unexpectedCloses).toBe(1);
@@ -237,6 +251,7 @@ describe('ExplicitStdioMcpClient integration', () => {
     expect(reconnectedTools.tools.map((tool) => tool.name)).toEqual(FIXTURE_TOOL_NAMES);
     await expect(readStateFile(stateFile)).resolves.toEqual({
       exitToolCalls: 1,
+      listToolCalls: 2,
       starts: 2,
     });
   });
@@ -259,7 +274,11 @@ describe('ExplicitStdioMcpClient integration', () => {
     const reconnectedTools = await client.listTools();
 
     expect(reconnectedTools.tools.map((tool) => tool.name)).toEqual(FIXTURE_TOOL_NAMES);
-    await expect(readStateFile(stateFile)).resolves.toEqual({ exitToolCalls: 1, starts: 2 });
+    await expect(readStateFile(stateFile)).resolves.toEqual({
+      exitToolCalls: 1,
+      listToolCalls: 2,
+      starts: 2,
+    });
   });
 
   it('restores SDK tool metadata before the first call on a reconnected child', async () => {
@@ -274,6 +293,7 @@ describe('ExplicitStdioMcpClient integration', () => {
     );
     await expect(readStateFile(stateFile)).resolves.toEqual({
       exitToolCalls: 1,
+      listToolCalls: 2,
       starts: 2,
     });
   });

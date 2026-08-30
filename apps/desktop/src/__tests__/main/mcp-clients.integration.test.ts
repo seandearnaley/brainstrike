@@ -2,8 +2,10 @@ import fsp from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, test } from 'vitest';
 import { disposeClients, getClient, initClients } from '../../mcp';
+import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 
 const require = createRequire(import.meta.url);
 const filesystemServerPackageJsonPath = require.resolve(
@@ -37,6 +39,41 @@ describe('mcp-clients', () => {
     expect(tools).toBeTruthy();
     expect(tools).toHaveProperty('filesystem.list_directory');
     expect(tools).toHaveProperty('filesystem.read_file');
+  }, 30_000);
+
+  test('desktop host owns and closes the official stdio client graph', async () => {
+    const configuredServerId = parseConfiguredMcpServerId('filesystem.host');
+    const runtime = createDesktopMcpHostRuntime();
+    try {
+      await runtime.replaceResolvedConfig({
+        servers: [
+          {
+            args: [filesystemServerEntrypoint, '/tmp'],
+            command: process.execPath,
+            env: {},
+            name: configuredServerId,
+            protocol: 'legacy',
+            transport: 'stdio',
+          },
+        ],
+      });
+      const listing = await runtime.host.invoke({ configuredServerId, type: 'tools/list' });
+      expect(listing).toMatchObject({
+        result: {
+          tools: expect.arrayContaining([expect.objectContaining({ name: 'list_directory' })]),
+        },
+        type: 'tools/list',
+      });
+      await expect(runtime.host.close()).resolves.toMatchObject({
+        callbacksClosed: 1,
+        childProcessesClosed: 1,
+        clientsClosed: 1,
+        failures: [],
+        requestsSettled: 1,
+      });
+    } finally {
+      await runtime.host.close();
+    }
   }, 30_000);
 
   test('hot re-init replaces clients', async () => {

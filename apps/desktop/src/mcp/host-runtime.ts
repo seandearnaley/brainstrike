@@ -23,6 +23,7 @@ import { McpHostService } from './host-service';
 import {
   McpServerActor,
   type McpServerActorClient,
+  McpServerActorClientCleanupError,
   type McpServerActorClientFactory,
 } from './server-actor';
 import { connectedStatus } from './types';
@@ -65,7 +66,7 @@ class ConfigRefError extends Error {
 const logger = createLogger('DesktopMcpHostRuntime');
 const samePrivateConfig = (left: ResolvedMcpServer, right: ResolvedMcpServer): boolean =>
   isDeepStrictEqual({ ...left, enabledTools: undefined }, { ...right, enabledTools: undefined });
-const closeReport = (
+const successfulCloseReport = (
   transport: ResolvedMcpServer['transport'],
   requestsSettled: number
 ): McpHostCloseReport =>
@@ -82,12 +83,24 @@ const closeReport = (
 
 type ListToolsOperation = Extract<McpHostOperation, { type: 'tools/list' }>;
 const listToolsParams = (operation: ListToolsOperation) =>
-  operation._meta || operation.cursor
+  operation._meta !== undefined || operation.cursor !== undefined
     ? {
         ...(operation._meta ? { _meta: operation._meta } : {}),
-        ...(operation.cursor ? { cursor: operation.cursor } : {}),
+        ...(operation.cursor === undefined ? {} : { cursor: operation.cursor }),
       }
     : undefined;
+
+async function closeAfterFailure(client: ExplicitClient, cause: unknown): Promise<never> {
+  try {
+    await client.close();
+  } catch (cleanupCause) {
+    throw new McpServerActorClientCleanupError(
+      [cause, cleanupCause],
+      'MCP client operation failed and cleanup also failed'
+    );
+  }
+  throw cause;
+}
 
 async function connectClient(
   client: ExplicitClient,
@@ -97,8 +110,7 @@ async function connectClient(
   try {
     await client.connect({ signal: context.signal });
   } catch (cause) {
-    await client.close().catch(() => undefined);
-    throw cause;
+    return await closeAfterFailure(client, cause);
   }
   const status = connectedStatus(client, {
     configuredProtocol: server.protocol,
@@ -106,16 +118,18 @@ async function connectClient(
     transport: server.transport,
   });
   if (status.state !== 'connected') {
-    await client.close();
-    throw new Error(
-      status.state === 'error' ? status.error : 'Connected MCP client has no negotiated status'
+    return await closeAfterFailure(
+      client,
+      new Error(
+        status.state === 'error' ? status.error : 'Connected MCP client has no negotiated status'
+      )
     );
   }
   let requestsSettled = 0;
   return {
     async close() {
       await client.close();
-      return closeReport(server.transport, requestsSettled);
+      return successfulCloseReport(server.transport, requestsSettled);
     },
     async invoke(operation, options) {
       try {

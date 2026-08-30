@@ -351,12 +351,12 @@ describe('DesktopMcpHostRuntime', () => {
     await runtime.host.invoke({
       _meta: { traceId: 'trace-1' },
       configuredServerId: testCase.server.name,
-      cursor: 'next-page',
+      cursor: '',
       type: 'tools/list',
     });
     expect(explicitClient.listTools).toHaveBeenCalledWith(
       { signal: expect.any(AbortSignal) },
-      { _meta: { traceId: 'trace-1' }, cursor: 'next-page' }
+      { _meta: { traceId: 'trace-1' }, cursor: '' }
     );
     const report = await runtime.host.close();
     expect(report).toMatchObject({
@@ -373,6 +373,57 @@ describe('DesktopMcpHostRuntime', () => {
         })
       );
     }
+  });
+
+  it('surfaces connection and cleanup failures together', async () => {
+    const explicitClient = transportClient();
+    const onInternalError = vi.fn();
+    explicitClient.connect.mockRejectedValue(new Error('connect failed'));
+    explicitClient.close.mockRejectedValue(new Error('cleanup failed'));
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: () => explicitClient,
+      onInternalError,
+    });
+    await runtime.replaceResolvedConfig(resolved(http()));
+    await runtime.host
+      .invoke({
+        configuredServerId: parseConfiguredMcpServerId('team.linear.prod'),
+        type: 'tools/list',
+      })
+      .catch(() => undefined);
+    expect(onInternalError).toHaveBeenCalledWith(
+      'mcp-client-creation-failed',
+      expect.objectContaining({
+        errors: [
+          expect.objectContaining({ message: 'connect failed' }),
+          expect.objectContaining({ message: 'cleanup failed' }),
+        ],
+      })
+    );
+    await expect(runtime.host.close()).resolves.toMatchObject({
+      failures: [expect.objectContaining({ code: 'mcp-client-creation-cleanup-failed' })],
+    });
+  });
+
+  it('drains accepted operations before reporting close and exposes one singleton', async () => {
+    const listing = Promise.withResolvers<{ tools: [] }>();
+    const explicitClient = transportClient();
+    explicitClient.listTools.mockImplementation(async () => await listing.promise);
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: () => explicitClient,
+    });
+    await runtime.replaceResolvedConfig(resolved(http()));
+    const invocation = runtime.host.invoke({
+      configuredServerId: parseConfiguredMcpServerId('team.linear.prod'),
+      type: 'tools/list',
+    });
+    await vi.waitFor(() => expect(explicitClient.listTools).toHaveBeenCalledOnce());
+    const closing = runtime.host.close();
+    await Promise.resolve();
+    expect(explicitClient.close).not.toHaveBeenCalled();
+    listing.resolve({ tools: [] });
+    await expect(invocation).rejects.toMatchObject({ category: 'generation-retired' });
+    await expect(closing).resolves.toMatchObject({ requestsSettled: 1 });
     expect(getDesktopMcpHostRuntime()).toBe(getDesktopMcpHostRuntime());
   });
 });

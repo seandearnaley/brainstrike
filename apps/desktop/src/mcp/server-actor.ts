@@ -19,6 +19,9 @@ export interface McpServerActorClient {
   invoke(operation: McpHostOperation, options: { signal: AbortSignal }): Promise<unknown>;
   readonly negotiated: McpNegotiatedStatus;
 }
+export class McpServerActorClientCleanupError extends AggregateError {
+  override readonly name = 'McpServerActorClientCleanupError';
+}
 interface ClientContext {
   configuredServerId: ConfiguredMcpServerId;
   generation: number;
@@ -48,6 +51,7 @@ type McpServerActorErrorCode =
   | 'mcp-client-close-failed'
   | 'mcp-client-close-report-invalid'
   | 'mcp-client-close-reported-failures'
+  | 'mcp-client-creation-cleanup-failed'
   | 'mcp-client-creation-failed'
   | 'mcp-configured-server-mismatch'
   // Stable BST-1504 cross-process code; the underscore spelling is intentional.
@@ -191,6 +195,11 @@ export class McpServerActor {
       });
     } catch (cause) {
       this.throwIfAborted();
+      if (cause instanceof McpServerActorClientCleanupError) {
+        this.clientClosePromise = Promise.resolve(
+          this.closeFailureReport(new ActorError('transport', 'mcp-client-creation-cleanup-failed'))
+        );
+      }
       const error = new ActorError('connection', 'mcp-client-creation-failed');
       this.diagnose(error.code, cause);
       throw this.fail(error);

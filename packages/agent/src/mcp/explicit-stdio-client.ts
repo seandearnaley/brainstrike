@@ -134,9 +134,14 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     params?: ExplicitStdioMcpListToolsParams
   ): Promise<ExplicitStdioMcpListToolsResult> {
     const connection = await this.getConnection(options);
-    return params
-      ? connection.client.listTools(params, options)
-      : this.refreshToolMetadata(connection, options);
+    if (!params) {
+      return this.refreshToolMetadata(connection, options);
+    }
+    const result = await connection.client.listTools(params, options);
+    if (params.cursor === undefined) {
+      connection.toolMetadataReady = true;
+    }
+    return result;
   }
 
   async callTool(
