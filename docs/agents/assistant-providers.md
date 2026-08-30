@@ -1960,6 +1960,14 @@ Remote transport rules:
   transport. A 400/404/405 initialization failure therefore remains visible.
 - Both HTTP variants share strict HTTP(S)-URL, no-embedded-credentials, header,
   secret-decryption, cancellation, progress, and lifecycle behavior.
+- HTTP lifecycle ownership is explicit. `client-owned` connections invalidate,
+  close, reconnect once, and replay only a reconnectable session failure.
+  `host-owned` connections invalidate and close locally without replay; the
+  triggering operation keeps its original transport failure, new operations
+  may create a fresh connection, and the host receives one isolated
+  `onUnexpectedClose` notification. Observer throws and asynchronous
+  rejections are diagnosed without replacing the transport failure. Explicit
+  `close()` remains idempotent and owns all final local/session cleanup.
 
 Ownership and flow:
 1. Config — `apps/desktop/src/mcp-loader.ts` is the strict JSONC/Zod desktop

@@ -37,6 +37,19 @@ describe('ExplicitHttpMcpClient validation', () => {
     expect(() => Reflect.construct(ExplicitHttpMcpClient, [options])).toThrow('host-owner');
   });
 
+  it('rejects a non-callable unexpected-close observer from an untyped consumer', () => {
+    const options = {
+      name: 'invalid-observer-canary',
+      onUnexpectedClose: 'not-callable',
+      transport: 'streamable-http',
+      url: 'https://example.test/mcp',
+    };
+
+    expect(() => Reflect.construct(ExplicitHttpMcpClient, [options])).toThrow(
+      'onUnexpectedClose must be a function'
+    );
+  });
+
   it.each(['auto', '2026-07-28'] as const)(
     'rejects protocol %s on legacy SSE at the public client boundary',
     (protocol) => {

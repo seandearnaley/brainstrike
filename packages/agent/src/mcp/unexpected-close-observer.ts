@@ -10,11 +10,16 @@ export function diagnoseInvalidatedCloseFailure(
 }
 
 export function notifyUnexpectedClose(
-  observer: (() => void) | undefined,
+  observer: (() => void | Promise<void>) | undefined,
   transport: 'sse' | 'stdio' | 'streamable-http'
 ): void {
   try {
-    observer?.();
+    const notification = observer?.();
+    if (notification) {
+      void Promise.resolve(notification).catch((error: unknown) => {
+        logger.error('MCP unexpected-close observer failed', { error, transport });
+      });
+    }
   } catch (error) {
     logger.error('MCP unexpected-close observer failed', { error, transport });
   }

@@ -26,6 +26,7 @@ const PROTOCOL_OWNED_HEADERS = new Set([
 
 export type ExplicitHttpMcpTransport = 'sse' | 'streamable-http';
 export type ExplicitHttpMcpLifecycle = 'client-owned' | 'host-owned';
+export type ExplicitHttpMcpUnexpectedCloseObserver = () => void | Promise<void>;
 
 export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -60,7 +61,7 @@ export interface ExplicitHttpMcpClientOptions {
   headers?: Readonly<Record<string, string>>;
   lifecycle?: ExplicitHttpMcpLifecycle;
   name: string;
-  onUnexpectedClose?: () => void;
+  onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol?: McpProtocol;
   transport: ExplicitHttpMcpTransport;
   url: string | URL;
@@ -82,7 +83,7 @@ interface NormalizedClientOptions {
   extensionRegistry?: McpClientExtensionRegistry;
   fetch: ExplicitHttpMcpFetch;
   lifecycle: ExplicitHttpMcpLifecycle;
-  onUnexpectedClose?: () => void;
+  onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol: McpProtocol;
   transport: ExplicitHttpMcpTransport;
   url: URL;
@@ -107,6 +108,19 @@ function validateLifecycle(value: unknown, clientName: string): ExplicitHttpMcpL
     );
   }
   return lifecycle;
+}
+
+function validateUnexpectedCloseObserver(
+  value: unknown,
+  clientName: string
+): ExplicitHttpMcpUnexpectedCloseObserver | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'function') {
+    throw new Error(`MCP client "${clientName}": onUnexpectedClose must be a function`);
+  }
+  return value as ExplicitHttpMcpUnexpectedCloseObserver;
 }
 
 function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
@@ -159,6 +173,7 @@ function createHeaderPreservingFetch(
 
 function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClientOptions {
   const name = validateNonEmpty(options.name, 'MCP client name');
+  const onUnexpectedClose = validateUnexpectedCloseObserver(options.onUnexpectedClose, name);
   const protocol = options.protocol ?? 'legacy';
   if (options.transport === 'sse' && protocol !== 'legacy') {
     throw new Error(
@@ -186,7 +201,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     fetch: createHeaderPreservingFetch(baseFetch, options.headers),
     lifecycle: validateLifecycle(options.lifecycle, name),
-    ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
+    ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
     protocol,
     transport: options.transport,
     url,
