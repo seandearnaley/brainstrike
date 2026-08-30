@@ -137,6 +137,7 @@
     "src/assistant-server.ts",
     "src/secrets.ts",
     "src/mcp-loader.ts",
+    "src/mcp/server-actor.ts",
     "src/create-window.ts",
     "src/setup-security.ts",
     "src/agent-client-loader.ts",
