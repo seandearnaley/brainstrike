@@ -82,6 +82,9 @@ const EMPTY_REPORT: McpHostCloseReport = freezeCloseReport({
   subscriptionsClosed: 0,
 });
 export function settleOnAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
   const aborted = Promise.withResolvers<never>();
   const onAbort = () => aborted.reject(signal.reason);
   signal.addEventListener('abort', onAbort, { once: true });

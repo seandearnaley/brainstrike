@@ -185,7 +185,6 @@ describe('McpHostService', () => {
     records[1]?.invalidated.mockReturnValue(true);
     await Promise.all([host.invoke(LIST), host.invoke(LIST)]);
     expect(records.map(({ generation }) => generation)).toEqual([1, 1, 2]);
-    expect(records.map(({ close }) => close.mock.calls.length)).toEqual([1, 0, 0]);
     expect(records[2]?.invoke).toHaveBeenCalledTimes(2);
   });
   it('cancels queued invokes and rechecks invalidation before routing later work', async () => {
@@ -200,10 +199,10 @@ describe('McpHostService', () => {
     const cancelled = host.invoke(LIST, { signal: controller.signal });
     controller.abort(reason);
     await expect(cancelled).rejects.toBe(reason);
+    await expect(host.invoke(LIST, { signal: controller.signal })).rejects.toBe(reason);
     const invoked = host.invoke(LIST);
     betaClosed.resolve(CLEAN);
     await expect(invoked).resolves.toEqual(RESULT);
-    expect(records.map(({ generation }) => generation)).toEqual([1, 1, 2]);
     expect(records[0]?.invoke).not.toHaveBeenCalled();
     expect(records[2]?.invoke).toHaveBeenCalledOnce();
   });

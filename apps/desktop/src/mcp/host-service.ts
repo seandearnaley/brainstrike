@@ -157,6 +157,9 @@ export class McpHostService implements McpHostPort {
     if (this.closePromise) {
       return Promise.reject(new McpHostServiceError('mcp-host-closed'));
     }
+    if (options?.signal?.aborted) {
+      return Promise.reject(options.signal.reason);
+    }
     const getEntry = (): ActorEntry => {
       this.assertOpen();
       const entry = this.actors.get(operation.configuredServerId);
