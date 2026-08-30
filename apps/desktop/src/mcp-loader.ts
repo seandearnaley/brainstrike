@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { McpProtocolEnum, type McpProtocolMigration } from '@brainstrike/agent';
+import { ConfiguredMcpServerIdSchema } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { app, safeStorage } from 'electron';
 import {
@@ -19,10 +20,7 @@ const NonEmptyStringSchema = z
   .string()
   .min(1, 'must not be empty')
   .refine((value) => value.trim().length > 0, 'must not be blank');
-const ServerNameSchema = NonEmptyStringSchema.refine(
-  (value) => value !== '__proto__',
-  'reserved server name'
-);
+const ServerNameSchema = ConfiguredMcpServerIdSchema;
 const SpawnStringSchema = z
   .string()
   .refine((value) => !value.includes('\0'), 'invalid spawn string');

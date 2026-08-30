@@ -4,7 +4,9 @@
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
-    "@brainstrike/types": "workspace:*"
+    "@brainstrike/types": "workspace:*",
+    "@modelcontextprotocol/core": "2.0.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",

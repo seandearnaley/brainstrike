@@ -1406,6 +1406,12 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
+      '@modelcontextprotocol/core':
+        specifier: 2.0.0
+        version: 2.0.0
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
     devDependencies:
       '@assistant-ui/react':
         specifier: 'catalog:'

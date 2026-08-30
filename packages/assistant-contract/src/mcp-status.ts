@@ -65,6 +65,18 @@ export const MCP_SUPPORT_MATRIX = [
   },
 ] as const satisfies readonly McpSupportMatrixEntry[];
 
+export const MCP_CONNECTION_STATES = [
+  'disconnected',
+  'connecting',
+  'authentication-required',
+  'authorizing',
+  'connected',
+  'closing',
+  'error',
+] as const;
+
+export type McpConnectionState = (typeof MCP_CONNECTION_STATES)[number];
+
 export interface McpServerIdentity {
   description?: string;
   name: string;
