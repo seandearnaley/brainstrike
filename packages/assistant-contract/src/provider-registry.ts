@@ -754,6 +754,28 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
       {
+        // Official Qwen release material owns the Qwen3.8 Flash identity,
+        // text/image/video input, text output, optional xhigh/medium/low
+        // reasoning ladder, and xhigh default. OpenRouter Models API owns the
+        // fixed route's 1M/131,072 ceilings, tools/structured-output support,
+        // and gateway pricing, retrieved 2026-08-30 (BST-1516). The output fact
+        // is a hard maximum, not a default combined reasoning + answer window.
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-flash',
+        label: 'Qwen3.8 Flash (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.15, outputPerMTok: 0.47 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
         // Official Z.AI GLM-5.3 release/model/thinking docs, retrieved
         // 2026-08-22, own the API ID, text-only modality, native 1M/128K
         // limits, and mandatory max/high/low reasoning ladder with max default.
