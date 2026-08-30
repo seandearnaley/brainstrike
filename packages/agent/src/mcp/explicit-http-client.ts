@@ -40,6 +40,7 @@ export interface ExplicitHttpMcpRequestOptions {
 }
 
 export type ExplicitHttpMcpListToolsResult = Awaited<ReturnType<Client['listTools']>>;
+export type ExplicitHttpMcpListToolsParams = NonNullable<Parameters<Client['listTools']>[0]>;
 export type ExplicitHttpMcpTool = ExplicitHttpMcpListToolsResult['tools'][number];
 export type ExplicitHttpMcpCallToolParams = Parameters<Client['callTool']>[0];
 export type ExplicitHttpMcpCallToolResult = Awaited<ReturnType<Client['callTool']>>;
@@ -253,9 +254,10 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   }
 
   async listTools(
-    options?: ExplicitHttpMcpRequestOptions
+    options?: ExplicitHttpMcpRequestOptions,
+    params?: ExplicitHttpMcpListToolsParams
   ): Promise<ExplicitHttpMcpListToolsResult> {
-    return this.runRequest((client) => client.listTools(undefined, options), options);
+    return this.runRequest((client) => client.listTools(params, options), options);
   }
 
   async callTool(

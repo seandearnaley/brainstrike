@@ -5,6 +5,7 @@ import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpListToolsParams,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
   NegotiatedProtocolFacts,
@@ -18,6 +19,7 @@ const DISCONNECTED_DURING_CONNECT_ERROR_MESSAGE =
 
 export type ExplicitStdioMcpCallToolParams = ExplicitHttpMcpCallToolParams;
 export type ExplicitStdioMcpCallToolResult = ExplicitHttpMcpCallToolResult;
+export type ExplicitStdioMcpListToolsParams = ExplicitHttpMcpListToolsParams;
 export type ExplicitStdioMcpListToolsResult = ExplicitHttpMcpListToolsResult;
 export type ExplicitStdioMcpRequestOptions = ExplicitHttpMcpRequestOptions;
 
@@ -128,10 +130,13 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   async listTools(
-    options?: ExplicitStdioMcpRequestOptions
+    options?: ExplicitStdioMcpRequestOptions,
+    params?: ExplicitStdioMcpListToolsParams
   ): Promise<ExplicitStdioMcpListToolsResult> {
     const connection = await this.getConnection(options);
-    return this.refreshToolMetadata(connection, options);
+    return params
+      ? connection.client.listTools(params, options)
+      : this.refreshToolMetadata(connection, options);
   }
 
   async callTool(

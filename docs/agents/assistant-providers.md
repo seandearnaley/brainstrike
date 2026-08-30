@@ -2141,6 +2141,10 @@ an ordered replacement, actor creation resolves staged refs first and committed
 refs second so an earlier self-heal cannot lose its still-current authority.
 Rejected asynchronous diagnostic sinks are isolated and logged rather than
 escaping as unhandled rejections.
+Its default singleton connects the official explicit HTTP/stdio client before
+publishing negotiated readiness. HTTP is always `host-owned`; successful actor
+close reports one client and observer callback, one stdio child when applicable,
+and the exact number of operations settled through that client wrapper.
 
 The surrounding host boundary has these additional invariants:
 
