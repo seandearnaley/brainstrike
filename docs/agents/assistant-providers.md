@@ -3090,11 +3090,19 @@ removes `null` only from declared properties absent from `required`, including
 properties nested in arrays, tuple positions, uniquely const-matched
 `oneOf`/`anyOf` branches, and unions with exactly one structured branch matching
 the input's object/array kind. Dynamic record values (`additionalProperties`)
-and ambiguous union branches are not omittable fields. Input JSON Schema is
-derived lazily on the wrapper's first parse and memoized for that wrapper. The
-authored Zod schema then runs exactly once, applying ordinary optional/default
-behavior before execution, while the wrapper leaves provider JSON Schema
-unchanged.
+and ambiguous union branches are not omittable fields. Authored intersections
+(`allOf`) and structured record values (an object-valued
+`additionalProperties`) are intentionally unsupported traversal shapes for the
+registered catalog. A catalog invariant converts every authored schema with the
+same `{ cycles: 'throw', io: 'input', reused: 'inline' }` options and reports the
+tool id plus JSON path if either unsupported shape appears. Boolean
+`additionalProperties` values used by ordinary strict objects remain valid.
+Input JSON Schema is derived lazily on the wrapper's first parse and memoized for
+that wrapper. The paired exact-option catalog parity test eagerly converts every
+registered wrapper before merge, so a future recursive or unrepresentable
+schema fails in CI rather than first appearing in a live tool call. The authored
+Zod schema then runs exactly once, applying ordinary optional/default behavior
+before execution, while the wrapper leaves provider JSON Schema unchanged.
 Required fields still reject `null`; invalid non-null values still fail their
 original validators. Those failures stay observable through the ordinary
 Mastra validation result or desktop `ToolInputValidationError`—there is no

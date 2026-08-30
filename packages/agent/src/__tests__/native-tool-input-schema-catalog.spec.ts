@@ -43,6 +43,54 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.writeWorkspaceFile',
 ] as const;
 
+const PROVIDER_JSON_SCHEMA_OPTIONS = {
+  cycles: 'throw',
+  io: 'input',
+  reused: 'inline',
+} as const;
+
+function isJsonSchemaRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function jsonPathProperty(path: string, property: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(property)
+    ? `${path}.${property}`
+    : `${path}[${JSON.stringify(property)}]`;
+}
+
+function collectUnsupportedProviderSchemaShapes(schema: unknown, toolId: string): string[] {
+  const findings: string[] = [];
+
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => {
+        visit(entry, `${path}[${index}]`);
+      });
+      return;
+    }
+    if (!isJsonSchemaRecord(value)) {
+      return;
+    }
+
+    if (Array.isArray(value['allOf'])) {
+      findings.push(`${toolId} at ${path}.allOf: allOf intersections are unsupported`);
+    }
+    if (isJsonSchemaRecord(value['additionalProperties'])) {
+      findings.push(
+        `${toolId} at ${path}.additionalProperties: structured additionalProperties is unsupported`
+      );
+    }
+
+    for (const [property, child] of Object.entries(value)) {
+      visit(child, jsonPathProperty(path, property));
+    }
+  };
+
+  visit(schema, '$');
+  return findings;
+}
+
 describe('native tool input schema catalog', () => {
   it('exports exact desktop-native parity without stale web or Mastra-owned skill entries', () => {
     const registry = Reflect.get(toolSchemas, 'NATIVE_TOOL_INPUT_SCHEMAS');
@@ -242,9 +290,8 @@ describe('native tool input schema catalog', () => {
       if (!(schema instanceof z.ZodPipe)) {
         continue;
       }
-      const options = { cycles: 'throw', io: 'input', reused: 'inline' } as const;
-      const wrappedJsonSchema = z.toJSONSchema(schema, options);
-      const authoredJsonSchema = z.toJSONSchema(schema.out, options);
+      const wrappedJsonSchema = z.toJSONSchema(schema, PROVIDER_JSON_SCHEMA_OPTIONS);
+      const authoredJsonSchema = z.toJSONSchema(schema.out, PROVIDER_JSON_SCHEMA_OPTIONS);
       expect(wrappedJsonSchema, toolId).toEqual(authoredJsonSchema);
       expect(JSON.stringify(wrappedJsonSchema), toolId).toBe(JSON.stringify(authoredJsonSchema));
 
@@ -262,6 +309,43 @@ describe('native tool input schema catalog', () => {
         JSON.stringify(authoredMastraSchema)
       );
     }
+  });
+
+  it('rejects unsupported provider-normalization shapes with tool and JSON paths', () => {
+    const unsupportedExamples = [
+      z.intersection(
+        z.object({ left: z.string().optional() }),
+        z.object({ right: z.string().optional() })
+      ),
+      z.object({
+        files: z.record(z.string(), z.object({ note: z.string().optional() }).strict()),
+      }),
+    ];
+
+    expect(
+      unsupportedExamples.flatMap((schema, index) =>
+        collectUnsupportedProviderSchemaShapes(
+          z.toJSONSchema(schema, PROVIDER_JSON_SCHEMA_OPTIONS),
+          `example-${index}`
+        )
+      )
+    ).toEqual([
+      'example-0 at $.allOf: allOf intersections are unsupported',
+      'example-1 at $.properties.files.additionalProperties: structured additionalProperties is unsupported',
+    ]);
+
+    const unsupportedCatalogShapes = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS).flatMap(
+      ([toolId, schema]) =>
+        collectUnsupportedProviderSchemaShapes(
+          z.toJSONSchema(schema.out, PROVIDER_JSON_SCHEMA_OPTIONS),
+          toolId
+        )
+    );
+
+    expect(
+      unsupportedCatalogShapes,
+      'provider null normalization only supports declared properties, arrays/tuples, and supported unions'
+    ).toEqual([]);
   });
 
   it('normalizes direct factory schemas through Standard Schema without mutating input', async () => {
