@@ -1,7 +1,7 @@
 import type { McpHostCloseReport, McpHostConfig } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId, parseMcpHostConfig } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
+import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { McpHostService } from '../../mcp/host-service';
 import type { McpServerActorClientFactory } from '../../mcp/server-actor';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../../mcp-loader';
@@ -26,6 +26,16 @@ const client = () => ({
     era: 'modern' as const,
     revision: '2026-07-28',
   },
+});
+const transportClient = () => ({
+  callTool: vi.fn(async () => ({ content: [] })),
+  close: vi.fn(async () => undefined),
+  connect: vi.fn(async () => undefined),
+  getNegotiatedProtocolVersion: vi.fn(() => '2026-07-28'),
+  getProtocolEra: vi.fn(() => 'modern' as const),
+  getServerCapabilities: vi.fn(() => ({ tools: {} })),
+  getServerVersion: vi.fn(() => ({ name: 'test', version: '1.0.0' })),
+  listTools: vi.fn(async () => ({ tools: [] })),
 });
 type HttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
 type StdioServer = Extract<ResolvedMcpServer, { transport: 'stdio' }>;
@@ -324,5 +334,45 @@ describe('DesktopMcpHostRuntime', () => {
         expect.objectContaining({ code })
       );
     }
+  });
+
+  it.each([
+    { childProcessesClosed: 0, server: http() },
+    { childProcessesClosed: 1, server: stdio() },
+  ])('composes $server.transport with exact close accounting', async (testCase) => {
+    const explicitClient = transportClient();
+    const createHttpTransportClient = vi.fn(() => explicitClient);
+    const createStdioTransportClient = vi.fn(() => explicitClient);
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient,
+      createStdioTransportClient,
+    });
+    await runtime.replaceResolvedConfig(resolved(testCase.server));
+    await runtime.host.invoke({
+      _meta: { traceId: 'trace-1' },
+      configuredServerId: testCase.server.name,
+      cursor: 'next-page',
+      type: 'tools/list',
+    });
+    expect(explicitClient.listTools).toHaveBeenCalledWith(
+      { signal: expect.any(AbortSignal) },
+      { _meta: { traceId: 'trace-1' }, cursor: 'next-page' }
+    );
+    const report = await runtime.host.close();
+    expect(report).toMatchObject({
+      callbacksClosed: 1,
+      childProcessesClosed: testCase.childProcessesClosed,
+      clientsClosed: 1,
+      requestsSettled: 1,
+    });
+    if (testCase.server.transport !== 'stdio') {
+      expect(createHttpTransportClient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lifecycle: 'host-owned',
+          onUnexpectedClose: expect.any(Function),
+        })
+      );
+    }
+    expect(getDesktopMcpHostRuntime()).toBe(getDesktopMcpHostRuntime());
   });
 });
