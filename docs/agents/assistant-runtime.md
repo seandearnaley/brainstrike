@@ -1204,9 +1204,14 @@ paging).
 
 Parallel tool calls: every initial, approval-resume, and suspended-tool-resume
 leg passes Mastra `toolCallConcurrency: { limit: 10, strategy: 'called' }`
-through `buildToolLoopOptions`. The explicit limit preserves Mastra's upstream
-default ceiling of ten: a concurrent step can perform no more simultaneous DB,
-embedding, or fence-backed tool work than Mastra already allowed. `called` is
+through `buildToolLoopOptions`. Ten is a deliberate Brainstrike ceiling,
+matching Mastra 1.59's internal default when this boundary was adopted; Mastra
+does not export that default, so upgrades must re-evaluate this owned pin rather
+than assuming it tracks upstream. The effective behavior intentionally changes
+from one call to as many as ten when a batch was previously serialized only by
+a registered-but-uncalled gated tool. This is an outer scheduling cap, not a
+claim that arbitrary resource-owning tool bodies may bypass their own queues,
+locks, or conflict detection. `called` is
 APPROVAL/SUSPENSION-AWARE, not risk-aware: it changes which tools decide whether
 a step must serialize by inspecting only the tools the model called and whether
 they carry Mastra's `requireApproval` flag or suspend schema. A batch whose

@@ -1106,11 +1106,12 @@ function* makeResumedStartChunks(
 type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 
 /**
- * Preserve Mastra's upstream default resource ceiling while opting into its
- * approval-aware selection strategy. With `called`, registered-but-unused
- * approval/suspend tools no longer serialize a batch whose called tools carry
- * neither gate; Mastra still drops the effective concurrency to one when the
- * batch actually calls one of them or the run-wide approval gate is active.
+ * Deliberately pin Brainstrike's ceiling to the internal Mastra 1.59 default
+ * observed at adoption; Mastra does not export that default. With `called`,
+ * registered-but-unused approval/suspend tools no longer serialize a batch
+ * whose called tools carry neither gate; Mastra still drops the effective
+ * concurrency to one when the batch actually calls one of them or the run-wide
+ * approval gate is active.
  */
 const APPROVAL_AWARE_TOOL_CALL_CONCURRENCY = {
   limit: 10,

@@ -67,6 +67,7 @@ const { GEMMA4_E2B_MODEL_ID } = await import('../providers/local/local-model-spe
 const { toAiSdkStyleStream } = await import('../message-utils');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
+const CONCURRENCY_SIGNAL_DEADLINE_MS = 15_000;
 
 /**
  * A scripted model that emits a tool call for `toolName` on turn 1, then the
@@ -411,6 +412,16 @@ function createDeferredSignal(): { promise: Promise<void>; resolve: () => void }
   };
 }
 
+function signalArrivesBeforeDeadline(signal: Promise<void>): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timeoutId = setTimeout(() => resolve(false), CONCURRENCY_SIGNAL_DEADLINE_MS);
+    void signal.then(() => {
+      clearTimeout(timeoutId);
+      resolve(true);
+    });
+  });
+}
+
 function makeMemory(database: PGlite) {
   const options: PgliteMastraMemoryOptions = {
     database: database as unknown as PgliteDatabase,
@@ -716,6 +727,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     });
 
     const liveChunks: StreamChunk[] = [];
+    const approvalObserved = createDeferredSignal();
     const initialDrain = (async () =>
       drainYielding(
         await streamMastraAgent(
@@ -728,24 +740,24 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
           ],
           { memory, runtime, storage, tools }
         ),
-        (chunk) => liveChunks.push(chunk)
+        (chunk) => {
+          liveChunks.push(chunk);
+          if (chunk.type === 'tool-approval-required') {
+            approvalObserved.resolve();
+          }
+        }
       ))();
 
-    const readReachedBarrier = await new Promise<boolean>((resolve) => {
-      const timeoutId = setTimeout(() => resolve(false), 2000);
-      void readStarted.promise.then(() => {
-        clearTimeout(timeoutId);
-        resolve(true);
-      });
-    });
-    await new Promise((resolve) => {
-      setImmediate(resolve);
-    });
+    const readReachedBarrier = await signalArrivesBeforeDeadline(readStarted.promise);
+    const approvalReachedWhileReadBlocked = await signalArrivesBeforeDeadline(
+      approvalObserved.promise
+    );
 
     // The batch includes an ACTUALLY called requireApproval tool, so `called`
     // must reduce the whole foreach to concurrency 1. While the first read is
     // held at a deterministic barrier, neither ask call may reach its gate.
     expect(readReachedBarrier).toBe(true);
+    expect(approvalReachedWhileReadBlocked).toBe(false);
     expect(findApprovalChunk(liveChunks)).toBeUndefined();
     expect(askExecute).not.toHaveBeenCalled();
 
@@ -1938,13 +1950,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // Deadlock guard, not a latency assertion: the old `available` strategy
     // starts only one call here because `shell_tool` is registered, so the
     // ten-call barrier cannot open until the test releases it.
-    const firstWaveReached = await new Promise<boolean>((resolve) => {
-      const timeoutId = setTimeout(() => resolve(false), 2000);
-      void firstWaveStarted.promise.then(() => {
-        clearTimeout(timeoutId);
-        resolve(true);
-      });
-    });
+    const firstWaveReached = await signalArrivesBeforeDeadline(firstWaveStarted.promise);
     const startedBeforeRelease = startedIndexes.length;
     const maxActiveBeforeRelease = maxActiveExecutions;
     releaseFirstWave.resolve();
@@ -2088,13 +2094,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // `available` strategy starts one write because the uncalled ask tool is
     // registered; `called` lets both explicitly allowed, independent writes
     // reach the barrier together.
-    const bothWritesReached = await new Promise<boolean>((resolve) => {
-      const timeoutId = setTimeout(() => resolve(false), 2000);
-      void bothWritesStarted.promise.then(() => {
-        clearTimeout(timeoutId);
-        resolve(true);
-      });
-    });
+    const bothWritesReached = await signalArrivesBeforeDeadline(bothWritesStarted.promise);
     const startedBeforeRelease = startedKeys.length;
     releaseWrites.resolve();
     const chunks = await drainPromise;
