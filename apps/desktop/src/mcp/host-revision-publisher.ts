@@ -13,12 +13,12 @@ export interface McpHostPublisherDiagnostic {
 }
 
 export interface McpHostRevisionPublisherOptions {
-  onDiagnostic(diagnostic: McpHostPublisherDiagnostic): void;
+  onDiagnostic(diagnostic: McpHostPublisherDiagnostic): Promise<void> | void;
 }
 
 interface WatchRegistration {
   filter: ReadonlySet<ConfiguredMcpServerId> | undefined;
-  listener(event: McpHostWatchEvent): void;
+  listener(event: McpHostWatchEvent): Promise<void> | void;
   registeredRevision: number;
 }
 
@@ -98,7 +98,10 @@ export class McpHostRevisionPublisher {
     return this.publish(nextServers, new Set([server.configuredServerId]));
   }
 
-  watch(filter: McpHostWatchFilter, listener: (event: McpHostWatchEvent) => void): () => void {
+  watch(
+    filter: McpHostWatchFilter,
+    listener: (event: McpHostWatchEvent) => Promise<void> | void
+  ): () => void {
     if (this.closed) {
       throw new McpHostRevisionPublisherClosedError();
     }
@@ -150,15 +153,23 @@ export class McpHostRevisionPublisher {
           )
         : event.servers;
       try {
-        registration.listener(structuredClone({ revision: event.revision, servers }));
+        const delivery = registration.listener(
+          structuredClone({ revision: event.revision, servers })
+        );
+        void Promise.resolve(delivery).catch(() => this.reportWatchListenerFailure());
       } catch {
-        try {
-          this.options.onDiagnostic({
-            code: 'mcp-host-watch-listener-failed',
-            message: 'MCP host watch listener failed',
-          });
-        } catch {}
+        this.reportWatchListenerFailure();
       }
     }
+  }
+
+  private reportWatchListenerFailure(): void {
+    try {
+      const reporting = this.options.onDiagnostic({
+        code: 'mcp-host-watch-listener-failed',
+        message: 'MCP host watch listener failed',
+      });
+      void Promise.resolve(reporting).catch(() => {});
+    } catch {}
   }
 }

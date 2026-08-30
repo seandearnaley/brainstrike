@@ -111,6 +111,28 @@ describe('McpHostRevisionPublisher', () => {
     });
   });
 
+  it('isolates asynchronous listener rejections through the diagnostic sink', async () => {
+    const diagnostic = vi.fn(async () => {
+      await Promise.resolve();
+      throw new Error('diagnostic sink unavailable');
+    });
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: diagnostic });
+    publisher.watch({}, async () => {
+      await Promise.resolve();
+      throw new Error('Authorization: Bearer secret-value');
+    });
+
+    publisher.publishConfigSet([server('alpha')]);
+    await flush();
+    await flush();
+
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(diagnostic).toHaveBeenCalledWith({
+      code: 'mcp-host-watch-listener-failed',
+      message: 'MCP host watch listener failed',
+    });
+  });
+
   it('invalidates queued registrations and rejects watches after terminal close', async () => {
     const listener = vi.fn();
     const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
