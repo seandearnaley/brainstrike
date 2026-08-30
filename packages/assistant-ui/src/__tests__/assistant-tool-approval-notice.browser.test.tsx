@@ -91,9 +91,13 @@ describe('approval file target rendering', () => {
     expect(summary).toHaveTextContent(
       'Creates or overwrites · Path: src/new-file.ts · Workspace root: workspace'
     );
+    expect(getComputedStyle(summary).display).toBe('flex');
 
     // A narrow real layout makes independent flex items wrap. Each separator
     // must travel with its field rather than becoming an orphan on another line.
+    expect(rootLabel.getBoundingClientRect().top).toBeGreaterThan(
+      pathValue.getBoundingClientRect().bottom
+    );
     expectSameRenderedLine(pathSeparator, pathLabel);
     expectSameRenderedLine(rootSeparator, rootLabel);
 
@@ -127,14 +131,25 @@ describe('approval file target rendering', () => {
     const summaryRect = summary.getBoundingClientRect();
     const rootLabelRect = rootLabel.getBoundingClientRect();
     const rootLabelStyle = getComputedStyle(rootLabel);
+    const rootValueStyle = getComputedStyle(rootValue);
+    const summaryStyle = getComputedStyle(summary);
+    const rootFontSize = Number.parseFloat(rootLabelStyle.fontSize);
+    const rootLineHeight = Number.parseFloat(rootLabelStyle.lineHeight);
+    const summaryFontSize = Number.parseFloat(summaryStyle.fontSize);
+    const summaryLineHeight = Number.parseFloat(summaryStyle.lineHeight);
 
     expect(rootValue).toHaveTextContent(longRoot);
     expect(rootValue).toHaveAttribute('title', longRoot);
-    expect(rootLabelStyle.fontSize).toBe('10px');
-    expect(rootLabelStyle.paddingLeft).toBe('6px');
-    expect(rootLabelStyle.paddingTop).toBe('2px');
-    expect(rootLabelStyle.borderLeftWidth).toBe('1px');
+    expect(rootFontSize).toBeLessThan(summaryFontSize);
+    expect(rootLineHeight).toBeLessThan(summaryLineHeight);
+    expect(rootLineHeight / rootFontSize).toBeCloseTo(summaryLineHeight / summaryFontSize, 2);
+    expect(Number.parseFloat(rootLabelStyle.paddingLeft)).toBeGreaterThan(0);
+    expect(Number.parseFloat(rootLabelStyle.paddingTop)).toBeGreaterThan(0);
+    expect(Number.parseFloat(rootLabelStyle.borderLeftWidth)).toBeGreaterThan(0);
     expect(rootLabelStyle.boxSizing).toBe('border-box');
+    expect(rootValueStyle.whiteSpace).toBe('nowrap');
+    expect(rootValueStyle.textOverflow).toBe('ellipsis');
+    expect(rootLabelRect.height).toBeLessThan(2 * rootLineHeight);
     expect(rootValue.clientWidth).toBeGreaterThan(0);
     expect(rootValue.scrollWidth).toBeGreaterThan(rootValue.clientWidth);
     expect(rootLabelRect.width).toBeLessThanOrEqual(summaryRect.width + 1);

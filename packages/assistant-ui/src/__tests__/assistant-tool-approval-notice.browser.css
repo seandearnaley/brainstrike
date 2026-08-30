@@ -26,7 +26,7 @@
 
 .text-xs {
   font-size: 0.75rem;
-  line-height: 1rem;
+  line-height: calc(1 / 0.75);
 }
 
 [class~='text-[10px]'] {
