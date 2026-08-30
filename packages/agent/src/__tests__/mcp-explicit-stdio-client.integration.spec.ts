@@ -16,6 +16,9 @@ import {
 const FIXTURE_PATH = fileURLToPath(
   new URL('./fixtures/mcp-stdio-lifecycle-server.mjs', import.meta.url)
 );
+const MODERN_CAPABILITIES_FIXTURE_PATH = fileURLToPath(
+  new URL('./fixtures/mcp-modern-capabilities-stdio-server.mjs', import.meta.url)
+);
 const FIXTURE_TOOL_NAMES = ['inspect_env', 'exit_once', 'invalid_output'];
 
 interface FixtureState {
@@ -45,7 +48,8 @@ afterEach(async () => {
 
 async function createFixture(
   protocol: McpProtocol = 'legacy',
-  extensionRegistry?: McpClientExtensionRegistry
+  extensionRegistry?: McpClientExtensionRegistry,
+  fixturePath = FIXTURE_PATH
 ): Promise<{
   capabilitiesFile: string;
   client: ExplicitStdioMcpClient;
@@ -56,7 +60,7 @@ async function createFixture(
   const capabilitiesFile = join(directory, 'capabilities.json');
   const stateFile = join(directory, 'state.json');
   const client = new ExplicitStdioMcpClient({
-    args: [FIXTURE_PATH],
+    args: [fixturePath],
     command: process.execPath,
     env: {
       BRAINSTRIKE_STDIO_TEST_CAPABILITIES_FILE: capabilitiesFile,
@@ -87,6 +91,20 @@ describe('ExplicitStdioMcpClient integration', () => {
   it('advertises a registered complete extension over stdio', async () => {
     const extension = createDeferredTestExtension();
     const { capabilitiesFile, client } = await createFixture('legacy', extension.registry);
+    extension.register();
+    await client.callTool({ arguments: {}, name: 'inspect_env' });
+    await expect(readFile(capabilitiesFile, 'utf8').then(JSON.parse)).resolves.toEqual({
+      extensions: { [TEST_EXTENSION_ID]: TEST_EXTENSION_SETTINGS },
+    });
+  });
+
+  it('projects registered extensions onto pinned-modern stdio requests', async () => {
+    const extension = createDeferredTestExtension();
+    const { capabilitiesFile, client } = await createFixture(
+      '2026-07-28',
+      extension.registry,
+      MODERN_CAPABILITIES_FIXTURE_PATH
+    );
     extension.register();
     await client.callTool({ arguments: {}, name: 'inspect_env' });
     await expect(readFile(capabilitiesFile, 'utf8').then(JSON.parse)).resolves.toEqual({

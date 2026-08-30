@@ -952,6 +952,47 @@ describe('UnifiedToolsSettings', () => {
       expect(statusList).toHaveTextContent('capabilities: tools');
     });
 
+    it('renders core support separately from every official MCP extension', async () => {
+      const operations = createMockOperations();
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const matrix = await screen.findByTestId('mcp-support-matrix');
+      expect(within(matrix).getAllByTestId(/^mcp-support-row-/u)).toHaveLength(5);
+      const expectedRows = [
+        ['core:2026-07-28-tools', 'supported', 'BST-1463'],
+        ['io.modelcontextprotocol/ui', 'unsupported', 'BST-1474'],
+        ['io.modelcontextprotocol/tasks', 'unsupported', 'BST-1473'],
+        ['io.modelcontextprotocol/oauth-client-credentials', 'unsupported', ''],
+        ['io.modelcontextprotocol/enterprise-managed-authorization', 'unsupported', ''],
+      ] as const;
+      for (const [id, status, implementationTicket] of expectedRows) {
+        const row = within(matrix).getByTestId(`mcp-support-row-${id}`);
+        expect(row).toHaveAttribute('data-status', status);
+        expect(row).toHaveAttribute('data-implementation-ticket', implementationTicket);
+        expect(within(row).getByTestId(`mcp-support-status-${id}`)).toHaveTextContent(
+          status === 'supported' ? 'Supported' : 'Unsupported'
+        );
+      }
+      expect(matrix).not.toHaveTextContent(/BST-|implementation ticket/u);
+      expect(within(matrix).getByTestId('mcp-support-status-core:2026-07-28-tools')).toHaveClass(
+        'text-emerald-700',
+        'dark:text-emerald-300'
+      );
+      for (const gate of [
+        'MIME declaration',
+        'ui:// resource loading',
+        'tool/result association',
+        'sandbox/CSP',
+        'bidirectional validation',
+        'permission/consent',
+        'lifecycle cleanup',
+        'renderer tests',
+      ]) {
+        expect(matrix).toHaveTextContent(gate);
+      }
+    });
+
     it('shows an error server in both the accordion and diagnostic row', async () => {
       const operations = createMockOperations();
       operations.getMcpServerStatus = vi.fn().mockResolvedValue([
