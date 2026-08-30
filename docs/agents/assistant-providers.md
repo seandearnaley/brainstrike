@@ -2141,13 +2141,16 @@ and must never cross renderer IPC or bypass the platform redaction path.
   callback listener, loopback port, probe, and child process is gone.
 
 The host publisher alone owns a monotonic revision sequence beginning at zero.
-Config and actor publications advance it only for a material state change; each
-queued event is a detached authority snapshot. Filtered watches receive only
+Config and actor publications advance it only for a material state change.
+The queued event and returned snapshot are separate detached values. Filtered watches receive only
 events affecting one of their configured server ids and may therefore observe
 revision holes. Empty configured-server-id filters are rejected visibly rather
-than registered as silent no-op subscriptions. A late transition from a retired
-generation, or from a server removed by configuration, throws a typed error that
-names the configured server id; it never regresses or resurrects authority state.
+than registered as silent no-op subscriptions; non-empty filters may name a
+future configured server so callers can subscribe before configuration lands.
+Actor transitions must exactly match the config-owned generation, protocol policy, and transport.
+Lower and higher generations, policy mutation, and transitions from a server
+removed by configuration throw typed attributable errors; they never regress,
+advance, or resurrect authority state.
 Listener failures are isolated and reported through bounded diagnostics.
 Terminal host close invalidates queued and future watch registrations because
 the closed watch DTO has no terminal event variant; a future terminal event

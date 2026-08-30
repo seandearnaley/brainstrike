@@ -56,13 +56,38 @@ describe('McpHostRevisionPublisher', () => {
     await flush();
 
     expect(listener.mock.calls.map(([event]) => event.revision)).toEqual([2, 3]);
+  });
+
+  it('rejects stale and future actor generations without mutating authority', () => {
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    publisher.publishConfigSet([server('alpha', 2)]);
+
     expect(() => publisher.publishActorTransition(server('alpha', 0))).toThrowError(
-      expect.objectContaining({ code: 'mcp-host-stale-generation' })
+      expect.objectContaining({ category: 'generation-retired', code: 'mcp-host-stale-generation' })
     );
-    expect(publisher.snapshot().servers[0]?.generation).toBe(1);
+    expect(() => publisher.publishActorTransition(server('alpha', 3))).toThrowError(
+      expect.objectContaining({
+        category: 'generation-retired',
+        code: 'mcp-host-future-generation',
+      })
+    );
+    expect(publisher.snapshot()).toEqual({ revision: 1, servers: [server('alpha', 2)] });
+  });
+
+  it('rejects unknown servers and actor attempts to mutate config-owned policy', () => {
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    publisher.publishConfigSet([server('alpha')]);
+
     expect(() => publisher.publishActorTransition(server('missing'))).toThrowError(
       new McpHostRevisionPublisherTransitionError('mcp-host-server-unknown', 'missing')
     );
+    expect(() =>
+      publisher.publishActorTransition({ ...server('alpha'), configuredProtocol: 'legacy' })
+    ).toThrowError(expect.objectContaining({ code: 'mcp-host-actor-config-mismatch' }));
+    expect(() =>
+      publisher.publishActorTransition({ ...server('alpha'), transport: 'stdio' })
+    ).toThrowError(expect.objectContaining({ code: 'mcp-host-actor-config-mismatch' }));
+    expect(publisher.snapshot()).toEqual({ revision: 1, servers: [server('alpha')] });
   });
 
   it('delivers filtered removals and empty config snapshots with revision holes', async () => {
@@ -106,8 +131,9 @@ describe('McpHostRevisionPublisher', () => {
     unsubscribe();
 
     const input = server('alpha');
-    publisher.publishConfigSet([input]);
+    const returned = publisher.publishConfigSet([input]);
     Reflect.set(input, 'generation', 42);
+    Reflect.set(returned.servers[0] ?? {}, 'generation', 77);
     await flush();
 
     expect(diagnostic).toHaveBeenCalledWith(
@@ -118,6 +144,7 @@ describe('McpHostRevisionPublisher', () => {
       listenerFailure
     );
     expect(safeListener).toHaveBeenCalledWith({ revision: 1, servers: [server('alpha')] });
+    expect(safeListener.mock.lastCall?.[0]).not.toBe(returned);
     expect(unsubscribed).not.toHaveBeenCalled();
     expect(structuredClone(publisher.snapshot())).toEqual({
       revision: 1,
@@ -151,12 +178,21 @@ describe('McpHostRevisionPublisher', () => {
     );
   });
 
-  it('invalidates queued registrations and rejects watches after terminal close', async () => {
+  it('rejects empty filters but permits a future configured server id', async () => {
     const listener = vi.fn();
     const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
     expect(() => publisher.watch({ configuredServerIds: [] }, listener)).toThrowError(
       expect.objectContaining({ code: 'mcp-host-empty-watch-filter' })
     );
+    publisher.watch({ configuredServerIds: [server('future').configuredServerId] }, listener);
+    publisher.publishConfigSet([server('future')]);
+    await flush();
+    expect(listener).toHaveBeenCalledWith({ revision: 1, servers: [server('future')] });
+  });
+
+  it('invalidates queued registrations and rejects watches after terminal close', async () => {
+    const listener = vi.fn();
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
     publisher.watch({}, listener);
     publisher.publishConfigSet([server('alpha')]);
     publisher.close();

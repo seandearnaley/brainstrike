@@ -225,6 +225,12 @@ describe('MCP test lab package contract', () => {
     );
     expect(normalizedContract).toContain('Empty configured-server-id filters are rejected visibly');
     expect(normalizedContract).toContain(
+      'Actor transitions must exactly match the config-owned generation, protocol policy, and transport.'
+    );
+    expect(normalizedContract).toContain(
+      'The queued event and returned snapshot are separate detached values.'
+    );
+    expect(normalizedContract).toContain(
       'Terminal host close invalidates queued and future watch registrations'
     );
     expect(normalizedContract).toContain(
