@@ -9,6 +9,7 @@ import type {
   ExplicitHttpMcpRequestOptions,
   NegotiatedProtocolFacts,
 } from './explicit-http-client';
+import { notifyUnexpectedClose } from './unexpected-close-observer';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit stdio MCP client is closed';
@@ -30,6 +31,7 @@ export interface ExplicitStdioMcpClientOptions {
   env?: Readonly<Record<string, string>>;
   extensionRegistry?: McpClientExtensionRegistry;
   name: string;
+  onUnexpectedClose?: () => void;
   protocol?: McpProtocol;
 }
 
@@ -50,6 +52,7 @@ interface NormalizedClientOptions {
   command: string;
   env?: Record<string, string>;
   extensionRegistry?: McpClientExtensionRegistry;
+  onUnexpectedClose?: () => void;
   protocol: McpProtocol;
 }
 
@@ -79,6 +82,7 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     ...(options.args ? { args: [...options.args] } : {}),
     ...(options.env ? { env: { ...options.env } } : {}),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
+    ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
     protocol: options.protocol ?? 'legacy',
   };
 }
@@ -151,6 +155,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   private async closeConnections(): Promise<void> {
+    const connectionSettled = this.connectPromise?.catch(() => undefined);
     const connections = new Set<ActiveConnection>();
     if (this.activeConnection) {
       connections.add(this.activeConnection);
@@ -162,7 +167,10 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     this.pendingConnection = undefined;
     this.connectPromise = undefined;
 
-    const results = await Promise.allSettled([...connections].map(({ client }) => client.close()));
+    const results = await Promise.allSettled(
+      [...connections].flatMap(({ client, transport }) => [transport.close(), client.close()])
+    );
+    await connectionSettled;
     const errors = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []
     );
@@ -189,6 +197,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
 
   private startConnection(options?: ExplicitStdioMcpRequestOptions): Promise<ActiveConnection> {
     const connection = this.createConnection();
+    // Publish ownership before connect starts so terminal close always owns and reaps this child.
     this.pendingConnection = connection;
     const connectPromise = this.openConnection(connection, options);
     this.connectPromise = connectPromise;
@@ -224,7 +233,6 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       await connection.client.connect(connection.transport, options);
       connected = true;
       if (this.closed) {
-        await connection.client.close();
         throw closedClientError();
       }
       if (connection.disconnected) {
@@ -257,19 +265,26 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       toolMetadataRequest: undefined,
       transport,
     };
-    client.onclose = () => {
-      this.invalidateConnection(connection);
-    };
+    client.onclose = () => this.invalidateConnection(connection);
     return connection;
   }
 
   private invalidateConnection(connection: ActiveConnection): void {
+    if (connection.disconnected) {
+      return;
+    }
+    // close() sets closed before teardown. Pending failures reject connect directly; only an
+    // established active connection notifies the observer.
+    const unexpected = !this.closed && this.activeConnection === connection;
     connection.disconnected = true;
     if (this.activeConnection === connection) {
       this.activeConnection = undefined;
     }
     if (this.pendingConnection === connection) {
       this.pendingConnection = undefined;
+    }
+    if (unexpected) {
+      notifyUnexpectedClose(this.options.onUnexpectedClose, 'stdio');
     }
   }
 

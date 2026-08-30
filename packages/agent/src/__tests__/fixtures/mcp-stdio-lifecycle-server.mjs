@@ -10,6 +10,15 @@ const capabilitiesFile = process.env['BRAINSTRIKE_STDIO_TEST_CAPABILITIES_FILE']
 if (!capabilitiesFile) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_CAPABILITIES_FILE is required');
 }
+const pidFile = process.env['BRAINSTRIKE_STDIO_TEST_PID_FILE'];
+if (!pidFile) {
+  throw new Error('BRAINSTRIKE_STDIO_TEST_PID_FILE is required');
+}
+const rawConnectDelayMs = process.env['BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS'];
+const connectDelayMs = rawConnectDelayMs === undefined ? 0 : Number(rawConnectDelayMs);
+if (!Number.isSafeInteger(connectDelayMs) || connectDelayMs < 0) {
+  throw new Error('BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS must be a non-negative safe integer');
+}
 
 async function readState() {
   try {
@@ -29,6 +38,7 @@ async function updateState(update) {
 }
 
 await updateState((state) => ({ ...state, starts: state.starts + 1 }));
+await writeFile(pidFile, String(process.pid), 'utf8');
 
 const server = new Server(
   {
@@ -120,4 +130,7 @@ server.setRequestHandler('tools/call', async (request) => {
   throw new Error(`Unknown lifecycle fixture tool: ${request.params.name}`);
 });
 
+if (connectDelayMs > 0) {
+  await new Promise((resolve) => setTimeout(resolve, connectDelayMs));
+}
 await server.connect(new StdioServerTransport());
