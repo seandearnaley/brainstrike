@@ -36,15 +36,9 @@ vi.mock('../../native-tool-executor', () => ({
   isExecutableNativeTool: vi.fn(),
 }));
 
-// Mock MCP callTool
-vi.mock('../../mcp', () => ({
-  callTool: vi.fn(),
-}));
-
 import { isNativeTool } from '@brainstrike/agent/client';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import { callTool } from '../../mcp';
 import { executeNativeTool, isExecutableNativeTool } from '../../native-tool-executor';
 
 vi.mock('../../assistant-server/assistant-tools', () => ({
@@ -157,18 +151,16 @@ describe('ipc-tools', () => {
       });
     });
 
-    it('executes MCP tools via callTool', async () => {
+    it('rejects non-native tools instead of exposing an MCP execution bypass', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockResolvedValue({ mcpResult: 'success' });
 
       const result = await toolsExecuteHandler(mockEvent, 'mcp__server__tool', { param: 'value' });
 
       expect(isExecutableNativeTool).toHaveBeenCalledWith('mcp__server__tool');
-      expect(callTool).toHaveBeenCalledWith('mcp__server__tool', { param: 'value' });
       expect(result).toMatchObject({
-        result: { mcpResult: 'success' },
-        success: true,
+        error: expect.stringContaining('not available in the native Tool Playground harness'),
+        success: false,
       });
     });
 
@@ -206,7 +198,6 @@ describe('ipc-tools', () => {
         },
         { embeddingHostManager: undefined }
       );
-      expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         result: { content: 'hello' },
         success: true,
@@ -500,22 +491,8 @@ describe('ipc-tools', () => {
 
       expect(isExecutableNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
       expect(isNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
-      expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         error: expect.stringContaining('requires database access'),
-        success: false,
-      });
-    });
-
-    it('handles MCP tool execution errors', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockRejectedValue(new Error('MCP server disconnected'));
-
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__server__tool', {});
-
-      expect(result).toMatchObject({
-        error: 'MCP server disconnected',
         success: false,
       });
     });
@@ -523,7 +500,6 @@ describe('ipc-tools', () => {
     it('includes durationMs in all responses', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockResolvedValue({ data: 'test' });
 
       const result = (await toolsExecuteHandler(mockEvent, 'mcp__tool', {})) as {
         durationMs: number;
@@ -548,75 +524,15 @@ describe('ipc-tools', () => {
     });
 
     it('handles non-Error thrown values', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockRejectedValue('string error');
+      vi.mocked(isExecutableNativeTool).mockReturnValue(true);
+      vi.mocked(executeNativeTool).mockRejectedValue('string error');
 
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {});
+      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {});
 
       expect(result).toMatchObject({
         error: 'Tool execution failed',
         success: false,
       });
-    });
-
-    it('rejects non-object MCP inputs before calling tool', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', ['not', 'object']);
-
-      expect(callTool).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        error: 'Tool input must be a JSON object.',
-        success: false,
-      });
-    });
-
-    it('rejects non-serializable MCP inputs', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {
-        value: () => {},
-      });
-
-      expect(callTool).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        error: expect.stringContaining('JSON-serializable'),
-        success: false,
-      });
-    });
-
-    it('rejects oversized MCP inputs before calling tool', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {
-        payload: 'x'.repeat(1_000_001),
-      });
-
-      expect(callTool).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        error: expect.stringContaining('exceeds'),
-        success: false,
-      });
-    });
-
-    it('passes input as-is to MCP callTool', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockResolvedValue({});
-
-      const complexInput = {
-        array: [1, 2, 3],
-        nested: { value: 123 },
-        string: 'test',
-      };
-
-      await toolsExecuteHandler(mockEvent, 'mcp__server__tool', complexInput);
-
-      expect(callTool).toHaveBeenCalledWith('mcp__server__tool', complexInput);
     });
   });
 
@@ -633,7 +549,7 @@ describe('ipc-tools', () => {
     });
 
     it('registers channels through the typed desktop IPC registry', () => {
-      const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-tools.ts'), 'utf8');
+      const source = readFileSync(path.resolve(import.meta.dirname, '../../ipc-tools.ts'), 'utf8');
 
       expect(source).toContain('createDesktopIpcRegistry');
       expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);

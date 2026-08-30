@@ -2,7 +2,7 @@ import type { McpServerStatusSnapshot } from '@brainstrike/assistant-contract';
 import type { McpConfig, McpServer } from '../mcp-loader';
 import { createHttpClient } from './http-client';
 import { createStdioClient } from './stdio-client';
-import type { McpCallOptions, McpClient } from './types';
+import type { McpClient } from './types';
 
 type ClientMap = Map<string, McpClient>;
 let clients: ClientMap = new Map();
@@ -43,28 +43,6 @@ export function getClient(name: string): McpClient | undefined {
 
 export function getClientStatuses(): McpServerStatusSnapshot[] {
   return Array.from(clients.values(), (client) => client.getStatus());
-}
-
-export async function callTool(
-  tool: string,
-  params?: Record<string, unknown>,
-  opts?: McpCallOptions
-): Promise<unknown> {
-  const clientName = tool.includes('.') ? tool.slice(0, tool.indexOf('.')) : undefined;
-  if (clientName) {
-    const scopedClient = clients.get(clientName) || clients.get(clientName.toLowerCase());
-    if (scopedClient) {
-      return scopedClient.callTool(tool, params, opts);
-    }
-  }
-
-  for (const client of clients.values()) {
-    if (client.supportsTool(tool)) {
-      return client.callTool(tool, params, opts);
-    }
-  }
-
-  throw new Error(`No MCP client registered for tool '${tool}'`);
 }
 
 export type { McpClient } from './types';

@@ -11,7 +11,6 @@ import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
@@ -490,31 +489,6 @@ async function tryExecuteAssistantRuntimeTool(
   };
 }
 
-async function executeMcpTool(
-  startTime: number,
-  toolId: string,
-  input: unknown
-): Promise<ToolExecutionResult> {
-  const sanitizedInput = sanitizeToolInput(startTime, toolId, input, 'mcp');
-  if (!sanitizedInput.ok) {
-    return sanitizedInput.result;
-  }
-
-  const result = await callTool(toolId, sanitizedInput.value);
-  const durationMs = buildDuration(startTime);
-  logger.info('Tool executed', {
-    durationMs,
-    source: 'mcp',
-    toolId,
-  });
-
-  return {
-    durationMs,
-    result,
-    success: true,
-  };
-}
-
 /**
  * Legacy tool-execution harness retained for focused unit coverage only.
  *
@@ -575,7 +549,10 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
           );
         }
 
-        return await executeMcpTool(startTime, normalizedToolId, input);
+        return buildFailureResult(
+          startTime,
+          `Tool "${normalizedToolId}" is not available in the native Tool Playground harness.`
+        );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Tool execution failed';
         logger.error('Tool execution failed', { error: errorMessage, toolId: normalizedToolId });

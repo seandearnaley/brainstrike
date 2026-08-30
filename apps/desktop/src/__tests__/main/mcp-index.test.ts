@@ -54,7 +54,7 @@ vi.mock('../../mcp/stdio-client', () => ({
   createStdioClient: vi.fn(() => stdioClient),
 }));
 
-import { callTool, disposeClients, getClient, getClientStatuses, initClients } from '../../mcp';
+import { disposeClients, getClient, getClientStatuses, initClients } from '../../mcp';
 
 describe('mcp index', () => {
   beforeEach(() => {
@@ -81,19 +81,10 @@ describe('mcp index', () => {
     expect(getClient('custom')).toBeDefined();
   });
 
-  it('routes tool calls to the correct client', async () => {
-    initClients({
-      servers: [
-        { args: ['/tmp'], command: 'node', name: 'filesystem', transport: 'stdio' },
-        { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
-      ],
-    });
+  it('does not expose global-map tool invocation routing', async () => {
+    const mcpIndex = await import('../../mcp');
 
-    await expect(callTool('filesystem.list_directory')).resolves.toBe('stdio-result');
-    await expect(callTool('remote.search')).resolves.toBe('sse-result');
-    await expect(callTool('unknown.tool')).rejects.toThrow(
-      "No MCP client registered for tool 'unknown.tool'"
-    );
+    expect(mcpIndex).not.toHaveProperty('callTool');
   });
 
   it('rejects an unsupported transport instead of silently omitting the server', () => {
