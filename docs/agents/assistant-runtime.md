@@ -1205,13 +1205,29 @@ paging).
 Parallel tool calls: every initial, approval-resume, and suspended-tool-resume
 leg passes Mastra `toolCallConcurrency: { limit: 10, strategy: 'called' }`
 through `buildToolLoopOptions`. The explicit limit preserves Mastra's upstream
-default ceiling of ten: safe-only steps can perform no more simultaneous DB,
-embedding, or fence-backed tool work than Mastra already allowed. `called`
-changes only which tools decide whether a step must serialize. A batch of safe
-calls therefore runs concurrently even when an approval/suspend-capable tool
-remains registered but uncalled. A batch that actually calls any per-tool
-`requireApproval` / suspend-schema tool still runs sequentially, as does a run
-with the run-wide `requireToolApproval` gate.
+default ceiling of ten: a concurrent step can perform no more simultaneous DB,
+embedding, or fence-backed tool work than Mastra already allowed. `called` is
+APPROVAL/SUSPENSION-AWARE, not risk-aware: it changes which tools decide whether
+a step must serialize by inspecting only the tools the model called and whether
+they carry Mastra's `requireApproval` flag or suspend schema. A batch whose
+called tools carry neither marker therefore runs concurrently even when a
+marked tool remains registered but uncalled. A batch that actually calls any
+per-tool `requireApproval` / suspend-schema tool still runs sequentially, as
+does a run with the run-wide `requireToolApproval` gate.
+
+A policy-allowed `edit`, `execute`, or opaque `mcp` tool carries no approval
+marker, so independent allowed calls MAY overlap. This is not a claim that
+arbitrary mutations commute, and dependent operations MUST NOT be batched into
+one model step. Ordering that is part of a native tool's safety contract stays
+owned at that tool boundary: workspace file mutations serialize by canonical
+path through `withFileLock` (with staleness comparison and checkpoint capture
+inside the same critical section), while independent paths may overlap;
+`manageCanvas` uses immutable versions and returns a retryable
+`version_conflict` to a concurrent loser. An MCP server owns the concurrency
+semantics of its opaque effects; Brainstrike cannot infer or silently invent an
+ordering contract for a user-trusted server. Tool authors and the model must
+serialize dependent calls, and a server that requires ordering must enforce it
+at its own boundary.
 
 The permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with
 the PER-TOOL `requireApproval`, so on an ordinary initial leg without a
