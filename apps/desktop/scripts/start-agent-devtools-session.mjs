@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const DEFAULT_PORT = agentDevToolsDefaults.defaultPort;
 const MIN_PORT = agentDevToolsDefaults.minPort;
 const MAX_PORT = agentDevToolsDefaults.maxPort;
-const POLL_TIMEOUT_MS = 30_000;
+export const AGENT_DEBUG_ENDPOINT_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 500;
 const PROCESS_TREE_POLL_INTERVAL_MS = 50;
 const PROCESS_TREE_TERM_GRACE_MS = 2000;
@@ -162,7 +162,7 @@ export async function waitForEndpoint(endpoint, options = {}) {
   const startedAt = Date.now();
   const url = `${endpoint}/json/version`;
   const { signal } = options;
-  while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+  while (Date.now() - startedAt < AGENT_DEBUG_ENDPOINT_TIMEOUT_MS) {
     throwIfAborted(signal);
     try {
       const response = await fetch(url, { signal });
@@ -207,6 +207,61 @@ export function resolvePnpmInvocation({
     );
   }
   return { argsPrefix: [], command: 'pnpm' };
+}
+
+export async function createWindowsPnpmShimEnvironment({
+  env = process.env,
+  invocation,
+  makeTempDir = fs.mkdtemp,
+  platform = process.platform,
+} = {}) {
+  const descendantEnv = { ...env };
+  if (platform !== 'win32') {
+    return { cleanup: async () => {}, env: descendantEnv };
+  }
+
+  if (
+    typeof invocation?.command !== 'string' ||
+    invocation.argsPrefix?.length !== 1 ||
+    typeof invocation.argsPrefix[0] !== 'string'
+  ) {
+    throw new Error(
+      'Agent DevTools cannot pin Windows pnpm descendants without a validated invocation.'
+    );
+  }
+
+  const quoteBatchPath = (value) => {
+    if (/["\r\n]/u.test(value)) {
+      throw new Error('Agent DevTools pnpm descendant paths cannot contain quotes or newlines.');
+    }
+    return `"${value.replaceAll('%', '%%')}"`;
+  };
+  const nodeCommand = quoteBatchPath(invocation.command);
+  const pnpmEntrypoint = quoteBatchPath(invocation.argsPrefix[0]);
+  const shimDir = await makeTempDir(path.join(os.tmpdir(), 'brainstrike-agent-pnpm-'));
+  const shimPath = path.join(shimDir, 'pnpm.cmd');
+  await fs.writeFile(
+    shimPath,
+    `@echo off\r\nsetlocal DisableDelayedExpansion\r\n${nodeCommand} ${pnpmEntrypoint} %*\r\n`,
+    'utf8'
+  );
+
+  const pathKey = Object.keys(descendantEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path';
+  descendantEnv[pathKey] = descendantEnv[pathKey]
+    ? `${shimDir};${descendantEnv[pathKey]}`
+    : shimDir;
+
+  return {
+    cleanup: () => fs.rm(shimDir, { force: true, recursive: true }),
+    env: descendantEnv,
+  };
+}
+
+export function getAgentDebugPnpmPreflightCommands() {
+  return [
+    ['run', 'predev'],
+    ['exec', 'install-electron'],
+  ];
 }
 
 function spawnPnpm(args, env, platform = process.platform, invocation = resolvePnpmInvocation()) {
@@ -813,6 +868,32 @@ export async function cleanupChildAndProfile(child, userDataDir, options = {}) {
   await (options.removeUserDataDir ?? removeUserDataDir)(userDataDir);
 }
 
+export async function cleanupAgentDebugSession(child, userDataDir, options = {}) {
+  const { afterCleanup, ...childCleanupOptions } = options;
+  let cleanupError;
+  try {
+    await cleanupChildAndProfile(child, userDataDir, childCleanupOptions);
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  try {
+    await afterCleanup?.();
+  } catch (error) {
+    if (cleanupError) {
+      throw new AggregateError(
+        [cleanupError, error],
+        `Agent DevTools could not fully clean up profile ${userDataDir}.`
+      );
+    }
+    throw error;
+  }
+
+  if (cleanupError) {
+    throw cleanupError;
+  }
+}
+
 function installSignalCleanup(child, userDataDir, options = {}) {
   let cleanupStarted = false;
   const cleanup = (signal) => {
@@ -821,7 +902,7 @@ function installSignalCleanup(child, userDataDir, options = {}) {
     }
     cleanupStarted = true;
     console.log(`Agent DevTools received ${signal}; stopping its owned process tree...`);
-    void cleanupChildAndProfile(child, userDataDir, options).then(
+    void cleanupAgentDebugSession(child, userDataDir, options).then(
       () => process.exit(signal === 'SIGHUP' ? 129 : signal === 'SIGINT' ? 130 : 143),
       (error) => {
         console.error(`Agent DevTools shutdown failed for profile ${userDataDir}:`, error);
@@ -851,52 +932,64 @@ async function main() {
   }
 
   const pnpmInvocation = resolvePnpmInvocation();
-  runPnpmCommandSync(['run', 'predev'], process.env, { invocation: pnpmInvocation });
-  const windowsJob = initializeWindowsJob();
-  const { electronOverrideDistPath, userDataDir } = await createAgentDevtoolsProfile();
-  const env = {
-    ...process.env,
-    BRAINSTRIKE_AGENT_DEVTOOLS: '1',
-    BRAINSTRIKE_AGENT_DEVTOOLS_HOST: '127.0.0.1',
-    BRAINSTRIKE_AGENT_DEVTOOLS_PORT: String(port),
-    BRAINSTRIKE_DB_ROOT_PATH: userDataDir,
-    BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDir,
-    ...(electronOverrideDistPath ? { ELECTRON_OVERRIDE_DIST_PATH: electronOverrideDistPath } : {}),
-  };
-
-  console.log(`Agent DevTools profile: ${userDataDir}`);
-  console.log(`Agent DevTools endpoint: ${endpoint}`);
-  if (electronOverrideDistPath) {
-    console.log(
-      `Agent DevTools macOS identity: ${MAC_AGENT_DEBUG_APP_NAME} (${MAC_AGENT_DEBUG_BUNDLE_ID})`
-    );
-  }
-
-  const child = spawnPnpm(['run', 'dev:runtime'], env, process.platform, pnpmInvocation);
-  const spawnErrorCapture = captureChildSpawnError(child);
-  const cleanupOptions = windowsJob ? { windowsJob } : {};
-  const uninstallSignalCleanup = installSignalCleanup(child, userDataDir, cleanupOptions);
+  const pnpmShim = await createWindowsPnpmShimEnvironment({ invocation: pnpmInvocation });
   try {
-    // On POSIX the detached child leads its own process group, so its pid is
-    // the group a later sweep must prove empty before reclaiming this profile.
-    // Recorded here rather than at creation because it does not exist until
-    // the spawn returns.
-    if (process.platform !== 'win32' && Number.isInteger(child.pid)) {
-      await writeProfileOwnerMarker(userDataDir, { pgid: child.pid });
+    for (const command of getAgentDebugPnpmPreflightCommands()) {
+      runPnpmCommandSync(command, pnpmShim.env, { invocation: pnpmInvocation });
     }
-    // Deliberately after the spawn: reclaiming other people's leftovers is
-    // hygiene and must not sit in front of the dev server the user asked for.
-    // It now overlaps with startup instead.
-    reportSweep(await sweepStaleProfiles({ currentUserDataDir: userDataDir }));
-    await waitForEndpointOrChildExit(endpoint, child, spawnErrorCapture);
-    console.log('\nMCP config:\n');
-    console.log(formatMcpConfig(endpoint));
-    const exitCode = await waitForChildExit(child);
-    process.exitCode = exitCode;
+    const windowsJob = initializeWindowsJob();
+    const { electronOverrideDistPath, userDataDir } = await createAgentDevtoolsProfile();
+    const env = {
+      ...pnpmShim.env,
+      BRAINSTRIKE_AGENT_DEVTOOLS: '1',
+      BRAINSTRIKE_AGENT_DEVTOOLS_HOST: '127.0.0.1',
+      BRAINSTRIKE_AGENT_DEVTOOLS_PORT: String(port),
+      BRAINSTRIKE_DB_ROOT_PATH: userDataDir,
+      BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDir,
+      ...(electronOverrideDistPath
+        ? { ELECTRON_OVERRIDE_DIST_PATH: electronOverrideDistPath }
+        : {}),
+    };
+
+    console.log(`Agent DevTools profile: ${userDataDir}`);
+    console.log(`Agent DevTools endpoint: ${endpoint}`);
+    if (electronOverrideDistPath) {
+      console.log(
+        `Agent DevTools macOS identity: ${MAC_AGENT_DEBUG_APP_NAME} (${MAC_AGENT_DEBUG_BUNDLE_ID})`
+      );
+    }
+
+    const child = spawnPnpm(['run', 'dev:runtime'], env, process.platform, pnpmInvocation);
+    const spawnErrorCapture = captureChildSpawnError(child);
+    const cleanupOptions = windowsJob ? { windowsJob } : {};
+    const uninstallSignalCleanup = installSignalCleanup(child, userDataDir, {
+      ...cleanupOptions,
+      afterCleanup: pnpmShim.cleanup,
+    });
+    try {
+      // On POSIX the detached child leads its own process group, so its pid is
+      // the group a later sweep must prove empty before reclaiming this profile.
+      // Recorded here rather than at creation because it does not exist until
+      // the spawn returns.
+      if (process.platform !== 'win32' && Number.isInteger(child.pid)) {
+        await writeProfileOwnerMarker(userDataDir, { pgid: child.pid });
+      }
+      // Deliberately after the spawn: reclaiming other people's leftovers is
+      // hygiene and must not sit in front of the dev server the user asked for.
+      // It now overlaps with startup instead.
+      reportSweep(await sweepStaleProfiles({ currentUserDataDir: userDataDir }));
+      await waitForEndpointOrChildExit(endpoint, child, spawnErrorCapture);
+      console.log('\nMCP config:\n');
+      console.log(formatMcpConfig(endpoint));
+      const exitCode = await waitForChildExit(child);
+      process.exitCode = exitCode;
+    } finally {
+      spawnErrorCapture.stop();
+      uninstallSignalCleanup();
+      await cleanupChildAndProfile(child, userDataDir, cleanupOptions);
+    }
   } finally {
-    spawnErrorCapture.stop();
-    uninstallSignalCleanup();
-    await cleanupChildAndProfile(child, userDataDir, cleanupOptions);
+    await pnpmShim.cleanup();
   }
 }
 

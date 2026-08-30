@@ -7,11 +7,15 @@ import path from 'node:path';
 import test from 'node:test';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
+  AGENT_DEBUG_ENDPOINT_TIMEOUT_MS,
   captureChildSpawnError,
+  cleanupAgentDebugSession,
   cleanupChildAndProfile,
   createAgentDevtoolsProfile,
   createMacAgentDebugElectronDist,
+  createWindowsPnpmShimEnvironment,
   formatMcpConfig,
+  getAgentDebugPnpmPreflightCommands,
   initializeWindowsJob,
   parsePort,
   readProfileOwnerMarker,
@@ -29,6 +33,10 @@ import {
   waitForEndpointOrChildExit,
   writeProfileOwnerMarker,
 } from '../start-agent-devtools-session.mjs';
+
+test('allows a bounded Windows cold start to exceed thirty seconds', () => {
+  assert.equal(AGENT_DEBUG_ENDPOINT_TIMEOUT_MS, 90_000);
+});
 
 const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
@@ -92,6 +100,58 @@ test('re-enters the active pnpm CLI without a Windows command shim', () => {
       command: 'C:\\tools\\node.exe',
     }
   );
+});
+
+test('pins Windows pnpm descendants to the validated Node and pnpm entrypoint', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-pnpm-test-'));
+  let requestedPrefix;
+
+  try {
+    const shim = await createWindowsPnpmShimEnvironment({
+      env: { Path: 'C:\\global-tools' },
+      invocation: {
+        argsPrefix: ['C:\\active corepack\\pnpm.cjs'],
+        command: 'C:\\active node\\node.exe',
+      },
+      makeTempDir: async (prefix) => {
+        requestedPrefix = prefix;
+        return root;
+      },
+      platform: 'win32',
+    });
+
+    assert.equal(path.basename(requestedPrefix), 'brainstrike-agent-pnpm-');
+    assert.equal(path.basename(requestedPrefix).startsWith('brainstrike-agent-devtools-'), false);
+    assert.equal(shim.env.Path, `${root};C:\\global-tools`);
+    assert.equal(
+      await readFile(path.join(root, 'pnpm.cmd'), 'utf8'),
+      '@echo off\r\nsetlocal DisableDelayedExpansion\r\n"C:\\active node\\node.exe" "C:\\active corepack\\pnpm.cjs" %*\r\n'
+    );
+    assert.equal('BRAINSTRIKE_AGENT_DEBUG_NODE' in shim.env, false);
+    assert.equal('BRAINSTRIKE_AGENT_DEBUG_PNPM' in shim.env, false);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('rejects unsafe Windows batch paths before allocating a shim directory', async () => {
+  let makeTempDirCalled = false;
+
+  await assert.rejects(
+    createWindowsPnpmShimEnvironment({
+      invocation: {
+        argsPrefix: ['C:\\active corepack\\pnpm.cjs'],
+        command: 'C:\\unsafe"node\\node.exe',
+      },
+      makeTempDir: async () => {
+        makeTempDirCalled = true;
+        return 'C:\\unexpected';
+      },
+      platform: 'win32',
+    }),
+    /cannot contain quotes or newlines/
+  );
+  assert.equal(makeTempDirCalled, false);
 });
 
 test('uses Windows path semantics for a Windows pnpm entrypoint on every test host', () => {
@@ -184,6 +244,13 @@ test('runs the dependency preflight through the resolved pnpm invocation', () =>
   assert.deepEqual(received.args, ['C:\\tools\\pnpm.cjs', 'run', 'predev']);
   assert.deepEqual(received.options.env, { MARKER: 'value' });
   assert.equal(received.options.stdio, 'inherit');
+});
+
+test('provisions Electron before the launcher starts its bounded CDP readiness wait', () => {
+  assert.deepEqual(getAgentDebugPnpmPreflightCommands(), [
+    ['run', 'predev'],
+    ['exec', 'install-electron'],
+  ]);
 });
 
 test('surfaces a dependency preflight failure before runtime startup', () => {
@@ -536,6 +603,25 @@ test('cleanupChildAndProfile surfaces profile removal failures', async () => {
   } finally {
     await rm(root, { force: true, recursive: true });
   }
+});
+
+test('signal cleanup still removes the pnpm shim when profile cleanup fails', async () => {
+  const profileError = new Error('profile removal failed');
+  let shimCleanupCalled = false;
+
+  await assert.rejects(
+    cleanupAgentDebugSession({ exitCode: 0, pid: null, signalCode: null }, 'C:\\agent-profile', {
+      afterCleanup: async () => {
+        shimCleanupCalled = true;
+      },
+      platform: 'linux',
+      removeUserDataDir: async () => {
+        throw profileError;
+      },
+    }),
+    (error) => error === profileError
+  );
+  assert.equal(shimCleanupCalled, true);
 });
 
 test('removeUserDataDir removes a real profile tree, directories included', async () => {
