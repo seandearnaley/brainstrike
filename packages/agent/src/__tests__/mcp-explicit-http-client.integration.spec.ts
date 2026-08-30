@@ -101,14 +101,15 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
 }
-
 function requestMethod(body: unknown): string | undefined {
   if (!(body && typeof body === 'object' && 'method' in body)) {
     return;
   }
   return typeof body.method === 'string' ? body.method : undefined;
 }
-
+function requestCount(requests: readonly RecordedRequest[], method: string): number {
+  return requests.filter((request) => requestMethod(request.body) === method).length;
+}
 async function startStreamableServer(options: {
   failInitializations?: number;
   failToolRequests?: number;
@@ -285,6 +286,15 @@ async function startExpiringStatefulServer(options: {
 
     if (request.method === 'GET') {
       response.writeHead(405).end();
+      return;
+    }
+    if (request.method === 'DELETE') {
+      if (request.headers['mcp-session-id'] !== validSession || expired) {
+        response.writeHead(404).end('no valid session');
+        return;
+      }
+      validSession = undefined;
+      response.writeHead(200).end();
       return;
     }
     if (request.method !== 'POST') {
@@ -852,31 +862,82 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     expect(deleteSignal?.aborted).toBe(true);
     await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
   });
+  it.each([
+    { lifecycle: 'client-owned', requestCount: 2, result: 'resolved', unexpectedCloses: 0 },
+    { lifecycle: 'host-owned', requestCount: 1, result: 'rejected', unexpectedCloses: 1 },
+  ] as const)(
+    '$lifecycle handles an expired session without changing ownership',
+    async (testCase) => {
+      const requests: RecordedRequest[] = [];
+      const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
+      let unexpectedCloses = 0;
+      const client = trackClient({
+        lifecycle: testCase.lifecycle,
+        name: `${testCase.lifecycle}-expired-session-canary`,
+        onUnexpectedClose: () => (unexpectedCloses += 1),
+        transport: 'streamable-http',
+        url: server.url,
+      });
+      await client.connect();
+      server.expireSession();
+      const listing = client.listTools();
+      await (testCase.result === 'resolved'
+        ? expect(listing).resolves.toMatchObject({ tools: [] })
+        : expect(listing).rejects.toMatchObject({ status: 404 }));
+      expect(requestCount(requests, 'initialize')).toBe(testCase.requestCount);
+      expect(requestCount(requests, 'tools/list')).toBe(testCase.requestCount);
+      expect(unexpectedCloses).toBe(testCase.unexpectedCloses);
 
-  it('reinitializes once on the same transport after an established session expires', async () => {
+      if (testCase.lifecycle === 'client-owned') {
+        const initializeRequests = requests.filter(
+          (request) => requestMethod(request.body) === 'initialize'
+        );
+        expect(initializeRequests[0]?.headers['mcp-session-id']).toBeUndefined();
+        expect(initializeRequests[1]?.headers['mcp-session-id']).toBeUndefined();
+        return;
+      }
+
+      await expect(client.listTools()).resolves.toMatchObject({ tools: [] });
+      expect(requestCount(requests, 'initialize')).toBe(2);
+      expect(requestCount(requests, 'tools/list')).toBe(2);
+      await expect(client.close()).resolves.toBeUndefined();
+      expect(requests.filter((request) => request.method === 'DELETE')).toHaveLength(1);
+    }
+  );
+  it('isolates a throwing host-owned invalidation observer from the original failure', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
     const client = trackClient({
-      name: 'expired-session-reinitialize-canary',
+      lifecycle: 'host-owned',
+      name: 'throwing-invalidation-observer-canary',
+      onUnexpectedClose: () => {
+        throw new Error('observer failed');
+      },
       transport: 'streamable-http',
       url: server.url,
     });
     await client.connect();
     server.expireSession();
 
-    await expect(client.listTools()).resolves.toMatchObject({ tools: [] });
-
-    const initializeRequests = requests.filter(
-      (request) => requestMethod(request.body) === 'initialize'
-    );
-    expect(initializeRequests).toHaveLength(2);
-    expect(initializeRequests[0]?.headers['mcp-session-id']).toBeUndefined();
-    expect(initializeRequests[1]?.headers['mcp-session-id']).toBeUndefined();
-    expect(requests.filter((request) => requestMethod(request.body) === 'tools/list')).toHaveLength(
-      2
-    );
+    await expect(client.listTools()).rejects.toMatchObject({ status: 404 });
   });
+  it('preserves an in-flight session failure when terminal close wins the race', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
+    const client = new ExplicitHttpMcpClient({
+      name: 'close-race-session-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+    let closeResult: Promise<void> | undefined;
+    server.expireSession(() => {
+      closeResult = client.close();
+    });
 
+    await expect(client.listTools()).rejects.toMatchObject({ status: 404 });
+    await expect(closeResult).rejects.toMatchObject({ status: 404 });
+  });
   it('does not reinterpret a stateless operation 404 as an expired session', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startStreamableServer({
@@ -892,12 +953,8 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     await client.connect();
 
     await expect(client.listTools()).rejects.toMatchObject({ status: 404 });
-    expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
-      1
-    );
-    expect(requests.filter((request) => requestMethod(request.body) === 'tools/list')).toHaveLength(
-      1
-    );
+    expect(requestCount(requests, 'initialize')).toBe(1);
+    expect(requestCount(requests, 'tools/list')).toBe(1);
   });
 
   it('surfaces ConnectionClosed without replaying a potentially mutating tool call', async () => {
@@ -918,18 +975,14 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       code: MCP_CONNECTION_CLOSED_PROTOCOL_CODE,
       message: 'Connection closed',
     });
-    expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
-      1
-    );
-    expect(requests.filter((request) => requestMethod(request.body) === 'tools/call')).toHaveLength(
-      1
-    );
+    expect(requestCount(requests, 'initialize')).toBe(1);
+    expect(requestCount(requests, 'tools/call')).toBe(1);
   });
 
   it('does not reinitialize a reconnectable failure after the caller is aborted', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
-    const client = trackClient({
+    const client = new ExplicitHttpMcpClient({
       name: 'aborted-session-reinitialize-canary',
       transport: 'streamable-http',
       url: server.url,
@@ -942,5 +995,6 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
       1
     );
+    await expect(client.close()).rejects.toMatchObject({ status: 404 });
   });
 });

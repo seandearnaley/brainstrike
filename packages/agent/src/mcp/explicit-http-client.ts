@@ -6,6 +6,10 @@ import {
 } from '@modelcontextprotocol/client';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
+import {
+  diagnoseInvalidatedCloseFailure,
+  notifyUnexpectedClose,
+} from './unexpected-close-observer';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
@@ -21,6 +25,7 @@ const PROTOCOL_OWNED_HEADERS = new Set([
 ]);
 
 export type ExplicitHttpMcpTransport = 'sse' | 'streamable-http';
+export type ExplicitHttpMcpLifecycle = 'client-owned' | 'host-owned';
 
 export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -53,7 +58,9 @@ export interface ExplicitHttpMcpClientOptions {
   extensionRegistry?: McpClientExtensionRegistry;
   fetch?: ExplicitHttpMcpFetch;
   headers?: Readonly<Record<string, string>>;
+  lifecycle?: ExplicitHttpMcpLifecycle;
   name: string;
+  onUnexpectedClose?: () => void;
   protocol?: McpProtocol;
   transport: ExplicitHttpMcpTransport;
   url: string | URL;
@@ -63,6 +70,7 @@ type ExplicitHttpTransport = SSEClientTransport | StreamableHTTPClientTransport;
 
 interface ActiveConnection {
   client: Client;
+  disconnected: boolean;
   transport: ExplicitHttpTransport;
 }
 
@@ -73,6 +81,8 @@ interface NormalizedClientOptions {
   };
   extensionRegistry?: McpClientExtensionRegistry;
   fetch: ExplicitHttpMcpFetch;
+  lifecycle: ExplicitHttpMcpLifecycle;
+  onUnexpectedClose?: () => void;
   protocol: McpProtocol;
   transport: ExplicitHttpMcpTransport;
   url: URL;
@@ -87,6 +97,16 @@ function validateNonEmpty(value: string, field: string): string {
     throw new Error(`${field} must not be empty`);
   }
   return value;
+}
+
+function validateLifecycle(value: unknown, clientName: string): ExplicitHttpMcpLifecycle {
+  const lifecycle = value ?? 'client-owned';
+  if (lifecycle !== 'client-owned' && lifecycle !== 'host-owned') {
+    throw new Error(
+      `MCP client "${clientName}": lifecycle must be "client-owned" or "host-owned" (got "${String(lifecycle)}")`
+    );
+  }
+  return lifecycle;
 }
 
 function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
@@ -165,6 +185,8 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     clientInfo: { ...clientInfo },
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     fetch: createHeaderPreservingFetch(baseFetch, options.headers),
+    lifecycle: validateLifecycle(options.lifecycle, name),
+    ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
     protocol,
     transport: options.transport,
     url,
@@ -186,6 +208,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private closePromise: Promise<void> | undefined;
   private closed = false;
   private connectPromise: Promise<ActiveConnection> | undefined;
+  private readonly invalidatedConnections = new Set<ActiveConnection>();
   private readonly options: NormalizedClientOptions;
   private pendingConnection: ActiveConnection | undefined;
   private recoveryPromise: Promise<ActiveConnection> | undefined;
@@ -217,14 +240,14 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   async listTools(
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<ExplicitHttpMcpListToolsResult> {
-    return this.runWithSessionRecovery((client) => client.listTools(undefined, options), options);
+    return this.runRequest((client) => client.listTools(undefined, options), options);
   }
 
   async callTool(
     params: ExplicitHttpMcpCallToolParams,
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<ExplicitHttpMcpCallToolResult> {
-    return this.runWithSessionRecovery((client) => client.callTool(params, options), options);
+    return this.runRequest((client) => client.callTool(params, options), options);
   }
 
   close(): Promise<void> {
@@ -244,10 +267,14 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     if (this.pendingConnection) {
       connections.add(this.pendingConnection);
     }
+    for (const connection of this.invalidatedConnections) {
+      connections.add(connection);
+    }
     this.activeConnection = undefined;
     this.pendingConnection = undefined;
     this.connectPromise = undefined;
     this.recoveryPromise = undefined;
+    this.invalidatedConnections.clear();
 
     const errors: unknown[] = [];
     for (const connection of connections) {
@@ -293,7 +320,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
           return;
         }
         this.pendingConnection = undefined;
-        if (this.closed) {
+        if (this.closed || connection.disconnected) {
           this.connectPromise = undefined;
           return;
         }
@@ -320,8 +347,14 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       await client.connect(transport, options);
       connected = true;
       if (this.closed) {
-        await client.close();
+        if (!this.closePromise) {
+          throw new Error('Explicit HTTP MCP terminal close invariant violated');
+        }
+        await this.closePromise;
         throw closedClientError();
+      }
+      if (connection.disconnected) {
+        throw new Error('MCP HTTP connection closed during initialization');
       }
       return connection;
     } catch (error) {
@@ -336,6 +369,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private async closeConnection(connection: ActiveConnection): Promise<void> {
     const errors: unknown[] = [];
     if (
+      !connection.disconnected &&
       connection.transport instanceof StreamableHTTPClientTransport &&
       connection.transport.sessionId
     ) {
@@ -370,10 +404,12 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       capabilities: extensions ? { extensions } : {},
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
     });
-    return { client, transport: this.createTransport() };
+    const connection = { client, disconnected: false, transport: this.createTransport() };
+    client.onclose = () => this.invalidateConnection(connection);
+    return connection;
   }
 
-  private async runWithSessionRecovery<T>(
+  private async runRequest<T>(
     request: (client: Client) => Promise<T>,
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<T> {
@@ -382,17 +418,24 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       return await request(connection.client);
     } catch (error) {
       options?.signal?.throwIfAborted();
-      if (
-        this.closed ||
-        !(connection.transport instanceof StreamableHTTPClientTransport) ||
-        !isReconnectableSessionError(error, connection.transport.sessionId !== undefined)
-      ) {
+      if (this.closed) {
         throw error;
       }
-
-      const recovered = await this.recoverConnection(connection, options);
-      options?.signal?.throwIfAborted();
-      return request(recovered.client);
+      if (
+        connection.transport instanceof StreamableHTTPClientTransport &&
+        isReconnectableSessionError(error, connection.transport.sessionId !== undefined)
+      ) {
+        if (this.options.lifecycle === 'host-owned') {
+          if (this.invalidateConnection(connection, true)) {
+            await this.closeInvalidatedConnection(connection);
+          }
+          throw error;
+        }
+        const recovered = await this.recoverConnection(connection, options);
+        options?.signal?.throwIfAborted();
+        return request(recovered.client);
+      }
+      throw error;
     }
   }
 
@@ -412,8 +455,6 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
 
     this.activeConnection = undefined;
     const recoveryPromise = (async () => {
-      // The server has already invalidated this session. Close only the local
-      // transport; attempting DELETE with the stale ID would delay recovery.
       await failedConnection.client.close();
       if (this.closed) {
         throw closedClientError();
@@ -435,6 +476,41 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       }
     );
     return recoveryPromise;
+  }
+
+  private async closeInvalidatedConnection(connection: ActiveConnection): Promise<void> {
+    try {
+      await connection.client.close();
+      this.invalidatedConnections.delete(connection);
+    } catch (error) {
+      // Keep the failed cleanup in the terminal close set. The host-owned
+      // operation must still surface its original transport failure.
+      diagnoseInvalidatedCloseFailure(error, this.options.transport);
+    }
+  }
+
+  private invalidateConnection(
+    connection: ActiveConnection,
+    retainForLocalCleanup = false
+  ): boolean {
+    if (connection.disconnected) {
+      return false;
+    }
+    const unexpected = !this.closed && this.activeConnection === connection;
+    connection.disconnected = true;
+    if (this.activeConnection === connection) {
+      this.activeConnection = undefined;
+      if (retainForLocalCleanup) {
+        this.invalidatedConnections.add(connection);
+      }
+    }
+    if (this.pendingConnection === connection) {
+      this.pendingConnection = undefined;
+    }
+    if (unexpected) {
+      notifyUnexpectedClose(this.options.onUnexpectedClose, this.options.transport);
+    }
+    return true;
   }
 
   private createTransport(): ExplicitHttpTransport {
