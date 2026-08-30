@@ -2133,6 +2133,14 @@ only for deep-equal private configuration. Raw URLs, headers, commands, argv,
 environment, and decrypted values remain behind that main-process map; failed
 replacement never commits provisional refs. Legacy authorization headers remain
 private transport material until the structured OAuth/credential migration.
+The runtime snapshots caller-owned resolved configuration before assigning a
+ref. Public `enabledTools` preferences do not participate in private ref
+identity; server identity, protocol, transport, and connection material do.
+Resolved-config and raw host replacements share one recoverable queue. During
+an ordered replacement, actor creation resolves staged refs first and committed
+refs second so an earlier self-heal cannot lose its still-current authority.
+Rejected asynchronous diagnostic sinks are isolated and logged rather than
+escaping as unhandled rejections.
 
 The surrounding host boundary has these additional invariants:
 

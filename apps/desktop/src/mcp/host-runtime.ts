@@ -41,6 +41,8 @@ class ConfigRefError extends Error {
 }
 
 const logger = createLogger('DesktopMcpHostRuntime');
+const samePrivateConfig = (left: ResolvedMcpServer, right: ResolvedMcpServer): boolean =>
+  isDeepStrictEqual({ ...left, enabledTools: undefined }, { ...right, enabledTools: undefined });
 
 export class DesktopMcpHostRuntime {
   private committedByRef = new Map<string, ResolvedMcpServer>();
@@ -51,6 +53,7 @@ export class DesktopMcpHostRuntime {
   private readonly createActorClient: RuntimeDependencies['createActorClient'];
   private readonly createConfigRef: () => string;
   private readonly onInternalError: NonNullable<RuntimeDependencies['onInternalError']>;
+  private readonly service: McpHostPort;
 
   constructor(dependencies: RuntimeDependencies) {
     this.createActorClient = dependencies.createActorClient;
@@ -59,9 +62,9 @@ export class DesktopMcpHostRuntime {
       dependencies.onInternalError ??
       ((code, cause) => logger.error('MCP host runtime failure', { cause, code }));
     const publisher = new McpHostRevisionPublisher({
-      onDiagnostic: ({ code }, cause) => this.onInternalError(code, cause),
+      onDiagnostic: ({ code }, cause) => this.reportInternalError(code, cause),
     });
-    this.host = new McpHostService({
+    this.service = new McpHostService({
       actorFactory: (input) => {
         const server = this.resolveServer(input.config);
         return new McpServerActor({
@@ -69,18 +72,30 @@ export class DesktopMcpHostRuntime {
           configuredServerId: input.config.configuredServerId,
           factory: (context) => this.createActorClient(server, context),
           generation: input.generation,
-          onInternalError: this.onInternalError,
+          onInternalError: (code, cause) => this.reportInternalError(code, cause),
           onSnapshotChanged: input.onSnapshotChanged,
           transport: input.config.transport.type,
         });
       },
-      onInternalError: this.onInternalError,
+      onInternalError: (code, cause) => this.reportInternalError(code, cause),
       publisher,
     });
+    this.host = {
+      close: () => this.service.close(),
+      invoke: (operation, options) => this.service.invoke(operation, options),
+      replaceConfig: (config) =>
+        this.enqueueReplacement(async () => await this.service.replaceConfig(config)),
+      snapshot: () => this.service.snapshot(),
+      watch: (filter, listener) => this.service.watch(filter, listener),
+    };
   }
 
   replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
-    const replacement = this.replacementTail.then(() => this.applyResolvedConfig(config));
+    return this.enqueueReplacement(async () => await this.applyResolvedConfig(config));
+  }
+
+  private enqueueReplacement<T>(operation: () => Promise<T>): Promise<T> {
+    const replacement = this.replacementTail.then(operation);
     this.replacementTail = replacement.then(
       () => undefined,
       () => undefined
@@ -91,11 +106,12 @@ export class DesktopMcpHostRuntime {
   private async applyResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
     const nextById = new Map<ConfiguredMcpServerId, PrivateConfigEntry>();
     const nextByRef = new Map<string, ResolvedMcpServer>();
-    const servers = config.servers.map((server): ConfiguredServer => {
+    const servers = config.servers.map((inputServer): ConfiguredServer => {
+      const server = structuredClone(inputServer);
       const configuredServerId = parseConfiguredMcpServerId(server.name);
       const previous = this.currentById.get(configuredServerId);
       const configRef =
-        previous && isDeepStrictEqual(previous.server, server)
+        previous && samePrivateConfig(previous.server, server)
           ? previous.configRef
           : this.createConfigRef();
       nextById.set(configuredServerId, { configRef, server });
@@ -110,7 +126,7 @@ export class DesktopMcpHostRuntime {
     });
     this.stagedByRef = nextByRef;
     try {
-      const snapshot = await this.host.replaceConfig({ servers });
+      const snapshot = await this.service.replaceConfig({ servers });
       this.currentById = nextById;
       this.committedByRef = nextByRef;
       return snapshot;
@@ -120,7 +136,9 @@ export class DesktopMcpHostRuntime {
   }
 
   private resolveServer(config: ConfiguredServer): ResolvedMcpServer {
-    const server = (this.stagedByRef ?? this.committedByRef).get(config.transport.configRef);
+    const server =
+      this.stagedByRef?.get(config.transport.configRef) ??
+      this.committedByRef.get(config.transport.configRef);
     if (!server) {
       throw new ConfigRefError('mcp-config-ref-unknown');
     }
@@ -134,6 +152,19 @@ export class DesktopMcpHostRuntime {
       throw new ConfigRefError('mcp-config-ref-transport-mismatch');
     }
     return server;
+  }
+
+  private reportInternalError(code: string, cause: unknown): void {
+    try {
+      const pending = this.onInternalError(code, cause);
+      if (pending) {
+        void pending.catch((diagnosticCause: unknown) => {
+          logger.error('MCP host diagnostic sink rejected', { cause: diagnosticCause, code });
+        });
+      }
+    } catch (diagnosticCause) {
+      logger.error('MCP host diagnostic sink threw', { cause: diagnosticCause, code });
+    }
   }
 }
 
