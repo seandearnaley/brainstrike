@@ -17,7 +17,11 @@ import {
   parseMcpHostConfig,
   parseMcpHostOperation,
 } from '../mcp-host.js';
-import { parseMcpHostOperationResult } from '../mcp-host-runtime.js';
+import {
+  parseMcpHostCloseReport,
+  parseMcpHostOperationResult,
+  parseMcpNegotiatedStatus,
+} from '../mcp-host-runtime.js';
 import type { McpConfiguredProtocol, McpStatusTransport } from '../mcp-status.js';
 
 const id = parseConfiguredMcpServerId('😀'.repeat(65));
@@ -203,7 +207,7 @@ describe('MCP host contract', () => {
       },
     ];
     const close = JSON.parse(
-      '{"callbacksClosed":0,"childProcessesClosed":0,"clientsClosed":0,"loopbackPortsClosed":0,"probesClosed":0,"requestsSettled":0,"subscriptionsClosed":0}'
+      '{"callbacksClosed":0,"childProcessesClosed":0,"clientsClosed":0,"failures":[],"loopbackPortsClosed":0,"probesClosed":0,"requestsSettled":0,"subscriptionsClosed":0}'
     ) as McpHostCloseReport;
     const dtos = {
       close,
@@ -218,5 +222,63 @@ describe('MCP host contract', () => {
     expectTypeOf<keyof McpHostPort>().toEqualTypeOf<
       'snapshot' | 'invoke' | 'watch' | 'replaceConfig' | 'close'
     >();
+  });
+
+  it('strictly parses negotiated status and close proof DTOs', () => {
+    const identity = {
+      description: 'Issue tracker',
+      name: 'linear',
+      title: 'Linear',
+      version: '2.0.0',
+      websiteUrl: 'https://linear.app',
+    };
+    expect(
+      parseMcpNegotiatedStatus({
+        advertisedCapabilityIds: ['tools'],
+        era: 'modern',
+        revision: '2026-07-28',
+        serverIdentity: identity,
+      })
+    ).toEqual({
+      advertisedCapabilityIds: ['tools'],
+      era: 'modern',
+      revision: '2026-07-28',
+      serverIdentity: identity,
+    });
+
+    const close = {
+      callbacksClosed: 0,
+      childProcessesClosed: 1,
+      clientsClosed: 1,
+      failures: [],
+      loopbackPortsClosed: 0,
+      probesClosed: 0,
+      requestsSettled: 2,
+      subscriptionsClosed: 0,
+    };
+    expect(parseMcpHostCloseReport(close)).toEqual(close);
+
+    const malformedStatuses = [
+      { advertisedCapabilityIds: {}, era: 'modern', revision: '2026-07-28' },
+      { era: 'future', revision: '2026-07-28' },
+      { era: 'modern' },
+      Object.assign(Object.create({ inherited: true }), {
+        era: 'modern',
+        revision: '2026-07-28',
+      }),
+    ];
+    for (const status of malformedStatuses) {
+      expect(() => parseMcpNegotiatedStatus(status)).toThrow();
+    }
+
+    for (const malformedClose of [
+      { ...close, clientsClosed: -1 },
+      { ...close, clientsClosed: 0.5 },
+      { ...close, extra: true },
+      { ...close, requestsSettled: Number.NaN },
+      Object.fromEntries(Object.entries(close).filter(([key]) => key !== 'clientsClosed')),
+    ]) {
+      expect(() => parseMcpHostCloseReport(malformedClose)).toThrow();
+    }
   });
 });

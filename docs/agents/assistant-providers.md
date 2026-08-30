@@ -2109,6 +2109,17 @@ The surrounding host boundary has these additional invariants:
 - Browser-safe config carries only main-owned transport UUIDs, non-secret policy, and typed credential-store references. Decrypted material stays in Electron main; transport/protocol schemas track the shared unions, and SSE accepts only `legacy`.
 - Operation results use nested `{ type, result }` envelopes. Electron main parses raw results through the browser-blocked `./mcp-host-runtime` subpath and the matching SDK-v2 schema, requiring strict JSON-safe open fields before IPC. The broad contract root retains only MCP SDK type imports.
 
+Every actor validates negotiated status, operation results, and close reports
+through the browser-blocked runtime parser before publishing or returning them.
+Actor state is single-writer and generation-bound. A failure remains the latest
+snapshot through teardown; observer exceptions are isolated and diagnosed, not
+allowed to corrupt invocation or cleanup. Public actor close is idempotent and
+never rejects. Its report includes an explicit sanitized `failures` array in
+addition to non-negative safe-integer resource counters, so a failed teardown
+cannot masquerade as an all-zero clean proof. Raw internal causes reach one
+required main-process diagnostic sink; they may contain credentials and must
+never cross renderer IPC or bypass the platform redaction path.
+
 `McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`:
 
 - `snapshot` returns token-free authority state, negotiated protocol revision,
