@@ -1,3 +1,4 @@
+import { MCP_SUPPORT_MATRIX } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
   type McpClientExtensionContract,
@@ -42,7 +43,12 @@ function registerUntrusted(registry: McpClientExtensionRegistry, registration: u
 
 describe('McpClientExtensionRegistry', () => {
   it('advertises no extensions by default', () => {
-    expect(new McpClientExtensionRegistry().toClientExtensionCapabilities()).toBeUndefined();
+    const capabilities = new McpClientExtensionRegistry().toClientExtensionCapabilities();
+    const supportedProductIds = MCP_SUPPORT_MATRIX.filter(
+      ({ kind, status }) => kind === 'extension' && status === 'supported'
+    ).map(({ id }) => id);
+    expect(capabilities).toBeUndefined();
+    expect(supportedProductIds).toEqual(Object.keys(capabilities ?? {}));
   });
 
   it('projects only a registered implementation with the exact version and settings', () => {
