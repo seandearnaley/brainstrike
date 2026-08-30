@@ -2000,11 +2000,18 @@ Ownership and flow:
    non-empty MCP config loads the dedicated subpath; keep split SDK packages out
    of root/browser-safe/Hosted Web bundles (the emitted-bundle verifier enforces
    this).
-3. Desktop — `apps/desktop/src/mcp/http-client.ts` adapts that shared client to
-   the desktop `McpClient` discovery/call contract. `sse-client.ts` is only a
-   compatibility factory delegating to the canonical adapter; no bespoke SSE
-   framing, endpoint rewriting, or environment-selected call path remains.
-4. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` constructs
+3. Desktop clients — `apps/desktop/src/mcp/http-client.ts` adapts that shared
+   client to the desktop `McpClient` discovery/call contract. `sse-client.ts`
+   is only a compatibility factory delegating to the canonical adapter; no
+   bespoke SSE framing, endpoint rewriting, or environment-selected call path
+   remains.
+4. Desktop authority — startup configuration and tool discovery flow through the
+   singleton `DesktopMcpHostRuntime`; malformed reloads preserve the last valid
+   authority, absent config installs explicit empty authority, and stale
+   discovery epochs cannot overwrite a newer config projection. The legacy
+   desktop client registry remains only on the invocation/status migration
+   boundary until its dedicated consumer layers remove it.
+5. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` constructs
    the selected official-SDK client for every server and converts every
    discovered tool through one shared Mastra-tool adapter. This preserves the
    complete `CallToolResult` until the adapter deliberately selects
