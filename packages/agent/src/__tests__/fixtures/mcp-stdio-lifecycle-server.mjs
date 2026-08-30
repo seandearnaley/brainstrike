@@ -25,7 +25,7 @@ async function readState() {
     return JSON.parse(await readFile(stateFile, 'utf8'));
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      return { exitToolCalls: 0, starts: 0 };
+      return { exitToolCalls: 0, listToolCalls: 0, starts: 0 };
     }
     throw error;
   }
@@ -48,46 +48,49 @@ const server = new Server(
   { capabilities: { tools: {} } }
 );
 
-server.setRequestHandler('tools/list', async () => ({
-  tools: [
-    {
-      description: 'Expose the configured test environment and inherited PATH presence.',
-      inputSchema: { additionalProperties: false, type: 'object' },
-      name: 'inspect_env',
-      outputSchema: {
-        additionalProperties: false,
-        properties: {
-          configuredValue: { type: 'string' },
-          inheritedPathPresent: { type: 'boolean' },
+server.setRequestHandler('tools/list', async () => {
+  await updateState((state) => ({ ...state, listToolCalls: state.listToolCalls + 1 }));
+  return {
+    tools: [
+      {
+        description: 'Expose the configured test environment and inherited PATH presence.',
+        inputSchema: { additionalProperties: false, type: 'object' },
+        name: 'inspect_env',
+        outputSchema: {
+          additionalProperties: false,
+          properties: {
+            configuredValue: { type: 'string' },
+            inheritedPathPresent: { type: 'boolean' },
+          },
+          required: ['configuredValue', 'inheritedPathPresent'],
+          type: 'object',
         },
-        required: ['configuredValue', 'inheritedPathPresent'],
-        type: 'object',
       },
-    },
-    {
-      description: 'Exit the first child during a tool call, then answer if replayed.',
-      inputSchema: { additionalProperties: false, type: 'object' },
-      name: 'exit_once',
-      outputSchema: {
-        additionalProperties: false,
-        properties: { replayed: { type: 'boolean' } },
-        required: ['replayed'],
-        type: 'object',
+      {
+        description: 'Exit the first child during a tool call, then answer if replayed.',
+        inputSchema: { additionalProperties: false, type: 'object' },
+        name: 'exit_once',
+        outputSchema: {
+          additionalProperties: false,
+          properties: { replayed: { type: 'boolean' } },
+          required: ['replayed'],
+          type: 'object',
+        },
       },
-    },
-    {
-      description: 'Return structured output that intentionally violates the advertised schema.',
-      inputSchema: { additionalProperties: false, type: 'object' },
-      name: 'invalid_output',
-      outputSchema: {
-        additionalProperties: false,
-        properties: { count: { type: 'number' } },
-        required: ['count'],
-        type: 'object',
+      {
+        description: 'Return structured output that intentionally violates the advertised schema.',
+        inputSchema: { additionalProperties: false, type: 'object' },
+        name: 'invalid_output',
+        outputSchema: {
+          additionalProperties: false,
+          properties: { count: { type: 'number' } },
+          required: ['count'],
+          type: 'object',
+        },
       },
-    },
-  ],
-}));
+    ],
+  };
+});
 
 server.setRequestHandler('tools/call', async (request) => {
   await writeFile(capabilitiesFile, JSON.stringify(server.getClientCapabilities() ?? null), 'utf8');

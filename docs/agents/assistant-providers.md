@@ -2145,6 +2145,11 @@ Its default singleton connects the official explicit HTTP/stdio client before
 publishing negotiated readiness. HTTP is always `host-owned`; successful actor
 close reports one client and observer callback, one stdio child when applicable,
 and the exact number of operations settled through that client wrapper.
+Those counters mean known owned resources whose close promises proved terminal,
+not guessed teardown actions: actor close first drains every accepted operation,
+and explicit stdio close resolves only after its transport/client graph settles.
+If connection or negotiation fails and cleanup also fails, both causes remain in
+one aggregate diagnostic; no clean close proof is fabricated.
 
 The surrounding host boundary has these additional invariants:
 
