@@ -401,8 +401,10 @@ describe('frontier model refresh (2026-07)', () => {
       expect(qwen).toEqual({
         contextWindow: 1_000_000,
         id: 'qwen/qwen3.8-flash',
+        inputModalities: ['text', 'image', 'video'],
         label: 'Qwen3.8 Flash (OpenRouter)',
         maxOutputTokens: 131_072,
+        outputModalities: ['text'],
         pricing: { inputPerMTok: 0.15, outputPerMTok: 0.47 },
         reasoning: {
           defaultEffort: 'xhigh',

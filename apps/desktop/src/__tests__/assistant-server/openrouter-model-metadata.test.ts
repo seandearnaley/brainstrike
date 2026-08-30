@@ -1,3 +1,4 @@
+import { parseOpenRouterModelMetadataSnapshot } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import { createOpenRouterModelMetadataService } from '../../assistant-server/openrouter-model-metadata';
 
@@ -99,6 +100,31 @@ describe('OpenRouterModelMetadataService', () => {
         ]),
       },
     });
+  });
+
+  it('keeps a catalog fallback output ceiling within a narrower live context', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            context_length: 65_536,
+            id: 'qwen/qwen3.8-flash',
+            supported_parameters: ['tools', 'reasoning', 'max_tokens'],
+            top_provider: { context_length: 65_536 },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const service = createOpenRouterModelMetadataService({ fetchImpl, now: () => 1000 });
+
+    const snapshot = await service.get('qwen/qwen3.8-flash', 'secret-key');
+
+    expect(snapshot.metadata).toMatchObject({
+      contextWindow: 65_536,
+      maxOutputTokens: 65_536,
+    });
+    expect(() => parseOpenRouterModelMetadataSnapshot(snapshot)).not.toThrow();
   });
 
   it('deduplicates concurrent refreshes', async () => {

@@ -59,18 +59,20 @@ function mergeCatalogBudgetCeilings(metadata: OpenRouterModelMetadata): OpenRout
   if (metadata.id !== 'qwen/qwen3.8-flash') {
     return metadata;
   }
+  // This fixed OpenRouter route is narrower than the aggregate model listing;
+  // its catalogued route limits remain hard ceilings on live metadata.
   const catalogModel = getLlmModelDefinition('openrouter', metadata.id);
-
-  const maxOutputTokens =
-    metadata.maxOutputTokens === undefined
-      ? catalogModel.maxOutputTokens
-      : catalogModel.maxOutputTokens === undefined
-        ? metadata.maxOutputTokens
-        : Math.min(metadata.maxOutputTokens, catalogModel.maxOutputTokens);
+  const contextWindow = Math.min(metadata.contextWindow, catalogModel.contextWindow);
+  const outputCeilings = [
+    metadata.maxOutputTokens,
+    catalogModel.maxOutputTokens,
+    contextWindow,
+  ].filter((value): value is number => value !== undefined);
+  const maxOutputTokens = Math.min(...outputCeilings);
   return {
     ...metadata,
-    contextWindow: Math.min(metadata.contextWindow, catalogModel.contextWindow),
-    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    contextWindow,
+    maxOutputTokens,
   };
 }
 

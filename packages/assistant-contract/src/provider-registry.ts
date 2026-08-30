@@ -22,6 +22,7 @@ export interface ProviderCapabilities {
  * so the attachment gate never guesses.
  */
 export type ModelVisionSupport = 'supported' | 'unsupported' | 'unknown';
+export type ModelModality = 'audio' | 'image' | 'text' | 'video';
 
 /**
  * Provider-native deferred-tool search capability declared by the exact model
@@ -108,6 +109,8 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * standard tier (not beta/extended tiers).
    */
   contextWindow: number;
+  /** Exact documented input modalities when the route publishes them. */
+  inputModalities?: readonly ModelModality[];
   /**
    * Provider's documented maximum output tokens, when known. Used to reserve
    * output headroom in the input-budget derivation.
@@ -119,6 +122,8 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * but must never infer native support from the provider name.
    */
   nativeToolSearch?: NativeToolSearchCapability;
+  /** Exact documented output modalities when the route publishes them. */
+  outputModalities?: readonly ModelModality[];
   /**
    * Approx. USD price per 1,000,000 tokens. Static display estimate only; provider-reported
    * billed cost remains authoritative. Omit when pricing is unknown or when a local/keyless
@@ -762,8 +767,10 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         // is a hard maximum, not a default combined reasoning + answer window.
         contextWindow: 1_000_000,
         id: 'qwen/qwen3.8-flash',
+        inputModalities: ['text', 'image', 'video'],
         label: 'Qwen3.8 Flash (OpenRouter)',
         maxOutputTokens: 131_072,
+        outputModalities: ['text'],
         pricing: { inputPerMTok: 0.15, outputPerMTok: 0.47 },
         reasoning: {
           defaultEffort: 'xhigh',

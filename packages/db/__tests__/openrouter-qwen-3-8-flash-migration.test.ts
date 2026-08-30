@@ -60,6 +60,15 @@ describe('OpenRouter Qwen3.8 Flash migration', () => {
     const nonOpenRouterOrdering = await readNonOpenRouterOrdering();
 
     await runner.runMigration(migration113);
+    const ordering = await db.query<{ row_count: number; unique_sort_order_count: number }>(`
+      SELECT
+        COUNT(*)::int AS row_count,
+        COUNT(DISTINCT sort_order)::int AS unique_sort_order_count
+      FROM models
+      WHERE provider_id = 'openrouter'
+    `);
+    expect(ordering.rows[0]).toBeDefined();
+    expect(ordering.rows[0]?.row_count).toBe(ordering.rows[0]?.unique_sort_order_count);
     expect(await readRows()).toEqual([
       {
         capabilities: { streaming: true, type: 'llm', vision: true },

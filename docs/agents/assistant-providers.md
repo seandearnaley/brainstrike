@@ -912,6 +912,22 @@
   An impossible persisted output reservation keeps the settings panel available
   for repair instead of throwing during render; the endpoint never silently
   mutates the registry.
+  Qwen3.8 Flash's fixed `qwen/qwen3.8-flash` route is a documented exception to
+  treating the Models API budgets as independently authoritative: aggregate
+  metadata can advertise wider limits than this route's 1,000,000-token context
+  and 131,072-token output ceilings. `mergeCatalogBudgetCeilings` therefore
+  clamps this exact route's live context to the static catalog ceiling and its
+  output to the minimum of the live output when present, the catalog output, and
+  the merged context. The final context cap keeps a missing live output value
+  from producing an invalid snapshot whose output exceeds context. Do not apply
+  this route-specific rule to every catalog model without equivalent fixed-route
+  evidence; other static entries remain fallbacks that live metadata may refine.
+  The static Qwen3.8 Flash definition also records its exact text/image/video
+  input and text output modalities; `vision` remains the separate image-gating
+  projection. Paired coverage:
+  `apps/desktop/src/__tests__/assistant-server/openrouter-model-metadata.test.ts`
+  and
+  `packages/assistant-contract/src/__tests__/provider-registry-frontier-models.test.ts`.
 - State:
   - packages/app-state/src/stores/assistant-preferences-store.ts
   - packages/assistant-data/src/assistant-thread-store.ts
