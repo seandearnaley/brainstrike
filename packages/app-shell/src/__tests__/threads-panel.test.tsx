@@ -2703,6 +2703,39 @@ describe('ThreadsPanel folders', () => {
     );
   });
 
+  it('paints a visible focus ring for every view-options radio and checkbox', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+
+    const groupBy = await screen.findByRole('radiogroup', { name: 'Group by' });
+    const sortBy = screen.getByRole('radiogroup', { name: 'Sort by' });
+    const showOnly = screen.getByRole('group', { name: 'Show only' });
+    const controls = [
+      ...within(groupBy).getAllByRole('radio'),
+      ...within(sortBy).getAllByRole('radio'),
+      ...within(showOnly).getAllByRole('checkbox'),
+    ];
+    expect(controls.length).toBeGreaterThan(0);
+
+    // JSDOM does not apply Tailwind, so these class names are the unit-level
+    // contract; the live browser check verifies the rendered focus state.
+    for (const control of controls) {
+      const label = control.closest('label');
+      if (!label) {
+        throw new Error('View-option controls must be wrapped by labels.');
+      }
+      expect(label).toHaveClass(
+        'has-[:focus-visible]:ring-2',
+        'has-[:focus-visible]:ring-ring',
+        'has-[:focus-visible]:ring-inset'
+      );
+    }
+  });
+
   it('creates a thread already bound to the folder it was started from', async () => {
     bindThreadToRoot('thread-a');
     renderThreadsPanel();

@@ -71,6 +71,9 @@ const RADIO_GROUP_NAMES = {
   sort: 'threads-sort-by',
 } as const;
 
+const VIEW_OPTION_LABEL_CLASS =
+  'flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-inset';
+
 function ViewOptionRadio({
   checked,
   groupName,
@@ -84,11 +87,7 @@ function ViewOptionRadio({
   readonly onSelect: () => void;
 }): ReactElement {
   return (
-    <label
-      className={`flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
-        checked ? 'bg-accent/60 font-medium' : ''
-      }`}
-    >
+    <label className={`${VIEW_OPTION_LABEL_CLASS} ${checked ? 'bg-accent/60 font-medium' : ''}`}>
       <input
         checked={checked}
         className="sr-only"
@@ -113,11 +112,7 @@ function ViewOptionCheckbox({
   readonly onToggle: (checked: boolean) => void;
 }): ReactElement {
   return (
-    <label
-      className={`flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
-        checked ? 'bg-accent/60 font-medium' : ''
-      }`}
-    >
+    <label className={`${VIEW_OPTION_LABEL_CLASS} ${checked ? 'bg-accent/60 font-medium' : ''}`}>
       <input
         checked={checked}
         className="sr-only"
