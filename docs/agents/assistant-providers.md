@@ -2116,9 +2116,14 @@ snapshot through teardown; observer exceptions are isolated and diagnosed, not
 allowed to corrupt invocation or cleanup. Public actor close is idempotent and
 never rejects. Its report includes an explicit sanitized `failures` array in
 addition to non-negative safe-integer resource counters, so a failed teardown
-cannot masquerade as an all-zero clean proof. Raw internal causes reach one
-required main-process diagnostic sink; they may contain credentials and must
-never cross renderer IPC or bypass the platform redaction path.
+cannot masquerade as an all-zero clean proof. Client-reported failures are
+replaced with actor-owned bounded errors before return; the raw report reaches
+only the diagnostic sink. Every returned report and nested failure array is
+frozen in the actor process. For an errored actor, the error remains the final
+snapshot and the resolved close report is the sole teardown-completion proof;
+there is deliberately no post-error `disconnected` event. Raw internal causes
+reach one required main-process diagnostic sink; they may contain credentials
+and must never cross renderer IPC or bypass the platform redaction path.
 
 `McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`:
 

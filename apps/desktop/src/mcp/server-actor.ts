@@ -62,7 +62,11 @@ class ActorError extends Error {
     this.name = 'McpServerActorError';
   }
 }
-const EMPTY_REPORT: McpHostCloseReport = {
+function freezeCloseReport(report: McpHostCloseReport): McpHostCloseReport {
+  const failures = Object.freeze(report.failures.map((failure) => Object.freeze({ ...failure })));
+  return Object.freeze({ ...report, failures });
+}
+const EMPTY_REPORT: McpHostCloseReport = freezeCloseReport({
   callbacksClosed: 0,
   childProcessesClosed: 0,
   clientsClosed: 0,
@@ -71,7 +75,7 @@ const EMPTY_REPORT: McpHostCloseReport = {
   probesClosed: 0,
   requestsSettled: 0,
   subscriptionsClosed: 0,
-};
+});
 export class McpServerActor {
   private readonly closedError = new ActorError('generation-retired', 'mcp-generation-closed');
   private readonly inFlight = new Set<Promise<McpHostOperationResult>>();
@@ -212,10 +216,10 @@ export class McpServerActor {
   }
 
   private closeFailureReport(error: ActorError): McpHostCloseReport {
-    return {
-      ...structuredClone(EMPTY_REPORT),
+    return freezeCloseReport({
+      ...EMPTY_REPORT,
       failures: [{ category: error.category, code: error.code, message: error.message }],
-    };
+    });
   }
 
   private recordCloseFailure(
@@ -236,7 +240,7 @@ export class McpServerActor {
     }
     const client = this.client;
     if (!client) {
-      return Promise.resolve(structuredClone(EMPTY_REPORT));
+      return Promise.resolve(freezeCloseReport(EMPTY_REPORT));
     }
     this.clientClosePromise = Promise.resolve().then(async () => {
       try {
@@ -266,8 +270,12 @@ export class McpServerActor {
           if (memoizeFailure) {
             this.fail(error);
           }
+          return freezeCloseReport({
+            ...report,
+            failures: [{ category: error.category, code: error.code, message: error.message }],
+          });
         }
-        return report;
+        return freezeCloseReport(report);
       } finally {
         this.client = undefined;
       }

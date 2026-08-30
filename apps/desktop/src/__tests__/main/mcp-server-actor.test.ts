@@ -260,6 +260,83 @@ describe('McpServerActor', () => {
       error: { code: 'mcp-client-close-report-invalid' },
       state: 'error',
     });
+
+    const rawReportedFailure = {
+      category: 'transport' as const,
+      code: 'sdk-client-close-failed',
+      message: 'Authorization: Bearer credential-value-must-never-cross',
+    };
+    const reportedInternalError = vi.fn();
+    const reportedActor = actor(
+      async () =>
+        client(undefined, async () => ({
+          ...report,
+          failures: [rawReportedFailure],
+        })),
+      linearId,
+      reportedInternalError
+    );
+    await reportedActor.invoke(LIST);
+    const reportedClose = await reportedActor.close();
+    expect(reportedClose).toEqual({
+      ...report,
+      failures: [
+        {
+          category: 'transport',
+          code: 'mcp-client-close-reported-failures',
+          message: 'MCP server actor operation failed',
+        },
+      ],
+    });
+    expect(JSON.stringify(reportedClose)).not.toContain('credential-value-must-never-cross');
+    expect(reportedInternalError).toHaveBeenCalledWith('mcp-client-close-reported-failures', {
+      ...report,
+      failures: [rawReportedFailure],
+    });
+  });
+  it('returns immutable close reports without sharing mutable empty failures', async () => {
+    const first = await actor(async () => client()).close();
+    const second = await actor(async () => client()).close();
+
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.failures)).toBe(true);
+    expect(first).not.toBe(second);
+    expect(first.failures).not.toBe(second.failures);
+  });
+  it('uses the close report as completion proof while preserving a connected actor failure', async () => {
+    const events: unknown[] = [];
+    const closeClient = vi.fn(async () => report);
+    const invalidResult = structuredClone(listResult.result);
+    Reflect.set(invalidResult, 'invalid', () => undefined);
+    const subject = new McpServerActor({
+      ...base(linearId),
+      factory: async () => client(async () => invalidResult, closeClient),
+      onInternalError: vi.fn(),
+      onSnapshotChanged: (snapshot) => events.push(snapshot),
+    });
+
+    await failure(subject.invoke(LIST), 'mcp-result-invalid');
+    const closeReport = await subject.close();
+
+    expect(closeClient).toHaveBeenCalledOnce();
+    expect(closeReport).toEqual(report);
+    expect(subject.snapshot()).toMatchObject({
+      error: { code: 'mcp-result-invalid' },
+      state: 'error',
+    });
+    expect(events).toEqual([
+      { ...base(linearId), state: 'connecting' },
+      { ...base(linearId), negotiated, state: 'connected' },
+      {
+        ...base(linearId),
+        error: {
+          category: 'protocol',
+          code: 'mcp-result-invalid',
+          message: 'MCP server actor operation failed',
+        },
+        state: 'error',
+      },
+    ]);
   });
   it('isolates snapshot observer failures from invocation and close', async () => {
     const raw = new Error('observer-private-detail');
