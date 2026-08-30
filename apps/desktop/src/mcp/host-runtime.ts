@@ -91,7 +91,8 @@ export class DesktopMcpHostRuntime {
   }
 
   replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
-    return this.enqueueReplacement(async () => await this.applyResolvedConfig(config));
+    const snapshot = structuredClone(config);
+    return this.enqueueReplacement(async () => await this.applyResolvedConfig(snapshot));
   }
 
   private enqueueReplacement<T>(operation: () => Promise<T>): Promise<T> {
@@ -136,6 +137,7 @@ export class DesktopMcpHostRuntime {
   }
 
   private resolveServer(config: ConfiguredServer): ResolvedMcpServer {
+    // A reused ref can differ only by enabledTools, which stays in the public config.
     const server =
       this.stagedByRef?.get(config.transport.configRef) ??
       this.committedByRef.get(config.transport.configRef);
@@ -151,7 +153,7 @@ export class DesktopMcpHostRuntime {
     if (server.transport !== config.transport.type) {
       throw new ConfigRefError('mcp-config-ref-transport-mismatch');
     }
-    return server;
+    return structuredClone(server);
   }
 
   private reportInternalError(code: string, cause: unknown): void {
