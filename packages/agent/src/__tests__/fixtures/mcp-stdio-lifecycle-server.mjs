@@ -16,6 +16,7 @@ if (!pidFile) {
 }
 const rawConnectDelayMs = process.env['BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS'];
 const connectDelayMs = rawConnectDelayMs === undefined ? 0 : Number(rawConnectDelayMs);
+const paginateTools = process.env['BRAINSTRIKE_STDIO_TEST_PAGINATE_TOOLS'] === '1';
 if (!Number.isSafeInteger(connectDelayMs) || connectDelayMs < 0) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS must be a non-negative safe integer');
 }
@@ -48,48 +49,64 @@ const server = new Server(
   { capabilities: { tools: {} } }
 );
 
-server.setRequestHandler('tools/list', async () => {
-  await updateState((state) => ({ ...state, listToolCalls: state.listToolCalls + 1 }));
-  return {
-    tools: [
-      {
-        description: 'Expose the configured test environment and inherited PATH presence.',
-        inputSchema: { additionalProperties: false, type: 'object' },
-        name: 'inspect_env',
-        outputSchema: {
-          additionalProperties: false,
-          properties: {
-            configuredValue: { type: 'string' },
-            inheritedPathPresent: { type: 'boolean' },
-          },
-          required: ['configuredValue', 'inheritedPathPresent'],
-          type: 'object',
+server.setRequestHandler('tools/list', async (request) => {
+  await updateState((state) => ({
+    ...state,
+    listToolCalls: (state.listToolCalls ?? 0) + 1,
+    ...(paginateTools
+      ? {
+          listTraceIds: [...(state.listTraceIds ?? []), request.params?._meta?.traceId ?? null],
+        }
+      : {}),
+  }));
+  const tools = [
+    {
+      description: 'Expose the configured test environment and inherited PATH presence.',
+      inputSchema: { additionalProperties: false, type: 'object' },
+      name: 'inspect_env',
+      outputSchema: {
+        additionalProperties: false,
+        properties: {
+          configuredValue: { type: 'string' },
+          inheritedPathPresent: { type: 'boolean' },
         },
+        required: ['configuredValue', 'inheritedPathPresent'],
+        type: 'object',
       },
-      {
-        description: 'Exit the first child during a tool call, then answer if replayed.',
-        inputSchema: { additionalProperties: false, type: 'object' },
-        name: 'exit_once',
-        outputSchema: {
-          additionalProperties: false,
-          properties: { replayed: { type: 'boolean' } },
-          required: ['replayed'],
-          type: 'object',
-        },
+    },
+    {
+      description: 'Exit the first child during a tool call, then answer if replayed.',
+      inputSchema: { additionalProperties: false, type: 'object' },
+      name: 'exit_once',
+      outputSchema: {
+        additionalProperties: false,
+        properties: { replayed: { type: 'boolean' } },
+        required: ['replayed'],
+        type: 'object',
       },
-      {
-        description: 'Return structured output that intentionally violates the advertised schema.',
-        inputSchema: { additionalProperties: false, type: 'object' },
-        name: 'invalid_output',
-        outputSchema: {
-          additionalProperties: false,
-          properties: { count: { type: 'number' } },
-          required: ['count'],
-          type: 'object',
-        },
+    },
+    {
+      description: 'Return structured output that intentionally violates the advertised schema.',
+      inputSchema: { additionalProperties: false, type: 'object' },
+      name: 'invalid_output',
+      outputSchema: {
+        additionalProperties: false,
+        properties: { count: { type: 'number' } },
+        required: ['count'],
+        type: 'object',
       },
-    ],
-  };
+    },
+  ];
+  if (!paginateTools) {
+    return { tools };
+  }
+  if (request.params?.cursor === undefined) {
+    return { nextCursor: 'page-2', tools: tools.slice(0, 2) };
+  }
+  if (request.params.cursor === 'page-2') {
+    return { tools: tools.slice(2) };
+  }
+  throw new Error(`Unknown lifecycle fixture cursor: ${request.params.cursor}`);
 });
 
 server.setRequestHandler('tools/call', async (request) => {

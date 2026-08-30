@@ -194,6 +194,38 @@ describe('ExplicitStdioMcpClient integration', () => {
     await expect(readStateFile(stateFile)).resolves.toMatchObject({ listToolCalls: 1 });
   });
 
+  it('aggregates paginated tools and caches page-two output metadata', async () => {
+    const { client, stateFile } = await createFixture(
+      'legacy',
+      undefined,
+      FIXTURE_PATH,
+      undefined,
+      {
+        BRAINSTRIKE_STDIO_TEST_PAGINATE_TOOLS: '1',
+      }
+    );
+    const listed = await client.listTools(undefined, { _meta: { traceId: 'trace-1' } });
+
+    expect(listed.tools.map(({ name }) => name)).toEqual(FIXTURE_TOOL_NAMES);
+    expect(listed.nextCursor).toBeUndefined();
+    await expect(client.callTool({ arguments: {}, name: 'invalid_output' })).rejects.toThrow(
+      /structured content does not match/i
+    );
+    await expect(readStateFile(stateFile)).resolves.toMatchObject({
+      listToolCalls: 2,
+      listTraceIds: ['trace-1', 'trace-1'],
+    });
+  });
+
+  it.each(['', 'page-2'])('refreshes full metadata after explicit cursor %j', async (cursor) => {
+    const { client, stateFile } = await createFixture();
+
+    await client.listTools(undefined, { cursor });
+    await client.callTool({ arguments: {}, name: 'inspect_env' });
+
+    await expect(readStateFile(stateFile)).resolves.toMatchObject({ listToolCalls: 2 });
+  });
+
   it('shares one terminal close operation and rejects later requests', async () => {
     const { client } = await createFixture();
     await client.connect();

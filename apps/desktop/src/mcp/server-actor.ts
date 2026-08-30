@@ -194,14 +194,18 @@ export class McpServerActor {
         signal: this.generationAbort.signal,
       });
     } catch (cause) {
-      this.throwIfAborted();
-      if (cause instanceof McpServerActorClientCleanupError) {
+      const error = new ActorError('connection', 'mcp-client-creation-failed');
+      const cleanupFailed = cause instanceof McpServerActorClientCleanupError;
+      if (cleanupFailed) {
         this.clientClosePromise = Promise.resolve(
           this.closeFailureReport(new ActorError('transport', 'mcp-client-creation-cleanup-failed'))
         );
+        this.diagnose(error.code, cause);
       }
-      const error = new ActorError('connection', 'mcp-client-creation-failed');
-      this.diagnose(error.code, cause);
+      this.throwIfAborted();
+      if (!cleanupFailed) {
+        this.diagnose(error.code, cause);
+      }
       throw this.fail(error);
     }
     this.client = client;
