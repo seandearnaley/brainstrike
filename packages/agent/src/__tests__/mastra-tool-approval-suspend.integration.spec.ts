@@ -2005,6 +2005,146 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     await database.close();
   });
 
+  it('overlaps independent edit-risk calls when policy explicitly allows them', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const bothWritesStarted = createDeferredSignal();
+    const releaseWrites = createDeferredSignal();
+    const state = new Map<string, string>();
+    const startedKeys: string[] = [];
+    let activeWrites = 0;
+    let maxActiveWrites = 0;
+    const writeExecute = vi.fn(async (inputData: { key: string; value: string }) => {
+      activeWrites += 1;
+      maxActiveWrites = Math.max(maxActiveWrites, activeWrites);
+      startedKeys.push(inputData.key);
+      if (startedKeys.length === 2) {
+        bothWritesStarted.resolve();
+      }
+      await releaseWrites.promise;
+      state.set(inputData.key, inputData.value);
+      activeWrites -= 1;
+      return inputData;
+    });
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const writeTool = createTool({
+      description: 'An edit-risk key/value tool used with explicit allow policy.',
+      execute: writeExecute,
+      id: 'write_tool',
+      inputSchema: z.object({ key: z.string(), value: z.string() }),
+      outputSchema: z.object({ key: z.string(), value: z.string() }),
+    });
+    const askTool = makeAskTool(askExecute);
+    const thread = {
+      resourceId: 'resource-allowed-edit-concurrency',
+      threadId: 'thread-allowed-edit-concurrency',
+    } as const;
+    const policy = {
+      policies: { edit: 'allow', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: { shell_tool: 'execute', write_tool: 'edit' },
+      yolo: false,
+    } as const;
+    const expectedResults = [
+      { result: { key: 'alpha', value: 'A' }, toolCallId: 'call-allowed-edit-alpha' },
+      { result: { key: 'beta', value: 'B' }, toolCallId: 'call-allowed-edit-beta' },
+    ] as const;
+
+    modelHolder.current = createToolCallBatchModel({
+      calls: expectedResults.map((expected) => ({
+        input: JSON.stringify(expected.result),
+        toolCallId: expected.toolCallId,
+        toolName: 'write_tool',
+      })),
+      finalText: 'Independent writes complete.',
+    });
+
+    const drainPromise = (async () =>
+      drainYielding(
+        await streamMastraAgent(
+          [
+            {
+              id: 'u-allowed-edit-concurrency',
+              parts: [{ text: 'apply these independent changes', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          {
+            memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+              permissionPolicy: policy,
+              provider: 'openai',
+            },
+            storage,
+            tools: { shell_tool: askTool, write_tool: writeTool },
+          }
+        )
+      ))();
+
+    // This is a deadlock guard, not a latency assertion. The former
+    // `available` strategy starts one write because the uncalled ask tool is
+    // registered; `called` lets both explicitly allowed, independent writes
+    // reach the barrier together.
+    const bothWritesReached = await new Promise<boolean>((resolve) => {
+      const timeoutId = setTimeout(() => resolve(false), 2000);
+      void bothWritesStarted.promise.then(() => {
+        clearTimeout(timeoutId);
+        resolve(true);
+      });
+    });
+    const startedBeforeRelease = startedKeys.length;
+    releaseWrites.resolve();
+    const chunks = await drainPromise;
+
+    expect(bothWritesReached).toBe(true);
+    expect(startedBeforeRelease).toBe(2);
+    expect(maxActiveWrites).toBe(2);
+    expect(writeExecute).toHaveBeenCalledTimes(2);
+    expect(askExecute).not.toHaveBeenCalled();
+    expect(findApprovalChunk(chunks)).toBeUndefined();
+    expect(Object.fromEntries(state)).toEqual({ alpha: 'A', beta: 'B' });
+
+    const toolResults = readToolResultObservations(chunks);
+    for (const expected of expectedResults) {
+      expect(
+        toolResults
+          .filter((observation) => observation.toolCallId === expected.toolCallId)
+          .map((observation) => observation.result),
+        expected.toolCallId
+      ).toEqual([expected.result]);
+    }
+    const completedToolCallIds = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+          chunk.type === 'run-event' && chunk.event.kind === 'tool.completed'
+      )
+      .map((chunk) => chunk.event.metadata?.toolCallId)
+      .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string')
+      .sort();
+    expect(completedToolCallIds).toEqual(
+      expectedResults.map((expected) => expected.toolCallId).sort()
+    );
+
+    const persisted = await database.query<{ content: unknown }>(
+      'SELECT content FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" ASC',
+      [thread.threadId]
+    );
+    for (const expected of expectedResults) {
+      const persistedResults = persisted.rows
+        .map((row) => readPersistedToolInvocationResult(row.content, expected.toolCallId))
+        .filter((result) => result !== undefined);
+      expect(persistedResults.length, expected.toolCallId).toBeGreaterThan(0);
+      expect(persistedResults, expected.toolCallId).toEqual(
+        persistedResults.map(() => expected.result)
+      );
+    }
+
+    await database.close();
+  });
+
   it('lets an ALLOWED read tool run FREE even while an ask tool is in the map (no global suspend)', async () => {
     // The P1 regression this guards: forcing the run-wide requireToolApproval
     // would suspend EVERY tool call. With the PER-TOOL requireApproval gate, a
