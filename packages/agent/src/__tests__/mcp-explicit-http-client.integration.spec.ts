@@ -11,6 +11,11 @@ import {
   type ExplicitHttpMcpClientOptions,
   type ExplicitHttpMcpFetch,
 } from '../mcp/explicit-http-client';
+import {
+  createDeferredTestExtension,
+  TEST_EXTENSION_ID,
+  TEST_EXTENSION_SETTINGS,
+} from './fixtures/mcp-client-extension-registry';
 
 interface RecordedRequest {
   body?: unknown;
@@ -488,7 +493,6 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     expect(client.getServerCapabilities()).toBeUndefined();
   });
   it('auto-negotiates modern through the real Streamable HTTP discover exchange', async () => {
-    const methods: Array<string | undefined> = [];
     const handler = createMcpHandler(() => createEchoServer(), { legacy: 'reject' });
     cleanupTasks.push(() => handler.close());
     const client = trackClient({
@@ -498,7 +502,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
           .clone()
           .json()
           .catch(() => undefined);
-        methods.push(requestMethod(body));
+        expect(body).toMatchObject({
+          params: { _meta: { 'io.modelcontextprotocol/clientCapabilities': {} } },
+        });
         return handler.fetch(request);
       },
       name: 'auto-modern-canary',
@@ -513,7 +519,6 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       name: 'explicit-http-test-server',
       version: '1.0.0',
     });
-    expect(methods).toEqual(['server/discover']);
   });
   it('auto-negotiates legacy only after the modern probe returns legacy evidence', async () => {
     const requests: RecordedRequest[] = [];
@@ -637,7 +642,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
   it('uses Streamable HTTP at a misleading /sse path without transport inference', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startStreamableServer({ pathname: '/sse', requests });
+    const extension = createDeferredTestExtension();
     const client = trackClient({
+      extensionRegistry: extension.registry,
       headers: {
         Authorization: 'Bearer streamable-canary',
         'X-Brainstrike-Test': 'alpha, beta',
@@ -646,7 +653,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       transport: 'streamable-http',
       url: server.url,
     });
-
+    extension.register();
     const listed = await client.listTools();
     const called = await client.callTool({ arguments: { value: 'hello' }, name: 'echo' });
     const failed = await client.callTool({ name: 'fail' });
@@ -664,7 +671,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       body: {
         method: 'initialize',
         params: {
-          capabilities: { extensions: { 'io.modelcontextprotocol/ui': {} } },
+          capabilities: {
+            extensions: { [TEST_EXTENSION_ID]: TEST_EXTENSION_SETTINGS },
+          },
         },
       },
       method: 'POST',

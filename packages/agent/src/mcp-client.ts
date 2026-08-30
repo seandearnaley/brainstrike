@@ -1,4 +1,9 @@
 export {
+  type McpClientExtensionContract,
+  type McpClientExtensionRegistration,
+  McpClientExtensionRegistry,
+} from './mcp/client-extension-registry';
+export {
   type ExplicitHttpMcpCallToolParams,
   type ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpClient,

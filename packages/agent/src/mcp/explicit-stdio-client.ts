@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import type { McpClientExtensionRegistry } from './client-extension-registry';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
@@ -10,7 +11,6 @@ import type {
 } from './explicit-http-client';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
-const MCP_APPS_EXTENSION_ID = 'io.modelcontextprotocol/ui';
 const CLOSED_ERROR_MESSAGE = 'Explicit stdio MCP client is closed';
 const DISCONNECTED_DURING_CONNECT_ERROR_MESSAGE =
   'MCP stdio connection closed during initialization';
@@ -28,6 +28,7 @@ export interface ExplicitStdioMcpClientOptions {
   };
   command: string;
   env?: Readonly<Record<string, string>>;
+  extensionRegistry?: McpClientExtensionRegistry;
   name: string;
   protocol?: McpProtocol;
 }
@@ -48,6 +49,7 @@ interface NormalizedClientOptions {
   };
   command: string;
   env?: Record<string, string>;
+  extensionRegistry?: McpClientExtensionRegistry;
   protocol: McpProtocol;
 }
 
@@ -76,6 +78,7 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     command: validateNonEmpty(options.command, 'MCP stdio command'),
     ...(options.args ? { args: [...options.args] } : {}),
     ...(options.env ? { env: { ...options.env } } : {}),
+    ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     protocol: options.protocol ?? 'legacy',
   };
 }
@@ -237,10 +240,9 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   private createConnection(): ActiveConnection {
+    const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
     const client = new Client(this.options.clientInfo, {
-      capabilities: {
-        extensions: { [MCP_APPS_EXTENSION_ID]: {} },
-      },
+      capabilities: extensions ? { extensions } : {},
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
     });
     const transport = new StdioClientTransport({

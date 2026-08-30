@@ -4,6 +4,7 @@ import {
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+import type { McpClientExtensionRegistry } from './client-extension-registry';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
@@ -11,7 +12,6 @@ const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
 // Session termination is advisory. Bound it so a stalled server cannot prevent
 // the owned SDK client from aborting its local fetches and releasing handlers.
 const SESSION_TERMINATION_TIMEOUT_MS = 250;
-const MCP_APPS_EXTENSION_ID = 'io.modelcontextprotocol/ui';
 const PROTOCOL_OWNED_HEADERS = new Set([
   'accept',
   'content-type',
@@ -50,6 +50,7 @@ export interface ExplicitHttpMcpClientOptions {
     name: string;
     version: string;
   };
+  extensionRegistry?: McpClientExtensionRegistry;
   fetch?: ExplicitHttpMcpFetch;
   headers?: Readonly<Record<string, string>>;
   name: string;
@@ -70,6 +71,7 @@ interface NormalizedClientOptions {
     name: string;
     version: string;
   };
+  extensionRegistry?: McpClientExtensionRegistry;
   fetch: ExplicitHttpMcpFetch;
   protocol: McpProtocol;
   transport: ExplicitHttpMcpTransport;
@@ -161,6 +163,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
   const baseFetch: ExplicitHttpMcpFetch = options.fetch ?? ((input, init) => fetch(input, init));
   return {
     clientInfo: { ...clientInfo },
+    ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     fetch: createHeaderPreservingFetch(baseFetch, options.headers),
     protocol,
     transport: options.transport,
@@ -362,10 +365,9 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   }
 
   private createConnection(): ActiveConnection {
+    const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
     const client = new Client(this.options.clientInfo, {
-      capabilities: {
-        extensions: { [MCP_APPS_EXTENSION_ID]: {} },
-      },
+      capabilities: extensions ? { extensions } : {},
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
     });
     return { client, transport: this.createTransport() };

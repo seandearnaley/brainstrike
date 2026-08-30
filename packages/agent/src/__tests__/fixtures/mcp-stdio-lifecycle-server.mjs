@@ -6,6 +6,10 @@ const stateFile = process.env['BRAINSTRIKE_STDIO_TEST_STATE_FILE'];
 if (!stateFile) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_STATE_FILE is required');
 }
+const capabilitiesFile = process.env['BRAINSTRIKE_STDIO_TEST_CAPABILITIES_FILE'];
+if (!capabilitiesFile) {
+  throw new Error('BRAINSTRIKE_STDIO_TEST_CAPABILITIES_FILE is required');
+}
 
 async function readState() {
   try {
@@ -76,6 +80,7 @@ server.setRequestHandler('tools/list', async () => ({
 }));
 
 server.setRequestHandler('tools/call', async (request) => {
+  await writeFile(capabilitiesFile, JSON.stringify(server.getClientCapabilities() ?? null), 'utf8');
   if (request.params.name === 'inspect_env') {
     const configuredValue = process.env['BRAINSTRIKE_STDIO_TEST_OVERLAY'];
     if (!configuredValue) {

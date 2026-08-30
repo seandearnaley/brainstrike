@@ -4,8 +4,14 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SdkErrorCode } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import type { McpProtocol } from '../mcp/config';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
+import {
+  createDeferredTestExtension,
+  TEST_EXTENSION_ID,
+  TEST_EXTENSION_SETTINGS,
+} from './fixtures/mcp-client-extension-registry';
 
 const FIXTURE_PATH = fileURLToPath(
   new URL('./fixtures/mcp-stdio-lifecycle-server.mjs', import.meta.url)
@@ -37,25 +43,32 @@ afterEach(async () => {
   }
 });
 
-async function createFixture(protocol: McpProtocol = 'legacy'): Promise<{
+async function createFixture(
+  protocol: McpProtocol = 'legacy',
+  extensionRegistry?: McpClientExtensionRegistry
+): Promise<{
+  capabilitiesFile: string;
   client: ExplicitStdioMcpClient;
   stateFile: string;
 }> {
   const directory = await mkdtemp(join(tmpdir(), 'brainstrike-mcp-stdio-'));
   cleanupTasks.push(() => rm(directory, { force: true, recursive: true }));
+  const capabilitiesFile = join(directory, 'capabilities.json');
   const stateFile = join(directory, 'state.json');
   const client = new ExplicitStdioMcpClient({
     args: [FIXTURE_PATH],
     command: process.execPath,
     env: {
+      BRAINSTRIKE_STDIO_TEST_CAPABILITIES_FILE: capabilitiesFile,
       BRAINSTRIKE_STDIO_TEST_OVERLAY: 'configured-overlay',
       BRAINSTRIKE_STDIO_TEST_STATE_FILE: stateFile,
     },
     name: 'stdio-lifecycle-canary',
     protocol,
+    ...(extensionRegistry ? { extensionRegistry } : {}),
   });
   cleanupTasks.push(() => client.close());
-  return { client, stateFile };
+  return { capabilitiesFile, client, stateFile };
 }
 
 async function readStateFile(stateFile: string): Promise<FixtureState> {
@@ -63,6 +76,24 @@ async function readStateFile(stateFile: string): Promise<FixtureState> {
 }
 
 describe('ExplicitStdioMcpClient integration', () => {
+  it('does not advertise an unimplemented client extension', async () => {
+    const { capabilitiesFile, client } = await createFixture();
+
+    await client.callTool({ arguments: {}, name: 'inspect_env' });
+
+    await expect(readFile(capabilitiesFile, 'utf8').then(JSON.parse)).resolves.toEqual({});
+  });
+
+  it('advertises a registered complete extension over stdio', async () => {
+    const extension = createDeferredTestExtension();
+    const { capabilitiesFile, client } = await createFixture('legacy', extension.registry);
+    extension.register();
+    await client.callTool({ arguments: {}, name: 'inspect_env' });
+    await expect(readFile(capabilitiesFile, 'utf8').then(JSON.parse)).resolves.toEqual({
+      extensions: { [TEST_EXTENSION_ID]: TEST_EXTENSION_SETTINGS },
+    });
+  });
+
   it('auto-probes with a disposable child and exposes the steady legacy metadata', async () => {
     const { client, stateFile } = await createFixture('auto');
 
