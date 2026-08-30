@@ -2,7 +2,7 @@
  * Types for the Unified Tools Settings UI
  */
 
-import type { McpServerStatusSnapshot } from '@brainstrike/assistant-contract';
+import type { McpHostServerSnapshot, McpHostSnapshot } from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 
 /**
@@ -85,7 +85,7 @@ export type ToolExecutionResult<T = unknown> =
 /**
  * MCP server connection information.
  */
-export type McpServerInfo = McpServerStatusSnapshot;
+export type McpServerInfo = McpHostServerSnapshot;
 
 /**
  * Operations for tool management.
@@ -112,7 +112,7 @@ export interface ToolsSettingsOperations {
    * Get status of MCP servers (desktop only).
    * Optional: Only required when mcpAvailable=true.
    */
-  getMcpServerStatus?: () => Promise<McpServerInfo[]>;
+  getMcpServerStatus?: () => Promise<McpHostSnapshot>;
   /** Get tool statistics */
   getStats: () => Promise<ToolStats>;
   /** Get all registered tools */
@@ -129,6 +129,8 @@ export interface ToolsSettingsOperations {
   resetTools: () => Promise<void>;
   /** Set MCP config path (or reset to default when null) */
   setMcpConfigPath?: (configPath: string | null) => Promise<void>;
+  /** Subscribe to revisioned MCP host status (desktop only). */
+  subscribeMcpServerStatus?: (listener: (snapshot: McpHostSnapshot) => void) => () => void;
   /** Optional live query configuration for tools (PGlite) */
   toolsLiveQuery?: ToolsLiveQueryConfig;
   /** Validate and write MCP config file text */

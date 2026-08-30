@@ -4,7 +4,7 @@ import { mcpToolRegistry } from '@brainstrike/agent';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from '../../ipc-mcp';
-import { disposeClients, getClientStatuses, initClients } from '../../mcp';
+import { disposeClients, initClients } from '../../mcp';
 import {
   getMcpConfigPath,
   loadMcpConfig,
@@ -262,12 +262,12 @@ describe('ipc-mcp handlers', () => {
       if (!statusHandler) {
         throw new Error('status handler not registered');
       }
-      vi.mocked(getClientStatuses).mockClear();
+      const snapshot = vi.spyOn(authority.runtime.host, 'snapshot');
       const statusSnapshot = statusHandler();
       await Promise.resolve();
-      expect(getClientStatuses).not.toHaveBeenCalled();
+      expect(snapshot).not.toHaveBeenCalled();
       startup.resolve({ exists: false, path: '/tmp/mcp.config.json' });
-      await expect(statusSnapshot).resolves.toEqual([]);
+      await expect(statusSnapshot).resolves.toEqual({ revision: 1, servers: [] });
       const mockConfig = {
         config: {
           servers: [
