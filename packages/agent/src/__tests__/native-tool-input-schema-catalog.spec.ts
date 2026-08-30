@@ -1,3 +1,4 @@
+import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { providerCompatibleInputSchema } from '../tools/provider-compatible-input';
@@ -235,6 +236,20 @@ describe('native tool input schema catalog', () => {
       const authoredJsonSchema = z.toJSONSchema(schema.out, options);
       expect(wrappedJsonSchema, toolId).toEqual(authoredJsonSchema);
       expect(JSON.stringify(wrappedJsonSchema), toolId).toBe(JSON.stringify(authoredJsonSchema));
+
+      const mastraOptions = { io: 'input', target: 'draft-07' } as const;
+      const wrappedMastraSchema = standardSchemaToJSONSchema(
+        toStandardSchema(schema),
+        mastraOptions
+      );
+      const authoredMastraSchema = standardSchemaToJSONSchema(
+        toStandardSchema(schema.out),
+        mastraOptions
+      );
+      expect(wrappedMastraSchema, toolId).toEqual(authoredMastraSchema);
+      expect(JSON.stringify(wrappedMastraSchema), toolId).toBe(
+        JSON.stringify(authoredMastraSchema)
+      );
     }
   });
 
@@ -265,6 +280,68 @@ describe('native tool input schema catalog', () => {
     );
 
     expect(schema.safeParse({ headers: { Authorization: null } }).success).toBe(false);
+  });
+
+  it('normalizes nullable optional properties to omission', () => {
+    const schema = providerCompatibleInputSchema(
+      z.object({ note: z.string().nullable().optional() }).strict()
+    );
+
+    expect(schema.parse({ note: null })).toEqual({});
+  });
+
+  it('normalizes nullable defaulted properties to their default', () => {
+    const schema = providerCompatibleInputSchema(
+      z.object({ mode: z.enum(['brief', 'full']).nullable().default('brief') }).strict()
+    );
+
+    expect(schema.parse({ mode: null })).toEqual({ mode: 'brief' });
+  });
+
+  it('normalizes optional scalar-union null to omission', () => {
+    const schema = providerCompatibleInputSchema(
+      z.object({ selector: z.union([z.string(), z.number()]).optional() }).strict()
+    );
+
+    expect(schema.parse({ selector: null })).toEqual({});
+  });
+
+  it('normalizes nested ordinary-union optional null through its unique const branch', () => {
+    const schema = providerCompatibleInputSchema(
+      z
+        .object({
+          operation: z.union([
+            z.object({ action: z.literal('read'), cursor: z.number().optional() }).strict(),
+            z.object({ action: z.literal('stop'), sessionId: z.string() }).strict(),
+          ]),
+        })
+        .strict()
+    );
+
+    expect(schema.parse({ operation: { action: 'read', cursor: null } })).toEqual({
+      operation: { action: 'read' },
+    });
+  });
+
+  it('runs authored refinements and transforms exactly once', () => {
+    let refinementRuns = 0;
+    let transformRuns = 0;
+    const schema = providerCompatibleInputSchema(
+      z
+        .object({ note: z.string().nullable().optional() })
+        .strict()
+        .superRefine(() => {
+          refinementRuns += 1;
+        })
+        .transform((value) => {
+          transformRuns += 1;
+          return value;
+        })
+    );
+
+    expect(schema.parse({ note: null })).toEqual({});
+    expect(refinementRuns).toBe(1);
+    expect(transformRuns).toBe(1);
   });
 
   it('validates the manageCanvas action union, tolerating cross-action extras (model-idiomatic)', () => {
