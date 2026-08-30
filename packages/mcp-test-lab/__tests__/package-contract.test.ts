@@ -228,6 +228,12 @@ describe('MCP test lab package contract', () => {
       'Terminal `close` aggregates that ledger with all actors current at shutdown'
     );
     expect(normalizedContract).toContain(
+      '`ExplicitHttpMcpClient` defaults to `client-owned` lifecycle'
+    );
+    expect(normalizedContract).toContain(
+      '`ExplicitStdioMcpClient` publishes pending child ownership before connection begins'
+    );
+    expect(normalizedContract).toContain(
       'The host publisher alone owns a monotonic revision sequence beginning at zero.'
     );
     expect(normalizedContract).toContain('Empty configured-server-id filters are rejected visibly');

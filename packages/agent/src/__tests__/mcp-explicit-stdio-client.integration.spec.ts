@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SdkErrorCode } from '@modelcontextprotocol/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import type { McpProtocol } from '../mcp/config';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
@@ -12,6 +12,9 @@ import {
   TEST_EXTENSION_ID,
   TEST_EXTENSION_SETTINGS,
 } from './fixtures/mcp-client-extension-registry';
+
+const loggerError = vi.hoisted(() => vi.fn());
+vi.mock('@brainstrike/logging', () => ({ createLogger: () => ({ error: loggerError }) }));
 
 const FIXTURE_PATH = fileURLToPath(
   new URL('./fixtures/mcp-stdio-lifecycle-server.mjs', import.meta.url)
@@ -27,6 +30,7 @@ interface FixtureState {
 }
 
 const cleanupTasks: Array<() => Promise<void>> = [];
+let unexpectedCloses = 0;
 
 afterEach(async () => {
   const tasks = cleanupTasks.splice(0).reverse();
@@ -38,6 +42,8 @@ afterEach(async () => {
       errors.push(error);
     }
   }
+  unexpectedCloses = 0;
+  loggerError.mockClear();
   if (errors.length === 1) {
     throw errors[0];
   }
@@ -49,15 +55,19 @@ afterEach(async () => {
 async function createFixture(
   protocol: McpProtocol = 'legacy',
   extensionRegistry?: McpClientExtensionRegistry,
-  fixturePath = FIXTURE_PATH
+  fixturePath = FIXTURE_PATH,
+  unexpectedCloseObserver?: () => void,
+  environment?: Readonly<Record<string, string>>
 ): Promise<{
   capabilitiesFile: string;
   client: ExplicitStdioMcpClient;
+  pidFile: string;
   stateFile: string;
 }> {
   const directory = await mkdtemp(join(tmpdir(), 'brainstrike-mcp-stdio-'));
   cleanupTasks.push(() => rm(directory, { force: true, recursive: true }));
   const capabilitiesFile = join(directory, 'capabilities.json');
+  const pidFile = join(directory, 'pid');
   const stateFile = join(directory, 'state.json');
   const client = new ExplicitStdioMcpClient({
     args: [fixturePath],
@@ -65,14 +75,20 @@ async function createFixture(
     env: {
       BRAINSTRIKE_STDIO_TEST_CAPABILITIES_FILE: capabilitiesFile,
       BRAINSTRIKE_STDIO_TEST_OVERLAY: 'configured-overlay',
+      BRAINSTRIKE_STDIO_TEST_PID_FILE: pidFile,
       BRAINSTRIKE_STDIO_TEST_STATE_FILE: stateFile,
+      ...environment,
     },
     name: 'stdio-lifecycle-canary',
+    onUnexpectedClose: () => {
+      unexpectedCloses += 1;
+      unexpectedCloseObserver?.();
+    },
     protocol,
     ...(extensionRegistry ? { extensionRegistry } : {}),
   });
   cleanupTasks.push(() => client.close());
-  return { capabilitiesFile, client, stateFile };
+  return { capabilitiesFile, client, pidFile, stateFile };
 }
 
 async function readStateFile(stateFile: string): Promise<FixtureState> {
@@ -177,6 +193,32 @@ describe('ExplicitStdioMcpClient integration', () => {
     await expect(client.listTools()).rejects.toThrow('Explicit stdio MCP client is closed');
   });
 
+  it.each(['legacy', 'auto'] as const)(
+    'reaps a pending %s child when terminal close wins the connection handshake',
+    async (protocol) => {
+      const { client, pidFile, stateFile } = await createFixture(
+        protocol,
+        undefined,
+        FIXTURE_PATH,
+        undefined,
+        { BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS: '500' }
+      );
+      const connecting = client.connect();
+      await vi.waitFor(async () => {
+        await expect(readFile(pidFile, 'utf8')).resolves.toMatch(/^[1-9]\d*$/u);
+      });
+      const pid = Number.parseInt(await readFile(pidFile, 'utf8'), 10);
+
+      const connectionRejected = expect(connecting).rejects.toBeDefined();
+      const closing = client.close();
+
+      await closing;
+      expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
+      await connectionRejected;
+      await expect(readStateFile(stateFile)).resolves.toMatchObject({ starts: 1 });
+    }
+  );
+
   it('does not replay a disconnected tool call and reconnects only for the next operation', async () => {
     const { client, stateFile } = await createFixture();
     await client.connect();
@@ -188,6 +230,7 @@ describe('ExplicitStdioMcpClient integration', () => {
       exitToolCalls: 1,
       starts: 1,
     });
+    expect(unexpectedCloses).toBe(1);
 
     const reconnectedTools = await client.listTools();
 
@@ -196,6 +239,27 @@ describe('ExplicitStdioMcpClient integration', () => {
       exitToolCalls: 1,
       starts: 2,
     });
+  });
+
+  it('isolates a throwing unexpected-close observer from transport teardown', async () => {
+    const { client, stateFile } = await createFixture('legacy', undefined, FIXTURE_PATH, () => {
+      throw new Error('observer failed');
+    });
+    await client.connect();
+
+    await expect(client.callTool({ arguments: {}, name: 'exit_once' })).rejects.toThrow(
+      /connection closed/i
+    );
+    expect(unexpectedCloses).toBe(1);
+    expect(loggerError).toHaveBeenCalledWith('MCP unexpected-close observer failed', {
+      error: expect.any(Error),
+      transport: 'stdio',
+    });
+
+    const reconnectedTools = await client.listTools();
+
+    expect(reconnectedTools.tools.map((tool) => tool.name)).toEqual(FIXTURE_TOOL_NAMES);
+    await expect(readStateFile(stateFile)).resolves.toEqual({ exitToolCalls: 1, starts: 2 });
   });
 
   it('restores SDK tool metadata before the first call on a reconnected child', async () => {

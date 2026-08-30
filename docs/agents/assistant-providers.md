@@ -2135,6 +2135,10 @@ The surrounding host boundary has these additional invariants:
 
 Every actor validates negotiated status, operation results, and close reports
 through the browser-blocked runtime parser before publishing or returning them.
+`ExplicitHttpMcpClient` defaults to `client-owned` lifecycle so existing direct consumers retain one bounded
+expired-session reconnect and request replay. Host composition must select `host-owned`: a session-invalidating 404 invalidates the connection, emits one unexpected-close signal, and returns the original failure without replay. Transport code never infers ownership.
+`ExplicitStdioMcpClient` publishes pending child ownership before connection begins, sets terminal closure
+synchronously before teardown, and reaps pending and active children through one idempotent close promise. Only an active connection emits the observer signal; pending failures reject connect directly. Observer exceptions are isolated, and the next operation creates a fresh child without replay.
 Actor state is single-writer and generation-bound. A failure remains the latest
 snapshot through teardown; observer exceptions are isolated and diagnosed, not
 allowed to corrupt invocation or cleanup. Public actor close is idempotent and
