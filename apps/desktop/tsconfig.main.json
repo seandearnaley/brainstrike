@@ -138,6 +138,7 @@
     "src/secrets.ts",
     "src/mcp-loader.ts",
     "src/mcp/server-actor.ts",
+    "src/mcp/host-revision-publisher.ts",
     "src/create-window.ts",
     "src/setup-security.ts",
     "src/agent-client-loader.ts",
