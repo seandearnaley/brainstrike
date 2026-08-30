@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   McpServerActor,
   type McpServerActorClient,
+  McpServerActorClientCleanupError,
   type McpServerActorClientFactory,
 } from '../../mcp/server-actor';
 
@@ -327,6 +328,28 @@ describe('McpServerActor', () => {
       ...report,
       failures: [rawReportedFailure],
     });
+  });
+  it('latches failed client cleanup when retirement wins factory failure', async () => {
+    const connecting = deferred<McpServerActorClient>();
+    const internalError = vi.fn();
+    const subject = actor(async () => await connecting.promise, linearId, internalError);
+    const invocation = subject.invoke(LIST);
+    await vi.waitFor(() => expect(subject.snapshot().state).toBe('connecting'));
+    const closing = subject.close();
+    await failure(invocation, 'mcp_generation_retired');
+    connecting.reject(
+      new McpServerActorClientCleanupError(
+        [new Error('connect failed'), new Error('cleanup failed')],
+        'MCP client operation failed and cleanup also failed'
+      )
+    );
+    await expect(closing).resolves.toMatchObject({
+      failures: [{ code: 'mcp-client-creation-cleanup-failed' }],
+    });
+    expect(internalError).toHaveBeenCalledWith(
+      'mcp-client-creation-failed',
+      expect.objectContaining({ errors: [expect.any(Error), expect.any(Error)] })
+    );
   });
   it('returns immutable close reports without sharing mutable empty failures', async () => {
     const first = await actor(async () => client()).close();

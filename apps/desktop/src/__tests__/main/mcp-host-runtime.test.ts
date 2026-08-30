@@ -337,8 +337,8 @@ describe('DesktopMcpHostRuntime', () => {
   });
 
   it.each([
-    { childProcessesClosed: 0, server: http() },
-    { childProcessesClosed: 1, server: stdio() },
+    { childProcessesClosed: 0, cursor: '', server: http() },
+    { childProcessesClosed: 1, cursor: 'next-page', server: stdio() },
   ])('composes $server.transport with exact close accounting', async (testCase) => {
     const explicitClient = transportClient();
     const createHttpTransportClient = vi.fn(() => explicitClient);
@@ -351,12 +351,12 @@ describe('DesktopMcpHostRuntime', () => {
     await runtime.host.invoke({
       _meta: { traceId: 'trace-1' },
       configuredServerId: testCase.server.name,
-      cursor: '',
+      cursor: testCase.cursor,
       type: 'tools/list',
     });
     expect(explicitClient.listTools).toHaveBeenCalledWith(
       { signal: expect.any(AbortSignal) },
-      { _meta: { traceId: 'trace-1' }, cursor: '' }
+      { _meta: { traceId: 'trace-1' }, cursor: testCase.cursor }
     );
     const report = await runtime.host.close();
     expect(report).toMatchObject({
@@ -385,12 +385,12 @@ describe('DesktopMcpHostRuntime', () => {
       onInternalError,
     });
     await runtime.replaceResolvedConfig(resolved(http()));
-    await runtime.host
-      .invoke({
+    await expect(
+      runtime.host.invoke({
         configuredServerId: parseConfiguredMcpServerId('team.linear.prod'),
         type: 'tools/list',
       })
-      .catch(() => undefined);
+    ).rejects.toMatchObject({ code: 'mcp-client-creation-failed' });
     expect(onInternalError).toHaveBeenCalledWith(
       'mcp-client-creation-failed',
       expect.objectContaining({
