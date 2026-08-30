@@ -2,6 +2,85 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import * as toolSchemas from '../tools/schemas';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function schemaAllowsNull(schema: unknown): boolean {
+  if (schema === true) {
+    return true;
+  }
+  if (!isRecord(schema)) {
+    return false;
+  }
+
+  const type = schema.type;
+  if (type === 'null' || (Array.isArray(type) && type.includes('null'))) {
+    return true;
+  }
+  if (schema.const === null || (Array.isArray(schema.enum) && schema.enum.includes(null))) {
+    return true;
+  }
+
+  for (const keyword of ['anyOf', 'oneOf'] as const) {
+    const branches = schema[keyword];
+    if (Array.isArray(branches) && branches.some((branch) => schemaAllowsNull(branch))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findNonNullableOptionalFields(schema: unknown, path: readonly string[] = []): string[] {
+  if (!isRecord(schema)) {
+    return [];
+  }
+
+  const failures: string[] = [];
+  const properties = schema.properties;
+  if (isRecord(properties)) {
+    const required = new Set(
+      Array.isArray(schema.required)
+        ? schema.required.filter((value): value is string => typeof value === 'string')
+        : []
+    );
+    for (const [key, propertySchema] of Object.entries(properties)) {
+      const propertyPath = [...path, key];
+      const hasDefault = isRecord(propertySchema) && 'default' in propertySchema;
+      if ((!required.has(key) || hasDefault) && !schemaAllowsNull(propertySchema)) {
+        failures.push(propertyPath.join('.'));
+      }
+      failures.push(...findNonNullableOptionalFields(propertySchema, propertyPath));
+    }
+  }
+
+  for (const keyword of ['$defs', 'allOf', 'anyOf', 'oneOf'] as const) {
+    const nested = schema[keyword];
+    if (Array.isArray(nested)) {
+      for (const branch of nested) {
+        failures.push(...findNonNullableOptionalFields(branch, path));
+      }
+      continue;
+    }
+    if (isRecord(nested)) {
+      for (const [key, branch] of Object.entries(nested)) {
+        failures.push(...findNonNullableOptionalFields(branch, [...path, key]));
+      }
+    }
+  }
+
+  const items = schema.items;
+  if (Array.isArray(items)) {
+    for (const item of items) {
+      failures.push(...findNonNullableOptionalFields(item, path));
+    }
+  } else {
+    failures.push(...findNonNullableOptionalFields(items, path));
+  }
+
+  return failures;
+}
+
 const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.askUser',
   'brainstrike.deleteWorkspaceFile',
@@ -77,6 +156,102 @@ describe('native tool input schema catalog', () => {
     ).toBe(true);
     expect(schema.safeParse({ cursor, path: '/src/main.ts' }).success).toBe(false);
     expect(schema.safeParse({ cursor, root: 'other-root' }).success).toBe(false);
+  });
+
+  it('accepts provider null for optional fields, normalizes it to omission, and rejects malformed values', () => {
+    const cases: ReadonlyArray<{
+      expected: Record<string, unknown>;
+      invalidInput: Record<string, unknown>;
+      providerInput: Record<string, unknown>;
+      toolId: keyof typeof toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS;
+    }> = [
+      {
+        expected: { path: '/src/main.ts' },
+        invalidInput: { path: 42 },
+        providerInput: {
+          cursor: null,
+          endLine: null,
+          maxChars: null,
+          path: '/src/main.ts',
+          root: null,
+          startLine: null,
+        },
+        toolId: 'brainstrike.readWorkspaceFile',
+      },
+      {
+        expected: { content: 'export {};', path: '/src/new.ts' },
+        invalidInput: { content: 'export {};', path: '/src/new.ts', root: 42 },
+        providerInput: { content: 'export {};', path: '/src/new.ts', root: null },
+        toolId: 'brainstrike.writeWorkspaceFile',
+      },
+      {
+        expected: {},
+        invalidInput: { includeHidden: 'false' },
+        providerInput: {
+          depth: null,
+          detail: null,
+          includeDirectories: null,
+          includeFiles: null,
+          includeHidden: null,
+          maxEntries: null,
+          offset: null,
+          path: null,
+          root: null,
+        },
+        toolId: 'brainstrike.readWorkspaceDirectory',
+      },
+      {
+        expected: { pattern: 'needle' },
+        invalidInput: { caseSensitive: 'false', pattern: 'needle' },
+        providerInput: {
+          caseSensitive: null,
+          contextLines: null,
+          filePaths: null,
+          isRegex: null,
+          maxResults: null,
+          offset: null,
+          outputMode: null,
+          pattern: 'needle',
+          root: null,
+        },
+        toolId: 'brainstrike.grepSearch',
+      },
+      {
+        expected: { command: 'pwd' },
+        invalidInput: { command: 'pwd', timeoutMs: 'slow' },
+        providerInput: { command: 'pwd', cwd: null, root: null, timeoutMs: null },
+        toolId: 'brainstrike.executeCommand',
+      },
+      {
+        expected: { filter: 'interactive', maxChars: 6000 },
+        invalidInput: { filter: 'interactive', maxChars: 'many' },
+        providerInput: { filter: null, maxChars: null },
+        toolId: 'brainstrike.browserReadPage',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS[testCase.toolId];
+      const parsed = schema.safeParse(testCase.providerInput);
+
+      expect(parsed.success, testCase.toolId).toBe(true);
+      if (!parsed.success) {
+        continue;
+      }
+      expect(parsed.data, testCase.toolId).toEqual(testCase.expected);
+      expect(schema.safeParse(testCase.invalidInput).success, testCase.toolId).toBe(false);
+    }
+  });
+
+  it('declares null-as-omission for every optional field in the registered catalog', () => {
+    const failures = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS).flatMap(
+      ([toolId, schema]) =>
+        findNonNullableOptionalFields(z.toJSONSchema(schema)).map(
+          (fieldPath) => `${toolId}.${fieldPath}`
+        )
+    );
+
+    expect(failures).toEqual([]);
   });
 
   it('validates the manageCanvas action union, tolerating cross-action extras (model-idiomatic)', () => {
