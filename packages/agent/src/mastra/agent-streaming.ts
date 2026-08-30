@@ -35,6 +35,7 @@ import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type {
   Agent,
+  AgentExecutionOptions,
   AgentMemoryOption,
   DelegationConfig,
   MastraDBMessage,
@@ -1104,6 +1105,18 @@ function* makeResumedStartChunks(
  */
 type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 
+/**
+ * Preserve Mastra's upstream default resource ceiling while opting into its
+ * approval-aware selection strategy. With `called`, registered-but-unused
+ * approval/suspend tools no longer serialize a safe batch; Mastra still drops
+ * the effective concurrency to one when the batch actually calls one of them
+ * or the run-wide approval gate is active.
+ */
+const APPROVAL_AWARE_TOOL_CALL_CONCURRENCY = {
+  limit: 10,
+  strategy: 'called',
+} as const satisfies NonNullable<AgentExecutionOptions['toolCallConcurrency']>;
+
 interface BrainstrikeAgentStreamOptions {
   abortSignal?: AbortSignal;
   delegation?: DelegationConfig;
@@ -1115,6 +1128,7 @@ interface BrainstrikeAgentStreamOptions {
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
   requireToolApproval?: ApprovalGate;
+  toolCallConcurrency?: typeof APPROVAL_AWARE_TOOL_CALL_CONCURRENCY;
 }
 
 /**
@@ -1259,7 +1273,7 @@ function buildToolLoopOptions(
   runtimeData: RuntimeData | undefined,
   toolSearchProcessor: BrainstrikeToolSearchProcessor | undefined,
   toolHistoryFilter: ProjectionSafeToolCallFilter | undefined
-): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
+): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps' | 'toolCallConcurrency'> {
   const agentLoop = runtimeData?.agentLoop;
   const maxSteps = resolvePositiveIntegerOption(agentLoop?.maxSteps, 'agentLoop.maxSteps');
   const inputTokenLimit = resolvePositiveIntegerOption(
@@ -1333,6 +1347,7 @@ function buildToolLoopOptions(
 
   return {
     maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
+    toolCallConcurrency: APPROVAL_AWARE_TOOL_CALL_CONCURRENCY,
     ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
   };
 }

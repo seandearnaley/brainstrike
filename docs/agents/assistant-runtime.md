@@ -1202,16 +1202,18 @@ cases in `assistant-tools-read.integration.test.ts` (transcript redaction, UTF-8
 result ceilings, manager/tool continuation composition, and surrogate-safe
 paging).
 
-Parallel tool calls: Mastra executes tool calls within a step concurrently
-(default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
-sequential execution when the run-wide `requireToolApproval` is set OR any active
-tool carries the per-tool `requireApproval` flag / a suspend schema. The
-permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with the
-PER-TOOL `requireApproval`, so a run that includes any ask tool executes its step
-sequentially (the price of the per-tool gate), but only the ask tool actually
-suspends — allowed tools still run. A run with no ask tools stays parallel. The
-approval-resume path sets the run-wide `requireToolApproval`. The data-stream
-mapper and UI key all per-call state by toolCallId and handle interleaving.
+Parallel tool calls: every initial, approval-resume, and suspended-tool-resume
+leg passes Mastra `toolCallConcurrency: { limit: 10, strategy: 'called' }`
+through `buildToolLoopOptions`. The explicit limit preserves Mastra's upstream
+default resource ceiling; `called` changes only which tools decide whether a
+step must serialize. A batch of safe calls therefore runs concurrently even
+when an approval/suspend-capable tool remains registered but uncalled. A batch
+that actually calls any per-tool `requireApproval` / suspend-schema tool still
+runs sequentially, as does a run with the run-wide `requireToolApproval` gate.
+The permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with
+the PER-TOOL `requireApproval`, so only an actual ask call pays the sequential
+execution cost and suspends. The data-stream mapper and UI key all per-call
+state by toolCallId and handle interleaving.
 
 When changing this flow, update this section and the related tests.
 
