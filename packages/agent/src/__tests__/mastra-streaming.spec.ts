@@ -1981,6 +1981,7 @@ describe('mastra streaming integration', () => {
 
     expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).toMatchObject({
       maxSteps: 100,
+      toolCallConcurrency: { limit: 10, strategy: 'called' },
     });
   });
 

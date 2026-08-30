@@ -696,12 +696,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     const approvalOptions = agent?.approveToolCallCalls[0] as {
       experimental_generateMessageId?: () => string;
       inputProcessors?: Array<{ id?: string }>;
+      toolCallConcurrency?: { limit: number; strategy: string };
     };
     const mastraConfig = mastraInstances.at(-1)?.config as {
       idGenerator?: () => string;
     };
     expect(approvalOptions.experimental_generateMessageId).toBeTypeOf('function');
     expect(approvalOptions.experimental_generateMessageId?.()).toBe('assistant-resume-id');
+    expect(approvalOptions.toolCallConcurrency).toEqual({ limit: 10, strategy: 'called' });
     expect(approvalOptions.inputProcessors?.map((processor) => processor.id)).toEqual([
       'tool-call-filter',
       'provider-history-compat',
@@ -930,12 +932,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     const resumeOptions = agent?.resumeStreamCalls[0]?.options as {
       experimental_generateMessageId?: () => string;
       inputProcessors?: Array<{ id?: string }>;
+      toolCallConcurrency?: { limit: number; strategy: string };
     };
     const mastraConfig = mastraInstances.at(-1)?.config as {
       idGenerator?: () => string;
     };
     expect(resumeOptions.experimental_generateMessageId).toBeTypeOf('function');
     expect(resumeOptions.experimental_generateMessageId?.()).toBe('assistant-suspend-resume-id');
+    expect(resumeOptions.toolCallConcurrency).toEqual({ limit: 10, strategy: 'called' });
     expect(resumeOptions.inputProcessors?.map((processor) => processor.id)).toEqual([
       'tool-call-filter',
       'provider-history-compat',

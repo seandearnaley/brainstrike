@@ -312,14 +312,13 @@ function createAskThenToolCallModel(args: {
 }
 
 /**
- * A scripted model that emits TWO tool calls in ONE step (turn 1), then final
- * text on every later turn. Two approval-gated calls in a single step is the
- * shape that decides whether approving one can silently answer the other.
+ * A scripted model that emits a BATCH of tool calls in ONE step (turn 1), then
+ * final text on every later turn. This drives both concurrency and approval
+ * ordering through the real Mastra loop rather than a local scheduler fake.
  */
-function createTwoToolCallModel(args: {
-  calls: readonly { input: string; toolCallId: string }[];
+function createToolCallBatchModel(args: {
+  calls: readonly { input: string; toolCallId: string; toolName: string }[];
   finalText: string;
-  toolName: string;
 }): LanguageModelV2 {
   let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
@@ -344,7 +343,7 @@ function createTwoToolCallModel(args: {
               (call): LanguageModelV2StreamPart => ({
                 input: call.input,
                 toolCallId: call.toolCallId,
-                toolName: args.toolName,
+                toolName: call.toolName,
                 type: 'tool-call',
               })
             ),
@@ -394,6 +393,22 @@ function makeFailingAskTool(execute: (inputData: { command: string }) => Promise
     inputSchema: z.object({ command: z.string() }),
     outputSchema: z.object({ ran: z.string() }),
   });
+}
+
+function createDeferredSignal(): { promise: Promise<void>; resolve: () => void } {
+  let resolvePromise: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: () => {
+      if (!resolvePromise) {
+        throw new Error('Deferred signal was not initialized.');
+      }
+      resolvePromise();
+    },
+  };
 }
 
 function makeMemory(database: PGlite) {
@@ -507,13 +522,20 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     const askTool = makeAskTool(askExecute);
     const thread = { resourceId: 'resource-two-gated', threadId: 'thread-two-gated' } as const;
 
-    modelHolder.current = createTwoToolCallModel({
+    modelHolder.current = createToolCallBatchModel({
       calls: [
-        { input: JSON.stringify({ command: 'echo A' }), toolCallId: 'call-two-gated-a' },
-        { input: JSON.stringify({ command: 'echo B' }), toolCallId: 'call-two-gated-b' },
+        {
+          input: JSON.stringify({ command: 'echo A' }),
+          toolCallId: 'call-two-gated-a',
+          toolName: 'shell_tool',
+        },
+        {
+          input: JSON.stringify({ command: 'echo B' }),
+          toolCallId: 'call-two-gated-b',
+          toolName: 'shell_tool',
+        },
       ],
       finalText: 'Both done.',
-      toolName: 'shell_tool',
     });
 
     const runtime = {
@@ -1643,6 +1665,188 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(declineResults[0]).not.toHaveProperty('isError');
 
     await database.close();
+  });
+
+  it('runs safe calls concurrently when an approval-gated tool is registered but not called', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const readsStarted: string[] = [];
+    const readsStartedTogether = createDeferredSignal();
+    const releaseReads = createDeferredSignal();
+    const readExecute = vi.fn(async (inputData: { path: string }) => {
+      readsStarted.push(inputData.path);
+      if (readsStarted.length === 2) {
+        readsStartedTogether.resolve();
+      }
+      await releaseReads.promise;
+      return { contents: `body of ${inputData.path}` };
+    });
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const readTool = createTool({
+      description: 'A read-only tool (allow).',
+      execute: readExecute,
+      id: 'read_tool',
+      inputSchema: z.object({ path: z.string() }),
+      outputSchema: z.object({ contents: z.string() }),
+    });
+    const askTool = makeAskTool(askExecute);
+    const thread = {
+      resourceId: 'resource-safe-concurrency',
+      threadId: 'thread-safe-concurrency',
+    } as const;
+    const policy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: { read_tool: 'read', shell_tool: 'execute' },
+      yolo: false,
+    } as const;
+
+    modelHolder.current = createToolCallBatchModel({
+      calls: [
+        {
+          input: JSON.stringify({ path: '/README.md' }),
+          toolCallId: 'call-safe-a',
+          toolName: 'read_tool',
+        },
+        {
+          input: JSON.stringify({ path: '/AGENTS.md' }),
+          toolCallId: 'call-safe-b',
+          toolName: 'read_tool',
+        },
+      ],
+      finalText: 'Both files read.',
+    });
+
+    const drainPromise = (async () =>
+      drainYielding(
+        await streamMastraAgent(
+          [
+            {
+              id: 'u-safe-concurrency',
+              parts: [{ text: 'read both', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          {
+            memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+              permissionPolicy: policy,
+              provider: 'openai',
+            },
+            storage,
+            tools: { read_tool: readTool, shell_tool: askTool },
+          }
+        )
+      ))();
+
+    // The timeout is a deadlock guard, not a latency assertion: under the old
+    // "available" strategy call A waits on the barrier and B cannot start.
+    const startedBeforeRelease = await Promise.race([
+      readsStartedTogether.promise.then(() => readsStarted.length),
+      new Promise<number>((resolve) => {
+        setTimeout(() => resolve(readsStarted.length), 2000);
+      }),
+    ]);
+    releaseReads.resolve();
+    const chunks = await drainPromise;
+    await database.close();
+
+    expect(startedBeforeRelease).toBe(2);
+    expect(readsStarted).toEqual(['/README.md', '/AGENTS.md']);
+    expect(readExecute).toHaveBeenCalledTimes(2);
+    expect(askExecute).not.toHaveBeenCalled();
+    expect(findApprovalChunk(chunks)).toBeUndefined();
+  });
+
+  it('honors the ten-call cap for a safe batch beside an uncalled approval tool', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const firstWaveStarted = createDeferredSignal();
+    const releaseFirstWave = createDeferredSignal();
+    const startedIndexes: number[] = [];
+    let activeExecutions = 0;
+    let maxActiveExecutions = 0;
+    const readExecute = vi.fn(async (inputData: { index: number }) => {
+      activeExecutions += 1;
+      maxActiveExecutions = Math.max(maxActiveExecutions, activeExecutions);
+      startedIndexes.push(inputData.index);
+      if (startedIndexes.length === 10) {
+        firstWaveStarted.resolve();
+      }
+      await releaseFirstWave.promise;
+      activeExecutions -= 1;
+      return { value: inputData.index };
+    });
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const readTool = createTool({
+      description: 'A bounded read-only tool (allow).',
+      execute: readExecute,
+      id: 'read_tool',
+      inputSchema: z.object({ index: z.number().int() }),
+      outputSchema: z.object({ value: z.number().int() }),
+    });
+    const askTool = makeAskTool(askExecute);
+    const thread = {
+      resourceId: 'resource-safe-concurrency-cap',
+      threadId: 'thread-safe-concurrency-cap',
+    } as const;
+    const policy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: { read_tool: 'read', shell_tool: 'execute' },
+      yolo: false,
+    } as const;
+
+    modelHolder.current = createToolCallBatchModel({
+      calls: Array.from({ length: 12 }, (_, index) => ({
+        input: JSON.stringify({ index }),
+        toolCallId: `call-safe-cap-${index}`,
+        toolName: 'read_tool',
+      })),
+      finalText: 'Batch complete.',
+    });
+
+    const drainPromise = (async () =>
+      drainYielding(
+        await streamMastraAgent(
+          [{ id: 'u-safe-cap', parts: [{ text: 'read the batch', type: 'text' }], role: 'user' }],
+          {
+            memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+              permissionPolicy: policy,
+              provider: 'openai',
+            },
+            storage,
+            tools: { read_tool: readTool, shell_tool: askTool },
+          }
+        )
+      ))();
+
+    const firstWaveReached = await Promise.race([
+      firstWaveStarted.promise.then(() => true),
+      new Promise<boolean>((resolve) => {
+        setTimeout(() => resolve(false), 2000);
+      }),
+    ]);
+    const startedBeforeRelease = startedIndexes.length;
+    const maxActiveBeforeRelease = maxActiveExecutions;
+    releaseFirstWave.resolve();
+    const chunks = await drainPromise;
+    await database.close();
+
+    expect(firstWaveReached).toBe(true);
+    expect(startedBeforeRelease).toBe(10);
+    expect(maxActiveBeforeRelease).toBe(10);
+    expect(readExecute).toHaveBeenCalledTimes(12);
+    expect(maxActiveExecutions).toBe(10);
+    expect(askExecute).not.toHaveBeenCalled();
+    expect(findApprovalChunk(chunks)).toBeUndefined();
   });
 
   it('lets an ALLOWED read tool run FREE even while an ask tool is in the map (no global suspend)', async () => {
