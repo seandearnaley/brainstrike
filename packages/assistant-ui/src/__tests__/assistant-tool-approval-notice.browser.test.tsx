@@ -30,13 +30,13 @@ const request = {
   toolName: 'brainstrike.writeWorkspaceFile',
 };
 
-function renderNotice(): void {
+function renderNotice(data: unknown = request): void {
   const Notice = AssistantToolApprovalNotice as unknown as (props: {
     data: unknown;
   }) => ReactElement;
   render(
     <div style={{ width: 170 }}>
-      <Notice data={request} />
+      <Notice data={data} />
     </div>
   );
 }
@@ -55,8 +55,15 @@ function textRange(element: HTMLElement, start: number, end: number): DOMRect {
 function expectSameRenderedLine(first: HTMLElement, second: HTMLElement): void {
   const firstRect = first.getBoundingClientRect();
   const secondRect = second.getBoundingClientRect();
-  expect(Math.abs(firstRect.top - secondRect.top)).toBeLessThan(1);
-  expect(Math.abs(firstRect.bottom - secondRect.bottom)).toBeLessThan(1);
+  const firstCenter = (firstRect.top + firstRect.bottom) / 2;
+  const secondCenter = (secondRect.top + secondRect.bottom) / 2;
+
+  // Production centers the differently sized separator text and root badge.
+  // Equal top/bottom edges would only hold in an unrealistically flat shim.
+  expect(Math.abs(firstCenter - secondCenter)).toBeLessThan(1);
+  expect(Math.min(firstRect.bottom, secondRect.bottom)).toBeGreaterThan(
+    Math.max(firstRect.top, secondRect.top)
+  );
 }
 
 afterEach(() => {
@@ -102,5 +109,35 @@ describe('approval file target rendering', () => {
     expect(
       rootValue.getBoundingClientRect().left - textRange(rootLabel, 0, 15).right
     ).toBeGreaterThan(0);
+  });
+
+  it('bounds a long workspace root while preserving its full semantic value', () => {
+    const longRoot = `workspace-${'a'.repeat(480)}`;
+    renderNotice({
+      ...request,
+      args: {
+        ...request.args,
+        root: longRoot,
+      },
+    });
+
+    const summary = screen.getByTestId('approval-file-target-summary');
+    const rootLabel = screen.getByTestId('approval-workspace-root');
+    const rootValue = screen.getByTestId('approval-workspace-root-value');
+    const summaryRect = summary.getBoundingClientRect();
+    const rootLabelRect = rootLabel.getBoundingClientRect();
+    const rootLabelStyle = getComputedStyle(rootLabel);
+
+    expect(rootValue).toHaveTextContent(longRoot);
+    expect(rootValue).toHaveAttribute('title', longRoot);
+    expect(rootLabelStyle.fontSize).toBe('10px');
+    expect(rootLabelStyle.paddingLeft).toBe('6px');
+    expect(rootLabelStyle.paddingTop).toBe('2px');
+    expect(rootLabelStyle.borderLeftWidth).toBe('1px');
+    expect(rootLabelStyle.boxSizing).toBe('border-box');
+    expect(rootValue.clientWidth).toBeGreaterThan(0);
+    expect(rootValue.scrollWidth).toBeGreaterThan(rootValue.clientWidth);
+    expect(rootLabelRect.width).toBeLessThanOrEqual(summaryRect.width + 1);
+    expect(rootLabelRect.right).toBeLessThanOrEqual(summaryRect.right + 1);
   });
 });

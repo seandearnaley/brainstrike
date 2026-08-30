@@ -141,8 +141,7 @@ describe('AssistantToolApprovalNotice diff preview', () => {
 
     const rootLabel = screen.getByTestId('approval-workspace-root');
     const rootValue = screen.getByTestId('approval-workspace-root-value');
-    expect(rootLabel.className).toContain('max-w-full');
-    expect(rootValue.className).toContain('truncate');
+    expect(rootLabel).toHaveTextContent(`Workspace root: ${longRoot}`);
     expect(rootValue).toHaveTextContent(longRoot);
     expect(rootValue).toHaveAttribute('title', longRoot);
   });
