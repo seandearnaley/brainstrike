@@ -20,7 +20,11 @@ const desktopDevDependencyBuildArgs = [
 export function getDesktopDevDependencyBuildArgs(platform = process.platform) {
   const args = [...desktopDevDependencyBuildArgs];
   if (platform === 'win32') {
-    args.splice(args.indexOf('--'), 0, '--windows-concurrency=1');
+    const separatorIndex = args.indexOf('--');
+    if (separatorIndex === -1) {
+      throw new Error('Desktop dependency build arguments must contain the wrapper separator.');
+    }
+    args.splice(separatorIndex, 0, '--windows-concurrency=1');
   }
   return args;
 }

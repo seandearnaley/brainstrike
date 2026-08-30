@@ -17,6 +17,7 @@ import {
   formatMcpConfig,
   getAgentDebugPnpmPreflightCommands,
   initializeWindowsJob,
+  markWindowsPnpmShimManaged,
   PNPM_SHIM_PREFIX,
   parsePort,
   readProfileOwnerMarker,
@@ -131,7 +132,12 @@ test('pins Windows pnpm descendants to the validated Node and pnpm entrypoint', 
     assert.equal('BRAINSTRIKE_AGENT_DEBUG_NODE' in shim.env, false);
     assert.equal('BRAINSTRIKE_AGENT_DEBUG_PNPM' in shim.env, false);
     assert.equal(shim.directory, root);
-    assert.equal((await readProfileOwnerMarker(root)).pid, process.pid);
+    const preflightMarker = await readProfileOwnerMarker(root);
+    assert.equal(preflightMarker.pid, process.pid);
+    assert.equal(preflightMarker.platform, 'win32-unmanaged-preflight');
+
+    await markWindowsPnpmShimManaged(root, 'win32');
+    assert.equal((await readProfileOwnerMarker(root)).platform, 'win32');
   } finally {
     await rm(root, { force: true, recursive: true });
   }
@@ -781,7 +787,7 @@ test('sweepStaleProfiles reclaims a sibling profile whose owning launcher is gon
 test('sweepStaleProfiles can reclaim interrupted Windows pnpm shims without touching profiles', async () => {
   const { temp, profiles } = await createSiblingProfiles({
     'brainstrike-agent-devtools-dead01': 4242,
-    'brainstrike-agent-pnpm-dead01': 4243,
+    'brainstrike-agent-pnpm-dead01': { pgid: null, pid: 4243, platform: 'win32' },
   });
 
   try {
@@ -794,6 +800,30 @@ test('sweepStaleProfiles can reclaim interrupted Windows pnpm shims without touc
     assert.deepEqual(result.removed, [profiles['brainstrike-agent-pnpm-dead01']]);
     await assert.rejects(stat(profiles['brainstrike-agent-pnpm-dead01']), { code: 'ENOENT' });
     await stat(profiles['brainstrike-agent-devtools-dead01']);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles preserves a shim abandoned while an unmanaged preflight may live', async () => {
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-pnpm-preflight': {
+      pgid: null,
+      pid: 4243,
+      platform: 'win32-unmanaged-preflight',
+    },
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      prefix: PNPM_SHIM_PREFIX,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, []);
+    assert.deepEqual(result.legacy, [profiles['brainstrike-agent-pnpm-preflight']]);
+    await stat(profiles['brainstrike-agent-pnpm-preflight']);
   } finally {
     await rm(temp, { force: true, recursive: true });
   }

@@ -20,6 +20,7 @@ const PROFILE_REMOVAL_RETRIES = 3;
 const PROFILE_REMOVAL_RETRY_DELAY_MS = 150;
 const PROFILE_PREFIX = 'brainstrike-agent-devtools-';
 export const PNPM_SHIM_PREFIX = 'brainstrike-agent-pnpm-';
+const UNMANAGED_WINDOWS_SHIM_PLATFORM = 'win32-unmanaged-preflight';
 const OWNER_MARKER_FILENAME = 'agent-devtools-owner.json';
 const LEGACY_REPORT_LIMIT = 10;
 // `os.uptime()` has second granularity; require a marker to predate the boot by
@@ -241,10 +242,10 @@ export async function createWindowsPnpmShimEnvironment({
   const pnpmEntrypoint = quoteBatchPath(invocation.argsPrefix[0]);
   const shimDir = await makeTempDir(path.join(os.tmpdir(), PNPM_SHIM_PREFIX));
   try {
-    // The launcher can be terminated before its async signal cleanup settles
-    // (notably when an outer package-manager PTY closes). Mark the directory
-    // so the next launch can safely reclaim it after proving this pid is gone.
-    await writeProfileOwnerMarker(shimDir);
+    // Preflight children start before the Windows Job Object exists. Keep this
+    // marker deliberately unmanaged so a later sweep retains the shim if the
+    // launcher dies while one of those descendants may still need it.
+    await writeProfileOwnerMarker(shimDir, { platform: UNMANAGED_WINDOWS_SHIM_PLATFORM });
     const shimPath = path.join(shimDir, 'pnpm.cmd');
     await fs.writeFile(
       shimPath,
@@ -273,6 +274,18 @@ export async function createWindowsPnpmShimEnvironment({
     directory: shimDir,
     env: descendantEnv,
   };
+}
+
+export async function markWindowsPnpmShimManaged(directory, platform = process.platform) {
+  if (platform !== 'win32') {
+    return;
+  }
+  if (typeof directory !== 'string' || directory.length === 0) {
+    throw new Error('Agent DevTools cannot manage a Windows pnpm shim without its directory.');
+  }
+  // The caller promotes ownership only after every preflight has exited and
+  // the Job Object is initialized, making launcher-pid liveness authoritative.
+  await writeProfileOwnerMarker(directory, { platform: 'win32' });
 }
 
 export function getAgentDebugPnpmPreflightCommands() {
@@ -962,6 +975,7 @@ async function main() {
       runPnpmCommandSync(command, pnpmShim.env, { invocation: pnpmInvocation });
     }
     const windowsJob = initializeWindowsJob();
+    await markWindowsPnpmShimManaged(pnpmShim.directory);
     const { electronOverrideDistPath, userDataDir } = await createAgentDevtoolsProfile();
     const env = {
       ...pnpmShim.env,

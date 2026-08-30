@@ -80,6 +80,37 @@ describe('run turbo command helper', () => {
     }
   });
 
+  it('applies requested Windows concurrency only on Windows', () => {
+    const run = (platform) => {
+      let spawnedCommand;
+      const status = turboCommand.runTurboCommand(
+        [
+          'node',
+          'run-turbo-command.mjs',
+          '--windows-concurrency=1',
+          '--',
+          'run',
+          'build',
+          '--concurrency=8',
+        ],
+        platform,
+        {
+          env: { HOME: makeFakeHome() },
+          logError: () => {},
+          spawnSyncImpl: (command, args) => {
+            spawnedCommand = [command, ...args].join(' ');
+            return { status: 0 };
+          },
+        }
+      );
+      assert.equal(status, 0);
+      return spawnedCommand;
+    };
+
+    assert.ok(run('win32').includes('--concurrency=1'));
+    assert.ok(run('darwin').includes('--concurrency=8'));
+  });
+
   it('routes automation-script turbo spawns through the bounded wrapper', () => {
     // The package.json sweep above cannot see turbo spawns buried inside .mjs
     // helpers (e.g. spawnSync('pnpm', ['turbo', ...])), which resolve the
