@@ -1908,9 +1908,13 @@ facts through `getProtocolEra`, `getNegotiatedProtocolVersion`,
 `undefined` before connection and after close; modern server identity may also
 be absent because it is optional discovery metadata. `auto` probes
 `server/discover`, pinned modern never initializes a legacy server, and HTTP
-401, 403, 5xx, or silence retain their SDK error code/status instead of becoming
-legacy evidence. These getters—not exported latest-version constants—are the
-authority for the actual negotiated revision.
+401/403 retain their transport error code and status, 5xx becomes
+`EraNegotiationFailed` with its status preserved, and silence becomes
+`RequestTimeout`; none become legacy evidence. For stdio, `auto` pays for a
+disposable probe child plus the session child on each connection, so servers
+with expensive or non-idempotent startup should use an explicit policy. These
+getters—not exported latest-version constants—are the authority for the actual
+negotiated revision.
 
 Remote transport rules:
 - `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK

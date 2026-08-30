@@ -6,6 +6,7 @@ import type {
   ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
+  NegotiatedProtocolFacts,
 } from './explicit-http-client';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
@@ -87,7 +88,7 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
  * later operation may retry or reconnect with a fresh SDK client/transport
  * pair.
  */
-export class ExplicitStdioMcpClient {
+export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   private activeConnection: ActiveConnection | undefined;
   private closePromise: Promise<void> | undefined;
   private closed = false;

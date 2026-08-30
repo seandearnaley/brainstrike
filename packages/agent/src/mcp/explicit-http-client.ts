@@ -38,6 +38,13 @@ export type ExplicitHttpMcpTool = ExplicitHttpMcpListToolsResult['tools'][number
 export type ExplicitHttpMcpCallToolParams = Parameters<Client['callTool']>[0];
 export type ExplicitHttpMcpCallToolResult = Awaited<ReturnType<Client['callTool']>>;
 
+export interface NegotiatedProtocolFacts {
+  getNegotiatedProtocolVersion: () => ReturnType<Client['getNegotiatedProtocolVersion']>;
+  getProtocolEra: () => ReturnType<Client['getProtocolEra']>;
+  getServerCapabilities: () => ReturnType<Client['getServerCapabilities']>;
+  getServerVersion: () => ReturnType<Client['getServerVersion']>;
+}
+
 export interface ExplicitHttpMcpClientOptions {
   clientInfo?: {
     name: string;
@@ -132,7 +139,9 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
   const name = validateNonEmpty(options.name, 'MCP client name');
   const protocol = options.protocol ?? 'legacy';
   if (options.transport === 'sse' && protocol !== 'legacy') {
-    throw new Error('legacy SSE transport requires protocol "legacy"');
+    throw new Error(
+      `MCP client "${name}": legacy SSE transport requires protocol "legacy" (got "${protocol}")`
+    );
   }
   const clientInfo = options.clientInfo ?? {
     name: `brainstrike-${name}`,
@@ -169,7 +178,7 @@ function unsupportedTransport(transport: never): never {
  * The selected transport is authoritative: this class never probes, rewrites the
  * URL, or falls back between Streamable HTTP and legacy HTTP+SSE.
  */
-export class ExplicitHttpMcpClient {
+export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private activeConnection: ActiveConnection | undefined;
   private closePromise: Promise<void> | undefined;
   private closed = false;

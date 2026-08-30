@@ -429,7 +429,9 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
             transport: 'sse',
             url: 'https://example.test/sse',
           })
-      ).toThrow('legacy SSE transport requires protocol "legacy"');
+      ).toThrow(
+        `MCP client "sse-protocol-canary": legacy SSE transport requires protocol "legacy" (got "${protocol}")`
+      );
     }
   );
 
@@ -463,14 +465,11 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       transport: 'streamable-http',
       url: server.url,
     });
-
     expect(client.getProtocolEra()).toBeUndefined();
     expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
     expect(client.getServerVersion()).toBeUndefined();
     expect(client.getServerCapabilities()).toBeUndefined();
-
     await client.connect();
-
     expect(client.getProtocolEra()).toBe('legacy');
     expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
     expect(client.getServerVersion()).toEqual({
@@ -482,14 +481,12 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       'initialize',
       'notifications/initialized',
     ]);
-
     await client.close();
     expect(client.getProtocolEra()).toBeUndefined();
     expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
     expect(client.getServerVersion()).toBeUndefined();
     expect(client.getServerCapabilities()).toBeUndefined();
   });
-
   it('auto-negotiates modern through the real Streamable HTTP discover exchange', async () => {
     const methods: Array<string | undefined> = [];
     const handler = createMcpHandler(() => createEchoServer(), { legacy: 'reject' });
@@ -509,9 +506,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       transport: 'streamable-http',
       url: new URL('http://mcp-modern.invalid/mcp'),
     });
-
     await client.connect();
-
     expect(client.getProtocolEra()).toBe('modern');
     expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
     expect(client.getServerVersion()).toEqual({
@@ -520,7 +515,6 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     });
     expect(methods).toEqual(['server/discover']);
   });
-
   it('auto-negotiates legacy only after the modern probe returns legacy evidence', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startStreamableServer({ pathname: '/mcp', requests });
@@ -530,9 +524,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       transport: 'streamable-http',
       url: server.url,
     });
-
     await client.connect();
-
     expect(client.getProtocolEra()).toBe('legacy');
     expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
     expect(requests.map((request) => requestMethod(request.body)).filter(Boolean)).toEqual([

@@ -8,6 +8,7 @@ export {
   type ExplicitHttpMcpRequestOptions,
   type ExplicitHttpMcpTool,
   type ExplicitHttpMcpTransport,
+  type NegotiatedProtocolFacts,
 } from './mcp/explicit-http-client';
 export {
   type ExplicitStdioMcpCallToolParams,
