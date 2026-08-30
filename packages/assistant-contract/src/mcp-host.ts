@@ -194,7 +194,9 @@ type McpHostCloseCounter =
   | 'probesClosed'
   | 'requestsSettled'
   | 'subscriptionsClosed';
-export type McpHostCloseReport = Readonly<Record<McpHostCloseCounter, number>>;
+export type McpHostCloseReport = Readonly<Record<McpHostCloseCounter, number>> & {
+  readonly failures: readonly McpHostError[];
+};
 export interface McpHostPort {
   close(): Promise<McpHostCloseReport>;
   invoke(operation: McpHostOperation): Promise<McpHostOperationResult>;

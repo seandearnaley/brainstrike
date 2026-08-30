@@ -21,6 +21,7 @@ const report = {
   callbacksClosed: 1,
   childProcessesClosed: 2,
   clientsClosed: 1,
+  failures: [],
   loopbackPortsClosed: 3,
   probesClosed: 4,
   requestsSettled: 5,
@@ -73,7 +74,7 @@ const base = (id: typeof linearId) => ({
 function actor(
   factory: McpServerActorClientFactory,
   id = linearId,
-  onInternalError?: (code: string, cause: unknown) => void
+  onInternalError: (code: string, cause: unknown) => void = vi.fn()
 ): McpServerActor {
   return new McpServerActor({ ...base(id), factory, onInternalError });
 }
@@ -179,12 +180,23 @@ describe('McpServerActor', () => {
       callbacksClosed: 0,
       childProcessesClosed: 0,
       clientsClosed: 0,
+      failures: [
+        {
+          category: 'transport',
+          code: 'mcp-client-close-failed',
+          message: 'MCP server actor operation failed',
+        },
+      ],
       loopbackPortsClosed: 0,
       probesClosed: 0,
       requestsSettled: 0,
       subscriptionsClosed: 0,
     });
     expect(internalError).toHaveBeenCalledWith('mcp-client-close-failed', raw);
+    expect(closeActor.snapshot()).toMatchObject({
+      error: { code: 'mcp-client-close-failed' },
+      state: 'error',
+    });
     await failure(closeActor.invoke(LIST), 'mcp-generation-closed');
     const invalid = structuredClone(negotiated);
     Reflect.set(invalid, 'invalid', () => undefined);
@@ -214,6 +226,118 @@ describe('McpServerActor', () => {
       'mcp-negotiated-status-invalid'
     );
   });
+  it('keeps cleanup and close failures visible without rejecting terminal close', async () => {
+    const raw = new Error('private cleanup failure');
+    const invalid = structuredClone(negotiated);
+    Reflect.set(invalid, 'advertisedCapabilityIds', {});
+    const internalError = vi.fn();
+    const subject = actor(
+      async () => client(undefined, async () => Promise.reject(raw), invalid),
+      linearId,
+      internalError
+    );
+
+    await failure(subject.invoke(LIST), 'mcp-negotiated-status-cleanup-failed');
+    const closing = subject.close();
+    expect(subject.close()).toBe(closing);
+    await expect(closing).resolves.toMatchObject({
+      failures: [{ code: 'mcp-client-close-failed' }],
+    });
+    expect(subject.snapshot()).toMatchObject({
+      error: { code: 'mcp-negotiated-status-cleanup-failed' },
+      state: 'error',
+    });
+    expect(internalError).toHaveBeenCalledWith('mcp-client-close-failed', raw);
+
+    const malformedReport = structuredClone(report);
+    Reflect.set(malformedReport, 'clientsClosed', -1);
+    const malformedActor = actor(async () => client(undefined, async () => malformedReport));
+    await malformedActor.invoke(LIST);
+    await expect(malformedActor.close()).resolves.toMatchObject({
+      failures: [{ code: 'mcp-client-close-report-invalid' }],
+    });
+    expect(malformedActor.snapshot()).toMatchObject({
+      error: { code: 'mcp-client-close-report-invalid' },
+      state: 'error',
+    });
+
+    const rawReportedFailure = {
+      category: 'transport' as const,
+      code: 'sdk-client-close-failed',
+      message: 'Authorization: Bearer credential-value-must-never-cross',
+    };
+    const reportedInternalError = vi.fn();
+    const reportedActor = actor(
+      async () =>
+        client(undefined, async () => ({
+          ...report,
+          failures: [rawReportedFailure],
+        })),
+      linearId,
+      reportedInternalError
+    );
+    await reportedActor.invoke(LIST);
+    const reportedClose = await reportedActor.close();
+    expect(reportedClose).toEqual({
+      ...report,
+      failures: [
+        {
+          category: 'transport',
+          code: 'mcp-client-close-reported-failures',
+          message: 'MCP server actor operation failed',
+        },
+      ],
+    });
+    expect(JSON.stringify(reportedClose)).not.toContain('credential-value-must-never-cross');
+    expect(reportedInternalError).toHaveBeenCalledWith('mcp-client-close-reported-failures', {
+      ...report,
+      failures: [rawReportedFailure],
+    });
+  });
+  it('returns immutable close reports without sharing mutable empty failures', async () => {
+    const first = await actor(async () => client()).close();
+    const second = await actor(async () => client()).close();
+
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.failures)).toBe(true);
+    expect(first).not.toBe(second);
+    expect(first.failures).not.toBe(second.failures);
+  });
+  it('uses the close report as completion proof while preserving a connected actor failure', async () => {
+    const events: unknown[] = [];
+    const closeClient = vi.fn(async () => report);
+    const invalidResult = structuredClone(listResult.result);
+    Reflect.set(invalidResult, 'invalid', () => undefined);
+    const subject = new McpServerActor({
+      ...base(linearId),
+      factory: async () => client(async () => invalidResult, closeClient),
+      onInternalError: vi.fn(),
+      onSnapshotChanged: (snapshot) => events.push(snapshot),
+    });
+
+    await failure(subject.invoke(LIST), 'mcp-result-invalid');
+    const closeReport = await subject.close();
+
+    expect(closeClient).toHaveBeenCalledOnce();
+    expect(closeReport).toEqual(report);
+    expect(subject.snapshot()).toMatchObject({
+      error: { code: 'mcp-result-invalid' },
+      state: 'error',
+    });
+    expect(events).toEqual([
+      { ...base(linearId), state: 'connecting' },
+      { ...base(linearId), negotiated, state: 'connected' },
+      {
+        ...base(linearId),
+        error: {
+          category: 'protocol',
+          code: 'mcp-result-invalid',
+          message: 'MCP server actor operation failed',
+        },
+        state: 'error',
+      },
+    ]);
+  });
   it('isolates snapshot observer failures from invocation and close', async () => {
     const raw = new Error('observer-private-detail');
     const internalError = vi.fn();
@@ -237,6 +361,7 @@ describe('McpServerActor', () => {
     const first = new McpServerActor({
       ...base(linearId),
       factory: () => pending.promise,
+      onInternalError: vi.fn(),
       onSnapshotChanged: (snapshot) => events.push(snapshot),
     });
     const second = actor(async () => client(), githubId);
@@ -264,7 +389,6 @@ describe('McpServerActor', () => {
         },
         state: 'error',
       },
-      { ...base(linearId), state: 'disconnected' },
     ]);
     await second.invoke({ ...LIST, configuredServerId: githubId });
     expect(second.snapshot()).toEqual({ ...base(githubId), negotiated, state: 'connected' });

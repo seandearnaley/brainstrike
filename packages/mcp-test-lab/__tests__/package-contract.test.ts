@@ -214,6 +214,13 @@ describe('MCP test lab package contract', () => {
       '`McpHostService` is the sole production SDK client owner'
     );
     expect(normalizedContract).toContain(
+      'Every actor validates negotiated status, operation results, and close reports'
+    );
+    expect(normalizedContract).toContain('Public actor close is idempotent and never rejects.');
+    expect(normalizedContract).toContain(
+      'Raw internal causes reach one required main-process diagnostic sink'
+    );
+    expect(normalizedContract).toContain(
       '`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`'
     );
     expect(normalizedContract).toContain('dedicated encrypted MCP credential store');

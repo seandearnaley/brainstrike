@@ -8,8 +8,11 @@ import type {
   McpNegotiatedStatus,
   McpStableErrorCategory,
 } from '@brainstrike/assistant-contract';
-import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
-import { z } from 'zod';
+import {
+  parseMcpHostCloseReport,
+  parseMcpHostOperationResult,
+  parseMcpNegotiatedStatus,
+} from '@brainstrike/assistant-contract/mcp-host-runtime';
 export interface McpServerActorClient {
   close(): McpHostCloseReport | Promise<McpHostCloseReport>;
   invoke(operation: McpHostOperation): Promise<unknown>;
@@ -25,7 +28,12 @@ export type McpServerActorClientFactory = (
 interface McpServerActorOptions extends ClientContext {
   configuredProtocol: '2026-07-28' | 'auto' | 'legacy';
   factory: McpServerActorClientFactory;
-  onInternalError?(code: string, cause: unknown): void;
+  /**
+   * Main-process-only diagnostic sink. The cause is RAW and UNSANITIZED and may
+   * contain auth headers, tokens in URLs, or stdio argv. Never forward it to a
+   * renderer or persist it without the platform redaction path.
+   */
+  onInternalError(code: McpServerActorDiagnosticCode, cause: unknown): void;
   onSnapshotChanged?(snapshot: McpHostServerSnapshot): void;
   transport: 'sse' | 'stdio' | 'streamable-http';
 }
@@ -33,66 +41,41 @@ type ActorStatus =
   | { state: 'closing' | 'connecting' | 'disconnected' }
   | { error: McpHostError; state: 'error' }
   | { negotiated: McpNegotiatedStatus; state: 'connected' };
+type McpServerActorErrorCode =
+  | 'mcp-client-close-failed'
+  | 'mcp-client-close-report-invalid'
+  | 'mcp-client-close-reported-failures'
+  | 'mcp-client-creation-failed'
+  | 'mcp-configured-server-mismatch'
+  | 'mcp-generation-closed'
+  | 'mcp-negotiated-status-cleanup-failed'
+  | 'mcp-negotiated-status-invalid'
+  | 'mcp-result-invalid'
+  | 'mcp-transport-operation-failed';
+type McpServerActorDiagnosticCode = McpServerActorErrorCode | 'mcp-snapshot-listener-failed';
 class ActorError extends Error {
   constructor(
     readonly category: McpStableErrorCategory,
-    readonly code: string
+    readonly code: McpServerActorErrorCode
   ) {
     super('MCP server actor operation failed');
     this.name = 'McpServerActorError';
   }
 }
-const EMPTY_REPORT: McpHostCloseReport = {
+function freezeCloseReport(report: McpHostCloseReport): McpHostCloseReport {
+  const failures = Object.freeze(report.failures.map((failure) => Object.freeze({ ...failure })));
+  return Object.freeze({ ...report, failures });
+}
+const EMPTY_REPORT: McpHostCloseReport = freezeCloseReport({
   callbacksClosed: 0,
   childProcessesClosed: 0,
   clientsClosed: 0,
+  failures: [],
   loopbackPortsClosed: 0,
   probesClosed: 0,
   requestsSettled: 0,
   subscriptionsClosed: 0,
-};
-const McpNegotiatedStatusSchema = z.strictObject({
-  advertisedCapabilityIds: z.array(z.string()).optional(),
-  era: z.enum(['legacy', 'modern']),
-  revision: z.string(),
-  serverIdentity: z
-    .strictObject({
-      description: z.string().optional(),
-      name: z.string(),
-      title: z.string().optional(),
-      version: z.string(),
-      websiteUrl: z.string().optional(),
-    })
-    .optional(),
 });
-const McpStrictJsonSchema = z.json();
-function parseMcpNegotiatedStatus(value: unknown): McpNegotiatedStatus {
-  McpStrictJsonSchema.parse(value);
-  const parsed = McpNegotiatedStatusSchema.parse(value);
-  const serverIdentity = parsed.serverIdentity;
-  return {
-    ...(parsed.advertisedCapabilityIds === undefined
-      ? {}
-      : { advertisedCapabilityIds: parsed.advertisedCapabilityIds }),
-    era: parsed.era,
-    revision: parsed.revision,
-    ...(serverIdentity === undefined
-      ? {}
-      : {
-          serverIdentity: {
-            ...(serverIdentity.description === undefined
-              ? {}
-              : { description: serverIdentity.description }),
-            name: serverIdentity.name,
-            ...(serverIdentity.title === undefined ? {} : { title: serverIdentity.title }),
-            version: serverIdentity.version,
-            ...(serverIdentity.websiteUrl === undefined
-              ? {}
-              : { websiteUrl: serverIdentity.websiteUrl }),
-          },
-        }),
-  };
-}
 export class McpServerActor {
   private readonly closedError = new ActorError('generation-retired', 'mcp-generation-closed');
   private readonly inFlight = new Set<Promise<McpHostOperationResult>>();
@@ -180,12 +163,10 @@ export class McpServerActor {
     this.client = client;
     let status: McpNegotiatedStatus;
     try {
-      status = parseMcpNegotiatedStatus(structuredClone(client.negotiated));
+      status = parseMcpNegotiatedStatus(client.negotiated);
     } catch (cause) {
-      const cleanupFailed = await this.closeClient(false).then(
-        () => false,
-        () => true
-      );
+      const cleanupReport = await this.closeClient(false);
+      const cleanupFailed = cleanupReport.failures.length > 0;
       const error = new ActorError(
         'protocol',
         cleanupFailed ? 'mcp-negotiated-status-cleanup-failed' : 'mcp-negotiated-status-invalid'
@@ -222,14 +203,35 @@ export class McpServerActor {
   private async closeAfterDrain(): Promise<McpHostCloseReport> {
     await Promise.allSettled([...this.inFlight]);
     const report = await this.closeClient();
-    this.change({ state: 'disconnected' });
+    if (!this.failure) {
+      this.change({ state: 'disconnected' });
+    }
     return report;
   }
 
-  private diagnose(code: string, cause: unknown): void {
+  private diagnose(code: McpServerActorDiagnosticCode, cause: unknown): void {
     try {
-      this.options.onInternalError?.(code, cause);
+      this.options.onInternalError(code, cause);
     } catch {}
+  }
+
+  private closeFailureReport(error: ActorError): McpHostCloseReport {
+    return freezeCloseReport({
+      ...EMPTY_REPORT,
+      failures: [{ category: error.category, code: error.code, message: error.message }],
+    });
+  }
+
+  private recordCloseFailure(
+    error: ActorError,
+    cause: unknown,
+    memoizeFailure: boolean
+  ): McpHostCloseReport {
+    this.diagnose(error.code, cause);
+    if (memoizeFailure) {
+      this.fail(error);
+    }
+    return this.closeFailureReport(error);
   }
 
   private closeClient(memoizeFailure = true): Promise<McpHostCloseReport> {
@@ -238,19 +240,42 @@ export class McpServerActor {
     }
     const client = this.client;
     if (!client) {
-      return Promise.resolve(structuredClone(EMPTY_REPORT));
+      return Promise.resolve(freezeCloseReport(EMPTY_REPORT));
     }
     this.clientClosePromise = Promise.resolve().then(async () => {
       try {
-        return structuredClone(await client.close());
-      } catch (cause) {
-        const error = new ActorError('transport', 'mcp-client-close-failed');
-        this.diagnose(error.code, cause);
-        if (!memoizeFailure) {
-          throw error;
+        let rawReport: unknown;
+        try {
+          rawReport = await client.close();
+        } catch (cause) {
+          return this.recordCloseFailure(
+            new ActorError('transport', 'mcp-client-close-failed'),
+            cause,
+            memoizeFailure
+          );
         }
-        this.fail(error);
-        return structuredClone(EMPTY_REPORT);
+        let report: McpHostCloseReport;
+        try {
+          report = parseMcpHostCloseReport(rawReport);
+        } catch (cause) {
+          return this.recordCloseFailure(
+            new ActorError('protocol', 'mcp-client-close-report-invalid'),
+            cause,
+            memoizeFailure
+          );
+        }
+        if (report.failures.length > 0) {
+          const error = new ActorError('transport', 'mcp-client-close-reported-failures');
+          this.diagnose(error.code, report);
+          if (memoizeFailure) {
+            this.fail(error);
+          }
+          return freezeCloseReport({
+            ...report,
+            failures: [{ category: error.category, code: error.code, message: error.message }],
+          });
+        }
+        return freezeCloseReport(report);
       } finally {
         this.client = undefined;
       }
