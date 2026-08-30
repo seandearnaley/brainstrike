@@ -1,11 +1,10 @@
-import { toMcpVersionNegotiation } from '@brainstrike/agent';
+import { ExplicitStdioMcpClient } from '@brainstrike/agent/mcp-client';
 import type { McpServerStatusSnapshot } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { Client } from '@modelcontextprotocol/client';
-import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { McpServer } from '../mcp-loader';
 import {
   connectedStatus,
+  type McpCallOptions,
   type McpClient,
   type McpDiscoveredTool,
   mcpStatusErrorMessage,
@@ -23,8 +22,7 @@ function assertStdioClientActive(disposed: boolean): void {
 }
 
 interface ConnectedClient {
-  client: Client;
-  transport: StdioClientTransport;
+  client: ExplicitStdioMcpClient;
 }
 
 function getConnectTimeoutMs(): number {
@@ -92,29 +90,25 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
 
     connectPromise = (async () => {
       status = { ...statusBase, state: 'connecting' };
-      const client = new Client(
-        { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
-        {
-          capabilities: {},
-          versionNegotiation: toMcpVersionNegotiation(server.protocol ?? 'legacy'),
-        }
-      );
-      const transportOptions = {
+      const client = new ExplicitStdioMcpClient({
+        clientInfo: { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
         command: server.command,
         ...(server.args ? { args: server.args } : {}),
         ...(server.env ? { env: server.env } : {}),
-      };
-      const transport = new StdioClientTransport(transportOptions);
-      const next = { client, transport };
+        name: server.name,
+        onUnexpectedClose: () => {
+          if (connected?.client === client) {
+            connected = undefined;
+            discoveredToolNames.clear();
+            status = { ...statusBase, state: 'disconnected' };
+          }
+        },
+        protocol: server.protocol ?? 'legacy',
+      });
+      const next = { client };
       connecting = next;
-      client.onclose = () => {
-        if (connected?.client === client) {
-          connected = undefined;
-          status = { ...statusBase, state: 'disconnected' };
-        }
-      };
       try {
-        await client.connect(transport, { timeout: getConnectTimeoutMs() });
+        await client.connect({ timeout: getConnectTimeoutMs() });
         assertStdioClientActive(disposed);
         connected = next;
         status = connectedStatus(client, statusBase);
@@ -129,7 +123,9 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         if (!disposed) {
           status = { ...statusBase, error: mcpStatusErrorMessage(error), state: 'error' };
           lastConnectFailure = { error: nextError, failedAt: Date.now() };
-          await transport.close().catch(() => undefined);
+          // The explicit client owns the SDK client and transport. The SDK
+          // binds transport ownership before spawn/handshake work begins.
+          await client.close().catch(() => undefined);
         }
         throw nextError;
       } finally {
@@ -167,7 +163,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
     async callTool(
       toolId: string,
       params?: Record<string, unknown>,
-      opts?: { onProgress?: (payload: unknown, meta?: { id?: string }) => void }
+      opts?: McpCallOptions
     ): Promise<unknown> {
       if (!discoveredToolNames.has(toolId)) {
         await listTools();
@@ -192,6 +188,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
                 },
               }
             : {}),
+          ...(opts?.signal ? { signal: opts.signal } : {}),
           resetTimeoutOnProgress: true,
         }
       );
@@ -208,11 +205,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         return;
       }
 
-      try {
-        await current.client.close();
-      } finally {
-        await current.transport.close();
-      }
+      await current.client.close();
     },
     getStatus: () => status,
     listTools,

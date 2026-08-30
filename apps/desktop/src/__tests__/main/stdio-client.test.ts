@@ -5,7 +5,6 @@ const {
   clientListToolsMock,
   clientCallToolMock,
   clientCloseMock,
-  transportCloseMock,
   clientCtorMock,
   transportCtorMock,
 } = vi.hoisted(() => {
@@ -47,7 +46,6 @@ const {
     clientConnectMock: connect,
     clientCtorMock: vi.fn(MockClient),
     clientListToolsMock: listTools,
-    transportCloseMock: closeTransport,
     transportCtorMock: vi.fn(MockTransport),
   };
 });
@@ -158,6 +156,7 @@ describe('stdio client', () => {
   it('disposes an in-flight connection without publishing it as connected', async () => {
     const connect = Promise.withResolvers<void>();
     clientConnectMock.mockReturnValueOnce(connect.promise);
+    clientCloseMock.mockImplementationOnce(async () => connect.resolve());
     const client = createStdioClient({
       args: ['/root'],
       command: 'node',
@@ -168,11 +167,34 @@ describe('stdio client', () => {
     const listing = client.listTools();
     await vi.waitFor(() => expect(clientConnectMock).toHaveBeenCalledTimes(1));
     await expect(client.dispose()).resolves.toBeUndefined();
-    connect.resolve();
     await expect(listing).rejects.toThrow('Explicit stdio MCP client is closed');
     expect(client.getStatus()).toMatchObject({ state: 'disconnected' });
     expect(clientCloseMock).toHaveBeenCalledTimes(1);
-    expect(transportCloseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes an unexpected-close retry through adapter timeout and cooldown ownership', async () => {
+    const client = createStdioClient({
+      args: ['/root'],
+      command: 'node',
+      name: 'filesystem',
+      transport: 'stdio',
+    });
+    await client.listTools();
+    const firstSdkClient = clientCtorMock.mock.instances[0];
+    if (!firstSdkClient) {
+      throw new Error('Expected the explicit stdio client to construct an SDK client');
+    }
+    const onclose = Reflect.get(firstSdkClient, 'onclose');
+    if (typeof onclose !== 'function') {
+      throw new Error('Expected the explicit stdio client to install an SDK close observer');
+    }
+    onclose.call(firstSdkClient);
+    clientConnectMock.mockRejectedValueOnce(new Error('reconnect failed'));
+
+    await expect(client.listTools()).rejects.toThrow('reconnect failed');
+    expect(client.getStatus()).toMatchObject({ error: 'MCP connection failed', state: 'error' });
+    await expect(client.listTools()).rejects.toThrow('reconnect failed');
+    expect(clientConnectMock).toHaveBeenCalledTimes(2);
   });
 
   it('briefly caches connect failures before retrying the stdio spawn path', async () => {
@@ -191,7 +213,7 @@ describe('stdio client', () => {
 
     await expect(client.listTools()).rejects.toThrow('connect failed');
     expect(clientConnectMock).toHaveBeenCalledTimes(1);
-    expect(transportCloseMock).toHaveBeenCalledTimes(1);
+    expect(clientCloseMock).toHaveBeenCalledTimes(1);
 
     await expect(client.listTools()).rejects.toThrow('connect failed');
     expect(clientConnectMock).toHaveBeenCalledTimes(1);
