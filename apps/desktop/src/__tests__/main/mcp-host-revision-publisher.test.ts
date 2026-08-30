@@ -1,6 +1,9 @@
 import type { ConfiguredMcpServerId, McpHostServerSnapshot } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
-import { McpHostRevisionPublisher } from '../../mcp/host-revision-publisher';
+import {
+  McpHostRevisionPublisher,
+  McpHostRevisionPublisherTransitionError,
+} from '../../mcp/host-revision-publisher';
 
 const server = (id: string, generation = 1): McpHostServerSnapshot => ({
   configuredProtocol: 'auto',
@@ -53,6 +56,13 @@ describe('McpHostRevisionPublisher', () => {
     await flush();
 
     expect(listener.mock.calls.map(([event]) => event.revision)).toEqual([2, 3]);
+    expect(() => publisher.publishActorTransition(server('alpha', 0))).toThrowError(
+      expect.objectContaining({ code: 'mcp-host-stale-generation' })
+    );
+    expect(publisher.snapshot().servers[0]?.generation).toBe(1);
+    expect(() => publisher.publishActorTransition(server('missing'))).toThrowError(
+      new McpHostRevisionPublisherTransitionError('mcp-host-server-unknown', 'missing')
+    );
   });
 
   it('delivers filtered removals and empty config snapshots with revision holes', async () => {
@@ -144,6 +154,9 @@ describe('McpHostRevisionPublisher', () => {
   it('invalidates queued registrations and rejects watches after terminal close', async () => {
     const listener = vi.fn();
     const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    expect(() => publisher.watch({ configuredServerIds: [] }, listener)).toThrowError(
+      expect.objectContaining({ code: 'mcp-host-empty-watch-filter' })
+    );
     publisher.watch({}, listener);
     publisher.publishConfigSet([server('alpha')]);
     publisher.close();

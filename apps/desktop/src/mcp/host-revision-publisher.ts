@@ -34,6 +34,21 @@ export class McpHostRevisionPublisherClosedError extends Error {
   }
 }
 
+type TransitionErrorCode =
+  | 'mcp-host-empty-watch-filter'
+  | 'mcp-host-server-unknown'
+  | 'mcp-host-stale-generation';
+export class McpHostRevisionPublisherTransitionError extends Error {
+  readonly category = 'configuration' as const;
+  constructor(
+    readonly code: TransitionErrorCode,
+    configuredServerId?: string
+  ) {
+    super(configuredServerId ? `${code}: ${configuredServerId}` : code);
+    this.name = 'McpHostRevisionPublisherTransitionError';
+  }
+}
+
 function compareServerIds(left: McpHostServerSnapshot, right: McpHostServerSnapshot): number {
   if (left.configuredServerId === right.configuredServerId) {
     return 0;
@@ -88,7 +103,17 @@ export class McpHostRevisionPublisher {
       ({ configuredServerId }) => configuredServerId === server.configuredServerId
     );
     if (index < 0) {
-      throw new Error('Unknown configured MCP server');
+      throw new McpHostRevisionPublisherTransitionError(
+        'mcp-host-server-unknown',
+        server.configuredServerId
+      );
+    }
+    const current = this.servers[index];
+    if (current && server.generation < current.generation) {
+      throw new McpHostRevisionPublisherTransitionError(
+        'mcp-host-stale-generation',
+        server.configuredServerId
+      );
     }
     if (isDeepStrictEqual(this.servers[index], server)) {
       return this.snapshot();
@@ -105,6 +130,9 @@ export class McpHostRevisionPublisher {
     if (this.closed) {
       throw new McpHostRevisionPublisherClosedError();
     }
+    if (filter.configuredServerIds?.length === 0) {
+      throw new McpHostRevisionPublisherTransitionError('mcp-host-empty-watch-filter');
+    }
     const watchId = this.nextWatchId;
     this.nextWatchId += 1;
     this.watches.set(watchId, {
@@ -119,6 +147,7 @@ export class McpHostRevisionPublisher {
 
   close(): void {
     this.closed = true;
+    // The closed watch DTO has no terminal variant; terminal host close invalidates registrations.
     this.watches.clear();
   }
 
@@ -136,7 +165,7 @@ export class McpHostRevisionPublisher {
     this.revision += 1;
     const event = this.snapshot();
     queueMicrotask(() => this.deliver(event, affected));
-    return this.snapshot();
+    return event;
   }
 
   private deliver(event: McpHostWatchEvent, affected: ReadonlySet<ConfiguredMcpServerId>): void {
