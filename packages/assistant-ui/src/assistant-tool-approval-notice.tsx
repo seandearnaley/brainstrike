@@ -532,7 +532,7 @@ function RootLabel({ root }: { root: string }) {
       className="inline-flex min-w-0 max-w-full rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
       data-testid="approval-workspace-root"
     >
-      <span className="shrink-0">{'Workspace root: '}</span>
+      <span className="shrink-0 whitespace-pre">{'Workspace root: '}</span>
       <span
         className="min-w-0 truncate font-mono"
         data-testid="approval-workspace-root-value"
@@ -558,23 +558,21 @@ function FileTargetSummary({
       className="flex min-w-0 flex-wrap items-center font-medium text-foreground/90 text-xs"
       data-testid="approval-file-target-summary"
     >
-      {action ? (
-        <>
-          <span>{action}</span>
-          <span>{' · '}</span>
-        </>
-      ) : null}
-      <span className="inline-flex min-w-0 max-w-full">
-        <span className="shrink-0">{'Path: '}</span>
-        <span className="min-w-0 truncate font-mono" title={path}>
-          {path}
+      {action ? <span>{action}</span> : null}
+      <span className="inline-flex min-w-0 max-w-full items-center">
+        {action ? <span className="shrink-0 whitespace-pre">{' · '}</span> : null}
+        <span className="inline-flex min-w-0 max-w-full">
+          <span className="shrink-0 whitespace-pre">{'Path: '}</span>
+          <span className="min-w-0 truncate font-mono" title={path}>
+            {path}
+          </span>
         </span>
       </span>
       {root ? (
-        <>
-          <span>{' · '}</span>
+        <span className="inline-flex min-w-0 max-w-full items-center">
+          <span className="shrink-0 whitespace-pre">{' · '}</span>
           <RootLabel root={root} />
-        </>
+        </span>
       ) : null}
     </p>
   );

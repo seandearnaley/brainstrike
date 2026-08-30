@@ -1,0 +1,42 @@
+/*
+ * The package browser project does not run either app's Tailwind compiler.
+ * Reproduce the production utility semantics that determine this regression so
+ * Chromium, rather than jsdom, performs the flex wrapping and whitespace layout.
+ */
+.flex {
+  display: flex;
+}
+
+.inline-flex {
+  display: inline-flex;
+}
+
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.min-w-0 {
+  min-width: 0;
+}
+
+.max-w-full {
+  max-width: 100%;
+}
+
+.shrink-0 {
+  flex-shrink: 0;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whitespace-pre {
+  white-space: pre;
+}
