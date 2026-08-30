@@ -98,6 +98,12 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         name: server.name,
         onUnexpectedClose: () => {
           if (connected?.client === client) {
+            void client.close().catch((error: unknown) => {
+              logger.warn('Failed to retire invalidated MCP stdio client', {
+                error: toError(error),
+                server: server.name,
+              });
+            });
             connected = undefined;
             discoveredToolNames.clear();
             status = { ...statusBase, state: 'disconnected' };

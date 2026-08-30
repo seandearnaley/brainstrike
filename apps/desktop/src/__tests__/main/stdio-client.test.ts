@@ -197,6 +197,32 @@ describe('stdio client', () => {
     expect(clientConnectMock).toHaveBeenCalledTimes(2);
   });
 
+  it('retires a captured wrapper when invalidation lands across the adapter await boundary', async () => {
+    const client = createStdioClient({
+      args: ['/root'],
+      command: 'node',
+      name: 'filesystem',
+      transport: 'stdio',
+    });
+    await client.listTools();
+    const firstSdkClient = clientCtorMock.mock.instances[0];
+    if (!firstSdkClient) {
+      throw new Error('Expected the explicit stdio client to construct an SDK client');
+    }
+    const onclose = Reflect.get(firstSdkClient, 'onclose');
+    if (typeof onclose !== 'function') {
+      throw new Error('Expected the explicit stdio client to install an SDK close observer');
+    }
+
+    const staleListing = client.listTools();
+    onclose.call(firstSdkClient);
+
+    await expect(staleListing).rejects.toThrow('Explicit stdio MCP client is closed');
+    expect(clientCtorMock).toHaveBeenCalledTimes(1);
+    await expect(client.listTools()).resolves.toBeDefined();
+    expect(clientCtorMock).toHaveBeenCalledTimes(2);
+  });
+
   it('briefly caches connect failures before retrying the stdio spawn path', async () => {
     vi.useFakeTimers();
     process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'] = '1000';
