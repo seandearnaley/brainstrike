@@ -183,26 +183,26 @@ describe('McpHostService', () => {
     await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']));
     records[0]?.invalidated.mockReturnValue(true);
     records[1]?.invalidated.mockReturnValue(true);
-
     await Promise.all([host.invoke(LIST), host.invoke(LIST)]);
-
     expect(records.map(({ generation }) => generation)).toEqual([1, 1, 2]);
     expect(records.map(({ close }) => close.mock.calls.length)).toEqual([1, 0, 0]);
     expect(records[2]?.invoke).toHaveBeenCalledTimes(2);
   });
-  it('rechecks invalidation after a queued replacement before routing the operation', async () => {
+  it('cancels queued invokes and rechecks invalidation before routing later work', async () => {
     const betaClosed = deferred<McpHostCloseReport>();
     const { host, records } = setup([CLEAN, betaClosed.promise]);
     await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']));
-    const replacing = host.replaceConfig(config([alpha, 'auto']));
+    void host.replaceConfig(config([alpha, 'auto']));
     await yieldOneMicrotask();
     records[0]?.invalidated.mockReturnValue(true);
-
+    const controller = new AbortController();
+    const reason = new DOMException('Caller cancelled', 'AbortError');
+    const cancelled = host.invoke(LIST, { signal: controller.signal });
+    controller.abort(reason);
+    await expect(cancelled).rejects.toBe(reason);
     const invoked = host.invoke(LIST);
     betaClosed.resolve(CLEAN);
-    await replacing;
     await expect(invoked).resolves.toEqual(RESULT);
-
     expect(records.map(({ generation }) => generation)).toEqual([1, 1, 2]);
     expect(records[0]?.invoke).not.toHaveBeenCalled();
     expect(records[2]?.invoke).toHaveBeenCalledOnce();

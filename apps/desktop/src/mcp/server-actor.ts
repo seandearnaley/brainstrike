@@ -81,6 +81,14 @@ const EMPTY_REPORT: McpHostCloseReport = freezeCloseReport({
   requestsSettled: 0,
   subscriptionsClosed: 0,
 });
+export function settleOnAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  const aborted = Promise.withResolvers<never>();
+  const onAbort = () => aborted.reject(signal.reason);
+  signal.addEventListener('abort', onAbort, { once: true });
+  return Promise.race([work, aborted.promise]).finally(() =>
+    signal.removeEventListener('abort', onAbort)
+  );
+}
 export class McpServerActor {
   private readonly generationAbort = new AbortController();
   private readonly inFlight = new Set<Promise<McpHostOperationResult>>();
@@ -128,7 +136,7 @@ export class McpServerActor {
       ? AbortSignal.any([this.generationAbort.signal, options.signal])
       : this.generationAbort.signal;
     const work = Promise.resolve().then(() => this.runAccepted(operation, signal, options?.signal));
-    const lease = this.settleOnAbort(work, signal);
+    const lease = settleOnAbort(work, signal);
     this.inFlight.add(work);
     const remove = () => this.inFlight.delete(work);
     work.then(remove, remove);
@@ -245,14 +253,6 @@ export class McpServerActor {
     if (!this.generationAbort.signal.aborted) {
       this.generationAbort.abort(this.retiredError);
     }
-  }
-  private settleOnAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-    const aborted = Promise.withResolvers<never>();
-    const onAbort = () => aborted.reject(signal.reason);
-    signal.addEventListener('abort', onAbort, { once: true });
-    return Promise.race([work, aborted.promise]).finally(() =>
-      signal.removeEventListener('abort', onAbort)
-    );
   }
   private throwIfAborted(callerSignal?: AbortSignal): void {
     if (this.generationAbort.signal.aborted) {

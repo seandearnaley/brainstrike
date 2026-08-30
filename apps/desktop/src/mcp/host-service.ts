@@ -15,6 +15,7 @@ import {
   parseMcpHostConfig,
 } from '@brainstrike/assistant-contract';
 import type { McpHostRevisionPublisher } from './host-revision-publisher';
+import { settleOnAbort } from './server-actor';
 
 type ConfiguredServer = McpHostConfig['servers'][number];
 type Counter = Exclude<keyof McpHostCloseReport, 'failures'>;
@@ -164,8 +165,10 @@ export class McpHostService implements McpHostPort {
       }
       return entry;
     };
-    const invokeCurrent = (): Promise<McpHostOperationResult> =>
-      getEntry().actor.invoke(operation, options);
+    const invokeCurrent = (): Promise<McpHostOperationResult> => {
+      options?.signal?.throwIfAborted();
+      return getEntry().actor.invoke(operation, options);
+    };
     const invokeWithSelfHeal = (): Promise<McpHostOperationResult> => {
       if (getEntry().actor.invalidated()) {
         return this.enqueueReplacement(this.currentConfig(), operation.configuredServerId).then(
@@ -175,9 +178,11 @@ export class McpHostService implements McpHostPort {
       return invokeCurrent();
     };
     try {
-      return this.pendingReplacements === 0
-        ? invokeWithSelfHeal()
-        : this.replacementTail.then(invokeWithSelfHeal);
+      const work =
+        this.pendingReplacements === 0
+          ? invokeWithSelfHeal()
+          : this.replacementTail.then(invokeWithSelfHeal);
+      return options?.signal ? settleOnAbort(work, options.signal) : work;
     } catch (cause) {
       return Promise.reject(cause);
     }

@@ -2143,17 +2143,12 @@ and must never cross renderer IPC or bypass the platform redaction path.
   server identity, capabilities, auth/lifecycle status, and bounded diagnostics.
 - `invoke` accepts a closed typed operation union. There is no raw
   `request(method, params)` escape hatch and no method-per-SDK-verb public API.
-  An invocation self-heals only its addressed invalidated actor; unrelated invalidated actors
-  remain isolated until their own invocation or an explicit configuration replacement.
 - `watch` is filtered and token-free. Subscribers cannot obtain the host, SDK
   values, credential handles, or another server's private events.
 - `replaceConfig` is ordered with invocation and lifecycle work. It advances the
-  server generation, rejects new work with stable `mcp_generation_retired` while
-  keeping caller cancellation distinct, discards late events, settles or cancels
-  owned work explicitly, and closes old transports before publishing the
-  replacement as ready. It never mutates a live client in place. An unexpected
-  transport close invalidates only that server; one later operation establishes
-  one replacement generation without replaying interrupted work.
+  server generation while keeping caller cancellation distinct from stable
+  `mcp_generation_retired`; it discards late events, settles owned work, and closes old
+  transports before publish. Unexpected closure replaces only that server without replay.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 
