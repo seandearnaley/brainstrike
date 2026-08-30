@@ -425,6 +425,15 @@ function findApprovalChunk(chunks: StreamChunk[]) {
   );
 }
 
+function approvalToolCallIds(chunks: readonly StreamChunk[]): string[] {
+  return chunks
+    .filter(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-approval-required' }> =>
+        chunk.type === 'tool-approval-required'
+    )
+    .map((chunk) => chunk.toolCallId);
+}
+
 /**
  * Drain an async chunk iterator into an array, yielding a macrotask after each
  * chunk. The scripted model delivers its stream synchronously, so without an
@@ -462,7 +471,10 @@ async function encodeChunks(chunks: StreamChunk[]): Promise<string> {
   return await session.createResponse().text();
 }
 
-function readPersistedToolInvocationArgs(content: unknown, toolCallId: string): unknown {
+function readPersistedToolInvocation(
+  content: unknown,
+  toolCallId: string
+): Record<string, unknown> | undefined {
   const parsed = typeof content === 'string' ? (JSON.parse(content) as unknown) : content;
   if (!(parsed && typeof parsed === 'object')) {
     return;
@@ -481,10 +493,45 @@ function readPersistedToolInvocationArgs(content: unknown, toolCallId: string): 
       typeof invocation === 'object' &&
       (invocation as { toolCallId?: unknown }).toolCallId === toolCallId
     ) {
-      return (invocation as { args?: unknown }).args;
+      return invocation as Record<string, unknown>;
     }
   }
   return;
+}
+
+function readPersistedToolInvocationArgs(content: unknown, toolCallId: string): unknown {
+  return readPersistedToolInvocation(content, toolCallId)?.args;
+}
+
+function readPersistedToolInvocationResult(content: unknown, toolCallId: string): unknown {
+  return readPersistedToolInvocation(content, toolCallId)?.result;
+}
+
+function readToolResultObservations(
+  chunks: readonly StreamChunk[]
+): Array<{ result: unknown; toolCallId: string }> {
+  const observations: Array<{ result: unknown; toolCallId: string }> = [];
+  for (const chunk of chunks) {
+    if (chunk.type !== 'tool-event' || chunk.status !== 'success') {
+      continue;
+    }
+    const payload = chunk.payload;
+    if (!(payload && typeof payload === 'object')) {
+      continue;
+    }
+    const toolCallId = (payload as { toolCallId?: unknown }).toolCallId;
+    if (typeof toolCallId !== 'string') {
+      continue;
+    }
+    if ('result' in payload) {
+      observations.push({ result: (payload as { result: unknown }).result, toolCallId });
+      continue;
+    }
+    if ('output' in payload) {
+      observations.push({ result: (payload as { output: unknown }).output, toolCallId });
+    }
+  }
+  return observations;
 }
 
 describe("'ask' suspends for approval and resumes (real @mastra/core/agent + real PGlite)", () => {
@@ -554,14 +601,6 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
         )
         .filter((chunk) => typeof chunk.event.metadata?.toolCallId === 'string')
         .map((chunk) => `${String(chunk.event.metadata?.toolCallId)}:${chunk.event.kind}`);
-    const approvalsIn = (chunks: readonly StreamChunk[]) =>
-      chunks
-        .filter(
-          (chunk): chunk is Extract<StreamChunk, { type: 'tool-approval-required' }> =>
-            chunk.type === 'tool-approval-required'
-        )
-        .map((chunk) => chunk.toolCallId);
-
     const suspendChunks = await drainYielding(
       await streamMastraAgent(
         [{ id: 'u-two-gated', parts: [{ text: 'run both', type: 'text' }], role: 'user' }],
@@ -575,7 +614,7 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       'call-two-gated-b:tool.started',
       'call-two-gated-a:tool.approval.requested',
     ]);
-    expect(approvalsIn(suspendChunks)).toEqual(['call-two-gated-a']);
+    expect(approvalToolCallIds(suspendChunks)).toEqual(['call-two-gated-a']);
     expect(askExecute).not.toHaveBeenCalled();
 
     const approval = findApprovalChunk(suspendChunks);
@@ -597,11 +636,168 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       'call-two-gated-a:tool.started',
       'call-two-gated-b:tool.approval.requested',
     ]);
-    expect(approvalsIn(resumeChunks)).toEqual(['call-two-gated-b']);
+    expect(approvalToolCallIds(resumeChunks)).toEqual(['call-two-gated-b']);
 
     // Only the approved call ran. B is still waiting on the user.
     expect(askExecute).toHaveBeenCalledTimes(1);
     expect(askExecute.mock.calls[0]?.[0]).toMatchObject({ command: 'echo A' });
+
+    await database.close();
+  });
+
+  it('serializes a same-step read plus two approval-gated calls and preserves call correlation', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const readStarted = createDeferredSignal();
+    const releaseRead = createDeferredSignal();
+    const readExecute = vi.fn(async (inputData: { path: string }) => {
+      readStarted.resolve();
+      await releaseRead.promise;
+      return { contents: `body of ${inputData.path}` };
+    });
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const readTool = createTool({
+      description: 'A read-only tool (allow).',
+      execute: readExecute,
+      id: 'read_tool',
+      inputSchema: z.object({ path: z.string() }),
+      outputSchema: z.object({ contents: z.string() }),
+    });
+    const askTool = makeAskTool(askExecute);
+    const thread = { resourceId: 'resource-mixed-batch', threadId: 'thread-mixed-batch' } as const;
+    const policy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: { read_tool: 'read', shell_tool: 'execute' },
+      yolo: false,
+    } as const;
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+      permissionPolicy: policy,
+      provider: 'openai' as const,
+    };
+    const tools = { read_tool: readTool, shell_tool: askTool };
+    const approvePendingCall = async (chunks: StreamChunk[]) => {
+      const approval = findApprovalChunk(chunks);
+      return await drainYielding(
+        await streamMastraToolApprovalAction(
+          {
+            action: 'approve',
+            runId: approval?.runId ?? '',
+            toolCallId: approval?.toolCallId ?? '',
+            toolName: 'shell_tool',
+          },
+          { memory, requireToolApproval: true, runtime, storage, tools }
+        )
+      );
+    };
+
+    modelHolder.current = createToolCallBatchModel({
+      calls: [
+        {
+          input: JSON.stringify({ path: '/README.md' }),
+          toolCallId: 'call-mixed-read',
+          toolName: 'read_tool',
+        },
+        {
+          input: JSON.stringify({ command: 'echo mixed A' }),
+          toolCallId: 'call-mixed-ask-a',
+          toolName: 'shell_tool',
+        },
+        {
+          input: JSON.stringify({ command: 'echo mixed B' }),
+          toolCallId: 'call-mixed-ask-b',
+          toolName: 'shell_tool',
+        },
+      ],
+      finalText: 'Mixed batch complete.',
+    });
+
+    const liveChunks: StreamChunk[] = [];
+    const initialDrain = (async () =>
+      drainYielding(
+        await streamMastraAgent(
+          [
+            {
+              id: 'u-mixed-batch',
+              parts: [{ text: 'read then run both', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          { memory, runtime, storage, tools }
+        ),
+        (chunk) => liveChunks.push(chunk)
+      ))();
+
+    const readReachedBarrier = await new Promise<boolean>((resolve) => {
+      const timeoutId = setTimeout(() => resolve(false), 2000);
+      void readStarted.promise.then(() => {
+        clearTimeout(timeoutId);
+        resolve(true);
+      });
+    });
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+
+    // The batch includes an ACTUALLY called requireApproval tool, so `called`
+    // must reduce the whole foreach to concurrency 1. While the first read is
+    // held at a deterministic barrier, neither ask call may reach its gate.
+    expect(readReachedBarrier).toBe(true);
+    expect(findApprovalChunk(liveChunks)).toBeUndefined();
+    expect(askExecute).not.toHaveBeenCalled();
+
+    releaseRead.resolve();
+    const initialChunks = await initialDrain;
+    expect(readExecute).toHaveBeenCalledTimes(1);
+    expect(approvalToolCallIds(initialChunks)).toEqual(['call-mixed-ask-a']);
+    expect(askExecute).not.toHaveBeenCalled();
+
+    const firstResumeChunks = await approvePendingCall(initialChunks);
+
+    // Only A executes; B becomes the sole next approval request.
+    expect(readExecute).toHaveBeenCalledTimes(1);
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    expect(askExecute.mock.calls[0]?.[0]).toMatchObject({ command: 'echo mixed A' });
+    expect(approvalToolCallIds(firstResumeChunks)).toEqual(['call-mixed-ask-b']);
+
+    const secondResumeChunks = await approvePendingCall(firstResumeChunks);
+
+    expect(askExecute).toHaveBeenCalledTimes(2);
+    expect(askExecute.mock.calls[1]?.[0]).toMatchObject({ command: 'echo mixed B' });
+    expect(approvalToolCallIds(secondResumeChunks)).toEqual([]);
+    expect(
+      secondResumeChunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+            chunk.type === 'text-delta'
+        )
+        .map((chunk) => chunk.value)
+        .join('')
+    ).toContain('Mixed batch complete.');
+
+    // Mastra does not replay the already-completed read's live `tool-result`
+    // when a later foreach item suspends the step. The durable transcript is
+    // the correlation source across that pause boundary: the result must stay
+    // attached to the read call id, never either approval call id.
+    const persisted = await database.query<{ content: unknown }>(
+      'SELECT content FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" ASC',
+      [thread.threadId]
+    );
+    const expectedPersistedResults = [
+      ['call-mixed-read', { contents: 'body of /README.md' }],
+      ['call-mixed-ask-a', { ran: 'echo mixed A' }],
+      ['call-mixed-ask-b', { ran: 'echo mixed B' }],
+    ] as const;
+    for (const [toolCallId, expectedResult] of expectedPersistedResults) {
+      const observedResults = persisted.rows
+        .map((row) => readPersistedToolInvocationResult(row.content, toolCallId))
+        .filter((result) => result !== undefined);
+      expect(observedResults.length, toolCallId).toBeGreaterThan(0);
+      expect(observedResults, toolCallId).toEqual(observedResults.map(() => expectedResult));
+    }
 
     await database.close();
   });
@@ -1707,11 +1903,15 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       riskByTool: { read_tool: 'read', shell_tool: 'execute' },
       yolo: false,
     } as const;
+    const expectedResults = Array.from({ length: 12 }, (_, index) => ({
+      result: { value: index },
+      toolCallId: `call-safe-cap-${index}`,
+    }));
 
     modelHolder.current = createToolCallBatchModel({
-      calls: Array.from({ length: 12 }, (_, index) => ({
+      calls: expectedResults.map((expected, index) => ({
         input: JSON.stringify({ index }),
-        toolCallId: `call-safe-cap-${index}`,
+        toolCallId: expected.toolCallId,
         toolName: 'read_tool',
       })),
       finalText: 'Batch complete.',
@@ -1749,7 +1949,6 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     const maxActiveBeforeRelease = maxActiveExecutions;
     releaseFirstWave.resolve();
     const chunks = await drainPromise;
-    await database.close();
 
     expect(firstWaveReached).toBe(true);
     expect(startedBeforeRelease).toBe(10);
@@ -1758,6 +1957,52 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(maxActiveExecutions).toBe(10);
     expect(askExecute).not.toHaveBeenCalled();
     expect(findApprovalChunk(chunks)).toBeUndefined();
+
+    // Concurrency may change completion ORDER, but it must never change
+    // completion IDENTITY. Pin one and only one `tool-result` plus one and only
+    // one durable `tool.completed` to every model-issued call id.
+    const byToolCallId = (left: { toolCallId: string }, right: { toolCallId: string }) =>
+      left.toolCallId.localeCompare(right.toolCallId);
+    const toolResults = readToolResultObservations(chunks).sort(byToolCallId);
+    const sortedExpectedResults = [...expectedResults].sort(byToolCallId);
+    const resultToolCallIds = [...new Set(toolResults.map((result) => result.toolCallId))].sort();
+    expect(resultToolCallIds).toEqual(
+      sortedExpectedResults.map((observation) => observation.toolCallId)
+    );
+    for (const expected of sortedExpectedResults) {
+      const observedResults = toolResults
+        .filter((observation) => observation.toolCallId === expected.toolCallId)
+        .map((observation) => observation.result);
+      expect(observedResults, expected.toolCallId).toEqual([expected.result]);
+    }
+    const completedToolCallIds = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+          chunk.type === 'run-event' && chunk.event.kind === 'tool.completed'
+      )
+      .map((chunk) => chunk.event.metadata?.toolCallId)
+      .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string')
+      .sort();
+    expect(completedToolCallIds).toEqual(
+      sortedExpectedResults.map((observation) => observation.toolCallId)
+    );
+    expect(resultToolCallIds).toEqual(completedToolCallIds);
+
+    const persisted = await database.query<{ content: unknown }>(
+      'SELECT content FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" ASC',
+      [thread.threadId]
+    );
+    for (const expected of sortedExpectedResults) {
+      const persistedResults = persisted.rows
+        .map((row) => readPersistedToolInvocationResult(row.content, expected.toolCallId))
+        .filter((result) => result !== undefined);
+      expect(persistedResults.length, expected.toolCallId).toBeGreaterThan(0);
+      expect(persistedResults, expected.toolCallId).toEqual(
+        persistedResults.map(() => expected.result)
+      );
+    }
+
+    await database.close();
   });
 
   it('lets an ALLOWED read tool run FREE even while an ask tool is in the map (no global suspend)', async () => {

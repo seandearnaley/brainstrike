@@ -101,13 +101,19 @@ const testPersona: AssistantPersonaDefinition = {
   maxSteps: 8,
 };
 
-function createTurnCountedToolCallModel(args: {
-  toolName: string;
-  toolCallId: string;
+interface ScriptedToolCall {
   input: string;
+  toolCallId: string;
+  toolName: string;
+}
+
+type ToolCallModelArgs = {
   finalText: string;
   stallAfterToolResultText?: string;
-}): LanguageModelV2 {
+} & ({ calls: readonly ScriptedToolCall[] } | (ScriptedToolCall & { calls?: never }));
+
+function createTurnCountedToolCallModel(args: ToolCallModelArgs): LanguageModelV2 {
+  const calls = args.calls ?? [args];
   let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
     new ReadableStream<LanguageModelV2StreamPart>({
@@ -127,12 +133,14 @@ function createTurnCountedToolCallModel(args: {
         return Promise.resolve({
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
-            {
-              input: args.input,
-              toolCallId: args.toolCallId,
-              toolName: args.toolName,
-              type: 'tool-call',
-            },
+            ...calls.map(
+              (call): LanguageModelV2StreamPart => ({
+                input: call.input,
+                toolCallId: call.toolCallId,
+                toolName: call.toolName,
+                type: 'tool-call',
+              })
+            ),
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
           ]),
         });
@@ -258,6 +266,85 @@ function findSuspendChunk(chunks: StreamChunk[]) {
     (chunk): chunk is Extract<StreamChunk, { type: 'tool-suspend-required' }> =>
       chunk.type === 'tool-suspend-required'
   );
+}
+
+function findSuspendChunks(chunks: readonly StreamChunk[]) {
+  return chunks.filter(
+    (chunk): chunk is Extract<StreamChunk, { type: 'tool-suspend-required' }> =>
+      chunk.type === 'tool-suspend-required'
+  );
+}
+
+function describeToolSequence(chunks: readonly StreamChunk[]): string[] {
+  const sequence: string[] = [];
+  for (const chunk of chunks) {
+    if (chunk.type === 'tool-suspend-required') {
+      sequence.push(`${chunk.toolCallId}:suspend`);
+      continue;
+    }
+    if (chunk.type === 'run-event') {
+      const toolCallId = chunk.event.metadata?.toolCallId;
+      if (typeof toolCallId === 'string') {
+        sequence.push(`${toolCallId}:${chunk.event.kind}`);
+      }
+      continue;
+    }
+    if (chunk.type !== 'tool-event' || (chunk.status !== 'start' && chunk.status !== 'success')) {
+      continue;
+    }
+    const payload = chunk.payload;
+    if (!(payload && typeof payload === 'object')) {
+      continue;
+    }
+    const toolCallId = (payload as { toolCallId?: unknown }).toolCallId;
+    if (typeof toolCallId === 'string') {
+      sequence.push(`${toolCallId}:${chunk.status}`);
+    }
+  }
+  return sequence;
+}
+
+function readToolResult(chunks: readonly StreamChunk[], toolCallId: string): unknown {
+  for (const chunk of chunks) {
+    if (chunk.type !== 'tool-event' || chunk.status !== 'success') {
+      continue;
+    }
+    const payload = chunk.payload;
+    if (
+      payload &&
+      typeof payload === 'object' &&
+      (payload as { toolCallId?: unknown }).toolCallId === toolCallId &&
+      'result' in payload
+    ) {
+      return (payload as { result: unknown }).result;
+    }
+  }
+  return;
+}
+
+function readPersistedToolInvocationResult(content: unknown, toolCallId: string): unknown {
+  const parsed = typeof content === 'string' ? (JSON.parse(content) as unknown) : content;
+  if (!(parsed && typeof parsed === 'object')) {
+    return;
+  }
+  const parts = (parsed as { parts?: unknown }).parts;
+  if (!Array.isArray(parts)) {
+    return;
+  }
+  for (const part of parts) {
+    if (!(part && typeof part === 'object')) {
+      continue;
+    }
+    const invocation = (part as { toolInvocation?: unknown }).toolInvocation;
+    if (
+      invocation &&
+      typeof invocation === 'object' &&
+      (invocation as { toolCallId?: unknown }).toolCallId === toolCallId
+    ) {
+      return (invocation as { result?: unknown }).result;
+    }
+  }
+  return;
 }
 
 function runEventKinds(chunks: StreamChunk[]): string[] {
@@ -415,6 +502,137 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     expect(toolSuccessOutputs(resumeChunks)).toContain('approved');
     expect(finalText(resumeChunks)).toContain('Proceeding with the approved plan.');
     expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  }, 120_000);
+
+  it('serializes two same-step submitPlan suspensions and resumes each exact call once', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = {
+      resourceId: 'resource-plan-sequence',
+      threadId: 'thread-plan-sequence',
+    } as const;
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+      provider: 'openai' as const,
+    };
+    const tools = { 'brainstrike.submitPlan': createSubmitPlanTool() };
+    const secondPlanInput = JSON.stringify({
+      overview: 'Verify the parser refactor.',
+      steps: [{ title: 'Run parser tests' }],
+      title: 'Parser verification',
+    });
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      calls: [
+        {
+          input: SUBMIT_PLAN_INPUT,
+          toolCallId: 'call-plan-sequence-a',
+          toolName: 'brainstrike_submitPlan',
+        },
+        {
+          input: secondPlanInput,
+          toolCallId: 'call-plan-sequence-b',
+          toolName: 'brainstrike_submitPlan',
+        },
+      ],
+      finalText: 'Both plans approved.',
+    });
+
+    const initialChunks = await drainYielding(
+      await streamMastraAgent(
+        [
+          {
+            id: 'u-plan-sequence',
+            parts: [{ text: 'submit both plans', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        { memory, runtime, storage, tools }
+      )
+    );
+    const firstSuspends = findSuspendChunks(initialChunks);
+
+    expect(describeToolSequence(initialChunks)).toEqual([
+      'call-plan-sequence-a:start',
+      'call-plan-sequence-a:tool.started',
+      'call-plan-sequence-b:start',
+      'call-plan-sequence-b:tool.started',
+      'call-plan-sequence-a:suspend',
+    ]);
+    expect(firstSuspends.map((chunk) => chunk.toolCallId)).toEqual(['call-plan-sequence-a']);
+    expect(firstSuspends[0]?.suspendPayload).toMatchObject({ title: 'Parser refactor' });
+
+    const firstSuspend = firstSuspends[0];
+    const firstResumeChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'approved' },
+          runId: firstSuspend?.runId ?? '',
+          toolCallId: firstSuspend?.toolCallId ?? '',
+          toolName: 'brainstrike.submitPlan',
+        },
+        { memory, runtime, storage, tools }
+      )
+    );
+    const secondSuspends = findSuspendChunks(firstResumeChunks);
+
+    // The resumed A result is retained in Mastra's snapshot/transcript, but is
+    // not replayed on the live wrapper stream when the later foreach item
+    // suspends. B reaching its own suspend is the direct no-leak proof: A's
+    // resumeData was scoped to A rather than silently approving B.
+    expect(describeToolSequence(firstResumeChunks)).toEqual(['call-plan-sequence-b:suspend']);
+    expect(secondSuspends.map((chunk) => chunk.toolCallId)).toEqual(['call-plan-sequence-b']);
+    expect(secondSuspends[0]?.suspendPayload).toMatchObject({ title: 'Parser verification' });
+
+    const secondSuspend = secondSuspends[0];
+    const secondResumeChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'approved' },
+          runId: secondSuspend?.runId ?? '',
+          toolCallId: secondSuspend?.toolCallId ?? '',
+          toolName: 'brainstrike.submitPlan',
+        },
+        { memory, runtime, storage, tools }
+      )
+    );
+
+    expect(describeToolSequence(secondResumeChunks)).toEqual([
+      'call-plan-sequence-a:success',
+      'call-plan-sequence-a:tool.completed',
+      'call-plan-sequence-b:success',
+      'call-plan-sequence-b:tool.completed',
+    ]);
+    expect(readToolResult(secondResumeChunks, 'call-plan-sequence-a')).toEqual({
+      status: 'approved',
+    });
+    expect(readToolResult(secondResumeChunks, 'call-plan-sequence-b')).toEqual({
+      status: 'approved',
+    });
+    expect(findSuspendChunks(secondResumeChunks)).toEqual([]);
+    expect(finalText(secondResumeChunks)).toContain('Both plans approved.');
+    expect(
+      secondResumeChunks.find(
+        (chunk) => chunk.type === 'message-finish' && chunk.finishReason === 'stop'
+      )
+    ).toBeDefined();
+
+    const persisted = await database.query<{ content: unknown }>(
+      'SELECT content FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" ASC',
+      [thread.threadId]
+    );
+    for (const toolCallId of ['call-plan-sequence-a', 'call-plan-sequence-b']) {
+      const persistedResults = persisted.rows
+        .map((row) => readPersistedToolInvocationResult(row.content, toolCallId))
+        .filter((result) => result !== undefined);
+      expect(persistedResults.length, toolCallId).toBeGreaterThan(0);
+      expect(persistedResults, toolCallId).toEqual(
+        persistedResults.map(() => ({ status: 'approved' }))
+      );
+    }
 
     await database.close();
   }, 120_000);
