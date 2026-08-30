@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { glob } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { glob } from 'glob';
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -115,11 +115,7 @@ async function configuredGlobalFiles(config = readTurboConfig()) {
 
   const filesByPattern = await Promise.all(
     config.global.inputs.map(async (pattern) => {
-      const matches = await glob(pattern, {
-        cwd: repoRoot,
-        dot: true,
-        nodir: true,
-      });
+      const matches = await Array.fromAsync(glob(pattern, { cwd: repoRoot }));
       assert.ok(
         matches.length > 0,
         `turbo.jsonc global.inputs entry "${pattern}" matches no file — an invisible cache input is not a contract.`

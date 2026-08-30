@@ -23,11 +23,10 @@
 // "any id-shaped expression reaching a memory payload" was considered and
 // rejected as unmaintainably fuzzy.
 
-import { readFile } from 'node:fs/promises';
+import { glob, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { glob } from 'glob';
 import ts from 'typescript';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -126,13 +125,14 @@ function findProducerSyntax(filePath, sourceText) {
  * `{ filePath, lineNumber, reason }`.
  */
 export async function findAssistantRunIdProducerViolations({ root = REPO_ROOT } = {}) {
-  const sourceFiles = await glob(SOURCE_PATTERNS, {
-    absolute: false,
-    cwd: root,
-    ignore: IGNORE_PATTERNS,
-    nodir: true,
-    posix: true,
-  });
+  const sourceFiles = (
+    await Array.fromAsync(
+      glob(SOURCE_PATTERNS, {
+        cwd: root,
+        exclude: IGNORE_PATTERNS,
+      })
+    )
+  ).map((filePath) => filePath.split(path.sep).join('/'));
 
   const violations = [];
   let declarationCount = 0;

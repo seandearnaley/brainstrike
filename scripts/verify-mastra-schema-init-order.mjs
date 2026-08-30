@@ -60,11 +60,10 @@
 // protected the file that TRIPPED the defect rather than the files that CONTAIN
 // it.
 
-import { readFile } from 'node:fs/promises';
+import { glob, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { glob } from 'glob';
 import ts from 'typescript';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -440,13 +439,14 @@ export async function findMastraSchemaModuleScopeReads({ root = REPO_ROOT } = {}
     );
   }
 
-  const sourceFiles = await glob(SOURCE_PATTERNS, {
-    absolute: false,
-    cwd: root,
-    ignore: IGNORE_PATTERNS,
-    nodir: true,
-    posix: true,
-  });
+  const sourceFiles = (
+    await Array.fromAsync(
+      glob(SOURCE_PATTERNS, {
+        cwd: root,
+        exclude: IGNORE_PATTERNS,
+      })
+    )
+  ).map((filePath) => filePath.split(path.sep).join('/'));
   if (sourceFiles.length < MIN_SOURCE_FILES) {
     throw new Error(
       `Discovered only ${sourceFiles.length} source file(s) under ${root}, below the floor of ` +
