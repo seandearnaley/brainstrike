@@ -34,6 +34,36 @@ export class McpHostRevisionPublisherClosedError extends Error {
   }
 }
 
+type TransitionErrorCode =
+  | 'mcp-host-actor-config-mismatch'
+  | 'mcp-host-future-generation'
+  | 'mcp-host-server-unknown'
+  | 'mcp-host-stale-generation';
+export class McpHostRevisionPublisherTransitionError extends Error {
+  readonly category: 'configuration' | 'generation-retired';
+  constructor(
+    readonly code: TransitionErrorCode,
+    configuredServerId?: string
+  ) {
+    super(configuredServerId ? `${code}: ${configuredServerId}` : code);
+    this.name = 'McpHostRevisionPublisherTransitionError';
+    this.category =
+      code === 'mcp-host-stale-generation' || code === 'mcp-host-future-generation'
+        ? 'generation-retired'
+        : 'configuration';
+  }
+}
+
+export class McpHostRevisionPublisherWatchError extends Error {
+  readonly category = 'configuration' as const;
+  readonly code = 'mcp-host-empty-watch-filter';
+
+  constructor() {
+    super('mcp-host-empty-watch-filter');
+    this.name = 'McpHostRevisionPublisherWatchError';
+  }
+}
+
 function compareServerIds(left: McpHostServerSnapshot, right: McpHostServerSnapshot): number {
   if (left.configuredServerId === right.configuredServerId) {
     return 0;
@@ -88,9 +118,37 @@ export class McpHostRevisionPublisher {
       ({ configuredServerId }) => configuredServerId === server.configuredServerId
     );
     if (index < 0) {
-      throw new Error('Unknown configured MCP server');
+      throw new McpHostRevisionPublisherTransitionError(
+        'mcp-host-server-unknown',
+        server.configuredServerId
+      );
     }
-    if (isDeepStrictEqual(this.servers[index], server)) {
+    const current = this.servers[index];
+    if (!current) {
+      throw new Error('MCP host publisher server index invariant failed');
+    }
+    if (server.generation < current.generation) {
+      throw new McpHostRevisionPublisherTransitionError(
+        'mcp-host-stale-generation',
+        server.configuredServerId
+      );
+    }
+    if (server.generation > current.generation) {
+      throw new McpHostRevisionPublisherTransitionError(
+        'mcp-host-future-generation',
+        server.configuredServerId
+      );
+    }
+    if (
+      server.configuredProtocol !== current.configuredProtocol ||
+      server.transport !== current.transport
+    ) {
+      throw new McpHostRevisionPublisherTransitionError(
+        'mcp-host-actor-config-mismatch',
+        server.configuredServerId
+      );
+    }
+    if (isDeepStrictEqual(current, server)) {
       return this.snapshot();
     }
     const nextServers = [...this.servers];
@@ -104,6 +162,9 @@ export class McpHostRevisionPublisher {
   ): () => void {
     if (this.closed) {
       throw new McpHostRevisionPublisherClosedError();
+    }
+    if (filter.configuredServerIds?.length === 0) {
+      throw new McpHostRevisionPublisherWatchError();
     }
     const watchId = this.nextWatchId;
     this.nextWatchId += 1;
@@ -119,6 +180,7 @@ export class McpHostRevisionPublisher {
 
   close(): void {
     this.closed = true;
+    // The closed watch DTO has no terminal variant; terminal host close invalidates registrations.
     this.watches.clear();
   }
 
@@ -134,9 +196,10 @@ export class McpHostRevisionPublisher {
   ): McpHostSnapshot {
     this.servers = servers;
     this.revision += 1;
-    const event = this.snapshot();
-    queueMicrotask(() => this.deliver(event, affected));
-    return this.snapshot();
+    const queuedEvent = this.snapshot();
+    const returnedEvent = structuredClone(queuedEvent);
+    queueMicrotask(() => this.deliver(queuedEvent, affected));
+    return returnedEvent;
   }
 
   private deliver(event: McpHostWatchEvent, affected: ReadonlySet<ConfiguredMcpServerId>): void {

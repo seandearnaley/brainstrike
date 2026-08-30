@@ -221,6 +221,19 @@ describe('MCP test lab package contract', () => {
       'Raw internal causes reach one required main-process diagnostic sink'
     );
     expect(normalizedContract).toContain(
+      'The host publisher alone owns a monotonic revision sequence beginning at zero.'
+    );
+    expect(normalizedContract).toContain('Empty configured-server-id filters are rejected visibly');
+    expect(normalizedContract).toContain(
+      'Actor transitions must exactly match the config-owned generation, protocol policy, and transport.'
+    );
+    expect(normalizedContract).toContain(
+      'The queued event and returned snapshot are separate detached values.'
+    );
+    expect(normalizedContract).toContain(
+      'Terminal host close invalidates queued and future watch registrations'
+    );
+    expect(normalizedContract).toContain(
       '`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`'
     );
     expect(normalizedContract).toContain('dedicated encrypted MCP credential store');
