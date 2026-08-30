@@ -115,23 +115,40 @@ describe('McpServerActor', () => {
     expect(subject.snapshot().state).toBe('connected');
     expect(await subject.close()).toEqual(report);
   });
-  it('drains work when its factory synchronously closes the actor', async () => {
-    const held = deferred<unknown>();
+  it('retires accepted leases distinctly from caller cancellation', async () => {
+    const retirementHeld = deferred<unknown>();
     const closeClient = vi.fn(async () => report);
-    let closing: ReturnType<McpServerActor['close']> | undefined;
-    let subject: McpServerActor;
-    subject = actor(() => {
-      closing = subject.close();
-      return client(() => held.promise, closeClient);
+    const invoke = vi.fn(() => retirementHeld.promise);
+    const subject = actor(({ signal }) => {
+      expect(signal.aborted).toBe(false);
+      return client(invoke, closeClient);
     });
     const active = subject.invoke(LIST);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+    const closing = subject.close();
+    await failure(active, 'mcp_generation_retired');
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(closeClient).not.toHaveBeenCalled();
-    held.resolve(listResult.result);
-    await active;
+    retirementHeld.resolve(listResult.result);
     await expect(closing).resolves.toEqual(report);
     expect(closeClient).toHaveBeenCalledOnce();
-    await failure(subject.invoke(LIST), 'mcp-generation-closed');
+    await failure(subject.invoke(LIST), 'mcp_generation_retired');
+
+    const caller = new AbortController();
+    const callerReason = new DOMException('caller stopped', 'AbortError');
+    const callerHeld = deferred<unknown>();
+    const callerInvoke = vi.fn((_request, options) => {
+      options.signal.addEventListener('abort', () => callerHeld.reject(options.signal.reason), {
+        once: true,
+      });
+      return callerHeld.promise;
+    });
+    const callerActor = actor(() => client(callerInvoke));
+    const callerWork = callerActor.invoke(LIST, { signal: caller.signal });
+    caller.abort(callerReason);
+    await expect(callerWork).rejects.toBe(callerReason);
+    expect(callerActor.invalidated()).toBe(false);
+
     const lazyFactory = vi.fn(async () => client());
     await actor(lazyFactory).close();
     expect(lazyFactory).not.toHaveBeenCalled();
@@ -139,11 +156,28 @@ describe('McpServerActor', () => {
     const pendingClose = vi.fn(async () => report);
     const pendingActor = actor(() => pendingFactory.promise);
     const pendingInvoke = pendingActor.invoke(LIST);
+    await Promise.resolve();
     const pendingDrain = pendingActor.close();
     pendingFactory.resolve(client(undefined, pendingClose));
-    await pendingInvoke;
+    await failure(pendingInvoke, 'mcp_generation_retired');
     await expect(pendingDrain).resolves.toEqual(report);
     expect(pendingClose).toHaveBeenCalledOnce();
+  });
+
+  it('invalidates one generation when its owned transport closes unexpectedly', async () => {
+    const raw = new Error('triggering transport failure');
+    let invalidate: () => void = vi.fn();
+    const subject = actor((context) => {
+      invalidate = context.onUnexpectedClose;
+      return client(async () => {
+        invalidate();
+        throw raw;
+      });
+    });
+    await failure(subject.invoke(LIST), 'mcp-transport-operation-failed');
+    expect(subject.invalidated()).toBe(true);
+    expect(subject.snapshot()).toMatchObject({ error: { code: 'mcp-transport-closed' } });
+    await failure(subject.invoke(LIST), 'mcp_generation_retired');
   });
   it('sanitizes and memoizes every actor boundary failure', async () => {
     const raw = new Error('credential-value-must-never-cross');
@@ -197,7 +231,7 @@ describe('McpServerActor', () => {
       error: { code: 'mcp-client-close-failed' },
       state: 'error',
     });
-    await failure(closeActor.invoke(LIST), 'mcp-generation-closed');
+    await failure(closeActor.invoke(LIST), 'mcp_generation_retired');
     const invalid = structuredClone(negotiated);
     Reflect.set(invalid, 'invalid', () => undefined);
     const closeClient = vi.fn(async () => report);

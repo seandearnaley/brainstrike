@@ -54,6 +54,7 @@ const config = (...servers: [typeof alpha, 'auto' | 'legacy'][]): McpHostConfig 
 interface ActorRecord {
   close: ReturnType<typeof vi.fn>;
   generation: number;
+  invalidated: ReturnType<typeof vi.fn>;
   invoke: ReturnType<typeof vi.fn>;
   publish: McpHostActorFactoryInput['onSnapshotChanged'];
   snapshot: ReturnType<typeof vi.fn>;
@@ -71,6 +72,7 @@ function setup(
     }
     const closeResult = closeResults[records.length] ?? CLEAN;
     const close = vi.fn(() => Promise.resolve(closeResult));
+    const invalidated = vi.fn(() => false);
     const invoke = vi.fn(async () => RESULT);
     const snapshot = vi.fn(() => ({
       configuredProtocol: input.config.configuredProtocol,
@@ -81,12 +83,14 @@ function setup(
     }));
     const actor: McpHostActor = {
       close,
+      invalidated,
       invoke,
       snapshot,
     };
     records.push({
       close,
       generation: input.generation,
+      invalidated,
       invoke,
       publish: input.onSnapshotChanged,
       snapshot,
@@ -174,6 +178,35 @@ describe('McpHostService', () => {
     expect(records.map(({ generation }) => generation)).toEqual([1, 2, 3, 4]);
     expect(records.slice(0, 3).every(({ close }) => close.mock.calls.length === 1)).toBe(true);
   });
+  it('replaces only the invoked invalidated server once on the next operation', async () => {
+    const { host, records } = setup();
+    await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']));
+    records[0]?.invalidated.mockReturnValue(true);
+    records[1]?.invalidated.mockReturnValue(true);
+
+    await Promise.all([host.invoke(LIST), host.invoke(LIST)]);
+
+    expect(records.map(({ generation }) => generation)).toEqual([1, 1, 2]);
+    expect(records.map(({ close }) => close.mock.calls.length)).toEqual([1, 0, 0]);
+    expect(records[2]?.invoke).toHaveBeenCalledTimes(2);
+  });
+  it('rechecks invalidation after a queued replacement before routing the operation', async () => {
+    const betaClosed = deferred<McpHostCloseReport>();
+    const { host, records } = setup([CLEAN, betaClosed.promise]);
+    await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']));
+    const replacing = host.replaceConfig(config([alpha, 'auto']));
+    await yieldOneMicrotask();
+    records[0]?.invalidated.mockReturnValue(true);
+
+    const invoked = host.invoke(LIST);
+    betaClosed.resolve(CLEAN);
+    await replacing;
+    await expect(invoked).resolves.toEqual(RESULT);
+
+    expect(records.map(({ generation }) => generation)).toEqual([1, 1, 2]);
+    expect(records[0]?.invoke).not.toHaveBeenCalled();
+    expect(records[2]?.invoke).toHaveBeenCalledOnce();
+  });
   it('latches one stable aggregate after attempting every failed retirement', async () => {
     const closeCause = new Error('raw close failure');
     const rejectedClose = deferred<McpHostCloseReport>();
@@ -244,6 +277,7 @@ describe('McpHostService', () => {
         });
         return {
           close: async () => CLEAN,
+          invalidated: () => false,
           invoke: async () => RESULT,
           snapshot: () => ({
             configuredProtocol: input.config.configuredProtocol,
@@ -391,6 +425,7 @@ describe('McpHostService', () => {
           });
           return CLEAN;
         },
+        invalidated: () => false,
         invoke: async () => RESULT,
         snapshot: () => ({
           configuredProtocol: input.config.configuredProtocol,

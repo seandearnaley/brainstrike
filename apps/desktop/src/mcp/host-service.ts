@@ -4,6 +4,7 @@ import {
   type McpHostCloseReport,
   type McpHostConfig,
   type McpHostError,
+  type McpHostInvokeOptions,
   type McpHostOperation,
   type McpHostOperationResult,
   type McpHostPort,
@@ -28,6 +29,7 @@ const COUNTER_KEYS = {
 } satisfies Record<Counter, true>;
 const COUNTERS = Object.keys(COUNTER_KEYS) as readonly Counter[];
 export interface McpHostActor extends Pick<McpHostPort, 'close' | 'invoke'> {
+  invalidated(): boolean;
   snapshot(): McpHostServerSnapshot;
 }
 export interface McpHostActorFactoryInput {
@@ -147,20 +149,35 @@ export class McpHostService implements McpHostPort {
   snapshot(): McpHostSnapshot {
     return this.options.publisher.snapshot();
   }
-  invoke(operation: McpHostOperation): Promise<McpHostOperationResult> {
+  invoke(
+    operation: McpHostOperation,
+    options?: McpHostInvokeOptions
+  ): Promise<McpHostOperationResult> {
     if (this.closePromise) {
       return Promise.reject(new McpHostServiceError('mcp-host-closed'));
     }
-    const invoke = () => {
+    const getEntry = (): ActorEntry => {
       this.assertOpen();
       const entry = this.actors.get(operation.configuredServerId);
       if (!entry) {
         throw new McpHostServiceError('mcp-host-server-unknown');
       }
-      return entry.actor.invoke(operation);
+      return entry;
+    };
+    const invokeCurrent = (): Promise<McpHostOperationResult> =>
+      getEntry().actor.invoke(operation, options);
+    const invokeWithSelfHeal = (): Promise<McpHostOperationResult> => {
+      if (getEntry().actor.invalidated()) {
+        return this.enqueueReplacement(this.currentConfig(), operation.configuredServerId).then(
+          invokeCurrent
+        );
+      }
+      return invokeCurrent();
     };
     try {
-      return this.pendingReplacements === 0 ? invoke() : this.replacementTail.then(invoke);
+      return this.pendingReplacements === 0
+        ? invokeWithSelfHeal()
+        : this.replacementTail.then(invokeWithSelfHeal);
     } catch (cause) {
       return Promise.reject(cause);
     }
@@ -175,8 +192,16 @@ export class McpHostService implements McpHostPort {
     } catch (cause) {
       return Promise.reject(cause);
     }
+    return this.enqueueReplacement(parsed);
+  }
+  private enqueueReplacement(
+    config: McpHostConfig,
+    invalidatedReplacementTarget?: ConfiguredMcpServerId
+  ): Promise<McpHostSnapshot> {
     this.pendingReplacements += 1;
-    const replacement = this.replacementTail.then(() => this.applyConfig(parsed));
+    const replacement = this.replacementTail.then(() =>
+      this.applyConfig(config, invalidatedReplacementTarget)
+    );
     const settled = () => {
       this.pendingReplacements -= 1;
     };
@@ -204,7 +229,10 @@ export class McpHostService implements McpHostPort {
     });
     return this.closePromise;
   }
-  private async applyConfig(config: McpHostConfig): Promise<McpHostSnapshot> {
+  private async applyConfig(
+    config: McpHostConfig,
+    invalidatedReplacementTarget?: ConfiguredMcpServerId
+  ): Promise<McpHostSnapshot> {
     this.assertOpen();
     if (this.replacementFailure) {
       throw new McpHostServiceError('mcp-host-replacement-cleanup-failed', this.replacementFailure);
@@ -212,7 +240,14 @@ export class McpHostService implements McpHostPort {
     const retained = new Map<ConfiguredMcpServerId, ActorEntry>();
     for (const server of config.servers) {
       const current = this.actors.get(server.configuredServerId);
-      if (current && isDeepStrictEqual(current.config, server)) {
+      const replaceInvalidated =
+        invalidatedReplacementTarget === undefined ||
+        invalidatedReplacementTarget === server.configuredServerId;
+      if (
+        current &&
+        !(replaceInvalidated && current.actor.invalidated()) &&
+        isDeepStrictEqual(current.config, server)
+      ) {
         retained.set(server.configuredServerId, current);
       }
     }
@@ -276,6 +311,9 @@ export class McpHostService implements McpHostPort {
     }
     this.actors = next;
     return published;
+  }
+  private currentConfig(): McpHostConfig {
+    return { servers: [...this.actors.values()].map(({ config }) => config) };
   }
   private assertOpen(): void {
     if (this.closePromise) {
