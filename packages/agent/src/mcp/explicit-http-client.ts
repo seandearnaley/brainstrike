@@ -130,6 +130,10 @@ function createHeaderPreservingFetch(
 
 function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClientOptions {
   const name = validateNonEmpty(options.name, 'MCP client name');
+  const protocol = options.protocol ?? 'legacy';
+  if (options.transport === 'sse' && protocol !== 'legacy') {
+    throw new Error('legacy SSE transport requires protocol "legacy"');
+  }
   const clientInfo = options.clientInfo ?? {
     name: `brainstrike-${name}`,
     version: DEFAULT_CLIENT_VERSION,
@@ -149,7 +153,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
   return {
     clientInfo: { ...clientInfo },
     fetch: createHeaderPreservingFetch(baseFetch, options.headers),
-    protocol: options.protocol ?? 'legacy',
+    protocol,
     transport: options.transport,
     url,
   };
@@ -180,6 +184,22 @@ export class ExplicitHttpMcpClient {
 
   async connect(options?: ExplicitHttpMcpRequestOptions): Promise<void> {
     await this.getConnection(options);
+  }
+
+  getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
+    return this.activeConnection?.client.getNegotiatedProtocolVersion();
+  }
+
+  getProtocolEra(): ReturnType<Client['getProtocolEra']> {
+    return this.activeConnection?.client.getProtocolEra();
+  }
+
+  getServerCapabilities(): ReturnType<Client['getServerCapabilities']> {
+    return this.activeConnection?.client.getServerCapabilities();
+  }
+
+  getServerVersion(): ReturnType<Client['getServerVersion']> {
+    return this.activeConnection?.client.getServerVersion();
   }
 
   async listTools(

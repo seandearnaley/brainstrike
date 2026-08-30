@@ -103,6 +103,22 @@ export class ExplicitStdioMcpClient {
     await this.getConnection(options);
   }
 
+  getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
+    return this.activeConnection?.client.getNegotiatedProtocolVersion();
+  }
+
+  getProtocolEra(): ReturnType<Client['getProtocolEra']> {
+    return this.activeConnection?.client.getProtocolEra();
+  }
+
+  getServerCapabilities(): ReturnType<Client['getServerCapabilities']> {
+    return this.activeConnection?.client.getServerCapabilities();
+  }
+
+  getServerVersion(): ReturnType<Client['getServerVersion']> {
+    return this.activeConnection?.client.getServerVersion();
+  }
+
   async listTools(
     options?: ExplicitStdioMcpRequestOptions
   ): Promise<ExplicitStdioMcpListToolsResult> {

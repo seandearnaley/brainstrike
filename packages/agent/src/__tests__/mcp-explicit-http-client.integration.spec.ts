@@ -1,16 +1,15 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { SdkHttpError } from '@modelcontextprotocol/client';
+import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import type { Transport } from '@modelcontextprotocol/server';
-import { McpServer } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer, type Transport } from '@modelcontextprotocol/server';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   ExplicitHttpMcpClient,
+  type ExplicitHttpMcpClientOptions,
   type ExplicitHttpMcpFetch,
-  type ExplicitHttpMcpTransport,
 } from '../mcp/explicit-http-client';
 
 interface RecordedRequest {
@@ -367,12 +366,7 @@ async function startExpiringStatefulServer(options: {
   };
 }
 
-function trackClient(options: {
-  headers?: Readonly<Record<string, string>>;
-  name: string;
-  transport: ExplicitHttpMcpTransport;
-  url: URL;
-}): ExplicitHttpMcpClient {
+function trackClient(options: ExplicitHttpMcpClientOptions): ExplicitHttpMcpClient {
   const client = new ExplicitHttpMcpClient(options);
   cleanupTasks.push(() => client.close());
   return client;
@@ -424,6 +418,21 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     ).toThrow('MCP HTTP URL must not include credentials');
   });
 
+  it.each(['auto', '2026-07-28'] as const)(
+    'rejects protocol %s on legacy SSE at the public client boundary',
+    (protocol) => {
+      expect(
+        () =>
+          new ExplicitHttpMcpClient({
+            name: 'sse-protocol-canary',
+            protocol,
+            transport: 'sse',
+            url: 'https://example.test/sse',
+          })
+      ).toThrow('legacy SSE transport requires protocol "legacy"');
+    }
+  );
+
   it.each(['Accept', 'content-TYPE', 'MCP-Session-Id', 'mcp-PROTOCOL-version', 'Last-Event-ID'])(
     'rejects the protocol-owned configured header %s before requesting',
     (header) => {
@@ -444,6 +453,194 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       expect(fetchCalled).toBe(false);
     }
   );
+
+  it('exposes the negotiated legacy revision and server initialize metadata', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'legacy-metadata-canary',
+      protocol: 'legacy',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+
+    expect(client.getProtocolEra()).toBeUndefined();
+    expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+    expect(client.getServerVersion()).toBeUndefined();
+    expect(client.getServerCapabilities()).toBeUndefined();
+
+    await client.connect();
+
+    expect(client.getProtocolEra()).toBe('legacy');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+    expect(client.getServerVersion()).toEqual({
+      name: 'explicit-http-test-server',
+      version: '1.0.0',
+    });
+    expect(client.getServerCapabilities()).toMatchObject({ tools: {} });
+    expect(requests.map((request) => requestMethod(request.body)).filter(Boolean)).toEqual([
+      'initialize',
+      'notifications/initialized',
+    ]);
+
+    await client.close();
+    expect(client.getProtocolEra()).toBeUndefined();
+    expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+    expect(client.getServerVersion()).toBeUndefined();
+    expect(client.getServerCapabilities()).toBeUndefined();
+  });
+
+  it('auto-negotiates modern through the real Streamable HTTP discover exchange', async () => {
+    const methods: Array<string | undefined> = [];
+    const handler = createMcpHandler(() => createEchoServer(), { legacy: 'reject' });
+    cleanupTasks.push(() => handler.close());
+    const client = trackClient({
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body = await request
+          .clone()
+          .json()
+          .catch(() => undefined);
+        methods.push(requestMethod(body));
+        return handler.fetch(request);
+      },
+      name: 'auto-modern-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: new URL('http://mcp-modern.invalid/mcp'),
+    });
+
+    await client.connect();
+
+    expect(client.getProtocolEra()).toBe('modern');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+    expect(client.getServerVersion()).toEqual({
+      name: 'explicit-http-test-server',
+      version: '1.0.0',
+    });
+    expect(methods).toEqual(['server/discover']);
+  });
+
+  it('auto-negotiates legacy only after the modern probe returns legacy evidence', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'auto-legacy-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+
+    await client.connect();
+
+    expect(client.getProtocolEra()).toBe('legacy');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+    expect(requests.map((request) => requestMethod(request.body)).filter(Boolean)).toEqual([
+      'server/discover',
+      'initialize',
+      'notifications/initialized',
+    ]);
+  });
+
+  it.each([
+    { code: SdkErrorCode.ClientHttpAuthentication, status: 401 },
+    { code: SdkErrorCode.ClientHttpForbidden, status: 403 },
+  ])('keeps auto-probe HTTP $status as an authentication outcome', async ({ code, status }) => {
+    const requests: RecordedRequest[] = [];
+    const server = createServer(async (request, response) => {
+      const body = await readJsonBody(request);
+      requests.push({
+        body,
+        headers: request.headers,
+        method: request.method ?? 'UNKNOWN',
+        pathname: new URL(request.url ?? '/', 'http://localhost').pathname,
+      });
+      response.writeHead(status).end();
+    });
+    const running = await listen(server, '/mcp');
+    const client = trackClient({
+      name: `auth-${status}-canary`,
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: running.url,
+    });
+
+    await expect(client.connect()).rejects.toMatchObject({ code, status });
+    expect(requests.map((request) => requestMethod(request.body))).toEqual(['server/discover']);
+  });
+
+  it('keeps pinned-modern rejection distinct and never initializes the legacy server', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'pinned-modern-rejection-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+
+    await expect(client.connect()).rejects.toMatchObject({
+      code: SdkErrorCode.EraNegotiationFailed,
+    });
+    expect(requests.map((request) => requestMethod(request.body)).filter(Boolean)).toEqual([
+      'server/discover',
+    ]);
+  });
+
+  it('keeps an unanswered HTTP auto probe as a request timeout, not legacy evidence', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = createServer(async (request) => {
+      const body = await readJsonBody(request);
+      requests.push({
+        body,
+        headers: request.headers,
+        method: request.method ?? 'UNKNOWN',
+        pathname: new URL(request.url ?? '/', 'http://localhost').pathname,
+      });
+      await new Promise<void>(() => undefined);
+    });
+    const running = await listen(server, '/mcp');
+    const client = trackClient({
+      name: 'silent-auto-probe-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: running.url,
+    });
+
+    await expect(client.connect({ timeout: 50 })).rejects.toMatchObject({
+      code: SdkErrorCode.RequestTimeout,
+    });
+    expect(requests.map((request) => requestMethod(request.body))).toEqual(['server/discover']);
+  });
+
+  it('retains the HTTP status when an auto probe fails with a server error', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = createServer(async (request, response) => {
+      const body = await readJsonBody(request);
+      requests.push({
+        body,
+        headers: request.headers,
+        method: request.method ?? 'UNKNOWN',
+        pathname: new URL(request.url ?? '/', 'http://localhost').pathname,
+      });
+      response.writeHead(503).end();
+    });
+    const running = await listen(server, '/mcp');
+    const client = trackClient({
+      name: 'server-error-auto-probe-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: running.url,
+    });
+
+    const error = await client.connect().catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SdkHttpError);
+    expect(error).toMatchObject({ code: SdkErrorCode.EraNegotiationFailed, status: 503 });
+    expect(requests.map((request) => requestMethod(request.body))).toEqual(['server/discover']);
+    expect(client.getProtocolEra()).toBeUndefined();
+    expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+  });
 
   it('uses Streamable HTTP at a misleading /sse path without transport inference', async () => {
     const requests: RecordedRequest[] = [];

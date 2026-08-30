@@ -2,7 +2,9 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SdkErrorCode } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { McpProtocol } from '../mcp/config';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 
 const FIXTURE_PATH = fileURLToPath(
@@ -35,7 +37,7 @@ afterEach(async () => {
   }
 });
 
-async function createFixture(): Promise<{
+async function createFixture(protocol: McpProtocol = 'legacy'): Promise<{
   client: ExplicitStdioMcpClient;
   stateFile: string;
 }> {
@@ -50,6 +52,7 @@ async function createFixture(): Promise<{
       BRAINSTRIKE_STDIO_TEST_STATE_FILE: stateFile,
     },
     name: 'stdio-lifecycle-canary',
+    protocol,
   });
   cleanupTasks.push(() => client.close());
   return { client, stateFile };
@@ -60,6 +63,36 @@ async function readStateFile(stateFile: string): Promise<FixtureState> {
 }
 
 describe('ExplicitStdioMcpClient integration', () => {
+  it('auto-probes with a disposable child and exposes the steady legacy metadata', async () => {
+    const { client, stateFile } = await createFixture('auto');
+
+    await client.connect();
+
+    await expect(readStateFile(stateFile)).resolves.toEqual({
+      exitToolCalls: 0,
+      starts: 2,
+    });
+    expect(client.getProtocolEra()).toBe('legacy');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+    expect(client.getServerVersion()).toEqual({
+      name: 'brainstrike-stdio-lifecycle-fixture',
+      version: '1.0.0',
+    });
+    expect(client.getServerCapabilities()).toMatchObject({ tools: {} });
+  });
+
+  it('pinned modern reaps its probe and never starts a legacy session child', async () => {
+    const { client, stateFile } = await createFixture('2026-07-28');
+
+    await expect(client.connect()).rejects.toMatchObject({
+      code: SdkErrorCode.EraNegotiationFailed,
+    });
+    await expect(readStateFile(stateFile)).resolves.toEqual({
+      exitToolCalls: 0,
+      starts: 1,
+    });
+  });
+
   it('connects lazily once for concurrent requests and overlays configured environment', async () => {
     const { client, stateFile } = await createFixture();
 

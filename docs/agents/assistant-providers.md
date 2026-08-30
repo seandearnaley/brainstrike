@@ -1902,6 +1902,16 @@ rewriting their JSONC; the loader emits a durable warning and a structured
 inferred from URL, transport failure, status code, or server behavior. Legacy
 SSE accepts only `legacy`.
 
+The production HTTP and stdio clients expose the official SDK's negotiated
+facts through `getProtocolEra`, `getNegotiatedProtocolVersion`,
+`getServerVersion`, and `getServerCapabilities`. Those getters return
+`undefined` before connection and after close; modern server identity may also
+be absent because it is optional discovery metadata. `auto` probes
+`server/discover`, pinned modern never initializes a legacy server, and HTTP
+401, 403, 5xx, or silence retain their SDK error code/status instead of becoming
+legacy evidence. These getters—not exported latest-version constants—are the
+authority for the actual negotiated revision.
+
 Remote transport rules:
 - `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK
   inherits its documented safe environment allowlist and overlays only the
