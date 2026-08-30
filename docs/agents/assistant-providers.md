@@ -1916,6 +1916,31 @@ with expensive or non-idempotent startup should use an explicit policy. These
 getters—not exported latest-version constants—are the authority for the actual
 negotiated revision.
 
+Client extensions are host capabilities, not transport defaults. Both explicit
+clients start with an empty `McpClientExtensionRegistry`, so the initialize
+request omits `capabilities.extensions` unless the host registers an extension.
+A registration must name the exact extension contract revision, pass that
+contract's strict settings parser, and satisfy its complete-implementation
+predicate before the registry will project it. Invalid versions, malformed
+settings, duplicate registrations, and incomplete implementations throw; the
+registry never advertises a partial implementation or silently drops one.
+
+| Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
+| --- | --- | --- | --- |
+| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Disabled: no `ui://` resource reader, isolated sandbox/CSP/permissions enforcement, or validated app↔host `postMessage` RPC implementation is registered | No |
+| MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Disabled pending BST-1473; the core method map is not cast into an incomplete task host | No |
+| OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
+| Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
+
+BST-1509 owns the Settings/diagnostics rendering of this matrix and modern
+per-request wire proof; the registry remains its host-owned source of truth.
+
+MCP Apps may register only after one reviewed implementation proves every
+graduation gate together: supported MIME declaration, `ui://` resource loading,
+tool/result association, isolated sandbox and enforced CSP, validated
+bidirectional messages, permission/consent, lifecycle cleanup, and renderer
+tests. A partial or text-only host never advertises the extension.
+
 Desktop Settings consumes browser-safe `McpServerStatusSnapshot` through read-only `mcp:status:get` IPC; the registry holds each client's synchronous snapshot without a second cache. Tool presence never implies connection success, connected zero-tool servers and negotiation errors remain visible, and config reads never initialize or dispose clients. BST-1465 later moves this contract behind the single host authority.
 
 Remote transport rules:
@@ -1946,8 +1971,11 @@ Ownership and flow:
    `@brainstrike/agent/mcp-client`, own the stable SDK v2 split-package transports,
    lazy/concurrency-safe connection, request forwarding, and idempotent close.
    The HTTP client additionally owns header composition and Streamable HTTP
-   session termination. Only non-empty MCP config loads the dedicated subpath; keep
-   split SDK packages out of root/browser-safe/Hosted Web bundles (the emitted-bundle verifier enforces this).
+   session termination. `client-extension-registry.ts` is the typed host-owned
+   capability boundary; it does not implement an extension itself. Only
+   non-empty MCP config loads the dedicated subpath; keep split SDK packages out
+   of root/browser-safe/Hosted Web bundles (the emitted-bundle verifier enforces
+   this).
 3. Desktop — `apps/desktop/src/mcp/http-client.ts` adapts that shared client to
    the desktop `McpClient` discovery/call contract. `sse-client.ts` is only a
    compatibility factory delegating to the canonical adapter; no bespoke SSE
@@ -1966,6 +1994,8 @@ Ownership and flow:
 
 Primary references:
 - https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
+- https://modelcontextprotocol.io/extensions/overview
+- https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx
 - https://github.com/modelcontextprotocol/typescript-sdk/blob/%40modelcontextprotocol%2Fclient%402.0.0/docs/migration/upgrade-to-v2.md
 
 When changing this flow, update this section and the focused agent + desktop
