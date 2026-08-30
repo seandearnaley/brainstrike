@@ -2140,6 +2140,42 @@ and must never cross renderer IPC or bypass the platform redaction path.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 
+Every promise-returning host operation reports malformed input and terminal
+closure as a rejected promise; `McpHostService` owns the typed `mcp-host-closed`
+error rather than leaking a publisher collaborator's error type. Terminal close
+invalidates watch registrations synchronously, includes their exact count in the
+frozen close proof, and suppresses actor state callbacks after closure begins so
+normal teardown cannot create false listener-failure diagnostics.
+
+A retirement close report containing failures still removes that actor from
+routing and reconciles the publisher to the retained actor set before
+`replaceConfig` rejects. The exact frozen aggregate then latches the host:
+every later replacement rejects with the same proof, including configurations
+unrelated to the failed server, while retained actors remain invokable. The
+only recovery is terminally closing and reconstructing `McpHostService`; there
+is no retry or reset that could silently claim failed cleanup succeeded.
+Successfully retired actor/client graphs are released after their detached
+close reports are folded into one lifetime ledger aggregate. Terminal `close` aggregates that ledger
+with all actors current at shutdown, so its one frozen report proves cleanup
+across the complete host lifetime without retaining closed transports.
+
+A config publication failure closes every provisional actor and records their
+detached reports before it attempts to republish the retained authority. Failed
+provisional cleanup latches its frozen close proof before reconciliation starts;
+if retained-authority reconciliation itself fails after otherwise clean cleanup,
+the host latches a frozen `mcp-host-publish-failed` proof. The original operation
+still rejects visibly, and every later replacement rejects with the latched proof
+until terminal close and host reconstruction. No unpublished actor remains owned
+or routable, and no later replacement can bypass a cleanup or reconciliation
+failure.
+
+Retained actor snapshots are re-read after every awaited retirement or
+provisional cleanup before authority is reconciled, so a legitimate transition
+during teardown cannot be overwritten by a stale higher revision. Actor
+transitions emitted before publication or after retirement are ignored for
+authority but reported through the required diagnostic sink; they are never
+silently dropped.
+
 The host publisher alone owns a monotonic revision sequence beginning at zero.
 Config and actor publications advance it only for a material state change.
 The queued event and returned snapshot are separate detached values. Filtered watches receive only

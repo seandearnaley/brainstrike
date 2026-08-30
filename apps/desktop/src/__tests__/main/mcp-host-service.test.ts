@@ -11,10 +11,14 @@ import {
   type McpHostActor,
   type McpHostActorFactoryInput,
   McpHostService,
+  McpHostServiceError,
 } from '../../mcp/host-service';
 
 const alpha = parseConfiguredMcpServerId('alpha');
 const beta = parseConfiguredMcpServerId('beta');
+const gamma = parseConfiguredMcpServerId('gamma');
+const FACTORY_FAILURE = new Error('factory failed');
+const PUBLISH_FAILURE = new Error('publish failed');
 const RESULT: McpHostOperationResult = { result: { tools: [] }, type: 'tools/list' };
 const CLEAN: McpHostCloseReport = {
   callbacksClosed: 0,
@@ -34,7 +38,7 @@ const closeReport = (
   callbacksClosed = 0,
   clientsClosed = 1
 ): McpHostCloseReport => ({ ...CLEAN, callbacksClosed, clientsClosed, failures });
-const flush = (): Promise<void> => Promise.resolve();
+const yieldOneMicrotask = (): Promise<void> => Promise.resolve();
 const config = (...servers: [typeof alpha, 'auto' | 'legacy'][]): McpHostConfig =>
   parseMcpHostConfig({
     servers: servers.map(([configuredServerId, configuredProtocol]) => ({
@@ -51,29 +55,51 @@ interface ActorRecord {
   close: ReturnType<typeof vi.fn>;
   generation: number;
   invoke: ReturnType<typeof vi.fn>;
+  publish: McpHostActorFactoryInput['onSnapshotChanged'];
+  snapshot: ReturnType<typeof vi.fn>;
 }
-function setup(closeResults: Array<McpHostCloseReport | Promise<McpHostCloseReport>> = []) {
+function setup(
+  closeResults: Array<McpHostCloseReport | Promise<McpHostCloseReport>> = [],
+  factoryFailureAt?: number
+) {
   const records: ActorRecord[] = [];
+  const diagnostic = vi.fn();
   const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
   const actorFactory = vi.fn((input: McpHostActorFactoryInput): McpHostActor => {
+    if (records.length === factoryFailureAt) {
+      throw FACTORY_FAILURE;
+    }
     const closeResult = closeResults[records.length] ?? CLEAN;
     const close = vi.fn(() => Promise.resolve(closeResult));
     const invoke = vi.fn(async () => RESULT);
+    const snapshot = vi.fn(() => ({
+      configuredProtocol: input.config.configuredProtocol,
+      configuredServerId: input.config.configuredServerId,
+      generation: input.generation,
+      state: 'disconnected' as const,
+      transport: input.config.transport.type,
+    }));
     const actor: McpHostActor = {
       close,
       invoke,
-      snapshot: () => ({
-        configuredProtocol: input.config.configuredProtocol,
-        configuredServerId: input.config.configuredServerId,
-        generation: input.generation,
-        state: 'disconnected',
-        transport: input.config.transport.type,
-      }),
+      snapshot,
     };
-    records.push({ close, generation: input.generation, invoke });
+    records.push({
+      close,
+      generation: input.generation,
+      invoke,
+      publish: input.onSnapshotChanged,
+      snapshot,
+    });
     return actor;
   });
-  return { actorFactory, host: new McpHostService({ actorFactory, publisher }), records };
+  return {
+    actorFactory,
+    diagnostic,
+    host: new McpHostService({ actorFactory, onInternalError: diagnostic, publisher }),
+    publisher,
+    records,
+  };
 }
 describe('McpHostService', () => {
   it('implements exact-id routing, detached snapshots, watches, and unchanged retention', async () => {
@@ -82,7 +108,7 @@ describe('McpHostService', () => {
     const unwatch = host.watch({}, listener);
     expect(host.snapshot()).toEqual({ revision: 0, servers: [] });
     const first = await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']));
-    await flush();
+    await yieldOneMicrotask();
     const ids = first.servers.map(({ configuredServerId }) => configuredServerId);
     expect(ids).toEqual([alpha, beta]);
     expect(first.servers).not.toBe(host.snapshot().servers);
@@ -95,13 +121,34 @@ describe('McpHostService', () => {
     expect(records.every(({ close }) => close.mock.calls.length === 0)).toBe(true);
     unwatch();
   });
+  it('keeps canonical authority order when retained and provisional actors are mixed', async () => {
+    const { host } = setup();
+    await host.replaceConfig(config([beta, 'auto']));
+    const mixed = await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']));
+    expect(mixed.servers.map(({ configuredServerId }) => configuredServerId)).toEqual([
+      alpha,
+      beta,
+    ]);
+  });
+  it('returns rejected promises for malformed replacement config and gives terminal close precedence', async () => {
+    const { host } = setup();
+    const malformed = { servers: null } as unknown as McpHostConfig;
+    const replacement = host.replaceConfig(malformed);
+    expect(replacement).toBeInstanceOf(Promise);
+    await expect(replacement).rejects.toBeDefined();
+    await host.close();
+    await expect(host.replaceConfig(malformed)).rejects.toMatchObject({
+      category: 'host-closed',
+      code: 'mcp-host-closed',
+    });
+  });
   it('passively drains accepted work and closes old before creating new without replay', async () => {
     const oldClosed = deferred<McpHostCloseReport>();
     const { host, records } = setup([oldClosed.promise]);
     await host.replaceConfig(config([alpha, 'auto']));
     const accepted = host.invoke(LIST);
     const replacing = host.replaceConfig(config([alpha, 'legacy']));
-    await flush();
+    await yieldOneMicrotask();
     expect(records[0]?.invoke).toHaveBeenCalledOnce();
     expect(records[0]?.close).toHaveBeenCalledOnce();
     expect(records).toHaveLength(1);
@@ -118,7 +165,7 @@ describe('McpHostService', () => {
     await host.replaceConfig(config([alpha, 'auto']));
     const first = host.replaceConfig(config([alpha, 'legacy']));
     const second = host.replaceConfig(config([alpha, 'auto']));
-    await flush();
+    await yieldOneMicrotask();
     expect(records).toHaveLength(1);
     oldClosed.resolve(CLEAN);
     await Promise.all([first, second]);
@@ -127,23 +174,175 @@ describe('McpHostService', () => {
     expect(records.map(({ generation }) => generation)).toEqual([1, 2, 3, 4]);
     expect(records.slice(0, 3).every(({ close }) => close.mock.calls.length === 1)).toBe(true);
   });
-  it('aggregates replacement cleanup failure without publishing or disabling unaffected actors', async () => {
+  it('latches one stable aggregate after attempting every failed retirement', async () => {
+    const closeCause = new Error('raw close failure');
+    const rejectedClose = deferred<McpHostCloseReport>();
     const closeFailure = error('close-failed');
     const partial = closeReport([closeFailure], 2);
-    const { host, records } = setup([partial]);
-    await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']));
-    const replacing = host.replaceConfig(config([alpha, 'legacy'], [beta, 'auto']));
-    await expect(replacing).rejects.toMatchObject({
+    const { diagnostic, host, records } = setup([rejectedClose.promise, partial]);
+    await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto'], [gamma, 'auto']));
+    const replacing = host.replaceConfig(config([gamma, 'auto']));
+    await yieldOneMicrotask();
+    const connectedGamma = {
+      configuredProtocol: 'auto' as const,
+      configuredServerId: gamma,
+      generation: 1,
+      negotiated: {
+        advertisedCapabilityIds: ['tools'],
+        era: 'modern' as const,
+        revision: '2026-07-28' as const,
+      },
+      state: 'connected' as const,
+      transport: 'streamable-http' as const,
+    };
+    records[2]?.snapshot.mockReturnValue(connectedGamma);
+    records[2]?.publish(connectedGamma);
+    rejectedClose.reject(closeCause);
+    const firstFailure: unknown = await replacing.catch((cause: unknown) => cause);
+    expect(firstFailure).toMatchObject({
       category: 'transport',
       code: 'mcp-host-replacement-cleanup-failed',
-      report: partial,
+      report: {
+        callbacksClosed: 2,
+        failures: [expect.objectContaining({ code: 'mcp-host-actor-close-failed' }), closeFailure],
+      },
     });
-    expect(host.snapshot().revision).toBe(1);
+    expect(firstFailure).toBeInstanceOf(McpHostServiceError);
+    if (!(firstFailure instanceof McpHostServiceError)) {
+      throw new Error('Expected McpHostServiceError');
+    }
+    expect(host.snapshot()).toMatchObject({
+      revision: 3,
+      servers: [{ configuredServerId: gamma, state: 'connected' }],
+    });
+    expect(records.slice(0, 2).every(({ close }) => close.mock.calls.length === 1)).toBe(true);
+    expect(records[2]?.close).not.toHaveBeenCalled();
+    const retry: unknown = await host
+      .replaceConfig(config([gamma, 'auto']))
+      .catch((cause) => cause);
+    expect(retry).toBeInstanceOf(McpHostServiceError);
+    if (!(retry instanceof McpHostServiceError)) {
+      throw new Error('Expected retry McpHostServiceError');
+    }
+    expect(retry.report).toBe(firstFailure.report);
+    await host.invoke({ ...LIST, configuredServerId: gamma });
+    expect(records[2]?.invoke).toHaveBeenCalledOnce();
+    await expect(host.invoke(LIST)).rejects.toMatchObject({ code: 'mcp-host-server-unknown' });
+    expect(diagnostic).toHaveBeenCalledWith('mcp-host-actor-close-failed', closeCause);
+  });
+  it('diagnoses a transition emitted before its actor is published', async () => {
+    const diagnostic = vi.fn();
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    const host = new McpHostService({
+      actorFactory: (input) => {
+        input.onSnapshotChanged({
+          configuredProtocol: input.config.configuredProtocol,
+          configuredServerId: input.config.configuredServerId,
+          generation: input.generation,
+          state: 'connecting',
+          transport: input.config.transport.type,
+        });
+        return {
+          close: async () => CLEAN,
+          invoke: async () => RESULT,
+          snapshot: () => ({
+            configuredProtocol: input.config.configuredProtocol,
+            configuredServerId: input.config.configuredServerId,
+            generation: input.generation,
+            state: 'disconnected',
+            transport: input.config.transport.type,
+          }),
+        };
+      },
+      onInternalError: diagnostic,
+      publisher,
+    });
+    await host.replaceConfig(config([alpha, 'auto']));
+    expect(diagnostic).toHaveBeenCalledWith(
+      'mcp-host-unpublished-actor-transition',
+      expect.objectContaining({ configuredServerId: alpha, state: 'connecting' })
+    );
+  });
+  it('closes provisional actors and publishes nothing when creation fails', async () => {
+    const { diagnostic, host, records } = setup([], 1);
+    await expect(host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']))).rejects.toMatchObject(
+      {
+        code: 'mcp-host-actor-create-failed',
+      }
+    );
+    expect(records[0]?.close).toHaveBeenCalledOnce();
+    expect(host.snapshot()).toEqual({ revision: 0, servers: [] });
+    const provisional = records[0];
+    if (!provisional) {
+      throw new Error('Expected provisional actor');
+    }
+    expect(() =>
+      provisional.publish({
+        configuredProtocol: 'auto',
+        configuredServerId: alpha,
+        generation: provisional.generation,
+        state: 'disconnected',
+        transport: 'streamable-http',
+      })
+    ).not.toThrow();
+    expect(host.snapshot()).toEqual({ revision: 0, servers: [] });
+    await expect(host.invoke(LIST)).rejects.toMatchObject({ code: 'mcp-host-server-unknown' });
+    expect(diagnostic).toHaveBeenCalledWith('mcp-host-actor-create-failed', FACTORY_FAILURE);
+  });
+  it('latches failed provisional cleanup with the same frozen proof', async () => {
+    const cleanupFailure = closeReport([error('provisional-close-failed')]);
+    const { host } = setup([cleanupFailure], 1);
+    const first: unknown = await host
+      .replaceConfig(config([alpha, 'auto'], [beta, 'auto']))
+      .catch((cause) => cause);
+    expect(first).toMatchObject({ code: 'mcp-host-replacement-cleanup-failed' });
+    if (!(first instanceof McpHostServiceError)) {
+      throw new Error('Expected provisional cleanup McpHostServiceError');
+    }
+    const retry: unknown = await host.replaceConfig(config()).catch((cause) => cause);
+    expect(retry).toBeInstanceOf(McpHostServiceError);
+    if (!(retry instanceof McpHostServiceError)) {
+      throw new Error('Expected retry cleanup McpHostServiceError');
+    }
+    expect(retry.report).toBe(first.report);
+  });
+  it('reaps provisional actors and restores retained authority after publication fails', async () => {
+    const { diagnostic, host, publisher, records } = setup();
+    vi.spyOn(publisher, 'publishConfigSet').mockImplementationOnce(() => {
+      throw PUBLISH_FAILURE;
+    });
+    await expect(host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']))).rejects.toMatchObject(
+      { code: 'mcp-host-publish-failed' }
+    );
     expect(records).toHaveLength(2);
-    await expect(host.replaceConfig(config([alpha, 'legacy'], [beta, 'legacy']))).rejects.toThrow();
-    expect(records[1]?.close).not.toHaveBeenCalled();
-    await host.invoke({ ...LIST, configuredServerId: beta });
-    expect(records[1]?.invoke).toHaveBeenCalledOnce();
+    expect(records.every(({ close }) => close.mock.calls.length === 1)).toBe(true);
+    expect(host.snapshot()).toEqual({ revision: 0, servers: [] });
+    await expect(host.invoke(LIST)).rejects.toMatchObject({ code: 'mcp-host-server-unknown' });
+    await expect(host.replaceConfig(config([gamma, 'auto']))).resolves.toMatchObject({
+      servers: [{ configuredServerId: gamma }],
+    });
+    expect(diagnostic).toHaveBeenCalledWith('mcp-host-publish-failed', PUBLISH_FAILURE);
+  });
+  it('preserves a failed-retirement latch when retained-authority reconciliation fails', async () => {
+    const cleanupFailure = closeReport([error('retirement-close-failed')]);
+    const { host, publisher } = setup([cleanupFailure]);
+    await host.replaceConfig(config([alpha, 'auto']));
+    vi.spyOn(publisher, 'publishConfigSet').mockImplementationOnce(() => {
+      throw PUBLISH_FAILURE;
+    });
+    await expect(host.replaceConfig(config())).rejects.toMatchObject({
+      code: 'mcp-host-publish-failed',
+    });
+    const retry: unknown = await host.replaceConfig(config()).catch((cause) => cause);
+    expect(retry).toBeInstanceOf(McpHostServiceError);
+    if (!(retry instanceof McpHostServiceError)) {
+      throw new Error('Expected retry cleanup McpHostServiceError');
+    }
+    expect(retry).toMatchObject({
+      code: 'mcp-host-replacement-cleanup-failed',
+      report: { failures: [expect.objectContaining({ code: 'retirement-close-failed' })] },
+    });
+    await expect(host.invoke(LIST)).rejects.toMatchObject({ code: 'mcp-host-server-unknown' });
   });
   it('linearizes terminal close synchronously and returns one frozen aggregate report', async () => {
     const alphaClosed = deferred<McpHostCloseReport>();
@@ -151,6 +350,8 @@ describe('McpHostService', () => {
     const closeFailure = error('partial-close');
     const { host, records } = setup([alphaClosed.promise, betaClosed.promise]);
     await host.replaceConfig(config([alpha, 'auto'], [beta, 'auto']));
+    host.watch({}, vi.fn());
+    host.watch({ configuredServerIds: [alpha] }, vi.fn());
     const accepted = host.invoke(LIST);
     const closing = host.close();
     expect(host.close()).toBe(closing);
@@ -161,22 +362,62 @@ describe('McpHostService', () => {
     expect(() => host.watch({}, vi.fn())).toThrowError(
       expect.objectContaining({ code: 'mcp-host-closed' })
     );
-    alphaClosed.resolve(CLEAN);
-    betaClosed.resolve(closeReport([closeFailure], 2, 0));
+    alphaClosed.resolve(closeReport([], 0, Number.MAX_SAFE_INTEGER));
+    betaClosed.resolve(closeReport([closeFailure], 2, 1));
     const report = await closing;
     expect(report.callbacksClosed).toBe(2);
-    expect(report.clientsClosed).toBe(1);
-    expect(report.failures).toEqual([closeFailure]);
+    expect(report.clientsClosed).toBe(Number.MAX_SAFE_INTEGER);
+    expect(report.subscriptionsClosed).toBe(2);
+    expect(report.failures).toEqual([
+      closeFailure,
+      expect.objectContaining({ code: 'mcp-host-close-counter-overflow' }),
+    ]);
     expect(Object.isFrozen(report)).toBe(true);
     expect(Object.isFrozen(report.failures)).toBe(true);
     expect(await host.close()).toBe(report);
+  });
+  it('suppresses actor transitions after terminal close starts', async () => {
+    const diagnostic = vi.fn();
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: diagnostic });
+    const host = new McpHostService({
+      actorFactory: (input) => ({
+        close: async () => {
+          input.onSnapshotChanged({
+            configuredProtocol: input.config.configuredProtocol,
+            configuredServerId: input.config.configuredServerId,
+            generation: input.generation,
+            state: 'disconnected',
+            transport: input.config.transport.type,
+          });
+          return CLEAN;
+        },
+        invoke: async () => RESULT,
+        snapshot: () => ({
+          configuredProtocol: input.config.configuredProtocol,
+          configuredServerId: input.config.configuredServerId,
+          generation: input.generation,
+          negotiated: {
+            advertisedCapabilityIds: ['tools'],
+            era: 'modern',
+            revision: '2026-07-28',
+          },
+          state: 'connected',
+          transport: input.config.transport.type,
+        }),
+      }),
+      onInternalError: diagnostic,
+      publisher,
+    });
+    await host.replaceConfig(config([alpha, 'auto']));
+    await expect(host.close()).resolves.toMatchObject({ failures: [] });
+    expect(diagnostic).not.toHaveBeenCalled();
   });
   it('prevents a close-versus-replace race from publishing a post-close actor', async () => {
     const oldClosed = deferred<McpHostCloseReport>();
     const { host, records } = setup([oldClosed.promise]);
     await host.replaceConfig(config([alpha, 'auto']));
     const replacing = host.replaceConfig(config([alpha, 'legacy']));
-    await flush();
+    await yieldOneMicrotask();
     const closing = host.close();
     oldClosed.resolve(CLEAN);
     await expect(replacing).rejects.toMatchObject({ code: 'mcp-host-closed' });

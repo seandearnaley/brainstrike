@@ -152,6 +152,26 @@ describe('McpHostRevisionPublisher', () => {
     });
   });
 
+  it('does not advance authority when event detachment fails', () => {
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    const cloneValue = globalThis.structuredClone;
+    let calls = 0;
+    const clone = vi.spyOn(globalThis, 'structuredClone').mockImplementation(<T>(value: T): T => {
+      calls += 1;
+      if (calls === 2) {
+        throw new Error('event clone failed');
+      }
+      return cloneValue(value);
+    });
+
+    try {
+      expect(() => publisher.publishConfigSet([server('alpha')])).toThrow('event clone failed');
+    } finally {
+      clone.mockRestore();
+    }
+    expect(publisher.snapshot()).toEqual({ revision: 0, servers: [] });
+  });
+
   it('isolates asynchronous listener rejections through the diagnostic sink', async () => {
     const listenerFailure = new Error('Authorization: Bearer secret-value');
     const diagnostic = vi.fn(async () => {
@@ -195,8 +215,8 @@ describe('McpHostRevisionPublisher', () => {
     const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
     publisher.watch({}, listener);
     publisher.publishConfigSet([server('alpha')]);
-    publisher.close();
-    publisher.close();
+    expect(publisher.close()).toBe(1);
+    expect(publisher.close()).toBe(0);
     await flush();
 
     expect(listener).not.toHaveBeenCalled();

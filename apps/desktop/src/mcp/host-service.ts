@@ -13,22 +13,20 @@ import {
   type McpHostWatchFilter,
   parseMcpHostConfig,
 } from '@brainstrike/assistant-contract';
-import {
-  type McpHostRevisionPublisher,
-  McpHostRevisionPublisherClosedError,
-} from './host-revision-publisher';
+import type { McpHostRevisionPublisher } from './host-revision-publisher';
 
 type ConfiguredServer = McpHostConfig['servers'][number];
 type Counter = Exclude<keyof McpHostCloseReport, 'failures'>;
-const COUNTERS: readonly Counter[] = [
-  'callbacksClosed',
-  'childProcessesClosed',
-  'clientsClosed',
-  'loopbackPortsClosed',
-  'probesClosed',
-  'requestsSettled',
-  'subscriptionsClosed',
-];
+const COUNTER_KEYS = {
+  callbacksClosed: true,
+  childProcessesClosed: true,
+  clientsClosed: true,
+  loopbackPortsClosed: true,
+  probesClosed: true,
+  requestsSettled: true,
+  subscriptionsClosed: true,
+} satisfies Record<Counter, true>;
+const COUNTERS = Object.keys(COUNTER_KEYS) as readonly Counter[];
 export interface McpHostActor extends Pick<McpHostPort, 'close' | 'invoke'> {
   snapshot(): McpHostServerSnapshot;
 }
@@ -44,17 +42,44 @@ interface ActorEntry {
 }
 interface McpHostServiceOptions {
   actorFactory: McpHostActorFactory;
+  onInternalError(code: McpHostServiceInternalErrorCode, cause: unknown): Promise<void> | void;
   publisher: McpHostRevisionPublisher;
 }
+export type McpHostServiceInternalErrorCode =
+  | 'mcp-host-actor-close-failed'
+  | 'mcp-host-actor-create-failed'
+  | 'mcp-host-actor-snapshot-failed'
+  | 'mcp-host-publish-failed'
+  | 'mcp-host-unpublished-actor-transition';
+type McpHostServiceErrorCode =
+  | 'mcp-host-actor-create-failed'
+  | 'mcp-host-actor-snapshot-failed'
+  | 'mcp-host-closed'
+  | 'mcp-host-publish-failed'
+  | 'mcp-host-replacement-cleanup-failed'
+  | 'mcp-host-server-unknown';
+const SERVICE_ERROR_MESSAGES = {
+  'mcp-host-actor-create-failed': 'MCP host actor creation failed',
+  'mcp-host-actor-snapshot-failed': 'MCP host actor snapshot failed',
+  'mcp-host-closed': 'MCP host is closed',
+  'mcp-host-publish-failed': 'MCP host authority publication failed',
+  'mcp-host-replacement-cleanup-failed': 'MCP host replacement cleanup failed',
+  'mcp-host-server-unknown': 'MCP host server is not configured',
+} satisfies Record<McpHostServiceErrorCode, string>;
 export class McpHostServiceError extends Error {
-  readonly category: 'configuration' | 'transport';
+  readonly category: 'configuration' | 'host-closed' | 'transport';
   constructor(
-    readonly code: 'mcp-host-replacement-cleanup-failed' | 'mcp-host-server-unknown',
+    readonly code: McpHostServiceErrorCode,
     readonly report?: McpHostCloseReport
   ) {
-    super('MCP host operation failed');
+    super(SERVICE_ERROR_MESSAGES[code]);
     this.name = 'McpHostServiceError';
-    this.category = code === 'mcp-host-server-unknown' ? 'configuration' : 'transport';
+    this.category =
+      code === 'mcp-host-closed'
+        ? 'host-closed'
+        : code === 'mcp-host-server-unknown'
+          ? 'configuration'
+          : 'transport';
   }
 }
 function freezeReport(reports: readonly McpHostCloseReport[]): McpHostCloseReport {
@@ -63,11 +88,18 @@ function freezeReport(reports: readonly McpHostCloseReport[]): McpHostCloseRepor
     number
   >;
   const failures: McpHostError[] = [];
+  let overflow = false;
   for (const report of reports) {
     for (const counter of COUNTERS) {
-      aggregate[counter] += report[counter];
+      const next = aggregate[counter] + report[counter];
+      const safe = Number.isSafeInteger(next);
+      aggregate[counter] = safe ? next : Number.MAX_SAFE_INTEGER;
+      overflow ||= !safe;
     }
     failures.push(...report.failures);
+  }
+  if (overflow) {
+    failures.push(CLOSE_COUNTER_OVERFLOW);
   }
   return Object.freeze({
     ...aggregate,
@@ -82,16 +114,34 @@ const ACTOR_CLOSE_FAILURE = Object.freeze({
   code: 'mcp-host-actor-close-failed',
   message: 'MCP host operation failed',
 } as const);
+const CLOSE_COUNTER_OVERFLOW = Object.freeze({
+  category: 'transport',
+  code: 'mcp-host-close-counter-overflow',
+  message: 'MCP host operation failed',
+} as const);
 const failedCloseReport = (): McpHostCloseReport =>
   freezeReport([{ ...EMPTY_COUNTERS, failures: [ACTOR_CLOSE_FAILURE] }]);
+const closedSubscriptionsReport = (subscriptionsClosed: number): McpHostCloseReport =>
+  freezeReport([{ ...EMPTY_COUNTERS, failures: [], subscriptionsClosed }]);
+const failedAuthorityReconciliationReport = (
+  code: 'mcp-host-actor-snapshot-failed' | 'mcp-host-publish-failed'
+): McpHostCloseReport =>
+  freezeReport([
+    {
+      ...EMPTY_COUNTERS,
+      failures: [{ category: 'transport', code, message: 'MCP host operation failed' }],
+    },
+  ]);
 export class McpHostService implements McpHostPort {
   private actors = new Map<ConfiguredMcpServerId, ActorEntry>();
-  private readonly blocked = new Map<ConfiguredMcpServerId, McpHostCloseReport>();
   private readonly closeWork = new Map<McpHostActor, Promise<McpHostCloseReport>>();
   private closePromise: Promise<McpHostCloseReport> | undefined;
   private readonly generations = new Map<ConfiguredMcpServerId, number>();
   private readonly ownedActors = new Set<McpHostActor>();
+  private readonly recordedActors = new WeakSet<McpHostActor>();
+  private retiredReport = freezeReport([]);
   private pendingReplacements = 0;
+  private replacementFailure: McpHostCloseReport | undefined;
   private replacementTail: Promise<void> = Promise.resolve();
   constructor(private readonly options: McpHostServiceOptions) {}
   snapshot(): McpHostSnapshot {
@@ -99,7 +149,7 @@ export class McpHostService implements McpHostPort {
   }
   invoke(operation: McpHostOperation): Promise<McpHostOperationResult> {
     if (this.closePromise) {
-      return Promise.reject(new McpHostRevisionPublisherClosedError());
+      return Promise.reject(new McpHostServiceError('mcp-host-closed'));
     }
     const invoke = () => {
       this.assertOpen();
@@ -109,23 +159,28 @@ export class McpHostService implements McpHostPort {
       }
       return entry.actor.invoke(operation);
     };
-    return this.pendingReplacements === 0 ? invoke() : this.replacementTail.then(invoke);
+    try {
+      return this.pendingReplacements === 0 ? invoke() : this.replacementTail.then(invoke);
+    } catch (cause) {
+      return Promise.reject(cause);
+    }
   }
   replaceConfig(config: McpHostConfig): Promise<McpHostSnapshot> {
-    const parsed = parseMcpHostConfig(config);
     if (this.closePromise) {
-      return Promise.reject(new McpHostRevisionPublisherClosedError());
+      return Promise.reject(new McpHostServiceError('mcp-host-closed'));
+    }
+    let parsed: McpHostConfig;
+    try {
+      parsed = parseMcpHostConfig(config);
+    } catch (cause) {
+      return Promise.reject(cause);
     }
     this.pendingReplacements += 1;
     const replacement = this.replacementTail.then(() => this.applyConfig(parsed));
-    this.replacementTail = replacement.then(
-      () => {
-        this.pendingReplacements -= 1;
-      },
-      () => {
-        this.pendingReplacements -= 1;
-      }
-    );
+    const settled = () => {
+      this.pendingReplacements -= 1;
+    };
+    this.replacementTail = replacement.then(settled, settled);
     return replacement;
   }
   watch(filter: McpHostWatchFilter, listener: (event: McpHostWatchEvent) => void): () => void {
@@ -138,18 +193,21 @@ export class McpHostService implements McpHostPort {
     }
     const deferred = Promise.withResolvers<McpHostCloseReport>();
     this.closePromise = deferred.promise;
-    this.options.publisher.close();
-    const closes = [...this.ownedActors].map((actor) => this.startClose(actor));
-    void Promise.all(closes).then((reports) => deferred.resolve(freezeReport(reports)));
+    const subscriptionsClosed = this.options.publisher.close();
+    const actors = [...this.ownedActors];
+    const closes = actors.map((actor) => this.startClose(actor));
+    void Promise.all(closes).then((reports) => {
+      this.recordRetirements(actors, reports);
+      deferred.resolve(
+        freezeReport([this.retiredReport, closedSubscriptionsReport(subscriptionsClosed)])
+      );
+    });
     return this.closePromise;
   }
   private async applyConfig(config: McpHostConfig): Promise<McpHostSnapshot> {
     this.assertOpen();
-    for (const server of config.servers) {
-      const blocked = this.blocked.get(server.configuredServerId);
-      if (blocked) {
-        throw new McpHostServiceError('mcp-host-replacement-cleanup-failed', blocked);
-      }
+    if (this.replacementFailure) {
+      throw new McpHostServiceError('mcp-host-replacement-cleanup-failed', this.replacementFailure);
     }
     const retained = new Map<ConfiguredMcpServerId, ActorEntry>();
     for (const server of config.servers) {
@@ -158,41 +216,70 @@ export class McpHostService implements McpHostPort {
         retained.set(server.configuredServerId, current);
       }
     }
+    this.snapshotActors(retained);
     const retiring = [...this.actors].filter(([id]) => !retained.has(id));
     this.actors = retained;
-    const reports = await Promise.all(retiring.map(([, entry]) => this.startClose(entry.actor)));
-    if (reports.some(({ failures }) => failures.length > 0)) {
-      retiring.forEach(([id], index) => {
-        const report = reports[index];
-        if (report?.failures.length) {
-          this.blocked.set(id, freezeReport([report]));
-        }
-      });
-      throw new McpHostServiceError('mcp-host-replacement-cleanup-failed', freezeReport(reports));
+    const retiringActors = retiring.map(([, entry]) => entry.actor);
+    const reports = await Promise.all(retiringActors.map((actor) => this.startClose(actor)));
+    this.recordRetirements(retiringActors, reports);
+    const retirementReport = freezeReport(reports);
+    if (retirementReport.failures.length > 0) {
+      this.assertOpen();
+      this.replacementFailure = retirementReport;
+      this.reconcileRetainedAuthority(retained, retirementReport);
+      throw new McpHostServiceError('mcp-host-replacement-cleanup-failed', retirementReport);
     }
     this.assertOpen();
+    const next = new Map(retained);
+    const provisional: McpHostActor[] = [];
+    const snapshots = this.snapshotRetainedAuthority(retained);
     for (const server of config.servers) {
       if (retained.has(server.configuredServerId)) {
         continue;
       }
       const generation = (this.generations.get(server.configuredServerId) ?? 0) + 1;
-      const actor = this.options.actorFactory({
-        config: server,
-        generation,
-        onSnapshotChanged: (snapshot) => this.options.publisher.publishActorTransition(snapshot),
-      });
       this.generations.set(server.configuredServerId, generation);
+      let actor: McpHostActor | undefined;
+      try {
+        actor = this.options.actorFactory({
+          config: server,
+          generation,
+          onSnapshotChanged: (snapshot) => {
+            if (this.closePromise) {
+              return;
+            }
+            if (!actor || this.actors.get(server.configuredServerId)?.actor !== actor) {
+              this.reportInternalError('mcp-host-unpublished-actor-transition', snapshot);
+              return;
+            }
+            this.options.publisher.publishActorTransition(snapshot);
+          },
+        });
+      } catch (cause) {
+        return this.failProvisional('mcp-host-actor-create-failed', cause, provisional, retained);
+      }
       this.ownedActors.add(actor);
-      retained.set(server.configuredServerId, { actor, config: server });
+      provisional.push(actor);
+      next.set(server.configuredServerId, { actor, config: server });
+      try {
+        snapshots.push(actor.snapshot());
+      } catch (cause) {
+        return this.failProvisional('mcp-host-actor-snapshot-failed', cause, provisional, retained);
+      }
     }
-    this.actors = retained;
-    return this.options.publisher.publishConfigSet(
-      [...retained.values()].map(({ actor }) => actor.snapshot())
-    );
+    this.assertOpen();
+    let published: McpHostSnapshot;
+    try {
+      published = this.publishConfigSet(snapshots);
+    } catch {
+      return this.failPublication(provisional, retained);
+    }
+    this.actors = next;
+    return published;
   }
   private assertOpen(): void {
     if (this.closePromise) {
-      throw new McpHostRevisionPublisherClosedError();
+      throw new McpHostServiceError('mcp-host-closed');
     }
   }
   private startClose(actor: McpHostActor): Promise<McpHostCloseReport> {
@@ -202,11 +289,118 @@ export class McpHostService implements McpHostPort {
     }
     let work: Promise<McpHostCloseReport>;
     try {
-      work = Promise.resolve(actor.close()).catch(() => failedCloseReport());
-    } catch {
+      work = Promise.resolve(actor.close()).catch((cause: unknown) => {
+        this.reportInternalError('mcp-host-actor-close-failed', cause);
+        return failedCloseReport();
+      });
+    } catch (cause) {
+      this.reportInternalError('mcp-host-actor-close-failed', cause);
       work = Promise.resolve(failedCloseReport());
     }
     this.closeWork.set(actor, work);
     return work;
+  }
+  private async failProvisional(
+    code: 'mcp-host-actor-create-failed' | 'mcp-host-actor-snapshot-failed',
+    cause: unknown,
+    actors: readonly McpHostActor[],
+    retained: ReadonlyMap<ConfiguredMcpServerId, ActorEntry>
+  ): Promise<never> {
+    this.reportInternalError(code, cause);
+    const reports = await Promise.all(actors.map((actor) => this.startClose(actor)));
+    this.recordRetirements(actors, reports);
+    const cleanup = freezeReport(reports);
+    this.assertOpen();
+    this.reconcileRetainedAuthority(retained, cleanup);
+    if (cleanup.failures.length > 0) {
+      throw new McpHostServiceError('mcp-host-replacement-cleanup-failed', cleanup);
+    }
+    throw new McpHostServiceError(code);
+  }
+  private async failPublication(
+    actors: readonly McpHostActor[],
+    retained: ReadonlyMap<ConfiguredMcpServerId, ActorEntry>
+  ): Promise<never> {
+    const reports = await Promise.all(actors.map((actor) => this.startClose(actor)));
+    this.recordRetirements(actors, reports);
+    const cleanup = freezeReport(reports);
+    this.assertOpen();
+    this.reconcileRetainedAuthority(retained, cleanup);
+    if (cleanup.failures.length > 0) {
+      throw new McpHostServiceError('mcp-host-replacement-cleanup-failed', cleanup);
+    }
+    throw new McpHostServiceError('mcp-host-publish-failed');
+  }
+  private reconcileRetainedAuthority(
+    retained: ReadonlyMap<ConfiguredMcpServerId, ActorEntry>,
+    cleanup: McpHostCloseReport
+  ): void {
+    if (cleanup.failures.length > 0) {
+      this.replacementFailure = cleanup;
+    }
+    try {
+      this.publishConfigSet(this.snapshotRetainedAuthority(retained));
+    } catch (cause) {
+      const code =
+        cause instanceof McpHostServiceError && cause.code === 'mcp-host-actor-snapshot-failed'
+          ? cause.code
+          : 'mcp-host-publish-failed';
+      this.replacementFailure ??= failedAuthorityReconciliationReport(code);
+      throw cause;
+    }
+  }
+  private snapshotActors(
+    actors: ReadonlyMap<ConfiguredMcpServerId, ActorEntry>
+  ): McpHostServerSnapshot[] {
+    try {
+      return [...actors.values()].map(({ actor }) => actor.snapshot());
+    } catch (cause) {
+      this.reportInternalError('mcp-host-actor-snapshot-failed', cause);
+      throw new McpHostServiceError('mcp-host-actor-snapshot-failed');
+    }
+  }
+  private snapshotRetainedAuthority(
+    retained: ReadonlyMap<ConfiguredMcpServerId, ActorEntry>
+  ): McpHostServerSnapshot[] {
+    try {
+      return this.snapshotActors(retained);
+    } catch (cause) {
+      this.replacementFailure ??= failedAuthorityReconciliationReport(
+        'mcp-host-actor-snapshot-failed'
+      );
+      throw cause;
+    }
+  }
+  private publishConfigSet(servers: readonly McpHostServerSnapshot[]): McpHostSnapshot {
+    try {
+      return this.options.publisher.publishConfigSet(servers);
+    } catch (cause) {
+      this.reportInternalError('mcp-host-publish-failed', cause);
+      throw new McpHostServiceError('mcp-host-publish-failed');
+    }
+  }
+  private recordRetirements(
+    actors: readonly McpHostActor[],
+    reports: readonly McpHostCloseReport[]
+  ): void {
+    actors.forEach((actor, index) => {
+      if (this.recordedActors.has(actor)) {
+        return;
+      }
+      const report = reports[index];
+      if (!report) {
+        throw new Error('MCP host close report alignment invariant failed');
+      }
+      this.recordedActors.add(actor);
+      this.retiredReport = freezeReport([this.retiredReport, report]);
+      this.ownedActors.delete(actor);
+      this.closeWork.delete(actor);
+    });
+  }
+  private reportInternalError(code: McpHostServiceInternalErrorCode, cause: unknown): void {
+    try {
+      const reporting = this.options.onInternalError(code, cause);
+      void Promise.resolve(reporting).catch(() => {});
+    } catch {}
   }
 }

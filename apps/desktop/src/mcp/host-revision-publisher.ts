@@ -178,10 +178,15 @@ export class McpHostRevisionPublisher {
     };
   }
 
-  close(): void {
+  close(): number {
+    if (this.closed) {
+      return 0;
+    }
     this.closed = true;
     // The closed watch DTO has no terminal variant; terminal host close invalidates registrations.
+    const subscriptionsClosed = this.watches.size;
     this.watches.clear();
+    return subscriptionsClosed;
   }
 
   private assertOpen(): void {
@@ -194,10 +199,11 @@ export class McpHostRevisionPublisher {
     servers: readonly McpHostServerSnapshot[],
     affected: ReadonlySet<ConfiguredMcpServerId>
   ): McpHostSnapshot {
-    this.servers = servers;
-    this.revision += 1;
-    const queuedEvent = this.snapshot();
+    const revision = this.revision + 1;
+    const queuedEvent = structuredClone({ revision, servers });
     const returnedEvent = structuredClone(queuedEvent);
+    this.servers = servers;
+    this.revision = revision;
     queueMicrotask(() => this.deliver(queuedEvent, affected));
     return returnedEvent;
   }

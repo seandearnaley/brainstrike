@@ -220,6 +220,13 @@ describe('MCP test lab package contract', () => {
     expect(normalizedContract).toContain(
       'Raw internal causes reach one required main-process diagnostic sink'
     );
+    expect(normalizedContract).toContain('The exact frozen aggregate then latches the host');
+    expect(normalizedContract).toContain(
+      'A config publication failure closes every provisional actor'
+    );
+    expect(normalizedContract).toContain(
+      'Terminal `close` aggregates that ledger with all actors current at shutdown'
+    );
     expect(normalizedContract).toContain(
       'The host publisher alone owns a monotonic revision sequence beginning at zero.'
     );
@@ -232,6 +239,10 @@ describe('MCP test lab package contract', () => {
     );
     expect(normalizedContract).toContain(
       'Terminal host close invalidates queued and future watch registrations'
+    );
+    expect(normalizedContract).toContain('includes their exact count in the frozen close proof');
+    expect(normalizedContract).toContain(
+      'normal teardown cannot create false listener-failure diagnostics'
     );
     expect(normalizedContract).toContain(
       '`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`'
