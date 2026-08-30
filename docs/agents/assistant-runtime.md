@@ -1205,15 +1205,24 @@ paging).
 Parallel tool calls: every initial, approval-resume, and suspended-tool-resume
 leg passes Mastra `toolCallConcurrency: { limit: 10, strategy: 'called' }`
 through `buildToolLoopOptions`. The explicit limit preserves Mastra's upstream
-default resource ceiling; `called` changes only which tools decide whether a
-step must serialize. A batch of safe calls therefore runs concurrently even
-when an approval/suspend-capable tool remains registered but uncalled. A batch
-that actually calls any per-tool `requireApproval` / suspend-schema tool still
-runs sequentially, as does a run with the run-wide `requireToolApproval` gate.
+default ceiling of ten: safe-only steps can perform no more simultaneous DB,
+embedding, or fence-backed tool work than Mastra already allowed. `called`
+changes only which tools decide whether a step must serialize. A batch of safe
+calls therefore runs concurrently even when an approval/suspend-capable tool
+remains registered but uncalled. A batch that actually calls any per-tool
+`requireApproval` / suspend-schema tool still runs sequentially, as does a run
+with the run-wide `requireToolApproval` gate.
+
 The permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with
-the PER-TOOL `requireApproval`, so only an actual ask call pays the sequential
-execution cost and suspends. The data-stream mapper and UI key all per-call
-state by toolCallId and handle interleaving.
+the PER-TOOL `requireApproval`, so on an ordinary initial leg without a
+run-wide gate, an actual ask call is what makes that step sequential and
+suspends it. Approval-resume is deliberately more conservative: Brainstrike
+passes its run-wide `requireToolApproval` predicate on that leg, and Mastra
+treats the predicate's presence as a sequential-execution signal before it
+evaluates any individual call. Every subsequent step on that approval-resume
+leg therefore remains concurrency one, including safe-only steps. The
+data-stream mapper and UI key all per-call state by toolCallId and handle
+interleaving.
 
 When changing this flow, update this section and the related tests.
 
