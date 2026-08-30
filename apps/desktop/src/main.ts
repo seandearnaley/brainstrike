@@ -1005,19 +1005,20 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     // unrelated to git-inventory's success, so it gets its own
     // failure-isolated step, BEFORE 'database' for the same reason.
     //
-    // `unregisterForgeIpc()` only removes IPC handlers — it does not drain.
-    // An `invalidation` refresh in flight (0 ms floor, so one can be running
-    // right up to quit) keeps going and will call `getDatabase()` after
-    // `closeDatabase()` runs below; its `gh` child (20 s timeout) is never
-    // killed because no `AbortSignal` is threaded into
-    // `createForgeService`/`createGitService`. The resulting failure is
-    // structured (`ForgeResult`), never a silent fallback, so this is a
-    // latency/resource-cleanliness gap, not a correctness one.
     recordFailure(
       await runShutdownStep('forge', async () => {
-        unregisterForgeIpc?.();
-        unregisterForgeIpc = undefined;
+        const service = forgeService;
+        // Retire both authorities before any await: watcher invalidations and
+        // IPC can no longer enqueue work while stop aborts and drains the
+        // operations that were already in flight.
         forgeService = undefined;
+        const drain = service?.stop();
+        try {
+          unregisterForgeIpc?.();
+        } finally {
+          unregisterForgeIpc = undefined;
+          await drain;
+        }
       })
     );
 

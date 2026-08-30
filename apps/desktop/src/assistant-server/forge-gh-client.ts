@@ -30,7 +30,7 @@ const GITHUB_COM_ONLY_TOKEN_KEYS = new Set(['GH_TOKEN', 'GITHUB_TOKEN']);
 
 export interface ForgeCommandRun {
   readonly exitCode: number | null;
-  readonly failureReason?: 'maxBuffer' | 'notFound' | 'timeout';
+  readonly failureReason?: 'abort' | 'maxBuffer' | 'notFound' | 'timeout';
   readonly stderr: string;
   readonly stdout: string;
 }
@@ -119,6 +119,9 @@ function classifyGhExecError(
   if (code === 'ENOENT') {
     return { exitCode, failureReason: 'notFound' };
   }
+  if (code === 'ABORT_ERR') {
+    return { exitCode, failureReason: 'abort' };
+  }
   return error.killed === true ? { exitCode, failureReason: 'timeout' } : { exitCode };
 }
 
@@ -145,6 +148,9 @@ export const execFileGhRunner: ForgeCommandRunner = ({ args, cwd, host, signal, 
   });
 
 function describeGhFailure(run: ForgeCommandRun): string {
+  if (run.failureReason === 'abort') {
+    return 'gh was aborted.';
+  }
   if (run.failureReason === 'timeout') {
     return `gh timed out after ${GH_TIMEOUT_MS} ms.`;
   }

@@ -26,6 +26,7 @@ function service(overrides: Partial<ForgeService> = {}): ForgeService {
     onRepositoryInvalidated: vi.fn(),
     prStatus: vi.fn(async () => ({ ok: true, value: status }) as ForgeResult<ForgePrStatus>),
     refresh: vi.fn(async () => ({ ok: true, value: status }) as ForgeResult<ForgePrStatus>),
+    stop: vi.fn(async () => {}),
     ...overrides,
   };
 }
