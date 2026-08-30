@@ -2127,6 +2127,13 @@ owns at most one steady-state client and one stdio child. A bounded negotiation
 probe may own a disposable child only when it is observed and reaped before the
 generation becomes ready.
 
+`DesktopMcpHostRuntime` is the private composition root. It transactionally maps
+complete resolved transport configuration to opaque UUID refs, reusing a ref
+only for deep-equal private configuration. Raw URLs, headers, commands, argv,
+environment, and decrypted values remain behind that main-process map; failed
+replacement never commits provisional refs. Legacy authorization headers remain
+private transport material until the structured OAuth/credential migration.
+
 The surrounding host boundary has these additional invariants:
 
 - Configured server ids are branded, limited to 128 Unicode code points, reject prototype-sensitive names plus Unicode control/format characters with specific diagnostics, and are never recovered from dotted tool or display names. Lifecycle and error vocabularies are closed.
