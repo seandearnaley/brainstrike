@@ -60,6 +60,7 @@ interface McpApi {
   enableTools: (ids: string[]) => Promise<void>;
   getConfig: () => Promise<{ path: string; exists: boolean; servers: never[] }>;
   getPath?: () => Promise<string>;
+  getServerStatusSnapshot: () => Promise<{ revision: number; servers: never[] }>;
   getToolStats: () => Promise<{
     total: number;
     enabled: number;
@@ -67,6 +68,13 @@ interface McpApi {
     servers: number;
   }>;
   listTools: () => Promise<Record<string, never[]>>;
+  onConfigUpdated: (
+    listener: (config: { error?: string; exists: boolean; path: string }) => void
+  ) => () => void;
+  onServerStatusUpdated: (
+    listener: (snapshot: { revision: number; servers: never[] }) => void
+  ) => () => void;
+  onToolsUpdated: (listener: (tools: unknown) => void) => () => void;
   readConfigText?: () => Promise<{
     path: string;
     exists: boolean;
@@ -130,8 +138,12 @@ beforeEach(() => {
     enableTools: vi.fn().mockResolvedValue(undefined),
     getConfig: vi.fn().mockResolvedValue({ exists: true, path: '/tmp/mcp.json', servers: [] }),
     getPath: vi.fn().mockResolvedValue('/tmp/mcp.json'),
+    getServerStatusSnapshot: vi.fn().mockResolvedValue({ revision: 0, servers: [] }),
     getToolStats: vi.fn().mockResolvedValue({ disabled: 0, enabled: 0, servers: 0, total: 0 }),
     listTools: vi.fn().mockResolvedValue({}),
+    onConfigUpdated: vi.fn(() => vi.fn()),
+    onServerStatusUpdated: vi.fn(() => vi.fn()),
+    onToolsUpdated: vi.fn(() => vi.fn()),
     readConfigText: vi.fn().mockResolvedValue({
       content: '{\n  "servers": []\n}',
       created: false,

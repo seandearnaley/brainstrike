@@ -129,8 +129,12 @@ export interface ToolsSettingsOperations {
   resetTools: () => Promise<void>;
   /** Set MCP config path (or reset to default when null) */
   setMcpConfigPath?: (configPath: string | null) => Promise<void>;
+  /** Subscribe to MCP config status changes (desktop only). */
+  subscribeMcpConfig?: (listener: (info: McpConfigInfo) => void) => () => void;
   /** Subscribe to revisioned MCP host status (desktop only). */
   subscribeMcpServerStatus?: (listener: (snapshot: McpHostSnapshot) => void) => () => void;
+  /** Subscribe to MCP tool projection changes (desktop only). */
+  subscribeMcpTools?: (listener: () => void) => () => void;
   /** Optional live query configuration for tools (PGlite) */
   toolsLiveQuery?: ToolsLiveQueryConfig;
   /** Validate and write MCP config file text */

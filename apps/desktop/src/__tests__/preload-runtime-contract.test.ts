@@ -23,7 +23,7 @@ import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
 
 function readPreloadSource(): string {
-  return readFileSync(path.resolve(process.cwd(), 'src', 'preload.ts'), 'utf8');
+  return readFileSync(path.resolve(import.meta.dirname, '../preload.ts'), 'utf8');
 }
 
 function extractPreloadStringConstant(source: string, constantName: string): string {
@@ -51,7 +51,7 @@ function removePreloadStringConstantDefinitions(source: string): string {
  * assignment (spread, computed/quoted key, shorthand, method) throws, so the
  * exposed surface can never silently diverge from what this parity check sees.
  */
-function extractExposedBridgeMethodNames(source: string, bridgeName: string): string[] {
+function extractExposedBridgeProperties(source: string, bridgeName: string): Map<string, string> {
   const sourceFile = ts.createSourceFile(
     'preload.ts',
     source,
@@ -87,16 +87,38 @@ function extractExposedBridgeMethodNames(source: string, bridgeName: string): st
   if (!bridgeObject) {
     throw new Error(`Missing contextBridge.exposeInMainWorld('${bridgeName}', ...) in preload.`);
   }
-  return bridgeObject.properties.map((property) => {
-    if (!(ts.isPropertyAssignment(property) && ts.isIdentifier(property.name))) {
-      throw new Error(
-        `Unsupported property form in exposeInMainWorld('${bridgeName}', ...) object ` +
-          '(only plain identifier-keyed property assignments are modeled — extend ' +
-          'extractExposedBridgeMethodNames).'
-      );
-    }
-    return property.name.text;
-  });
+  return new Map(
+    bridgeObject.properties.map((property) => {
+      if (!(ts.isPropertyAssignment(property) && ts.isIdentifier(property.name))) {
+        throw new Error(
+          `Unsupported property form in exposeInMainWorld('${bridgeName}', ...) object ` +
+            '(only plain identifier-keyed property assignments are modeled — extend ' +
+            'extractExposedBridgeProperties).'
+        );
+      }
+      return [property.name.text, property.initializer.getText(sourceFile)];
+    })
+  );
+}
+
+function requireExposedBridgeProperty(
+  properties: ReadonlyMap<string, string>,
+  bridgeName: string,
+  propertyName: string
+): string {
+  const property = properties.get(propertyName);
+  if (property === undefined) {
+    throw new Error(
+      `Missing '${propertyName}' in exposed '${bridgeName}' bridge. Available properties: ${[
+        ...properties.keys(),
+      ].join(', ')}`
+    );
+  }
+  return property;
+}
+
+function extractExposedBridgeMethodNames(source: string, bridgeName: string): string[] {
+  return [...extractExposedBridgeProperties(source, bridgeName).keys()];
 }
 
 function findRawIpcRendererChannels(source: string): string[] {
@@ -372,8 +394,19 @@ describe('preload runtime contract', () => {
     for (const [constantName, channel] of Object.entries(expectedConstants)) {
       expect(extractPreloadStringConstant(preloadSource, constantName)).toBe(channel);
     }
-    expect(preloadSource).toContain('getServerStatusSnapshot: (): Promise<McpHostSnapshot> =>');
-    expect(preloadSource).toContain('onServerStatusUpdated:');
+    const mcpBridge = extractExposedBridgeProperties(preloadSource, 'mcp');
+    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'getServerStatusSnapshot')).toContain(
+      'ipcRenderer.invoke(MCP_STATUS_GET_CHANNEL)'
+    );
+    const statusSubscription = requireExposedBridgeProperty(
+      mcpBridge,
+      'mcp',
+      'onServerStatusUpdated'
+    );
+    expect(statusSubscription).toContain('ipcRenderer.on(MCP_STATUS_UPDATED_EVENT, listener)');
+    expect(statusSubscription).toContain(
+      'ipcRenderer.removeListener(MCP_STATUS_UPDATED_EVENT, listener)'
+    );
 
     const preloadWithoutContractDefinitions = removePreloadStringConstantDefinitions(preloadSource);
     for (const channel of Object.values(expectedConstants)) {
