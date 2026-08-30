@@ -15,6 +15,7 @@ import type {
   AgentMessage,
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
+  MastraAgentRuntimeOptions,
   ProviderAuthInput,
   RuntimeData,
 } from '@brainstrike/agent';
@@ -24,6 +25,28 @@ import type { AgentStreamResult } from './types.js';
 
 type LocalLlmGenerateArgs = Parameters<LocalLlmHostClient['generate']>;
 type LocalLlmWarmupArgs = Parameters<LocalLlmHostClient['warmup']>;
+
+type SerializableIndependentStreamRuntimeOptions = Pick<
+  MastraAgentRuntimeOptions,
+  | 'memory'
+  | 'storage'
+  | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'
+  | 'toolOutputArtifactStore'
+>;
+
+export interface AssistantStreamRuntimeOptions extends SerializableIndependentStreamRuntimeOptions {
+  /**
+   * Provider auth travels as a direct stream option, never through RuntimeData
+   * or RequestContext: custom_fetch may contain a closure, which serialization
+   * would silently discard.
+   */
+  authInput?: ProviderAuthInput;
+  /**
+   * The live host object graph is process-local and cannot survive request
+   * serialization. Hosts inject it directly at the stream boundary.
+   */
+  mcpHost?: NonNullable<MastraAgentRuntimeOptions['mcpHost']>;
+}
 
 export interface AssistantLlmHostManager {
   generateForMain(
