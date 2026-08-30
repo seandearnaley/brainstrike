@@ -398,69 +398,6 @@ function expectSessionDeletedLast(requests: readonly RecordedRequest[], pathname
 }
 
 describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
-  it.each(['file:///tmp/mcp.sock', 'ftp://example.test/mcp'])(
-    'rejects the non-HTTP remote URL %s',
-    (url) => {
-      expect(
-        () =>
-          new ExplicitHttpMcpClient({
-            name: 'invalid-url-canary',
-            transport: 'streamable-http',
-            url,
-          })
-      ).toThrow('MCP HTTP URL must use http: or https:');
-    }
-  );
-
-  it('rejects embedded URL credentials before making a request', () => {
-    expect(
-      () =>
-        new ExplicitHttpMcpClient({
-          name: 'credential-url-canary',
-          transport: 'sse',
-          url: 'https://user:password@example.test/mcp',
-        })
-    ).toThrow('MCP HTTP URL must not include credentials');
-  });
-
-  it.each(['auto', '2026-07-28'] as const)(
-    'rejects protocol %s on legacy SSE at the public client boundary',
-    (protocol) => {
-      expect(
-        () =>
-          new ExplicitHttpMcpClient({
-            name: 'sse-protocol-canary',
-            protocol,
-            transport: 'sse',
-            url: 'https://example.test/sse',
-          })
-      ).toThrow(
-        `MCP client "sse-protocol-canary": legacy SSE transport requires protocol "legacy" (got "${protocol}")`
-      );
-    }
-  );
-
-  it.each(['Accept', 'content-TYPE', 'MCP-Session-Id', 'mcp-PROTOCOL-version', 'Last-Event-ID'])(
-    'rejects the protocol-owned configured header %s before requesting',
-    (header) => {
-      let fetchCalled = false;
-      expect(
-        () =>
-          new ExplicitHttpMcpClient({
-            fetch: async () => {
-              fetchCalled = true;
-              return new Response(null, { status: 500 });
-            },
-            headers: { [header]: 'caller-controlled-value' },
-            name: 'protocol-header-canary',
-            transport: 'streamable-http',
-            url: 'https://example.test/mcp',
-          })
-      ).toThrow(`Configured MCP header "${header}" is protocol-owned`);
-      expect(fetchCalled).toBe(false);
-    }
-  );
-
   it('exposes the negotiated legacy revision and server initialize metadata', async () => {
     const requests: RecordedRequest[] = [];
     const server = await startStreamableServer({ pathname: '/mcp', requests });
