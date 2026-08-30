@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, delimiter, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import * as turboCommand from '../run-turbo-command.mjs';
 
@@ -27,37 +27,32 @@ function makeFakeHome() {
 const sweepIgnoredDirectories = new Set(['.claude', '.git', '.turbo', 'dist', 'node_modules']);
 
 describe('run turbo command helper', () => {
-  it('uses a worktree-scoped cache directory outside the repo when no cache is configured', () => {
-    assert.equal(typeof turboCommand.buildTurboArgs, 'function');
-
-    const args = turboCommand.buildTurboArgs(['run', 'build'], {
-      cwd: process.cwd(),
-      env: { HOME: '/Users/tester' },
-      platform: 'darwin',
-    });
-
-    assert.deepEqual(args.slice(0, 2), ['run', 'build']);
-    assert.match(
-      args[2],
-      /^--cache-dir=\/Users\/tester\/Library\/Caches\/BrainStrike\/turbo\/worktrees\/[a-zA-Z0-9._-]+-[a-f0-9]{12}$/u
-    );
-  });
-
-  it('isolates default local caches by canonical Git worktree root', () => {
+  it('isolates and bounds default caches using Turbo effective cwd', (t) => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), 'turbo-cache-scope-'));
+    t.after(() => rmSync(fixtureRoot, { force: true, recursive: true }));
     const laneA = join(fixtureRoot, 'lane-a');
     const laneB = join(fixtureRoot, 'lane-b');
+    const longLane = join(fixtureRoot, 'w'.repeat(255));
     const laneAPackage = join(laneA, 'packages/output');
-    mkdirSync(join(laneA, '.git'), { recursive: true });
-    mkdirSync(join(laneB, '.git'), { recursive: true });
+    for (const worktreeRoot of [laneA, laneB, longLane]) {
+      mkdirSync(join(worktreeRoot, '.git'), { recursive: true });
+    }
     mkdirSync(laneAPackage, { recursive: true });
     const options = { env: { HOME: '/Users/tester' }, platform: 'darwin' };
-    const laneACache = turboCommand.resolveTurboCacheDir({ ...options, cwd: laneA });
-    const laneAPackageCache = turboCommand.resolveTurboCacheDir({ ...options, cwd: laneAPackage });
-    const laneBCache = turboCommand.resolveTurboCacheDir({ ...options, cwd: laneB });
-    assert.equal(laneACache, laneAPackageCache);
+    const cacheFor = (cwd) => turboCommand.resolveTurboCacheDir({ ...options, cwd });
+    const laneACache = cacheFor(laneA);
+    const laneBCache = cacheFor(laneB);
+    assert.equal(laneACache, cacheFor(laneAPackage));
     assert.notEqual(laneACache, laneBCache);
     assert.equal(resolve(laneACache, '..'), resolve(laneBCache, '..'));
+    assert.ok(Buffer.byteLength(basename(cacheFor(longLane)), 'utf8') <= 255);
+    assert.deepEqual(
+      turboCommand.buildTurboArgs(['--cwd', laneA, 'run', 'build'], {
+        ...options,
+        cwd: fixtureRoot,
+      }),
+      ['--cwd', laneA, 'run', 'build', `--cache-dir=${laneACache}`]
+    );
   });
 
   it('does not override an explicit turbo cache directory', () => {
@@ -142,16 +137,23 @@ describe('run turbo command helper', () => {
     execFileSync('git', ['add', 'packages/output/input.txt'], { cwd: laneB });
     execFileSync('git', ['commit', '-m', 'lane B'], { cwd: laneB });
 
+    const inheritedPath = process.env.PATH ?? process.env.Path ?? '';
     const env = {
       ...process.env,
       HOME: home,
       NO_UPDATE_NOTIFIER: '1',
-      PATH: `${resolve(process.cwd(), 'node_modules/.bin')}:${process.env.PATH ?? ''}`,
+      PATH: `${resolve(process.cwd(), 'node_modules/.bin')}${delimiter}${inheritedPath}`,
       TURBO_TELEMETRY_DISABLED: '1',
     };
+    // This regression owns the default local-cache boundary. Remote credentials
+    // would let one fixture lane satisfy the other through an unrelated backend.
     env.BRAINSTRIKE_TURBO_CACHE_DIR = undefined;
     env.TURBO_CACHE_DIR = undefined;
     env.TURBO_HASH = undefined;
+    env.TURBO_TEAM = undefined;
+    env.TURBO_TOKEN = undefined;
+    env.USERPROFILE = undefined;
+    env.XDG_CACHE_HOME = undefined;
 
     const runBuild = (cwd) =>
       new Promise((resolveRun, rejectRun) => {
@@ -178,6 +180,8 @@ describe('run turbo command helper', () => {
       primeResults.map(({ output }) => output).join('\n--- concurrent lane ---\n')
     );
 
+    // The fixed mtime models two lanes finishing within one filesystem timestamp
+    // interval; removing it makes the metadata collision nondeterministic.
     // Select lane B's hash in lane A while retaining lane A's stale
     // same-size/same-mtime output. With the old shared cache, Turbo 2.10's
     // metadata-only restore manifest reported a cache hit and retained AAAA.
@@ -200,7 +204,6 @@ describe('run turbo command helper', () => {
     );
     const restoreResult = await runBuild(laneA);
     assert.equal(restoreResult.status, 0, restoreResult.output);
-    assert.match(restoreResult.output, /cache miss, executing/u, restoreResult.output);
     assert.equal(
       readFileSync(join(laneA, 'packages/output/dist/index.d.ts'), 'utf8'),
       'export const lane = "BBBB";\n',

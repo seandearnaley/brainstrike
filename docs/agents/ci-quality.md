@@ -1955,7 +1955,10 @@ home (`.../BrainStrike/turbo/worktrees/<name>-<path-hash>`). Package-level and
 root invocations in one worktree therefore share one cache and nested-run lock;
 different worktrees do not share local cache sidecars. Explicit
 `TURBO_CACHE_DIR` / `BRAINSTRIKE_TURBO_CACHE_DIR` values remain exact operator
-overrides and are not silently rewritten.
+overrides and are not silently rewritten. Invocations outside a Git worktree
+must set one of those overrides; the wrapper fails loudly rather than silently
+returning to the unsafe machine-global default. Turbo's `--cwd` value, when
+present, owns worktree resolution rather than the wrapper process directory.
 
 This isolation is a correctness boundary for Turbo 2.10's restore manifests,
 not a response to `.tsbuildinfo` restoration or cache pruning. A deterministic
@@ -1971,10 +1974,21 @@ Scoping deliberately gives up machine-local hits between worktrees because the
 metadata-only sidecar makes those hits unsafe. It preserves local hits across
 commands and branch changes within one worktree, and Turbo's independently
 configured remote cache remains shareable across worktrees and machines. It
-also confines the wrapper's post-run pruning and nested-run lock to the active
-worktree, so one interrupted or maintained lane cannot remove or block another
-lane's usable local entries. Do not collapse these directories back into one
-HOME-level cache unless Turbo's restore identity becomes content- or
+does not change Turbo's metadata-only identity inside one worktree: switching
+between two previously cached hashes can still retain same-size/same-mtime stale
+bytes in that one namespace. That residual, non-concurrent case is outside the
+cross-worktree failure fixed here and must not be described as content-safe.
+
+The scoping also confines the wrapper's post-run pruning and nested-run lock to
+the active worktree, so one interrupted or maintained lane cannot remove or
+block another lane's usable local entries. The 25-GiB limit consequently applies
+per active worktree, not machine-wide; removed worktrees and the pre-BST-1312
+top-level cache are not automatically collected. Operators should remove those
+abandoned directories as part of worktree/cache housekeeping. Automatic
+cross-namespace collection is intentionally deferred because deleting a
+namespace without an active-lane lease would reintroduce the cross-lane
+invalidation this boundary prevents. Do not collapse these directories back
+into one HOME-level cache unless Turbo's restore identity becomes content- or
 checkout-aware and the paired same-size/same-mtime concurrency regression proves
 the shared topology safe.
 
