@@ -302,6 +302,18 @@ describe('UnifiedToolsSettings', () => {
     getTools: vi.fn().mockResolvedValue(mockTools),
     resetTools: vi.fn().mockResolvedValue(undefined),
   });
+  const connectedMcpStatus = {
+    configuredProtocol: 'auto',
+    name: 'github',
+    negotiated: {
+      advertisedCapabilityIds: ['tools'],
+      era: 'modern',
+      revision: '2026-07-28',
+      serverIdentity: { name: 'github-server', version: '2.0.0' },
+    },
+    state: 'connected',
+    transport: 'streamable-http',
+  } as const;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -917,9 +929,7 @@ describe('UnifiedToolsSettings', () => {
 
     it('shows connection status in MCP group accordion', async () => {
       const operations = createMockOperations();
-      operations.getMcpServerStatus = vi
-        .fn()
-        .mockResolvedValue([{ name: 'github', status: 'connected', toolCount: 1 }]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue([connectedMcpStatus]);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -928,12 +938,51 @@ describe('UnifiedToolsSettings', () => {
       });
     });
 
+    it('shows a connected zero-tool server with negotiated facts', async () => {
+      const operations = createMockOperations();
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue([connectedMcpStatus]);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const statusList = await screen.findByTestId('mcp-server-status-list');
+      expect(statusList).toHaveTextContent('github');
+      expect(statusList).toHaveTextContent('era modern · revision 2026-07-28');
+      expect(statusList).toHaveTextContent('github-server 2.0.0');
+      expect(statusList).toHaveTextContent('capabilities: tools');
+    });
+
+    it('shows an error server in both the accordion and diagnostic row', async () => {
+      const operations = createMockOperations();
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue([
+        {
+          configuredProtocol: 'auto',
+          error: 'MCP connection failed (HTTP 503)',
+          name: 'github',
+          state: 'error',
+          transport: 'streamable-http',
+        },
+      ]);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(await screen.findByTestId('connection-status-mcp-github')).toHaveTextContent('error');
+      expect(screen.getByTestId('mcp-server-status-list')).toHaveTextContent(
+        'MCP connection failed (HTTP 503)'
+      );
+    });
+
     it('opens the MCP config from an MCP group header action', async () => {
       const operations = createMockOperations();
       operations.openMcpConfig = vi.fn().mockResolvedValue(undefined);
-      operations.getMcpServerStatus = vi
-        .fn()
-        .mockResolvedValue([{ name: 'github', status: 'disconnected', toolCount: 1 }]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue([
+        {
+          configuredProtocol: 'legacy',
+          name: 'github',
+          state: 'disconnected',
+          transport: 'stdio',
+        },
+      ]);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -953,7 +1002,7 @@ describe('UnifiedToolsSettings', () => {
       operations.getMcpServerStatus = vi
         .fn()
         .mockRejectedValueOnce(new Error('MCP down'))
-        .mockResolvedValueOnce([{ name: 'github', status: 'connected', toolCount: 1 }]);
+        .mockResolvedValueOnce([connectedMcpStatus]);
       operations.refreshMcpServers = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);

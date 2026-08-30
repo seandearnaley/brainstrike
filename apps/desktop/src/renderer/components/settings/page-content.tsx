@@ -191,15 +191,11 @@ export default function SettingsPageContent() {
         }
       },
       getMcpServerStatus: async () => {
-        const tools = await window.mcp?.listTools?.();
-        if (!tools) {
-          return [];
+        const getServerStatuses = window.mcp?.getServerStatuses;
+        if (!getServerStatuses) {
+          throw new Error('MCP bridge is missing getServerStatuses');
         }
-        return Object.entries(tools).map(([name, serverTools]) => ({
-          name,
-          status: 'connected' as const,
-          toolCount: (serverTools as unknown[]).length,
-        }));
+        return await getServerStatuses();
       },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
