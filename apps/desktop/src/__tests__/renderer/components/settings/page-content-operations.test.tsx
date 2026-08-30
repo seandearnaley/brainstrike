@@ -47,7 +47,7 @@ interface CapturedToolsOperations {
   enableTools: (ids: string[]) => Promise<void>;
   getMcpConfigInfo: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
   getMcpConfigPath?: () => Promise<string>;
-  getMcpServerStatus: () => Promise<Array<{ name: string; status: string; toolCount: number }>>;
+  getMcpServerStatus: () => Promise<McpServerStatusSnapshot[]>;
   getStats: () => Promise<{
     byCategory: Record<string, number>;
     bySource: { mcp: number; native: number };
@@ -69,6 +69,22 @@ interface CapturedToolsOperations {
 }
 
 let capturedOperations: CapturedToolsOperations | null = null;
+
+const serverStatuses = [
+  {
+    configuredProtocol: 'auto',
+    name: 'local',
+    negotiated: {
+      advertisedCapabilityIds: ['tools'],
+      era: 'modern',
+      revision: '2026-07-28',
+      serverIdentity: { name: 'linear', title: 'Linear', version: '2.0.0' },
+    },
+    state: 'connected',
+    transport: 'streamable-http',
+  },
+] as const;
+type McpServerStatusSnapshot = (typeof serverStatuses)[number];
 
 vi.mock('@brainstrike/agent/tool-metadata', () => ({
   DESKTOP_NATIVE_TOOL_IDS: ['native-read'],
@@ -246,6 +262,7 @@ interface DesktopTestWindow {
     enableTools?: (ids: string[]) => Promise<void>;
     getConfig?: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
     getPath?: () => Promise<string>;
+    getServerStatuses?: () => Promise<McpServerStatusSnapshot[]>;
     getToolStats?: () => Promise<{ enabled: number; servers: number; total: number }>;
     listTools?: () => Promise<
       Record<
@@ -285,6 +302,7 @@ describe('desktop SettingsPageContent tool operations', () => {
       enableTools: vi.fn(async () => {}),
       getConfig: vi.fn(async () => ({ exists: true, path: '/tmp/mcp.json' })),
       getPath: vi.fn(async () => '/tmp/mcp.json'),
+      getServerStatuses: vi.fn(async () => [...serverStatuses]),
       getToolStats: vi.fn(async () => ({ enabled: 1, servers: 1, total: 2 })),
       listTools: vi.fn(async () => ({
         local: [
@@ -353,9 +371,6 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(resetToolsMock).toHaveBeenCalled();
     expect(getDesktopWindow().mcp?.resetTools).toHaveBeenCalled();
 
-    await expect(capturedOperations.getMcpServerStatus()).resolves.toEqual([
-      { name: 'local', status: 'connected', toolCount: 1 },
-    ]);
     await capturedOperations.refreshMcpServers();
     await capturedOperations.openMcpConfig();
     expect(getDesktopWindow().mcp?.setPath).toHaveBeenCalledWith('/tmp/selected.json');
@@ -393,6 +408,21 @@ describe('desktop SettingsPageContent tool operations', () => {
     await expect(capturedOperations.setMcpConfigPath?.('/tmp/bad.json')).rejects.toThrow(
       'Failed to set MCP config path'
     );
+  });
+
+  it('returns main-process status snapshots without inferring from tools', async () => {
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations) {
+      throw new Error('Expected tools operations to be captured');
+    }
+    const listTools = getDesktopWindow().mcp?.listTools;
+    const callsBeforeStatus = vi.mocked(listTools!).mock.calls.length;
+    const status = capturedOperations.getMcpServerStatus();
+    expect.soft(listTools).toHaveBeenCalledTimes(callsBeforeStatus);
+    await expect(status).resolves.toEqual(serverStatuses);
   });
 
   it('passes status provider key sources into assistant memory model settings', async () => {

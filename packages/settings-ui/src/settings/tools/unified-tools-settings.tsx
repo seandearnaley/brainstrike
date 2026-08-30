@@ -461,13 +461,10 @@ export function UnifiedToolsSettings({
   const serverStatusMap = useMemo(() => {
     const statusMap = new Map<string, { status: McpConnectionStatus; error: string | null }>();
     for (const server of mcpServers) {
-      const status: McpConnectionStatus =
-        server.status === 'connected'
-          ? 'connected'
-          : server.status === 'error'
-            ? 'error'
-            : 'disconnected';
-      statusMap.set(server.name, { error: server.error ?? null, status });
+      statusMap.set(server.name, {
+        error: server.state === 'error' ? server.error : null,
+        status: server.state,
+      });
     }
     return statusMap;
   }, [mcpServers]);
@@ -543,6 +540,7 @@ export function UnifiedToolsSettings({
       hasTools={hasTools}
       loading={loading}
       mcpConfigInfo={mcpConfigInfo}
+      mcpServers={mcpServers}
       onCategoryChange={(category) => uiDispatch({ category, type: 'SET_CATEGORY_FILTER' })}
       onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
       onDisableGroup={handleDisableGroup}
@@ -620,6 +618,7 @@ interface ToolsPanelContentProps {
   hasTools: boolean;
   loading: boolean;
   mcpConfigInfo: McpConfigInfo | null;
+  mcpServers: McpServerInfo[];
   onCategoryChange: (category: ToolCategory | 'all') => void;
   onCreateSample: (() => Promise<void>) | undefined;
   onDisableGroup: (group: ToolGroup) => void;
@@ -654,6 +653,7 @@ function ToolsPanelContent({
   hasTools,
   loading,
   mcpConfigInfo,
+  mcpServers,
   onCategoryChange,
   onCreateSample,
   onDisableGroup,
@@ -712,6 +712,36 @@ function ToolsPanelContent({
       {error && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
           {error}
+        </div>
+      )}
+
+      {mcpServers.length > 0 && (
+        <div className="space-y-2" data-testid="mcp-server-status-list">
+          {mcpServers.map((server) => (
+            <div className="rounded-md border px-3 py-2 text-sm" key={server.name}>
+              <div className="flex flex-wrap items-center gap-x-2">
+                <span className="font-medium">{server.name}</span>
+                <span className="text-muted-foreground">{server.state}</span>
+                <span className="text-muted-foreground">
+                  {server.transport} · policy {server.configuredProtocol}
+                </span>
+              </div>
+              {server.state === 'connected' && (
+                <div className="text-muted-foreground text-xs">
+                  {server.negotiated.era} · {server.negotiated.revision}
+                  {server.negotiated.serverIdentity
+                    ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
+                    : ''}
+                  {server.negotiated.advertisedCapabilityIds
+                    ? ` · capabilities: ${server.negotiated.advertisedCapabilityIds.join(', ') || 'none'}`
+                    : ''}
+                </div>
+              )}
+              {server.state === 'error' && (
+                <div className="text-destructive text-xs">{server.error}</div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

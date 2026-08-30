@@ -190,17 +190,7 @@ export default function SettingsPageContent() {
           await window.mcp?.enableTools?.(mcpToolIds);
         }
       },
-      getMcpServerStatus: async () => {
-        const tools = await window.mcp?.listTools?.();
-        if (!tools) {
-          return [];
-        }
-        return Object.entries(tools).map(([name, serverTools]) => ({
-          name,
-          status: 'connected' as const,
-          toolCount: (serverTools as unknown[]).length,
-        }));
-      },
+      getMcpServerStatus: async () => (await window.mcp?.getServerStatuses?.()) ?? [],
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
         const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);

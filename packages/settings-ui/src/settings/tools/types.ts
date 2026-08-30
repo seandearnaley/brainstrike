@@ -2,6 +2,7 @@
  * Types for the Unified Tools Settings UI
  */
 
+import type { McpServerStatusSnapshot } from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 
 /**
@@ -84,12 +85,7 @@ export type ToolExecutionResult<T = unknown> =
 /**
  * MCP server connection information.
  */
-export interface McpServerInfo {
-  error?: string;
-  name: string;
-  status: 'connected' | 'disconnected' | 'error';
-  toolCount: number;
-}
+export type McpServerInfo = McpServerStatusSnapshot;
 
 /**
  * Operations for tool management.
