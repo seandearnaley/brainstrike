@@ -194,6 +194,41 @@ describe('McpServerActor', () => {
     expect(await failure(subject.invoke(LIST), 'mcp-negotiated-status-invalid')).toBe(first);
     await subject.close();
     expect(closeClient).toHaveBeenCalledOnce();
+
+    const malformed = structuredClone(negotiated);
+    Reflect.set(malformed, 'advertisedCapabilityIds', {});
+    const malformedClose = vi.fn(async () => report);
+    const malformedActor = actor(async () => client(undefined, malformedClose, malformed));
+    await failure(malformedActor.invoke(LIST), 'mcp-negotiated-status-invalid');
+    await malformedActor.close();
+    expect(malformedClose).toHaveBeenCalledOnce();
+
+    const nonJson = structuredClone(negotiated);
+    Reflect.set(nonJson, 'serverIdentity', {
+      description: undefined,
+      name: 'test-server',
+      version: '1.0.0',
+    });
+    await failure(
+      actor(async () => client(undefined, undefined, nonJson)).invoke(LIST),
+      'mcp-negotiated-status-invalid'
+    );
+  });
+  it('isolates snapshot observer failures from invocation and close', async () => {
+    const raw = new Error('observer-private-detail');
+    const internalError = vi.fn();
+    const subject = new McpServerActor({
+      ...base(linearId),
+      factory: async () => client(),
+      onInternalError: internalError,
+      onSnapshotChanged: () => {
+        throw raw;
+      },
+    });
+
+    await expect(subject.invoke(LIST)).resolves.toEqual(listResult);
+    await expect(subject.close()).resolves.toEqual(report);
+    expect(internalError).toHaveBeenCalledWith('mcp-snapshot-listener-failed', raw);
   });
   it('emits detached snapshots once per exact transition and isolates actors', async () => {
     const pending = deferred<McpServerActorClient>();

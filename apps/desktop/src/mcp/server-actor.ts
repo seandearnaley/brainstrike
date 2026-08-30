@@ -9,6 +9,7 @@ import type {
   McpStableErrorCategory,
 } from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
+import { z } from 'zod';
 export interface McpServerActorClient {
   close(): McpHostCloseReport | Promise<McpHostCloseReport>;
   invoke(operation: McpHostOperation): Promise<unknown>;
@@ -50,6 +51,48 @@ const EMPTY_REPORT: McpHostCloseReport = {
   requestsSettled: 0,
   subscriptionsClosed: 0,
 };
+const McpNegotiatedStatusSchema = z.strictObject({
+  advertisedCapabilityIds: z.array(z.string()).optional(),
+  era: z.enum(['legacy', 'modern']),
+  revision: z.string(),
+  serverIdentity: z
+    .strictObject({
+      description: z.string().optional(),
+      name: z.string(),
+      title: z.string().optional(),
+      version: z.string(),
+      websiteUrl: z.string().optional(),
+    })
+    .optional(),
+});
+const McpStrictJsonSchema = z.json();
+function parseMcpNegotiatedStatus(value: unknown): McpNegotiatedStatus {
+  McpStrictJsonSchema.parse(value);
+  const parsed = McpNegotiatedStatusSchema.parse(value);
+  const serverIdentity = parsed.serverIdentity;
+  return {
+    ...(parsed.advertisedCapabilityIds === undefined
+      ? {}
+      : { advertisedCapabilityIds: parsed.advertisedCapabilityIds }),
+    era: parsed.era,
+    revision: parsed.revision,
+    ...(serverIdentity === undefined
+      ? {}
+      : {
+          serverIdentity: {
+            ...(serverIdentity.description === undefined
+              ? {}
+              : { description: serverIdentity.description }),
+            name: serverIdentity.name,
+            ...(serverIdentity.title === undefined ? {} : { title: serverIdentity.title }),
+            version: serverIdentity.version,
+            ...(serverIdentity.websiteUrl === undefined
+              ? {}
+              : { websiteUrl: serverIdentity.websiteUrl }),
+          },
+        }),
+  };
+}
 export class McpServerActor {
   private readonly closedError = new ActorError('generation-retired', 'mcp-generation-closed');
   private readonly inFlight = new Set<Promise<McpHostOperationResult>>();
@@ -78,6 +121,7 @@ export class McpServerActor {
       return Promise.reject(this.failure);
     }
     if (operation.configuredServerId !== this.options.configuredServerId) {
+      // Caller misrouting is rejected without poisoning this server generation.
       return Promise.reject(new ActorError('configuration', 'mcp-configured-server-mismatch'));
     }
     const work = Promise.resolve().then(() => this.invokeAccepted(operation));
@@ -97,7 +141,11 @@ export class McpServerActor {
   }
   private change(status: ActorStatus): void {
     this.status = status;
-    this.options.onSnapshotChanged?.(this.snapshot());
+    try {
+      this.options.onSnapshotChanged?.(this.snapshot());
+    } catch (cause) {
+      this.diagnose('mcp-snapshot-listener-failed', cause);
+    }
   }
   private fail(error: ActorError): ActorError {
     if (!this.failure) {
@@ -126,13 +174,13 @@ export class McpServerActor {
       });
     } catch (cause) {
       const error = new ActorError('connection', 'mcp-client-creation-failed');
-      this.diagnose(error, cause);
+      this.diagnose(error.code, cause);
       throw this.fail(error);
     }
     this.client = client;
     let status: McpNegotiatedStatus;
     try {
-      status = structuredClone(client.negotiated);
+      status = parseMcpNegotiatedStatus(structuredClone(client.negotiated));
     } catch (cause) {
       const cleanupFailed = await this.closeClient(false).then(
         () => false,
@@ -142,7 +190,7 @@ export class McpServerActor {
         'protocol',
         cleanupFailed ? 'mcp-negotiated-status-cleanup-failed' : 'mcp-negotiated-status-invalid'
       );
-      this.diagnose(error, cause);
+      this.diagnose(error.code, cause);
       throw this.fail(error);
     }
     if (!this.closePromise) {
@@ -160,14 +208,14 @@ export class McpServerActor {
       result = await client.invoke(operation);
     } catch (cause) {
       const error = new ActorError('transport', 'mcp-transport-operation-failed');
-      this.diagnose(error, cause);
+      this.diagnose(error.code, cause);
       throw this.fail(error);
     }
     try {
       return parseMcpHostOperationResult({ result, type: operation.type });
     } catch (cause) {
       const error = new ActorError('protocol', 'mcp-result-invalid');
-      this.diagnose(error, cause);
+      this.diagnose(error.code, cause);
       throw this.fail(error);
     }
   }
@@ -178,9 +226,9 @@ export class McpServerActor {
     return report;
   }
 
-  private diagnose(error: ActorError, cause: unknown): void {
+  private diagnose(code: string, cause: unknown): void {
     try {
-      this.options.onInternalError?.(error.code, cause);
+      this.options.onInternalError?.(code, cause);
     } catch {}
   }
 
@@ -197,7 +245,7 @@ export class McpServerActor {
         return structuredClone(await client.close());
       } catch (cause) {
         const error = new ActorError('transport', 'mcp-client-close-failed');
-        this.diagnose(error, cause);
+        this.diagnose(error.code, cause);
         if (!memoizeFailure) {
           throw error;
         }
