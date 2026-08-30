@@ -11,23 +11,30 @@ export type ConfiguredMcpServerId = string & {
   readonly __configuredMcpServerId: 'ConfiguredMcpServerId';
 };
 
-function isConfiguredIdCharacter(character: string): boolean {
-  const codePoint = character.codePointAt(0) ?? 0;
-  return codePoint > 31 && (codePoint < 127 || codePoint > 159);
-}
+export const MCP_CONFIGURED_SERVER_ID_MAX_LENGTH = 128;
+const RESERVED_CONFIGURED_SERVER_IDS = new Set(['__proto__', 'constructor', 'prototype']);
+const UNICODE_CONTROL_OR_FORMAT_PATTERN = /[\p{Cc}\p{Cf}]/u;
 
 export const ConfiguredMcpServerIdSchema = z
   .string()
   .min(1, 'must not be empty')
+  .refine(
+    (value) => [...value].length <= MCP_CONFIGURED_SERVER_ID_MAX_LENGTH,
+    `must contain at most ${MCP_CONFIGURED_SERVER_ID_MAX_LENGTH} Unicode code points`
+  )
   .refine((value) => value.trim() === value, 'invalid surrounding whitespace')
-  .refine((value) => value !== '__proto__', 'reserved server name')
-  .refine((value) => [...value].every(isConfiguredIdCharacter), 'invalid control character')
+  .refine((value) => !RESERVED_CONFIGURED_SERVER_IDS.has(value), 'reserved server name')
+  .refine(
+    (value) => !UNICODE_CONTROL_OR_FORMAT_PATTERN.test(value),
+    'must not contain a Unicode control or format character'
+  )
   .transform((value) => value as ConfiguredMcpServerId);
 
 export function parseConfiguredMcpServerId(value: unknown): ConfiguredMcpServerId {
   const result = ConfiguredMcpServerIdSchema.safeParse(value);
   if (!result.success) {
-    throw new Error('Invalid configured MCP server id');
+    const diagnostics = result.error.issues.map(({ message }) => message).join('; ');
+    throw new Error(`Invalid configured MCP server id: ${diagnostics}`);
   }
   return result.data;
 }
@@ -44,6 +51,7 @@ export const MCP_STABLE_ERROR_CATEGORIES = [
   'transport',
 ] as const;
 export type McpStableErrorCategory = (typeof MCP_STABLE_ERROR_CATEGORIES)[number];
+export const McpStableErrorCategorySchema = z.enum(MCP_STABLE_ERROR_CATEGORIES);
 export type McpHostJsonValue =
   | boolean
   | null
@@ -57,6 +65,11 @@ export interface McpHostError {
   code: string;
   message: string;
 }
+export const McpHostErrorSchema: z.ZodType<McpHostError> = z.strictObject({
+  category: McpStableErrorCategorySchema,
+  code: z.string(),
+  message: z.string(),
+});
 
 interface McpHostServerSnapshotBase {
   configuredProtocol: McpConfiguredProtocol;
@@ -108,21 +121,36 @@ const AuthSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('oauth-user') }),
   z.strictObject({ credential: CredentialReferenceSchema, type: z.literal('bearer') }),
 ]);
+export const McpConfiguredProtocolSchema = z.enum([
+  'legacy',
+  'auto',
+  '2026-07-28',
+]) satisfies z.ZodType<McpConfiguredProtocol>;
+export const McpStatusTransportSchema = z.enum([
+  'stdio',
+  'streamable-http',
+  'sse',
+]) satisfies z.ZodType<McpStatusTransport>;
 const TransportSchema = z.strictObject({
   configRef: ReferenceIdSchema,
-  type: z.enum(['stdio', 'streamable-http', 'sse']),
+  type: McpStatusTransportSchema,
 });
+const McpConfiguredServerSchema = z
+  .strictObject({
+    auth: AuthSchema,
+    configuredProtocol: McpConfiguredProtocolSchema,
+    configuredServerId: ConfiguredMcpServerIdSchema,
+    enabledTools: z.array(z.string()).optional(),
+    transport: TransportSchema,
+  })
+  .refine(
+    ({ configuredProtocol, transport }) =>
+      transport.type !== 'sse' || configuredProtocol === 'legacy',
+    { message: 'SSE transport requires legacy protocol', path: ['configuredProtocol'] }
+  );
 const McpHostConfigSchema = z.strictObject({
   servers: z
-    .array(
-      z.strictObject({
-        auth: AuthSchema,
-        configuredProtocol: z.enum(['legacy', 'auto', '2026-07-28']),
-        configuredServerId: ConfiguredMcpServerIdSchema,
-        enabledTools: z.array(z.string()).optional(),
-        transport: TransportSchema,
-      })
-    )
+    .array(McpConfiguredServerSchema)
     .refine(
       (servers) =>
         new Set(servers.map(({ configuredServerId }) => configuredServerId)).size ===
@@ -136,18 +164,20 @@ export const parseMcpHostConfig = (value: unknown): McpHostConfig =>
 
 type BrowserSafe<T> = unknown extends T
   ? McpHostJsonValue
-  : T extends string | number | boolean | null
-    ? T
-    : T extends readonly (infer Item)[]
-      ? readonly BrowserSafe<Item>[]
-      : T extends object
-        ? { readonly [Key in keyof T]: BrowserSafe<T[Key]> }
-        : never;
+  : T extends (...args: never[]) => unknown
+    ? never
+    : T extends string | number | boolean | null
+      ? T
+      : T extends readonly (infer Item)[]
+        ? readonly BrowserSafe<Item>[]
+        : T extends object
+          ? { readonly [Key in keyof T]: BrowserSafe<T[Key]> }
+          : never;
 type SdkListToolsResult = z.output<typeof ListToolsResultSchema>;
 type SdkCallToolResult = z.output<typeof CallToolResultSchema>;
 export type McpHostOperationResult =
-  | (BrowserSafe<SdkListToolsResult> & { readonly type: 'tools/list' })
-  | (BrowserSafe<SdkCallToolResult> & { readonly type: 'tools/call' });
+  | { readonly result: BrowserSafe<SdkListToolsResult>; readonly type: 'tools/list' }
+  | { readonly result: BrowserSafe<SdkCallToolResult>; readonly type: 'tools/call' };
 
 export interface McpHostWatchFilter {
   configuredServerIds?: readonly ConfiguredMcpServerId[];

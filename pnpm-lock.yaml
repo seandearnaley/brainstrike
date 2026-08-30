@@ -57,6 +57,9 @@ catalogs:
     '@modelcontextprotocol/client':
       specifier: 2.0.0
       version: 2.0.0
+    '@modelcontextprotocol/core':
+      specifier: 2.0.0
+      version: 2.0.0
     '@modelcontextprotocol/node':
       specifier: 2.0.0
       version: 2.0.0
@@ -1407,7 +1410,7 @@ importers:
         specifier: workspace:*
         version: link:../types
       '@modelcontextprotocol/core':
-        specifier: 2.0.0
+        specifier: 'catalog:'
         version: 2.0.0
       zod:
         specifier: 'catalog:'

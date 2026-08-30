@@ -2103,10 +2103,13 @@ owns at most one steady-state client and one stdio child. A bounded negotiation
 probe may own a disposable child only when it is observed and reaped before the
 generation becomes ready.
 
-`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`:
+The surrounding host boundary has these additional invariants:
 
-`server.name` is branded and carried explicitly, never recovered from dotted tool/display names; lifecycle/error vocabularies are closed.
-Browser-safe config carries only main-owned transport UUIDs, non-secret policy, and typed credential-store references; decrypted material stays in Electron main; strict parsers guard ingress and SDK-v2-derived result DTOs narrow open metadata to cloneable JSON.
+- Configured server ids are branded, limited to 128 Unicode code points, reject prototype-sensitive names plus Unicode control/format characters with specific diagnostics, and are never recovered from dotted tool or display names. Lifecycle and error vocabularies are closed.
+- Browser-safe config carries only main-owned transport UUIDs, non-secret policy, and typed credential-store references. Decrypted material stays in Electron main; transport/protocol schemas track the shared unions, and SSE accepts only `legacy`.
+- Operation results use nested `{ type, result }` envelopes. Electron main parses raw results through the browser-blocked `./mcp-host-runtime` subpath and the matching SDK-v2 schema, requiring strict JSON-safe open fields before IPC. The broad contract root retains only MCP SDK type imports.
+
+`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`:
 
 - `snapshot` returns token-free authority state, negotiated protocol revision,
   server identity, capabilities, auth/lifecycle status, and bounded diagnostics.

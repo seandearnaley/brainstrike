@@ -5,7 +5,7 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@modelcontextprotocol/core": "2.0.0",
+    "@modelcontextprotocol/core": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
@@ -59,6 +59,12 @@
       "types": "./dist/local-llm-model-specs.d.ts",
       "import": "./dist/local-llm-model-specs.js",
       "require": "./dist/local-llm-model-specs.js"
+    },
+    "./mcp-host-runtime": {
+      "browser": null,
+      "types": "./dist/mcp-host-runtime.d.ts",
+      "import": "./dist/mcp-host-runtime.js",
+      "require": "./dist/mcp-host-runtime.js"
     },
     "./citation-markers": {
       "types": "./dist/citation-markers.d.ts",
