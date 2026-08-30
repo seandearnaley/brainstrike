@@ -5,6 +5,7 @@
  * headers, stats, and dropdown menus for bulk actions.
  */
 
+import type { McpConnectionState } from '@brainstrike/assistant-contract';
 import {
   AccordionContent,
   AccordionItem,
@@ -23,7 +24,7 @@ import type { ReactNode } from 'react';
 /**
  * MCP connection status types.
  */
-export type McpConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
+export type McpConnectionStatus = McpConnectionState;
 
 /**
  * Props for the ToolGroupAccordion component.
@@ -65,8 +66,11 @@ function getStatusIndicatorClasses(status: McpConnectionStatus): string {
     case 'connected':
       return 'fill-green-500 text-green-500';
     case 'connecting':
+    case 'authorizing':
+    case 'authentication-required':
       return 'fill-yellow-500 text-yellow-500';
     case 'disconnected':
+    case 'closing':
       return 'fill-muted-foreground text-muted-foreground';
     case 'error':
       return 'fill-destructive text-destructive';

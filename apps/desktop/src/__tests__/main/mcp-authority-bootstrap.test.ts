@@ -5,6 +5,8 @@ import {
   type McpHostCloseReport,
   type McpHostOperationResult,
   type McpHostSnapshot,
+  type McpHostWatchEvent,
+  type McpHostWatchFilter,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { BrowserWindow, ipcMain } from 'electron';
@@ -121,7 +123,9 @@ describe('MCP desktop authority bootstrap', () => {
       invoke: mocks.hostInvoke,
       replaceConfig: vi.fn(),
       snapshot: vi.fn(() => snapshot(0)),
-      watch: vi.fn(() => vi.fn()),
+      watch: vi.fn((_filter: McpHostWatchFilter, _listener: (event: McpHostWatchEvent) => void) =>
+        vi.fn()
+      ),
     },
     replaceResolvedConfig: mocks.replaceResolvedConfig,
   };
@@ -187,6 +191,43 @@ describe('MCP desktop authority bootstrap', () => {
     expect(source.slice(readyStart)).toMatch(
       /registerMcpIpcHandlers\(\{\s*runtime:\s*getDesktopMcpHostRuntime\(\)\s*\}\)/
     );
+  });
+
+  it('projects the host snapshot and broadcasts revisioned host updates', async () => {
+    const current = snapshot(7, [server('github'), server('linear')]);
+    let listener: ((event: McpHostWatchEvent) => void) | undefined;
+    const stopWatching = vi.fn();
+    runtime.host.snapshot.mockReturnValue(current);
+    runtime.host.watch.mockImplementationOnce((_filter, nextListener) => {
+      listener = nextListener;
+      return stopWatching;
+    });
+
+    const unregister = registerMcpIpcHandlers({ runtime });
+    await expect(handlers.get('mcp:status:get')?.()).resolves.toEqual(current);
+    const currentServer = current.servers[0];
+    if (!currentServer) {
+      throw new Error('Expected current MCP server');
+    }
+
+    const secondServer = current.servers[1];
+    if (!secondServer) {
+      throw new Error('Expected second current MCP server');
+    }
+    listener?.({
+      revision: 8,
+      servers: [{ ...currentServer, state: 'connecting' }, secondServer],
+    });
+    expect(sentEvents).toContainEqual({
+      channel: 'mcp:status:updated',
+      payload: {
+        revision: 8,
+        servers: [{ ...currentServer, state: 'connecting' }, secondServer],
+      },
+    });
+
+    unregister();
+    expect(stopWatching).toHaveBeenCalledOnce();
   });
 
   it('awaits startup authority replacement before discovering through the host', async () => {

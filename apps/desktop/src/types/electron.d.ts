@@ -5,7 +5,8 @@ import type {
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
   AssistantRewindResult,
-  McpServerStatusSnapshot,
+  McpHostSnapshot,
+  McpHostWatchEvent,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
@@ -462,7 +463,7 @@ declare global {
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;
       getPath: () => Promise<string>;
-      getServerStatuses: () => Promise<McpServerStatusSnapshot[]>;
+      getServerStatusSnapshot: () => Promise<McpHostSnapshot>;
       setPath: (configPath: string | null) => Promise<{ success: boolean; path: string }>;
       readConfigText: () => Promise<{
         path: string;
@@ -478,6 +479,7 @@ declare global {
       selectPath: () => Promise<string | null>;
       createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
       onConfigUpdated: (callback: (config: McpConfigStatus) => void) => () => void;
+      onServerStatusUpdated: (callback: (event: McpHostWatchEvent) => void) => () => void;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{

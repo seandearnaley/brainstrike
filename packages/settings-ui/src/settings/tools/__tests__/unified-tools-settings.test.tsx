@@ -3,6 +3,10 @@
  */
 
 import '@testing-library/jest-dom/vitest';
+import {
+  type McpHostServerSnapshot,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -302,9 +306,10 @@ describe('UnifiedToolsSettings', () => {
     getTools: vi.fn().mockResolvedValue(mockTools),
     resetTools: vi.fn().mockResolvedValue(undefined),
   });
-  const connectedMcpStatus = {
+  const connectedMcpStatus: McpHostServerSnapshot = {
     configuredProtocol: 'auto',
-    name: 'github',
+    configuredServerId: parseConfiguredMcpServerId('github'),
+    generation: 1,
     negotiated: {
       advertisedCapabilityIds: ['tools'],
       era: 'modern',
@@ -313,7 +318,7 @@ describe('UnifiedToolsSettings', () => {
     },
     state: 'connected',
     transport: 'streamable-http',
-  } as const;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -929,7 +934,9 @@ describe('UnifiedToolsSettings', () => {
 
     it('shows connection status in MCP group accordion', async () => {
       const operations = createMockOperations();
-      operations.getMcpServerStatus = vi.fn().mockResolvedValue([connectedMcpStatus]);
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -941,7 +948,10 @@ describe('UnifiedToolsSettings', () => {
     it('shows a connected zero-tool server with negotiated facts', async () => {
       const operations = createMockOperations();
       operations.getTools = vi.fn().mockResolvedValue([]);
-      operations.getMcpServerStatus = vi.fn().mockResolvedValue([connectedMcpStatus]);
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: true, path: '/test' });
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -993,37 +1003,51 @@ describe('UnifiedToolsSettings', () => {
       }
     });
 
-    it('shows an error server in both the accordion and diagnostic row', async () => {
+    it('shows structured errors in the accordion and diagnostic row for a failed server', async () => {
       const operations = createMockOperations();
-      operations.getMcpServerStatus = vi.fn().mockResolvedValue([
-        {
-          configuredProtocol: 'auto',
-          error: 'MCP connection failed (HTTP 503)',
-          name: 'github',
-          state: 'error',
-          transport: 'streamable-http',
-        },
-      ]);
+      operations.getTools = vi.fn().mockResolvedValue(mockTools);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 3,
+        servers: [
+          {
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('github'),
+            error: {
+              category: 'connection',
+              code: 'mcp-transport-operation-failed',
+              message: 'MCP server actor operation failed',
+            },
+            generation: 2,
+            state: 'error',
+            transport: 'streamable-http',
+          },
+        ],
+      });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
-      expect(await screen.findByTestId('connection-status-mcp-github')).toHaveTextContent('error');
-      expect(screen.getByTestId('mcp-server-status-list')).toHaveTextContent(
-        'MCP connection failed (HTTP 503)'
-      );
+      const statusList = await screen.findByTestId('mcp-server-status-list');
+      expect(screen.getByTestId('connection-status-mcp-github')).toHaveTextContent('error');
+      expect(statusList).toHaveTextContent('github');
+      expect(statusList).toHaveTextContent('connection · mcp-transport-operation-failed');
+      expect(statusList).toHaveTextContent('MCP server actor operation failed');
     });
 
     it('opens the MCP config from an MCP group header action', async () => {
       const operations = createMockOperations();
       operations.openMcpConfig = vi.fn().mockResolvedValue(undefined);
-      operations.getMcpServerStatus = vi.fn().mockResolvedValue([
-        {
-          configuredProtocol: 'legacy',
-          name: 'github',
-          state: 'disconnected',
-          transport: 'stdio',
-        },
-      ]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 1,
+        servers: [
+          {
+            configuredProtocol: 'legacy',
+            configuredServerId: parseConfiguredMcpServerId('github'),
+            generation: 1,
+            state: 'disconnected',
+            transport: 'stdio',
+          },
+        ],
+      });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1043,7 +1067,8 @@ describe('UnifiedToolsSettings', () => {
       operations.getMcpServerStatus = vi
         .fn()
         .mockRejectedValueOnce(new Error('MCP down'))
-        .mockResolvedValueOnce([connectedMcpStatus]);
+        .mockResolvedValueOnce({ revision: 1, servers: [connectedMcpStatus] })
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
       operations.refreshMcpServers = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);

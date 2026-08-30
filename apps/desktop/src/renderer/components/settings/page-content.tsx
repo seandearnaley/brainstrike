@@ -10,6 +10,7 @@ import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/
 import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import type { McpHostWatchEvent } from '@brainstrike/assistant-contract';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -166,8 +167,9 @@ export default function SettingsPageContent() {
       : undefined;
 
   // Create non-executing tool catalog and MCP configuration operations.
-  const toolOperations = useMemo(
-    () => ({
+  const toolOperations = useMemo(() => {
+    const onServerStatusUpdated = window.mcp?.onServerStatusUpdated;
+    return {
       disableTools: async (ids: string[]) => {
         const nativeToolIds = ids.filter((id) => isNativeTool(id));
         const mcpToolIds = ids.filter((id) => !isNativeTool(id));
@@ -191,11 +193,11 @@ export default function SettingsPageContent() {
         }
       },
       getMcpServerStatus: async () => {
-        const getServerStatuses = window.mcp?.getServerStatuses;
-        if (!getServerStatuses) {
-          throw new Error('MCP bridge is missing getServerStatuses');
+        const getServerStatusSnapshot = window.mcp?.getServerStatusSnapshot;
+        if (!getServerStatusSnapshot) {
+          throw new Error('MCP bridge is missing getServerStatusSnapshot');
         }
-        return await getServerStatuses();
+        return await getServerStatusSnapshot();
       },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
@@ -244,7 +246,13 @@ export default function SettingsPageContent() {
               description?: string;
               enabled: boolean;
               inputSchema?: unknown;
+              serverName: string;
             }>) {
+              if (tool.serverName !== serverName) {
+                throw new Error(
+                  `MCP tool projection identity mismatch: group "${serverName}" contains server "${tool.serverName}"`
+                );
+              }
               mcpTools.push({
                 category: 'action',
                 description: tool.description ?? '',
@@ -286,6 +294,10 @@ export default function SettingsPageContent() {
         useNativeToolPreferencesStore.getState().resetTools();
         await window.mcp?.resetTools?.();
       },
+      ...(onServerStatusUpdated && {
+        subscribeMcpServerStatus: (listener: (event: McpHostWatchEvent) => void) =>
+          onServerStatusUpdated(listener),
+      }),
       ...(window.mcp?.getPath && {
         getMcpConfigPath: async () => (await window.mcp?.getPath?.()) ?? '',
       }),
@@ -339,9 +351,8 @@ export default function SettingsPageContent() {
           ...(config.error ? { error: config.error } : {}),
         };
       },
-    }),
-    []
-  );
+    };
+  }, []);
 
   const categories = useMemo<SettingsCategory[]>(() => {
     const diagnosticsCategory = createSystemDiagnosticsSettingsCategory();
