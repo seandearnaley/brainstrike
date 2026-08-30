@@ -24,6 +24,7 @@ export type McpServerActorClientFactory = (
 interface McpServerActorOptions extends ClientContext {
   configuredProtocol: '2026-07-28' | 'auto' | 'legacy';
   factory: McpServerActorClientFactory;
+  onInternalError?(code: string, cause: unknown): void;
   onSnapshotChanged?(snapshot: McpHostServerSnapshot): void;
   transport: 'sse' | 'stdio' | 'streamable-http';
 }
@@ -64,15 +65,17 @@ export class McpServerActor {
       return this.closePromise;
     }
     this.closePromise = Promise.resolve().then(() => this.closeAfterDrain());
-    this.change({ state: 'closing' });
+    if (!this.failure) {
+      this.change({ state: 'closing' });
+    }
     return this.closePromise;
   }
   invoke(operation: McpHostOperation): Promise<McpHostOperationResult> {
-    if (this.failure) {
-      return Promise.reject(this.failure);
-    }
     if (this.closePromise) {
       return Promise.reject(this.closedError);
+    }
+    if (this.failure) {
+      return Promise.reject(this.failure);
     }
     if (operation.configuredServerId !== this.options.configuredServerId) {
       return Promise.reject(new ActorError('configuration', 'mcp-configured-server-mismatch'));
@@ -121,24 +124,26 @@ export class McpServerActor {
         configuredServerId: this.options.configuredServerId,
         generation: this.options.generation,
       });
-    } catch {
-      throw this.fail(new ActorError('connection', 'mcp-client-creation-failed'));
+    } catch (cause) {
+      const error = new ActorError('connection', 'mcp-client-creation-failed');
+      this.diagnose(error, cause);
+      throw this.fail(error);
     }
     this.client = client;
     let status: McpNegotiatedStatus;
     try {
       status = structuredClone(client.negotiated);
-    } catch {
+    } catch (cause) {
       const cleanupFailed = await this.closeClient(false).then(
         () => false,
         () => true
       );
-      throw this.fail(
-        new ActorError(
-          'protocol',
-          cleanupFailed ? 'mcp-negotiated-status-cleanup-failed' : 'mcp-negotiated-status-invalid'
-        )
+      const error = new ActorError(
+        'protocol',
+        cleanupFailed ? 'mcp-negotiated-status-cleanup-failed' : 'mcp-negotiated-status-invalid'
       );
+      this.diagnose(error, cause);
+      throw this.fail(error);
     }
     if (!this.closePromise) {
       this.change({ negotiated: status, state: 'connected' });
@@ -153,18 +158,30 @@ export class McpServerActor {
     let result: unknown;
     try {
       result = await client.invoke(operation);
-    } catch {
-      throw this.fail(new ActorError('transport', 'mcp-transport-operation-failed'));
+    } catch (cause) {
+      const error = new ActorError('transport', 'mcp-transport-operation-failed');
+      this.diagnose(error, cause);
+      throw this.fail(error);
     }
     try {
       return parseMcpHostOperationResult({ result, type: operation.type });
-    } catch {
-      throw this.fail(new ActorError('protocol', 'mcp-result-invalid'));
+    } catch (cause) {
+      const error = new ActorError('protocol', 'mcp-result-invalid');
+      this.diagnose(error, cause);
+      throw this.fail(error);
     }
   }
   private async closeAfterDrain(): Promise<McpHostCloseReport> {
     await Promise.allSettled([...this.inFlight]);
-    return this.closeClient();
+    const report = await this.closeClient();
+    this.change({ state: 'disconnected' });
+    return report;
+  }
+
+  private diagnose(error: ActorError, cause: unknown): void {
+    try {
+      this.options.onInternalError?.(error.code, cause);
+    } catch {}
   }
 
   private closeClient(memoizeFailure = true): Promise<McpHostCloseReport> {
@@ -178,9 +195,16 @@ export class McpServerActor {
     this.clientClosePromise = Promise.resolve().then(async () => {
       try {
         return structuredClone(await client.close());
-      } catch {
+      } catch (cause) {
         const error = new ActorError('transport', 'mcp-client-close-failed');
-        throw memoizeFailure ? this.fail(error) : error;
+        this.diagnose(error, cause);
+        if (!memoizeFailure) {
+          throw error;
+        }
+        this.fail(error);
+        return structuredClone(EMPTY_REPORT);
+      } finally {
+        this.client = undefined;
       }
     });
     return this.clientClosePromise;

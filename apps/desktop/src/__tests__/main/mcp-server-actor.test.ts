@@ -70,8 +70,12 @@ const base = (id: typeof linearId) => ({
   generation: 1,
   transport: 'streamable-http' as const,
 });
-function actor(factory: McpServerActorClientFactory, id = linearId): McpServerActor {
-  return new McpServerActor({ ...base(id), factory });
+function actor(
+  factory: McpServerActorClientFactory,
+  id = linearId,
+  onInternalError?: (code: string, cause: unknown) => void
+): McpServerActor {
+  return new McpServerActor({ ...base(id), factory, onInternalError });
 }
 function client(
   invoke: McpServerActorClient['invoke'] = async (request) =>
@@ -130,6 +134,15 @@ describe('McpServerActor', () => {
     const lazyFactory = vi.fn(async () => client());
     await actor(lazyFactory).close();
     expect(lazyFactory).not.toHaveBeenCalled();
+    const pendingFactory = deferred<McpServerActorClient>();
+    const pendingClose = vi.fn(async () => report);
+    const pendingActor = actor(() => pendingFactory.promise);
+    const pendingInvoke = pendingActor.invoke(LIST);
+    const pendingDrain = pendingActor.close();
+    pendingFactory.resolve(client(undefined, pendingClose));
+    await pendingInvoke;
+    await expect(pendingDrain).resolves.toEqual(report);
+    expect(pendingClose).toHaveBeenCalledOnce();
   });
   it('sanitizes and memoizes every actor boundary failure', async () => {
     const raw = new Error('credential-value-must-never-cross');
@@ -153,12 +166,26 @@ describe('McpServerActor', () => {
     for (const [subject, request, code] of cases) {
       await failure(subject.invoke(request), code);
     }
-    const closeActor = actor(async () => client(undefined, async () => Promise.reject(raw)));
+    const internalError = vi.fn();
+    const closeActor = actor(
+      async () => client(undefined, async () => Promise.reject(raw)),
+      linearId,
+      internalError
+    );
     await closeActor.invoke(LIST);
     const closing = closeActor.close();
     expect(closeActor.close()).toBe(closing);
-    const closeError = await failure(closing, 'mcp-client-close-failed');
-    expect(await failure(closeActor.invoke(LIST), 'mcp-client-close-failed')).toBe(closeError);
+    await expect(closing).resolves.toEqual({
+      callbacksClosed: 0,
+      childProcessesClosed: 0,
+      clientsClosed: 0,
+      loopbackPortsClosed: 0,
+      probesClosed: 0,
+      requestsSettled: 0,
+      subscriptionsClosed: 0,
+    });
+    expect(internalError).toHaveBeenCalledWith('mcp-client-close-failed', raw);
+    await failure(closeActor.invoke(LIST), 'mcp-generation-closed');
     const invalid = structuredClone(negotiated);
     Reflect.set(invalid, 'invalid', () => undefined);
     const closeClient = vi.fn(async () => report);
@@ -202,7 +229,7 @@ describe('McpServerActor', () => {
         },
         state: 'error',
       },
-      { ...base(linearId), state: 'closing' },
+      { ...base(linearId), state: 'disconnected' },
     ]);
     await second.invoke({ ...LIST, configuredServerId: githubId });
     expect(second.snapshot()).toEqual({ ...base(githubId), negotiated, state: 'connected' });
