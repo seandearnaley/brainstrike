@@ -1,5 +1,5 @@
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { providerCompatibleInputSchema } from '../tools/provider-compatible-input';
 import * as toolSchemas from '../tools/schemas';
@@ -306,6 +306,50 @@ describe('native tool input schema catalog', () => {
     expect(schema.parse({ selector: null })).toEqual({});
   });
 
+  it('normalizes provider nulls through nullable structured wrappers and tuple positions', () => {
+    const schema = providerCompatibleInputSchema(
+      z
+        .object({
+          config: z
+            .object({ note: z.string().optional() })
+            .strict()
+            .nullable()
+            .optional(),
+          entries: z
+            .array(z.object({ note: z.string().optional() }).strict())
+            .nullable()
+            .optional(),
+          tuple: z.tuple([z.object({ note: z.string().optional() }).strict()]).optional(),
+        })
+        .strict()
+    );
+
+    expect(
+      schema.parse({
+        config: { note: null },
+        entries: [{ note: null }],
+        tuple: [{ note: null }],
+      })
+    ).toEqual({ config: {}, entries: [{}], tuple: [{}] });
+  });
+
+  it('keeps ambiguous structured-union nulls visible to authored validation', () => {
+    const schema = providerCompatibleInputSchema(
+      z
+        .object({
+          config: z
+            .union([
+              z.object({ note: z.string().optional() }).strict(),
+              z.object({ title: z.string().optional() }).strict(),
+            ])
+            .optional(),
+        })
+        .strict()
+    );
+
+    expect(schema.safeParse({ config: { note: null } }).success).toBe(false);
+  });
+
   it('normalizes nested ordinary-union optional null through its unique const branch', () => {
     const schema = providerCompatibleInputSchema(
       z
@@ -342,6 +386,41 @@ describe('native tool input schema catalog', () => {
     expect(schema.parse({ note: null })).toEqual({});
     expect(refinementRuns).toBe(1);
     expect(transformRuns).toBe(1);
+  });
+
+  it('defers JSON Schema conversion until first parse and memoizes it per wrapper', async () => {
+    vi.resetModules();
+    const actualZod = await vi.importActual<typeof import('zod')>('zod');
+    const toJSONSchema = vi.fn(actualZod.z.toJSONSchema);
+    const mockedZ = new Proxy(actualZod.z, {
+      get(target, property, receiver) {
+        return property === 'toJSONSchema'
+          ? toJSONSchema
+          : Reflect.get(target, property, receiver);
+      },
+    });
+    vi.doMock('zod', () => ({ ...actualZod, z: mockedZ }));
+
+    try {
+      const { z: isolatedZ } = await import('zod');
+      const { providerCompatibleInputSchema: isolatedProviderCompatibleInputSchema } =
+        await import('../tools/provider-compatible-input');
+      const schema = isolatedProviderCompatibleInputSchema(
+        isolatedZ.object({ note: isolatedZ.string().optional() }).strict()
+      );
+
+      await import('../tools/schemas');
+      expect(toJSONSchema).not.toHaveBeenCalled();
+
+      expect(schema.parse({ note: null })).toEqual({});
+      expect(toJSONSchema).toHaveBeenCalledTimes(1);
+
+      expect(schema.parse({ note: null })).toEqual({});
+      expect(toJSONSchema).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.doUnmock('zod');
+      vi.resetModules();
+    }
   });
 
   it('validates the manageCanvas action union, tolerating cross-action extras (model-idiomatic)', () => {
