@@ -364,11 +364,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          gh label create "nightly-coverage-failure" \
+          set -euo pipefail
+          if ! gh label create "nightly-coverage-failure" \
             --repo "$REPO" \
+            --force \
             --color d93f0b \
-            --description "Auto-opened by nightly-coverage.yml when the scheduled coverage run fails" \
-            2>/dev/null || true
+            --description "Auto-opened by nightly-coverage.yml when the scheduled coverage run fails"; then
+            echo "::error::Could not ensure the 'nightly-coverage-failure' label exists, so the tracking issue can be neither filed nor de-duplicated."
+            exit 1
+          fi
 
       - name: Open or update tracking issue
         env:

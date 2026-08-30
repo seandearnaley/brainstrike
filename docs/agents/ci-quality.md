@@ -554,23 +554,32 @@ steps are reporting rather than gating, so they are listed in
 `check-ci-parity.test.mjs`'s `PROVISIONING_STEPS` — `pnpm check` must not
 mirror them, because running them locally would file and close GitHub issues.
 
-The label step uses `gh label create --force` and **no** `2>/dev/null || true`,
-unlike the four sibling notifiers. That idiom absorbs the expected "label
+Every tracking notifier's label step uses `gh label create --force` and **no**
+`2>/dev/null || true`. That idiom absorbs the expected "label
 already exists" and a genuine failure (token not elevated, API 5xx, org label
 restrictions) indistinguishably; since the label does not exist until the first
 red `main`, a swallowed failure on that very first run makes the next step's
 `gh issue create --label` hard-fail and nothing gets filed — reproducing the
 "red run sits unseen in the Actions tab" outcome one level up. `--force`
 PATCHes an existing label instead of erroring, so a non-zero exit means only a
-genuine failure and is allowed to be fatal, loudly and at the step that caused
-it.
+genuine failure. Each label step annotates that the tracking issue cannot be
+filed or de-duplicated, then fails before any unlabelled issue can be created.
+
+The scheduled web, desktop, coverage, and performance notifiers deliberately
+retain their existing human-closed lifecycle: while an incident's issue remains
+open, another red run comments on it; after a human closes it on recovery, a
+later incident creates a fresh issue. Their issue bodies explicitly assign that
+close-on-green action to a human; this label-reliability fix does not redesign
+that established lifecycle or add automatic recovery jobs.
 
 Contract coverage lives in
 `scripts/__tests__/main-failure-notifier-contract.test.mjs` and runs in the
 Static job through `pnpm test:scripts`. Its control tests pin all four
 properties above: dropping a watched job, reverting `!cancelled()` to
 `always()`, restoring the `|| true` suppression, or deleting the recovery job
-each make the contract fail.
+each make the contract fail. The four scheduled notifier variants are covered
+by `scripts/__tests__/nightly-notifier-label-contract.test.mjs`, including their
+fail-visible label path and unchanged manual-close de-duplication lifecycle.
 
 ### Biome 2.5.8 cleared the 2.5.3/2.5.4 module-graph hold (2026-08-15, BST-1273)
 
