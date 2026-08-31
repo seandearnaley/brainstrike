@@ -678,6 +678,30 @@ describe('ipc-mcp handlers', () => {
   });
 
   describe('mcp:config:selectPath', () => {
+    it('does not hold the config queue while the native dialog is open', async () => {
+      const selection = Promise.withResolvers<{ canceled: boolean; filePaths: string[] }>();
+      vi.mocked(dialog.showOpenDialog).mockReturnValueOnce(selection.promise as never);
+      vi.mocked(loadMcpConfig).mockResolvedValueOnce({
+        exists: false,
+        path: '/tmp/mcp.config.json',
+      } as never);
+      const selectHandler = handlers.get('mcp:config:selectPath');
+      const getHandler = handlers.get('mcp:config:get');
+      if (!(selectHandler && getHandler)) {
+        throw new Error('config handlers not registered');
+      }
+
+      const selected = selectHandler();
+      await vi.waitFor(() => expect(dialog.showOpenDialog).toHaveBeenCalledOnce());
+      await expect(getHandler()).resolves.toEqual({
+        exists: false,
+        path: '/tmp/mcp.config.json',
+      });
+
+      selection.resolve({ canceled: true, filePaths: [] });
+      await expect(selected).resolves.toBeNull();
+    });
+
     it('returns null when selection is canceled', async () => {
       vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({
         canceled: true,

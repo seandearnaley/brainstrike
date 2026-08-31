@@ -440,6 +440,13 @@ describe('MCP desktop authority bootstrap', () => {
     });
   });
 
+  it('keeps config unwatch teardown-safe after reset closes admission', async () => {
+    await register(loaded('linear'));
+    await resetMcpRuntimeForFactoryReset(runtime);
+
+    await expect(handlers.get('mcp:config:unwatch')?.()).resolves.toEqual({ watching: false });
+  });
+
   it('pins mutation-sensitive shutdown ordering, reset wiring, and aggregate serialization', () => {
     const source = readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
     const assistantDrain = source.indexOf("runShutdownStep('assistant-server'");

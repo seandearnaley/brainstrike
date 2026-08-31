@@ -397,4 +397,30 @@ describe('ipc-mcp tool preference loading', () => {
     await reset;
     expect(disposeClientsMock).toHaveBeenCalledOnce();
   });
+
+  it('rejects a deferred tool mutation when a queued config reload rebuilds the registry', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    const configPathWrite = Promise.withResolvers<void>();
+    setCustomMcpConfigPathMock.mockImplementationOnce(async () => await configPathWrite.promise);
+    const setPath = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'mcp:config:setPath'
+    )?.[1] as ((event: unknown, configPath: null) => Promise<unknown>) | undefined;
+    const disable = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'mcp:tools:disable'
+    )?.[1] as ((event: unknown, toolIds: string[]) => Promise<void>) | undefined;
+    if (!(setPath && disable)) {
+      throw new Error('config and tool handlers not registered');
+    }
+    const configMutation = setPath({}, null);
+    await vi.waitFor(() => expect(setCustomMcpConfigPathMock).toHaveBeenCalledOnce());
+    const deferredMutation = disable({}, ['retired.tool']);
+    configPathWrite.resolve();
+
+    await configMutation;
+    await expect(deferredMutation).rejects.toThrow(
+      'MCP tool registry changed before the deferred mutation executed'
+    );
+    expect(disableToolsMock).not.toHaveBeenCalledWith(['retired.tool']);
+  });
 });
