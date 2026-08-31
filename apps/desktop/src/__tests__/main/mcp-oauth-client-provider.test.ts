@@ -4,6 +4,7 @@ import {
   createMcpOAuthClientProvider,
   createSafeStorageMcpOAuthStore,
   type McpOAuthPersistedState,
+  readMcpOAuthAuthProjection,
 } from '../../mcp/oauth-client-provider';
 
 const identity = { resourceUrl: 'https://mcp.example.test/mcp', serverId: 'linear' } as const;
@@ -89,6 +90,167 @@ describe('MCP OAuth credential boundary', () => {
     await expect(store.read(identity)).resolves.not.toMatchObject({
       issuer: { tokens: { access_token: 'two' } },
     });
+  });
+
+  it('projects only token-free auth state, scope policy, and last success', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    await store.write(identity, {
+      'https://auth.example.test': {
+        clientInformation: { client_id: 'private-client-id', client_secret: 'private-secret' },
+        discoveryState: { authorizationServerUrl: 'https://auth.example.test' },
+        lastSuccessfulConnectionAt: 1234,
+        tokens: {
+          access_token: 'private-access',
+          refresh_token: 'private-refresh',
+          scope: 'read offline_access',
+          token_type: 'Bearer',
+        },
+        updatedAt: 1234,
+      },
+    });
+
+    const projection = await readMcpOAuthAuthProjection(store, identity, {
+      requestedScopes: ['read'],
+    });
+
+    expect(projection).toEqual({
+      authorizationServer: 'https://auth.example.test',
+      credentialState: 'stored',
+      grantedScopes: ['read', 'offline_access'],
+      lastSuccessfulConnectionAt: 1234,
+      requestedScopes: ['read'],
+      resourceUrl: identity.resourceUrl,
+      type: 'oauth-user',
+    });
+    expect(JSON.stringify(projection)).not.toMatch(
+      /private-access|private-refresh|private-client-id|private-secret/u
+    );
+  });
+
+  it('requests configured scopes and records successful authenticated connections', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      scopes: ['read'],
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    try {
+      if (!(provider.saveDiscoveryState && provider.saveTokens)) {
+        throw new Error('OAuth provider did not expose persistence methods.');
+      }
+      await provider.saveDiscoveryState({ authorizationServerUrl: 'https://auth.example.test' });
+      await provider.saveTokens(
+        {
+          access_token: 'private-access',
+          issuer: 'https://auth.example.test',
+          scope: 'read',
+          token_type: 'Bearer',
+        },
+        { issuer: 'https://auth.example.test' }
+      );
+      await provider.recordSuccessfulConnection();
+
+      expect(provider.clientMetadata.scope).toBe('read');
+      expect(provider.authSnapshot()).toMatchObject({
+        credentialState: 'stored',
+        grantedScopes: ['read'],
+        lastSuccessfulConnectionAt: expect.any(Number),
+        requestedScopes: ['read'],
+      });
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('uses requested scopes when RFC 6749 permits the token response to omit scope', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    await store.write(identity, {
+      'https://auth.example.test': {
+        tokens: { access_token: 'private-access', token_type: 'Bearer' },
+        updatedAt: 10,
+      },
+    });
+
+    await expect(
+      readMcpOAuthAuthProjection(store, identity, { requestedScopes: ['read'] })
+    ).resolves.toMatchObject({ grantedScopes: ['read'], requestedScopes: ['read'] });
+  });
+
+  it('prefers a token-bearing issuer record over newer discovery-only state', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    await store.write(identity, {
+      'https://auth-a.example.test': {
+        lastSuccessfulConnectionAt: 9,
+        tokens: { access_token: 'private-access', scope: 'read', token_type: 'Bearer' },
+        updatedAt: 9,
+      },
+      'https://auth-b.example.test': {
+        discoveryState: { authorizationServerUrl: 'https://auth-b.example.test' },
+        updatedAt: 10,
+      },
+    });
+
+    await expect(readMcpOAuthAuthProjection(store, identity)).resolves.toMatchObject({
+      authorizationServer: 'https://auth-a.example.test',
+      credentialState: 'stored',
+      lastSuccessfulConnectionAt: 9,
+    });
+  });
+
+  it('prefers the last successful token issuer over a newer unverified token record', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    await store.write(identity, {
+      'https://auth-a.example.test': {
+        lastSuccessfulConnectionAt: 9,
+        tokens: { access_token: 'verified-access', scope: 'read', token_type: 'Bearer' },
+        updatedAt: 9,
+      },
+      'https://auth-b.example.test': {
+        tokens: { access_token: 'unverified-access', scope: 'write', token_type: 'Bearer' },
+        updatedAt: 10,
+      },
+    });
+
+    await expect(readMcpOAuthAuthProjection(store, identity)).resolves.toMatchObject({
+      authorizationServer: 'https://auth-a.example.test',
+      grantedScopes: ['read'],
+      lastSuccessfulConnectionAt: 9,
+    });
+  });
+
+  it.each(['read  write', 'read\twrite', ' read', 'read '])(
+    'rejects malformed granted scope %j instead of normalizing it',
+    async (scope) => {
+      const store = createInMemoryMcpOAuthStore();
+      await store.write(identity, {
+        'https://auth.example.test': {
+          tokens: { access_token: 'private-access', scope, token_type: 'Bearer' },
+          updatedAt: 10,
+        },
+      });
+
+      await expect(readMcpOAuthAuthProjection(store, identity)).rejects.toThrow(
+        'MCP OAuth granted scope is malformed'
+      );
+    }
+  );
+
+  it('treats an explicit empty internal scope list like an omitted list', async () => {
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      scopes: [],
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    try {
+      expect(provider.clientMetadata.scope).toBeUndefined();
+      expect(provider.authSnapshot().requestedScopes).toEqual([]);
+    } finally {
+      await provider.close();
+    }
   });
 
   it('rejects client metadata documents that are not valid HTTPS URLs', async () => {
