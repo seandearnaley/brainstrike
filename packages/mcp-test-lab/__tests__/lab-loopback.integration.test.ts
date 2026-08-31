@@ -93,12 +93,17 @@ describe('MCP lab loopback HTTP references', () => {
       try {
         await client.connect(new StreamableHTTPClientTransport(lab.endpoint.url));
         expect(client.getNegotiatedProtocolVersion()).toBe(expectedVersion);
-        expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['echo']);
-        expect(
-          await client.callTool({ arguments: { text: scenarioId }, name: 'echo' })
-        ).toMatchObject({
-          structuredContent: { text: scenarioId },
-        });
+        const expectedTool = scenarioId === 'modern-reference' ? 'test_simple_text' : 'echo';
+        expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([expectedTool]);
+        if (scenarioId === 'modern-reference') {
+          expect(await client.callTool({ name: expectedTool })).toMatchObject({
+            content: [{ text: 'This is a simple text response for testing.', type: 'text' }],
+          });
+        } else {
+          expect(
+            await client.callTool({ arguments: { text: scenarioId }, name: expectedTool })
+          ).toMatchObject({ structuredContent: { text: scenarioId } });
+        }
       } finally {
         try {
           await client.close();

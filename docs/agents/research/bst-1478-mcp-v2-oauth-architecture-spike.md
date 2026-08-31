@@ -168,9 +168,12 @@ consume this lab, but they cannot be pulled into the harness PRs.
 
 The reusable Node-only lab lives in `packages/mcp-test-lab` as
 `@brainstrike/mcp-test-lab`, separate from Playwright-specific app helpers and absent
-from every production dependency graph. A small Brainstrike-authored fixture built with
-the exact-pinned official SDK provides controlled scenarios; it is not described as the
-official `everythingServer`. The official conformance runner remains the authoritative
+from every production dependency graph. The modern reference is a bounded,
+source-backed profile of the exact-pinned official SDK v2
+`test/conformance/src/everythingServer.ts`; it preserves representative official
+tool/resource/prompt/completion names and behavior while remaining deterministic.
+It is not the full upstream process-global server and is not an official-conformance
+claim. The legacy, OAuth, and stdio fixtures remain Brainstrike-owned. The official conformance runner remains the authoritative
 conformance target, and Brainstrike production proof must dispatch through the real host
 interface rather than an SDK-to-SDK self-test.
 
@@ -189,8 +192,8 @@ path before closing. Protocol and lifecycle assertions use real SDK exchanges;
 mocks stop at OS, browser, clock, and credential-store boundaries. Intentional fault
 switches or mutation canaries prove that each harness layer can become red.
 
-The deterministic MCP lab starts with a Brainstrike-authored modern reference
-server built on the exact-pinned official SDK v2 for `2026-07-28`, a legacy server, lab-owned real stdio, and a
+The deterministic MCP lab starts with that source-backed official modern profile
+on the exact-pinned SDK v2 for `2026-07-28`, a legacy server, lab-owned real stdio, and a
 loopback OAuth protected-resource/authorization server. The initial executable
 OAuth surface is protected-resource and authorization-server metadata, DCR,
 S256 PKCE, issuer/resource binding, authorization-code exchange, and bearer
@@ -253,7 +256,7 @@ era; every probe is observed and reaped, and `close` proves zero remaining child
 
 | Phase / ticket | Dependencies | Deliverable | Acceptance criteria |
 | --- | --- | --- | --- |
-| PV Verification harness (`BST-1475`) | None | Production-independent scenario manifest, modern/legacy/OAuth/stdio reference fixtures, fault injection, evidence schema, bounded runner, and Electron/CDT recipe. | Every exported verifier behavior has focused red/green proof; fixtures and runner are bounded and clean up all owned resources; no production SDK, Electron OAuth, live Linear, or official-conformance claim is included. |
+| PV Verification harness (`BST-1475`) | None | Production-independent scenario manifest, source-backed official modern profile, legacy/OAuth/stdio reference fixtures, fault injection, evidence schema, bounded runner, and Electron/CDT recipe. | Every exported verifier behavior has focused red/green proof; fixtures and runner are bounded and clean up all owned resources; no production SDK, Electron OAuth, live Linear, full upstream-server, or official-conformance claim is included. |
 | P0 Truthful baseline | PV | Capability contract tests; remove unconditional MCP Apps advertisement; document exact versions/deprecations. | No unimplemented capability is advertised; existing tool-only fixtures remain green. |
 | P1 SDK v2 + single owner | P0 | Split v2 packages, `McpHostService`, `auto` era negotiation, finite pagination/MRTR/timeouts, explicit transports. | Real stdio and HTTP fixtures pass legacy `2025-11-25` and modern `2026-07-28`; exactly one client/child per server generation; modern wire has no session/GET behavior. |
 | P2 OAuth + Linear | P1; encrypted MCP auth store/reset hook | Strict auth config, SDK `OAuthClientProvider`, token-free IPC/UI, reauth/scope suspension, Linear live proof. | Native Linear browser flow works without proxy; restart reuses/refreshes credentials; disconnect/reset clears disk and memory; state/issuer/port/DCR/storage/401/403 failures are distinct and tested; zero secret leakage. |

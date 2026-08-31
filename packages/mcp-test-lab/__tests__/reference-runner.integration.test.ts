@@ -60,7 +60,11 @@ describe('MCP official reference runner', () => {
       expect(schema.commands.every(({ command }) => command === COMMAND)).toBe(true);
       expect(schema.correlationIds).toHaveLength(3);
       expect(schema.correlationIds[0]).toBe(`${caseIds[index]}-red-tool-rejection`);
-      expect(schema.negotiation.capabilities).toEqual(['tools']);
+      expect(schema.negotiation.capabilities).toEqual(
+        schema.scenarioId === 'modern-reference'
+          ? ['completions', 'prompts', 'resources', 'tools']
+          : ['tools']
+      );
     }
     expect(JSON.stringify(bundles)).not.toMatch(/bearer|access[_-]?token|client[_-]?secret/i);
   }, 30_000);

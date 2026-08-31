@@ -184,11 +184,57 @@ describe('MCP lab in-process HTTP references', () => {
   });
 
   it('negotiates the pinned modern protocol through a real SDK exchange', async () => {
-    await verifyReferenceExchange(
-      'modern-reference',
-      { mode: { pin: '2026-07-28' } },
-      '2026-07-28'
+    const lab = await startMcpLabScenario('modern-reference', { execution: 'in-process' });
+    const endpoint = requireInProcessEndpoint(lab);
+    const client = new Client(
+      { name: 'brainstrike-official-modern-reference-test', version: '1.0.0' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } }
     );
+
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(endpoint.url, { fetch: endpoint.fetch })
+      );
+      expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+      expect(client.getServerVersion()).toEqual({
+        name: 'mcp-conformance-test-server',
+        version: '1.0.0',
+      });
+      expect(client.getServerCapabilities()).toMatchObject({
+        completions: {},
+        prompts: { listChanged: true },
+        resources: { listChanged: true, subscribe: true },
+        tools: { listChanged: true },
+      });
+      expect((await client.listTools()).tools.map(({ name }) => name)).toContain(
+        'test_simple_text'
+      );
+      expect(await client.callTool({ name: 'test_simple_text' })).toMatchObject({
+        content: [{ text: 'This is a simple text response for testing.', type: 'text' }],
+      });
+      expect((await client.listResources()).resources).toContainEqual(
+        expect.objectContaining({ uri: 'test://static-text' })
+      );
+      expect(await client.readResource({ uri: 'test://static-text' })).toMatchObject({
+        contents: [
+          {
+            text: 'This is the content of the static text resource.',
+            uri: 'test://static-text',
+          },
+        ],
+      });
+      expect((await client.listPrompts()).prompts.map(({ name }) => name)).toContain(
+        'test_simple_prompt'
+      );
+      expect(await client.getPrompt({ name: 'test_simple_prompt' })).toMatchObject({
+        messages: [
+          { content: { text: 'This is a simple prompt for testing.', type: 'text' }, role: 'user' },
+        ],
+      });
+    } finally {
+      await client.close();
+      await lab.close();
+    }
   });
 
   it('negotiates the explicit legacy protocol through a real SDK exchange', async () => {

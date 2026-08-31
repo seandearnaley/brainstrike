@@ -156,12 +156,29 @@ function echoText(value: unknown): string | undefined {
   return typeof structured.text === 'string' ? structured.text : undefined;
 }
 
-async function runEchoTest(
+async function runReferenceTest(
   client: Client,
+  runnerCase: McpLabRunnerCase,
   phase: McpLabRunnerPhase,
   value: string,
   signal: AbortSignal
 ): Promise<boolean> {
+  if (phase !== 'red' && runnerCase.scenarioId === 'modern-reference') {
+    const result = await client.callTool({ name: 'test_simple_text' }, { signal });
+    return (
+      typeof result === 'object' &&
+      result !== null &&
+      'content' in result &&
+      Array.isArray(result.content) &&
+      result.content.some(
+        (entry) =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          'text' in entry &&
+          entry.text === 'This is a simple text response for testing.'
+      )
+    );
+  }
   if (phase !== 'red') {
     return (
       echoText(await client.callTool({ arguments: { text: value }, name: 'echo' }, { signal })) ===
@@ -262,11 +279,13 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
     signal.throwIfAborted();
     const tools = await this.client.listTools(undefined, { signal });
     signal.throwIfAborted();
-    if (!tools.tools.some(({ name }) => name === 'echo')) {
-      throw new Error('MCP reference runner server does not expose the echo tool');
+    const expectedTool =
+      this.runnerCase.scenarioId === 'modern-reference' ? 'test_simple_text' : 'echo';
+    if (!tools.tools.some(({ name }) => name === expectedTool)) {
+      throw new Error(`MCP reference runner server does not expose the ${expectedTool} tool`);
     }
     const value = `${this.runnerCase.id}-${this.phase}`;
-    const passed = await runEchoTest(this.client, this.phase, value, signal);
+    const passed = await runReferenceTest(this.client, this.runnerCase, this.phase, value, signal);
     signal.throwIfAborted();
     const negotiated = this.client.getNegotiatedProtocolVersion();
     if (negotiated !== protocol.version) {

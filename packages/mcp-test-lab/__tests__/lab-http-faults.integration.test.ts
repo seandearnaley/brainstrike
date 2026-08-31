@@ -548,20 +548,20 @@ describe('MCP HTTP fault execution', () => {
         ]),
         /absent from the modern protocol registry/i,
       ],
-      [
-        createMcpLabFaultPlan([
-          {
-            fault: { delayMs: 1, kind: 'delay' },
-            id: 'fixture-unreachable',
-            match: { method: 'resources/list', occurrence: 1, phase: 'operation' },
-          },
-        ]),
-        /unsupported by fixture/i,
-      ],
     ] as const) {
       await expect(
         startMcpLabScenario('modern-reference', { execution: 'loopback', faultPlan: plan })
       ).rejects.toThrow(expected);
     }
+    const fixtureUnreachable = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 1, kind: 'delay' },
+        id: 'fixture-unreachable',
+        match: { method: 'resources/list', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    await expect(
+      startMcpLabScenario('stdio-reference', { faultPlan: fixtureUnreachable })
+    ).rejects.toThrow(/unsupported by fixture/i);
   });
 });

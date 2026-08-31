@@ -83,4 +83,9 @@ test('living contracts publish the exact local and CI commands', () => {
     assert.match(providerContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(ciContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+  assert.match(providerContract, /Evidence schema `1\.1\.0`/u);
+  assert.match(ciContract, /evidence-schema `1\.1\.0`/u);
+  for (const contract of [providerContract, ciContract]) {
+    assert.match(contract, /protocol-lab-only/u);
+  }
 });

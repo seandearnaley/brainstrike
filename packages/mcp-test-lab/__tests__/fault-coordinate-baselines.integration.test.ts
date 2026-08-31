@@ -56,6 +56,11 @@ describe('MCP HTTP executable coordinate baselines', () => {
       'modern-reference',
       delayFaults([
         { match: { method: 'server/discover', occurrence: 1, phase: 'initialization' } },
+        { match: { method: 'completion/complete', occurrence: 1, phase: 'operation' } },
+        { match: { method: 'prompts/get', occurrence: 1, phase: 'operation' } },
+        { match: { method: 'prompts/list', occurrence: 1, phase: 'operation' } },
+        { match: { method: 'resources/list', occurrence: 1, phase: 'operation' } },
+        { match: { method: 'resources/read', occurrence: 1, phase: 'operation' } },
         { match: { method: 'tools/list', occurrence: 1, phase: 'operation' } },
         { match: { method: 'tools/call', occurrence: 1, phase: 'operation' } },
         { match: { method: 'subscriptions/listen', occurrence: 1, phase: 'subscription' } },
@@ -67,8 +72,16 @@ describe('MCP HTTP executable coordinate baselines', () => {
     );
     let report: McpLabCleanupReport;
     try {
+      await session.client.complete({
+        argument: { name: 'unused', value: '' },
+        ref: { name: 'test_simple_prompt', type: 'ref/prompt' },
+      });
+      await session.client.listPrompts();
+      await session.client.getPrompt({ name: 'test_simple_prompt' });
+      await session.client.listResources();
+      await session.client.readResource({ uri: 'test://static-text' });
       await session.client.listTools();
-      await session.client.callTool({ arguments: { text: 'modern' }, name: 'echo' });
+      await session.client.callTool({ name: 'test_simple_text' });
       await session.client.notification({
         method: 'notifications/progress',
         params: { progress: 1, progressToken: 'modern-progress' },
@@ -79,7 +92,7 @@ describe('MCP HTTP executable coordinate baselines', () => {
       report = await session.close();
     }
     expect(report.untriggeredFaultIds).toEqual([]);
-    expect(session.plan.observations()).toHaveLength(6);
+    expect(session.plan.observations()).toHaveLength(11);
   });
 
   it('reaches every legacy coordinate through the official SDK client', async () => {

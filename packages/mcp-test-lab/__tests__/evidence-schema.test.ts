@@ -23,10 +23,87 @@ function artifactAt(bundle: ReturnType<typeof evidenceFixture>, index = 0) {
   }
   return artifact;
 }
+function requireDesktopEvidence(bundle: ReturnType<typeof evidenceFixture>): void {
+  bundle.artifacts = [
+    ...bundle.artifacts,
+    {
+      kind: 'screenshot',
+      reference: 'artifacts/window.png',
+      sanitized: true,
+      sha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    },
+  ];
+  bundle.desktop = {
+    app: {
+      bundleId: 'com.brainstrike.desktop.agent-debug',
+      title: 'BrainStrike Agent Debug',
+    },
+    cdt: {
+      endpoint: 'http://127.0.0.1:9222',
+      inspected: true,
+      rendererUrl: 'http://localhost:5173/settings',
+      targetTitle: 'BrainStrike Agent Debug',
+    },
+    electronE2e: {
+      command: 'pnpm --filter @brainstrike/desktop test:e2e',
+      exitStatus: 0,
+      tests: { failed: 0, passed: 2, skipped: 0, total: 2 },
+    },
+    matrix: [
+      'settings-connect',
+      'oauth-browser-return',
+      'assistant-call',
+      'cancellation',
+      'restart-reconnect',
+      'config-change',
+      'concurrent-runs',
+      'disconnect-cleanup',
+    ].map((id) => ({
+      artifactReferences: ['artifacts/a.log', 'artifacts/window.png'],
+      blockerCode: null,
+      id,
+      status: 'passed',
+    })),
+    profile: { isolated: true, userDataDirectory: 'artifacts/isolated-profile' },
+    required: true,
+    secretScan: {
+      artifactReferences: ['artifacts/a.log', 'artifacts/window.png'],
+      command: 'pnpm secret-scan artifacts',
+      exitStatus: 0,
+      verified: true,
+    },
+  };
+}
 describe('parseMcpEvidenceSchema', () => {
   it('accepts a complete exact-head evidence schema', () => {
-    expect(MCP_EVIDENCE_SCHEMA_VERSION).toBe('1.0.0');
+    expect(MCP_EVIDENCE_SCHEMA_VERSION).toBe('1.1.0');
     expect(parseMcpEvidenceSchema(VALID_EVIDENCE_SCHEMA)).toEqual(VALID_EVIDENCE_SCHEMA);
+  });
+  it('requires an explicit desktop applicability declaration', () => {
+    const missing = evidenceFixture();
+    Reflect.deleteProperty(missing, 'desktop');
+    expectInvalid(missing, /\$\.desktop.*required field/i);
+    const malformed = { ...evidenceFixture(), desktop: { required: false } };
+    expectInvalid(malformed, /desktop\.reason.*required field/i);
+  });
+  it('accepts the complete Electron E2E and CDT evidence matrix', () => {
+    const bundle = evidenceFixture();
+    requireDesktopEvidence(bundle);
+
+    expect(parseMcpEvidenceSchema(bundle).desktop).toEqual(bundle.desktop);
+  });
+  it('requires reviewable screenshot and diagnostic evidence for desktop sessions', () => {
+    const bundle = evidenceFixture();
+    requireDesktopEvidence(bundle);
+    bundle.artifacts = bundle.artifacts.filter(({ kind }) => kind !== 'screenshot');
+    if ('secretScan' in bundle.desktop) {
+      bundle.desktop.secretScan.artifactReferences = ['artifacts/a.log'];
+      for (const entry of bundle.desktop.matrix) {
+        entry.artifactReferences = ['artifacts/a.log'];
+      }
+    }
+
+    expectInvalid(bundle, /desktop.*screenshot/i);
   });
   it('rejects missing and unknown fields at closed object boundaries', () => {
     const missing = evidenceFixture();
@@ -74,6 +151,21 @@ describe('parseMcpEvidenceSchema', () => {
       { ...evidenceFixture(), git: { commitSha: 'abc', workspaceState: 'clean' } },
       /git\.commitSha.*40-character/i
     );
+  });
+  it('records independently verifiable official fixture provenance', () => {
+    const bundle = evidenceFixture();
+    Object.assign(bundle.versions, {
+      fixture: {
+        commitSha: 'cc4b41617ce3601b1290d67216ea0b194a3cd9ac',
+        id: 'official-sdk-v2-everything-reference',
+        kind: 'official-typescript-sdk',
+        path: 'test/conformance/src/everythingServer.ts',
+        repositoryUrl: 'https://github.com/modelcontextprotocol/typescript-sdk.git',
+        sha256: '3a94417774fa20b17971e8162f9865b1cefd2650c7d88fdcd17f971d91213852',
+      },
+    });
+
+    expect(parseMcpEvidenceSchema(bundle).versions).toMatchObject(bundle.versions);
   });
   it('requires count consistency and a genuinely failing RED proof', () => {
     const inconsistent = evidenceFixture();

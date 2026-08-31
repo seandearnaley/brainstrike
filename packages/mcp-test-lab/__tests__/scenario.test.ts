@@ -8,6 +8,7 @@ import {
   getMcpLabScenario,
   MCP_LAB_CONFORMANCE_SOURCE,
   MCP_LAB_CONFORMANCE_VERSION,
+  MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
   MCP_LAB_SCENARIO_IDS,
   MCP_LAB_SDK_SOURCE,
   MCP_LAB_SDK_SOURCE_SHA,
@@ -68,12 +69,13 @@ describe('MCP lab scenario manifest', () => {
     expectTypeOf<AcceptsStdioUndefinedExecution>().toEqualTypeOf<false>();
   });
 
-  it('declares the Brainstrike fixture and pinned official version/tag metadata', () => {
+  it('declares the pinned official modern fixture and version/tag metadata', () => {
     expect(getMcpLabScenario('modern-reference')).toEqual({
       authentication: 'none',
       availability: 'executable',
-      description: 'Executable modern reference over the Brainstrike-owned SDK v2 echo fixture',
-      fixture: 'brainstrike-sdk-v2-reference',
+      description: 'Executable modern reference based on the official SDK v2 everything server',
+      fixture: 'official-sdk-v2-everything-reference',
+      fixtureSource: MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
       id: 'modern-reference',
       network: 'loopback-only',
       protocol: { era: 'modern', version: '2026-07-28' },
@@ -108,6 +110,13 @@ describe('MCP lab scenario manifest', () => {
       tag: '@modelcontextprotocol/server@2.0.0',
     });
     expect(getMcpLabScenario('modern-reference').reference.sdkSource).toBe(MCP_LAB_SDK_SOURCE);
+    expect(MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE).toEqual({
+      commitSha: 'cc4b41617ce3601b1290d67216ea0b194a3cd9ac',
+      kind: 'official-typescript-sdk',
+      path: 'test/conformance/src/everythingServer.ts',
+      repositoryUrl: 'https://github.com/modelcontextprotocol/typescript-sdk.git',
+      sha256: '3a94417774fa20b17971e8162f9865b1cefd2650c7d88fdcd17f971d91213852',
+    });
     expect(MCP_LAB_CONFORMANCE_SOURCE).toEqual({
       commitSha: 'a9896553900a2ef61787b57adfcbbe936a8ab1f9',
       integrity:
@@ -128,6 +137,7 @@ describe('MCP lab scenario manifest', () => {
       expect(Object.isFrozen(manifest)).toBe(true);
       expect(Object.isFrozen(manifest.protocol)).toBe(true);
       expect(Object.isFrozen(manifest.reference)).toBe(true);
+      expect(Object.isFrozen(manifest.fixtureSource)).toBe(true);
       expect(Object.isFrozen(manifest.reference.sdkSource)).toBe(true);
     }
 
@@ -136,6 +146,7 @@ describe('MCP lab scenario manifest', () => {
     expect(Reflect.set(scenario, 'transport', 'stdio')).toBe(false);
     expect(Reflect.set(scenario.protocol, 'version', 'mutated')).toBe(false);
     expect(Reflect.set(scenario.reference.sdkSource, 'commitSha', 'mutated')).toBe(false);
+    expect(Reflect.set(scenario.fixtureSource, 'path', 'mutated')).toBe(false);
     expect(getMcpLabScenario('modern-reference').transport).toBe('streamable-http');
   });
 
