@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   legacyListTools: vi.fn(),
   loadMcpConfig: vi.fn(),
   replaceResolvedConfig: vi.fn(),
+  setCustomMcpConfigPath: vi.fn(async (): Promise<void> => undefined),
   watchMcpConfig: vi.fn(),
 }));
 
@@ -56,7 +57,7 @@ vi.mock('../../mcp-loader', () => ({
   getMcpConfigPath: mocks.getMcpConfigPath,
   loadMcpConfig: mocks.loadMcpConfig,
   readMcpConfigText: vi.fn(),
-  setCustomMcpConfigPath: vi.fn(),
+  setCustomMcpConfigPath: mocks.setCustomMcpConfigPath,
   watchMcpConfig: mocks.watchMcpConfig,
   writeMcpConfigText: vi.fn(),
 }));
@@ -364,5 +365,42 @@ describe('MCP desktop authority bootstrap', () => {
     );
     const toolEvents = sentEvents.filter(({ channel }) => channel === 'mcp:tools:updated');
     expect(toolEvents).toHaveLength(1);
+  });
+
+  it('fences a complete path mutation before reset and restores one permanent watcher', async () => {
+    await register(loaded('linear'));
+    const pathMutation = Promise.withResolvers<void>();
+    mocks.setCustomMcpConfigPath.mockImplementationOnce(async () => await pathMutation.promise);
+
+    const mutation = handlers.get('mcp:config:setPath')?.({}, null);
+    await vi.waitFor(() => expect(mocks.setCustomMcpConfigPath).toHaveBeenCalledOnce());
+    const replacementsBeforeReset = mocks.replaceResolvedConfig.mock.calls.length;
+    const reset = resetMcpRuntimeForFactoryReset(runtime);
+    await Promise.resolve();
+    expect(mocks.replaceResolvedConfig).toHaveBeenCalledTimes(replacementsBeforeReset);
+
+    pathMutation.resolve();
+    await mutation;
+    await reset;
+    expect(mocks.replaceResolvedConfig).toHaveBeenLastCalledWith({ servers: [] });
+
+    const watcherBeforeResume = watchCallback;
+    await resumeMcpRuntimeAfterFactoryReset(runtime);
+    expect(mocks.watchMcpConfig).toHaveBeenCalledTimes(3);
+    expect(watchCallback).not.toBe(watcherBeforeResume);
+  });
+
+  it('pins mutation-sensitive shutdown ordering, reset wiring, and aggregate serialization', () => {
+    const source = readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
+    const assistantDrain = source.indexOf("runShutdownStep('assistant-server'");
+    const mcpClose = source.indexOf("runShutdownStep('mcp-runtime'");
+    expect(assistantDrain).toBeGreaterThanOrEqual(0);
+    expect(mcpClose).toBeGreaterThan(assistantDrain);
+    expect(source).toContain('if (assistantServerDrained)');
+    expect(source).toContain('errors: error.errors.map(serializeDesktopError)');
+    expect(source).toContain("typeof record['category'] === 'string'");
+    expect(source).toContain("typeof record['code'] === 'string'");
+    expect(source).toContain('await Promise.allSettled([stopServer()])');
+    expect(source).toMatch(/resumeAfterReset:[\s\S]*resumeMcpRuntimeAfterFactoryReset/);
   });
 });

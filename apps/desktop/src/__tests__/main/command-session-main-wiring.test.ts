@@ -10,7 +10,7 @@ describe('command session manager lifecycle wiring', () => {
       'configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });'
     );
     expect(source).toMatch(
-      /runShutdownStep\('assistant-server',[\s\S]*await disposeDesktopCommandSessions\(\)/
+      /runShutdownStep\('assistant-server',[\s\S]*Promise\.allSettled\(\[[\s\S]*disposeDesktopCommandSessions\(\)/
     );
     expect(source).toMatch(/name:\s*'command-sessions',\s*stop:\s*disposeDesktopCommandSessions/);
   });
