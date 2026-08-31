@@ -120,14 +120,21 @@ export const parseMcpHostOperation = (value: unknown): McpHostOperation =>
   McpHostOperationSchema.parse(value);
 
 const ReferenceIdSchema = z.uuid();
-const CredentialReferenceSchema = z.strictObject({
+export const McpCredentialReferenceSchema = z.strictObject({
   id: ReferenceIdSchema,
   store: z.literal('mcp-credentials'),
 });
-const AuthSchema = z.discriminatedUnion('type', [
+export const McpOAuthScopeSchema = z
+  .string()
+  .regex(/^[\x21\x23-\x5b\x5d-\x7e]+$/u, 'must be one RFC 6749 scope token');
+export const McpOAuthScopesSchema = z
+  .array(McpOAuthScopeSchema)
+  .min(1)
+  .refine((scopes) => new Set(scopes).size === scopes.length, 'must not contain duplicates');
+export const McpConfiguredAuthSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('none') }),
-  z.strictObject({ type: z.literal('oauth-user') }),
-  z.strictObject({ credential: CredentialReferenceSchema, type: z.literal('bearer') }),
+  z.strictObject({ scopes: McpOAuthScopesSchema.optional(), type: z.literal('oauth-user') }),
+  z.strictObject({ credential: McpCredentialReferenceSchema, type: z.literal('bearer') }),
 ]);
 export const McpConfiguredProtocolSchema = z.enum([
   'legacy',
@@ -149,7 +156,7 @@ export const McpStartupPolicySchema = z
 export type McpStartupPolicy = z.output<typeof McpStartupPolicySchema>;
 const McpConfiguredServerSchema = z
   .strictObject({
-    auth: AuthSchema,
+    auth: McpConfiguredAuthSchema,
     configuredProtocol: McpConfiguredProtocolSchema,
     configuredServerId: ConfiguredMcpServerIdSchema,
     enabledTools: z.array(z.string()).optional(),

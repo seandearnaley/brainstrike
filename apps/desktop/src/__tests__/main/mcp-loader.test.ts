@@ -425,6 +425,7 @@ describe('mcp-loader', () => {
     expect(template).toContain('"transport": "streamable-http"');
     expect(template).toContain('"url": "https://your-host.example.com/mcp"');
     expect(template).toContain('Example: Legacy remote SSE server');
+    expect(template).not.toContain('mcp-remote');
   });
 
   it('rejects unknown transport entries in withDecryptedSecrets', async () => {

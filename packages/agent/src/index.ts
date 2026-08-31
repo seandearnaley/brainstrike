@@ -297,6 +297,7 @@ export {
   McpTransportEnum,
   parseMcpConfig,
   parseMcpConfigWithMigrations,
+  resolveMcpStartupPolicy,
   toMcpVersionNegotiation,
 } from './mcp/config';
 export {

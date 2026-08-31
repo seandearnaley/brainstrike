@@ -5,8 +5,12 @@ import {
   isInteractiveMcpStdioServer,
   McpProtocolEnum,
   type McpProtocolMigration,
+  resolveMcpStartupPolicy,
 } from '@brainstrike/agent';
-import { ConfiguredMcpServerIdSchema } from '@brainstrike/assistant-contract';
+import {
+  ConfiguredMcpServerIdSchema,
+  McpConfiguredAuthSchema,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { app, safeStorage } from 'electron';
 import {
@@ -99,16 +103,6 @@ const ProtocolPolicySchema = {
 };
 const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
 
-const McpCredentialReferenceSchema = z.strictObject({
-  id: z.uuid(),
-  store: z.literal('mcp-credentials'),
-});
-const McpAuthSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('none') }),
-  z.strictObject({ credential: McpCredentialReferenceSchema, type: z.literal('bearer') }),
-  z.strictObject({ type: z.literal('oauth-user') }),
-]);
-
 const StdioServerSchema = z.strictObject({
   args: z.array(SpawnStringSchema).optional(),
   command: NonEmptySpawnStringSchema,
@@ -121,7 +115,7 @@ const StdioServerSchema = z.strictObject({
 });
 
 const HttpServerSchema = z.strictObject({
-  auth: McpAuthSchema.optional(),
+  auth: McpConfiguredAuthSchema.optional(),
   enabledTools: z.array(z.string()).optional(),
   headers: HeadersSchema.optional(),
   name: ServerNameSchema,
@@ -181,21 +175,10 @@ const McpServerInputSchema = z
       });
     }
   });
-function resolveStartupPolicy(
-  server: z.infer<typeof McpServerInputSchema>
-): 'automatic' | 'authentication-required' {
-  if (server.startup !== undefined) {
-    return server.startup;
-  }
-  if (server.transport === 'stdio' && isInteractiveMcpStdioServer(server.command, server.args)) {
-    return 'authentication-required';
-  }
-  return 'automatic';
-}
 const McpServerSchema = McpServerInputSchema.transform((server) => ({
   ...server,
   protocol: server.protocol ?? ('legacy' as const),
-  startup: resolveStartupPolicy(server),
+  startup: resolveMcpStartupPolicy(server),
 }));
 const McpConfigInputSchema = z
   .strictObject({
@@ -219,7 +202,7 @@ const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
   servers: config.servers.map((server) => ({
     ...server,
     protocol: server.protocol ?? ('legacy' as const),
-    startup: resolveStartupPolicy(server),
+    startup: resolveMcpStartupPolicy(server),
   })),
 }));
 
