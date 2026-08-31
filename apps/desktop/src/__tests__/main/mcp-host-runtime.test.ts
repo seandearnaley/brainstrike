@@ -358,12 +358,26 @@ describe('DesktopMcpHostRuntime', () => {
       { signal: expect.any(AbortSignal) },
       { _meta: { traceId: 'trace-1' }, cursor: testCase.cursor }
     );
+    const onProgress = vi.fn();
+    await runtime.host.invoke(
+      {
+        arguments: { value: 'hello' },
+        configuredServerId: testCase.server.name,
+        toolName: 'echo',
+        type: 'tools/call',
+      },
+      { onProgress }
+    );
+    expect(explicitClient.callTool).toHaveBeenCalledWith(
+      { arguments: { value: 'hello' }, name: 'echo' },
+      expect.objectContaining({ onprogress: onProgress, signal: expect.any(AbortSignal) })
+    );
     const report = await runtime.host.close();
     expect(report).toMatchObject({
       callbacksClosed: 1,
       childProcessesClosed: testCase.childProcessesClosed,
       clientsClosed: 1,
-      requestsSettled: 1,
+      requestsSettled: 2,
     });
     if (testCase.server.transport !== 'stdio') {
       expect(createHttpTransportClient).toHaveBeenCalledWith(
