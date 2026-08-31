@@ -84,7 +84,7 @@ test('desktop workflows and their shared action do not cache the unused Electron
   }
 });
 
-test('all three provisioning steps use the container-safe runner temp fallback', () => {
+test('all four provisioning steps use the container-safe runner temp fallback', () => {
   const provisioningSteps = workflowPaths.flatMap((relativePath) =>
     allSteps(loadWorkflow(relativePath))
       .filter(({ name }) => name === 'Provision Electron binary')
@@ -93,8 +93,8 @@ test('all three provisioning steps use the container-safe runner temp fallback',
 
   assert.equal(
     provisioningSteps.length,
-    3,
-    'expected smoke plus two regression provisioning sites'
+    4,
+    'expected native packaging, smoke, and two regression provisioning sites'
   );
   for (const { relativePath, run } of provisioningSteps) {
     assert.equal(typeof run, 'string', `${relativePath} provisioning must remain a shell step`);
@@ -104,4 +104,31 @@ test('all three provisioning steps use the container-safe runner temp fallback',
     assert.match(run, /unzip[^\n]+"\$ELECTRON_ZIP"/);
     assert.doesNotMatch(run, /\$\{RUNNER_TEMP\}\/electron\.zip/);
   }
+});
+
+test('native packaging provisions one retrying Electron archive and reuses it', () => {
+  const steps = loadWorkflow('.github/workflows/test.yml').jobs['native-electron']?.steps;
+  assert.ok(Array.isArray(steps), 'test.yml has no steps for native-electron');
+
+  const provisionIndex = steps.findIndex(({ name }) => name === 'Provision Electron binary');
+  const nativeTestIndex = steps.findIndex(
+    ({ name }) => name === 'Load the native capability in Electron'
+  );
+  const packageIndex = steps.findIndex(({ name }) => name === 'Package the desktop application');
+  assert.ok(provisionIndex > -1, 'native-electron has no explicit Electron provisioning step');
+  assert.ok(
+    provisionIndex < nativeTestIndex,
+    'Electron must be provisioned before the native smoke'
+  );
+  assert.ok(provisionIndex < packageIndex, 'Electron must be provisioned before packaging');
+
+  const provisionRun = steps[provisionIndex].run;
+  assert.equal(typeof provisionRun, 'string');
+  assert.match(provisionRun, /ELECTRON_ZIP="\$\{RUNNER_TEMP:-\/tmp\}\/electron\.zip"/);
+  assert.match(provisionRun, /curl[^\n]+--retry 3[^\n]+--retry-all-errors[^\n]+"\$URL"/);
+  assert.match(provisionRun, /unzip[^\n]+"\$ELECTRON_ZIP"/);
+  assert.match(provisionRun, /Electron binary present at/);
+  assert.match(provisionRun, /ELECTRON_DIST=\$ELECTRON_ZIP/);
+
+  assert.match(steps[packageIndex].run, /--config\.electronDist="\$ELECTRON_DIST"/);
 });
