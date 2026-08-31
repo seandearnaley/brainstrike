@@ -141,7 +141,12 @@ import {
 } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
-import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp';
+import {
+  cleanupMcpRuntimeForShutdown,
+  registerMcpIpcHandlers,
+  resetMcpRuntimeForFactoryReset,
+  resumeMcpRuntimeAfterFactoryReset,
+} from './ipc-mcp';
 import { registerNotesVaultIpc } from './ipc-notes-vault';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
@@ -861,12 +866,34 @@ let gracefulShutdownInFlight = false;
 let forcedProcessExitTimeout: NodeJS.Timeout | null = null;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 
-function serializeDesktopError(error: unknown): Record<string, string | undefined> {
+interface SerializedDesktopError {
+  readonly category?: string;
+  readonly code?: string;
+  readonly errors?: readonly SerializedDesktopError[];
+  readonly message: string;
+  readonly name?: string;
+  readonly stack?: string;
+  readonly step?: string;
+}
+
+function serializeDesktopError(error: unknown): SerializedDesktopError {
   if (error instanceof Error) {
     return {
+      ...(error instanceof AggregateError
+        ? { errors: error.errors.map(serializeDesktopError) }
+        : {}),
       message: error.message,
       name: error.name,
-      stack: error.stack,
+      ...(error.stack === undefined ? {} : { stack: error.stack }),
+    };
+  }
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    return {
+      ...(typeof record['category'] === 'string' ? { category: record['category'] } : {}),
+      ...(typeof record['code'] === 'string' ? { code: record['code'] } : {}),
+      message:
+        typeof record['message'] === 'string' ? record['message'] : 'Structured cleanup failure',
     };
   }
   return {
@@ -877,7 +904,7 @@ function serializeDesktopError(error: unknown): Record<string, string | undefine
 async function runShutdownStep(
   step: string,
   fn: () => Promise<void>
-): Promise<Record<string, string | undefined> | null> {
+): Promise<SerializedDesktopError | null> {
   try {
     await fn();
     return null;
@@ -922,42 +949,54 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
   }
 
   gracefulShutdownPromise = (async () => {
-    const failures: Record<string, string | undefined>[] = [];
+    const failures: SerializedDesktopError[] = [];
     // Adding a new step? Call `runShutdownStep` and pass its result through
     // `recordFailure` like every step below, rather than a bespoke
     // `const x = ...; if (x) { failures.push(x); }` — that pattern, repeated
     // once per step, is what pushed this closure over the cognitive-
     // complexity lint budget when the error-log-sink step (Flight Recorder
     // P2a Task 3) was added.
-    const recordFailure = (failure: Record<string, string | undefined> | null): void => {
+    const recordFailure = (failure: SerializedDesktopError | null): void => {
       if (failure) {
         failures.push(failure);
       }
     };
 
+    let assistantServerDrained = stopAssistantServer === null;
     if (stopAssistantServer) {
+      const stopServer = stopAssistantServer;
       recordFailure(
         await runShutdownStep('assistant-server', async () => {
-          // Reap any shell command the assistant left running FIRST so no orphaned
-          // subprocess (vitest/build) keeps eating CPU/battery after the app exits.
-          disposeLiveChildProcesses();
-          // Reap any live terminal pty so no interactive shell survives the app.
-          disposeAllTerminals();
-          // Reap workspace-owned persistent command sessions before the assistant
-          // host and database are torn down.
-          await disposeDesktopCommandSessions();
-          // Reap any pooled LSP language servers (report R2) so no orphaned
-          // server process survives the app quit.
-          await disposeLspServers();
-          if (stopAssistantServer) {
-            await stopAssistantServer();
+          const [stopResult] = await Promise.allSettled([stopServer()]);
+          if (stopResult?.status === 'fulfilled') {
             stopAssistantServer = null;
+            assistantServerDrained = true;
+          }
+          const cleanupResults = await Promise.allSettled([
+            Promise.resolve().then(disposeLiveChildProcesses),
+            Promise.resolve().then(disposeAllTerminals),
+            disposeDesktopCommandSessions(),
+            disposeLspServers(),
+          ]);
+          const causes = [stopResult, ...cleanupResults].flatMap((result) =>
+            result?.status === 'rejected' ? [result.reason] : []
+          );
+          if (causes.length > 0) {
+            throw new AggregateError(causes, 'Assistant server shutdown cleanup failed');
           }
         })
       );
     }
 
-    recordFailure(await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown));
+    if (assistantServerDrained) {
+      recordFailure(await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown));
+    } else {
+      failures.push({
+        message: 'Skipped terminal MCP host close because assistant-server drain failed',
+        name: 'McpShutdownOrderingError',
+        step: 'mcp-runtime',
+      });
+    }
 
     recordFailure(
       await runShutdownStep('chunking-host', async () => {
@@ -1229,7 +1268,12 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
   resetLocalDatabase,
+  resumeAfterReset: () => resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime()),
   runtimes: [
+    {
+      name: 'mcp-runtime',
+      stop: () => resetMcpRuntimeForFactoryReset(getDesktopMcpHostRuntime()),
+    },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
     { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
     { name: 'llm-host', stop: () => llmHostManager.stop() },
