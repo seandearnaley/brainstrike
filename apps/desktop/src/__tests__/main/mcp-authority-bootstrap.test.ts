@@ -390,6 +390,56 @@ describe('MCP desktop authority bootstrap', () => {
     expect(watchCallback).not.toBe(watcherBeforeResume);
   });
 
+  it('restores prior authority and projections before failed-reset admission reopens', async () => {
+    await register(loaded('linear'));
+    vi.mocked(mcpToolRegistry.getAllTools).mockReturnValueOnce({
+      linear: [
+        {
+          description: 'Inspect Linear issues',
+          discoveredAt: 1,
+          enabled: false,
+          id: 'linear.inspect',
+          inputSchema: { type: 'object' },
+          serverName: 'linear',
+        },
+      ],
+    });
+    if (!watchCallback) {
+      throw new Error('Expected config watcher callback');
+    }
+    await watchCallback({ error: 'invalid JSON', exists: true, path: '/tmp/mcp.config.json' });
+    await resetMcpRuntimeForFactoryReset(runtime);
+    const restore = Promise.withResolvers<McpHostSnapshot>();
+    mocks.replaceResolvedConfig.mockReturnValueOnce(restore.promise);
+    sentEvents = [];
+
+    const resume = resumeMcpRuntimeAfterFactoryReset(runtime, 'failed');
+    await vi.waitFor(() =>
+      expect(mocks.replaceResolvedConfig).toHaveBeenLastCalledWith(loaded('linear').config)
+    );
+    await expect(handlers.get('mcp:config:get')?.()).rejects.toThrow(
+      'MCP config lifecycle is closed for cleanup'
+    );
+
+    restore.resolve(snapshot(2, [server('linear')]));
+    await resume;
+
+    expect(mcpToolRegistry.register).toHaveBeenLastCalledWith('linear', {
+      'linear.inspect': {
+        description: 'Inspect Linear issues',
+        inputSchema: { type: 'object' },
+      },
+    });
+    expect(mcpToolRegistry.disableTools).toHaveBeenLastCalledWith(['linear.inspect']);
+    expect(sentEvents).toContainEqual({
+      channel: 'mcp:config:updated',
+      payload: expect.objectContaining({
+        error: 'invalid JSON',
+        exists: true,
+      }),
+    });
+  });
+
   it('pins mutation-sensitive shutdown ordering, reset wiring, and aggregate serialization', () => {
     const source = readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
     const assistantDrain = source.indexOf("runShutdownStep('assistant-server'");
