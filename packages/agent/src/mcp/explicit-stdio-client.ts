@@ -50,6 +50,7 @@ export interface ExplicitStdioMcpClientOptions {
 interface ActiveConnection {
   client: Client;
   disconnected: boolean;
+  toolDefinitions: ReadonlyMap<string, ExplicitHttpMcpTool>;
   toolMetadataReady: boolean;
   toolMetadataRequest: Promise<ExplicitStdioMcpListToolsResult> | undefined;
   transport: StdioClientTransport;
@@ -124,7 +125,6 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   private connectPromise: Promise<ActiveConnection> | undefined;
   private readonly options: NormalizedClientOptions;
   private pendingConnection: ActiveConnection | undefined;
-  private readonly toolDefinitions = new Map<string, ExplicitHttpMcpTool>();
 
   constructor(options: ExplicitStdioMcpClientOptions) {
     this.options = normalizeOptions(options);
@@ -161,10 +161,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     }
     const result = await connection.client.listTools(params, requestOptions);
     if (params.cursor === undefined) {
-      connection.toolMetadataReady = true;
-    }
-    for (const tool of result.tools) {
-      this.toolDefinitions.set(tool.name, tool);
+      this.replaceToolMetadata(connection, result);
     }
     return result;
   }
@@ -180,7 +177,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     }
     const toolDefinition =
       normalizedOptions.toolDefinition === undefined
-        ? this.toolDefinitions.get(params.name)
+        ? connection.toolDefinitions.get(params.name)
         : undefined;
     const requestOptions =
       toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
@@ -208,7 +205,6 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     this.activeConnection = undefined;
     this.pendingConnection = undefined;
     this.connectPromise = undefined;
-    this.toolDefinitions.clear();
 
     const results = await Promise.allSettled(
       [...connections].flatMap(({ client, transport }) => [transport.close(), client.close()])
@@ -313,6 +309,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const connection: ActiveConnection = {
       client,
       disconnected: false,
+      toolDefinitions: new Map(),
       toolMetadataReady: false,
       toolMetadataRequest: undefined,
       transport,
@@ -329,6 +326,9 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     // established active connection notifies the observer.
     const unexpected = !this.closed && this.activeConnection === connection;
     connection.disconnected = true;
+    connection.toolDefinitions = new Map();
+    connection.toolMetadataReady = false;
+    connection.toolMetadataRequest = undefined;
     if (this.activeConnection === connection) {
       this.activeConnection = undefined;
     }
@@ -348,25 +348,28 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       return connection.toolMetadataRequest;
     }
     const request = connection.client.listTools(undefined, options);
-    connection.toolMetadataRequest = request;
-    void request.then(
-      () => {
-        connection.toolMetadataReady = true;
-        void request.then((result) => {
-          for (const tool of result.tools) {
-            this.toolDefinitions.set(tool.name, tool);
-          }
-        });
-        if (connection.toolMetadataRequest === request) {
-          connection.toolMetadataRequest = undefined;
-        }
-      },
-      () => {
-        if (connection.toolMetadataRequest === request) {
-          connection.toolMetadataRequest = undefined;
-        }
+    const metadataRequest = request.then((result) => {
+      this.replaceToolMetadata(connection, result);
+      return result;
+    });
+    connection.toolMetadataRequest = metadataRequest;
+    const clearRequest = (): void => {
+      if (connection.toolMetadataRequest === metadataRequest) {
+        connection.toolMetadataRequest = undefined;
       }
-    );
-    return request;
+    };
+    void metadataRequest.then(clearRequest, clearRequest);
+    return metadataRequest;
+  }
+
+  private replaceToolMetadata(
+    connection: ActiveConnection,
+    result: ExplicitStdioMcpListToolsResult
+  ): void {
+    if (connection.disconnected) {
+      return;
+    }
+    connection.toolDefinitions = new Map(result.tools.map((tool) => [tool.name, tool]));
+    connection.toolMetadataReady = true;
   }
 }

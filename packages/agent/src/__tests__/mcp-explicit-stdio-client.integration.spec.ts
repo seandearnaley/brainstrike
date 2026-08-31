@@ -329,4 +329,23 @@ describe('ExplicitStdioMcpClient integration', () => {
       starts: 2,
     });
   });
+
+  it('drops tool metadata that disappears after reconnecting', async () => {
+    const { client } = await createFixture('legacy', undefined, FIXTURE_PATH, undefined, {
+      BRAINSTRIKE_STDIO_TEST_REMOVE_INVALID_OUTPUT_AFTER_RESTART: '1',
+    });
+    await client.listTools();
+    await expect(client.callTool({ arguments: {}, name: 'exit_once' })).rejects.toThrow(
+      /connection closed/i
+    );
+
+    await expect(client.listTools()).resolves.not.toMatchObject({
+      tools: expect.arrayContaining([expect.objectContaining({ name: 'invalid_output' })]),
+    });
+    await expect(client.callTool({ arguments: {}, name: 'invalid_output' })).resolves.toMatchObject(
+      {
+        structuredContent: { count: 'not-a-number' },
+      }
+    );
+  });
 });

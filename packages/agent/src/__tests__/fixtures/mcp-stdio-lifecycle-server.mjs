@@ -17,6 +17,8 @@ if (!pidFile) {
 const rawConnectDelayMs = process.env['BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS'];
 const connectDelayMs = rawConnectDelayMs === undefined ? 0 : Number(rawConnectDelayMs);
 const paginateTools = process.env['BRAINSTRIKE_STDIO_TEST_PAGINATE_TOOLS'] === '1';
+const removeInvalidOutputAfterRestart =
+  process.env['BRAINSTRIKE_STDIO_TEST_REMOVE_INVALID_OUTPUT_AFTER_RESTART'] === '1';
 if (!Number.isSafeInteger(connectDelayMs) || connectDelayMs < 0) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS must be a non-negative safe integer');
 }
@@ -50,7 +52,7 @@ const server = new Server(
 );
 
 server.setRequestHandler('tools/list', async (request) => {
-  await updateState((state) => ({
+  const state = await updateState((state) => ({
     ...state,
     listToolCalls: (state.listToolCalls ?? 0) + 1,
     ...(paginateTools
@@ -96,7 +98,10 @@ server.setRequestHandler('tools/list', async (request) => {
         type: 'object',
       },
     },
-  ];
+  ].filter(
+    (tool) =>
+      !(removeInvalidOutputAfterRestart && state.starts > 1 && tool.name === 'invalid_output')
+  );
   if (!paginateTools) {
     return { tools };
   }
