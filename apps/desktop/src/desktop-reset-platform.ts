@@ -20,6 +20,7 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly errorLogFilePaths?: readonly string[];
   readonly logger: DesktopResetLogger;
   readonly resetLocalDatabase: () => Promise<void>;
+  readonly resumeAfterReset?: () => Promise<void>;
   readonly runtimes: readonly DesktopResetRuntime[];
   readonly runWithDatabaseResetBarrier: (work: () => Promise<void>) => Promise<void>;
   readonly userDataPath: string;
@@ -29,6 +30,19 @@ export interface CreateDesktopFactoryResetHandlerOptions {
 export interface DesktopFactoryResetResult {
   message?: string;
   success: boolean;
+}
+
+function combineResetFailure(failure: unknown, resumeFailure: unknown): unknown {
+  if (!failure) {
+    return resumeFailure;
+  }
+  const resetMessage = failure instanceof Error ? failure.message : String(failure);
+  const resumeMessage =
+    resumeFailure instanceof Error ? resumeFailure.message : String(resumeFailure);
+  return new AggregateError(
+    [failure, resumeFailure],
+    `${resetMessage}; reset runtime resume failed: ${resumeMessage}`
+  );
 }
 
 async function stopDesktopResetRuntimes(runtimes: readonly DesktopResetRuntime[]): Promise<void> {
@@ -43,7 +57,10 @@ async function stopDesktopResetRuntimes(runtimes: readonly DesktopResetRuntime[]
     return;
   }
   const failedNames = failures.map(({ runtime }) => runtime.name).join(', ');
-  throw new Error(`Failed to stop desktop reset runtimes: ${failedNames}`);
+  throw new AggregateError(
+    failures.map(({ result }) => result.reason),
+    `Failed to stop desktop reset runtimes: ${failedNames}`
+  );
 }
 
 /**
@@ -81,12 +98,14 @@ export function createDesktopFactoryResetHandler({
   errorLogFilePaths,
   logger,
   resetLocalDatabase,
+  resumeAfterReset,
   runtimes,
   runWithDatabaseResetBarrier,
   userDataPath,
   waitForDatabaseWorkSchedulerIdle,
 }: CreateDesktopFactoryResetHandlerOptions): () => Promise<DesktopFactoryResetResult> {
-  return async () => {
+  const runReset = async (): Promise<DesktopFactoryResetResult> => {
+    let failure: unknown;
     try {
       await resetDesktopApplicationData({
         ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
@@ -113,11 +132,26 @@ export function createDesktopFactoryResetHandler({
         userDataPath,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error('Failed to reset desktop application data:', error);
+      failure = error;
+    }
+    try {
+      await resumeAfterReset?.();
+    } catch (error) {
+      failure = combineResetFailure(failure, error);
+    }
+    if (failure) {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      logger.error('Failed to reset desktop application data:', failure);
       return { message, success: false };
     }
 
     return { success: true };
+  };
+  let resetInFlight: Promise<DesktopFactoryResetResult> | null = null;
+  return async () => {
+    resetInFlight ??= runReset().finally(() => {
+      resetInFlight = null;
+    });
+    return await resetInFlight;
   };
 }

@@ -15,7 +15,7 @@ import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { disposeClients } from './mcp';
-import type { DesktopMcpHostRuntime } from './mcp/host-runtime';
+import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import type { McpDiscoveredTool } from './mcp/types';
 import {
   getDefaultMcpConfigTemplate,
@@ -36,6 +36,8 @@ let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
 let lastUserSelectedConfigPath: string | null = null;
 let mcpLifecycleBarrier: Promise<void> = Promise.resolve();
+let mcpLifecycleEpoch = 0;
+let mcpLifecycleOpen = true;
 let latestAuthorityEpoch = 0;
 let latestLoadEpoch = 0;
 const logger = createLogger('DesktopMcpIpc');
@@ -108,9 +110,10 @@ function isPlaceholderServer(server: McpServer): boolean {
 async function applyConfigChange(
   runtime: McpAuthorityRuntime,
   cfg: LoadedMcpConfig,
-  loadEpoch: number
+  loadEpoch: number,
+  lifecycleEpoch: number
 ): Promise<void> {
-  if (loadEpoch !== latestLoadEpoch) {
+  if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch || loadEpoch !== latestLoadEpoch) {
     return;
   }
   if (cfg.error) {
@@ -129,7 +132,7 @@ async function applyConfigChange(
   const authorityEpoch = ++latestAuthorityEpoch;
   const config = cfg.config ?? { servers: [] };
   const committed = await runtime.replaceResolvedConfig(config);
-  if (loadEpoch === latestLoadEpoch) {
+  if (mcpLifecycleOpen && lifecycleEpoch === mcpLifecycleEpoch && loadEpoch === latestLoadEpoch) {
     last = cfg;
     notifyMcpConfigUpdated(cfg);
   }
@@ -137,7 +140,11 @@ async function applyConfigChange(
   const discoveries = cfg.config
     ? await discoverToolsFromConfig(runtime, cfg.config, committed)
     : [];
-  if (authorityEpoch !== latestAuthorityEpoch) {
+  if (
+    !mcpLifecycleOpen ||
+    lifecycleEpoch !== mcpLifecycleEpoch ||
+    authorityEpoch !== latestAuthorityEpoch
+  ) {
     return;
   }
   const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
@@ -145,7 +152,11 @@ async function applyConfigChange(
     toolIds.size > 0
       ? await loadToolPreferencesForProjection(toolIds)
       : { disabledTools: [], enabledTools: [] };
-  if (authorityEpoch !== latestAuthorityEpoch) {
+  if (
+    !mcpLifecycleOpen ||
+    lifecycleEpoch !== mcpLifecycleEpoch ||
+    authorityEpoch !== latestAuthorityEpoch
+  ) {
     return;
   }
 
@@ -167,23 +178,39 @@ async function applyConfigChange(
   notifyMcpToolsUpdated();
 }
 
-function trackConfigChange(operation: Promise<void>): Promise<void> {
-  const settled = operation.then(
+function trackConfigChange(operation: (lifecycleEpoch: number) => Promise<void>): Promise<void> {
+  if (!mcpLifecycleOpen) {
+    return Promise.reject(new Error('MCP config lifecycle is closed for cleanup'));
+  }
+  const pending = operation(mcpLifecycleEpoch);
+  const settled = pending.then(
     () => undefined,
     () => undefined
   );
   mcpLifecycleBarrier = Promise.all([mcpLifecycleBarrier, settled]).then(() => undefined);
-  return operation;
+  return pending;
 }
 
-function handleConfigChange(runtime: McpAuthorityRuntime, cfg: LoadedMcpConfig): Promise<void> {
-  return trackConfigChange(applyConfigChange(runtime, cfg, ++latestLoadEpoch));
+function handleConfigChange(
+  runtime: McpAuthorityRuntime,
+  cfg: LoadedMcpConfig,
+  sourceLifecycleEpoch = mcpLifecycleEpoch
+): Promise<void> {
+  if (!mcpLifecycleOpen || sourceLifecycleEpoch !== mcpLifecycleEpoch) {
+    return Promise.resolve();
+  }
+  const loadEpoch = ++latestLoadEpoch;
+  return trackConfigChange(async (lifecycleEpoch) =>
+    applyConfigChange(runtime, cfg, loadEpoch, lifecycleEpoch)
+  );
 }
 
 async function reloadMcpConfig(runtime: McpAuthorityRuntime): Promise<void> {
   const loadEpoch = ++latestLoadEpoch;
-  const config = await loadMcpConfig();
-  await trackConfigChange(applyConfigChange(runtime, config, loadEpoch));
+  await trackConfigChange(async (lifecycleEpoch) => {
+    const config = await loadMcpConfig();
+    await applyConfigChange(runtime, config, loadEpoch, lifecycleEpoch);
+  });
 }
 
 function notifyMcpConfigUpdated(config: LoadedMcpConfig): void {
@@ -246,24 +273,106 @@ function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
 }
 
 async function restartConfigWatcher(runtime: McpAuthorityRuntime): Promise<void> {
-  stopConfigWatcher();
-  const watcher = await watchMcpConfig((config) => handleConfigChange(runtime, config));
-  unwatch = () => watcher.close();
+  await trackConfigChange(async (lifecycleEpoch) => {
+    stopConfigWatcher();
+    const watcher = await watchMcpConfig((config) =>
+      handleConfigChange(runtime, config, lifecycleEpoch)
+    );
+    if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch) {
+      watcher.close();
+      return;
+    }
+    unwatch = () => watcher.close();
+  });
 }
 
 function stopConfigWatcher(): void {
-  if (unwatch) {
-    unwatch();
-    unwatch = null;
+  const stop = unwatch;
+  unwatch = null;
+  if (stop) {
+    stop();
   }
 }
 
-export async function cleanupMcpRuntimeForShutdown(): Promise<void> {
-  stopConfigWatcher();
+function beginMcpRuntimeCleanup(): { epoch: number; failures: unknown[] } {
+  mcpLifecycleOpen = false;
+  mcpLifecycleEpoch += 1;
+  latestLoadEpoch += 1;
+  latestAuthorityEpoch += 1;
+  const failures: unknown[] = [];
+  try {
+    stopConfigWatcher();
+  } catch (error) {
+    failures.push(error);
+  }
+  return { epoch: mcpLifecycleEpoch, failures };
+}
+
+function purgeMcpRuntimeProjection(): void {
   last = null;
   lastUserSelectedConfigPath = null;
   mcpToolRegistry.clear();
-  await disposeClients();
+}
+
+function throwMcpCleanupFailures(scope: 'reset' | 'shutdown', failures: unknown[]): void {
+  if (failures.length > 0) {
+    throw new AggregateError(failures, `MCP runtime ${scope} cleanup failed`);
+  }
+}
+
+export async function cleanupMcpRuntimeForShutdown(
+  runtime: McpAuthorityRuntime = getDesktopMcpHostRuntime()
+): Promise<void> {
+  const { failures } = beginMcpRuntimeCleanup();
+  await mcpLifecycleBarrier;
+  purgeMcpRuntimeProjection();
+  const [hostClose, legacyClose] = await Promise.allSettled([
+    runtime.host.close(),
+    disposeClients(),
+  ]);
+  if (hostClose.status === 'rejected') {
+    failures.push(hostClose.reason);
+  } else {
+    failures.push(...hostClose.value.failures);
+  }
+  if (legacyClose.status === 'rejected') {
+    failures.push(legacyClose.reason);
+  }
+  throwMcpCleanupFailures('shutdown', failures);
+}
+
+export async function resetMcpRuntimeForFactoryReset(
+  runtime: McpAuthorityRuntime = getDesktopMcpHostRuntime()
+): Promise<void> {
+  const { failures } = beginMcpRuntimeCleanup();
+  await mcpLifecycleBarrier;
+  try {
+    await runtime.replaceResolvedConfig({ servers: [] });
+  } catch (error) {
+    failures.push(error);
+  }
+  purgeMcpRuntimeProjection();
+  try {
+    await disposeClients();
+  } catch (error) {
+    failures.push(error);
+  }
+  throwMcpCleanupFailures('reset', failures);
+}
+
+export async function resumeMcpRuntimeAfterFactoryReset(
+  runtime: McpAuthorityRuntime = getDesktopMcpHostRuntime()
+): Promise<void> {
+  if (mcpLifecycleOpen) {
+    return;
+  }
+  mcpLifecycleOpen = true;
+  try {
+    await restartConfigWatcher(runtime);
+  } catch (error) {
+    mcpLifecycleOpen = false;
+    throw error;
+  }
 }
 
 export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRuntime }): () => void {
@@ -400,8 +509,7 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
       if (unwatch) {
         return { watching: true };
       }
-      const w = await watchMcpConfig((config) => handleConfigChange(runtime, config));
-      unwatch = () => w.close();
+      await restartConfigWatcher(runtime);
       return { watching: true };
     }
   );
@@ -519,10 +627,11 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
 
   // Discover tools when config changes; saved preferences are applied after discovery completes
   const startup = restartConfigWatcher(runtime).then(() => reloadMcpConfig(runtime));
-  mcpLifecycleBarrier = startup.then(
+  const settledStartup = startup.then(
     () => undefined,
     () => undefined
   );
+  mcpLifecycleBarrier = Promise.all([mcpLifecycleBarrier, settledStartup]).then(() => undefined);
   void startup.catch((error: unknown) => {
     logger.error('MCP runtime startup failed', { error });
   });
