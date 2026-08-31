@@ -6,11 +6,15 @@ import {
   saveToolPreferences,
   type ToolPreferences,
 } from '@brainstrike/agent';
-import { type McpHostSnapshot, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import {
+  type McpHostSnapshot,
+  type McpHostWatchEvent,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import { disposeClients, getClientStatuses } from './mcp';
+import { disposeClients } from './mcp';
 import type { DesktopMcpHostRuntime } from './mcp/host-runtime';
 import type { McpDiscoveredTool } from './mcp/types';
 import {
@@ -40,6 +44,7 @@ const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
 export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
+export const MCP_STATUS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated;
 type McpAuthorityRuntime = Pick<DesktopMcpHostRuntime, 'host' | 'replaceResolvedConfig'>;
 
 export interface McpConfigStatus {
@@ -207,6 +212,18 @@ function notifyMcpToolsUpdated(): void {
   }
 }
 
+function notifyMcpStatusUpdated(event: McpHostWatchEvent): void {
+  // The unfiltered host watch used below publishes complete authority snapshots.
+  // Keep this assignment typed so the IPC payload cannot drift into a delta shape.
+  const payload: McpHostSnapshot = structuredClone(event);
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    window.webContents.send(MCP_STATUS_UPDATED_EVENT, payload);
+  }
+}
+
 function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
   if (configPath === null) {
     return null;
@@ -252,6 +269,7 @@ export async function cleanupMcpRuntimeForShutdown(): Promise<void> {
 export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRuntime }): () => void {
   logger.debug('Registering MCP IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
 
   registry.registerInvoke(
     'mcp',
@@ -265,8 +283,8 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
-    (): Promise<ReturnType<typeof getClientStatuses>> =>
-      mcpLifecycleBarrier.then(() => structuredClone(getClientStatuses()))
+    (): Promise<McpHostSnapshot> =>
+      mcpLifecycleBarrier.then(() => structuredClone(runtime.host.snapshot()))
   );
 
   registry.registerInvoke(
@@ -510,6 +528,7 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   });
 
   return () => {
+    stopStatusWatch();
     registry.unregisterAll();
   };
 }

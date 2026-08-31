@@ -97,13 +97,14 @@ interface ToolsDataState {
   errorBoundaryKey: number;
   loading: boolean;
   mcpConfigInfo: McpConfigInfo | null;
+  mcpRevision: number;
   mcpServers: McpServerInfo[];
   tools: ToolDisplayMetadata[];
 }
 
 type ToolsDataAction =
   | { type: 'SET_TOOLS'; tools: ToolDisplayMetadata[] }
-  | { type: 'SET_MCP_SERVERS'; servers: McpServerInfo[] }
+  | { type: 'APPLY_MCP_STATUS'; revision: number; servers: readonly McpServerInfo[] }
   | { type: 'SET_MCP_CONFIG_INFO'; info: McpConfigInfo | null }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_ERROR'; error: string | null }
@@ -115,6 +116,7 @@ const initialToolsDataState: ToolsDataState = {
   errorBoundaryKey: 0,
   loading: true,
   mcpConfigInfo: null,
+  mcpRevision: -1,
   mcpServers: [],
   tools: [],
 };
@@ -126,8 +128,12 @@ function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction): Tools
         ...state,
         tools: areToolsEqual(action.tools, state.tools) ? state.tools : action.tools,
       };
-    case 'SET_MCP_SERVERS':
-      return { ...state, mcpServers: action.servers };
+    case 'APPLY_MCP_STATUS':
+      // Desktop owns one singleton host publisher for the renderer lifetime. Config
+      // replacement never resets its monotonic revision; a host restart remounts this UI.
+      return action.revision > state.mcpRevision
+        ? { ...state, mcpRevision: action.revision, mcpServers: [...action.servers] }
+        : state;
     case 'SET_MCP_CONFIG_INFO':
       return { ...state, mcpConfigInfo: action.info };
     case 'SET_LOADING':
@@ -214,6 +220,7 @@ function useToolsDataManager({
   operations,
   statsRef,
 }: UseToolsDataManagerParams) {
+  const subscribeMcpServerStatus = operations.subscribeMcpServerStatus;
   const fetchAndApplyTools = useCallback(async () => {
     try {
       const [toolsData, stats] = await Promise.all([operations.getTools(), operations.getStats()]);
@@ -241,8 +248,8 @@ function useToolsDataManager({
     await Promise.resolve();
     try {
       if (operations.getMcpServerStatus) {
-        const servers = await operations.getMcpServerStatus();
-        dispatch({ servers, type: 'SET_MCP_SERVERS' });
+        const snapshot = await operations.getMcpServerStatus();
+        dispatch({ ...snapshot, type: 'APPLY_MCP_STATUS' });
       }
       if (operations.getMcpConfigInfo) {
         const configInfo = await operations.getMcpConfigInfo();
@@ -273,6 +280,23 @@ function useToolsDataManager({
     }
     void fetchAndApplyTools();
   }, [fetchAndApplyTools, liveQueryEnabled]);
+
+  useEffect(() => {
+    if (!(mcpAvailable && subscribeMcpServerStatus)) {
+      return;
+    }
+    try {
+      return subscribeMcpServerStatus((snapshot) => {
+        dispatch({ ...snapshot, type: 'APPLY_MCP_STATUS' });
+      });
+    } catch (error) {
+      dispatch({
+        error: error instanceof Error ? error.message : 'Failed to subscribe to MCP host status',
+        type: 'SET_ERROR',
+      });
+      return;
+    }
+  }, [dispatch, mcpAvailable, subscribeMcpServerStatus]);
 
   useEffect(() => {
     void loadMcpData();
@@ -334,7 +358,7 @@ export function UnifiedToolsSettings({
   const tools = liveQueryEnabled ? liveQuery.rows : dataState.tools;
   const loading = liveQueryEnabled ? liveQuery.loading || dataState.loading : dataState.loading;
   const error = dataState.error ?? (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
-  const { mcpServers, mcpConfigInfo, errorBoundaryKey } = dataState;
+  const { mcpServers, mcpConfigInfo, mcpRevision, errorBoundaryKey } = dataState;
 
   const [uiState, uiDispatch] = useReducer(toolsUiReducer, initialToolsUiState);
   const {
@@ -462,8 +486,8 @@ export function UnifiedToolsSettings({
   const serverStatusMap = useMemo(() => {
     const statusMap = new Map<string, { status: McpConnectionStatus; error: string | null }>();
     for (const server of mcpServers) {
-      statusMap.set(server.name, {
-        error: server.state === 'error' ? server.error : null,
+      statusMap.set(server.configuredServerId, {
+        error: server.state === 'error' ? server.error.message : null,
         status: server.state,
       });
     }
@@ -503,6 +527,23 @@ export function UnifiedToolsSettings({
   }, [searchableTools, searchQuery, categoryFilter, tierFilter]);
 
   const toolGroups = useMemo(() => groupTools(filteredTools), [filteredTools]);
+  const missingStatusSubscriptionError =
+    mcpAvailable && operations.getMcpServerStatus && !operations.subscribeMcpServerStatus
+      ? 'MCP live status subscription is unavailable in this runtime.'
+      : null;
+  const unmatchedMcpServerName =
+    mcpRevision >= 0
+      ? toolGroups.find(
+          (group) =>
+            group.source === 'mcp' &&
+            group.serverName !== undefined &&
+            !serverStatusMap.has(group.serverName)
+        )?.serverName
+      : undefined;
+  const mcpProjectionIdentityError = unmatchedMcpServerName
+    ? `MCP tool projection server "${unmatchedMcpServerName}" has no matching host status.`
+    : null;
+  const displayedError = error ?? missingStatusSubscriptionError ?? mcpProjectionIdentityError;
 
   const budgetData = useMemo(() => {
     if (!budgetManager) {
@@ -533,7 +574,7 @@ export function UnifiedToolsSettings({
       budgetData={budgetData}
       categoryFilter={categoryFilter}
       defaultExpandedGroups={defaultExpandedGroups}
-      error={error}
+      error={displayedError}
       errorBoundaryKey={errorBoundaryKey}
       expandedToolId={expandedToolId}
       getServerError={getServerError}
@@ -541,6 +582,7 @@ export function UnifiedToolsSettings({
       hasTools={hasTools}
       loading={loading}
       mcpConfigInfo={mcpConfigInfo}
+      mcpRevision={mcpRevision}
       mcpServers={mcpServers}
       onCategoryChange={(category) => uiDispatch({ category, type: 'SET_CATEGORY_FILTER' })}
       onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
@@ -620,6 +662,7 @@ interface ToolsPanelContentProps {
   hasTools: boolean;
   loading: boolean;
   mcpConfigInfo: McpConfigInfo | null;
+  mcpRevision: number;
   mcpServers: McpServerInfo[];
   onCategoryChange: (category: ToolCategory | 'all') => void;
   onCreateSample: (() => Promise<void>) | undefined;
@@ -656,6 +699,7 @@ function ToolsPanelContent({
   hasTools,
   loading,
   mcpConfigInfo,
+  mcpRevision,
   mcpServers,
   onCategoryChange,
   onCreateSample,
@@ -721,15 +765,26 @@ function ToolsPanelContent({
 
       {showMcpSupport && <McpSupportMatrix />}
 
+      {mcpRevision >= 0 && mcpServers.length === 0 && !mcpConfigInfo?.error && (
+        <div className="text-muted-foreground text-sm" data-testid="mcp-server-status-empty">
+          No MCP servers configured.
+        </div>
+      )}
+
       {mcpServers.length > 0 && (
-        <div className="space-y-2" data-testid="mcp-server-status-list">
+        <div
+          className="space-y-2"
+          data-mcp-revision={mcpRevision}
+          data-testid="mcp-server-status-list"
+        >
           {mcpServers.map((server) => (
-            <div className="rounded-md border px-3 py-2 text-sm" key={server.name}>
+            <div className="rounded-md border px-3 py-2 text-sm" key={server.configuredServerId}>
               <div className="flex flex-wrap items-center gap-x-2">
-                <span className="font-medium">{server.name}</span>
+                <span className="font-medium">{server.configuredServerId}</span>
                 <span className="text-muted-foreground">{server.state}</span>
                 <span className="text-muted-foreground">
-                  transport {server.transport} · policy {server.configuredProtocol}
+                  transport {server.transport} · policy {server.configuredProtocol} · generation{' '}
+                  {server.generation}
                 </span>
               </div>
               {server.state === 'connected' && (
@@ -745,7 +800,9 @@ function ToolsPanelContent({
                 </div>
               )}
               {server.state === 'error' && (
-                <div className="text-destructive text-xs">{server.error}</div>
+                <div className="text-destructive text-xs">
+                  {server.error.category} · {server.error.code} · {server.error.message}
+                </div>
               )}
             </div>
           ))}
