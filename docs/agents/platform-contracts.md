@@ -318,9 +318,15 @@ Desktop reset order:
 4. Reload renderer.
 Do not skip reload.
 
-MCP config admission stays closed across all four steps. The reset coordinator
-reopens it only after the purge and restores the permanent config watcher
-without reloading pre-reset authority.
+MCP config admission stays closed across all four steps. Main initiates the
+visible-renderer replacement and waits for the replacement React tree's
+existing renderer-ready ping; `did-finish-load` alone is not completion. Only
+then does the reset coordinator restore the permanent config watcher and reopen
+empty authority. If any purge step fails, main restores the captured pre-reset
+MCP authority, config projection, selected-path grant, and tool projection
+while admission is still closed, installs the watcher, and only then reopens.
+If renderer replacement fails after a successful purge, admission remains
+closed and the reset failure is visible.
 
 Every reset runtime is attempted even when another fails. Their original
 rejections remain ordered in one `AggregateError`, while the visible message

@@ -2267,16 +2267,22 @@ Desktop lifecycle composition lives in `ipc-mcp.ts`. Shutdown first stops and
 drains the assistant HTTP server, then closes MCP configuration admission,
 stops the file watcher, awaits every tracked load/replacement/discovery, clears
 the renderer projection, and terminally closes the singleton host plus the
-legacy status-boundary clients. Host close-report failures and legacy cleanup
-failures are preserved together in one visible `AggregateError`; a zero-failure
-host proof therefore covers its clients, accepted requests, subscriptions,
-callbacks, loopback ports, probes, and stdio children. Factory reset uses the
+legacy status-boundary clients. Process, terminal, command-session, and LSP
+reapers start in the same settlement batch as assistant-server stop, so a hung
+or rejected drain cannot prevent those attempts. A rejected drain is recorded
+as an ordering failure, but terminal MCP cleanup is still attempted. Host
+close-report failures and legacy cleanup failures are preserved together in one
+visible `AggregateError`; a zero-failure host proof therefore covers its
+clients, accepted requests, subscriptions, callbacks, loopback ports, probes,
+and stdio children. Factory reset uses the
 same lifecycle fence but does not close the singleton: after prior config work
 settles it installs explicit empty authority, purges projections and legacy
 clients, and keeps admission closed through the enclosing database/user-data
-purge. The reset coordinator then reopens admission and restores the permanent
-file watcher without reloading the pre-reset configuration, so the continuing
-process can accept a fresh empty or new configuration. Every config IPC
+purge and visible-renderer replacement. Main waits for the replacement React
+tree's explicit renderer-ready ping before it restores the permanent watcher
+and reopens empty authority; load completion alone is insufficient. A failed
+purge instead restores the captured pre-reset authority and projections before
+admission reopens. Every config IPC
 operation joins the lifecycle barrier before its first asynchronous side
 effect. Work admitted before the fence therefore cannot publish after cleanup,
 and a watcher created across the fence is closed immediately.

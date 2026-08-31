@@ -13,6 +13,10 @@ export interface DesktopResetLogger {
 
 export interface CreateDesktopFactoryResetHandlerOptions {
   readonly cleanupLiveSubscriptionsForShutdown: () => Promise<void>;
+  /** Replaces the stale visible renderer and resolves only after its explicit
+   * renderer-ready acknowledgement. MCP admission remains closed while this
+   * promise is pending. */
+  readonly completeSuccessfulReset: () => Promise<void>;
   /** Every on-disk path the durable NDJSON error-log backstop (Flight
    * Recorder P2a) can occupy — forwarded to `resetDesktopApplicationData` so
    * factory reset purges it alongside the database, even though it lives
@@ -20,7 +24,7 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly errorLogFilePaths?: readonly string[];
   readonly logger: DesktopResetLogger;
   readonly resetLocalDatabase: () => Promise<void>;
-  readonly resumeAfterReset?: () => Promise<void>;
+  readonly resumeAfterReset?: (outcome: 'failed' | 'succeeded') => Promise<void>;
   readonly runtimes: readonly DesktopResetRuntime[];
   readonly runWithDatabaseResetBarrier: (work: () => Promise<void>) => Promise<void>;
   readonly userDataPath: string;
@@ -32,10 +36,9 @@ export interface DesktopFactoryResetResult {
   success: boolean;
 }
 
+const NO_RESET_FAILURE = Symbol('no-reset-failure');
+
 function combineResetFailure(failure: unknown, resumeFailure: unknown): unknown {
-  if (!failure) {
-    return resumeFailure;
-  }
   const resetMessage = failure instanceof Error ? failure.message : String(failure);
   const resumeMessage =
     resumeFailure instanceof Error ? resumeFailure.message : String(resumeFailure);
@@ -43,6 +46,28 @@ function combineResetFailure(failure: unknown, resumeFailure: unknown): unknown 
     [failure, resumeFailure],
     `${resetMessage}; reset runtime resume failed: ${resumeMessage}`
   );
+}
+
+async function resumeDesktopResetRuntime({
+  failure,
+  rendererReplacementSucceeded,
+  resetDataSucceeded,
+  resumeAfterReset,
+}: {
+  failure: unknown | typeof NO_RESET_FAILURE;
+  rendererReplacementSucceeded: boolean;
+  resetDataSucceeded: boolean;
+  resumeAfterReset: CreateDesktopFactoryResetHandlerOptions['resumeAfterReset'];
+}): Promise<unknown | typeof NO_RESET_FAILURE> {
+  if (resetDataSucceeded && !rendererReplacementSucceeded) {
+    return failure;
+  }
+  try {
+    await resumeAfterReset?.(resetDataSucceeded ? 'succeeded' : 'failed');
+    return failure;
+  } catch (error) {
+    return failure === NO_RESET_FAILURE ? error : combineResetFailure(failure, error);
+  }
 }
 
 async function stopDesktopResetRuntimes(runtimes: readonly DesktopResetRuntime[]): Promise<void> {
@@ -95,6 +120,7 @@ export async function resetDesktopDatabaseProfile({
 
 export function createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown,
+  completeSuccessfulReset,
   errorLogFilePaths,
   logger,
   resetLocalDatabase,
@@ -105,7 +131,9 @@ export function createDesktopFactoryResetHandler({
   waitForDatabaseWorkSchedulerIdle,
 }: CreateDesktopFactoryResetHandlerOptions): () => Promise<DesktopFactoryResetResult> {
   const runReset = async (): Promise<DesktopFactoryResetResult> => {
-    let failure: unknown;
+    let failure: unknown | typeof NO_RESET_FAILURE = NO_RESET_FAILURE;
+    let resetDataSucceeded = false;
+    let rendererReplacementSucceeded = false;
     try {
       await resetDesktopApplicationData({
         ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
@@ -131,15 +159,23 @@ export function createDesktopFactoryResetHandler({
         },
         userDataPath,
       });
+      resetDataSucceeded = true;
+      await completeSuccessfulReset();
+      rendererReplacementSucceeded = true;
     } catch (error) {
       failure = error;
     }
-    try {
-      await resumeAfterReset?.();
-    } catch (error) {
-      failure = combineResetFailure(failure, error);
-    }
-    if (failure) {
+
+    // A failed purge must restore the pre-reset runtime snapshot. A successful
+    // purge may reopen only after the replacement renderer explicitly reports
+    // ready. If renderer replacement itself fails, keep admission closed.
+    failure = await resumeDesktopResetRuntime({
+      failure,
+      rendererReplacementSucceeded,
+      resetDataSucceeded,
+      resumeAfterReset,
+    });
+    if (failure !== NO_RESET_FAILURE) {
       const message = failure instanceof Error ? failure.message : String(failure);
       logger.error('Failed to reset desktop application data:', failure);
       return { message, success: false };
