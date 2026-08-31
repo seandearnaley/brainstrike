@@ -168,7 +168,7 @@ function recordHandlerError(
 }
 
 function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
-  const handler = createMcpHandler(createReferenceServer, {
+  const handler = createMcpHandler(() => createReferenceServer(scenario.fixture), {
     legacy: scenario.protocol.era === 'legacy' ? 'stateless' : 'reject',
   });
   if (scenario.protocol.era !== 'legacy') {

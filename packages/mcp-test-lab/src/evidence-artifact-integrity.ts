@@ -13,7 +13,9 @@ export type McpArtifactIntegrityCode =
   | 'invalid_artifact_limit'
   | 'invalid_artifact_content'
   | 'screenshot_extraction_failed'
-  | 'screenshot_extractor_missing';
+  | 'screenshot_extractor_missing'
+  | 'screenshot_metadata_extraction_failed'
+  | 'screenshot_metadata_extractor_missing';
 
 export class McpArtifactIntegrityError extends Error {
   readonly code: McpArtifactIntegrityCode;
@@ -28,6 +30,10 @@ export class McpArtifactIntegrityError extends Error {
 }
 
 export interface McpArtifactIntegrityDependencies {
+  readonly extractScreenshotMetadata?: (
+    bytes: Uint8Array,
+    reference: string
+  ) => Promise<string> | string;
   readonly extractScreenshotText?: (
     bytes: Uint8Array,
     reference: string
@@ -81,6 +87,7 @@ export async function verifyParsedMcpEvidenceArtifactIntegrity(
       artifact.kind,
       artifact.reference,
       bytes,
+      dependencies.extractScreenshotMetadata,
       dependencies.extractScreenshotText
     );
     verifyExtractedText(extractedText, index);
@@ -141,6 +148,7 @@ async function extractArtifactText(
   kind: McpArtifactKind,
   reference: string,
   bytes: Uint8Array,
+  screenshotMetadataExtractor: McpArtifactIntegrityDependencies['extractScreenshotMetadata'],
   screenshotExtractor: McpArtifactIntegrityDependencies['extractScreenshotText']
 ): Promise<string> {
   if (kind !== 'screenshot') {
@@ -148,6 +156,30 @@ async function extractArtifactText(
   }
   if (screenshotExtractor === undefined) {
     fail('screenshot_extractor_missing', reference, 'screenshot text extractor is required');
+  }
+  if (screenshotMetadataExtractor === undefined) {
+    fail(
+      'screenshot_metadata_extractor_missing',
+      reference,
+      'screenshot metadata extractor is required'
+    );
+  }
+  let metadata: string;
+  try {
+    metadata = await screenshotMetadataExtractor(new Uint8Array(bytes), reference);
+  } catch {
+    fail(
+      'screenshot_metadata_extraction_failed',
+      reference,
+      'screenshot metadata extraction failed'
+    );
+  }
+  if (typeof metadata !== 'string') {
+    fail(
+      'screenshot_metadata_extraction_failed',
+      reference,
+      'screenshot metadata extraction returned invalid data'
+    );
   }
   let extracted: string;
   try {
@@ -162,7 +194,7 @@ async function extractArtifactText(
       'screenshot text extraction returned invalid data'
     );
   }
-  return extracted;
+  return `${extracted}\n${metadata}`;
 }
 
 function decodeArtifactText(bytes: Uint8Array, reference: string): string {

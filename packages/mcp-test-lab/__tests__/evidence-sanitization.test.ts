@@ -34,6 +34,71 @@ function evidenceWithArtifact(kind: McpArtifactKind, bytes: Uint8Array) {
 }
 
 describe('verifyMcpEvidenceBundle secret sanitization', () => {
+  it('rejects a credential-bearing renderer URL in desktop CDT metadata', async () => {
+    const bytes = new TextEncoder().encode('safe artifact');
+    const evidence = evidenceWithArtifact('log', bytes);
+    evidence.artifacts.push({
+      kind: 'screenshot',
+      reference: 'artifacts/window.png',
+      sanitized: true,
+      sha256: sha256(bytes),
+    });
+    evidence.desktop = {
+      app: {
+        bundleId: 'com.brainstrike.desktop.agent-debug',
+        title: 'BrainStrike Agent Debug',
+      },
+      cdt: {
+        endpoint: 'http://127.0.0.1:9222',
+        inspected: true,
+        rendererUrl: `http://localhost:5173/oauth/callback?code=${SECRET}`,
+        targetTitle: 'BrainStrike Agent Debug',
+      },
+      electronE2e: {
+        command: 'pnpm --filter @brainstrike/desktop test:e2e',
+        exitStatus: 0,
+        tests: { failed: 0, passed: 1, skipped: 0, total: 1 },
+      },
+      matrix: [
+        'settings-connect',
+        'oauth-browser-return',
+        'assistant-call',
+        'cancellation',
+        'restart-reconnect',
+        'config-change',
+        'concurrent-runs',
+        'disconnect-cleanup',
+      ].map((id) => ({
+        artifactReferences: ['artifacts/session.log', 'artifacts/window.png'],
+        blockerCode: null,
+        id,
+        status: 'passed',
+      })),
+      profile: { isolated: true, userDataDirectory: 'artifacts/profile' },
+      required: true,
+      secretScan: {
+        artifactReferences: ['artifacts/session.log', 'artifacts/window.png'],
+        command: 'pnpm secret-scan artifacts/session.log',
+        exitStatus: 0,
+        verified: true,
+      },
+    };
+    const readArtifactContent = vi.fn(async () => bytes);
+
+    await expect(
+      verifyMcpEvidenceBundle(evidence, {
+        maxArtifactBytes: MAX_ARTIFACT_BYTES,
+        readArtifactContent,
+      })
+    ).rejects.toMatchObject({
+      issue: {
+        code: 'secret_detected',
+        kind: 'credential-bearing-url',
+        path: '$.desktop.cdt.rendererUrl',
+      },
+    });
+    expect(readArtifactContent).not.toHaveBeenCalled();
+  });
   it('rejects credential-bearing artifact references before dependency I/O', async () => {
     const bytes = new TextEncoder().encode('safe artifact');
     const evidence = evidenceWithArtifact('log', bytes);
@@ -136,6 +201,7 @@ describe('verifyMcpEvidenceBundle secret sanitization', () => {
 
     await expect(
       verifyMcpEvidenceBundle(evidence, {
+        extractScreenshotMetadata: async () => '',
         extractScreenshotText,
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent,
@@ -149,6 +215,21 @@ describe('verifyMcpEvidenceBundle secret sanitization', () => {
     });
     expect(readArtifactContent).toHaveBeenCalledOnce();
     expect(extractScreenshotText).toHaveBeenCalledOnce();
+  });
+
+  it('rejects credentials embedded in screenshot metadata', async () => {
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+    const evidence = evidenceWithArtifact('screenshot', bytes);
+    await expect(
+      verifyMcpEvidenceBundle(evidence, {
+        extractScreenshotMetadata: async () => `access_token=${SECRET}`,
+        extractScreenshotText: async () => 'safe pixels',
+        maxArtifactBytes: MAX_ARTIFACT_BYTES,
+        readArtifactContent: async () => bytes,
+      })
+    ).rejects.toMatchObject({
+      issue: { code: 'secret_detected', path: '$.artifacts[0].content' },
+    });
   });
 
   it('does not expose secret values in errors or enumerable issue data', async () => {
@@ -223,6 +304,7 @@ describe('verifyMcpEvidenceBundle secret sanitization', () => {
 
     await expect(
       verifyMcpEvidenceBundle(evidence, {
+        extractScreenshotMetadata: async () => '',
         extractScreenshotText,
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent,

@@ -206,6 +206,11 @@ describe('MCP test lab package contract', () => {
     expect(normalizedContract).toContain('explicit positive byte limit');
     expect(normalizedContract).toContain('sanitizes schema metadata and every extracted artifact');
     expect(normalizedContract).toContain('bounded HTML-entity and structured JSON decoding');
+    expect(normalizedContract).toContain(
+      'Evidence schema `1.1.0` makes desktop applicability explicit'
+    );
+    expect(normalizedContract).toContain('prescribed Settings/OAuth/assistant');
+    expect(normalizedContract).toContain('source-backed profile of the official SDK v2');
     expect(normalizedContract).toContain('A package export may appear only in');
     expect(normalizedContract).toContain(
       `Current public verifier subpaths: ${publicSubpaths.map((key) => `\`${key}\``).join(', ')}.`

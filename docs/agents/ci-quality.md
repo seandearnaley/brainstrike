@@ -52,6 +52,10 @@ identity mismatch and dirty-checkout failures; the CI contract test pins the
 commands, profile ownership, timeouts, artifact path/retention, and local-check
 mapping. Exhaustive artifacts are uploaded only after complete verification;
 failed or partial runs never emit an artifact that could be mistaken for proof.
+Both automated profiles emit evidence-schema `1.1.0` with desktop applicability
+explicitly set to `protocol-lab-only`; they do not fabricate Electron or CDT
+proof. Desktop-required bundles remain the bounded implementation-ticket gate
+described in `assistant-providers.md`, outside the scheduled verifier loop.
 
 ### Open PR to Linear conformance (BST-521)
 

@@ -46,7 +46,10 @@ function observation(
       ? ({ era: 'legacy', revision: '2025-11-25' } as const)
       : ({ era: 'modern', revision: '2026-07-28' } as const);
   return {
-    capabilities: ['tools'],
+    capabilities:
+      runnerCase.scenarioId === 'modern-reference'
+        ? ['completions', 'prompts', 'resources', 'tools']
+        : ['tools'],
     correlationIds: [`${runnerCase.id}-${phase}`],
     exitStatus: phase === 'red' ? 1 : 0,
     negotiation,
@@ -263,9 +266,13 @@ describe('MCP bounded verification runner', () => {
       dependencies([], {
         mapObservation: (value, phase) => ({
           ...value,
-          capabilities: phase === 'green' ? ['resources', 'tools'] : ['tools', 'resources'],
+          capabilities:
+            phase === 'green'
+              ? ['tools', 'resources', 'prompts', 'completions']
+              : ['completions', 'prompts', 'resources', 'tools'],
         }),
-      })
+      }),
+      { caseIds: ['modern-http-in-process'] }
     );
 
     expect(result).toHaveLength(1);

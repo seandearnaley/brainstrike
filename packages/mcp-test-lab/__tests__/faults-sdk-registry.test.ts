@@ -87,8 +87,13 @@ describe('MCP fault compatibility against the installed SDK', () => {
         'tools/list',
       ],
       modern: [
+        'completion/complete',
         'notifications/cancelled',
         'notifications/progress',
+        'prompts/get',
+        'prompts/list',
+        'resources/list',
+        'resources/read',
         'server/discover',
         'subscriptions/listen',
         'tools/call',

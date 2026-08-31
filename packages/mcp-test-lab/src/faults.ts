@@ -62,11 +62,21 @@ const ECHO_FIXTURE_OPERATIONS = Object.freeze([
   'tools/call',
   'tools/list',
 ] as const satisfies readonly McpLabOperationMethod[]);
+const OFFICIAL_EVERYTHING_FIXTURE_OPERATIONS = Object.freeze([
+  'completion/complete',
+  'prompts/get',
+  'prompts/list',
+  'resources/list',
+  'resources/read',
+  'tools/call',
+  'tools/list',
+] as const satisfies readonly McpLabOperationMethod[]);
 const OPERATIONS_BY_FIXTURE: Readonly<Record<McpLabFixture, readonly McpLabOperationMethod[]>> =
   Object.freeze({
     'brainstrike-oauth-reference': ECHO_FIXTURE_OPERATIONS,
     'brainstrike-sdk-v2-reference': ECHO_FIXTURE_OPERATIONS,
     'brainstrike-stdio-reference': ECHO_FIXTURE_OPERATIONS,
+    'official-sdk-v2-everything-reference': OFFICIAL_EVERYTHING_FIXTURE_OPERATIONS,
   });
 
 // Exact client-to-server coordinates implemented by the reference fixtures.
@@ -83,8 +93,13 @@ const EXECUTABLE_PROTOCOL_METHODS_BY_ERA = Object.freeze({
     'tools/list',
   ]),
   modern: new Set<McpLabProtocolMethod>([
+    'completion/complete',
     'notifications/cancelled',
     'notifications/progress',
+    'prompts/get',
+    'prompts/list',
+    'resources/list',
+    'resources/read',
     'server/discover',
     'subscriptions/listen',
     'tools/call',

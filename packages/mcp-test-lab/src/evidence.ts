@@ -16,15 +16,23 @@ export type {
   McpArtifactKind,
   McpArtifactReference,
   McpCommandPhase,
+  McpDesktopEvidence,
+  McpDesktopManualScenarioEvidence,
+  McpDesktopManualScenarioId,
   McpEvidenceBlocker,
   McpEvidenceCommand,
+  McpEvidenceFixtureVersion,
   McpEvidenceSchema,
   McpEvidenceValidationCode,
   McpEvidenceValidationIssue,
   McpProtocolEra,
   McpTestCounts,
 } from './evidence-schema.js';
-export { MCP_EVIDENCE_SCHEMA_VERSION, McpEvidenceValidationError } from './evidence-schema.js';
+export {
+  MCP_DESKTOP_MANUAL_SCENARIO_IDS,
+  MCP_EVIDENCE_SCHEMA_VERSION,
+  McpEvidenceValidationError,
+} from './evidence-schema.js';
 export type {
   McpEvidenceSecretCode,
   McpEvidenceSecretIssue,

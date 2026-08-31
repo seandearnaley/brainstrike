@@ -253,6 +253,7 @@ async function buildEvidence(
     },
     commands: completed.map((entry) => evidenceCommand(input.command, runnerCase.id, entry)),
     correlationIds: completed.flatMap(({ observation }) => [...observation.correlationIds]),
+    desktop: { reason: 'protocol-lab-only', required: false },
     git: { ...input.git },
     negotiation: {
       capabilities: [...first.capabilities],
@@ -267,6 +268,7 @@ async function buildEvidence(
         package: scenario.reference.conformancePackage,
         version: scenario.reference.conformanceVersion,
       },
+      fixture: { id: scenario.fixture, ...scenario.fixtureSource },
       sdk: {
         package: scenario.reference.clientPackage,
         version: scenario.reference.sdkVersion,

@@ -34,7 +34,7 @@ assert.equal('assertEvidenceTextSanitized' in evidence, false);
 assert.equal('createEvidenceSanitizationSession' in evidence, false);
 assert.equal('scanEvidenceTextForSecrets' in evidence, false);
 assert.equal(typeof evidence.McpEvidenceSecretError, 'function');
-assert.equal(evidence.MCP_EVIDENCE_SCHEMA_VERSION, '1.0.0');
+assert.equal(evidence.MCP_EVIDENCE_SCHEMA_VERSION, '1.1.0');
 assert.equal(typeof lab.startMcpLabScenario, 'function');
 assert.equal(typeof lab.createMcpOAuthAuthorizationResponseVerifier, 'function');
 assert.equal('createMcpOAuthReferenceHandler' in lab, false);
