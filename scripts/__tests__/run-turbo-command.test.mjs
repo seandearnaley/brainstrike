@@ -1,30 +1,25 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, delimiter, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import * as turboCommand from '../run-turbo-command.mjs';
+import {
+  findModuleFiles,
+  findPackageJsonFiles,
+  packageScriptEntries,
+  parseFilterList,
+  workspaceDependencyClosure,
+  workspaceManifestsByName,
+} from './run-turbo-command-test-support.mjs';
 
 const require = createRequire(import.meta.url);
 
 function makeFakeHome() {
   return mkdtempSync(join(tmpdir(), 'run-turbo-command-home-'));
 }
-
-// Declared before the describe blocks: suite bodies call the sweep walkers
-// during module evaluation, so a later const would still be in its TDZ.
-const sweepIgnoredDirectories = new Set(['.claude', '.git', '.turbo', 'dist', 'node_modules']);
 
 describe('run turbo command helper', () => {
   it('isolates and bounds default caches using Turbo effective cwd', (t) => {
@@ -957,87 +952,3 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 });
-
-function packageScriptEntries() {
-  return findPackageJsonFiles(process.cwd()).flatMap((packageJsonPath) => {
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-    return Object.entries(packageJson.scripts ?? {}).map(([scriptName, command]) => ({
-      command,
-      packageJsonPath,
-      scriptName,
-    }));
-  });
-}
-
-function workspaceManifestsByName() {
-  const manifests = new Map();
-  for (const packageJsonPath of findPackageJsonFiles(process.cwd())) {
-    const manifest = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-    if (typeof manifest.name === 'string' && manifest.name.startsWith('@brainstrike/')) {
-      manifests.set(manifest.name, manifest);
-    }
-  }
-  return manifests;
-}
-
-function workspaceDependencyClosure(manifest, manifests) {
-  const closure = new Set();
-  const queue = [manifest];
-  while (queue.length > 0) {
-    const current = queue.pop();
-    const declared = {
-      ...current.dependencies,
-      ...current.devDependencies,
-      ...current.optionalDependencies,
-    };
-    for (const name of Object.keys(declared)) {
-      if (manifests.has(name) && !closure.has(name)) {
-        closure.add(name);
-        queue.push(manifests.get(name));
-      }
-    }
-  }
-  return closure;
-}
-
-function parseFilterList(command) {
-  return [...command.matchAll(/--filter=(@brainstrike\/[\w-]+)/gu)].map(([, name]) => name);
-}
-
-function findPackageJsonFiles(root) {
-  return findRepoFiles(root, (entry) => entry.name === 'package.json');
-}
-
-function findModuleFiles(root) {
-  return findRepoFiles(
-    root,
-    (entry, dir) => entry.name.endsWith('.mjs') && !dir.endsWith('__tests__')
-  );
-}
-
-function findRepoFiles(root, matches) {
-  const matchedFiles = [];
-
-  function visit(dir) {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) {
-        if (matches(entry, dir)) {
-          matchedFiles.push(join(dir, entry.name));
-        }
-        continue;
-      }
-
-      if (sweepIgnoredDirectories.has(entry.name)) {
-        continue;
-      }
-
-      const child = join(dir, entry.name);
-      if (statSync(child).isDirectory()) {
-        visit(child);
-      }
-    }
-  }
-
-  visit(root);
-  return matchedFiles;
-}
