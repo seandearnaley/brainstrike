@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { McpHostOAuthAuthSnapshot } from '@brainstrike/assistant-contract';
 import {
   checkResourceAllowed,
   type FetchLike,
@@ -24,6 +25,7 @@ export interface McpOAuthPersistedState {
   clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   discoveryState?: OAuthDiscoveryState;
+  lastSuccessfulConnectionAt?: number;
   resourceUrl?: string;
   tokens?: StoredOAuthTokens;
   updatedAt: number;
@@ -83,6 +85,101 @@ function identityKey(identity: McpOAuthStoreIdentity): string {
     .digest('hex');
 }
 
+export function createMcpOAuthStoreIdentity(
+  serverId: string,
+  serverUrl: string | URL
+): McpOAuthStoreIdentity {
+  return {
+    resourceUrl: resourceUrlFromServerUrl(new URL(serverUrl)).href,
+    serverId,
+  };
+}
+
+const OAUTH_SCOPE_TOKEN_PATTERN = /^[\x21\x23-\x5b\x5d-\x7e]+$/u;
+
+function normalizeOAuthScopes(scopes: readonly string[] | undefined): readonly string[] {
+  if (scopes === undefined || scopes.length === 0) {
+    return Object.freeze([]);
+  }
+  if (
+    scopes.some((scope) => !OAUTH_SCOPE_TOKEN_PATTERN.test(scope)) ||
+    new Set(scopes).size !== scopes.length
+  ) {
+    throw new Error('MCP OAuth scopes must be unique RFC 6749 scope tokens.');
+  }
+  return Object.freeze([...scopes]);
+}
+
+function latestOAuthRecord(
+  records: Readonly<Record<string, McpOAuthPersistedState>>,
+  preferredIssuer?: string
+): readonly [string, McpOAuthPersistedState] | undefined {
+  if (preferredIssuer !== undefined) {
+    const preferred = records[preferredIssuer];
+    if (preferred) {
+      return [preferredIssuer, preferred];
+    }
+  }
+  const sorted = Object.entries(records).sort((left, right) => {
+    const successfulConnectionDelta =
+      (right[1].lastSuccessfulConnectionAt ?? -1) - (left[1].lastSuccessfulConnectionAt ?? -1);
+    return successfulConnectionDelta || right[1].updatedAt - left[1].updatedAt;
+  });
+  return sorted.find(([, record]) => record.tokens !== undefined) ?? sorted[0];
+}
+
+function parseGrantedScopes(scope: string | undefined): readonly string[] | undefined {
+  if (scope === undefined) {
+    return;
+  }
+  const scopes = scope.split(' ');
+  if (
+    scopes.length === 0 ||
+    scopes.some((entry) => !OAUTH_SCOPE_TOKEN_PATTERN.test(entry)) ||
+    new Set(scopes).size !== scopes.length
+  ) {
+    throw new Error('MCP OAuth granted scope is malformed.');
+  }
+  return scopes;
+}
+
+function projectMcpOAuthAuth(
+  records: Readonly<Record<string, McpOAuthPersistedState>>,
+  identity: McpOAuthStoreIdentity,
+  requestedScopes: readonly string[],
+  preferredIssuer?: string
+): McpHostOAuthAuthSnapshot {
+  const selected = latestOAuthRecord(records, preferredIssuer);
+  const issuer = selected?.[0];
+  const record = selected?.[1];
+  const recordedScopes = parseGrantedScopes(record?.tokens?.scope);
+  const grantedScopes = record?.tokens ? (recordedScopes ?? requestedScopes) : [];
+  const authorizationServer =
+    record?.discoveryState?.authorizationServerMetadata?.issuer ??
+    record?.discoveryState?.authorizationServerUrl ??
+    issuer;
+  return {
+    ...(authorizationServer ? { authorizationServer } : {}),
+    credentialState: record?.tokens ? 'stored' : 'missing',
+    grantedScopes,
+    ...(record?.lastSuccessfulConnectionAt === undefined
+      ? {}
+      : { lastSuccessfulConnectionAt: record.lastSuccessfulConnectionAt }),
+    requestedScopes: [...requestedScopes],
+    resourceUrl: identity.resourceUrl,
+    type: 'oauth-user',
+  };
+}
+
+export async function readMcpOAuthAuthProjection(
+  store: McpOAuthStore,
+  identity: McpOAuthStoreIdentity,
+  policy: { requestedScopes?: readonly string[] } = {}
+): Promise<McpHostOAuthAuthSnapshot> {
+  const requestedScopes = normalizeOAuthScopes(policy.requestedScopes);
+  return projectMcpOAuthAuth(await store.read(identity), identity, requestedScopes);
+}
+
 function parseRecords(raw: string): Readonly<Record<string, McpOAuthPersistedState>> {
   let parsed: unknown;
   try {
@@ -120,6 +217,15 @@ function validatePersistedRecord(value: unknown): void {
   validatePersistedTokens(value['tokens']);
   validatePersistedClientInformation(value['clientInformation']);
   validatePersistedDiscoveryState(value['discoveryState']);
+  const lastSuccessfulConnectionAt = value['lastSuccessfulConnectionAt'];
+  if (
+    lastSuccessfulConnectionAt !== undefined &&
+    (typeof lastSuccessfulConnectionAt !== 'number' ||
+      !Number.isSafeInteger(lastSuccessfulConnectionAt) ||
+      lastSuccessfulConnectionAt < 0)
+  ) {
+    throw new Error('MCP OAuth persisted state is malformed.');
+  }
 }
 
 function validatePersistedTokens(value: unknown): void {
@@ -374,22 +480,58 @@ async function startLoopbackCallback(pathname: string): Promise<LoopbackCallback
   };
 }
 
+async function loadOAuthStartupState(
+  store: McpOAuthStore,
+  identity: McpOAuthStoreIdentity
+): Promise<{
+  callback: LoopbackCallback;
+  persistedRecords: Readonly<Record<string, McpOAuthPersistedState>>;
+}> {
+  const [recordsResult, callbackResult] = await Promise.allSettled([
+    store.read(identity),
+    startLoopbackCallback(DEFAULT_CALLBACK_PATH),
+  ]);
+  if (recordsResult.status === 'fulfilled' && callbackResult.status === 'fulfilled') {
+    return { callback: callbackResult.value, persistedRecords: recordsResult.value };
+  }
+  const failures: unknown[] = [];
+  if (recordsResult.status === 'rejected') {
+    failures.push(recordsResult.reason);
+  }
+  if (callbackResult.status === 'rejected') {
+    failures.push(callbackResult.reason);
+  } else {
+    try {
+      await callbackResult.value.close();
+    } catch (cause) {
+      failures.push(cause);
+    }
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  throw new AggregateError(failures, 'MCP OAuth provider startup failed');
+}
+
 export interface McpOAuthClientProviderOptions {
   readonly clientMetadataUrl?: string;
   readonly clientName?: string;
   readonly fetchFn?: FetchLike;
   readonly openExternal: (url: string) => Promise<void>;
   readonly preRegisteredClient?: StoredOAuthClientInformation;
+  readonly scopes?: readonly string[];
   readonly serverId: string;
   readonly serverUrl: string | URL;
   readonly store: McpOAuthStore;
 }
 
 export interface McpOAuthClientProvider extends OAuthClientProvider {
+  authSnapshot(): McpHostOAuthAuthSnapshot;
   cancel(): Promise<void>;
   close(): Promise<void>;
   disconnect(): Promise<void>;
   readonly fetch: FetchLike;
+  recordSuccessfulConnection(): Promise<void>;
   readonly redirectUrl: string;
   readonly waitForAuthorizationCallback: () => Promise<URLSearchParams>;
 }
@@ -397,27 +539,16 @@ export interface McpOAuthClientProvider extends OAuthClientProvider {
 export async function createMcpOAuthClientProvider(
   options: McpOAuthClientProviderOptions
 ): Promise<McpOAuthClientProvider> {
+  const requestedScopes = normalizeOAuthScopes(options.scopes);
   const serverUrl = new URL(options.serverUrl);
   if (serverUrl.username.length > 0 || serverUrl.password.length > 0 || serverUrl.hash.length > 0) {
     throw new Error('MCP OAuth server URL must not contain credentials or a fragment.');
   }
   assertSecureOAuthUrl(serverUrl);
   validateClientMetadataUrl(options.clientMetadataUrl);
-  const resourceUrl = resourceUrlFromServerUrl(serverUrl).href;
-  const identity = { resourceUrl, serverId: options.serverId } as const;
-  const callbackPromise = startLoopbackCallback(DEFAULT_CALLBACK_PATH);
-  let persistedRecords: Readonly<Record<string, McpOAuthPersistedState>>;
-  let callback: LoopbackCallback;
-  try {
-    [persistedRecords, callback] = await Promise.all([
-      options.store.read(identity),
-      callbackPromise,
-    ]);
-  } catch (cause) {
-    const openedCallback = await callbackPromise.catch(() => undefined);
-    await openedCallback?.close();
-    throw cause;
-  }
+  const identity = createMcpOAuthStoreIdentity(options.serverId, serverUrl);
+  const resourceUrl = identity.resourceUrl;
+  const { callback, persistedRecords } = await loadOAuthStartupState(options.store, identity);
   const records = new Map<string, McpOAuthPersistedState>(Object.entries(persistedRecords));
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
@@ -533,6 +664,7 @@ export async function createMcpOAuthClientProvider(
     grant_types: ['authorization_code', 'refresh_token'],
     redirect_uris: [callback.redirectUrl],
     response_types: ['code'],
+    ...(requestedScopes.length > 0 ? { scope: requestedScopes.join(' ') } : {}),
     token_endpoint_auth_method: 'none',
   };
   // biome-ignore-end lint/style/useNamingConvention: OAuth metadata uses RFC wire names.
@@ -562,6 +694,14 @@ export async function createMcpOAuthClientProvider(
   };
 
   const provider: McpOAuthClientProvider = {
+    authSnapshot() {
+      return projectMcpOAuthAuth(
+        Object.fromEntries(records),
+        identity,
+        requestedScopes,
+        currentIssuer
+      );
+    },
     clientMetadata,
     ...(options.clientMetadataUrl ? { clientMetadataUrl: options.clientMetadataUrl } : {}),
     async cancel() {
@@ -640,6 +780,16 @@ export async function createMcpOAuthClientProvider(
         clearCurrentRecordField('discoveryState');
       }
       await persist();
+    },
+    async recordSuccessfulConnection() {
+      assertOpen();
+      const selected = latestOAuthRecord(Object.fromEntries(records), currentIssuer);
+      if (!selected?.[1].tokens) {
+        throw new Error('MCP OAuth connection succeeded without stored credentials.');
+      }
+      currentIssuer = selected[0];
+      replaceCurrentRecord({ lastSuccessfulConnectionAt: Date.now() });
+      await persistCurrentRecord();
     },
     async redirectToAuthorization(authorizationUrl) {
       assertOpen();

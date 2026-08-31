@@ -65,6 +65,19 @@ export interface McpHostError {
   code: string;
   message: string;
 }
+export interface McpHostOAuthAuthSnapshot {
+  authorizationServer?: string;
+  credentialState: 'missing' | 'stored';
+  grantedScopes: readonly string[];
+  lastSuccessfulConnectionAt?: number;
+  requestedScopes: readonly string[];
+  resourceUrl: string;
+  type: 'oauth-user';
+}
+export type McpHostAuthSnapshot =
+  | { type: 'none' }
+  | { state: 'configured'; type: 'bearer' }
+  | McpHostOAuthAuthSnapshot;
 export const McpHostErrorSchema: z.ZodType<McpHostError> = z.strictObject({
   category: McpStableErrorCategorySchema,
   code: z.string(),
@@ -72,6 +85,7 @@ export const McpHostErrorSchema: z.ZodType<McpHostError> = z.strictObject({
 });
 
 interface McpHostServerSnapshotBase {
+  auth?: McpHostAuthSnapshot;
   configuredProtocol: McpConfiguredProtocol;
   configuredServerId: ConfiguredMcpServerId;
   diagnostics?: readonly McpHostDiagnostic[];
