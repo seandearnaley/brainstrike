@@ -9,7 +9,11 @@ const { explicitClient, state } = vi.hoisted(() => {
     getProtocolEra: vi.fn(() => 'legacy' as const),
     getServerCapabilities: vi.fn(() => ({ tools: {} })),
     getServerVersion: vi.fn(() => ({ name: 'fixture', version: '1' })),
-    listTools: vi.fn(async () => ({ tools: [] })),
+    listTools: vi.fn(
+      async (): Promise<{
+        tools: Array<{ inputSchema: { type: string }; name: string }>;
+      }> => ({ tools: [] })
+    ),
   };
   const state = { client, generation: 1 };
   return {
