@@ -22,16 +22,28 @@ describe('MCP explicit HTTP authentication modes', () => {
     expect(JSON.stringify(config)).not.toContain('secret');
   });
 
-  it('rejects OAuth user config until the production host composition is installed', () => {
+  it.each([
+    ['oauth-user', { scopes: ['read'], type: 'oauth-user' }],
+    [
+      'bearer',
+      {
+        credential: {
+          id: '00000000-0000-4000-8000-000000000001',
+          store: 'mcp-credentials',
+        },
+        type: 'bearer',
+      },
+    ],
+  ])('keeps %s gated until the production composition owns credentials', (_label, auth) => {
     expect(() =>
       parseMcpConfig(
         JSON.stringify({
           servers: [
             {
-              auth: { type: 'oauth-user' },
-              name: 'oauth',
+              auth,
+              name: 'authenticated',
               transport: 'streamable-http',
-              url: 'https://example.test/oauth',
+              url: 'https://example.test/authenticated',
             },
           ],
         })
@@ -39,27 +51,23 @@ describe('MCP explicit HTTP authentication modes', () => {
     ).toThrow('MCP authentication requires the BST-1469 production host composition');
   });
 
-  it('rejects bearer references until the production credential resolver is installed', () => {
-    expect(() =>
-      parseMcpConfig(
-        JSON.stringify({
-          servers: [
-            {
-              auth: {
-                credential: {
-                  id: '00000000-0000-4000-8000-000000000001',
-                  store: 'mcp-credentials',
-                },
-                type: 'bearer',
+  it('rejects malformed or duplicate OAuth scope policy', () => {
+    for (const scopes of [[], [''], ['read', 'read']]) {
+      expect(() =>
+        parseMcpConfig(
+          JSON.stringify({
+            servers: [
+              {
+                auth: { scopes, type: 'oauth-user' },
+                name: 'oauth',
+                transport: 'streamable-http',
+                url: 'https://example.test/oauth',
               },
-              name: 'bearer',
-              transport: 'streamable-http',
-              url: 'https://example.test/bearer',
-            },
-          ],
-        })
-      )
-    ).toThrow('MCP authentication requires the BST-1469 production host composition');
+            ],
+          })
+        )
+      ).toThrow('invalid_mcp_config');
+    }
   });
 
   it('rejects MCP HTTP OAuth beside a configured Authorization header', () => {

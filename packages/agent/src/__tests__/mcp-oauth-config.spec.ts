@@ -17,36 +17,27 @@ describe('agent MCP authentication configuration', () => {
     expect(parsed.servers.map((server) => server.auth?.type)).toEqual(['none']);
   });
 
-  it('rejects OAuth user config until the production host composition is installed', () => {
+  it.each([
+    ['oauth-user', { scopes: ['read'], type: 'oauth-user' }],
+    [
+      'bearer',
+      {
+        credential: {
+          id: '00000000-0000-4000-8000-000000000001',
+          store: 'mcp-credentials',
+        },
+        type: 'bearer',
+      },
+    ],
+  ])('keeps %s gated until the production composition owns credentials', (_label, auth) => {
     expect(() =>
       McpConfigSchema.parse({
         servers: [
           {
-            auth: { type: 'oauth-user' },
-            name: 'oauth',
+            auth,
+            name: 'authenticated',
             transport: 'streamable-http',
-            url: 'https://example.test/oauth',
-          },
-        ],
-      })
-    ).toThrow('MCP authentication requires the BST-1469 production host composition');
-  });
-
-  it('rejects bearer references until the production credential resolver is installed', () => {
-    expect(() =>
-      McpConfigSchema.parse({
-        servers: [
-          {
-            auth: {
-              credential: {
-                id: '00000000-0000-4000-8000-000000000001',
-                store: 'mcp-credentials',
-              },
-              type: 'bearer',
-            },
-            name: 'bearer',
-            transport: 'streamable-http',
-            url: 'https://example.test/bearer',
+            url: 'https://example.test/authenticated',
           },
         ],
       })
