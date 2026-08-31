@@ -312,7 +312,7 @@ entry name), every one of these needs explicit reset wiring plus an update
 here.
 
 Desktop reset order:
-1. Quiesce background runtimes. MCP internally fences config work, installs empty host authority, and purges projections without closing the reusable singleton.
+1. Quiesce background runtimes. MCP fences complete config operations, installs empty host authority, and purges projections without closing the reusable singleton.
 2. Clear UI state.
 3. Purge DB tables (job_queue, embedding_sets, etc.).
 4. Reload renderer.

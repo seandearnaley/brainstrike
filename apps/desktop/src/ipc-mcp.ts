@@ -35,6 +35,7 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
 let lastUserSelectedConfigPath: string | null = null;
+let mcpConfigOperationTail: Promise<void> = Promise.resolve();
 let mcpLifecycleBarrier: Promise<void> = Promise.resolve();
 let mcpLifecycleEpoch = 0;
 let mcpLifecycleOpen = true;
@@ -178,17 +179,38 @@ async function applyConfigChange(
   notifyMcpToolsUpdated();
 }
 
-function trackConfigChange(operation: (lifecycleEpoch: number) => Promise<void>): Promise<void> {
-  if (!mcpLifecycleOpen) {
-    return Promise.reject(new Error('MCP config lifecycle is closed for cleanup'));
-  }
-  const pending = operation(mcpLifecycleEpoch);
+function registerConfigChange<T>(pending: Promise<T>): Promise<T> {
   const settled = pending.then(
     () => undefined,
     () => undefined
   );
   mcpLifecycleBarrier = Promise.all([mcpLifecycleBarrier, settled]).then(() => undefined);
   return pending;
+}
+
+function trackConfigChange<T>(operation: (lifecycleEpoch: number) => Promise<T>): Promise<T> {
+  if (!mcpLifecycleOpen) {
+    return Promise.reject(new Error('MCP config lifecycle is closed for cleanup'));
+  }
+  return registerConfigChange(operation(mcpLifecycleEpoch));
+}
+
+function trackConfigOperation<T>(operation: (lifecycleEpoch: number) => Promise<T>): Promise<T> {
+  if (!mcpLifecycleOpen) {
+    return Promise.reject(new Error('MCP config lifecycle is closed for cleanup'));
+  }
+  const lifecycleEpoch = mcpLifecycleEpoch;
+  const pending = mcpConfigOperationTail.then(async () => {
+    if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch) {
+      throw new Error('MCP config lifecycle operation was retired before execution');
+    }
+    return await operation(lifecycleEpoch);
+  });
+  mcpConfigOperationTail = pending.then(
+    () => undefined,
+    () => undefined
+  );
+  return registerConfigChange(pending);
 }
 
 function handleConfigChange(
@@ -205,12 +227,13 @@ function handleConfigChange(
   );
 }
 
-async function reloadMcpConfig(runtime: McpAuthorityRuntime): Promise<void> {
+async function reloadMcpConfigForLifecycle(
+  runtime: McpAuthorityRuntime,
+  lifecycleEpoch: number
+): Promise<void> {
   const loadEpoch = ++latestLoadEpoch;
-  await trackConfigChange(async (lifecycleEpoch) => {
-    const config = await loadMcpConfig();
-    await applyConfigChange(runtime, config, loadEpoch, lifecycleEpoch);
-  });
+  const config = await loadMcpConfig();
+  await applyConfigChange(runtime, config, loadEpoch, lifecycleEpoch);
 }
 
 function notifyMcpConfigUpdated(config: LoadedMcpConfig): void {
@@ -273,17 +296,24 @@ function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
 }
 
 async function restartConfigWatcher(runtime: McpAuthorityRuntime): Promise<void> {
-  await trackConfigChange(async (lifecycleEpoch) => {
-    stopConfigWatcher();
-    const watcher = await watchMcpConfig((config) =>
-      handleConfigChange(runtime, config, lifecycleEpoch)
-    );
-    if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch) {
-      watcher.close();
-      return;
-    }
-    unwatch = () => watcher.close();
-  });
+  await trackConfigOperation(async (lifecycleEpoch) =>
+    restartConfigWatcherForLifecycle(runtime, lifecycleEpoch)
+  );
+}
+
+async function restartConfigWatcherForLifecycle(
+  runtime: McpAuthorityRuntime,
+  lifecycleEpoch: number
+): Promise<void> {
+  stopConfigWatcher();
+  const watcher = await watchMcpConfig((config) =>
+    handleConfigChange(runtime, config, lifecycleEpoch)
+  );
+  if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch) {
+    watcher.close();
+    return;
+  }
+  unwatch = () => watcher.close();
 }
 
 function stopConfigWatcher(): void {
@@ -379,14 +409,21 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   logger.debug('Registering MCP IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
   const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
+  const updateToolPreferences = async (mutation: () => void): Promise<void> =>
+    await trackConfigOperation(async () => {
+      mutation();
+      notifyMcpToolsUpdated();
+      await saveToolPreferencesIfNeeded();
+    });
 
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
-    async (): Promise<McpConfigStatus> => {
-      last = await loadMcpConfig();
-      return toMcpConfigStatus(last);
-    }
+    async (): Promise<McpConfigStatus> =>
+      await trackConfigOperation(async () => {
+        last = await loadMcpConfig();
+        return toMcpConfigStatus(last);
+      })
   );
 
   registry.registerInvoke(
@@ -405,18 +442,17 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSetPath,
-    async (_e, configPath: string | null): Promise<{ success: boolean; path: string }> => {
-      await setCustomMcpConfigPath(resolveAllowedMcpConfigPath(configPath));
-      const newPath = await getMcpConfigPath();
+    async (_e, configPath: string | null): Promise<{ success: boolean; path: string }> =>
+      await trackConfigOperation(async (lifecycleEpoch) => {
+        await setCustomMcpConfigPath(resolveAllowedMcpConfigPath(configPath));
+        const newPath = await getMcpConfigPath();
 
-      logger.info('Loading config from new path', { path: newPath });
-      await reloadMcpConfig(runtime);
+        logger.info('Loading config from new path', { path: newPath });
+        await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+        await restartConfigWatcherForLifecycle(runtime, lifecycleEpoch);
 
-      // Restart the watcher to watch the new path
-      await restartConfigWatcher(runtime);
-
-      return { path: newPath, success: true };
-    }
+        return { path: newPath, success: true };
+      })
   );
 
   registry.registerInvoke(
@@ -427,7 +463,7 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
       exists: boolean;
       created: boolean;
       content: string;
-    }> => await readMcpConfigText(true)
+    }> => await trackConfigOperation(async () => await readMcpConfigText(true))
   );
 
   registry.registerInvoke(
@@ -436,70 +472,70 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
     async (
       _e,
       content: unknown
-    ): Promise<
-      { success: true; path: string } | { success: false; path: string; error: string }
-    > => {
-      const configPath = await getMcpConfigPath();
+    ): Promise<{ success: true; path: string } | { success: false; path: string; error: string }> =>
+      await trackConfigOperation(async (lifecycleEpoch) => {
+        const configPath = await getMcpConfigPath();
 
-      if (typeof content !== 'string') {
-        return {
-          error: 'MCP config content must be a string',
-          path: configPath,
-          success: false,
-        };
-      }
-      if (content.trim().length === 0) {
-        return {
-          error: 'MCP config content cannot be empty',
-          path: configPath,
-          success: false,
-        };
-      }
+        if (typeof content !== 'string') {
+          return {
+            error: 'MCP config content must be a string',
+            path: configPath,
+            success: false as const,
+          };
+        }
+        if (content.trim().length === 0) {
+          return {
+            error: 'MCP config content cannot be empty',
+            path: configPath,
+            success: false as const,
+          };
+        }
 
-      const contentBytes = Buffer.byteLength(content, 'utf-8');
-      if (contentBytes > MAX_MCP_CONFIG_TEXT_BYTES) {
-        return {
-          error: `MCP config exceeds ${MAX_MCP_CONFIG_TEXT_BYTES} bytes`,
-          path: configPath,
-          success: false,
-        };
-      }
+        const contentBytes = Buffer.byteLength(content, 'utf-8');
+        if (contentBytes > MAX_MCP_CONFIG_TEXT_BYTES) {
+          return {
+            error: `MCP config exceeds ${MAX_MCP_CONFIG_TEXT_BYTES} bytes`,
+            path: configPath,
+            success: false as const,
+          };
+        }
 
-      const restartWatcher = unwatch !== null;
-      stopConfigWatcher();
-      const result = await writeMcpConfigText(content);
-      if (restartWatcher) {
-        await restartConfigWatcher(runtime);
-      }
-      if (result.success) {
-        logger.info('MCP config text updated', { path: result.path });
-        await reloadMcpConfig(runtime);
-      }
-      return result;
-    }
+        const restartWatcher = unwatch !== null;
+        stopConfigWatcher();
+        const result = await writeMcpConfigText(content);
+        if (restartWatcher) {
+          await restartConfigWatcherForLifecycle(runtime, lifecycleEpoch);
+        }
+        if (result.success) {
+          logger.info('MCP config text updated', { path: result.path });
+          await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+        }
+        return result;
+      })
   );
 
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSelectPath,
-    async (): Promise<string | null> => {
-      const result = await dialog.showOpenDialog({
-        filters: [
-          { extensions: ['json'], name: 'JSON Config' },
-          { extensions: ['*'], name: 'All Files' },
-        ],
-        properties: ['openFile'],
-        title: 'Select MCP Configuration File',
-      });
+    async (): Promise<string | null> =>
+      await trackConfigOperation(async () => {
+        const result = await dialog.showOpenDialog({
+          filters: [
+            { extensions: ['json'], name: 'JSON Config' },
+            { extensions: ['*'], name: 'All Files' },
+          ],
+          properties: ['openFile'],
+          title: 'Select MCP Configuration File',
+        });
 
-      if (result.canceled || result.filePaths.length === 0) {
-        return null;
-      }
+        if (result.canceled || result.filePaths.length === 0) {
+          return null;
+        }
 
-      const selectedPath = result.filePaths[0] ?? null;
-      lastUserSelectedConfigPath = selectedPath ? path.resolve(selectedPath) : null;
-      return lastUserSelectedConfigPath;
-    }
+        const selectedPath = result.filePaths[0] ?? null;
+        lastUserSelectedConfigPath = selectedPath ? path.resolve(selectedPath) : null;
+        return lastUserSelectedConfigPath;
+      })
   );
 
   registry.registerInvoke(
@@ -517,11 +553,11 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUnwatch,
-    async (): Promise<{ watching: false }> => {
-      await mcpLifecycleBarrier;
-      stopConfigWatcher();
-      return { watching: false };
-    }
+    async (): Promise<{ watching: false }> =>
+      await trackConfigOperation(async () => {
+        stopConfigWatcher();
+        return { watching: false as const };
+      })
   );
 
   // Tool management IPC handlers
@@ -534,51 +570,35 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnable,
-    async (_e, toolIds: string[]): Promise<void> => {
-      mcpToolRegistry.enableTools(toolIds);
-      notifyMcpToolsUpdated();
-      await saveToolPreferencesIfNeeded();
-    }
+    async (_e, toolIds: string[]): Promise<void> =>
+      await updateToolPreferences(() => mcpToolRegistry.enableTools(toolIds))
   );
 
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisable,
-    async (_e, toolIds: string[]): Promise<void> => {
-      mcpToolRegistry.disableTools(toolIds);
-      notifyMcpToolsUpdated();
-      await saveToolPreferencesIfNeeded();
-    }
+    async (_e, toolIds: string[]): Promise<void> =>
+      await updateToolPreferences(() => mcpToolRegistry.disableTools(toolIds))
   );
 
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnableServer,
-    async (_e, serverName: string): Promise<void> => {
-      mcpToolRegistry.enableServerTools(serverName);
-      notifyMcpToolsUpdated();
-      await saveToolPreferencesIfNeeded();
-    }
+    async (_e, serverName: string): Promise<void> =>
+      await updateToolPreferences(() => mcpToolRegistry.enableServerTools(serverName))
   );
 
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisableServer,
-    async (_e, serverName: string): Promise<void> => {
-      mcpToolRegistry.disableServerTools(serverName);
-      notifyMcpToolsUpdated();
-      await saveToolPreferencesIfNeeded();
-    }
+    async (_e, serverName: string): Promise<void> =>
+      await updateToolPreferences(() => mcpToolRegistry.disableServerTools(serverName))
   );
 
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsReset,
-    async (): Promise<void> => {
-      mcpToolRegistry.reset();
-      notifyMcpToolsUpdated();
-      await saveToolPreferencesIfNeeded();
-    }
+    async (): Promise<void> => await updateToolPreferences(() => mcpToolRegistry.reset())
   );
 
   registry.registerInvoke('mcp', DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsGetStats, async () =>
@@ -588,45 +608,49 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configCreateSample,
-    async (): Promise<{ success: boolean; path: string; error?: string }> => {
-      let configPath = '';
-      try {
-        configPath = await getMcpConfigPath();
-        await fsp.mkdir(path.dirname(configPath), { recursive: true });
-
-        // Write commented template without active placeholder servers.
-        // Use exclusive create to avoid TOCTOU races with concurrent writers.
+    async (): Promise<{ success: boolean; path: string; error?: string }> =>
+      await trackConfigOperation(async (lifecycleEpoch) => {
+        let configPath = '';
         try {
-          await fsp.writeFile(configPath, getDefaultMcpConfigTemplate(), {
-            encoding: 'utf-8',
-            flag: 'wx',
-          });
-        } catch (error) {
-          if ((error as { code?: unknown }).code === 'EEXIST') {
-            const message =
-              'MCP config already exists. Select the existing file or reset the path before creating a sample.';
-            logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
-            return { error: message, path: configPath, success: false };
+          configPath = await getMcpConfigPath();
+          await fsp.mkdir(path.dirname(configPath), { recursive: true });
+
+          // Write commented template without active placeholder servers.
+          // Use exclusive create to avoid TOCTOU races with concurrent writers.
+          try {
+            await fsp.writeFile(configPath, getDefaultMcpConfigTemplate(), {
+              encoding: 'utf-8',
+              flag: 'wx',
+            });
+          } catch (error) {
+            if ((error as { code?: unknown }).code === 'EEXIST') {
+              const message =
+                'MCP config already exists. Select the existing file or reset the path before creating a sample.';
+              logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
+              return { error: message, path: configPath, success: false };
+            }
+            throw error;
           }
-          throw error;
+          logger.info('Created sample MCP config', { path: configPath });
+
+          // Clear existing tools, reload config, and ensure file watcher tracks the new file.
+          await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+          await restartConfigWatcherForLifecycle(runtime, lifecycleEpoch);
+
+          return { path: configPath, success: true };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          logger.error('Failed to create sample MCP config', { error });
+          return { error: message, path: configPath, success: false };
         }
-        logger.info('Created sample MCP config', { path: configPath });
-
-        // Clear existing tools, reload config, and ensure file watcher tracks the new file.
-        await reloadMcpConfig(runtime);
-        await restartConfigWatcher(runtime);
-
-        return { path: configPath, success: true };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        logger.error('Failed to create sample MCP config', { error });
-        return { error: message, path: configPath, success: false };
-      }
-    }
+      })
   );
 
   // Discover tools when config changes; saved preferences are applied after discovery completes
-  const startup = restartConfigWatcher(runtime).then(() => reloadMcpConfig(runtime));
+  const startup = trackConfigOperation(async (lifecycleEpoch) => {
+    await restartConfigWatcherForLifecycle(runtime, lifecycleEpoch);
+    await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+  });
   const settledStartup = startup.then(
     () => undefined,
     () => undefined
