@@ -1073,6 +1073,284 @@ describe('UnifiedToolsSettings', () => {
       );
     });
 
+    it('renders accessible token-free OAuth policy and destructive controls', async () => {
+      const operations = createMockOperations();
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 5,
+        servers: [
+          {
+            auth: {
+              credentialState: 'missing',
+              grantedScopes: [],
+              requestedScopes: ['read'],
+              resourceUrl: 'https://mcp.linear.app/mcp/readonly',
+              type: 'oauth-user',
+            },
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('linear-read'),
+            generation: 1,
+            state: 'authentication-required',
+            transport: 'streamable-http',
+          },
+          {
+            auth: {
+              authorizationServer: 'https://linear.app',
+              credentialSecretSentinel: 'private-secret-sentinel',
+              credentialState: 'stored',
+              grantedScopes: ['read', 'write'],
+              lastSuccessfulConnectionAt: Date.parse('2026-08-31T12:00:00.000Z'),
+              requestedScopes: ['read', 'write'],
+              resourceUrl: 'https://mcp.linear.app/mcp',
+              type: 'oauth-user',
+            } as never,
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('linear-write'),
+            generation: 2,
+            negotiated: {
+              advertisedCapabilityIds: ['tools'],
+              era: 'modern',
+              revision: '2026-07-28',
+            },
+            state: 'connected',
+            transport: 'streamable-http',
+          },
+          {
+            auth: {
+              credentialState: 'stored',
+              grantedScopes: [],
+              requestedScopes: [],
+              resourceUrl: 'https://mcp.example.test/mcp',
+              type: 'oauth-user',
+            },
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('oauth-error'),
+            error: {
+              category: 'authentication',
+              code: 'mcp-authentication-failed',
+              message: 'MCP server requires authentication',
+            },
+            generation: 2,
+            state: 'error',
+            transport: 'streamable-http',
+          },
+          {
+            auth: {
+              credentialState: 'stored',
+              grantedScopes: ['read'],
+              requestedScopes: ['read'],
+              resourceUrl: 'https://mcp.example.test/mcp',
+              type: 'oauth-user',
+            },
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('oauth-stored'),
+            generation: 2,
+            state: 'authentication-required',
+            transport: 'streamable-http',
+          },
+          {
+            auth: {
+              credentialState: 'stored',
+              grantedScopes: ['read'],
+              requestedScopes: ['read'],
+              resourceUrl: 'https://mcp.example.test/mcp',
+              type: 'oauth-user',
+            },
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('oauth-transport-error'),
+            error: {
+              category: 'transport',
+              code: 'mcp-transport-failed',
+              message: 'Network unavailable',
+            },
+            generation: 2,
+            state: 'error',
+            transport: 'streamable-http',
+          },
+          {
+            auth: {
+              credentialState: 'unreadable',
+              grantedScopes: [],
+              requestedScopes: ['read'],
+              resourceUrl: 'https://mcp.example.test/mcp',
+              type: 'oauth-user',
+            },
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('oauth-unreadable'),
+            generation: 2,
+            state: 'authentication-required',
+            transport: 'streamable-http',
+          },
+          {
+            auth: {
+              credentialState: 'stored',
+              grantedScopes: ['read'],
+              lastSuccessfulConnectionAt: Number.NaN,
+              requestedScopes: ['read'],
+              resourceUrl: 'https://mcp.example.test/mcp',
+              type: 'oauth-user',
+            },
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('oauth-invalid-time'),
+            generation: 2,
+            negotiated: { era: 'modern', revision: '2026-07-28' },
+            state: 'connected',
+            transport: 'streamable-http',
+          },
+        ],
+      });
+      operations.controlMcpServer = vi.fn().mockResolvedValue({
+        configuredProtocol: 'auto',
+        configuredServerId: parseConfiguredMcpServerId('linear-write'),
+        generation: 3,
+        state: 'authentication-required',
+        transport: 'streamable-http',
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const statusList = await screen.findByTestId('mcp-server-status-list');
+      expect(statusList).toHaveTextContent('Requested scopes: read');
+      expect(statusList).toHaveTextContent('Granted scopes: read, write');
+      expect(statusList).toHaveTextContent('https://mcp.linear.app/mcp/readonly');
+      expect(statusList).toHaveTextContent('OAuth credentials stored');
+      expect(statusList).toHaveTextContent('OAuth credentials unreadable');
+      expect(statusList).toHaveTextContent('invalid stored timestamp');
+      expect(statusList).not.toHaveTextContent(
+        /access-token|refresh-token|private-secret|private-secret-sentinel/u
+      );
+      expect(screen.getByRole('button', { name: 'Connect linear-read' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Disconnect linear-write' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reauthorize linear-write' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reauthorize oauth-error' })).toBeInTheDocument();
+      expect(screen.queryByTestId('mcp-retry-oauth-error')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Connect oauth-stored' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Disconnect oauth-stored' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Retry oauth-transport-error' })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Disconnect oauth-transport-error' })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Disconnect oauth-unreadable' })
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Connect oauth-unreadable' })).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reauthorize linear-write' }));
+      expect(await screen.findByRole('dialog')).toHaveTextContent(
+        'Its stored OAuth credentials will be cleared before a new authorization flow opens.'
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm reauthorize linear-write' }));
+      await waitFor(() =>
+        expect(operations.controlMcpServer).toHaveBeenCalledWith({
+          action: 'reauthorize',
+          configuredServerId: parseConfiguredMcpServerId('linear-write'),
+        })
+      );
+    });
+
+    it('does not run credential-destructive OAuth controls when confirmation is declined', async () => {
+      const operations = createMockOperations();
+      const server: McpHostServerSnapshot = {
+        auth: {
+          credentialState: 'stored',
+          grantedScopes: ['read'],
+          requestedScopes: ['read'],
+          resourceUrl: 'https://mcp.linear.app/mcp/readonly',
+          type: 'oauth-user',
+        },
+        configuredProtocol: 'auto',
+        configuredServerId: parseConfiguredMcpServerId('linear'),
+        generation: 2,
+        negotiated: { era: 'modern', revision: '2026-07-28' },
+        state: 'connected',
+        transport: 'streamable-http',
+      };
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({ revision: 5, servers: [server] });
+      operations.controlMcpServer = vi.fn().mockResolvedValue(server);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Disconnect linear' }));
+
+      expect(await screen.findByRole('dialog')).toHaveTextContent(
+        'Disconnect linear and remove its stored OAuth credentials?'
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(operations.controlMcpServer).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates pending lifecycle controls and disables sibling actions', async () => {
+      const operations = createMockOperations();
+      const pending = Promise.withResolvers<McpHostServerSnapshot>();
+      const server: McpHostServerSnapshot = {
+        auth: {
+          credentialState: 'stored',
+          grantedScopes: ['read'],
+          requestedScopes: ['read'],
+          resourceUrl: 'https://mcp.linear.app/mcp',
+          type: 'oauth-user',
+        },
+        configuredProtocol: 'auto',
+        configuredServerId: parseConfiguredMcpServerId('linear'),
+        generation: 2,
+        negotiated: { era: 'modern', revision: '2026-07-28' },
+        state: 'connected',
+        transport: 'streamable-http',
+      };
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({ revision: 5, servers: [server] });
+      operations.controlMcpServer = vi.fn(async () => await pending.promise);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      const reauthorize = await screen.findByRole('button', { name: 'Reauthorize linear' });
+      const disconnect = screen.getByRole('button', { name: 'Disconnect linear' });
+      fireEvent.click(reauthorize);
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm reauthorize linear' }));
+
+      expect(operations.controlMcpServer).toHaveBeenCalledOnce();
+      expect(reauthorize).toBeDisabled();
+      expect(disconnect).toBeDisabled();
+
+      pending.resolve(server);
+      await waitFor(() => expect(reauthorize).toBeEnabled());
+    });
+
+    it('renders lifecycle-control rejections and re-enables controls', async () => {
+      const operations = createMockOperations();
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 5,
+        servers: [
+          {
+            auth: {
+              credentialState: 'missing',
+              grantedScopes: [],
+              requestedScopes: ['read'],
+              resourceUrl: 'https://mcp.linear.app/mcp/readonly',
+              type: 'oauth-user',
+            },
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('linear'),
+            generation: 1,
+            state: 'authentication-required',
+            transport: 'streamable-http',
+          },
+        ],
+      });
+      operations.controlMcpServer = vi.fn().mockRejectedValue(new Error('authorization denied'));
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      const connect = await screen.findByRole('button', { name: 'Connect linear' });
+      fireEvent.click(connect);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'MCP lifecycle control failed: authorization denied'
+      );
+      expect(connect).toBeEnabled();
+    });
+
     it('distinguishes an explicit empty host snapshot from a malformed config', async () => {
       const operations = createMockOperations();
       operations.getTools = vi.fn().mockResolvedValue([]);
