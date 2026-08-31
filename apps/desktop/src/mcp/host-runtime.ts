@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/agent/mcp-client';
 import {
   type ConfiguredMcpServerId,
+  type McpHostAuthSnapshot,
   type McpHostCloseReport,
   type McpHostConfig,
   type McpHostOperation,
@@ -17,10 +18,21 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import { shell } from 'electron';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
 import { McpHostRevisionPublisher } from './host-revision-publisher';
 import { McpHostService } from './host-service';
 import { classifyMcpLifecycleFailure, McpLifecycleFailure } from './lifecycle-errors';
+import {
+  createLazySafeStorageMcpOAuthStore,
+  createMcpOAuthClientProvider,
+  createMcpOAuthStoreIdentity,
+  type McpOAuthClientProvider,
+  type McpOAuthClientProviderOptions,
+  type McpOAuthCloseProof,
+  type McpOAuthStore,
+  readMcpOAuthAuthProjection,
+} from './oauth-client-provider';
 import {
   McpServerActor,
   type McpServerActorClient,
@@ -45,10 +57,14 @@ interface RuntimeDependencies {
   ) => ReturnType<McpServerActorClientFactory>;
   createConfigRef?: () => string;
   createHttpTransportClient?: (options: ExplicitHttpMcpClientOptions) => ExplicitClient;
+  createOAuthProvider?: (options: McpOAuthClientProviderOptions) => Promise<McpOAuthClientProvider>;
   createStdioTransportClient?: (options: ExplicitStdioMcpClientOptions) => ExplicitClient;
+  oauthStore?: McpOAuthStore;
   onInternalError?: (code: string, cause: unknown) => Promise<void> | void;
+  openExternal?: (url: string) => Promise<void>;
 }
 interface PrivateConfigEntry {
+  auth: McpHostAuthSnapshot;
   configRef: string;
   server: ResolvedMcpServer;
 }
@@ -70,14 +86,15 @@ const samePrivateConfig = (left: ResolvedMcpServer, right: ResolvedMcpServer): b
   isDeepStrictEqual({ ...left, enabledTools: undefined }, { ...right, enabledTools: undefined });
 const successfulCloseReport = (
   transport: ResolvedMcpServer['transport'],
-  requestsSettled: number
+  requestsSettled: number,
+  oauthProof?: McpOAuthCloseProof
 ): McpHostCloseReport =>
   Object.freeze({
-    callbacksClosed: 1,
+    callbacksClosed: 1 + (oauthProof?.callbacksClosed ?? 0),
     childProcessesClosed: transport === 'stdio' ? 1 : 0,
     clientsClosed: 1,
     failures: Object.freeze([]),
-    loopbackPortsClosed: 0,
+    loopbackPortsClosed: oauthProof?.loopbackPortsClosed ?? 0,
     probesClosed: 0,
     requestsSettled,
     subscriptionsClosed: 0,
@@ -92,9 +109,38 @@ const listToolsParams = (operation: ListToolsOperation) =>
       }
     : undefined;
 
-async function closeAfterFailure(client: ExplicitClient, cause: unknown): Promise<never> {
+async function closeClientResources(
+  client: ExplicitClient,
+  provider?: McpOAuthClientProvider
+): Promise<McpOAuthCloseProof | undefined> {
+  const failures: unknown[] = [];
+  let oauthProof: McpOAuthCloseProof | undefined;
   try {
     await client.close();
+  } catch (cause) {
+    failures.push(cause);
+  }
+  try {
+    oauthProof = await provider?.close();
+  } catch (cause) {
+    failures.push(cause);
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'MCP client resources failed to close');
+  }
+  return oauthProof;
+}
+
+async function closeAfterFailure(
+  client: ExplicitClient,
+  cause: unknown,
+  provider?: McpOAuthClientProvider
+): Promise<never> {
+  try {
+    await closeClientResources(client, provider);
   } catch (cleanupCause) {
     throw new McpServerActorClientCleanupError(
       [cause, cleanupCause],
@@ -108,18 +154,22 @@ async function connectClient(
   client: ExplicitClient,
   server: ResolvedMcpServer,
   context: ActorContext,
-  diagnostics?: McpStdioDiagnosticCollector
+  diagnostics?: McpStdioDiagnosticCollector,
+  provider?: McpOAuthClientProvider,
+  onConnected?: () => Promise<void>
 ): Promise<McpServerActorClient> {
   try {
     await client.connect({
       signal: context.signal,
       ...(server.startup === 'automatic' ? { timeout: 10_000 } : {}),
     });
+    await onConnected?.();
   } catch (cause) {
     diagnostics?.flush();
     return await closeAfterFailure(
       client,
-      classifyMcpLifecycleFailure(cause, diagnostics?.snapshot())
+      classifyMcpLifecycleFailure(cause, diagnostics?.snapshot()),
+      provider
     );
   }
   diagnostics?.flush();
@@ -133,18 +183,20 @@ async function connectClient(
       client,
       new Error(
         status.state === 'error' ? status.error : 'Connected MCP client has no negotiated status'
-      )
+      ),
+      provider
     );
   }
   let requestsSettled = 0;
   return {
     async close() {
+      let oauthProof: McpOAuthCloseProof | undefined;
       try {
-        await client.close();
+        oauthProof = await closeClientResources(client, provider);
       } finally {
         diagnostics?.flush();
       }
-      return successfulCloseReport(server.transport, requestsSettled);
+      return successfulCloseReport(server.transport, requestsSettled, oauthProof);
     },
     async invoke(operation, options) {
       const onProgress = options.onProgress;
@@ -174,17 +226,24 @@ async function connectClient(
 }
 
 export class DesktopMcpHostRuntime {
-  private committedByRef = new Map<string, ResolvedMcpServer>();
+  private committedByRef = new Map<string, PrivateConfigEntry>();
   private currentById = new Map<ConfiguredMcpServerId, PrivateConfigEntry>();
+  private readonly pendingOAuthCleanup = new Map<
+    string,
+    ReturnType<typeof createMcpOAuthStoreIdentity>
+  >();
   readonly host: McpHostPort;
   private replacementTail: Promise<void> = Promise.resolve();
-  private stagedByRef: Map<string, ResolvedMcpServer> | undefined;
+  private stagedByRef: Map<string, PrivateConfigEntry> | undefined;
   private readonly createActorClient: NonNullable<RuntimeDependencies['createActorClient']>;
   private readonly createConfigRef: () => string;
   private readonly createHttpTransportClient: NonNullable<
     RuntimeDependencies['createHttpTransportClient']
   >;
+  private readonly createOAuthProvider: NonNullable<RuntimeDependencies['createOAuthProvider']>;
   private readonly onInternalError: NonNullable<RuntimeDependencies['onInternalError']>;
+  private readonly oauthStore: McpOAuthStore;
+  private readonly openExternal: NonNullable<RuntimeDependencies['openExternal']>;
   private readonly service: McpHostPort;
   private readonly createStdioTransportClient: NonNullable<
     RuntimeDependencies['createStdioTransportClient']
@@ -194,6 +253,7 @@ export class DesktopMcpHostRuntime {
     this.createConfigRef = dependencies.createConfigRef ?? randomUUID;
     this.createHttpTransportClient =
       dependencies.createHttpTransportClient ?? ((options) => new ExplicitHttpMcpClient(options));
+    this.createOAuthProvider = dependencies.createOAuthProvider ?? createMcpOAuthClientProvider;
     this.createStdioTransportClient =
       dependencies.createStdioTransportClient ?? ((options) => new ExplicitStdioMcpClient(options));
     this.createActorClient =
@@ -202,17 +262,32 @@ export class DesktopMcpHostRuntime {
     this.onInternalError =
       dependencies.onInternalError ??
       ((code, cause) => logger.error('MCP host runtime failure', { cause, code }));
+    this.oauthStore = dependencies.oauthStore ?? createLazySafeStorageMcpOAuthStore();
+    this.openExternal = dependencies.openExternal ?? (async (url) => await shell.openExternal(url));
     const publisher = new McpHostRevisionPublisher({
       onDiagnostic: ({ code }, cause) => this.reportInternalError(code, cause),
     });
     this.service = new McpHostService({
       actorFactory: (input) => {
-        const server = this.resolveServer(input.config);
+        const entry = this.resolveEntry(input.config);
+        const server = structuredClone(entry.server);
+        let auth = structuredClone(entry.auth);
+        const updateAuth = (next: McpHostAuthSnapshot): void => {
+          auth = structuredClone(next);
+          entry.auth = structuredClone(next);
+        };
         return new McpServerActor({
+          auth: () => auth,
+          ...(input.config.auth.type === 'oauth-user'
+            ? { clearCredentials: () => this.clearOAuthCredentials(entry, updateAuth) }
+            : {}),
           configuredProtocol: input.config.configuredProtocol,
           configuredServerId: input.config.configuredServerId,
           ...(input.config.enabledTools ? { enabledTools: input.config.enabledTools } : {}),
-          factory: (context) => this.createActorClient(server, context),
+          factory: (context) =>
+            dependencies.createActorClient
+              ? this.createActorClient(server, context)
+              : this.createExplicitActorClient(server, context, updateAuth),
           generation: input.generation,
           onInternalError: (code, cause) => this.reportInternalError(code, cause),
           onSnapshotChanged: input.onSnapshotChanged,
@@ -249,46 +324,89 @@ export class DesktopMcpHostRuntime {
   }
 
   private async applyResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
+    const previousEntries = [...this.currentById.values()];
     const nextById = new Map<ConfiguredMcpServerId, PrivateConfigEntry>();
-    const nextByRef = new Map<string, ResolvedMcpServer>();
-    const servers = config.servers.map((inputServer): ConfiguredServer => {
-      const server = structuredClone(inputServer);
-      const configuredServerId = parseConfiguredMcpServerId(server.name);
-      const previous = this.currentById.get(configuredServerId);
-      const configRef =
-        previous && samePrivateConfig(previous.server, server)
-          ? previous.configRef
-          : this.createConfigRef();
-      nextById.set(configuredServerId, { configRef, server });
-      nextByRef.set(configRef, server);
-      return {
-        auth: 'auth' in server ? (server.auth ?? { type: 'none' }) : { type: 'none' },
-        configuredProtocol: server.protocol,
-        configuredServerId,
-        ...(server.enabledTools ? { enabledTools: server.enabledTools } : {}),
-        startup: server.startup,
-        transport: { configRef, type: server.transport },
-      };
-    });
+    const nextByRef = new Map<string, PrivateConfigEntry>();
+    const servers = await Promise.all(
+      config.servers.map(async (inputServer): Promise<ConfiguredServer> => {
+        const server = structuredClone(inputServer);
+        const configuredServerId = parseConfiguredMcpServerId(server.name);
+        const previous = this.currentById.get(configuredServerId);
+        const configRef =
+          previous && samePrivateConfig(previous.server, server)
+            ? previous.configRef
+            : this.createConfigRef();
+        const entry = {
+          auth: await this.projectAuth(server),
+          configRef,
+          server,
+        } satisfies PrivateConfigEntry;
+        nextById.set(configuredServerId, entry);
+        nextByRef.set(configRef, entry);
+        return {
+          auth: 'auth' in server ? (server.auth ?? { type: 'none' }) : { type: 'none' },
+          configuredProtocol: server.protocol,
+          configuredServerId,
+          ...(server.enabledTools ? { enabledTools: server.enabledTools } : {}),
+          startup: server.startup,
+          transport: { configRef, type: server.transport },
+        };
+      })
+    );
     this.stagedByRef = nextByRef;
     try {
       const snapshot = await this.service.replaceConfig({ servers });
       this.currentById = nextById;
       this.committedByRef = nextByRef;
+      const nextIdentityKeys = new Set(
+        [...nextById.values()].flatMap(({ server }) => {
+          const identity = this.oauthIdentity(server);
+          return identity ? [JSON.stringify(identity)] : [];
+        })
+      );
+      const obsoleteIdentities = previousEntries.flatMap(({ server }) => {
+        const identity = this.oauthIdentity(server);
+        return identity && !nextIdentityKeys.has(JSON.stringify(identity)) ? [identity] : [];
+      });
+      for (const key of nextIdentityKeys) {
+        this.pendingOAuthCleanup.delete(key);
+      }
+      for (const identity of obsoleteIdentities) {
+        this.pendingOAuthCleanup.set(JSON.stringify(identity), identity);
+      }
+      const cleanupEntries = [...this.pendingOAuthCleanup.entries()];
+      const cleanupResults = await Promise.allSettled(
+        cleanupEntries.map(async ([, identity]) => await this.oauthStore.clear(identity))
+      );
+      const cleanupFailures: unknown[] = [];
+      for (const [index, result] of cleanupResults.entries()) {
+        if (result.status === 'fulfilled') {
+          const key = cleanupEntries[index]?.[0];
+          if (key !== undefined) {
+            this.pendingOAuthCleanup.delete(key);
+          }
+        } else {
+          cleanupFailures.push(result.reason);
+        }
+      }
+      if (cleanupFailures.length > 0) {
+        throw new AggregateError(cleanupFailures, 'MCP OAuth credential cleanup failed');
+      }
       return snapshot;
     } finally {
       this.stagedByRef = undefined;
     }
   }
 
-  private resolveServer(config: ConfiguredServer): ResolvedMcpServer {
+  private resolveEntry(config: ConfiguredServer): PrivateConfigEntry {
     // A reused ref can differ only by enabledTools, which stays in the public config.
-    const server =
+    const entry =
       this.stagedByRef?.get(config.transport.configRef) ??
       this.committedByRef.get(config.transport.configRef);
-    if (!server) {
+    if (!entry) {
       throw new ConfigRefError('mcp-config-ref-unknown');
     }
+    const { server } = entry;
     if (server.name !== config.configuredServerId) {
       throw new ConfigRefError('mcp-config-ref-server-mismatch');
     }
@@ -298,7 +416,7 @@ export class DesktopMcpHostRuntime {
     if (server.transport !== config.transport.type) {
       throw new ConfigRefError('mcp-config-ref-transport-mismatch');
     }
-    return structuredClone(server);
+    return entry;
   }
 
   private reportInternalError(code: string, cause: unknown): void {
@@ -314,9 +432,40 @@ export class DesktopMcpHostRuntime {
     }
   }
 
-  private createExplicitActorClient(
+  private async projectAuth(server: ResolvedMcpServer): Promise<McpHostAuthSnapshot> {
+    if (server.transport === 'stdio' || server.auth === undefined || server.auth.type === 'none') {
+      return { type: 'none' };
+    }
+    if (server.auth.type === 'bearer') {
+      return { state: 'configured', type: 'bearer' };
+    }
+    const identity = createMcpOAuthStoreIdentity(server.name, server.url, server.auth.scopes);
+    try {
+      return await readMcpOAuthAuthProjection(this.oauthStore, identity, {
+        ...(server.auth.scopes ? { requestedScopes: server.auth.scopes } : {}),
+      });
+    } catch (cause) {
+      this.reportInternalError('mcp-oauth-credential-read-failed', cause);
+      return {
+        credentialState: 'unreadable',
+        grantedScopes: [],
+        requestedScopes: [...(server.auth.scopes ?? [])],
+        resourceUrl: identity.resourceUrl,
+        type: 'oauth-user',
+      };
+    }
+  }
+
+  private oauthIdentity(server: ResolvedMcpServer) {
+    return server.transport !== 'stdio' && server.auth?.type === 'oauth-user'
+      ? createMcpOAuthStoreIdentity(server.name, server.url, server.auth.scopes)
+      : undefined;
+  }
+
+  private async createExplicitActorClient(
     server: ResolvedMcpServer,
-    context: ActorContext
+    context: ActorContext,
+    updateAuth: (auth: McpHostAuthSnapshot) => void = () => undefined
   ): Promise<McpServerActorClient> {
     const common = {
       clientInfo: { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
@@ -334,27 +483,84 @@ export class DesktopMcpHostRuntime {
             });
           })
         : undefined;
-    const client =
-      server.transport === 'stdio'
-        ? this.createStdioTransportClient({
-            ...common,
-            ...(server.args ? { args: server.args } : {}),
-            command: server.command,
-            ...(server.env ? { env: server.env } : {}),
-            onStderr: (chunk) => diagnostics?.write(chunk),
-            onUnexpectedClose: () =>
-              context.onUnexpectedClose(new McpLifecycleFailure('connection', 'mcp-child-exited')),
-            userPacedAuth: server.startup === 'authentication-required',
-          })
-        : this.createHttpTransportClient({
-            ...common,
-            ...(server.headers ? { headers: server.headers } : {}),
-            lifecycle: 'host-owned',
-            onUnexpectedClose: () => context.onUnexpectedClose(),
-            transport: server.transport,
-            url: server.url,
-          });
-    return connectClient(client, server, context, diagnostics);
+    if (server.transport === 'stdio') {
+      const client = this.createStdioTransportClient({
+        ...common,
+        ...(server.args ? { args: server.args } : {}),
+        command: server.command,
+        ...(server.env ? { env: server.env } : {}),
+        onStderr: (chunk) => diagnostics?.write(chunk),
+        onUnexpectedClose: () =>
+          context.onUnexpectedClose(new McpLifecycleFailure('connection', 'mcp-child-exited')),
+        userPacedAuth: server.startup === 'authentication-required',
+      });
+      return connectClient(client, server, context, diagnostics);
+    }
+    let provider: McpOAuthClientProvider | undefined;
+    if (server.auth?.type === 'oauth-user') {
+      provider = await this.createOAuthProvider({
+        openExternal: this.openExternal,
+        ...(server.auth.scopes ? { scopes: server.auth.scopes } : {}),
+        serverId: server.name,
+        serverUrl: server.url,
+        store: this.oauthStore,
+      });
+      updateAuth(provider.authSnapshot());
+    }
+    let client: ExplicitClient;
+    try {
+      client = this.createHttpTransportClient({
+        ...common,
+        ...(provider ? { authProvider: provider, fetch: provider.fetch } : {}),
+        ...(server.headers ? { headers: server.headers } : {}),
+        lifecycle: 'host-owned',
+        ...(provider ? { onInsufficientScope: 'reauthorize' as const } : {}),
+        onUnexpectedClose: () => context.onUnexpectedClose(),
+        transport: server.transport,
+        url: server.url,
+      });
+    } catch (cause) {
+      try {
+        await provider?.close();
+      } catch (cleanupCause) {
+        throw new AggregateError(
+          [cause, cleanupCause],
+          'MCP transport construction failed and OAuth cleanup also failed'
+        );
+      }
+      throw cause;
+    }
+    return connectClient(
+      client,
+      server,
+      context,
+      undefined,
+      provider,
+      provider
+        ? async () => {
+            try {
+              await provider.recordSuccessfulConnection();
+              updateAuth(provider.authSnapshot());
+            } catch (cause) {
+              this.reportInternalError('mcp-oauth-connection-record-failed', cause);
+            }
+          }
+        : undefined
+    );
+  }
+
+  private async clearOAuthCredentials(
+    entry: PrivateConfigEntry,
+    updateAuth: (auth: McpHostAuthSnapshot) => void
+  ): Promise<void> {
+    const { server } = entry;
+    if (server.transport === 'stdio' || server.auth?.type !== 'oauth-user') {
+      throw new Error('MCP OAuth credential clearing requires an oauth-user HTTP server');
+    }
+    await this.oauthStore.clear(
+      createMcpOAuthStoreIdentity(server.name, server.url, server.auth.scopes)
+    );
+    updateAuth(await this.projectAuth(server));
   }
 }
 

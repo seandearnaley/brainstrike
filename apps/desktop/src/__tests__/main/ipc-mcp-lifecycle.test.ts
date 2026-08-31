@@ -1,8 +1,9 @@
 import { mcpToolRegistry } from '@brainstrike/agent';
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { BrowserWindow, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
-import { watchMcpConfig } from '../../mcp-loader';
+import { loadMcpConfig, watchMcpConfig } from '../../mcp-loader';
 import { readOpenAIApiKey } from '../../openai-api-key';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
@@ -59,6 +60,11 @@ describe('MCP lifecycle IPC', () => {
     handlers = new Map();
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
+    vi.mocked(loadMcpConfig).mockResolvedValue({
+      config: { servers: [] },
+      exists: true,
+      path: '/tmp/mcp.config.json',
+    });
     vi.mocked(readOpenAIApiKey).mockResolvedValue('env-openai-key');
     const mockHandle = ipcMain.handle as unknown as import('vitest').Mock<
       (channel: string, handler: RegisteredHandler) => void
@@ -119,5 +125,70 @@ describe('MCP lifecycle IPC', () => {
 
     await expect(handler({}, { action: 'guess', configuredServerId: 'linear' })).rejects.toThrow();
     expect(control).not.toHaveBeenCalled();
+  });
+
+  it('reloads config after a failed destructive OAuth control', async () => {
+    const handler = handlers.get('mcp:lifecycle:control');
+    if (!handler) {
+      throw new Error('lifecycle control handler not registered');
+    }
+    await handlers.get('mcp:status:get')?.();
+    vi.mocked(loadMcpConfig).mockClear();
+    await authority.replaceResolvedConfig({
+      servers: [
+        {
+          auth: { type: 'oauth-user' },
+          headers: undefined,
+          name: parseConfiguredMcpServerId('linear'),
+          protocol: 'auto',
+          startup: 'authentication-required',
+          transport: 'streamable-http',
+          url: 'https://mcp.linear.app/mcp',
+        },
+      ],
+    });
+    vi.mocked(authority.runtime.host.control).mockRejectedValueOnce(
+      new Error('credential clear failed')
+    );
+    await expect(
+      handler({}, { action: 'disconnect', configuredServerId: 'linear' })
+    ).rejects.toThrow('credential clear failed');
+    expect(loadMcpConfig).toHaveBeenCalledOnce();
+    expect(authority.replaceResolvedConfig).toHaveBeenLastCalledWith({ servers: [] });
+  });
+
+  it('preserves both destructive-control and reload failures', async () => {
+    const handler = handlers.get('mcp:lifecycle:control');
+    if (!handler) {
+      throw new Error('lifecycle control handler not registered');
+    }
+    await handlers.get('mcp:status:get')?.();
+    await authority.replaceResolvedConfig({
+      servers: [
+        {
+          auth: { type: 'oauth-user' },
+          headers: undefined,
+          name: parseConfiguredMcpServerId('linear'),
+          protocol: 'auto',
+          startup: 'authentication-required',
+          transport: 'streamable-http',
+          url: 'https://mcp.linear.app/mcp',
+        },
+      ],
+    });
+    vi.mocked(authority.runtime.host.control).mockRejectedValueOnce(
+      new Error('credential clear failed')
+    );
+    vi.mocked(loadMcpConfig).mockRejectedValueOnce(new Error('config reload failed'));
+
+    await expect(
+      handler({}, { action: 'reauthorize', configuredServerId: 'linear' })
+    ).rejects.toMatchObject({
+      errors: [
+        expect.objectContaining({ message: 'credential clear failed' }),
+        expect.objectContaining({ message: 'config reload failed' }),
+      ],
+      message: 'MCP lifecycle control and config reload both failed',
+    });
   });
 });

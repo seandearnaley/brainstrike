@@ -8,7 +8,6 @@ import {
 } from '@brainstrike/agent';
 import {
   type McpHostSnapshot,
-  type McpHostWatchEvent,
   parseConfiguredMcpServerId,
   parseMcpHostControlRequest,
 } from '@brainstrike/assistant-contract';
@@ -17,6 +16,7 @@ import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { disposeClients } from './mcp';
 import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
+import { controlDestructiveMcpLifecycle, notifyMcpStatusUpdated } from './mcp/lifecycle-control';
 import type { McpDiscoveredTool } from './mcp/types';
 import {
   getDefaultMcpConfigTemplate,
@@ -284,18 +284,6 @@ function notifyMcpToolsUpdated(): void {
       continue;
     }
     window.webContents.send(MCP_TOOLS_UPDATED_EVENT, payload);
-  }
-}
-
-function notifyMcpStatusUpdated(event: McpHostWatchEvent): void {
-  // The unfiltered host watch used below publishes complete authority snapshots.
-  // Keep this assignment typed so the IPC payload cannot drift into a delta shape.
-  const payload: McpHostSnapshot = structuredClone(event);
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed()) {
-      continue;
-    }
-    window.webContents.send(MCP_STATUS_UPDATED_EVENT, payload);
   }
 }
 
@@ -604,6 +592,17 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
         return structuredClone(await runtime.host.control(parsed));
       }
       return await trackConfigOperation(async (lifecycleEpoch) => {
+        if (parsed.action === 'disconnect' || parsed.action === 'reauthorize') {
+          return structuredClone(
+            await controlDestructiveMcpLifecycle(
+              runtime.host,
+              { action: parsed.action, configuredServerId: parsed.configuredServerId },
+              async () => {
+                await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+              }
+            )
+          );
+        }
         const result = await runtime.host.control(parsed);
         if (result.state === 'connected') {
           await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);

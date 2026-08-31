@@ -1966,8 +1966,8 @@ failed zero-tool servers plus negotiation/config errors remain visible.
 Startup policy is explicit per configured server: `automatic` permits one
 bounded machine connection attempt during discovery, while
 `authentication-required` publishes an actionable status without constructing
-the transport or opening a browser. `connect`, `retry`, and `cancel` are
-explicit host controls; user-paced authorization is not governed by the
+the transport or opening a browser. `connect`, `retry`, `cancel`, `disconnect`,
+and `reauthorize` are explicit host controls; user-paced authorization is not governed by the
 automatic ten-second machine deadline. Stdio stderr is piped through the SDK's
 early-created stream, line-bounded and secret-redacted before it reaches the
 server snapshot or the warn-and-above durable log sink.
@@ -2249,9 +2249,10 @@ and must never cross renderer IPC or bypass the platform redaction path.
   or cancels owned work explicitly, and closes old transports before publishing
   the replacement as ready. It never mutates a live client in place.
   Caller cancellation stays distinct from `mcp_generation_retired`; unexpected closure replaces only that server without replay.
-- `control` accepts only the closed `connect` / `retry` / `cancel` action union.
-  It is the sole way to begin user-paced authentication, retry a failed
-  generation, or cancel one; each action returns the resulting token-free
+- `control` accepts only the closed `connect` / `retry` / `cancel` / `disconnect` /
+  `reauthorize` action union. It is the sole way to begin user-paced
+  authentication, retry a failed generation, cancel one, or clear and replace
+  one selected OAuth authority; each action returns the resulting token-free
   server snapshot and retains failed servers even when discovery found zero
   tools.
 - `close` is terminal and proves that every owned client, request, subscription,
@@ -2347,11 +2348,13 @@ actions such as Authenticate, Reauthorize, Disconnect, Retry, and Replace
 Configuration. Opaque server, invocation, continuation, task, and Apps ids are
 never reconstructed from display names.
 
-The startup policy is conservative for interactive stdio OAuth wrappers: an
+The startup policy is conservative for every interactive OAuth path. Native
+HTTP `oauth-user` entries that omit startup normalize to
+`authentication-required`; explicitly selecting `automatic` is invalid. An
 `npx -y mcp-remote ...` shape is normalized to `authentication-required`, even
 when the legacy config omitted startup policy, so config loading and startup
-discovery cannot spawn a browser. Connect, Cancel, and Retry are capability-
-gated Settings actions. Cancel is dispatched directly to the owning actor,
+discovery cannot spawn a browser. Connect, Cancel, Disconnect, Reauthorize, and
+Retry are capability-gated Settings actions. Cancel is dispatched directly to the owning actor,
 aborts the active connect signal, and settles child/listener cleanup without
 waiting behind config replacement or discovery work. User-paced stdio auth
 omits Brainstrike's absolute request budget and uses the Node platform-maximum
@@ -2378,6 +2381,30 @@ refresh tokens, and client secrets never cross preload or renderer IPC.
 Disconnect, config removal, revocation, and factory reset clear both encrypted
 records and in-memory refresh/session state; a storage failure is visible and
 never converted into an unauthenticated fallback.
+
+Production host composition creates the OAuth provider only for an explicit
+Connect or Reauthorize action, passes both `provider.fetch` and `authProvider`
+to `ExplicitHttpMcpClient`, and closes the provider callback/listener whenever
+the owning actor closes. Ordinary close and app restart preserve encrypted
+credentials. Disconnect and Reauthorize close the selected actor first, then
+clear only its canonical configured-server/protected-resource identity;
+Reauthorize alone immediately begins a fresh explicit connect. The browser-safe
+snapshot exposes only the protected resource, authorization-server identity,
+requested/granted scope names, credential presence or an explicit unreadable
+state, and the last successful connection time—never tokens, authorization
+codes, verifiers, client secrets, or credential-store keys. OAuth records are
+partitioned by configured server, canonical resource URL, and requested scope
+set; a URL or scope change cannot silently reuse the previous grant. Provider
+close returns explicit callback/listener proof so host close accounting is
+derived from owned resources rather than fixed assumptions.
+
+Linear's native configuration uses Streamable HTTP at
+`https://mcp.linear.app/mcp` with `auth.type: "oauth-user"`; Brainstrike does not
+wrap it in `mcp-remote`. That endpoint is read-write by default. Hard read-only
+uses `https://mcp.linear.app/mcp/readonly`; alternatively the standard `/mcp`
+resource with only the `read` OAuth scope produces a read-only token. Each
+workspace/resource must use a distinct configured server identity so its OAuth
+records and destructive controls remain isolated.
 
 BST-1468 supplies the main-process provider seam in
 `apps/desktop/src/mcp/oauth-client-provider.ts`. It deliberately delegates

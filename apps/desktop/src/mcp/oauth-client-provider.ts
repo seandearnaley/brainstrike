@@ -20,6 +20,7 @@ const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
 const MAX_CALLBACK_URL_BYTES = 16 * 1024;
 const AUTHORIZATION_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 const LOOPBACK_HOST = '127.0.0.1';
+const MAX_DATE_EPOCH_MS = 8_640_000_000_000_000;
 
 export interface McpOAuthPersistedState {
   clientInformation?: StoredOAuthClientInformation;
@@ -33,6 +34,7 @@ export interface McpOAuthPersistedState {
 
 export interface McpOAuthStoreIdentity {
   readonly resourceUrl: string;
+  readonly scopeKey: string;
   readonly serverId: string;
 }
 
@@ -81,16 +83,18 @@ function assertSecureOAuthUrl(input: string | URL | Request): void {
 
 function identityKey(identity: McpOAuthStoreIdentity): string {
   return createHash('sha256')
-    .update(JSON.stringify([identity.serverId, identity.resourceUrl]), 'utf8')
+    .update(JSON.stringify([identity.serverId, identity.resourceUrl, identity.scopeKey]), 'utf8')
     .digest('hex');
 }
 
 export function createMcpOAuthStoreIdentity(
   serverId: string,
-  serverUrl: string | URL
+  serverUrl: string | URL,
+  scopes?: readonly string[]
 ): McpOAuthStoreIdentity {
   return {
     resourceUrl: resourceUrlFromServerUrl(new URL(serverUrl)).href,
+    scopeKey: [...normalizeOAuthScopes(scopes)].sort().join(' '),
     serverId,
   };
 }
@@ -222,7 +226,8 @@ function validatePersistedRecord(value: unknown): void {
     lastSuccessfulConnectionAt !== undefined &&
     (typeof lastSuccessfulConnectionAt !== 'number' ||
       !Number.isSafeInteger(lastSuccessfulConnectionAt) ||
-      lastSuccessfulConnectionAt < 0)
+      lastSuccessfulConnectionAt < 0 ||
+      lastSuccessfulConnectionAt > MAX_DATE_EPOCH_MS)
   ) {
     throw new Error('MCP OAuth persisted state is malformed.');
   }
@@ -329,6 +334,30 @@ export function createSafeStorageMcpOAuthStore(
   };
   encryptedStores.add(result);
   return result;
+}
+
+export function createLazySafeStorageMcpOAuthStore(
+  createStore: () => McpOAuthStore = createSafeStorageMcpOAuthStore
+): McpOAuthStore {
+  let store: McpOAuthStore | undefined;
+  const resolveStore = (): McpOAuthStore => {
+    store ??= createStore();
+    return store;
+  };
+  return {
+    async clear(identity) {
+      await resolveStore().clear(identity);
+    },
+    async clearAll() {
+      await resolveStore().clearAll();
+    },
+    async read(identity) {
+      return await resolveStore().read(identity);
+    },
+    async write(identity, records) {
+      await resolveStore().write(identity, records);
+    },
+  };
 }
 
 export function createInMemoryMcpOAuthStore(): McpOAuthStore {
@@ -528,12 +557,17 @@ export interface McpOAuthClientProviderOptions {
 export interface McpOAuthClientProvider extends OAuthClientProvider {
   authSnapshot(): McpHostOAuthAuthSnapshot;
   cancel(): Promise<void>;
-  close(): Promise<void>;
+  close(): Promise<McpOAuthCloseProof>;
   disconnect(): Promise<void>;
   readonly fetch: FetchLike;
   recordSuccessfulConnection(): Promise<void>;
   readonly redirectUrl: string;
   readonly waitForAuthorizationCallback: () => Promise<URLSearchParams>;
+}
+
+export interface McpOAuthCloseProof {
+  readonly callbacksClosed: 1;
+  readonly loopbackPortsClosed: 1;
 }
 
 export async function createMcpOAuthClientProvider(
@@ -546,14 +580,14 @@ export async function createMcpOAuthClientProvider(
   }
   assertSecureOAuthUrl(serverUrl);
   validateClientMetadataUrl(options.clientMetadataUrl);
-  const identity = createMcpOAuthStoreIdentity(options.serverId, serverUrl);
+  const identity = createMcpOAuthStoreIdentity(options.serverId, serverUrl, requestedScopes);
   const resourceUrl = identity.resourceUrl;
   const { callback, persistedRecords } = await loadOAuthStartupState(options.store, identity);
   const records = new Map<string, McpOAuthPersistedState>(Object.entries(persistedRecords));
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
   let authorizationCallback: Promise<URLSearchParams> | undefined;
-  let closePromise: Promise<void> | undefined;
+  let closePromise: Promise<McpOAuthCloseProof> | undefined;
   let closed = false;
   let generation = 0;
   const tokenGenerations = new Map<string, number>();
@@ -669,7 +703,7 @@ export async function createMcpOAuthClientProvider(
   };
   // biome-ignore-end lint/style/useNamingConvention: OAuth metadata uses RFC wire names.
 
-  const closeProvider = (): Promise<void> => {
+  const closeProvider = (): Promise<McpOAuthCloseProof> => {
     if (closePromise) {
       return closePromise;
     }
@@ -677,6 +711,7 @@ export async function createMcpOAuthClientProvider(
     callback.cancel();
     closePromise = Promise.all([writeTail, callback.close()]).then(() => {
       liveProviders.delete(provider);
+      return { callbacksClosed: 1, loopbackPortsClosed: 1 };
     });
     return closePromise;
   };
@@ -733,7 +768,7 @@ export async function createMcpOAuthClientProvider(
       return;
     },
     async close() {
-      await closeProvider();
+      return await closeProvider();
     },
     async codeVerifier() {
       assertOpen();

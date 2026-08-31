@@ -16,7 +16,9 @@ import {
   McpStatusTransportSchema,
   parseConfiguredMcpServerId,
   parseMcpHostConfig,
+  parseMcpHostControlRequest,
   parseMcpHostOperation,
+  resolveMcpHostControlActions,
 } from '../mcp-host.js';
 import {
   parseMcpHostCloseReport,
@@ -61,6 +63,23 @@ describe('MCP host contract', () => {
         })
       ).toThrow('SSE transport requires legacy protocol');
     }
+  });
+
+  it('rejects OAuth on stdio before host composition', () => {
+    const config = JSON.parse(SAFE_CONFIG) as { servers: Record<string, unknown>[] };
+    const stdio = config.servers[0]!;
+
+    expect(() =>
+      parseMcpHostConfig({
+        servers: [
+          {
+            ...stdio,
+            auth: { type: 'oauth-user' },
+            startup: 'authentication-required',
+          },
+        ],
+      })
+    ).toThrow('OAuth user authentication requires an HTTP transport');
   });
 
   it('keeps runtime transport and stable-error vocabularies aligned with their types', () => {
@@ -228,7 +247,59 @@ describe('MCP host contract', () => {
     expectTypeOf<keyof McpHostPort>().toEqualTypeOf<
       'snapshot' | 'invoke' | 'watch' | 'replaceConfig' | 'control' | 'close'
     >();
-    expectTypeOf<McpHostControlRequest['action']>().toEqualTypeOf<'connect' | 'retry' | 'cancel'>();
+    expectTypeOf<McpHostControlRequest['action']>().toEqualTypeOf<
+      'connect' | 'retry' | 'cancel' | 'disconnect' | 'reauthorize'
+    >();
+    for (const action of ['connect', 'retry', 'cancel', 'disconnect', 'reauthorize'] as const) {
+      expect(parseMcpHostControlRequest({ action, configuredServerId: id })).toEqual({
+        action,
+        configuredServerId: id,
+      });
+    }
+    expect(() =>
+      parseMcpHostControlRequest({ action: 'clear-all', configuredServerId: id })
+    ).toThrow();
+  });
+
+  it('derives OAuth controls from authoritative state, error category, and credentials', () => {
+    const base = {
+      auth: {
+        credentialState: 'stored' as const,
+        grantedScopes: ['read'],
+        requestedScopes: ['read'],
+        resourceUrl: 'https://mcp.linear.app/mcp',
+        type: 'oauth-user' as const,
+      },
+      configuredProtocol: 'auto' as const,
+      configuredServerId: id,
+      generation: 1,
+      transport: 'streamable-http' as const,
+    };
+    expect(resolveMcpHostControlActions({ ...base, state: 'authentication-required' })).toEqual([
+      'connect',
+      'disconnect',
+    ]);
+    expect(
+      resolveMcpHostControlActions({
+        ...base,
+        error: { category: 'transport', code: 'offline', message: 'Offline' },
+        state: 'error',
+      })
+    ).toEqual(['retry', 'disconnect']);
+    expect(
+      resolveMcpHostControlActions({
+        ...base,
+        error: { category: 'authentication', code: 'expired', message: 'Expired' },
+        state: 'error',
+      })
+    ).toEqual(['disconnect', 'reauthorize']);
+    expect(
+      resolveMcpHostControlActions({
+        ...base,
+        auth: { ...base.auth, credentialState: 'unreadable' },
+        state: 'authentication-required',
+      })
+    ).toEqual(['disconnect']);
   });
 
   it('strictly parses negotiated status and close proof DTOs', () => {

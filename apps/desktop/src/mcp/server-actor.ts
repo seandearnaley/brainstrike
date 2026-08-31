@@ -1,5 +1,6 @@
 import type {
   ConfiguredMcpServerId,
+  McpHostAuthSnapshot,
   McpHostCloseReport,
   McpHostDiagnostic,
   McpHostError,
@@ -39,6 +40,8 @@ export type McpServerActorClientFactory = (
   context: ClientContext
 ) => McpServerActorClient | Promise<McpServerActorClient>;
 interface McpServerActorOptions extends Pick<ClientContext, 'configuredServerId' | 'generation'> {
+  auth?: () => McpHostAuthSnapshot;
+  clearCredentials?: () => Promise<void>;
   configuredProtocol: '2026-07-28' | 'auto' | 'legacy';
   enabledTools?: readonly string[];
   factory: McpServerActorClientFactory;
@@ -65,6 +68,7 @@ type McpServerActorErrorCode =
   | 'mcp-client-close-reported-failures'
   | 'mcp-client-creation-cleanup-failed'
   | 'mcp-client-creation-failed'
+  | 'mcp-credential-clear-failed'
   | 'mcp-auth-callback-timeout'
   | 'mcp-browser-open-failed'
   | 'mcp-child-exited'
@@ -255,6 +259,38 @@ export class McpServerActor {
       return this.snapshot();
     });
   }
+  async disconnect(): Promise<McpHostServerSnapshot> {
+    if (this.closePromise || this.generationAbort.signal.aborted || this.transportInvalidated) {
+      throw this.retiredError;
+    }
+
+    const attempt = this.connectAttempt;
+    if (attempt && !attempt.signal.aborted) {
+      attempt.abort(new DOMException('MCP connection disconnected', 'AbortError'));
+    }
+    const pendingClient = this.clientPromise;
+    if (pendingClient) {
+      await Promise.allSettled([pendingClient]);
+    }
+    const report = await this.closeClient(false);
+    if (report.failures.length > 0) {
+      throw this.fail(new ActorError('transport', 'mcp-client-close-reported-failures'));
+    }
+    try {
+      await this.options.clearCredentials?.();
+    } catch (cause) {
+      const error = new ActorError('authentication', 'mcp-credential-clear-failed');
+      this.diagnose(error.code, cause);
+      throw this.fail(error);
+    }
+    this.change({
+      state:
+        this.options.startup === 'authentication-required'
+          ? 'authentication-required'
+          : 'disconnected',
+    });
+    return this.snapshot();
+  }
   close(): Promise<McpHostCloseReport> {
     if (this.closePromise) {
       return this.closePromise;
@@ -303,6 +339,7 @@ export class McpServerActor {
   }
   snapshot(): McpHostServerSnapshot {
     return structuredClone({
+      ...(this.options.auth ? { auth: this.options.auth() } : {}),
       configuredProtocol: this.options.configuredProtocol,
       configuredServerId: this.options.configuredServerId,
       ...(this.options.enabledTools ? { enabledTools: this.options.enabledTools } : {}),
