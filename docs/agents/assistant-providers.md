@@ -2010,9 +2010,10 @@ Ownership and flow:
    authority, absent config installs explicit empty authority, and stale
    discovery epochs cannot overwrite a newer config projection. File-watcher
    projections are serialized, stale loads are discarded, and reload failures
-   remain distinct from projection callback failures. The legacy
-   desktop client registry remains only on the invocation/status migration
-   boundary until its dedicated consumer layers remove it.
+   remain distinct from projection callback failures. The global client-map
+   invocation router is absent; the legacy desktop client registry remains only
+   on the status migration boundary until BST-1529 removes it. BST-1506 owns the
+   shipped assistant runtime's host-invocation cutover.
 5. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` constructs
    the selected official-SDK client for every server and converts every
    discovered tool through one shared Mastra-tool adapter. This preserves the
