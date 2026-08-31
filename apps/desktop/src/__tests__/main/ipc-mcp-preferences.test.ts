@@ -389,7 +389,7 @@ describe('ipc-mcp tool preference loading', () => {
     const mutation = disable({}, ['mock-server.tool.disable']);
     await vi.waitFor(() => expect(saveToolPreferencesMock).toHaveBeenCalledOnce());
     const reset = resetMcpRuntimeForFactoryReset(authority.runtime);
-    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
     expect(disposeClientsMock).not.toHaveBeenCalled();
 
     preferenceWrite.resolve();

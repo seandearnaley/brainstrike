@@ -277,15 +277,18 @@ describe('createDesktopFactoryResetHandler', () => {
   );
 
   it('preserves reset and resume failure messages together', async () => {
-    resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('purge failed'));
+    const purgeFailure = new Error('purge failed');
+    const resumeFailure = new Error('watcher failed');
+    resetDesktopApplicationDataMock.mockRejectedValueOnce(purgeFailure);
     const resumeAfterReset = vi.fn(async () => {
-      throw new Error('watcher failed');
+      throw resumeFailure;
     });
+    const logger = { error: vi.fn() };
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
       completeSuccessfulReset: completeSuccessfulResetMock,
-      logger: { error: vi.fn() },
+      logger,
       resetLocalDatabase: vi.fn(async () => undefined),
       resumeAfterReset,
       runtimes: [],
@@ -299,6 +302,10 @@ describe('createDesktopFactoryResetHandler', () => {
       success: false,
     });
     expect(resumeAfterReset).toHaveBeenCalledWith('failed');
+    expect(logger.error).toHaveBeenCalledWith(
+      'Failed to reset desktop application data:',
+      expect.objectContaining({ errors: [purgeFailure, resumeFailure] })
+    );
   });
 
   it('keeps admission closed when renderer replacement fails after a successful purge', async () => {
