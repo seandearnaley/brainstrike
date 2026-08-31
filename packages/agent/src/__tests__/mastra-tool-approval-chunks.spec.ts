@@ -784,9 +784,6 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         toolName: 'workspace.writeFile',
       },
       {
-        mcpConfig: {
-          servers: [{ command: 'echo', name: 'filesystem', transport: 'stdio' }],
-        },
         mcpHost,
         requireToolApproval: true,
         runtime: {

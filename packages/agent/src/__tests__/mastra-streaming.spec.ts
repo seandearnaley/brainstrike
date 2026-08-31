@@ -2098,15 +2098,6 @@ describe('mastra streaming integration', () => {
   });
   it('keeps custom local tools eager while deferring post-gate MCP tools', async () => {
     const runtime = await createMastraAgentRuntime({
-      mcpConfig: {
-        servers: [
-          {
-            command: 'echo',
-            name: 'filesystem',
-            transport: 'stdio',
-          },
-        ],
-      },
       mcpHost,
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
@@ -2210,9 +2201,6 @@ describe('mastra streaming integration', () => {
 
     await expect(
       createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [{ command: 'echo', name: 'search', transport: 'stdio' }],
-        },
         mcpHost,
         runtime: { apiKey: 'key', provider: 'openai' },
       })
@@ -2335,15 +2323,6 @@ describe('mastra streaming integration', () => {
     });
 
     const runtime = await createMastraAgentRuntime({
-      mcpConfig: {
-        servers: [
-          {
-            command: 'echo',
-            name: 'filesystem',
-            transport: 'stdio',
-          },
-        ],
-      },
       mcpHost,
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
