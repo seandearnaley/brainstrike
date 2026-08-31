@@ -1,4 +1,4 @@
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { type McpHostPort, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
@@ -71,6 +71,8 @@ export interface MastraAgentRuntimeOptions {
   hydrateToolDiscoveryFromMemory?: boolean;
   instructions?: string;
   mcpConfig?: McpConfig;
+  /** Host-owned MCP authority. Runtime disposal releases only its adapter lease. */
+  mcpHost?: McpHostPort;
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
   memory?: MastraMemory;
