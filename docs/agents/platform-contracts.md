@@ -312,11 +312,19 @@ entry name), every one of these needs explicit reset wiring plus an update
 here.
 
 Desktop reset order:
-1. Dispose embeddings.
+1. Quiesce background runtimes. MCP internally fences config work, installs empty host authority, and purges projections without closing the reusable singleton.
 2. Clear UI state.
 3. Purge DB tables (job_queue, embedding_sets, etc.).
 4. Reload renderer.
 Do not skip reload.
+
+MCP config admission stays closed across all four steps. The reset coordinator
+reopens it only after the purge and restores the permanent config watcher
+without reloading pre-reset authority.
+
+Every reset runtime is attempted even when another fails. Their original
+rejections remain ordered in one `AggregateError`, while the visible message
+names every failed runtime; never replace those causes with a names-only error.
 
 The Explorer's file-content LRU, active read machinery, and per-composite-key
 terminal error projection are volatile but
