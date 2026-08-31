@@ -1,6 +1,6 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import {
   assertSafeBearerToken,
@@ -208,7 +208,7 @@ export function createProvider(
     }
 
     case 'google': {
-      const googleProvider = createGoogleGenerativeAI(
+      const googleProvider = createGoogle(
         sdkFactorySettings(providerFetchOptions(auth, validatedProvider))
       );
       return googleProvider(modelName);
@@ -484,7 +484,7 @@ export function createEmbeddingProvider(
     }
 
     case 'google': {
-      const googleProvider = createGoogleGenerativeAI(apiKey ? { apiKey } : undefined);
+      const googleProvider = createGoogle(apiKey ? { apiKey } : undefined);
       return asSpecV3EmbeddingModel(googleProvider.embeddingModel(model));
     }
 

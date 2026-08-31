@@ -320,7 +320,7 @@ export const anthropicSdkMock = {
 
 /** Mock module for `@ai-sdk/google`. */
 export const googleSdkMock = {
-  createGoogleGenerativeAI: () => (modelId: string) => ({ modelId, provider: 'google' }),
+  createGoogle: () => (modelId: string) => ({ modelId, provider: 'google' }),
 };
 
 /** Mock module for `@mastra/core/agent`. */

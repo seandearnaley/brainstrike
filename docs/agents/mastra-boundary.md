@@ -231,7 +231,12 @@ after that lookup is a typed failure, never an implicit provider fallback.
 ## R6 STREAM MAPPER OWNERSHIP
 
 **Brainstrike's typed `StreamChunk` union is the UI and persistence contract.
-Mastra output is adapted into it. Mastra's AI SDK v5 stream output is not adopted.**
+Mastra output is adapted into it. Mastra's AI SDK UI stream and route layer is
+not adopted, regardless of AI SDK version.**
+
+The accepted baseline is AI SDK v7 provider packages (provider v4) with
+`@mastra/core` 1.59. Brainstrike adopts their model/provider capabilities while
+continuing to own HTTP transport, stream mapping, persistence, and UI contracts.
 
 Two stages, and both are Brainstrike-owned:
 
