@@ -29,8 +29,37 @@ export interface WorkspaceOpenReadyIpcHandlers {
    * per-window state (a Map keyed by this id) without holding onto Electron
    * event objects.
    */
-  readonly onOpenPathReady: (senderWebContentsId: number) => void;
+  readonly onOpenPathReady: (signal: WorkspaceOpenReadySignal) => void;
 }
+
+export type WorkspaceOpenReadySignal =
+  | {
+      readonly kind: 'ready';
+      readonly resetGeneration: string | null;
+      readonly senderWebContentsId: number;
+    }
+  | {
+      readonly diagnostic: string;
+      readonly kind: 'invalid';
+      readonly senderWebContentsId: number;
+    };
+
+const readResetGeneration = (payload: unknown): string | null | undefined => {
+  if (!(payload && typeof payload === 'object')) {
+    return undefined;
+  }
+  const keys = Object.keys(payload);
+  if (keys.length !== 1 || keys[0] !== 'resetGeneration') {
+    return undefined;
+  }
+  const resetGeneration = (payload as Record<string, unknown>)['resetGeneration'];
+  if (resetGeneration === null) {
+    return null;
+  }
+  return typeof resetGeneration === 'string' && resetGeneration.length > 0
+    ? resetGeneration
+    : undefined;
+};
 
 /**
  * Registers the `workspace:open-path-ready` event channel. Call ONCE, at
@@ -45,9 +74,35 @@ export function registerWorkspaceOpenReadyIpcHandlers(
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerEvent('workspace', DESKTOP_IPC_CHANNELS.workspace.openPathReady, (event) => {
-    handlers.onOpenPathReady(event.sender.id);
-  });
+  registry.registerEvent(
+    'workspace',
+    DESKTOP_IPC_CHANNELS.workspace.openPathReady,
+    (event, payload: unknown) => {
+      const senderWebContentsId = event.sender.id;
+      if (!event.senderFrame) {
+        handlers.onOpenPathReady({
+          diagnostic: `Renderer ${senderWebContentsId} readiness acknowledgement has no sender frame`,
+          kind: 'invalid',
+          senderWebContentsId,
+        });
+        return;
+      }
+      const resetGeneration = readResetGeneration(payload);
+      if (resetGeneration === undefined) {
+        handlers.onOpenPathReady({
+          diagnostic: `Renderer ${senderWebContentsId} readiness acknowledgement has malformed payload`,
+          kind: 'invalid',
+          senderWebContentsId,
+        });
+        return;
+      }
+      handlers.onOpenPathReady({
+        kind: 'ready',
+        resetGeneration,
+        senderWebContentsId,
+      });
+    }
+  );
 
   return () => {
     registry.unregisterAll();

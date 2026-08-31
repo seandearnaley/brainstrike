@@ -265,6 +265,12 @@ export const DESKTOP_IPC_CHANNELS = {
     write: 'vector-preferences:write',
   },
   workspace: {
+    // One-way main→replacement-renderer challenge. Main publishes a fresh
+    // reset generation only after the new main-frame navigation reaches
+    // `dom-ready`; preload captures it and the mounted renderer echoes it in
+    // `openPathReady`. This is deliberately explicit because Electron may
+    // preserve RenderFrameHost identity across reloads.
+    factoryResetGeneration: 'workspace:factory-reset-generation',
     // One-way main→renderer push: File ▸ Open Folder… asks the FOCUSED window
     // to run its ordinary picker flow, so the grant, the recents recording and
     // the mount bookkeeping all stay on one path. NOT an `ipcMain.handle`

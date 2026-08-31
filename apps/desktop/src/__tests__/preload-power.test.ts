@@ -45,7 +45,10 @@ import {
 // vi.mock only intercepts ESM import(), so we must patch Module._load for CJS.
 type IpcListener = (...args: unknown[]) => void;
 
-const mockOn = vi.fn<(channel: string, listener: IpcListener) => void>();
+const registeredIpcListeners = new Map<string, IpcListener>();
+const mockOn = vi.fn<(channel: string, listener: IpcListener) => void>((channel, listener) => {
+  registeredIpcListeners.set(channel, listener);
+});
 const mockRemoveListener = vi.fn<(channel: string, listener: IpcListener) => void>();
 const mockExposeInMainWorld = vi.fn<(key: string, api: unknown) => void>();
 const mockInvoke = vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>();
@@ -100,6 +103,11 @@ describe('preload power bridge', () => {
           };
         }
       | undefined;
+  }
+
+  function getWorkspaceApi() {
+    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'workspace');
+    return call?.[1] as { notifyOpenPathReady: () => void } | undefined;
   }
 
   function getEmbeddingHostApi() {
@@ -648,5 +656,18 @@ describe('preload power bridge', () => {
     await desktopLifecycleApi?.noteReloadIntent('factory-reset');
 
     expect(mockInvoke).toHaveBeenCalledWith('app:lifecycle:note-reload-intent', 'factory-reset');
+  });
+
+  it('echoes the main-issued factory-reset generation in the renderer-ready ping', () => {
+    mockSend.mockClear();
+    const generationListener = registeredIpcListeners.get('workspace:factory-reset-generation');
+    expect(generationListener).toBeDefined();
+
+    generationListener?.(null, { resetGeneration: 'reset-generation-1' });
+    getWorkspaceApi()?.notifyOpenPathReady();
+
+    expect(mockSend).toHaveBeenCalledWith('workspace:open-path-ready', {
+      resetGeneration: 'reset-generation-1',
+    });
   });
 });
