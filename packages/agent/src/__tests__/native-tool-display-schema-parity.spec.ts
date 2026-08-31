@@ -43,6 +43,14 @@ function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
       current = current.def.innerType as z.ZodTypeAny;
       continue;
     }
+    if (current instanceof z.ZodPipe) {
+      // The provider compatibility wrapper is a preprocess pipe, so `out` is
+      // the authored schema. If that schema itself ends in a transform pipe,
+      // this loop stops at its ZodTransform and the top-level object assertion
+      // below fails visibly instead of treating parity as verified.
+      current = current.out as z.ZodTypeAny;
+      continue;
+    }
     return current;
   }
 }

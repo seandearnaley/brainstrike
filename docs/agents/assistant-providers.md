@@ -3081,6 +3081,42 @@ boundary:
   therefore is present in the desktop catalog/schema map, deferred `skills`
   namespace, and execute-risk policy; web and the built-in local model omit it.
 
+Provider-emitted `null` has one fleet-wide meaning for the registered native
+catalog: on an optional or defaulted field it is omission, never a second domain
+value. `providerCompatibleInputSchema` in
+`packages/agent/src/tools/provider-compatible-input.ts` wraps each complete
+registered input once. One immutable traversal of its strict input JSON Schema
+removes `null` only from declared properties absent from `required`, including
+properties nested in arrays, tuple positions, uniquely const-matched
+`oneOf`/`anyOf` branches, and unions with exactly one structured branch matching
+the input's object/array kind. Dynamic record values (`additionalProperties`)
+and ambiguous union branches are not omittable fields. Authored intersections
+(`allOf`) and structured record values (an object-valued
+`additionalProperties`) are intentionally unsupported traversal shapes for the
+registered catalog. A catalog invariant converts every authored schema with the
+same `{ cycles: 'throw', io: 'input', reused: 'inline' }` options and reports the
+tool id plus JSON path if either unsupported shape appears. Boolean
+`additionalProperties` values used by ordinary strict objects remain valid.
+Input JSON Schema is derived lazily on the wrapper's first parse and memoized for
+that wrapper. The paired exact-option catalog parity test eagerly converts every
+registered wrapper before merge, so a future recursive or unrepresentable
+schema fails in CI rather than first appearing in a live tool call. The authored
+Zod schema then runs exactly once, applying ordinary optional/default behavior
+before execution, while the wrapper leaves provider JSON Schema unchanged.
+Required fields still reject `null`; invalid non-null values still fail their
+original validators. Those failures stay observable through the ordinary
+Mastra validation result or desktop `ToolInputValidationError`—there is no
+coercion, retry, or fallback. Unknown `null` properties remain visible to strict
+validation, while nested object-array properties follow the same omission rule.
+An optional/defaulted catalog field must not use `null` as a meaningful
+third-state such as "clear this value"; model that intent with an explicit action
+or discriminator instead. Because provider `null` reaches the same path as
+omission, omitted/default behavior must also be the least-capability behavior
+and never more permissive than leaving the field unspecified.
+The catalog's `ZodPreprocess`-constrained map makes the wrapper exhaustive for
+newly registered schemas; server-owned MCP schemas and deprecated or otherwise
+unregistered internal schemas are outside this native catalog rule.
+
 Adding or renaming a native tool must update the canonical catalog first, then
 the exact metadata/schema maps, live desktop registry, exports, and conditional
 model-facing guidance. The parity tests fail on stale, missing, or extra keys;

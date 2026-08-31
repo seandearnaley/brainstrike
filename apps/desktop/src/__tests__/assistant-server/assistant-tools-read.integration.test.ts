@@ -3033,26 +3033,45 @@ describe('assistant-tools read tools', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled();
   });
 
-  it('rejects invalid directory payloads instead of crashing', async () => {
+  it('treats a provider-null directory path as omission and rejects malformed payloads', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
-    await expect(
-      executeTool({
-        path: null,
-      } as unknown as { path: string })
-    ).rejects.toThrow();
+    try {
+      const expectedRootListing = {
+        count: 3,
+        entries: [
+          { path: '/src', type: 'directory' },
+          { path: '/src/main.ts', type: 'file' },
+          { path: '/README.md', type: 'file' },
+        ],
+        offset: 0,
+        path: '/',
+        rootName: path.basename(workspaceRootPath),
+        totalEntries: 3,
+        totalMatchedFiles: 2,
+        truncated: false,
+      };
+      const rootListing = await executeTool({ path: null } as never);
+      expect(rootListing).toEqual(expectedRootListing);
 
-    await expect(
-      executeTool({
-        context: {
-          path: null,
-        },
-      } as unknown as { path: string })
-    ).rejects.toThrow();
+      const contextRootListing = await executeTool({ context: { path: null } } as never);
+      expect(contextRootListing).toEqual(expectedRootListing);
 
-    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      await expect(executeTool({ path: 42 } as never)).rejects.toThrow();
+
+      await expect(
+        executeTool({
+          context: {
+            path: null,
+            unexpected: true,
+          },
+        } as never)
+      ).rejects.toThrow();
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
   });
 
   it('rejects binary files for text reads', async () => {

@@ -5,6 +5,7 @@ import {
   MAX_POLICY_ENTRIES,
   policyDomainSchema,
 } from '../code-execution';
+import { providerCompatibleInputSchema } from './provider-compatible-input';
 
 export const ExecuteCommandInputSchema = z
   .object({
@@ -75,32 +76,34 @@ const runPythonDomainSchema = policyDomainSchema
     { message: 'localhost and .local addresses are not allowed; name a public domain' }
   );
 
-export const RunPythonInputSchema = z
-  .object({
-    allowedDomains: z
-      .array(runPythonDomainSchema)
-      // No .min(1): OpenAI's strict function-calling emits EVERY declared
-      // property, so an offline call must be representable as an explicit
-      // empty array (#2225 review). [] and omitted both mean no network.
-      .max(MAX_POLICY_ENTRIES)
-      .optional()
-      .describe(
-        'Public domains the script may reach, by name (e.g. "pypi.org", "*.example.com"); [] or omitted for no network. IP literals, localhost, and .local are not allowed. Each domain requires explicit user approval per call.'
-      ),
-    code: z
-      .string()
-      .min(1)
-      .max(MAX_EXEC_CODE_LENGTH)
-      .describe('Python source to run as a script; print() to return values'),
-    timeoutMs: z
-      .number()
-      .int()
-      .positive()
-      .max(MAX_EXEC_TIMEOUT_MS)
-      .optional()
-      .describe('Wall-clock limit ms (default 30000, max 600000)'),
-  })
-  .strict();
+export const RunPythonInputSchema = providerCompatibleInputSchema(
+  z
+    .object({
+      allowedDomains: z
+        .array(runPythonDomainSchema)
+        // No .min(1): OpenAI's strict function-calling emits EVERY declared
+        // property, so an offline call must be representable as an explicit
+        // empty array (#2225 review). [] and omitted both mean no network.
+        .max(MAX_POLICY_ENTRIES)
+        .optional()
+        .describe(
+          'Public domains the script may reach, by name (e.g. "pypi.org", "*.example.com"); [] or omitted for no network. IP literals, localhost, and .local are not allowed. Each domain requires explicit user approval per call.'
+        ),
+      code: z
+        .string()
+        .min(1)
+        .max(MAX_EXEC_CODE_LENGTH)
+        .describe('Python source to run as a script; print() to return values'),
+      timeoutMs: z
+        .number()
+        .int()
+        .positive()
+        .max(MAX_EXEC_TIMEOUT_MS)
+        .optional()
+        .describe('Wall-clock limit ms (default 30000, max 600000)'),
+    })
+    .strict()
+);
 
 export type RunPythonInput = z.infer<typeof RunPythonInputSchema>;
 
