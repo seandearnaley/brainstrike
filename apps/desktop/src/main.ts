@@ -170,6 +170,7 @@ import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
+import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
@@ -1968,7 +1969,10 @@ if (singleInstanceLockAcquired) {
         // Factory reset must also drop the provider-auth engine's IN-MEMORY
         // rotated-token overlay (BST-1356); wiping the secrets file alone
         // would leave it the active credential for the process lifetime.
-        onClearAll: purgeProviderAuthRuntimeState,
+        onClearAll: async () => {
+          await purgeProviderAuthRuntimeState();
+          await purgeMcpOAuthRuntimeState();
+        },
         // Projected per invoke from the RECORDED bootstrap result — loading is
         // never re-run (initializeDesktopEnvironment throws on double-init).
         readEnvBootstrapReport: () =>

@@ -262,7 +262,7 @@ export class DesktopMcpHostRuntime {
       nextById.set(configuredServerId, { configRef, server });
       nextByRef.set(configRef, server);
       return {
-        auth: { type: 'none' },
+        auth: 'auth' in server ? (server.auth ?? { type: 'none' }) : { type: 'none' },
         configuredProtocol: server.protocol,
         configuredServerId,
         ...(server.enabledTools ? { enabledTools: server.enabledTools } : {}),

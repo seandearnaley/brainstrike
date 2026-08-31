@@ -2348,6 +2348,19 @@ Disconnect, config removal, revocation, and factory reset clear both encrypted
 records and in-memory refresh/session state; a storage failure is visible and
 never converted into an unauthenticated fallback.
 
+BST-1468 supplies the main-process provider seam in
+`apps/desktop/src/mcp/oauth-client-provider.ts`. It deliberately delegates
+the protocol algorithms to the installed `@modelcontextprotocol/client@2.0.0`
+implementation: RFC 9728/RFC 8414/OIDC discovery, RFC 9207 issuer checks,
+CIMD/pre-registration/DCR selection, PKCE, RFC 8707 resource binding, refresh,
+one 401 retry, and 403 insufficient-scope step-up. The provider supplies an
+ephemeral `127.0.0.1` callback listener, the validated external-browser handoff,
+encrypted state persistence, and a generation-tagged refresh fetch seam. The
+provider fetch must be passed to the SDK transport for refresh coalescing and
+disconnect fencing to apply. The later UX ticket owns the explicit
+Authenticate/Reauthorize action and the startup `authentication_required`
+projection; no background connection may open a browser implicitly.
+
 The package exports `./faults` only after every fault variant, declaration key,
 match key, occurrence, reachability rule, and coordinate shape is validated.
 Fault plans are closed declarative data created only by

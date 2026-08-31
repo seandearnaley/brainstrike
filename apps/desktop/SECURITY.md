@@ -275,6 +275,42 @@ The first `oauth_subscription` provider. Descriptor:
 | Refresh-token replay | Single-flight refresh; rotated pair persisted (or held in memory on store failure) per provider |
 | Disconnect racing an in-flight refresh | Per-provider epoch: a stale-epoch refresh discards its result and persists nothing |
 
+## MCP HTTP OAuth (BST-1468)
+
+This is separate from provider subscription OAuth. The implementation lives in
+`src/mcp/oauth-client-provider.ts` and is an SDK v2 `OAuthClientProvider` for a
+single configured HTTP MCP resource.
+
+- The official SDK owns RFC 9728 protected-resource discovery, RFC 8414/OIDC
+  authorization-server discovery, CIMD/pre-registration/DCR selection, PKCE,
+  RFC 8707 `resource`, issuer validation, refresh, and 403 scope step-up.
+  Brainstrike owns only the main-process storage, browser hand-off, and
+  loopback callback seam.
+- The callback binds to `127.0.0.1` on an ephemeral port, accepts only the
+  exact loopback `Host`, rejects invalid state without settling the flow, and
+  passes the complete `URLSearchParams` to `finishAuth`. Callback pages never
+  echo authorization data and there is no HTTP cancellation route.
+- Tokens, client registrations, verifiers, discovery state, and resource
+  identity are partitioned by configured server plus canonical resource and
+  are encrypted in the dedicated `brainstrike-mcp-oauth` safeStorage store.
+  `basic_text` is rejected. `disconnect` and `invalidateCredentials('all')`
+  clear disk and in-memory state; unrelated provider credentials use a
+  different store and are untouched.
+- The provider fetch seam coalesces identical refresh-token requests and
+  tags token responses with the current generation. A response from a
+  generation invalidated by disconnect is not persisted. Callers must pass
+  the provider fetch to the SDK transport so this authority is active.
+- MCP config admits only token-free `none`, external bearer-reference, and
+  `oauth-user` modes for HTTP transports. Stdio cannot select MCP HTTP OAuth,
+  and an explicit auth mode cannot be combined with an `Authorization` header.
+
+The focused fake-authorization-server suite is
+`src/__tests__/main/mcp-oauth-client-provider.integration.test.ts`; the
+credential boundary and config contracts are covered by the adjacent unit
+tests. The remaining production integration seam is the later MCP OAuth UX
+ticket: startup must report an authentication-required state and only an
+explicit user action should pass the OAuth provider to a host connection.
+
 ## Development vs Production
 
 ### Development Mode
@@ -318,4 +354,4 @@ The first `oauth_subscription` provider. Descriptor:
 
 - [Electron Security Guidelines](https://www.electronjs.org/docs/tutorial/security)
 - [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP)
-- [OWASP Electron Security](https://owasp.org/www-project-electron-security/) 
+- [OWASP Electron Security](https://owasp.org/www-project-electron-security/)

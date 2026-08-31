@@ -227,4 +227,44 @@ describe('ExplicitHttpMcpClient validation', () => {
     expect(invalidate.call(client, connection)).toBe(false);
     expect(client.getConnectionGeneration()).toBe(8);
   });
+
+  it('rejects configured authorization headers beside a host-owned auth provider', () => {
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          authProvider: { token: async () => 'host-owned-token' },
+          headers: { Authorization: 'Bearer configured-token' },
+          name: 'conflicting-auth-canary',
+          transport: 'streamable-http',
+          url: 'https://example.test/mcp',
+        })
+    ).toThrow('must not combine configured Authorization headers with authProvider');
+  });
+
+  it.each([-1, 4, 1.5, Number.POSITIVE_INFINITY])(
+    'rejects the invalid OAuth scope step-up retry count %s',
+    (maxStepUpRetries) => {
+      expect(
+        () =>
+          new ExplicitHttpMcpClient({
+            maxStepUpRetries,
+            name: 'invalid-step-up-canary',
+            transport: 'streamable-http',
+            url: 'https://example.test/mcp',
+          })
+      ).toThrow('MCP OAuth step-up retries must be a safe integer from 0 to 3');
+    }
+  );
+
+  it('rejects Streamable-HTTP-only scope step-up options on SSE', () => {
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          name: 'sse-step-up-canary',
+          onInsufficientScope: 'reauthorize',
+          transport: 'sse',
+          url: 'https://example.test/sse',
+        })
+    ).toThrow('scope step-up options require Streamable HTTP');
+  });
 });

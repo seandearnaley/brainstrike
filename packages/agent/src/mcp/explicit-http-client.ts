@@ -1,7 +1,9 @@
 import {
+  type AuthProvider,
   Client,
   type ClientOptions,
   type InputRequiredResult,
+  type OAuthClientProvider,
   SdkHttpError,
   SSEClientTransport,
   StreamableHTTPClientTransport,
@@ -24,6 +26,7 @@ const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
 // Session termination is advisory. Bound it so a stalled server cannot prevent
 // the owned SDK client from aborting its local fetches and releasing handlers.
 const SESSION_TERMINATION_TIMEOUT_MS = 250;
+const MAX_STEP_UP_RETRIES = 3;
 const PROTOCOL_OWNED_HEADERS = new Set([
   'accept',
   'content-type',
@@ -68,6 +71,7 @@ export interface NegotiatedProtocolFacts {
 }
 
 export interface ExplicitHttpMcpClientOptions {
+  authProvider?: AuthProvider | OAuthClientProvider;
   cachePartition?: ClientOptions['cachePartition'];
   clientInfo?: {
     name: string;
@@ -80,7 +84,9 @@ export interface ExplicitHttpMcpClientOptions {
   inputRequired?: ClientOptions['inputRequired'];
   lifecycle?: ExplicitHttpMcpLifecycle;
   listMaxPages?: ClientOptions['listMaxPages'];
+  maxStepUpRetries?: number;
   name: string;
+  onInsufficientScope?: 'reauthorize' | 'throw';
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol?: McpProtocol;
   responseCacheStore?: ClientOptions['responseCacheStore'];
@@ -98,6 +104,7 @@ interface ActiveConnection {
 }
 
 interface NormalizedClientOptions {
+  authProvider?: AuthProvider | OAuthClientProvider;
   cachePartition?: ClientOptions['cachePartition'];
   clientInfo: {
     name: string;
@@ -109,6 +116,8 @@ interface NormalizedClientOptions {
   inputRequired?: ClientOptions['inputRequired'];
   lifecycle: ExplicitHttpMcpLifecycle;
   listMaxPages: number;
+  maxStepUpRetries?: number;
+  onInsufficientScope?: 'reauthorize' | 'throw';
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
@@ -157,6 +166,44 @@ function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | u
       throw new Error(`Configured MCP header "${name}" is protocol-owned`);
     }
   }
+}
+
+function hasAuthorizationHeader(headers: Readonly<Record<string, string>> | undefined): boolean {
+  return Object.keys(headers ?? {}).some((name) => name.toLowerCase() === 'authorization');
+}
+
+function normalizeMaxStepUpRetries(value: unknown): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 0 ||
+    (value as number) > MAX_STEP_UP_RETRIES
+  ) {
+    throw new Error(
+      `MCP OAuth step-up retries must be a safe integer from 0 to ${MAX_STEP_UP_RETRIES}`
+    );
+  }
+  return value as number;
+}
+
+function normalizeScopeStepUpOptions(
+  options: ExplicitHttpMcpClientOptions
+): Pick<NormalizedClientOptions, 'maxStepUpRetries' | 'onInsufficientScope'> {
+  if (
+    options.transport === 'sse' &&
+    (options.maxStepUpRetries !== undefined || options.onInsufficientScope !== undefined)
+  ) {
+    throw new Error('MCP OAuth scope step-up options require Streamable HTTP transport');
+  }
+  const maxStepUpRetries = normalizeMaxStepUpRetries(options.maxStepUpRetries);
+  return {
+    ...(maxStepUpRetries === undefined ? {} : { maxStepUpRetries }),
+    ...(options.onInsufficientScope === undefined
+      ? {}
+      : { onInsufficientScope: options.onInsufficientScope }),
+  };
 }
 
 function isReconnectableSessionError(error: unknown, hadSession: boolean): boolean {
@@ -228,7 +275,14 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     options.cachePartition,
     options.responseCacheStore !== undefined
   );
+  if (options.authProvider && hasAuthorizationHeader(options.headers)) {
+    throw new Error(
+      `MCP client "${name}" must not combine configured Authorization headers with authProvider`
+    );
+  }
+  const scopeStepUp = normalizeScopeStepUpOptions(options);
   return {
+    ...(options.authProvider ? { authProvider: options.authProvider } : {}),
     ...(cachePartition === undefined ? {} : { cachePartition }),
     clientInfo: { ...clientInfo },
     ...(options.defaultCacheTtlMs === undefined
@@ -239,6 +293,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
     lifecycle: validateLifecycle(options.lifecycle, name),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
+    ...scopeStepUp,
     ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
     protocol,
     responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
@@ -640,10 +695,20 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private createTransport(): ExplicitHttpTransport {
     switch (this.options.transport) {
       case 'sse':
-        return new SSEClientTransport(this.options.url, { fetch: this.options.fetch });
+        return new SSEClientTransport(this.options.url, {
+          ...(this.options.authProvider ? { authProvider: this.options.authProvider } : {}),
+          fetch: this.options.fetch,
+        });
       case 'streamable-http':
         return new StreamableHTTPClientTransport(this.options.url, {
+          ...(this.options.authProvider ? { authProvider: this.options.authProvider } : {}),
           fetch: this.options.fetch,
+          ...(this.options.maxStepUpRetries === undefined
+            ? {}
+            : { maxStepUpRetries: this.options.maxStepUpRetries }),
+          ...(this.options.onInsufficientScope === undefined
+            ? {}
+            : { onInsufficientScope: this.options.onInsufficientScope }),
         });
       default:
         return unsupportedTransport(this.options.transport);

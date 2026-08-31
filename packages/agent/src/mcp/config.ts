@@ -52,8 +52,19 @@ function resolveStartupPolicy(server: {
   return 'automatic';
 }
 
+const McpCredentialReferenceSchema = z.strictObject({
+  id: z.uuid(),
+  store: z.literal('mcp-credentials'),
+});
+const McpAuthSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('none') }),
+  z.strictObject({ credential: McpCredentialReferenceSchema, type: z.literal('bearer') }),
+  z.strictObject({ type: z.literal('oauth-user') }),
+]);
+
 const StdioSchema = z.object({
   args: z.array(z.string()).optional(),
+  auth: z.never().optional(),
   command: z.string().min(1),
   enabledTools: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
@@ -64,6 +75,7 @@ const StdioSchema = z.object({
 });
 
 const HttpServerSchema = z.object({
+  auth: McpAuthSchema.optional(),
   enabledTools: z.array(z.string()).optional(),
   headers: z.record(z.string(), z.string()).optional(),
   name: ConfiguredMcpServerIdSchema,
@@ -99,6 +111,25 @@ const McpServerInputSchema = z
         code: 'custom',
         message: 'user-paced stdio authorization requires protocol "legacy"',
         path: ['protocol'],
+      });
+    }
+    if (
+      server.transport !== 'stdio' &&
+      server.auth !== undefined &&
+      server.auth.type !== 'none' &&
+      Object.keys(server.headers ?? {}).some((name) => name.toLowerCase() === 'authorization')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'auth mode must not be combined with an Authorization header',
+        path: ['auth'],
+      });
+    }
+    if (server.transport !== 'stdio' && server.auth !== undefined && server.auth.type !== 'none') {
+      context.addIssue({
+        code: 'custom',
+        message: 'MCP authentication requires the BST-1469 production host composition',
+        path: ['auth'],
       });
     }
   });
