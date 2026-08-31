@@ -125,10 +125,18 @@ test('native packaging provisions one retrying Electron archive and reuses it', 
   const provisionRun = steps[provisionIndex].run;
   assert.equal(typeof provisionRun, 'string');
   assert.match(provisionRun, /ELECTRON_ZIP="\$\{RUNNER_TEMP:-\/tmp\}\/electron\.zip"/);
-  assert.match(provisionRun, /curl[^\n]+--retry 3[^\n]+--retry-all-errors[^\n]+"\$URL"/);
+  assert.match(
+    provisionRun,
+    /curl[^\n]+--connect-timeout 20[^\n]+--max-time 180[^\n]+--retry 3[^\n]+--retry-all-errors[^\n]+"\$URL"/
+  );
   assert.match(provisionRun, /unzip[^\n]+"\$ELECTRON_ZIP"/);
-  assert.match(provisionRun, /Electron binary present at/);
+  assert.match(provisionRun, /fs\.constants\.X_OK/);
+  assert.match(provisionRun, /statSync\(p\)\.size===0/);
   assert.match(provisionRun, /ELECTRON_DIST=\$ELECTRON_ZIP/);
 
-  assert.match(steps[packageIndex].run, /--config\.electronDist="\$ELECTRON_DIST"/);
+  const packageRun = steps[packageIndex].run;
+  assert.equal(typeof packageRun, 'string');
+  assert.match(packageRun, /set -euo pipefail/);
+  assert.match(packageRun, /test -n "\$\{ELECTRON_DIST:-\}"/);
+  assert.match(packageRun, /--config\.electronDist="\$ELECTRON_DIST"/);
 });

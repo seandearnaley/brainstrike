@@ -94,9 +94,10 @@ path returns.
 The `Native Electron Package` job has a separate packaging need: its native
 smoke launches Electron before electron-builder runs, and electron-builder
 otherwise fetches the same release archive again. It now provisions one
-`${RUNNER_TEMP:-/tmp}/electron.zip` before either consumer, retries transfer
-errors three times with a visible failure after exhaustion, hard-verifies the
-extracted executable, and passes that same zip to electron-builder through
+`${RUNNER_TEMP:-/tmp}/electron.zip` before either consumer, bounds each transfer
+to three minutes, retries transfer errors three times with a visible failure
+after exhaustion, verifies the extracted executable is non-empty and runnable,
+and passes that same zip to electron-builder through
 `config.electronDist`. This keeps one bounded, observable download boundary and
 does not restore the obsolete `~/.cache/electron` Actions cache.
 
