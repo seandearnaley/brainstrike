@@ -3,9 +3,15 @@
  */
 
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  type McpHostServerSnapshot,
+  type McpHostSnapshot,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  McpConfigInfo,
   ToolDisplayMetadata,
   ToolExecutionResult,
   ToolStats,
@@ -302,9 +308,10 @@ describe('UnifiedToolsSettings', () => {
     getTools: vi.fn().mockResolvedValue(mockTools),
     resetTools: vi.fn().mockResolvedValue(undefined),
   });
-  const connectedMcpStatus = {
+  const connectedMcpStatus: McpHostServerSnapshot = {
     configuredProtocol: 'auto',
-    name: 'github',
+    configuredServerId: parseConfiguredMcpServerId('github'),
+    generation: 1,
     negotiated: {
       advertisedCapabilityIds: ['tools'],
       era: 'modern',
@@ -313,10 +320,11 @@ describe('UnifiedToolsSettings', () => {
     },
     state: 'connected',
     transport: 'streamable-http',
-  } as const;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    ToolGroupAccordionMock.mockImplementation(renderToolGroupAccordion);
     usePGliteLiveQueryMock.mockReturnValue({
       error: null,
       loading: false,
@@ -929,7 +937,9 @@ describe('UnifiedToolsSettings', () => {
 
     it('shows connection status in MCP group accordion', async () => {
       const operations = createMockOperations();
-      operations.getMcpServerStatus = vi.fn().mockResolvedValue([connectedMcpStatus]);
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -938,10 +948,67 @@ describe('UnifiedToolsSettings', () => {
       });
     });
 
+    it('surfaces a missing live host-status subscription capability', async () => {
+      const operations = createMockOperations();
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(
+        await screen.findByText('MCP live status subscription is unavailable in this runtime.')
+      ).toBeInTheDocument();
+    });
+
+    it('surfaces a tool-group identity that has no matching host status', async () => {
+      const operations = createMockOperations();
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 1,
+        servers: [
+          {
+            ...connectedMcpStatus,
+            configuredServerId: parseConfiguredMcpServerId('different-server'),
+          },
+        ],
+      });
+      operations.subscribeMcpServerStatus = vi.fn(() => vi.fn());
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(
+        await screen.findByText('MCP tool projection server "github" has no matching host status.')
+      ).toBeInTheDocument();
+    });
+
+    it('keeps the host-status subscription when only the operations object identity changes', async () => {
+      const operations = createMockOperations();
+      const dispose = vi.fn();
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
+      operations.subscribeMcpServerStatus = vi.fn(() => dispose);
+      const view = render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      await waitFor(() => expect(operations.subscribeMcpServerStatus).toHaveBeenCalledOnce());
+
+      await act(async () => {
+        view.rerender(<UnifiedToolsSettings mcpAvailable={true} operations={{ ...operations }} />);
+      });
+
+      expect(operations.subscribeMcpServerStatus).toHaveBeenCalledOnce();
+      expect(dispose).not.toHaveBeenCalled();
+
+      view.unmount();
+      expect(dispose).toHaveBeenCalledOnce();
+    });
+
     it('shows a connected zero-tool server with negotiated facts', async () => {
       const operations = createMockOperations();
       operations.getTools = vi.fn().mockResolvedValue([]);
-      operations.getMcpServerStatus = vi.fn().mockResolvedValue([connectedMcpStatus]);
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: true, path: '/test' });
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -950,6 +1017,29 @@ describe('UnifiedToolsSettings', () => {
       expect(statusList).toHaveTextContent('era modern · revision 2026-07-28');
       expect(statusList).toHaveTextContent('github-server 2.0.0');
       expect(statusList).toHaveTextContent('capabilities: tools');
+    });
+
+    it('distinguishes an explicit empty host snapshot from a malformed config', async () => {
+      const operations = createMockOperations();
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({ revision: 1, servers: [] });
+      operations.getMcpConfigInfo = vi
+        .fn()
+        .mockResolvedValue({ error: 'invalid_mcp_config', exists: true, path: '/test' });
+
+      const view = render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      expect(await screen.findByText('invalid_mcp_config')).toBeInTheDocument();
+      expect(screen.queryByTestId('mcp-server-status-empty')).not.toBeInTheDocument();
+
+      view.unmount();
+      const validOperations = createMockOperations();
+      validOperations.getTools = vi.fn().mockResolvedValue([]);
+      validOperations.getMcpServerStatus = vi.fn().mockResolvedValue({ revision: 1, servers: [] });
+      validOperations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: true, path: '/test' });
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={validOperations} />);
+      expect(await screen.findByTestId('mcp-server-status-empty')).toHaveTextContent(
+        'No MCP servers configured.'
+      );
     });
 
     it('renders core support separately from every official MCP extension', async () => {
@@ -993,37 +1083,51 @@ describe('UnifiedToolsSettings', () => {
       }
     });
 
-    it('shows an error server in both the accordion and diagnostic row', async () => {
+    it('shows structured errors in the accordion and diagnostic row for a failed server', async () => {
       const operations = createMockOperations();
-      operations.getMcpServerStatus = vi.fn().mockResolvedValue([
-        {
-          configuredProtocol: 'auto',
-          error: 'MCP connection failed (HTTP 503)',
-          name: 'github',
-          state: 'error',
-          transport: 'streamable-http',
-        },
-      ]);
+      operations.getTools = vi.fn().mockResolvedValue(mockTools);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 3,
+        servers: [
+          {
+            configuredProtocol: 'auto',
+            configuredServerId: parseConfiguredMcpServerId('github'),
+            error: {
+              category: 'connection',
+              code: 'mcp-transport-operation-failed',
+              message: 'MCP server actor operation failed',
+            },
+            generation: 2,
+            state: 'error',
+            transport: 'streamable-http',
+          },
+        ],
+      });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
-      expect(await screen.findByTestId('connection-status-mcp-github')).toHaveTextContent('error');
-      expect(screen.getByTestId('mcp-server-status-list')).toHaveTextContent(
-        'MCP connection failed (HTTP 503)'
-      );
+      const statusList = await screen.findByTestId('mcp-server-status-list');
+      expect(screen.getByTestId('connection-status-mcp-github')).toHaveTextContent('error');
+      expect(statusList).toHaveTextContent('github');
+      expect(statusList).toHaveTextContent('connection · mcp-transport-operation-failed');
+      expect(statusList).toHaveTextContent('MCP server actor operation failed');
     });
 
     it('opens the MCP config from an MCP group header action', async () => {
       const operations = createMockOperations();
       operations.openMcpConfig = vi.fn().mockResolvedValue(undefined);
-      operations.getMcpServerStatus = vi.fn().mockResolvedValue([
-        {
-          configuredProtocol: 'legacy',
-          name: 'github',
-          state: 'disconnected',
-          transport: 'stdio',
-        },
-      ]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 1,
+        servers: [
+          {
+            configuredProtocol: 'legacy',
+            configuredServerId: parseConfiguredMcpServerId('github'),
+            generation: 1,
+            state: 'disconnected',
+            transport: 'stdio',
+          },
+        ],
+      });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1043,7 +1147,8 @@ describe('UnifiedToolsSettings', () => {
       operations.getMcpServerStatus = vi
         .fn()
         .mockRejectedValueOnce(new Error('MCP down'))
-        .mockResolvedValueOnce([connectedMcpStatus]);
+        .mockResolvedValueOnce({ revision: 1, servers: [connectedMcpStatus] })
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
       operations.refreshMcpServers = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -1064,6 +1169,228 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(screen.queryByText('MCP down')).not.toBeInTheDocument();
+      });
+    });
+
+    it('clears a recovered MCP status error without a config-info operation', async () => {
+      const operations = createMockOperations();
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('MCP down without config info'))
+        .mockResolvedValueOnce({ revision: 1, servers: [connectedMcpStatus] })
+        .mockResolvedValue({ revision: 1, servers: [connectedMcpStatus] });
+      operations.subscribeMcpServerStatus = vi.fn(() => vi.fn());
+
+      const view = render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      expect(await screen.findByText('MCP down without config info')).toBeInTheDocument();
+
+      await act(async () => {
+        view.rerender(<UnifiedToolsSettings mcpAvailable={true} operations={{ ...operations }} />);
+      });
+
+      await waitFor(() => expect(operations.getMcpServerStatus).toHaveBeenCalledTimes(2));
+      await waitFor(() =>
+        expect(screen.queryByText('MCP down without config info')).not.toBeInTheDocument()
+      );
+    });
+
+    it('does not publish a rejection from a config read superseded by a watch event', async () => {
+      const staleRead = Promise.withResolvers<McpConfigInfo | null>();
+      let publishConfig: ((info: McpConfigInfo) => void) | undefined;
+      const operations = createMockOperations();
+      operations.getMcpConfigInfo = vi.fn(async () => await staleRead.promise);
+      operations.subscribeMcpConfig = vi.fn((listener) => {
+        publishConfig = listener;
+        return vi.fn();
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      await waitFor(() => expect(operations.getMcpConfigInfo).toHaveBeenCalledOnce());
+      act(() => publishConfig?.({ exists: false, path: '/new-authority.json' }));
+      expect(await screen.findByTestId('mcp-config-alert')).toBeInTheDocument();
+
+      await act(async () => {
+        staleRead.reject(new Error('stale config read failed'));
+        await staleRead.promise.catch(() => undefined);
+      });
+
+      expect(screen.queryByText('stale config read failed')).not.toBeInTheDocument();
+      expect(screen.getByTestId('mcp-config-alert')).toBeInTheDocument();
+    });
+
+    it('preserves accepted config authority while an error-boundary retry reload is pending', async () => {
+      const retryStatus = Promise.withResolvers<McpHostSnapshot>();
+      let publishStatus: ((snapshot: McpHostSnapshot) => void) | undefined;
+      const operations = createMockOperations();
+      operations.getMcpConfigInfo = vi
+        .fn()
+        .mockResolvedValue({ exists: false, path: '/accepted-config.json' });
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValueOnce({ revision: 1, servers: [connectedMcpStatus] })
+        .mockImplementationOnce(async () => await retryStatus.promise)
+        .mockResolvedValue({ revision: 3, servers: [connectedMcpStatus] });
+      operations.subscribeMcpServerStatus = vi.fn((listener) => {
+        publishStatus = listener;
+        return vi.fn();
+      });
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      expect(await screen.findByTestId('mcp-config-alert')).toBeInTheDocument();
+
+      ToolGroupAccordionMock.mockImplementation(() => {
+        throw new Error('Crash after config authority');
+      });
+      try {
+        act(() => publishStatus?.({ revision: 2, servers: [connectedMcpStatus] }));
+        expect(await screen.findByTestId('tools-error-fallback')).toBeInTheDocument();
+      } finally {
+        ToolGroupAccordionMock.mockImplementation(renderToolGroupAccordion);
+      }
+      fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+      expect(screen.getByTestId('mcp-config-alert')).toBeInTheDocument();
+      await act(async () => {
+        retryStatus.resolve({ revision: 3, servers: [connectedMcpStatus] });
+        await retryStatus.promise;
+      });
+    });
+
+    it('rejects a stale initial snapshot after a newer watch revision', async () => {
+      const operations = createMockOperations();
+      const initial = Promise.withResolvers<McpHostSnapshot>();
+      let publish: ((snapshot: McpHostSnapshot) => void) | undefined;
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn(async () => await initial.promise);
+      operations.subscribeMcpServerStatus = vi.fn((listener) => {
+        publish = listener;
+        return vi.fn();
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      await waitFor(() => expect(operations.subscribeMcpServerStatus).toHaveBeenCalledOnce());
+      act(() => {
+        publish?.({
+          revision: 2,
+          servers: [
+            {
+              configuredProtocol: 'auto',
+              configuredServerId: parseConfiguredMcpServerId('newer'),
+              generation: 2,
+              state: 'connecting',
+              transport: 'streamable-http',
+            },
+          ],
+        });
+      });
+      expect(await screen.findByTestId('mcp-server-status-list')).toHaveTextContent('newer');
+
+      await act(async () => {
+        initial.resolve({
+          revision: 1,
+          servers: [
+            {
+              ...connectedMcpStatus,
+              configuredServerId: parseConfiguredMcpServerId('stale'),
+            },
+          ],
+        });
+        await initial.promise;
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-server-status-list')).toHaveTextContent('newer');
+        expect(screen.getByTestId('mcp-server-status-list')).not.toHaveTextContent('stale');
+      });
+    });
+
+    it('observes malformed config changes and recovery without a host revision', async () => {
+      const operations = createMockOperations();
+      let publishConfig: ((info: McpConfigInfo) => void) | undefined;
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({ revision: 1, servers: [] });
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: true, path: '/test' });
+      operations.subscribeMcpConfig = vi.fn((listener) => {
+        publishConfig = listener;
+        return vi.fn();
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      expect(await screen.findByTestId('mcp-server-status-empty')).toBeInTheDocument();
+      act(() => publishConfig?.({ error: 'invalid JSON', exists: true, path: '/test' }));
+      expect(await screen.findByText('invalid JSON')).toBeInTheDocument();
+      expect(screen.queryByTestId('mcp-server-status-empty')).not.toBeInTheDocument();
+
+      act(() => publishConfig?.({ exists: true, path: '/test' }));
+      await waitFor(() => expect(screen.queryByText('invalid JSON')).not.toBeInTheDocument());
+      expect(screen.getByTestId('mcp-server-status-empty')).toBeInTheDocument();
+    });
+
+    it('does not fabricate status and refreshes tools from projection events', async () => {
+      const operations = createMockOperations();
+      let publishTools: (() => void) | undefined;
+      operations.getTools = vi
+        .fn()
+        .mockResolvedValueOnce(mockTools)
+        .mockResolvedValueOnce(mockTools.filter(({ source }) => source === 'native'))
+        .mockResolvedValue(mockTools.filter(({ source }) => source === 'native'));
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({ revision: 1, servers: [] });
+      operations.subscribeMcpTools = vi.fn((listener) => {
+        publishTools = listener;
+        return vi.fn();
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      expect(await screen.findByTestId('tool-group-mcp-github')).toBeInTheDocument();
+      expect(screen.queryByTestId('connection-status-mcp-github')).not.toBeInTheDocument();
+
+      act(() => publishTools?.());
+      await waitFor(() =>
+        expect(screen.queryByTestId('tool-group-mcp-github')).not.toBeInTheDocument()
+      );
+    });
+
+    it('preserves the revision fence across an error-boundary retry', async () => {
+      const operations = createMockOperations();
+      const initial = Promise.withResolvers<McpHostSnapshot>();
+      let publish: ((snapshot: McpHostSnapshot) => void) | undefined;
+      operations.getMcpServerStatus = vi.fn(async () => await initial.promise);
+      operations.subscribeMcpServerStatus = vi.fn((listener) => {
+        publish = listener;
+        return vi.fn();
+      });
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      await waitFor(() => expect(operations.subscribeMcpServerStatus).toHaveBeenCalledOnce());
+
+      ToolGroupAccordionMock.mockImplementation(() => {
+        throw new Error('Crash after status event');
+      });
+      try {
+        act(() => {
+          publish?.({
+            revision: 2,
+            servers: [
+              { ...connectedMcpStatus, configuredServerId: parseConfiguredMcpServerId('newer') },
+            ],
+          });
+        });
+        expect(await screen.findByTestId('tools-error-fallback')).toBeInTheDocument();
+      } finally {
+        ToolGroupAccordionMock.mockImplementation(renderToolGroupAccordion);
+      }
+      fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+      await act(async () => {
+        initial.resolve({
+          revision: 1,
+          servers: [
+            { ...connectedMcpStatus, configuredServerId: parseConfiguredMcpServerId('stale') },
+          ],
+        });
+        await initial.promise;
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-server-status-list')).toHaveTextContent('newer');
+        expect(screen.getByTestId('mcp-server-status-list')).not.toHaveTextContent('stale');
       });
     });
 
