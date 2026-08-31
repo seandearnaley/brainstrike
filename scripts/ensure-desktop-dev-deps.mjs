@@ -17,8 +17,16 @@ const desktopDevDependencyBuildArgs = [
   '--filter=@brainstrike/desktop',
 ];
 
-export function getDesktopDevDependencyBuildArgs() {
-  return [...desktopDevDependencyBuildArgs];
+export function getDesktopDevDependencyBuildArgs(platform = process.platform) {
+  const args = [...desktopDevDependencyBuildArgs];
+  if (platform === 'win32') {
+    const separatorIndex = args.indexOf('--');
+    if (separatorIndex === -1) {
+      throw new Error('Desktop dependency build arguments must contain the wrapper separator.');
+    }
+    args.splice(separatorIndex, 0, '--windows-concurrency=1');
+  }
+  return args;
 }
 
 export function runDesktopDevDependencyBuild({
