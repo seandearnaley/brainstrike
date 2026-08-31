@@ -14,6 +14,7 @@ import {
   writeMcpConfigText,
 } from '../../mcp-loader';
 import { readOpenAIApiKey } from '../../openai-api-key';
+import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 type WatchCallback = (config: unknown) => Promise<void>;
@@ -82,6 +83,8 @@ vi.mock('../../secrets', () => ({
   getSecretsService: vi.fn(() => mockSecretsService),
 }));
 
+const authority = createMcpAuthorityTestRuntime();
+
 describe('ipc-mcp handlers', () => {
   let handlers: Map<string, RegisteredHandler>;
 
@@ -98,7 +101,7 @@ describe('ipc-mcp handlers', () => {
     mockHandle.mockImplementation((channel: string, handler: RegisteredHandler) => {
       handlers.set(channel, handler);
     });
-    registerMcpIpcHandlers();
+    registerMcpIpcHandlers({ runtime: authority.runtime });
     const unwatchHandler = handlers.get('mcp:config:unwatch');
     if (unwatchHandler) {
       await unwatchHandler();
@@ -170,7 +173,7 @@ describe('ipc-mcp handlers', () => {
     it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {
       const mockWatcher = { close: vi.fn() };
       vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
-      const unregister = registerMcpIpcHandlers();
+      const unregister = registerMcpIpcHandlers({ runtime: authority.runtime });
 
       const watchHandler = handlers.get('mcp:config:watch');
       if (!watchHandler) {
@@ -254,7 +257,7 @@ describe('ipc-mcp handlers', () => {
     it('waits for startup discovery, then reads config without replacing live clients', async () => {
       const startup = Promise.withResolvers<unknown>();
       vi.mocked(loadMcpConfig).mockReturnValueOnce(startup.promise as never);
-      registerMcpIpcHandlers();
+      registerMcpIpcHandlers({ runtime: authority.runtime });
       const statusHandler = handlers.get('mcp:status:get');
       if (!statusHandler) {
         throw new Error('status handler not registered');
@@ -439,7 +442,7 @@ describe('ipc-mcp handlers', () => {
       }
       await watchCallback(newConfig);
 
-      expect(initClients).toHaveBeenCalledWith(newConfig.config);
+      expect(authority.replaceResolvedConfig).toHaveBeenCalledWith(newConfig.config);
       expect(disposeClients).not.toHaveBeenCalled();
       expect(send).toHaveBeenCalledWith('mcp:config:updated', {
         exists: true,
@@ -449,7 +452,7 @@ describe('ipc-mcp handlers', () => {
       expect(JSON.stringify(send.mock.calls)).not.toContain('decrypted-secret');
     });
 
-    it('should dispose clients when config becomes invalid', async () => {
+    it('should install empty authority when config is removed', async () => {
       const mockWatcher = { close: vi.fn() };
       let watchCallback: WatchCallback | undefined;
 
@@ -476,8 +479,7 @@ describe('ipc-mcp handlers', () => {
       }
       await watchCallback(invalidConfig);
 
-      expect(initClients).not.toHaveBeenCalled();
-      expect(disposeClients).toHaveBeenCalled();
+      expect(authority.replaceResolvedConfig).toHaveBeenLastCalledWith({ servers: [] });
     });
 
     it('should update last config reference on changes', async () => {
@@ -528,14 +530,12 @@ describe('ipc-mcp handlers', () => {
       const mockedWatch = vi.mocked(watchMcpConfig);
       mockedWatch.mockResolvedValue(mockWatcher as never);
 
-      // Start watching first
       const watchHandler = handlers.get('mcp:config:watch');
       if (!watchHandler) {
         throw new Error('watch handler not registered');
       }
       await watchHandler({});
 
-      // Then stop watching
       const unwatchHandler = handlers.get('mcp:config:unwatch');
       if (!unwatchHandler) {
         throw new Error('unwatch handler not registered');
@@ -568,21 +568,18 @@ describe('ipc-mcp handlers', () => {
       const watchHandler = handlers.get('mcp:config:watch');
       const unwatchHandler = handlers.get('mcp:config:unwatch');
 
-      // First watch
       if (!watchHandler) {
         throw new Error('watch handler not registered');
       }
       await watchHandler({});
       expect(watchMcpConfig).toHaveBeenCalledTimes(1);
 
-      // Unwatch
       if (!unwatchHandler) {
         throw new Error('unwatch handler not registered');
       }
       await unwatchHandler();
       expect(mockWatcher1.close).toHaveBeenCalled();
 
-      // Watch again
       await watchHandler({});
       expect(watchMcpConfig).toHaveBeenCalledTimes(2);
     });
@@ -648,13 +645,13 @@ describe('ipc-mcp handlers', () => {
         throw new Error('watch callback not set');
       }
       await watchCallback(config1);
-      expect(initClients).toHaveBeenLastCalledWith(config1.config);
+      expect(authority.replaceResolvedConfig).toHaveBeenLastCalledWith(config1.config);
 
       await watchCallback(config2);
-      expect(disposeClients).toHaveBeenCalled();
+      expect(authority.replaceResolvedConfig).toHaveBeenLastCalledWith({ servers: [] });
 
       await watchCallback(config3);
-      expect(initClients).toHaveBeenLastCalledWith(config3.config);
+      expect(authority.replaceResolvedConfig).toHaveBeenLastCalledWith(config3.config);
 
       // Stop watching
       const unwatchHandler = handlers.get('mcp:config:unwatch');
@@ -815,6 +812,7 @@ describe('ipc-mcp handlers', () => {
         success: true,
       } as never);
       vi.mocked(loadMcpConfig).mockResolvedValue({
+        config: { servers: [] },
         exists: true,
         path: '/tmp/mcp.config.json',
       } as never);

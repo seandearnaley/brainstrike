@@ -162,6 +162,7 @@ import {
 import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
+import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
@@ -1955,7 +1956,7 @@ if (singleInstanceLockAcquired) {
         }),
       });
       registerAgentIpcHandlers();
-      unregisterMcpIpcHandlers = registerMcpIpcHandlers();
+      unregisterMcpIpcHandlers = registerMcpIpcHandlers({ runtime: getDesktopMcpHostRuntime() });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
       // Kick off DB initialization (utilityProcess spawn + migrations) and the

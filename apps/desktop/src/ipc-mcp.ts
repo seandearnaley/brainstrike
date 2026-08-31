@@ -6,10 +6,13 @@ import {
   saveToolPreferences,
   type ToolPreferences,
 } from '@brainstrike/agent';
+import { type McpHostSnapshot, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import { disposeClients, getClient, getClientStatuses, initClients } from './mcp';
+import { disposeClients, getClientStatuses } from './mcp';
+import type { DesktopMcpHostRuntime } from './mcp/host-runtime';
+import type { McpDiscoveredTool } from './mcp/types';
 import {
   getDefaultMcpConfigTemplate,
   getMcpConfigPath,
@@ -29,12 +32,15 @@ let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
 let lastUserSelectedConfigPath: string | null = null;
 let mcpLifecycleBarrier: Promise<void> = Promise.resolve();
+let latestAuthorityEpoch = 0;
+let latestLoadEpoch = 0;
 const logger = createLogger('DesktopMcpIpc');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
 export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
+type McpAuthorityRuntime = Pick<DesktopMcpHostRuntime, 'host' | 'replaceResolvedConfig'>;
 
 export interface McpConfigStatus {
   error?: string;
@@ -92,36 +98,87 @@ function isPlaceholderServer(server: McpServer): boolean {
 }
 
 /**
- * Handles config changes by clearing the registry and reinitializing clients.
  * Shared callback for both manual config changes and file watch events.
  */
-async function applyConfigChange(cfg: LoadedMcpConfig): Promise<void> {
-  last = cfg;
-  notifyMcpConfigUpdated(cfg);
-  mcpToolRegistry.clear();
-  notifyMcpToolsUpdated();
+async function applyConfigChange(
+  runtime: McpAuthorityRuntime,
+  cfg: LoadedMcpConfig,
+  loadEpoch: number
+): Promise<void> {
+  if (loadEpoch !== latestLoadEpoch) {
+    return;
+  }
   if (cfg.error) {
+    last = cfg;
+    notifyMcpConfigUpdated(cfg);
     logger.error('MCP config could not be loaded', {
       error: cfg.error,
       path: cfg.path,
     });
+    return;
   }
-  if (cfg.config) {
-    initClients(cfg.config);
-    await discoverToolsFromConfig(cfg.config).catch((error: unknown) => {
-      logger.error('Tool discovery failed after config change', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-  } else {
-    await disposeClients();
+  if (cfg.exists && !cfg.config) {
+    throw new Error('Existing MCP config load result is missing resolved configuration');
   }
+
+  const authorityEpoch = ++latestAuthorityEpoch;
+  const config = cfg.config ?? { servers: [] };
+  const committed = await runtime.replaceResolvedConfig(config);
+  if (loadEpoch === latestLoadEpoch) {
+    last = cfg;
+    notifyMcpConfigUpdated(cfg);
+  }
+
+  const discoveries = cfg.config
+    ? await discoverToolsFromConfig(runtime, cfg.config, committed)
+    : [];
+  if (authorityEpoch !== latestAuthorityEpoch) {
+    return;
+  }
+  const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
+  const preferences =
+    toolIds.size > 0
+      ? await loadToolPreferencesForProjection(toolIds)
+      : { disabledTools: [], enabledTools: [] };
+  if (authorityEpoch !== latestAuthorityEpoch) {
+    return;
+  }
+
+  mcpToolRegistry.clear();
+  for (const discovery of discoveries) {
+    mcpToolRegistry.register(
+      discovery.server.name,
+      discovery.tools,
+      discovery.server.enabledTools ? { enabledTools: discovery.server.enabledTools } : undefined
+    );
+  }
+  // Apply valid preferences
+  if (preferences.disabledTools.length > 0) {
+    mcpToolRegistry.disableTools(preferences.disabledTools);
+  }
+  if (preferences.enabledTools.length > 0) {
+    mcpToolRegistry.enableTools(preferences.enabledTools);
+  }
+  notifyMcpToolsUpdated();
 }
 
-function handleConfigChange(cfg: LoadedMcpConfig): Promise<void> {
-  const nextLifecycle = mcpLifecycleBarrier.then(() => applyConfigChange(cfg));
-  mcpLifecycleBarrier = nextLifecycle;
-  return nextLifecycle;
+function trackConfigChange(operation: Promise<void>): Promise<void> {
+  const settled = operation.then(
+    () => undefined,
+    () => undefined
+  );
+  mcpLifecycleBarrier = Promise.all([mcpLifecycleBarrier, settled]).then(() => undefined);
+  return operation;
+}
+
+function handleConfigChange(runtime: McpAuthorityRuntime, cfg: LoadedMcpConfig): Promise<void> {
+  return trackConfigChange(applyConfigChange(runtime, cfg, ++latestLoadEpoch));
+}
+
+async function reloadMcpConfig(runtime: McpAuthorityRuntime): Promise<void> {
+  const loadEpoch = ++latestLoadEpoch;
+  const config = await loadMcpConfig();
+  await trackConfigChange(applyConfigChange(runtime, config, loadEpoch));
 }
 
 function notifyMcpConfigUpdated(config: LoadedMcpConfig): void {
@@ -171,9 +228,9 @@ function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
   throw new Error('MCP config path must be selected with the native file picker.');
 }
 
-async function restartConfigWatcher(): Promise<void> {
+async function restartConfigWatcher(runtime: McpAuthorityRuntime): Promise<void> {
   stopConfigWatcher();
-  const watcher = await watchMcpConfig(handleConfigChange);
+  const watcher = await watchMcpConfig((config) => handleConfigChange(runtime, config));
   unwatch = () => watcher.close();
 }
 
@@ -192,7 +249,7 @@ export async function cleanupMcpRuntimeForShutdown(): Promise<void> {
   await disposeClients();
 }
 
-export function registerMcpIpcHandlers(): () => void {
+export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRuntime }): () => void {
   logger.debug('Registering MCP IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
 
@@ -226,10 +283,10 @@ export function registerMcpIpcHandlers(): () => void {
       const newPath = await getMcpConfigPath();
 
       logger.info('Loading config from new path', { path: newPath });
-      await handleConfigChange(await loadMcpConfig());
+      await reloadMcpConfig(runtime);
 
       // Restart the watcher to watch the new path
-      await restartConfigWatcher();
+      await restartConfigWatcher(runtime);
 
       return { path: newPath, success: true };
     }
@@ -285,11 +342,11 @@ export function registerMcpIpcHandlers(): () => void {
       stopConfigWatcher();
       const result = await writeMcpConfigText(content);
       if (restartWatcher) {
-        await restartConfigWatcher();
+        await restartConfigWatcher(runtime);
       }
       if (result.success) {
         logger.info('MCP config text updated', { path: result.path });
-        await handleConfigChange(await loadMcpConfig());
+        await reloadMcpConfig(runtime);
       }
       return result;
     }
@@ -325,7 +382,7 @@ export function registerMcpIpcHandlers(): () => void {
       if (unwatch) {
         return { watching: true };
       }
-      const w = await watchMcpConfig(handleConfigChange);
+      const w = await watchMcpConfig((config) => handleConfigChange(runtime, config));
       unwatch = () => w.close();
       return { watching: true };
     }
@@ -430,8 +487,8 @@ export function registerMcpIpcHandlers(): () => void {
         logger.info('Created sample MCP config', { path: configPath });
 
         // Clear existing tools, reload config, and ensure file watcher tracks the new file.
-        await handleConfigChange(await loadMcpConfig());
-        await restartConfigWatcher();
+        await reloadMcpConfig(runtime);
+        await restartConfigWatcher(runtime);
 
         return { path: configPath, success: true };
       } catch (error) {
@@ -443,8 +500,12 @@ export function registerMcpIpcHandlers(): () => void {
   );
 
   // Discover tools when config changes; saved preferences are applied after discovery completes
-  mcpLifecycleBarrier = discoverMcpToolsOnStartup().then(restartConfigWatcher);
-  void mcpLifecycleBarrier.catch((error: unknown) => {
+  const startup = restartConfigWatcher(runtime).then(() => reloadMcpConfig(runtime));
+  mcpLifecycleBarrier = startup.then(
+    () => undefined,
+    () => undefined
+  );
+  void startup.catch((error: unknown) => {
     logger.error('MCP runtime startup failed', { error });
   });
 
@@ -453,43 +514,26 @@ export function registerMcpIpcHandlers(): () => void {
   };
 }
 
-async function discoverMcpToolsOnStartup(): Promise<void> {
-  logger.debug('discoverMcpToolsOnStartup called');
-  try {
-    const loaded = await loadMcpConfig();
-    logger.debug('Loaded MCP config for discovery', { loaded });
-
-    if (!(loaded.exists && loaded.config)) {
-      mcpToolRegistry.clear();
-      notifyMcpToolsUpdated();
-      if (loaded.exists && loaded.error) {
-        logger.error('MCP config invalid, cleared tool registry', {
-          error: loaded.error,
-          path: loaded.path,
-        });
-      } else {
-        logger.debug('MCP config missing, cleared tool registry');
-      }
-      return;
-    }
-
-    initClients(loaded.config);
-    await discoverToolsFromConfig(loaded.config);
-  } catch (error) {
-    // On error, clear registry to ensure no stale state
-    mcpToolRegistry.clear();
-    notifyMcpToolsUpdated();
-    logger.error('Failed to discover MCP tools on startup, cleared registry', { error });
-  }
+interface DiscoveredServerTools {
+  server: ResolvedMcpServer;
+  tools: Record<string, McpDiscoveredTool>;
 }
 
-async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promise<void> {
+async function discoverToolsFromConfig(
+  runtime: McpAuthorityRuntime,
+  config: NonNullable<LoadedMcpConfig['config']>,
+  committed: McpHostSnapshot
+): Promise<DiscoveredServerTools[]> {
   if (!config || config.servers.length === 0) {
     logger.debug('No MCP servers configured, skipping tool discovery');
-    return;
+    return [];
   }
 
-  const actionableServers = config.servers.filter((server) => !isPlaceholderServer(server));
+  const committedIds = new Set(committed.servers.map((server) => server.configuredServerId));
+  const actionableServers = config.servers.filter(
+    (server) =>
+      committedIds.has(parseConfiguredMcpServerId(server.name)) && !isPlaceholderServer(server)
+  );
   const skippedPlaceholderServers = config.servers
     .filter((server) => isPlaceholderServer(server))
     .map((server) => server.name);
@@ -502,7 +546,7 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
 
   if (actionableServers.length === 0) {
     logger.debug('No actionable MCP servers configured after filtering placeholders');
-    return;
+    return [];
   }
 
   logger.info('Starting tool discovery', {
@@ -510,20 +554,33 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
     servers: actionableServers.map((server) => server.name),
   });
 
+  const discoveries: DiscoveredServerTools[] = [];
   for (const server of actionableServers) {
-    const client = getClient(server.name);
-    if (!client) {
-      logger.warn('MCP server discovery failed; client not initialized', { server: server.name });
-      continue;
-    }
-
     try {
-      const tools = await client.listTools();
-      mcpToolRegistry.register(
-        server.name,
-        tools,
-        server.enabledTools ? { enabledTools: server.enabledTools } : undefined
+      const result = await runtime.host.invoke({
+        configuredServerId: parseConfiguredMcpServerId(server.name),
+        type: 'tools/list',
+      });
+      if (result.type !== 'tools/list') {
+        throw new Error('MCP host returned a non-tools result for tools/list discovery');
+      }
+      const toolNames = new Set<string>();
+      const tools: Record<string, McpDiscoveredTool> = Object.fromEntries(
+        result.result.tools.map((tool) => {
+          if (toolNames.has(tool.name)) {
+            throw new Error(`MCP server returned duplicate tool '${tool.name}'`);
+          }
+          toolNames.add(tool.name);
+          return [
+            `${server.name}.${tool.name}`,
+            {
+              ...(tool.description ? { description: tool.description } : {}),
+              ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
+            },
+          ];
+        })
       );
+      discoveries.push({ server, tools });
     } catch (error) {
       logger.warn('MCP server discovery failed; skipping server', {
         error: error instanceof Error ? error.message : String(error),
@@ -532,10 +589,11 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
     }
   }
 
-  const stats = mcpToolRegistry.getStats();
-  logger.info('Tool discovery complete', stats);
-  await loadToolPreferencesOnStartup();
-  notifyMcpToolsUpdated();
+  logger.info('Tool discovery complete', {
+    servers: discoveries.length,
+    tools: discoveries.reduce((count, discovery) => count + Object.keys(discovery.tools).length, 0),
+  });
+  return discoveries;
 }
 
 /**
@@ -563,16 +621,15 @@ async function saveToolPreferencesIfNeeded(): Promise<void> {
   }
 }
 
-async function loadToolPreferencesOnStartup(): Promise<void> {
+async function loadToolPreferencesForProjection(
+  registeredIds: ReadonlySet<string>
+): Promise<Pick<ToolPreferences, 'disabledTools' | 'enabledTools'>> {
   try {
-    const preferences = (await loadToolPreferences(app.getPath('userData'))) as
-      | ToolPreferences
-      | undefined;
+    const preferences = await loadToolPreferences(app.getPath('userData'));
     if (!preferences) {
-      return;
+      return { disabledTools: [], enabledTools: [] };
     }
 
-    const registeredIds = new Set(getFlattenedTools().map((t) => t.id));
     const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
     const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
 
@@ -600,15 +657,9 @@ async function loadToolPreferencesOnStartup(): Promise<void> {
       }
     }
 
-    // Apply valid preferences
-    if (validDisabled.length > 0) {
-      mcpToolRegistry.disableTools(validDisabled);
-    }
-    if (validEnabled.length > 0) {
-      mcpToolRegistry.enableTools(validEnabled);
-    }
-    notifyMcpToolsUpdated();
+    return { disabledTools: validDisabled, enabledTools: validEnabled };
   } catch (error) {
     logger.error('Failed to load tool preferences', { error });
+    return { disabledTools: [], enabledTools: [] };
   }
 }

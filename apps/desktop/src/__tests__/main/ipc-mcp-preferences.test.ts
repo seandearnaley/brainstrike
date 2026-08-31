@@ -44,8 +44,8 @@ const {
   // Mock registered tools that match the preference IDs being tested
   const getAllTools = vi.fn(() => ({
     'mock-server': [
-      { enabled: true, id: 'server.tool.enable' },
-      { enabled: false, id: 'server.tool.disable' },
+      { enabled: true, id: 'mock-server.tool.enable' },
+      { enabled: false, id: 'mock-server.tool.disable' },
     ],
   }));
   const getEnabledTools = vi.fn(() => ({}));
@@ -56,8 +56,8 @@ const {
   const loadPreferences = vi.fn(async () => {
     order.push('load-preferences');
     return {
-      disabledTools: ['server.tool.disable'],
-      enabledTools: ['server.tool.enable'],
+      disabledTools: ['mock-server.tool.disable'],
+      enabledTools: ['mock-server.tool.enable'],
       lastUpdated: 0,
       version: 1,
     };
@@ -86,8 +86,8 @@ const {
   const listTools = vi.fn(async () => {
     order.push('list-tools');
     return {
-      'server.tool.disable': { description: 'Disabled tool' },
-      'server.tool.enable': { description: 'Enabled tool' },
+      'mock-server.tool.disable': { description: 'Disabled tool' },
+      'mock-server.tool.enable': { description: 'Enabled tool' },
     };
   });
 
@@ -188,6 +188,26 @@ vi.mock('electron', () => ({
 
 import { loadToolPreferences, mcpToolRegistry } from '@brainstrike/agent';
 import { registerMcpIpcHandlers } from '../../ipc-mcp';
+import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
+
+const authority = createMcpAuthorityTestRuntime(async (serverId) => {
+  const client = getClientMock(serverId);
+  const discovered = client ? await client.listTools() : {};
+  return {
+    tools: Object.entries(discovered).map(([toolId, tool]) => {
+      if (!(typeof tool === 'object' && tool)) {
+        throw new Error('Expected discovered tool metadata');
+      }
+      return {
+        ...('description' in tool && typeof tool.description === 'string'
+          ? { description: tool.description }
+          : {}),
+        inputSchema: { type: 'object' },
+        name: toolId.includes('.') ? toolId.slice(toolId.indexOf('.') + 1) : toolId,
+      };
+    }),
+  };
+});
 
 async function waitForPreferencesCall(): Promise<void> {
   const deadline = Date.now() + 1000;
@@ -210,25 +230,22 @@ describe('ipc-mcp tool preference loading', () => {
   });
 
   it('applies persisted tool preferences after discovery completes', async () => {
-    registerMcpIpcHandlers();
+    registerMcpIpcHandlers({ runtime: authority.runtime });
 
     await waitForPreferencesCall();
 
     expect(loadToolPreferences).toHaveBeenCalledWith('mock-user-data');
-    expect(mcpToolRegistry.disableTools).toHaveBeenCalledWith(['server.tool.disable']);
-    expect(mcpToolRegistry.enableTools).toHaveBeenCalledWith(['server.tool.enable']);
+    expect(mcpToolRegistry.disableTools).toHaveBeenCalledWith(['mock-server.tool.disable']);
+    expect(mcpToolRegistry.enableTools).toHaveBeenCalledWith(['mock-server.tool.enable']);
 
     const registerIndex = callOrder.indexOf('register-tools');
-    const initIndex = callOrder.indexOf('init-clients');
     const listIndex = callOrder.indexOf('list-tools');
     const loadIndex = callOrder.indexOf('load-preferences');
 
     expect(registerIndex).toBeGreaterThanOrEqual(0);
-    expect(initIndex).toBeGreaterThanOrEqual(0);
     expect(listIndex).toBeGreaterThanOrEqual(0);
-    expect(registerIndex).toBeGreaterThanOrEqual(listIndex);
-    expect(listIndex).toBeGreaterThanOrEqual(initIndex);
-    expect(loadIndex).toBeGreaterThan(registerIndex);
+    expect(loadIndex).toBeGreaterThan(listIndex);
+    expect(registerIndex).toBeGreaterThan(loadIndex);
 
     expect(callOrder).toContain('disable-tools');
     expect(callOrder).toContain('enable-tools');
@@ -271,7 +288,7 @@ describe('ipc-mcp tool preference loading', () => {
       transport: 'stdio',
     } as unknown as ReturnType<typeof getClientMock>);
 
-    registerMcpIpcHandlers();
+    registerMcpIpcHandlers({ runtime: authority.runtime });
 
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -280,15 +297,15 @@ describe('ipc-mcp tool preference loading', () => {
       expect.objectContaining({
         'filesystem.list_directory': expect.objectContaining({
           description: expect.stringContaining('listing'),
-          inputSchema: { type: 'filesystem.list_directory.schema' },
+          inputSchema: { type: 'object' },
         }),
         'filesystem.read_file': expect.objectContaining({
           description: expect.stringContaining('Read the complete contents'),
-          inputSchema: { type: 'filesystem.read_file.schema' },
+          inputSchema: { type: 'object' },
         }),
         'filesystem.search_files': expect.objectContaining({
           description: expect.stringContaining('search for files'),
-          inputSchema: { type: 'filesystem.search_files.schema' },
+          inputSchema: { type: 'object' },
         }),
       }),
       undefined
@@ -310,7 +327,7 @@ describe('ipc-mcp tool preference loading', () => {
       ],
     } as unknown as ReturnType<typeof getAllToolsMock>);
 
-    registerMcpIpcHandlers();
+    registerMcpIpcHandlers({ runtime: authority.runtime });
 
     await waitForPreferencesCall();
 
@@ -327,25 +344,25 @@ describe('ipc-mcp tool preference loading', () => {
 
   it('still applies valid preferences when persisting cleaned ids fails', async () => {
     loadToolPreferencesMock.mockResolvedValueOnce({
-      disabledTools: ['server.tool.disable', 'filesystem_list_directory'],
-      enabledTools: ['server.tool.enable', 'filesystem_read_file'],
+      disabledTools: ['mock-server.tool.disable', 'filesystem_list_directory'],
+      enabledTools: ['mock-server.tool.enable', 'filesystem_read_file'],
       lastUpdated: 0,
       version: 1,
     });
     saveToolPreferencesMock.mockRejectedValueOnce(new Error('disk full'));
     getAllToolsMock.mockReturnValueOnce({
       'mock-server': [
-        { enabled: true, id: 'server.tool.enable' },
-        { enabled: false, id: 'server.tool.disable' },
+        { enabled: true, id: 'mock-server.tool.enable' },
+        { enabled: false, id: 'mock-server.tool.disable' },
       ],
     });
 
-    registerMcpIpcHandlers();
+    registerMcpIpcHandlers({ runtime: authority.runtime });
 
     await waitForPreferencesCall();
 
     expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1);
-    expect(mcpToolRegistry.disableTools).toHaveBeenCalledWith(['server.tool.disable']);
-    expect(mcpToolRegistry.enableTools).toHaveBeenCalledWith(['server.tool.enable']);
+    expect(mcpToolRegistry.disableTools).toHaveBeenCalledWith(['mock-server.tool.disable']);
+    expect(mcpToolRegistry.enableTools).toHaveBeenCalledWith(['mock-server.tool.enable']);
   });
 });
