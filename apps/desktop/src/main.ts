@@ -109,6 +109,7 @@ import {
 } from './dimension-index-maintenance-scheduler';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createForgeIpcHandlers, createForgeRepositoryResolver } from './forge-ipc-handlers';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
@@ -1517,11 +1518,23 @@ if (singleInstanceLockAcquired) {
   // rather than by registering the channel a second time, which the registry
   // rejects.
   const workspaceOpenReadyCallbacksByWebContentsId = new Map<number, () => void>();
-  const factoryResetReadyCallbacksByWebContentsId = new Map<number, () => void>();
+  const factoryResetRendererReplacement = createFactoryResetRendererReplacementCoordinator({
+    noteNextWindowReload: (window) => {
+      noteNextWindowReload(window, { reason: 'factory-reset', source: 'main' });
+    },
+    timeoutMs: FACTORY_RESET_RENDERER_READY_TIMEOUT_MS,
+  });
   registerWorkspaceOpenReadyIpcHandlers({
-    onOpenPathReady: (senderWebContentsId) => {
-      workspaceOpenReadyCallbacksByWebContentsId.get(senderWebContentsId)?.();
-      factoryResetReadyCallbacksByWebContentsId.get(senderWebContentsId)?.();
+    onOpenPathReady: (signal) => {
+      if (signal.kind === 'invalid') {
+        logger.error(
+          { diagnostic: signal.diagnostic, senderWebContentsId: signal.senderWebContentsId },
+          'Invalid renderer readiness acknowledgement'
+        );
+      } else {
+        workspaceOpenReadyCallbacksByWebContentsId.get(signal.senderWebContentsId)?.();
+      }
+      factoryResetRendererReplacement.handleRendererReady(signal);
     },
   });
 
@@ -1534,63 +1547,7 @@ if (singleInstanceLockAcquired) {
           llmHostManager.isHostWindow(window)
         )
     );
-    const results = await Promise.allSettled(
-      visibleWindows.map(
-        async (window) =>
-          await new Promise<void>((resolve, reject) => {
-            const webContentsId = window.webContents.id;
-            if (factoryResetReadyCallbacksByWebContentsId.has(webContentsId)) {
-              reject(new Error(`Factory reset renderer ${webContentsId} already awaits readiness`));
-              return;
-            }
-            const timeout = setTimeout(() => {
-              settle(() =>
-                reject(
-                  new Error(
-                    `Timed out waiting for factory reset renderer ${webContentsId} readiness`
-                  )
-                )
-              );
-            }, FACTORY_RESET_RENDERER_READY_TIMEOUT_MS);
-            timeout.unref();
-            const onClosed = (): void => {
-              settle(() =>
-                reject(
-                  new Error(
-                    `Factory reset renderer ${webContentsId} closed before reporting readiness`
-                  )
-                )
-              );
-            };
-            const settle = (finish: () => void): void => {
-              clearTimeout(timeout);
-              factoryResetReadyCallbacksByWebContentsId.delete(webContentsId);
-              window.removeListener('closed', onClosed);
-              finish();
-            };
-            factoryResetReadyCallbacksByWebContentsId.set(webContentsId, () => settle(resolve));
-            window.once('closed', onClosed);
-            try {
-              noteNextWindowReload(window, {
-                reason: 'factory-reset',
-                source: 'main',
-              });
-              window.webContents.reload();
-            } catch (error) {
-              settle(() => reject(error));
-            }
-          })
-      )
-    );
-    const failures = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : []
-    );
-    if (failures.length > 0) {
-      throw new AggregateError(
-        failures,
-        `Factory reset failed to replace ${failures.length} renderer${failures.length === 1 ? '' : 's'}`
-      );
-    }
+    await factoryResetRendererReplacement.replace(visibleWindows);
   };
 
   // macOS delivers this before `whenReady` (Dock drop, "Open With", a click in

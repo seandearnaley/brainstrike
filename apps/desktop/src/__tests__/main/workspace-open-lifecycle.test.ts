@@ -385,9 +385,15 @@ const OPEN_PATH_READY_CHANNEL = DESKTOP_IPC_CHANNELS.workspace.openPathReady;
 function sendReadyPing(win: MockWindowInstance): void {
   const handlers = mockIpcMain.on.mock.calls
     .filter((args) => args[0] === OPEN_PATH_READY_CHANNEL)
-    .map((args) => args[1] as (event: { sender: unknown }) => void);
+    .map(
+      (args) =>
+        args[1] as (
+          event: { sender: unknown; senderFrame: unknown },
+          payload: { resetGeneration: null }
+        ) => void
+    );
   for (const handler of handlers) {
-    handler({ sender: win.webContents });
+    handler({ sender: win.webContents, senderFrame: {} }, { resetGeneration: null });
   }
 }
 
