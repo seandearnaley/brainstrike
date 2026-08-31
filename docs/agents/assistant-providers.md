@@ -2275,10 +2275,11 @@ same lifecycle fence but does not close the singleton: after prior config work
 settles it installs explicit empty authority, purges projections and legacy
 clients, and keeps admission closed through the enclosing database/user-data
 purge. The reset coordinator then reopens admission and restores the permanent
-file watcher without reloading pre-reset authority, so the continuing process
-can accept a fresh empty or new configuration. Work admitted before the fence
-cannot publish after cleanup, and a watcher created across the fence is closed
-immediately.
+file watcher without reloading the pre-reset configuration, so the continuing
+process can accept a fresh empty or new configuration. Every config IPC
+operation joins the lifecycle barrier before its first asynchronous side
+effect. Work admitted before the fence therefore cannot publish after cleanup,
+and a watcher created across the fence is closed immediately.
 
 Assistant adapters may discover and invoke but cannot mutate auth or
 configuration. Renderer IPC receives only snapshots and explicit Settings
