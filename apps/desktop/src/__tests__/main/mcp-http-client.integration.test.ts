@@ -1,10 +1,12 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { SdkHttpError } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
+import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { createHttpClient } from '../../mcp/http-client';
 
 interface ObservedRequest {
@@ -21,6 +23,20 @@ interface RunningMcpServer {
 }
 
 const cleanup: Array<() => Promise<void>> = [];
+
+async function closeAll(disposers: ReadonlyArray<() => Promise<void>>): Promise<void> {
+  let firstError: unknown;
+  for (const dispose of disposers) {
+    try {
+      await dispose();
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError) {
+    throw firstError;
+  }
+}
 
 afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) {
@@ -111,8 +127,21 @@ async function listen(server: Server): Promise<{ close: () => Promise<void>; ori
   };
 }
 
-async function startStreamableHttpServer(pathname = '/sse'): Promise<RunningMcpServer> {
+async function startStreamableHttpServer(
+  pathname = '/sse',
+  sessionIdGenerator?: () => string
+): Promise<RunningMcpServer> {
   const requests: ObservedRequest[] = [];
+  const statefulMcp = sessionIdGenerator ? createFixtureMcpServer() : undefined;
+  const statefulTransport = sessionIdGenerator
+    ? new NodeStreamableHTTPServerTransport({
+        enableJsonResponse: true,
+        sessionIdGenerator,
+      })
+    : undefined;
+  if (statefulMcp && statefulTransport) {
+    await statefulMcp.connect(statefulTransport);
+  }
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const observed: ObservedRequest = {
@@ -130,15 +159,22 @@ async function startStreamableHttpServer(pathname = '/sse'): Promise<RunningMcpS
       return;
     }
 
-    if (request.method !== 'POST' || url.pathname !== pathname) {
+    if (
+      url.pathname !== pathname ||
+      (!(statefulMcp && statefulTransport) && request.method !== 'POST')
+    ) {
       requests.push(observed);
       response.writeHead(404).end();
       return;
     }
 
-    observed.body = await readJsonBody(request);
+    observed.body = request.method === 'POST' ? await readJsonBody(request) : undefined;
     requests.push(observed);
 
+    if (statefulMcp && statefulTransport) {
+      await statefulTransport.handleRequest(request, response, observed.body);
+      return;
+    }
     const mcp = createFixtureMcpServer();
     const transport = new NodeStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
@@ -147,13 +183,18 @@ async function startStreamableHttpServer(pathname = '/sse'): Promise<RunningMcpS
     try {
       await transport.handleRequest(request, response, observed.body);
     } finally {
-      await transport.close();
-      await mcp.close();
+      await closeAll([() => transport.close(), () => mcp.close()]);
     }
   });
   const running = await listen(server);
   return {
-    close: running.close,
+    close: async () => {
+      await closeAll([
+        ...(statefulTransport ? [() => statefulTransport.close()] : []),
+        ...(statefulMcp ? [() => statefulMcp.close()] : []),
+        running.close,
+      ]);
+    },
     requests,
     url: `${running.origin}${pathname}`,
   };
@@ -218,6 +259,43 @@ async function startLegacySseServer(pathname = '/legacy'): Promise<RunningMcpSer
 }
 
 describe('desktop explicit HTTP MCP client', () => {
+  test('desktop host closes its real Streamable HTTP session after settled work', async () => {
+    const server = await startStreamableHttpServer('/mcp', () => 'desktop-host-lifecycle-session');
+    cleanup.push(server.close);
+    const configuredServerId = parseConfiguredMcpServerId('linear.lifecycle');
+    const runtime = createDesktopMcpHostRuntime();
+    let runtimeCloseAttempted = false;
+    try {
+      await runtime.replaceResolvedConfig({
+        servers: [
+          {
+            name: configuredServerId,
+            protocol: 'auto',
+            transport: 'streamable-http',
+            url: server.url,
+          },
+        ],
+      });
+      await runtime.host.invoke({ configuredServerId, type: 'tools/list' });
+
+      runtimeCloseAttempted = true;
+      await expect(runtime.host.close()).resolves.toMatchObject({
+        childProcessesClosed: 0,
+        clientsClosed: 1,
+        failures: [],
+        requestsSettled: 1,
+      });
+      expect(server.requests.filter(({ method }) => method !== 'GET').at(-1)).toMatchObject({
+        method: 'DELETE',
+        pathname: '/mcp',
+      });
+    } finally {
+      if (!runtimeCloseAttempted) {
+        await runtime.host.close();
+      }
+    }
+  }, 30_000);
+
   test('uses Streamable HTTP at a URL ending in /sse without probing legacy SSE', async () => {
     const server = await startStreamableHttpServer();
     cleanup.push(server.close);
