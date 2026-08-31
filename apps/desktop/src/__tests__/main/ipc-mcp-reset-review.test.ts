@@ -1,13 +1,22 @@
 import { mcpToolRegistry } from '@brainstrike/agent';
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
 import { disposeClients } from '../../mcp';
-import { loadMcpConfig, watchMcpConfig } from '../../mcp-loader';
+import {
+  getMcpConfigPath,
+  loadMcpConfig,
+  setCustomMcpConfigPath,
+  watchMcpConfig,
+} from '../../mcp-loader';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 type WatchCallback = (config: unknown) => Promise<void>;
+
+function ipcEvent(senderId: number): { sender: { id: number } } {
+  return { sender: { id: senderId } };
+}
 
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp') },
@@ -285,5 +294,168 @@ describe('MCP reset review closure', () => {
 
     expect(oldWatcher.close).toHaveBeenCalledOnce();
     expect(resumedWatcher.close).toHaveBeenCalledOnce();
+  });
+
+  it('deduplicates concurrent native config selections without occupying the config queue', async () => {
+    const selection = Promise.withResolvers<{ canceled: boolean; filePaths: string[] }>();
+    vi.mocked(dialog.showOpenDialog).mockReturnValue(selection.promise);
+    const selectHandler = handlers.get('mcp:config:selectPath');
+    if (!selectHandler) {
+      throw new Error('select handler not registered');
+    }
+
+    const first = selectHandler(ipcEvent(1));
+    const second = selectHandler(ipcEvent(1));
+    await vi.waitFor(() => expect(dialog.showOpenDialog).toHaveBeenCalledOnce());
+    selection.resolve({ canceled: false, filePaths: ['/tmp/selected.json'] });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      '/tmp/selected.json',
+      '/tmp/selected.json',
+    ]);
+  });
+
+  it('rejects cross-window native config selection while coalescing same-window clicks', async () => {
+    const selection = Promise.withResolvers<{ canceled: boolean; filePaths: string[] }>();
+    vi.mocked(dialog.showOpenDialog).mockReturnValue(selection.promise);
+    const selectHandler = handlers.get('mcp:config:selectPath');
+    if (!selectHandler) {
+      throw new Error('select handler not registered');
+    }
+
+    const first = selectHandler(ipcEvent(1));
+    const sameWindow = selectHandler(ipcEvent(1));
+    const differentWindow = selectHandler(ipcEvent(2));
+    expect(dialog.showOpenDialog).toHaveBeenCalledOnce();
+
+    selection.resolve({ canceled: false, filePaths: ['/tmp/selected.json'] });
+    await expect(differentWindow).rejects.toThrow(
+      'MCP config path selection is already active for another window'
+    );
+    await expect(Promise.all([first, sameWindow])).resolves.toEqual([
+      '/tmp/selected.json',
+      '/tmp/selected.json',
+    ]);
+  });
+
+  it('does not grant the working directory when the native picker returns an empty path', async () => {
+    vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({
+      canceled: false,
+      filePaths: [''],
+    });
+    const selectHandler = handlers.get('mcp:config:selectPath');
+    const setPathHandler = handlers.get('mcp:config:setPath');
+    if (!(selectHandler && setPathHandler)) {
+      throw new Error('config path handlers not registered');
+    }
+
+    await expect(selectHandler(ipcEvent(1))).resolves.toBeNull();
+    await expect(setPathHandler(ipcEvent(1), process.cwd())).rejects.toThrow(
+      'MCP config path must be selected with the native file picker.'
+    );
+  });
+
+  it('does not supersede a native selection when an invalid path mutation is rejected', async () => {
+    const selection = Promise.withResolvers<{ canceled: boolean; filePaths: string[] }>();
+    vi.mocked(dialog.showOpenDialog).mockReturnValueOnce(selection.promise);
+    const selectHandler = handlers.get('mcp:config:selectPath');
+    const setPathHandler = handlers.get('mcp:config:setPath');
+    if (!(selectHandler && setPathHandler)) {
+      throw new Error('config path handlers not registered');
+    }
+
+    const pendingSelection = selectHandler(ipcEvent(1));
+    await vi.waitFor(() => expect(dialog.showOpenDialog).toHaveBeenCalledOnce());
+    await expect(setPathHandler(ipcEvent(1), '/Users/test/unselected.json')).rejects.toThrow(
+      'MCP config path must be selected with the native file picker.'
+    );
+    selection.resolve({ canceled: false, filePaths: ['/tmp/selected-after-rejection.json'] });
+
+    await expect(pendingSelection).resolves.toBe('/tmp/selected-after-rejection.json');
+    expect(setCustomMcpConfigPath).not.toHaveBeenCalled();
+  });
+
+  it('rejects a native selection superseded by a later config-path mutation', async () => {
+    vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/tmp/current.json'],
+    });
+    const selectHandler = handlers.get('mcp:config:selectPath');
+    const setPathHandler = handlers.get('mcp:config:setPath');
+    if (!(selectHandler && setPathHandler)) {
+      throw new Error('config path handlers not registered');
+    }
+    await selectHandler(ipcEvent(1));
+
+    const laterSelection = Promise.withResolvers<{ canceled: boolean; filePaths: string[] }>();
+    vi.mocked(dialog.showOpenDialog).mockReturnValueOnce(laterSelection.promise);
+    vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/current.json');
+    vi.mocked(loadMcpConfig).mockResolvedValue({
+      config: { servers: [] },
+      exists: true,
+      path: '/tmp/current.json',
+    });
+    const pendingSelection = selectHandler(ipcEvent(1));
+    await vi.waitFor(() => expect(dialog.showOpenDialog).toHaveBeenCalledTimes(2));
+    await setPathHandler({}, '/tmp/current.json');
+    laterSelection.resolve({ canceled: false, filePaths: ['/tmp/stale.json'] });
+
+    await expect(pendingSelection).rejects.toThrow(
+      'MCP config path selection was superseded before completion'
+    );
+    await expect(setPathHandler({}, '/tmp/stale.json')).rejects.toThrow(
+      'MCP config path must be selected with the native file picker.'
+    );
+    expect(setCustomMcpConfigPath).toHaveBeenCalledOnce();
+  });
+
+  it('drains a queued watcher install before unwatch returns', async () => {
+    const slowLoad = Promise.withResolvers<{ exists: boolean; path: string }>();
+    const watcher = { close: vi.fn() };
+    vi.mocked(loadMcpConfig).mockReturnValueOnce(slowLoad.promise);
+    vi.mocked(watchMcpConfig).mockResolvedValueOnce(watcher);
+    const getHandler = handlers.get('mcp:config:get');
+    const watchHandler = handlers.get('mcp:config:watch');
+    const unwatchHandler = handlers.get('mcp:config:unwatch');
+    if (!(getHandler && watchHandler && unwatchHandler)) {
+      throw new Error('config handlers not registered');
+    }
+
+    const getPending = getHandler();
+    const watchPending = watchHandler({});
+    const unwatchPending = unwatchHandler();
+    expect(watcher.close).not.toHaveBeenCalled();
+    slowLoad.resolve({ exists: false, path: '/tmp/mcp.config.json' });
+
+    await expect(Promise.all([getPending, watchPending, unwatchPending])).resolves.toEqual([
+      { exists: false, path: '/tmp/mcp.config.json' },
+      { watching: true },
+      { watching: false },
+    ]);
+    expect(watcher.close).toHaveBeenCalledOnce();
+  });
+
+  it('closes the watcher after a queued config operation rejects', async () => {
+    const watcher = { close: vi.fn() };
+    vi.mocked(watchMcpConfig).mockResolvedValueOnce(watcher);
+    const watchHandler = handlers.get('mcp:config:watch');
+    const getHandler = handlers.get('mcp:config:get');
+    const unwatchHandler = handlers.get('mcp:config:unwatch');
+    if (!(watchHandler && getHandler && unwatchHandler)) {
+      throw new Error('config handlers not registered');
+    }
+    await watchHandler(ipcEvent(1));
+
+    const load = Promise.withResolvers<{ exists: boolean; path: string }>();
+    vi.mocked(loadMcpConfig).mockReturnValueOnce(load.promise);
+    const getPending = getHandler(ipcEvent(1));
+    const getRejected = expect(getPending).rejects.toThrow('queued load failed');
+    const unwatchPending = unwatchHandler(ipcEvent(1));
+    expect(watcher.close).not.toHaveBeenCalled();
+
+    load.reject(new Error('queued load failed'));
+    await getRejected;
+    await expect(unwatchPending).resolves.toEqual({ watching: false });
+    expect(watcher.close).toHaveBeenCalledOnce();
   });
 });

@@ -35,6 +35,11 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
 let lastUserSelectedConfigPath: string | null = null;
+let latestConfigPathIntentEpoch = 0;
+let pendingConfigPathSelection: {
+  readonly selection: Promise<string | null>;
+  readonly senderId: number;
+} | null = null;
 let mcpConfigOperationTail: Promise<void> = Promise.resolve();
 let mcpLifecycleBarrier: Promise<void> = Promise.resolve();
 let mcpLifecycleEpoch = 0;
@@ -314,6 +319,62 @@ function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
   throw new Error('MCP config path must be selected with the native file picker.');
 }
 
+function clearPendingConfigPathSelection(selection: Promise<string | null>): void {
+  if (pendingConfigPathSelection?.selection === selection) {
+    pendingConfigPathSelection = null;
+  }
+}
+
+function selectMcpConfigPath(senderId: number): Promise<string | null> {
+  if (!mcpLifecycleOpen) {
+    return Promise.reject(new Error('MCP config lifecycle is closed for cleanup'));
+  }
+  if (pendingConfigPathSelection !== null) {
+    if (pendingConfigPathSelection.senderId !== senderId) {
+      return Promise.reject(
+        new Error('MCP config path selection is already active for another window')
+      );
+    }
+    return pendingConfigPathSelection.selection;
+  }
+
+  const lifecycleEpoch = mcpLifecycleEpoch;
+  const intentEpoch = ++latestConfigPathIntentEpoch;
+  const selection = dialog
+    .showOpenDialog({
+      filters: [
+        { extensions: ['json'], name: 'JSON Config' },
+        { extensions: ['*'], name: 'All Files' },
+      ],
+      properties: ['openFile'],
+      title: 'Select MCP Configuration File',
+    })
+    .then((result) => {
+      if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch) {
+        throw new Error('MCP config path selection was retired before completion');
+      }
+      if (intentEpoch !== latestConfigPathIntentEpoch) {
+        throw new Error('MCP config path selection was superseded before completion');
+      }
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+
+      const selectedPath = result.filePaths[0];
+      if (!selectedPath) {
+        return null;
+      }
+      lastUserSelectedConfigPath = path.resolve(selectedPath);
+      return lastUserSelectedConfigPath;
+    });
+  pendingConfigPathSelection = { selection, senderId };
+  void selection.then(
+    () => clearPendingConfigPathSelection(selection),
+    () => clearPendingConfigPathSelection(selection)
+  );
+  return selection;
+}
+
 async function restartConfigWatcher(runtime: McpAuthorityRuntime): Promise<void> {
   await trackConfigOperation(async (lifecycleEpoch) =>
     restartConfigWatcherForLifecycle(runtime, lifecycleEpoch)
@@ -346,6 +407,7 @@ function stopConfigWatcher(): void {
 function beginMcpRuntimeCleanup(): { epoch: number; failures: unknown[] } {
   mcpLifecycleOpen = false;
   mcpLifecycleEpoch += 1;
+  pendingConfigPathSelection = null;
   latestLoadEpoch += 1;
   latestAuthorityEpoch += 1;
   const failures: unknown[] = [];
@@ -540,9 +602,16 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSetPath,
-    async (_e, configPath: string | null): Promise<{ success: boolean; path: string }> =>
-      await trackConfigOperation(async (lifecycleEpoch) => {
-        await setCustomMcpConfigPath(resolveAllowedMcpConfigPath(configPath));
+    (_e, configPath: string | null): Promise<{ success: boolean; path: string }> => {
+      let resolvedConfigPath: string | null;
+      try {
+        resolvedConfigPath = resolveAllowedMcpConfigPath(configPath);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      latestConfigPathIntentEpoch += 1;
+      return trackConfigOperation(async (lifecycleEpoch) => {
+        await setCustomMcpConfigPath(resolvedConfigPath);
         const newPath = await getMcpConfigPath();
 
         logger.info('Loading config from new path', { path: newPath });
@@ -550,7 +619,8 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
         await restartConfigWatcherForLifecycle(runtime, lifecycleEpoch);
 
         return { path: newPath, success: true };
-      })
+      });
+    }
   );
 
   registry.registerInvoke(
@@ -615,33 +685,7 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSelectPath,
-    async (): Promise<string | null> => {
-      if (!mcpLifecycleOpen) {
-        throw new Error('MCP config lifecycle is closed for cleanup');
-      }
-      const lifecycleEpoch = mcpLifecycleEpoch;
-      // The native dialog is user-paced and must not occupy the serialized
-      // config queue or reset barrier. Only its eventual module-local grant is
-      // epoch-guarded, so a selection resolving across cleanup fails visibly.
-      const result = await dialog.showOpenDialog({
-        filters: [
-          { extensions: ['json'], name: 'JSON Config' },
-          { extensions: ['*'], name: 'All Files' },
-        ],
-        properties: ['openFile'],
-        title: 'Select MCP Configuration File',
-      });
-      if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch) {
-        throw new Error('MCP config path selection was retired before completion');
-      }
-      if (result.canceled || result.filePaths.length === 0) {
-        return null;
-      }
-
-      const selectedPath = result.filePaths[0] ?? null;
-      lastUserSelectedConfigPath = selectedPath ? path.resolve(selectedPath) : null;
-      return lastUserSelectedConfigPath;
-    }
+    (event): Promise<string | null> => selectMcpConfigPath(event.sender.id)
   );
 
   registry.registerInvoke(
@@ -661,9 +705,11 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUnwatch,
     async (): Promise<{ watching: false }> => {
       // Teardown remains meaningful after admission closes. Wait for every
-      // previously tracked operation, then stop idempotently without trying to
-      // enter the now-closed serialized operation queue.
-      await mcpLifecycleBarrier;
+      // operation and the serialized tail as they stood when unwatch was
+      // invoked, then stop idempotently without entering the queue itself.
+      const operationTail = mcpConfigOperationTail;
+      const lifecycleBarrier = mcpLifecycleBarrier;
+      await Promise.all([operationTail, lifecycleBarrier]);
       stopConfigWatcher();
       return { watching: false as const };
     }
