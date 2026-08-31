@@ -39,12 +39,22 @@ const client = () => ({
 const transportClient = () => ({
   callTool: vi.fn(async () => ({ content: [] })),
   close: vi.fn(async () => undefined),
+  complete: vi.fn(async () => ({ completion: { values: [] } })),
   connect: vi.fn(async (_options?: TransportConnectOptions) => undefined),
   getNegotiatedProtocolVersion: vi.fn(() => '2026-07-28'),
+  getPrompt: vi.fn(async () => ({ messages: [] })),
   getProtocolEra: vi.fn(() => 'modern' as const),
   getServerCapabilities: vi.fn(() => ({ tools: {} })),
   getServerVersion: vi.fn(() => ({ name: 'test', version: '1.0.0' })),
+  listen: vi.fn(),
+  listPrompts: vi.fn(async () => ({ prompts: [] })),
+  listResources: vi.fn(async () => ({ resources: [] })),
+  listResourceTemplates: vi.fn(async () => ({ resourceTemplates: [] })),
   listTools: vi.fn(async () => ({ tools: [] })),
+  readResource: vi.fn(async () => ({ contents: [] })),
+  subscribeResource: vi.fn(async () => undefined),
+  unsubscribeResource: vi.fn(async () => undefined),
+  watchServerFeatures: vi.fn(() => vi.fn()),
 });
 type HttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
 type StdioServer = Extract<ResolvedMcpServer, { transport: 'stdio' }>;
@@ -941,7 +951,7 @@ describe('DesktopMcpHostRuntime', () => {
     expect(explicitClient.close).not.toHaveBeenCalled();
     listing.resolve({ tools: [] });
     await expect(invocation).rejects.toMatchObject({ category: 'generation-retired' });
-    await expect(closing).resolves.toMatchObject({ requestsSettled: 1 });
+    await expect(closing).resolves.toMatchObject({ requestsSettled: 0 });
     expect(getDesktopMcpHostRuntime()).toBe(getDesktopMcpHostRuntime());
   });
 });

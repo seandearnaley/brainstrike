@@ -22,12 +22,13 @@ export const MCP_SUPPORT_MATRIX = [
     status: 'supported',
   },
   {
-    evidence: 'Host adapters and ownership proofs are not present in this contract-only layer.',
+    evidence:
+      'Typed resources, templates, prompts, completions, pagination, cache hints, and era-correct change delivery.',
     id: 'core:server-features',
     implementationTicket: 'BST-1471',
     kind: 'core',
     label: 'MCP core server features',
-    status: 'unsupported',
+    status: 'supported',
   },
   {
     evidence: 'No complete Apps host is registered.',

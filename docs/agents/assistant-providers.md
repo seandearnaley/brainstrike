@@ -2348,6 +2348,20 @@ and must never cross renderer IPC or bypass the platform redaction path.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 
+BST-1471 extends that closed `invoke` union with resources, resource templates,
+prompts, completions, and resource subscription control. Each connected actor
+owns one per-server catalog with independent section errors; list changes
+refresh only that actor's affected entries. Modern connections register change
+handlers once and open `subscriptions/listen` with the advertised-capability
+intersection, retaining the honored filter and re-listening with a three-attempt
+bounded backoff only after remote closure. Legacy connections never send
+`subscriptions/listen`; they retain unsolicited list changes and explicit
+`resources/subscribe` / `resources/unsubscribe`. SDK `ttlMs` and `cacheScope`
+remain authoritative, with private cache entries partitioned by the connection
+generation. Settings may browse catalog metadata and errors, but resource and
+prompt bodies are never eager model context: only explicit user browsing or a
+typed authorized host operation reads them.
+
 Every promise-returning host operation reports malformed input and terminal
 closure as a rejected promise; `McpHostService` owns the typed `mcp-host-closed`
 error rather than leaking a publisher collaborator's error type. Terminal close

@@ -438,6 +438,14 @@ describe('McpServerActor', () => {
       failures: [rawReportedFailure],
     });
   });
+  it('preserves a client close report with zero settled requests', async () => {
+    const close = vi.fn(async () => ({ ...report, requestsSettled: 0 }));
+    const subject = actor(async () => client(undefined, close));
+    await subject.invoke(LIST);
+
+    await expect(subject.close()).resolves.toMatchObject({ requestsSettled: 0 });
+    expect(close).toHaveBeenCalledOnce();
+  });
   it('latches failed client cleanup when retirement wins factory failure', async () => {
     const connecting = deferred<McpServerActorClient>();
     const internalError = vi.fn();

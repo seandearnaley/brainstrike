@@ -108,11 +108,21 @@ it('keeps one desktop MCP host generation across fresh discovery and approval re
       content: [{ text: 'Linear issue created', type: 'text' as const }],
     })),
     close: vi.fn(async () => undefined),
+    complete: vi.fn(async () => ({ completion: { values: [] } })),
     connect: vi.fn(async () => undefined),
     getNegotiatedProtocolVersion: vi.fn(() => '2026-07-28'),
+    getPrompt: vi.fn(async () => ({ messages: [] })),
     getProtocolEra: vi.fn(() => 'modern' as const),
     getServerCapabilities: vi.fn(() => ({ tools: {} })),
     getServerVersion: vi.fn(() => ({ name: 'linear-fixture', version: '1.0.0' })),
+    listen: vi.fn(async () => ({
+      close: vi.fn(async () => undefined),
+      closed: Promise.resolve('local' as const),
+      honoredFilter: {},
+    })),
+    listPrompts: vi.fn(async () => ({ prompts: [] })),
+    listResources: vi.fn(async () => ({ cacheScope: 'private', resources: [], ttlMs: 1000 })),
+    listResourceTemplates: vi.fn(async () => ({ resourceTemplates: [] })),
     listTools: vi.fn(async () => ({
       tools: [
         {
@@ -127,6 +137,10 @@ it('keeps one desktop MCP host generation across fresh discovery and approval re
         },
       ],
     })),
+    readResource: vi.fn(async () => ({ contents: [] })),
+    subscribeResource: vi.fn(async () => undefined),
+    unsubscribeResource: vi.fn(async () => undefined),
+    watchServerFeatures: vi.fn(() => vi.fn()),
   };
   const createHttpTransportClient = vi.fn(() => transport);
   const createStdioTransportClient = vi.fn(() => transport);

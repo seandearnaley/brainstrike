@@ -1383,7 +1383,7 @@ describe('UnifiedToolsSettings', () => {
       expect(within(matrix).getAllByTestId(/^mcp-support-row-/u)).toHaveLength(6);
       const expectedRows = [
         ['core:2026-07-28-tools', 'supported', 'BST-1463'],
-        ['core:server-features', 'unsupported', 'BST-1471'],
+        ['core:server-features', 'supported', 'BST-1471'],
         ['io.modelcontextprotocol/ui', 'unsupported', 'BST-1474'],
         ['io.modelcontextprotocol/tasks', 'unsupported', 'BST-1473'],
         ['io.modelcontextprotocol/oauth-client-credentials', 'unsupported', ''],
