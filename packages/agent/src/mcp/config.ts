@@ -122,11 +122,22 @@ const McpServerInputSchema = z
         path: ['auth'],
       });
     }
-    if (server.transport !== 'stdio' && server.auth !== undefined && server.auth.type !== 'none') {
+    if (server.transport !== 'stdio' && server.auth?.type === 'bearer') {
       context.addIssue({
         code: 'custom',
-        message: 'MCP authentication requires the BST-1469 production host composition',
+        message: 'MCP bearer authentication requires a production credential resolver',
         path: ['auth'],
+      });
+    }
+    if (
+      server.transport !== 'stdio' &&
+      server.auth?.type === 'oauth-user' &&
+      server.startup === 'automatic'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'OAuth user authentication requires startup "authentication-required"',
+        path: ['startup'],
       });
     }
   });

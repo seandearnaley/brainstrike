@@ -77,9 +77,16 @@ function actor(
   factory: McpServerActorClientFactory,
   id = linearId,
   onInternalError: (code: string, cause: unknown) => void = vi.fn(),
-  startup: 'automatic' | 'authentication-required' = 'automatic'
+  startup: 'automatic' | 'authentication-required' = 'automatic',
+  clearCredentials?: () => Promise<void>
 ): McpServerActor {
-  return new McpServerActor({ ...base(id), factory, onInternalError, startup });
+  return new McpServerActor({
+    ...base(id),
+    ...(clearCredentials ? { clearCredentials } : {}),
+    factory,
+    onInternalError,
+    startup,
+  });
 }
 function client(
   invoke: McpServerActorClient['invoke'] = async (request) =>
@@ -136,6 +143,42 @@ describe('McpServerActor', () => {
 
     await expect(subject.connect()).resolves.toMatchObject({ state: 'connected' });
     expect(factory).toHaveBeenCalledOnce();
+  });
+
+  it('clears credentials only after an explicit disconnect closes the selected client', async () => {
+    const order: string[] = [];
+    const close = vi.fn(async () => {
+      order.push('close');
+      return report;
+    });
+    const clearCredentials = vi.fn(async () => {
+      order.push('clear');
+    });
+    const subject = actor(
+      async () => client(undefined, close),
+      linearId,
+      vi.fn(),
+      'authentication-required',
+      clearCredentials
+    );
+
+    await subject.connect();
+    await expect(subject.disconnect()).resolves.toMatchObject({
+      state: 'authentication-required',
+    });
+    expect(order).toEqual(['close', 'clear']);
+
+    const ordinaryClear = vi.fn(async () => undefined);
+    const ordinary = actor(
+      async () => client(),
+      linearId,
+      vi.fn(),
+      'authentication-required',
+      ordinaryClear
+    );
+    await ordinary.connect();
+    await ordinary.close();
+    expect(ordinaryClear).not.toHaveBeenCalled();
   });
   it('does not let a cancelled old factory clear an immediate retry client', async () => {
     const oldFactory = deferred<McpServerActorClient>();

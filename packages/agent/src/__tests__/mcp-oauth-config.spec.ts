@@ -17,31 +17,42 @@ describe('agent MCP authentication configuration', () => {
     expect(parsed.servers.map((server) => server.auth?.type)).toEqual(['none']);
   });
 
-  it.each([
-    ['oauth-user', { scopes: ['read'], type: 'oauth-user' }],
-    [
-      'bearer',
-      {
-        credential: {
-          id: '00000000-0000-4000-8000-000000000001',
-          store: 'mcp-credentials',
+  it('accepts OAuth only with explicit user-paced startup', () => {
+    const parsed = McpConfigSchema.parse({
+      servers: [
+        {
+          auth: { scopes: ['read'], type: 'oauth-user' },
+          name: 'oauth',
+          transport: 'streamable-http',
+          url: 'https://example.test/oauth',
         },
-        type: 'bearer',
-      },
-    ],
-  ])('keeps %s gated until the production composition owns credentials', (_label, auth) => {
+      ],
+    });
+    expect(parsed.servers[0]).toMatchObject({
+      auth: { scopes: ['read'], type: 'oauth-user' },
+      startup: 'authentication-required',
+    });
+  });
+
+  it('keeps bearer references gated until a credential resolver exists', () => {
     expect(() =>
       McpConfigSchema.parse({
         servers: [
           {
-            auth,
-            name: 'authenticated',
+            auth: {
+              credential: {
+                id: '00000000-0000-4000-8000-000000000001',
+                store: 'mcp-credentials',
+              },
+              type: 'bearer',
+            },
+            name: 'bearer',
             transport: 'streamable-http',
-            url: 'https://example.test/authenticated',
+            url: 'https://example.test/bearer',
           },
         ],
       })
-    ).toThrow('MCP authentication requires the BST-1469 production host composition');
+    ).toThrow('MCP bearer authentication requires a production credential resolver');
   });
 
   it('rejects selecting HTTP OAuth for stdio', () => {

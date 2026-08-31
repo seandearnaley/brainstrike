@@ -67,7 +67,7 @@ export interface McpHostError {
 }
 export interface McpHostOAuthAuthSnapshot {
   authorizationServer?: string;
-  credentialState: 'missing' | 'stored';
+  credentialState: 'missing' | 'stored' | 'unreadable';
   grantedScopes: readonly string[];
   lastSuccessfulConnectionAt?: number;
   requestedScopes: readonly string[];
@@ -109,6 +109,57 @@ export type McpHostServerSnapshot = McpHostServerSnapshotBase &
 export interface McpHostSnapshot {
   revision: number;
   servers: readonly McpHostServerSnapshot[];
+}
+
+type McpHostControlAction = McpHostControlRequest['action'];
+type McpHostOAuthSnapshot = Extract<McpHostAuthSnapshot, { type: 'oauth-user' }>;
+
+function resolveOAuthErrorActions(
+  server: Extract<McpHostServerSnapshot, { state: 'error' }>,
+  auth: McpHostOAuthSnapshot
+): readonly McpHostControlAction[] {
+  const credentialsStored = auth.credentialState === 'stored';
+  if (server.error.category === 'authentication' || server.error.category === 'authorization') {
+    return credentialsStored ? ['disconnect', 'reauthorize'] : ['reauthorize'];
+  }
+  return credentialsStored ? ['retry', 'disconnect'] : ['retry'];
+}
+
+function resolveOAuthControlActions(
+  server: McpHostServerSnapshot,
+  auth: McpHostOAuthSnapshot
+): readonly McpHostControlAction[] {
+  if (auth.credentialState === 'unreadable') {
+    return ['disconnect'];
+  }
+  if (server.state === 'connected') {
+    return ['disconnect', 'reauthorize'];
+  }
+  if (server.state === 'error') {
+    return resolveOAuthErrorActions(server, auth);
+  }
+  if (server.state === 'authentication-required' || server.state === 'disconnected') {
+    return auth.credentialState === 'stored' ? ['connect', 'disconnect'] : ['connect'];
+  }
+  return [];
+}
+
+export function resolveMcpHostControlActions(
+  server: McpHostServerSnapshot
+): readonly McpHostControlAction[] {
+  if (server.state === 'connecting' || server.state === 'authorizing') {
+    return ['cancel'];
+  }
+  if (server.auth?.type === 'oauth-user') {
+    return resolveOAuthControlActions(server, server.auth);
+  }
+  if (server.state === 'error') {
+    return ['retry'];
+  }
+  if (server.state === 'authentication-required' || server.state === 'disconnected') {
+    return ['connect'];
+  }
+  return [];
 }
 
 const JsonObjectSchema = z.record(z.string(), z.json());
@@ -181,7 +232,18 @@ const McpConfiguredServerSchema = z
     ({ configuredProtocol, transport }) =>
       transport.type !== 'sse' || configuredProtocol === 'legacy',
     { message: 'SSE transport requires legacy protocol', path: ['configuredProtocol'] }
-  );
+  )
+  .refine(
+    ({ auth, startup }) => auth.type !== 'oauth-user' || startup === 'authentication-required',
+    {
+      message: 'OAuth user authentication requires authentication-required startup',
+      path: ['startup'],
+    }
+  )
+  .refine(({ auth, transport }) => auth.type !== 'oauth-user' || transport.type !== 'stdio', {
+    message: 'OAuth user authentication requires an HTTP transport',
+    path: ['auth'],
+  });
 const McpHostConfigSchema = z.strictObject({
   servers: z
     .array(McpConfiguredServerSchema)
@@ -197,7 +259,7 @@ export const parseMcpHostConfig = (value: unknown): McpHostConfig =>
   McpHostConfigSchema.parse(value);
 
 export const McpHostControlRequestSchema = z.strictObject({
-  action: z.enum(['connect', 'retry', 'cancel']),
+  action: z.enum(['connect', 'retry', 'cancel', 'disconnect', 'reauthorize']),
   configuredServerId: ConfiguredMcpServerIdSchema,
 });
 export type McpHostControlRequest = z.output<typeof McpHostControlRequestSchema>;

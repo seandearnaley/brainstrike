@@ -79,6 +79,40 @@ describe('mcp-loader', () => {
     }
   });
 
+  it('requires explicit user startup for native OAuth HTTP servers', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    const nativeOAuth = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            auth: { scopes: ['read'], type: 'oauth-user' },
+            name: 'linear',
+            protocol: 'auto',
+            transport: 'streamable-http',
+            url: 'https://mcp.linear.app/mcp',
+          },
+        ],
+      })
+    );
+    expect(nativeOAuth.servers[0]?.startup).toBe('authentication-required');
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              auth: { type: 'oauth-user' },
+              name: 'linear',
+              protocol: 'auto',
+              startup: 'automatic',
+              transport: 'streamable-http',
+              url: 'https://mcp.linear.app/mcp',
+            },
+          ],
+        })
+      )
+    ).toThrow(/OAuth user authentication requires startup "authentication-required"/u);
+  });
+
   it('surfaces omitted protocol migration without rewriting the JSONC document', async () => {
     const { loadMcpConfig, setCustomMcpConfigPath } = await import('../../mcp-loader');
     const configPath = path.join(tempDir, 'mcp', 'protocol-migration.json');
@@ -425,6 +459,11 @@ describe('mcp-loader', () => {
     expect(template).toContain('"transport": "streamable-http"');
     expect(template).toContain('"url": "https://your-host.example.com/mcp"');
     expect(template).toContain('Example: Legacy remote SSE server');
+    expect(template).toContain('Native Linear OAuth (hard read-only endpoint; safest default)');
+    expect(template).toContain('"url": "https://mcp.linear.app/mcp/readonly"');
+    expect(template).toContain('"scopes": ["read"]');
+    expect(template).toContain('Native Linear OAuth (read-write; opt in deliberately)');
+    expect(template).not.toContain('"access"');
     expect(template).not.toContain('mcp-remote');
   });
 

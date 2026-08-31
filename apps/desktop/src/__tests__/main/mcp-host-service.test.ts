@@ -39,12 +39,15 @@ const closeReport = (
   clientsClosed = 1
 ): McpHostCloseReport => ({ ...CLEAN, callbacksClosed, clientsClosed, failures });
 const yieldOneMicrotask = (): Promise<void> => Promise.resolve();
-const config = (...servers: [typeof alpha, 'auto' | 'legacy'][]): McpHostConfig =>
+const config = (
+  ...servers: [typeof alpha, 'auto' | 'legacy', ({ type: 'none' } | { type: 'oauth-user' })?][]
+): McpHostConfig =>
   parseMcpHostConfig({
-    servers: servers.map(([configuredServerId, configuredProtocol]) => ({
-      auth: { type: 'none' },
+    servers: servers.map(([configuredServerId, configuredProtocol, auth = { type: 'none' }]) => ({
+      auth,
       configuredProtocol,
       configuredServerId,
+      ...(auth.type === 'oauth-user' ? { startup: 'authentication-required' } : {}),
       transport: {
         configRef: '00000000-0000-4000-8000-000000000001',
         type: 'streamable-http',
@@ -55,6 +58,7 @@ interface ActorRecord {
   cancel: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   connect: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
   generation: number;
   invalidated: ReturnType<typeof vi.fn>;
   invoke: ReturnType<typeof vi.fn>;
@@ -93,10 +97,15 @@ function setup(
       state: 'connected' as const,
     }));
     const cancel = vi.fn(async () => ({ ...snapshot(), state: 'disconnected' as const }));
+    const disconnect = vi.fn(async () => ({
+      ...snapshot(),
+      state: 'authentication-required' as const,
+    }));
     const actor: McpHostActor = {
       cancel,
       close,
       connect,
+      disconnect,
       invalidated,
       invoke,
       snapshot,
@@ -105,6 +114,7 @@ function setup(
       cancel,
       close,
       connect,
+      disconnect,
       generation: input.generation,
       invalidated,
       invoke,
@@ -122,21 +132,42 @@ function setup(
   };
 }
 describe('McpHostService', () => {
-  it('connects explicitly, retries with a fresh generation, and cancels the active actor', async () => {
+  it('connects, cancels, disconnects, and reauthorizes one selected OAuth actor', async () => {
     const { host, records } = setup();
-    await host.replaceConfig(config([alpha, 'auto']));
+    await host.replaceConfig(config([alpha, 'auto', { type: 'oauth-user' }]));
 
     await host.control({ action: 'connect', configuredServerId: alpha });
     expect(records[0]?.connect).toHaveBeenCalledOnce();
 
-    await host.control({ action: 'retry', configuredServerId: alpha });
-    expect(records[0]?.close).toHaveBeenCalledOnce();
-    expect(records[1]?.generation).toBe(2);
-    expect(records[1]?.connect).toHaveBeenCalledOnce();
-
     await host.control({ action: 'cancel', configuredServerId: alpha });
-    expect(records[1]?.cancel).toHaveBeenCalledOnce();
-    expect(records).toHaveLength(2);
+    expect(records[0]?.cancel).toHaveBeenCalledOnce();
+
+    await host.control({ action: 'disconnect', configuredServerId: alpha });
+    expect(records[0]?.disconnect).toHaveBeenCalledOnce();
+    expect(records[1]?.generation).toBe(2);
+    expect(records[1]?.connect).not.toHaveBeenCalled();
+
+    await host.control({ action: 'reauthorize', configuredServerId: alpha });
+    expect(records[1]?.disconnect).toHaveBeenCalledOnce();
+    expect(records[2]?.generation).toBe(3);
+    expect(records[2]?.connect).toHaveBeenCalledOnce();
+    expect(records).toHaveLength(3);
+  });
+
+  it('retries machine and OAuth connections with a fresh generation', async () => {
+    const machine = setup();
+    await machine.host.replaceConfig(config([alpha, 'auto']));
+    await machine.host.control({ action: 'retry', configuredServerId: alpha });
+    expect(machine.records[0]?.close).toHaveBeenCalledOnce();
+    expect(machine.records[1]?.generation).toBe(2);
+    expect(machine.records[1]?.connect).toHaveBeenCalledOnce();
+
+    const oauth = setup();
+    await oauth.host.replaceConfig(config([alpha, 'auto', { type: 'oauth-user' }]));
+    await oauth.host.control({ action: 'retry', configuredServerId: alpha });
+    expect(oauth.records[0]?.close).toHaveBeenCalledOnce();
+    expect(oauth.records[1]?.generation).toBe(2);
+    expect(oauth.records[1]?.connect).toHaveBeenCalledOnce();
   });
   it('does not hold configuration replacement behind a user-paced connect', async () => {
     const { host, records } = setup();
@@ -379,6 +410,13 @@ describe('McpHostService', () => {
             state: 'connected' as const,
             transport: input.config.transport.type,
           }),
+          disconnect: async () => ({
+            configuredProtocol: input.config.configuredProtocol,
+            configuredServerId: input.config.configuredServerId,
+            generation: input.generation,
+            state: 'disconnected',
+            transport: input.config.transport.type,
+          }),
           invalidated: () => false,
           invoke: async () => RESULT,
           snapshot: () => ({
@@ -544,6 +582,13 @@ describe('McpHostService', () => {
             revision: '2026-07-28' as const,
           },
           state: 'connected' as const,
+          transport: input.config.transport.type,
+        }),
+        disconnect: async () => ({
+          configuredProtocol: input.config.configuredProtocol,
+          configuredServerId: input.config.configuredServerId,
+          generation: input.generation,
+          state: 'disconnected',
           transport: input.config.transport.type,
         }),
         invalidated: () => false,

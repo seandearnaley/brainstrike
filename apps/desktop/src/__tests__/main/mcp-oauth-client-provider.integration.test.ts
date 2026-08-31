@@ -285,6 +285,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
   it('keeps protocol invalidation recoverable while terminal disconnect remains separate', async () => {
     const identity = {
       resourceUrl: 'https://mcp.example.test/mcp',
+      scopeKey: '',
       serverId: 'recoverable-invalidation',
     } as const;
     const store = createInMemoryMcpOAuthStore();
@@ -347,6 +348,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
   it('refuses an issuer-less token choice when persisted issuers are ambiguous', async () => {
     const identity = {
       resourceUrl: 'https://mcp.example.test/mcp',
+      scopeKey: '',
       serverId: 'issuer-ambiguity',
     } as const;
     const store = createInMemoryMcpOAuthStore();
@@ -402,6 +404,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
   it('keeps OAuth material inside main-process state and clears it on disconnect', async () => {
     const identity = {
       resourceUrl: 'https://mcp.example.test/mcp',
+      scopeKey: '',
       serverId: 'linear',
     } as const;
     const store = createInMemoryMcpOAuthStore();

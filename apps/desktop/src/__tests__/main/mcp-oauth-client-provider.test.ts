@@ -1,15 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createInMemoryMcpOAuthStore,
+  createLazySafeStorageMcpOAuthStore,
   createMcpOAuthClientProvider,
   createSafeStorageMcpOAuthStore,
   type McpOAuthPersistedState,
   readMcpOAuthAuthProjection,
 } from '../../mcp/oauth-client-provider';
 
-const identity = { resourceUrl: 'https://mcp.example.test/mcp', serverId: 'linear' } as const;
+const identity = {
+  resourceUrl: 'https://mcp.example.test/mcp',
+  scopeKey: '',
+  serverId: 'linear',
+} as const;
 
 describe('MCP OAuth credential boundary', () => {
+  it('does not initialize secure persistence before the first OAuth store operation', async () => {
+    const delegate = createInMemoryMcpOAuthStore();
+    const createStore = vi.fn(() => delegate);
+    const store = createLazySafeStorageMcpOAuthStore(createStore);
+
+    expect(createStore).not.toHaveBeenCalled();
+    await expect(store.read(identity)).resolves.toEqual({});
+    await store.clear(identity);
+    expect(createStore).toHaveBeenCalledOnce();
+  });
+
   it('encrypts the dedicated store and refuses an insecure safeStorage backend', async () => {
     const values = new Map<string, string>();
     const electronStore = {
@@ -67,11 +83,20 @@ describe('MCP OAuth credential boundary', () => {
       safeStorage
     );
     await expect(malformed.read(identity)).rejects.toThrow('encrypted store is malformed');
+
+    await store.write(identity, {
+      issuer: { lastSuccessfulConnectionAt: 8_640_000_000_000_001, updatedAt: 1 },
+    });
+    await expect(store.read(identity)).rejects.toThrow('persisted state is malformed');
   });
 
   it('partitions persisted state by configured server and canonical resource', async () => {
     const store = createInMemoryMcpOAuthStore();
-    const other = { resourceUrl: 'https://mcp.example.test/other', serverId: 'linear' } as const;
+    const other = {
+      resourceUrl: 'https://mcp.example.test/other',
+      scopeKey: '',
+      serverId: 'linear',
+    } as const;
     await store.write(identity, {
       issuer: {
         tokens: { access_token: 'one', token_type: 'Bearer' },

@@ -5,6 +5,13 @@ import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { McpHostService } from '../../mcp/host-service';
+import {
+  createInMemoryMcpOAuthStore,
+  createMcpOAuthClientProvider,
+  createMcpOAuthStoreIdentity,
+  type McpOAuthClientProvider,
+  type McpOAuthStore,
+} from '../../mcp/oauth-client-provider';
 import type { McpServerActorClientFactory } from '../../mcp/server-actor';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../../mcp-loader';
 
@@ -63,7 +70,6 @@ const stdio = (patch: Partial<StdioServer> = {}): StdioServer => ({
   ...patch,
 });
 const resolved = (...servers: ResolvedMcpServer[]): ResolvedMcpConfig => ({ servers });
-
 function setup() {
   let next = 0;
   const onInternalError = vi.fn();
@@ -107,6 +113,468 @@ describe('DesktopMcpHostRuntime', () => {
     expect(runtime.host.snapshot().servers[0]).toMatchObject({
       state: 'authentication-required',
     });
+  });
+
+  it('composes native OAuth only after Connect and preserves credentials on ordinary close', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const openExternal = vi.fn(async () => undefined);
+    let provider: McpOAuthClientProvider | undefined;
+    const createOAuthProvider = vi.fn(async (options) => {
+      provider = await createMcpOAuthClientProvider(options);
+      return provider;
+    });
+    const explicitClient = transportClient();
+    const createHttpTransportClient = vi.fn(() => explicitClient);
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient,
+      createOAuthProvider,
+      oauthStore: store,
+      openExternal,
+    });
+    const server = http({
+      auth: { type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    await store.write(createMcpOAuthStoreIdentity(server.name, server.url), {
+      'https://auth.example.test': {
+        tokens: {
+          access_token: 'persisted-secret',
+          issuer: 'https://auth.example.test',
+          scope: 'read',
+          token_type: 'Bearer',
+        },
+        updatedAt: 1,
+      },
+    });
+
+    await runtime.replaceResolvedConfig(resolved(server));
+    expect(createOAuthProvider).not.toHaveBeenCalled();
+    expect(createHttpTransportClient).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+
+    await runtime.host.control({ action: 'connect', configuredServerId: server.name });
+    expect(createOAuthProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openExternal,
+        serverId: server.name,
+        serverUrl: server.url,
+        store,
+      })
+    );
+    expect(createHttpTransportClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authProvider: provider,
+        fetch: provider?.fetch,
+        lifecycle: 'host-owned',
+        onInsufficientScope: 'reauthorize',
+      })
+    );
+    expect(openExternal).not.toHaveBeenCalled();
+
+    if (!provider) {
+      throw new Error('OAuth provider was not composed');
+    }
+    await expect(runtime.host.close()).resolves.toMatchObject({
+      callbacksClosed: 2,
+      loopbackPortsClosed: 1,
+    });
+
+    await expect(
+      store.read({ resourceUrl: server.url, scopeKey: '', serverId: server.name })
+    ).resolves.toMatchObject({
+      'https://auth.example.test': {
+        tokens: { access_token: 'persisted-secret', scope: 'read' },
+      },
+    });
+  });
+
+  it('clears only the selected OAuth server on Disconnect and Reauthorize', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const createHttpTransportClient = vi.fn((options) => {
+      const result = transportClient();
+      result.connect.mockImplementation(async () => {
+        const authProvider = options.authProvider;
+        if (!(authProvider && 'authSnapshot' in authProvider)) {
+          return;
+        }
+        await authProvider.saveDiscoveryState?.({
+          authorizationServerUrl: 'https://auth.example.test',
+        });
+        await authProvider.saveTokens(
+          {
+            access_token: 'fresh-secret',
+            issuer: 'https://auth.example.test',
+            token_type: 'Bearer',
+          },
+          { issuer: 'https://auth.example.test' }
+        );
+      });
+      return result;
+    });
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient,
+      oauthStore: store,
+      openExternal: vi.fn(async () => undefined),
+    });
+    const writable = http({
+      auth: { type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    const readonly = http({
+      auth: { type: 'oauth-user' },
+      headers: undefined,
+      name: parseConfiguredMcpServerId('team.linear.readonly'),
+      startup: 'authentication-required',
+      url: 'https://linear.example/mcp/readonly',
+    });
+    const writableIdentity = createMcpOAuthStoreIdentity(writable.name, writable.url);
+    const readonlyIdentity = createMcpOAuthStoreIdentity(readonly.name, readonly.url);
+    const credentials = (accessToken: string) => ({
+      'https://auth.example.test': {
+        tokens: { access_token: accessToken, token_type: 'Bearer' as const },
+        updatedAt: 1,
+      },
+    });
+    await store.write(writableIdentity, credentials('write-secret'));
+    await store.write(readonlyIdentity, credentials('read-secret'));
+    await runtime.replaceResolvedConfig(resolved(writable, readonly));
+
+    await runtime.host.control({ action: 'connect', configuredServerId: writable.name });
+    await runtime.host.control({ action: 'disconnect', configuredServerId: writable.name });
+
+    await expect(store.read(writableIdentity)).resolves.toEqual({});
+    await expect(store.read(readonlyIdentity)).resolves.toMatchObject({
+      'https://auth.example.test': { tokens: { access_token: 'read-secret' } },
+    });
+    expect(runtime.host.snapshot().servers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          configuredServerId: writable.name,
+          state: 'authentication-required',
+        }),
+        expect.objectContaining({
+          configuredServerId: readonly.name,
+          state: 'authentication-required',
+        }),
+      ])
+    );
+
+    await store.write(writableIdentity, credentials('stale-write-secret'));
+    await runtime.host.control({ action: 'reauthorize', configuredServerId: writable.name });
+    const reauthorized = await store.read(writableIdentity);
+    expect(reauthorized).toMatchObject({
+      'https://auth.example.test': { tokens: { access_token: 'fresh-secret' } },
+    });
+    expect(JSON.stringify(reauthorized)).not.toContain('stale-write-secret');
+    await expect(store.read(readonlyIdentity)).resolves.toMatchObject({
+      'https://auth.example.test': { tokens: { access_token: 'read-secret' } },
+    });
+    expect(createHttpTransportClient).toHaveBeenCalledTimes(2);
+    await runtime.host.close();
+  });
+
+  it('publishes token-free OAuth state and configured scope policy', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const server = http({
+      auth: { scopes: ['read'], type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    const identity = createMcpOAuthStoreIdentity(server.name, server.url, ['read']);
+    await store.write(identity, {
+      'https://auth.example.test': {
+        discoveryState: { authorizationServerUrl: 'https://auth.example.test' },
+        lastSuccessfulConnectionAt: 1,
+        tokens: {
+          access_token: 'never-project-access',
+          refresh_token: 'never-project-refresh',
+          scope: 'read',
+          token_type: 'Bearer',
+        },
+        updatedAt: 1,
+      },
+    });
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: () => transportClient(),
+      oauthStore: store,
+      openExternal: vi.fn(async () => undefined),
+    });
+
+    await runtime.replaceResolvedConfig(resolved(server));
+    const initial = runtime.host.snapshot().servers[0];
+    expect(initial).toMatchObject({
+      auth: {
+        authorizationServer: 'https://auth.example.test',
+        credentialState: 'stored',
+        grantedScopes: ['read'],
+        lastSuccessfulConnectionAt: 1,
+        requestedScopes: ['read'],
+        resourceUrl: server.url,
+        type: 'oauth-user',
+      },
+      state: 'authentication-required',
+    });
+    expect(JSON.stringify(initial)).not.toMatch(/never-project-access|never-project-refresh/u);
+
+    await runtime.host.control({ action: 'connect', configuredServerId: server.name });
+    expect(runtime.host.snapshot().servers[0]).toMatchObject({
+      auth: { credentialState: 'stored', lastSuccessfulConnectionAt: expect.any(Number) },
+      state: 'connected',
+    });
+    await runtime.host.control({ action: 'disconnect', configuredServerId: server.name });
+    expect(runtime.host.snapshot().servers[0]).toMatchObject({
+      auth: { credentialState: 'missing', grantedScopes: [] },
+      state: 'authentication-required',
+    });
+    await runtime.host.close();
+  });
+
+  it('partitions grants by scope and retries obsolete credential cleanup', async () => {
+    const backingStore = createInMemoryMcpOAuthStore();
+    let rejectOldClear = true;
+    const store: McpOAuthStore = {
+      clear: vi.fn(async (identity) => {
+        if (identity.scopeKey === 'read' && rejectOldClear) {
+          rejectOldClear = false;
+          throw new Error('credential cleanup failed');
+        }
+        await backingStore.clear(identity);
+      }),
+      clearAll: async () => await backingStore.clearAll(),
+      read: async (identity) => await backingStore.read(identity),
+      write: async (identity, records) => await backingStore.write(identity, records),
+    };
+    const readOnly = http({
+      auth: { scopes: ['read'], type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    const readWrite = http({
+      auth: { scopes: ['read', 'write'], type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    const oldIdentity = createMcpOAuthStoreIdentity(readOnly.name, readOnly.url, ['read']);
+    const nextIdentity = createMcpOAuthStoreIdentity(readWrite.name, readWrite.url, [
+      'read',
+      'write',
+    ]);
+    await store.write(oldIdentity, {
+      'https://auth.example.test': {
+        tokens: { access_token: 'old-read-secret', token_type: 'Bearer' },
+        updatedAt: 1,
+      },
+    });
+    const runtime = createDesktopMcpHostRuntime({ oauthStore: store });
+
+    await runtime.replaceResolvedConfig(resolved(readOnly));
+    await expect(runtime.replaceResolvedConfig(resolved(readWrite))).rejects.toThrow(
+      'MCP OAuth credential cleanup failed'
+    );
+    await expect(store.read(oldIdentity)).resolves.toMatchObject({
+      'https://auth.example.test': { tokens: { access_token: 'old-read-secret' } },
+    });
+    await expect(store.read(nextIdentity)).resolves.toEqual({});
+
+    await expect(runtime.replaceResolvedConfig(resolved(readWrite))).resolves.toBeDefined();
+    await expect(store.read(oldIdentity)).resolves.toEqual({});
+    expect(store.clear).toHaveBeenCalledTimes(2);
+    await runtime.host.close();
+  });
+
+  it('clears an OAuth grant only after its config is successfully removed', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const server = http({
+      auth: { scopes: ['read'], type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    const identity = createMcpOAuthStoreIdentity(server.name, server.url, ['read']);
+    await store.write(identity, {
+      'https://auth.example.test': {
+        tokens: { access_token: 'removed-config-secret', token_type: 'Bearer' },
+        updatedAt: 1,
+      },
+    });
+    const runtime = createDesktopMcpHostRuntime({ oauthStore: store });
+
+    await runtime.replaceResolvedConfig(resolved(server));
+    await expect(store.read(identity)).resolves.not.toEqual({});
+    await runtime.replaceResolvedConfig(resolved());
+    await expect(store.read(identity)).resolves.toEqual({});
+    await runtime.host.close();
+  });
+
+  it('surfaces unreadable OAuth state without blocking unauthenticated siblings', async () => {
+    const backingStore = createInMemoryMcpOAuthStore();
+    const store: McpOAuthStore = {
+      clear: async (identity) => await backingStore.clear(identity),
+      clearAll: async () => await backingStore.clearAll(),
+      read: vi.fn(async () => {
+        throw new Error('safeStorage unavailable');
+      }),
+      write: async (identity, records) => await backingStore.write(identity, records),
+    };
+    const onInternalError = vi.fn();
+    const runtime = createDesktopMcpHostRuntime({
+      createActorClient: vi.fn(() => client()),
+      oauthStore: store,
+      onInternalError,
+    });
+    const oauth = http({
+      auth: { scopes: ['read'], type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    const sibling = stdio();
+
+    await runtime.replaceResolvedConfig(resolved(oauth, sibling));
+    await expect(
+      runtime.host.invoke({ configuredServerId: sibling.name, type: 'tools/list' })
+    ).resolves.toMatchObject({ type: 'tools/list' });
+
+    expect(runtime.host.snapshot().servers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          auth: expect.objectContaining({ credentialState: 'unreadable' }),
+          configuredServerId: oauth.name,
+          state: 'authentication-required',
+        }),
+        expect.objectContaining({ configuredServerId: sibling.name, state: 'connected' }),
+      ])
+    );
+    expect(onInternalError).toHaveBeenCalledWith(
+      'mcp-oauth-credential-read-failed',
+      expect.objectContaining({ message: 'safeStorage unavailable' })
+    );
+    await runtime.host.close();
+  });
+
+  it('closes OAuth resources when HTTP transport construction throws', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    let provider: McpOAuthClientProvider | undefined;
+    const createOAuthProvider = vi.fn(async (options) => {
+      provider = await createMcpOAuthClientProvider(options);
+      const close = provider.close.bind(provider);
+      vi.spyOn(provider, 'close').mockImplementation(async () => {
+        await close();
+        throw new Error('provider cleanup failed');
+      });
+      return provider;
+    });
+    const onInternalError = vi.fn();
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: vi.fn(() => {
+        throw new Error('transport constructor failed');
+      }),
+      createOAuthProvider,
+      oauthStore: store,
+      onInternalError,
+      openExternal: vi.fn(async () => undefined),
+    });
+    const server = http({
+      auth: { type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    await runtime.replaceResolvedConfig(resolved(server));
+
+    await expect(
+      runtime.host.control({ action: 'connect', configuredServerId: server.name })
+    ).rejects.toMatchObject({ code: 'mcp-client-creation-failed' });
+    expect(provider?.close).toHaveBeenCalledOnce();
+    expect(onInternalError).toHaveBeenCalledWith(
+      'mcp-client-creation-failed',
+      expect.objectContaining({
+        errors: [
+          expect.objectContaining({ message: 'transport constructor failed' }),
+          expect.objectContaining({ message: 'provider cleanup failed' }),
+        ],
+      })
+    );
+    await runtime.host.close();
+  });
+
+  it('keeps a verified connection while reporting success-marker persistence failure', async () => {
+    const onInternalError = vi.fn();
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: () => transportClient(),
+      oauthStore: createInMemoryMcpOAuthStore(),
+      onInternalError,
+      openExternal: vi.fn(async () => undefined),
+    });
+    const server = http({
+      auth: { type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    await runtime.replaceResolvedConfig(resolved(server));
+
+    await expect(
+      runtime.host.control({ action: 'connect', configuredServerId: server.name })
+    ).resolves.toMatchObject({ state: 'connected' });
+    expect(onInternalError).toHaveBeenCalledWith(
+      'mcp-oauth-connection-record-failed',
+      expect.objectContaining({
+        message: 'MCP OAuth connection succeeded without stored credentials.',
+      })
+    );
+    await runtime.host.close();
+  });
+
+  it('opens OAuth authorization only from explicit Connect or Reauthorize actions', async () => {
+    const openExternal = vi.fn(async () => undefined);
+    const createHttpTransportClient = vi.fn((options) => {
+      const result = transportClient();
+      result.connect.mockImplementation(async () => {
+        const authProvider = options.authProvider;
+        if (!(authProvider && 'authSnapshot' in authProvider)) {
+          throw new Error('Expected the native OAuth provider');
+        }
+        const state = await authProvider.state?.();
+        if (typeof state !== 'string') {
+          throw new Error('Expected an OAuth state value');
+        }
+        await authProvider.redirectToAuthorization(
+          new URL(`https://auth.example.test/authorize?state=${encodeURIComponent(state)}`)
+        );
+        await authProvider.saveDiscoveryState?.({
+          authorizationServerUrl: 'https://auth.example.test',
+        });
+        await authProvider.saveTokens(
+          {
+            access_token: 'fresh-secret',
+            issuer: 'https://auth.example.test',
+            token_type: 'Bearer',
+          },
+          { issuer: 'https://auth.example.test' }
+        );
+      });
+      return result;
+    });
+    const server = http({
+      auth: { type: 'oauth-user' },
+      headers: undefined,
+      startup: 'authentication-required',
+    });
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient,
+      oauthStore: createInMemoryMcpOAuthStore(),
+      openExternal,
+    });
+
+    await runtime.replaceResolvedConfig(resolved(server));
+    expect(openExternal).not.toHaveBeenCalled();
+    await runtime.host.control({ action: 'connect', configuredServerId: server.name });
+    expect(openExternal).toHaveBeenCalledTimes(1);
+
+    await runtime.host.control({ action: 'disconnect', configuredServerId: server.name });
+    expect(openExternal).toHaveBeenCalledTimes(1);
+    await runtime.host.control({ action: 'reauthorize', configuredServerId: server.name });
+    expect(openExternal).toHaveBeenCalledTimes(2);
+    await runtime.host.close();
   });
 
   it('reuses refs only for identical private configs and exposes no private material', async () => {

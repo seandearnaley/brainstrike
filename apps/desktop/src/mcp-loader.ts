@@ -167,11 +167,22 @@ const McpServerInputSchema = z
         path: ['auth'],
       });
     }
-    if (server.transport !== 'stdio' && server.auth !== undefined && server.auth.type !== 'none') {
+    if (server.transport !== 'stdio' && server.auth?.type === 'bearer') {
       context.addIssue({
         code: 'custom',
-        message: 'MCP authentication requires the BST-1469 production host composition',
+        message: 'MCP bearer authentication requires a production credential resolver',
         path: ['auth'],
+      });
+    }
+    if (
+      server.transport !== 'stdio' &&
+      server.auth?.type === 'oauth-user' &&
+      server.startup === 'automatic'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'OAuth user authentication requires startup "authentication-required"',
+        path: ['startup'],
       });
     }
   });
@@ -223,6 +234,33 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     //   "protocol": "legacy",
     //   "command": "npx",
     //   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/workspace"]
+    // },
+
+    // Native Linear OAuth (hard read-only endpoint; safest default).
+    // {
+    //   "transport": "streamable-http",
+    //   "name": "linear-readonly",
+    //   "protocol": "auto",
+    //   "url": "https://mcp.linear.app/mcp/readonly",
+    //   "auth": { "type": "oauth-user" }
+    // },
+
+    // Native Linear OAuth (read-only token on the standard endpoint).
+    // {
+    //   "transport": "streamable-http",
+    //   "name": "linear-read-scope",
+    //   "protocol": "auto",
+    //   "url": "https://mcp.linear.app/mcp",
+    //   "auth": { "type": "oauth-user", "scopes": ["read"] }
+    // },
+
+    // Native Linear OAuth (read-write; opt in deliberately).
+    // {
+    //   "transport": "streamable-http",
+    //   "name": "linear",
+    //   "protocol": "auto",
+    //   "url": "https://mcp.linear.app/mcp",
+    //   "auth": { "type": "oauth-user" }
     // },
 
     // Example: Remote Streamable HTTP server

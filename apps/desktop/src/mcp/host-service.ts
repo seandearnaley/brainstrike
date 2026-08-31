@@ -35,6 +35,7 @@ const COUNTERS = Object.keys(COUNTER_KEYS) as readonly Counter[];
 export interface McpHostActor extends Pick<McpHostPort, 'close' | 'invoke'> {
   cancel(): Promise<McpHostServerSnapshot>;
   connect(): Promise<McpHostServerSnapshot>;
+  disconnect(): Promise<McpHostServerSnapshot>;
   invalidated(): boolean;
   snapshot(): McpHostServerSnapshot;
 }
@@ -64,6 +65,7 @@ type McpHostServiceErrorCode =
   | 'mcp-host-actor-snapshot-failed'
   | 'mcp-host-closed'
   | 'mcp-host-publish-failed'
+  | 'mcp-host-reauthorize-requires-oauth'
   | 'mcp-host-replacement-cleanup-failed'
   | 'mcp-host-server-unknown';
 const SERVICE_ERROR_MESSAGES = {
@@ -71,6 +73,7 @@ const SERVICE_ERROR_MESSAGES = {
   'mcp-host-actor-snapshot-failed': 'MCP host actor snapshot failed',
   'mcp-host-closed': 'MCP host is closed',
   'mcp-host-publish-failed': 'MCP host authority publication failed',
+  'mcp-host-reauthorize-requires-oauth': 'MCP reauthorization requires oauth-user authentication',
   'mcp-host-replacement-cleanup-failed': 'MCP host replacement cleanup failed',
   'mcp-host-server-unknown': 'MCP host server is not configured',
 } satisfies Record<McpHostServiceErrorCode, string>;
@@ -85,7 +88,7 @@ export class McpHostServiceError extends Error {
     this.category =
       code === 'mcp-host-closed'
         ? 'host-closed'
-        : code === 'mcp-host-server-unknown'
+        : code === 'mcp-host-server-unknown' || code === 'mcp-host-reauthorize-requires-oauth'
           ? 'configuration'
           : 'transport';
   }
@@ -233,11 +236,23 @@ export class McpHostService implements McpHostPort {
     }
     return this.enqueueSerialized(async () => {
       const currentConfig = this.currentConfig();
-      const configured = currentConfig.servers.some(
+      const configuredServer = currentConfig.servers.find(
         ({ configuredServerId }) => configuredServerId === parsedRequest.configuredServerId
       );
-      if (!configured) {
+      if (!configuredServer) {
         throw new McpHostServiceError('mcp-host-server-unknown');
+      }
+      if (parsedRequest.action === 'disconnect' || parsedRequest.action === 'reauthorize') {
+        if (parsedRequest.action === 'reauthorize' && configuredServer.auth.type !== 'oauth-user') {
+          throw new McpHostServiceError('mcp-host-reauthorize-requires-oauth');
+        }
+        await this.getActor(parsedRequest.configuredServerId).disconnect();
+        await this.applyConfig(currentConfig, parsedRequest.configuredServerId, true);
+        const replacement = this.getActor(parsedRequest.configuredServerId);
+        if (parsedRequest.action === 'disconnect') {
+          return replacement.snapshot();
+        }
+        return await replacement.connect();
       }
       await this.applyConfig(currentConfig, parsedRequest.configuredServerId, true);
       return await this.getActor(parsedRequest.configuredServerId).connect();
