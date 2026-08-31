@@ -87,4 +87,19 @@ describe('ExplicitHttpMcpClient validation', () => {
       expect(fetchCalled).toBe(false);
     }
   );
+
+  it.each([0, -1, Number.POSITIVE_INFINITY, Number.NaN, 1.5])(
+    'rejects a non-finite automatic list page cap (%s)',
+    (listMaxPages) => {
+      expect(
+        () =>
+          new ExplicitHttpMcpClient({
+            listMaxPages,
+            name: 'invalid-list-cap-canary',
+            transport: 'streamable-http',
+            url: 'https://example.test/mcp',
+          })
+      ).toThrow('MCP automatic list pagination cap must be a positive safe integer');
+    }
+  );
 });

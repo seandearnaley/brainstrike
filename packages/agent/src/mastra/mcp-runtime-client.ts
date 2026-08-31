@@ -7,7 +7,6 @@ import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
-import { fromJSONSchema } from 'zod';
 import { type McpConfigInput, McpConfigSchema } from '../mcp/config';
 import type {
   ExplicitHttpMcpCallToolParams,
@@ -246,9 +245,11 @@ function createMcpTool(
   return createTool({
     description: tool.description ?? '',
     id: `${server.name}_${tool.name}`,
-    inputSchema: toStandardSchema(
-      fromJSONSchema(tool.inputSchema as Parameters<typeof fromJSONSchema>[0])
-    ),
+    // Mastra's JSON-schema standard adapter delegates validation to its JSON
+    // Schema engine. Keeping the schema raw preserves 2020-12 composition
+    // (`$defs`/`$ref`/`oneOf`/conditionals) instead of narrowing it through
+    // zod's intentionally smaller fromJSONSchema converter.
+    inputSchema: toStandardSchema(tool.inputSchema as Parameters<typeof toStandardSchema>[0]),
     ...(tool.outputSchema
       ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
       : {}),
@@ -306,11 +307,20 @@ async function executeMcpTool(
 ): Promise<unknown> {
   let progressWrites = Promise.resolve();
   let progressDeliveryError: unknown;
+  let lastProgress = Number.NEGATIVE_INFINITY;
   const toolCallId = context?.agent?.toolCallId;
   const writer = context?.writer;
   const onprogress: NonNullable<ExplicitHttpMcpRequestOptions['onprogress']> | undefined =
     toolCallId && writer
       ? (progress): void => {
+          if (
+            typeof progress.progress !== 'number' ||
+            !Number.isFinite(progress.progress) ||
+            progress.progress < lastProgress
+          ) {
+            return;
+          }
+          lastProgress = progress.progress;
           progressWrites = progressWrites
             .then(() =>
               writer.custom({

@@ -1,6 +1,11 @@
-import { Client } from '@modelcontextprotocol/client';
+import { Client, type ClientOptions } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
+import {
+  createMcpResponseCacheStore,
+  normalizeMcpListMaxPages,
+  normalizeMcpRequestOptions,
+} from './client-policy';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
@@ -8,6 +13,7 @@ import type {
   ExplicitHttpMcpListToolsParams,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpTool,
   NegotiatedProtocolFacts,
 } from './explicit-http-client';
 import { notifyUnexpectedClose } from './unexpected-close-observer';
@@ -25,16 +31,20 @@ export type ExplicitStdioMcpRequestOptions = ExplicitHttpMcpRequestOptions;
 
 export interface ExplicitStdioMcpClientOptions {
   args?: readonly string[];
+  cachePartition?: ClientOptions['cachePartition'];
   clientInfo?: {
     name: string;
     version: string;
   };
   command: string;
+  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   env?: Readonly<Record<string, string>>;
   extensionRegistry?: McpClientExtensionRegistry;
+  listMaxPages?: ClientOptions['listMaxPages'];
   name: string;
   onUnexpectedClose?: () => void;
   protocol?: McpProtocol;
+  responseCacheStore?: ClientOptions['responseCacheStore'];
 }
 
 interface ActiveConnection {
@@ -47,15 +57,19 @@ interface ActiveConnection {
 
 interface NormalizedClientOptions {
   args?: string[];
+  cachePartition?: ClientOptions['cachePartition'];
   clientInfo: {
     name: string;
     version: string;
   };
   command: string;
+  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   env?: Record<string, string>;
   extensionRegistry?: McpClientExtensionRegistry;
+  listMaxPages: number;
   onUnexpectedClose?: () => void;
   protocol: McpProtocol;
+  responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
 }
 
 function closedClientError(): Error {
@@ -80,12 +94,18 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
 
   return {
     clientInfo: { ...clientInfo },
+    ...(options.cachePartition === undefined ? {} : { cachePartition: options.cachePartition }),
     command: validateNonEmpty(options.command, 'MCP stdio command'),
+    ...(options.defaultCacheTtlMs === undefined
+      ? {}
+      : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
     ...(options.args ? { args: [...options.args] } : {}),
     ...(options.env ? { env: { ...options.env } } : {}),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
+    listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
     protocol: options.protocol ?? 'legacy',
+    responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
   };
 }
 
@@ -104,13 +124,14 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   private connectPromise: Promise<ActiveConnection> | undefined;
   private readonly options: NormalizedClientOptions;
   private pendingConnection: ActiveConnection | undefined;
+  private readonly toolDefinitions = new Map<string, ExplicitHttpMcpTool>();
 
   constructor(options: ExplicitStdioMcpClientOptions) {
     this.options = normalizeOptions(options);
   }
 
   async connect(options?: ExplicitStdioMcpRequestOptions): Promise<void> {
-    await this.getConnection(options);
+    await this.getConnection(normalizeMcpRequestOptions(options));
   }
 
   getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
@@ -133,13 +154,17 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     options?: ExplicitStdioMcpRequestOptions,
     params?: ExplicitStdioMcpListToolsParams
   ): Promise<ExplicitStdioMcpListToolsResult> {
-    const connection = await this.getConnection(options);
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
     if (!params) {
-      return this.refreshToolMetadata(connection, options);
+      return this.refreshToolMetadata(connection, requestOptions);
     }
-    const result = await connection.client.listTools(params, options);
+    const result = await connection.client.listTools(params, requestOptions);
     if (params.cursor === undefined) {
       connection.toolMetadataReady = true;
+    }
+    for (const tool of result.tools) {
+      this.toolDefinitions.set(tool.name, tool);
     }
     return result;
   }
@@ -148,11 +173,18 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     params: ExplicitStdioMcpCallToolParams,
     options?: ExplicitStdioMcpRequestOptions
   ): Promise<ExplicitStdioMcpCallToolResult> {
-    const connection = await this.getConnection(options);
+    const normalizedOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(normalizedOptions);
     if (!connection.toolMetadataReady) {
-      await this.refreshToolMetadata(connection, options);
+      await this.refreshToolMetadata(connection, normalizedOptions);
     }
-    return connection.client.callTool(params, options);
+    const toolDefinition =
+      normalizedOptions.toolDefinition === undefined
+        ? this.toolDefinitions.get(params.name)
+        : undefined;
+    const requestOptions =
+      toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
+    return connection.client.callTool(params, requestOptions);
   }
 
   close(): Promise<void> {
@@ -176,6 +208,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     this.activeConnection = undefined;
     this.pendingConnection = undefined;
     this.connectPromise = undefined;
+    this.toolDefinitions.clear();
 
     const results = await Promise.allSettled(
       [...connections].flatMap(({ client, transport }) => [transport.close(), client.close()])
@@ -259,10 +292,19 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
 
   private createConnection(): ActiveConnection {
     const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
-    const client = new Client(this.options.clientInfo, {
+    const clientOptions: ClientOptions = {
       capabilities: extensions ? { extensions } : {},
+      listMaxPages: this.options.listMaxPages,
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
-    });
+      ...(this.options.cachePartition === undefined
+        ? {}
+        : { cachePartition: this.options.cachePartition }),
+      ...(this.options.defaultCacheTtlMs === undefined
+        ? {}
+        : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
+      responseCacheStore: this.options.responseCacheStore,
+    };
+    const client = new Client(this.options.clientInfo, clientOptions);
     const transport = new StdioClientTransport({
       command: this.options.command,
       ...(this.options.args ? { args: this.options.args } : {}),
@@ -310,6 +352,11 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     void request.then(
       () => {
         connection.toolMetadataReady = true;
+        void request.then((result) => {
+          for (const tool of result.tools) {
+            this.toolDefinitions.set(tool.name, tool);
+          }
+        });
         if (connection.toolMetadataRequest === request) {
           connection.toolMetadataRequest = undefined;
         }

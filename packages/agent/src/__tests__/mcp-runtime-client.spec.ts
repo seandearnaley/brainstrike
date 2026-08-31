@@ -423,4 +423,82 @@ describe('MCP runtime client', () => {
       )
     ).rejects.toThrow('intentional failure');
   });
+
+  it('keeps a complete 2020-12 schema usable at the model boundary', async () => {
+    const schema = {
+      $defs: { identifier: { minLength: 1, type: 'string' } },
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      if: { properties: { mode: { const: 'text' } } },
+      properties: {
+        id: { $ref: '#/$defs/identifier' },
+        mode: { oneOf: [{ const: 'text' }, { const: 'number' }] },
+        value: {},
+      },
+      required: ['id', 'mode'],
+      // biome-ignore lint/suspicious/noThenProperty: JSON Schema conditionals use the canonical keyword.
+      then: { required: ['value'] },
+      type: 'object',
+    };
+    const remote = {
+      callTool: vi.fn(async () => ({
+        content: [{ text: 'ok', type: 'text' }],
+        structuredContent: { ok: true },
+      })),
+      close: vi.fn().mockResolvedValue(undefined),
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{ inputSchema: schema, name: 'complex' }],
+      }),
+    };
+    const { host } = createTestHost({ remote });
+    const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+    const discovered = await runtimeClient?.listToolsetsWithErrors();
+    const tool = requireExecutableTool(discovered?.toolsets['remote']?.['complex']);
+
+    expect(discovered?.errors).toEqual({});
+    expect((tool.inputSchema as StandardSchemaWithJSON)['~standard'].jsonSchema.input({})).toEqual(
+      schema
+    );
+    expect(tool.inputSchema?.['~standard'].validate({ id: 'x', mode: 'invalid' })).toMatchObject({
+      issues: expect.any(Array),
+    });
+  });
+
+  it('does not emit regressing remote progress', async () => {
+    const callTool = vi.fn(
+      async (
+        _params: ExplicitHttpMcpCallToolParams,
+        options?: ExplicitHttpMcpRequestOptions
+      ): Promise<ExplicitHttpMcpCallToolResult> => {
+        options?.onprogress?.({ progress: 0.4, total: 1 });
+        options?.onprogress?.({ progress: 0.2, total: 1 });
+        options?.onprogress?.({ progress: 0.8, total: 1 });
+        return { content: [{ text: 'ok', type: 'text' }] };
+      }
+    );
+    const remote = {
+      callTool,
+      close: vi.fn().mockResolvedValue(undefined),
+      listTools: vi
+        .fn()
+        .mockResolvedValue({ tools: [{ inputSchema: { type: 'object' }, name: 'progress' }] }),
+    };
+    const { host } = createTestHost({ remote });
+    const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+    const discovered = await runtimeClient?.listToolsetsWithErrors();
+    const tool = requireExecutableTool(discovered?.toolsets['remote']?.['progress']);
+    const writes: unknown[] = [];
+
+    await tool.execute(
+      {},
+      {
+        agent: { toolCallId: 'progress-call' },
+        writer: { custom: async (part: unknown) => writes.push(part) },
+      }
+    );
+
+    expect(writes).toEqual([
+      expect.objectContaining({ progress: 0.4 }),
+      expect.objectContaining({ progress: 0.8 }),
+    ]);
+  });
 });

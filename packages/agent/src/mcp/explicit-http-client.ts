@@ -1,10 +1,16 @@
 import {
   Client,
+  type ClientOptions,
   SdkHttpError,
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
+import {
+  createMcpResponseCacheStore,
+  normalizeMcpListMaxPages,
+  normalizeMcpRequestOptions,
+} from './client-policy';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import {
   diagnoseInvalidatedCloseFailure,
@@ -20,6 +26,8 @@ const PROTOCOL_OWNED_HEADERS = new Set([
   'accept',
   'content-type',
   'last-event-id',
+  'mcp-method',
+  'mcp-name',
   'mcp-protocol-version',
   'mcp-session-id',
 ]);
@@ -30,14 +38,8 @@ export type ExplicitHttpMcpUnexpectedCloseObserver = () => void | Promise<void>;
 
 export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
-type SdkRequestOptions = NonNullable<Parameters<Client['listTools']>[1]>;
-export interface ExplicitHttpMcpRequestOptions {
-  maxTotalTimeout?: NonNullable<SdkRequestOptions['maxTotalTimeout']>;
-  onprogress?: NonNullable<SdkRequestOptions['onprogress']>;
-  resetTimeoutOnProgress?: NonNullable<SdkRequestOptions['resetTimeoutOnProgress']>;
-  signal?: NonNullable<SdkRequestOptions['signal']>;
-  timeout?: NonNullable<SdkRequestOptions['timeout']>;
-}
+type SdkRequestOptions = NonNullable<Parameters<Client['callTool']>[1]>;
+export type ExplicitHttpMcpRequestOptions = SdkRequestOptions;
 
 export type ExplicitHttpMcpListToolsResult = Awaited<ReturnType<Client['listTools']>>;
 export type ExplicitHttpMcpListToolsParams = NonNullable<Parameters<Client['listTools']>[0]>;
@@ -53,17 +55,21 @@ export interface NegotiatedProtocolFacts {
 }
 
 export interface ExplicitHttpMcpClientOptions {
+  cachePartition?: ClientOptions['cachePartition'];
   clientInfo?: {
     name: string;
     version: string;
   };
+  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   extensionRegistry?: McpClientExtensionRegistry;
   fetch?: ExplicitHttpMcpFetch;
   headers?: Readonly<Record<string, string>>;
   lifecycle?: ExplicitHttpMcpLifecycle;
+  listMaxPages?: ClientOptions['listMaxPages'];
   name: string;
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol?: McpProtocol;
+  responseCacheStore?: ClientOptions['responseCacheStore'];
   transport: ExplicitHttpMcpTransport;
   url: string | URL;
 }
@@ -77,15 +83,19 @@ interface ActiveConnection {
 }
 
 interface NormalizedClientOptions {
+  cachePartition?: ClientOptions['cachePartition'];
   clientInfo: {
     name: string;
     version: string;
   };
+  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   extensionRegistry?: McpClientExtensionRegistry;
   fetch: ExplicitHttpMcpFetch;
   lifecycle: ExplicitHttpMcpLifecycle;
+  listMaxPages: number;
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol: McpProtocol;
+  responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
   transport: ExplicitHttpMcpTransport;
   url: URL;
 }
@@ -126,7 +136,8 @@ function validateUnexpectedCloseObserver(
 
 function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
   for (const name of Object.keys(headers ?? {})) {
-    if (PROTOCOL_OWNED_HEADERS.has(name.toLowerCase())) {
+    const lowerName = name.toLowerCase();
+    if (PROTOCOL_OWNED_HEADERS.has(lowerName) || lowerName.startsWith('mcp-param-')) {
       throw new Error(`Configured MCP header "${name}" is protocol-owned`);
     }
   }
@@ -198,12 +209,18 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
 
   const baseFetch: ExplicitHttpMcpFetch = options.fetch ?? ((input, init) => fetch(input, init));
   return {
+    ...(options.cachePartition === undefined ? {} : { cachePartition: options.cachePartition }),
     clientInfo: { ...clientInfo },
+    ...(options.defaultCacheTtlMs === undefined
+      ? {}
+      : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     fetch: createHeaderPreservingFetch(baseFetch, options.headers),
     lifecycle: validateLifecycle(options.lifecycle, name),
+    listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
     protocol,
+    responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
     transport: options.transport,
     url,
   };
@@ -228,13 +245,14 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private readonly options: NormalizedClientOptions;
   private pendingConnection: ActiveConnection | undefined;
   private recoveryPromise: Promise<ActiveConnection> | undefined;
+  private readonly toolDefinitions = new Map<string, ExplicitHttpMcpTool>();
 
   constructor(options: ExplicitHttpMcpClientOptions) {
     this.options = normalizeOptions(options);
   }
 
   async connect(options?: ExplicitHttpMcpRequestOptions): Promise<void> {
-    await this.getConnection(options);
+    await this.getConnection(normalizeMcpRequestOptions(options));
   }
 
   getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
@@ -257,14 +275,32 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     options?: ExplicitHttpMcpRequestOptions,
     params?: ExplicitHttpMcpListToolsParams
   ): Promise<ExplicitHttpMcpListToolsResult> {
-    return this.runRequest((client) => client.listTools(params, options), options);
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const result = await this.runRequest(
+      (client) => client.listTools(params, requestOptions),
+      requestOptions
+    );
+    if (params?.cursor === undefined) {
+      this.toolDefinitions.clear();
+    }
+    for (const tool of result.tools) {
+      this.toolDefinitions.set(tool.name, tool);
+    }
+    return result;
   }
 
   async callTool(
     params: ExplicitHttpMcpCallToolParams,
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<ExplicitHttpMcpCallToolResult> {
-    return this.runRequest((client) => client.callTool(params, options), options);
+    const normalizedOptions = normalizeMcpRequestOptions(options);
+    const toolDefinition =
+      normalizedOptions.toolDefinition === undefined
+        ? this.toolDefinitions.get(params.name)
+        : undefined;
+    const requestOptions =
+      toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
+    return this.runRequest((client) => client.callTool(params, requestOptions), requestOptions);
   }
 
   close(): Promise<void> {
@@ -292,6 +328,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     this.connectPromise = undefined;
     this.recoveryPromise = undefined;
     this.invalidatedConnections.clear();
+    this.toolDefinitions.clear();
 
     const errors: unknown[] = [];
     for (const connection of connections) {
@@ -417,10 +454,19 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
 
   private createConnection(): ActiveConnection {
     const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
-    const client = new Client(this.options.clientInfo, {
+    const clientOptions: ClientOptions = {
       capabilities: extensions ? { extensions } : {},
+      listMaxPages: this.options.listMaxPages,
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
-    });
+      ...(this.options.cachePartition === undefined
+        ? {}
+        : { cachePartition: this.options.cachePartition }),
+      ...(this.options.defaultCacheTtlMs === undefined
+        ? {}
+        : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
+      responseCacheStore: this.options.responseCacheStore,
+    };
+    const client = new Client(this.options.clientInfo, clientOptions);
     const connection = { client, disconnected: false, transport: this.createTransport() };
     client.onclose = () => this.invalidateConnection(connection);
     return connection;
