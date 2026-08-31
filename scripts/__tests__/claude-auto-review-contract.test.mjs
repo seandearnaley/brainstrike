@@ -201,6 +201,9 @@ test('one final handler posts one visible disposition and leaves incomplete revi
   assert.match(failureStep, /always\(\)/);
   assert.match(failureStep, /steps\.claude-review-primary\.outcome != 'success'/);
   assert.match(failureStep, /steps\.claude-review-retry\.outcome != 'success'/);
+  assert.match(failureStep, /Primary attempt classification.*\$PRIMARY_FAILURE_CLASSIFICATION/);
+  assert.match(failureStep, /retry's terminal cause is not classified/);
+  assert.doesNotMatch(failureStep, /failure classification: \$PRIMARY_FAILURE_CLASSIFICATION/);
   assert.equal((failureStep.match(/gh pr comment/g) ?? []).length, 1);
   assert.match(failureStep, /exit 1/);
 
@@ -214,12 +217,13 @@ test('one final handler posts one visible disposition and leaves incomplete revi
       encoding: 'utf8',
       env: {
         ...process.env,
-        FAILURE_CLASSIFICATION: 'unknown',
         GH_CAPTURE: capture,
         GH_TOKEN: 'test-token',
         GITHUB_REPOSITORY: 'seandearnaley/brainstrike',
         PATH: `${fixture}:${process.env.PATH}`,
         PR_NUMBER: '451',
+        PRIMARY_FAILURE_CLASSIFICATION: 'transient-capacity',
+        RETRY_OUTCOME: 'failure',
         RUN_URL: 'https://github.com/seandearnaley/brainstrike/actions/runs/123',
       },
     });
@@ -229,6 +233,8 @@ test('one final handler posts one visible disposition and leaves incomplete revi
     assert.equal((args.match(/^pr$/gm) ?? []).length, 1);
     assert.match(args, /^pr\ncomment\n451\n/m);
     assert.match(args, /Claude auto-review did not complete/);
+    assert.match(args, /Primary attempt classification.*transient-capacity/);
+    assert.match(args, /retry's terminal cause is not classified/);
     assert.match(args, /actions\/runs\/123/);
   } finally {
     rmSync(fixture, { force: true, recursive: true });

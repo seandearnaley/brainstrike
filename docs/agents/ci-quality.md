@@ -762,7 +762,9 @@ work. Both action attempts use `continue-on-error` only so classification and
 the final handler can run. The handler posts one explicit
 `Claude auto-review did not complete` comment and exits non-zero unless either
 the primary attempt or the one safe retry actually succeeded; there is no
-degraded green fallback.
+degraded green fallback. When the retry fails, the comment labels the sanitized
+category as the primary attempt's retry trigger and explicitly leaves the
+retry's terminal cause unclassified instead of misattributing that cause.
 
 Operator recovery:
 

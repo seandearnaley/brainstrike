@@ -215,14 +215,22 @@ jobs:
       - name: Report incomplete Claude review
         if: ${{ always() && steps.claude-workflow-change.outputs.changed != 'true' && steps.claude-review-primary.outcome != 'success' && steps.claude-review-retry.outcome != 'success' }}
         env:
-          FAILURE_CLASSIFICATION: ${{ steps.classify-claude-failure.outputs.classification || 'unknown' }}
           GH_TOKEN: ${{ github.token }}
+          PRIMARY_FAILURE_CLASSIFICATION: ${{ steps.classify-claude-failure.outputs.classification || 'unknown' }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          RETRY_OUTCOME: ${{ steps.claude-review-retry.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          if [[ "$RETRY_OUTCOME" == "failure" ]]; then
+            retry_note="The one safe retry also failed; the retry's terminal cause is not classified by this workflow. Do not infer it from the primary attempt."
+          else
+            retry_note="No retry was authorized for this primary failure."
+          fi
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "## Claude auto-review did not complete
 
-          The review action failed before producing a completed review disposition. Review coverage is incomplete; sanitized failure classification: $FAILURE_CLASSIFICATION.
+          The review action failed before producing a completed review disposition. Review coverage is incomplete. Primary attempt classification: $PRIMARY_FAILURE_CLASSIFICATION.
+
+          $retry_note
 
           Inspect the failed workflow run: $RUN_URL"
           echo "::error::Claude auto-review did not complete; an incomplete-review disposition was posted."
