@@ -63,7 +63,7 @@ afterEach(() => {
   resetDesktopMastraMemoryCacheForTests();
 }, 15_000);
 describe('agent-stream-init runtime composition and memory', () => {
-  it('passes filesystem MCP config through to the Mastra runtime', async () => {
+  it('passes the desktop MCP host outside serializable runtime data', async () => {
     const { loadMcpConfig } = await import('../../mcp-loader');
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
     const { streamResponse } = await import('../../assistant-server/http');
@@ -107,20 +107,13 @@ describe('agent-stream-init runtime composition and memory', () => {
     });
 
     expect(toAiSdkStyleStream).toHaveBeenCalledTimes(1);
-    const [, runtime] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
+    const [, runtime, options] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
       unknown,
       Record<string, unknown>,
+      { mcpHost?: unknown },
     ];
-    expect(runtime['mcpConfig']).toEqual({
-      servers: [
-        {
-          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
-          command: 'npx',
-          name: 'filesystem',
-          transport: 'stdio',
-        },
-      ],
-    });
+    expect(runtime['mcpConfig']).toBeUndefined();
+    expect(options.mcpHost).toEqual(expect.any(Object));
   });
 
   it('threads the built-in subagent personas onto the runtime for a hosted provider', async () => {
@@ -652,6 +645,7 @@ describe('agent-stream-init runtime composition and memory', () => {
       {
         // BST-1352: the resolved auth input rides the stream OPTIONS.
         authInput: { apiKey: 'test-api-key', kind: 'api_key' },
+        mcpHost: expect.any(Object),
         memory: mockPgliteMastraMemory,
         storage: mockPgliteMastraStorage,
       }

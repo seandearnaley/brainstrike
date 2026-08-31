@@ -120,7 +120,7 @@ import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-re
 import type { WorktreeToolCapability } from './assistant-server/worktree-tools';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { loadMcpConfig } from './mcp-loader';
+import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { getSubscriptionFetchFactory } from './provider-auth/provider-auth-runtime';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
@@ -703,7 +703,8 @@ async function handleAssistantPost(
           compactionOverlayLookup,
           getDatabase,
           logger,
-          mcpConfig: (await loadMcpConfig()).config,
+          mcpConfig: undefined,
+          mcpHost: getDesktopMcpHostRuntime().host,
           messages: core.messages,
           resolveProviderApiKey,
           runId: core.runId,

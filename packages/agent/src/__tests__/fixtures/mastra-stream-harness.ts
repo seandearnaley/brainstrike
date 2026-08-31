@@ -26,6 +26,7 @@
  * per-file); a spec wires them up by returning the exported mock modules below.
  */
 import { ReadableStream } from 'node:stream/web';
+import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { expect } from 'vitest';
 import { MastraAgentError, type MastraAgentErrorCode } from '../../mastra/mastra-agent-error';
 
@@ -81,6 +82,59 @@ let titleModel: Error | object | undefined;
  */
 const streamPartsForCall = new Map<number, unknown[]>();
 let suspendedRuns: MockSuspendedRun[] = [];
+
+export const mcpHost: McpHostPort = {
+  close: async () => ({
+    callbacksClosed: 0,
+    childProcessesClosed: 0,
+    clientsClosed: 0,
+    failures: [],
+    loopbackPortsClosed: 0,
+    probesClosed: 0,
+    requestsSettled: 0,
+    subscriptionsClosed: 0,
+  }),
+  invoke: async (operation) => {
+    const toolset = mcpToolsets[operation.configuredServerId];
+    if (!toolset) {
+      throw new Error(`unknown MCP server: ${operation.configuredServerId}`);
+    }
+    if (operation.type === 'tools/list') {
+      return {
+        result: {
+          tools: Object.entries(toolset).map(([name, tool]) => ({
+            description: tool.description,
+            inputSchema: { additionalProperties: true, type: 'object' },
+            name,
+          })),
+        },
+        type: operation.type,
+      };
+    }
+    return {
+      result: { content: [{ text: 'mock MCP output', type: 'text' }] },
+      type: operation.type,
+    };
+  },
+  replaceConfig: async () => ({ revision: 0, servers: [] }),
+  snapshot: () => ({
+    revision: 1,
+    servers: Object.keys(mcpToolsets).map((name) => ({
+      configuredProtocol: 'legacy',
+      configuredServerId: parseConfiguredMcpServerId(name),
+      generation: 1,
+      state: 'disconnected',
+      transport: 'stdio',
+    })),
+  }),
+  watch: () => {
+    const lease = { closeCalls: 0 };
+    mcpInstances.push(lease);
+    return () => {
+      lease.closeCalls += 1;
+    };
+  },
+};
 
 export function setMockStreamParts(parts: unknown[]): void {
   streamParts = [...parts];
