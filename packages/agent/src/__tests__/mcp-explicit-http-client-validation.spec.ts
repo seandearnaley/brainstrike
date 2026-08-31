@@ -1,3 +1,4 @@
+import { InMemoryResponseCacheStore } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
 import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
 
@@ -102,4 +103,29 @@ describe('ExplicitHttpMcpClient validation', () => {
       ).toThrow('MCP automatic list pagination cap must be a positive safe integer');
     }
   );
+
+  it('rejects a shared response cache without an explicit principal partition', () => {
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          name: 'unpartitioned-cache-canary',
+          responseCacheStore: new InMemoryResponseCacheStore(),
+          transport: 'streamable-http',
+          url: 'https://example.test/mcp',
+        })
+    ).toThrow('MCP response cache partition is required when sharing a response cache store');
+  });
+
+  it('rejects an empty shared response-cache principal partition', () => {
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          cachePartition: '   ',
+          name: 'empty-cache-partition-canary',
+          responseCacheStore: new InMemoryResponseCacheStore(),
+          transport: 'streamable-http',
+          url: 'https://example.test/mcp',
+        })
+    ).toThrow('MCP response cache partition must not be empty');
+  });
 });

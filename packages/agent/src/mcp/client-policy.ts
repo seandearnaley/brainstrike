@@ -10,6 +10,27 @@ export const MCP_RESPONSE_CACHE_MAX_ENTRIES = 128;
 export const DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS = 600_000;
 export const MAX_MCP_MAX_TOTAL_TIMEOUT_MS = 600_000;
 
+export function normalizeMcpCachePartition(
+  value: unknown,
+  sharedStore: boolean
+): string | undefined {
+  if (value === undefined) {
+    if (sharedStore) {
+      throw new Error(
+        'MCP response cache partition is required when sharing a response cache store'
+      );
+    }
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error('MCP response cache partition must be a string');
+  }
+  if (value.trim().length === 0) {
+    throw new Error('MCP response cache partition must not be empty');
+  }
+  return value;
+}
+
 export function normalizeMcpListMaxPages(value: unknown): number {
   const listMaxPages: unknown = value ?? DEFAULT_MCP_LIST_MAX_PAGES;
   if (

@@ -61,6 +61,7 @@ export function createHttpClient(server: HttpMcpServer): McpClient {
     transport: server.transport,
   };
   let disposed = false;
+  let discoveredGeneration: number | undefined;
   let status: McpServerStatusSnapshot = { ...statusBase, state: 'disconnected' };
 
   async function discoverTools(signal?: AbortSignal): Promise<Record<string, McpDiscoveredTool>> {
@@ -86,6 +87,7 @@ export function createHttpClient(server: HttpMcpServer): McpClient {
     for (const [toolId, tool] of next.definitions) {
       discoveredToolDefinitions.set(toolId, tool);
     }
+    discoveredGeneration = client.getConnectionGeneration();
     return next.projection;
   }
 
@@ -95,7 +97,10 @@ export function createHttpClient(server: HttpMcpServer): McpClient {
       params?: Record<string, unknown>,
       opts?: McpCallOptions
     ): Promise<unknown> {
-      if (!discoveredToolNames.has(toolId)) {
+      if (
+        discoveredGeneration !== client.getConnectionGeneration() ||
+        !discoveredToolNames.has(toolId)
+      ) {
         await discoverTools(opts?.signal);
       }
 
