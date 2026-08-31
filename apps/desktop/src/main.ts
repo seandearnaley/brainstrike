@@ -75,6 +75,7 @@ import {
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
+import { type SerializedDesktopError, serializeDesktopError } from './desktop-error-serialization';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import {
@@ -865,41 +866,8 @@ let gracefulShutdownPromise: Promise<void> | null = null;
 let gracefulShutdownInFlight = false;
 let forcedProcessExitTimeout: NodeJS.Timeout | null = null;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
-
-interface SerializedDesktopError {
-  readonly category?: string;
-  readonly code?: string;
-  readonly errors?: readonly SerializedDesktopError[];
-  readonly message: string;
-  readonly name?: string;
-  readonly stack?: string;
-  readonly step?: string;
-}
-
-function serializeDesktopError(error: unknown): SerializedDesktopError {
-  if (error instanceof Error) {
-    return {
-      ...(error instanceof AggregateError
-        ? { errors: error.errors.map(serializeDesktopError) }
-        : {}),
-      message: error.message,
-      name: error.name,
-      ...(error.stack === undefined ? {} : { stack: error.stack }),
-    };
-  }
-  if (error && typeof error === 'object') {
-    const record = error as Record<string, unknown>;
-    return {
-      ...(typeof record['category'] === 'string' ? { category: record['category'] } : {}),
-      ...(typeof record['code'] === 'string' ? { code: record['code'] } : {}),
-      message:
-        typeof record['message'] === 'string' ? record['message'] : 'Structured cleanup failure',
-    };
-  }
-  return {
-    message: String(error),
-  };
-}
+const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
+let completeFactoryResetRendererReplacement: (() => Promise<void>) | null = null;
 
 async function runShutdownStep(
   step: string,
@@ -962,37 +930,37 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       }
     };
 
-    let assistantServerDrained = stopAssistantServer === null;
-    if (stopAssistantServer) {
-      const stopServer = stopAssistantServer;
-      recordFailure(
-        await runShutdownStep('assistant-server', async () => {
-          const [stopResult] = await Promise.allSettled([stopServer()]);
-          if (stopResult?.status === 'fulfilled') {
-            stopAssistantServer = null;
-            assistantServerDrained = true;
-          }
-          const cleanupResults = await Promise.allSettled([
-            Promise.resolve().then(disposeLiveChildProcesses),
-            Promise.resolve().then(disposeAllTerminals),
-            disposeDesktopCommandSessions(),
-            disposeLspServers(),
-          ]);
-          const causes = [stopResult, ...cleanupResults].flatMap((result) =>
-            result?.status === 'rejected' ? [result.reason] : []
-          );
-          if (causes.length > 0) {
-            throw new AggregateError(causes, 'Assistant server shutdown cleanup failed');
-          }
-        })
-      );
-    }
+    const stopServer = stopAssistantServer;
+    let assistantServerDrained = stopServer === null;
+    recordFailure(
+      await runShutdownStep('assistant-server', async () => {
+        // Start every process reaper in the same settlement batch as the server
+        // drain. A hung or rejected drain must never prevent shell, terminal,
+        // command-session, or LSP cleanup from being attempted.
+        const [stopResult, ...cleanupResults] = await Promise.allSettled([
+          Promise.resolve().then(() => stopServer?.()),
+          Promise.resolve().then(disposeLiveChildProcesses),
+          Promise.resolve().then(disposeAllTerminals),
+          Promise.resolve().then(disposeDesktopCommandSessions),
+          Promise.resolve().then(disposeLspServers),
+        ]);
+        if (stopResult?.status === 'fulfilled') {
+          stopAssistantServer = null;
+          assistantServerDrained = true;
+        }
+        const causes = [stopResult, ...cleanupResults].flatMap((result) =>
+          result?.status === 'rejected' ? [result.reason] : []
+        );
+        if (causes.length > 0) {
+          throw new AggregateError(causes, 'Assistant server shutdown cleanup failed');
+        }
+      })
+    );
 
-    if (assistantServerDrained) {
-      recordFailure(await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown));
-    } else {
+    recordFailure(await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown));
+    if (!assistantServerDrained) {
       failures.push({
-        message: 'Skipped terminal MCP host close because assistant-server drain failed',
+        message: 'Closed MCP host before assistant-server drain completed',
         name: 'McpShutdownOrderingError',
         step: 'mcp-runtime',
       });
@@ -1261,6 +1229,13 @@ async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
 
 const handleResetLocal = createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
+  completeSuccessfulReset: async () => {
+    const completeRendererReplacement = completeFactoryResetRendererReplacement;
+    if (completeRendererReplacement === null) {
+      throw new Error('Factory reset renderer replacement coordinator is unavailable');
+    }
+    await completeRendererReplacement();
+  },
   // The durable NDJSON backstop (Flight Recorder P2a) is a plaintext mirror
   // of `brainstrike_diagnostic_events`, which factory reset already wipes —
   // without this, the mirror would survive inside the preserved `logs`
@@ -1268,7 +1243,8 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
   resetLocalDatabase,
-  resumeAfterReset: () => resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime()),
+  resumeAfterReset: (outcome) =>
+    resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime(), outcome),
   runtimes: [
     {
       name: 'mcp-runtime',
@@ -1541,11 +1517,81 @@ if (singleInstanceLockAcquired) {
   // rather than by registering the channel a second time, which the registry
   // rejects.
   const workspaceOpenReadyCallbacksByWebContentsId = new Map<number, () => void>();
+  const factoryResetReadyCallbacksByWebContentsId = new Map<number, () => void>();
   registerWorkspaceOpenReadyIpcHandlers({
     onOpenPathReady: (senderWebContentsId) => {
       workspaceOpenReadyCallbacksByWebContentsId.get(senderWebContentsId)?.();
+      factoryResetReadyCallbacksByWebContentsId.get(senderWebContentsId)?.();
     },
   });
+
+  completeFactoryResetRendererReplacement = async () => {
+    const visibleWindows = BrowserWindow.getAllWindows().filter(
+      (window) =>
+        !(
+          chunkingHostManager.isHostWindow(window) ||
+          embeddingHostManager.isHostWindow(window) ||
+          llmHostManager.isHostWindow(window)
+        )
+    );
+    const results = await Promise.allSettled(
+      visibleWindows.map(
+        async (window) =>
+          await new Promise<void>((resolve, reject) => {
+            const webContentsId = window.webContents.id;
+            if (factoryResetReadyCallbacksByWebContentsId.has(webContentsId)) {
+              reject(new Error(`Factory reset renderer ${webContentsId} already awaits readiness`));
+              return;
+            }
+            const timeout = setTimeout(() => {
+              settle(() =>
+                reject(
+                  new Error(
+                    `Timed out waiting for factory reset renderer ${webContentsId} readiness`
+                  )
+                )
+              );
+            }, FACTORY_RESET_RENDERER_READY_TIMEOUT_MS);
+            timeout.unref();
+            const onClosed = (): void => {
+              settle(() =>
+                reject(
+                  new Error(
+                    `Factory reset renderer ${webContentsId} closed before reporting readiness`
+                  )
+                )
+              );
+            };
+            const settle = (finish: () => void): void => {
+              clearTimeout(timeout);
+              factoryResetReadyCallbacksByWebContentsId.delete(webContentsId);
+              window.removeListener('closed', onClosed);
+              finish();
+            };
+            factoryResetReadyCallbacksByWebContentsId.set(webContentsId, () => settle(resolve));
+            window.once('closed', onClosed);
+            try {
+              noteNextWindowReload(window, {
+                reason: 'factory-reset',
+                source: 'main',
+              });
+              window.webContents.reload();
+            } catch (error) {
+              settle(() => reject(error));
+            }
+          })
+      )
+    );
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `Factory reset failed to replace ${failures.length} renderer${failures.length === 1 ? '' : 's'}`
+      );
+    }
+  };
 
   // macOS delivers this before `whenReady` (Dock drop, "Open With", a click in
   // the Dock's recent-documents list that `app.addRecentDocument` populates),

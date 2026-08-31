@@ -13,6 +13,10 @@ export interface DesktopResetLogger {
 
 export interface CreateDesktopFactoryResetHandlerOptions {
   readonly cleanupLiveSubscriptionsForShutdown: () => Promise<void>;
+  /** Replaces the stale visible renderer and resolves only after its explicit
+   * renderer-ready acknowledgement. MCP admission remains closed while this
+   * promise is pending. */
+  readonly completeSuccessfulReset: () => Promise<void>;
   /** Every on-disk path the durable NDJSON error-log backstop (Flight
    * Recorder P2a) can occupy — forwarded to `resetDesktopApplicationData` so
    * factory reset purges it alongside the database, even though it lives
@@ -95,6 +99,7 @@ export async function resetDesktopDatabaseProfile({
 
 export function createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown,
+  completeSuccessfulReset,
   errorLogFilePaths,
   logger,
   resetLocalDatabase,
@@ -131,6 +136,7 @@ export function createDesktopFactoryResetHandler({
         },
         userDataPath,
       });
+      await completeSuccessfulReset();
     } catch (error) {
       failure = error;
     }

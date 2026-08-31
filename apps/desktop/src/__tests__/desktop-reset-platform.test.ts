@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resetDesktopApplicationDataMock = vi.hoisted(() => vi.fn());
+const completeSuccessfulResetMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock('../desktop-factory-reset', () => ({
   resetDesktopApplicationData: resetDesktopApplicationDataMock,
@@ -30,6 +31,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown,
+      completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { error: vi.fn() },
       resetLocalDatabase,
       runtimes: [
@@ -100,6 +102,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      completeSuccessfulReset: completeSuccessfulResetMock,
       errorLogFilePaths,
       logger: { error: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
@@ -127,6 +130,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       resetLocalDatabase: vi.fn(async () => undefined),
       resumeAfterReset,
@@ -183,6 +187,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { error: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
       resumeAfterReset,
@@ -209,6 +214,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { error: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
       resumeAfterReset: vi.fn(async () => {
@@ -246,6 +252,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       resetLocalDatabase: vi.fn(async () => undefined),
       runtimes: [
