@@ -2018,9 +2018,13 @@ Ownership and flow:
    invocation router is absent; the legacy desktop client registry remains only
    on the status migration boundary until BST-1529 removes it. BST-1506 owns the
    shipped assistant runtime's host-invocation cutover.
-5. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` constructs
-   the selected official-SDK client for every server and converts every
-   discovered tool through one shared Mastra-tool adapter. This preserves the
+5. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` adapts the
+   injected desktop host authority; it never constructs or closes an SDK client.
+   Each run owns only generation-fenced watchers and cancellation leases, rolls
+   them all back on partial construction failure, and applies the host snapshot's
+   enabled-tool policy before converting discovered tools through the shared
+   Mastra adapter. Progress and caller cancellation forward through the host.
+   This preserves the
    complete `CallToolResult` until the adapter deliberately selects
    structured-only output or retains mixed structured+media output; upstream
    wrappers may not collapse either transport first. All tools then use the

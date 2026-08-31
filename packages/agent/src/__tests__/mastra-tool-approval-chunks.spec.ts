@@ -33,6 +33,7 @@ import {
   expectMastraAgentError,
   findRunEventChunks,
   mastraInstances,
+  mcpHost,
   mcpInstances,
   resetMastraStreamHarness,
   setMockStreamParts,
@@ -783,6 +784,7 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         toolName: 'workspace.writeFile',
       },
       {
+        mcpHost,
         requireToolApproval: true,
         runtime: {
           apiKey: 'test-key',
@@ -820,6 +822,10 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         )
     )?.breakdown;
     expect(breakdown?.['attachmentsCount']).toBe(0);
+    expect(mcpInstances).toEqual([
+      expect.objectContaining({ closeCalls: 1 }),
+      expect.objectContaining({ closeCalls: 1 }),
+    ]);
   });
 
   it('re-gates EVERY enforced ask-set tool on the resume leg — run_python included (BST-1097, 1.56+ idiom)', async () => {

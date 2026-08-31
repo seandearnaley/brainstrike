@@ -1,18 +1,21 @@
+import {
+  type McpHostPort,
+  parseConfiguredMcpServerId,
+  parseMcpHostOperation,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
 import { fromJSONSchema } from 'zod';
-import { type McpConfigInput, McpConfigSchema, type McpServer } from '../mcp/config';
+import { type McpConfigInput, McpConfigSchema } from '../mcp/config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
-  ExplicitHttpMcpClientOptions,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
   ExplicitHttpMcpTool,
 } from '../mcp/explicit-http-client';
-import type { ExplicitStdioMcpClientOptions } from '../mcp/explicit-stdio-client';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import type { StreamChunk } from '../types';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
@@ -28,6 +31,7 @@ export interface McpToolsetsWithErrors {
 
 /** The only MCP lifecycle surface the agent runtime's discovery pipeline needs. */
 export interface McpRuntimeClient {
+  readonly configuredServers: readonly { enabledTools?: string[]; name: string }[];
   disconnect: () => Promise<void>;
   listToolsetsWithErrors: () => Promise<McpToolsetsWithErrors>;
 }
@@ -41,79 +45,140 @@ interface OfficialSdkMcpClientLike {
   listTools: (options?: ExplicitHttpMcpRequestOptions) => Promise<ExplicitHttpMcpListToolsResult>;
 }
 
-export interface McpRuntimeClientDependencies {
-  createExplicitHttpClient: (options: ExplicitHttpMcpClientOptions) => OfficialSdkMcpClientLike;
-  createExplicitStdioClient: (options: ExplicitStdioMcpClientOptions) => OfficialSdkMcpClientLike;
-}
-
 export interface CreateMcpRuntimeClientOptions {
   config: McpConfigInput | undefined;
-  dependencies?: McpRuntimeClientDependencies;
+  host?: McpHostPort;
 }
 
 interface TransportOwnedServerClient {
   client: OfficialSdkMcpClientLike;
-  server: McpServer;
+  server: { enabledTools?: string[]; name: string };
 }
 
-async function loadDefaultDependencies(): Promise<McpRuntimeClientDependencies> {
-  const { ExplicitHttpMcpClient, ExplicitStdioMcpClient } = await import(
-    '@brainstrike/agent/mcp-client'
-  );
+function createHostClient(
+  host: McpHostPort,
+  serverName: string,
+  generation: number
+): OfficialSdkMcpClientLike {
+  const configuredServerId = parseConfiguredMcpServerId(serverName);
+  const lease = new AbortController();
+  const retireIfChanged = () => {
+    const current = host
+      .snapshot()
+      .servers.find((server) => server.configuredServerId === configuredServerId);
+    if (current?.generation !== generation) {
+      lease.abort(new Error('MCP host authority generation retired'));
+    }
+  };
+  const unwatch = host.watch({ configuredServerIds: [configuredServerId] }, retireIfChanged);
+  retireIfChanged();
+  if (lease.signal.aborted) {
+    unwatch();
+    throw lease.signal.reason;
+  }
+  let closed = false;
+  const requestOptions = (options?: ExplicitHttpMcpRequestOptions) => ({
+    ...(options?.onprogress ? { onProgress: options.onprogress } : {}),
+    signal: options?.signal ? AbortSignal.any([lease.signal, options.signal]) : lease.signal,
+  });
   return {
-    createExplicitHttpClient: (options) => new ExplicitHttpMcpClient(options),
-    createExplicitStdioClient: (options) => new ExplicitStdioMcpClient(options),
+    async callTool(params, options) {
+      const operation = parseMcpHostOperation({
+        configuredServerId,
+        ...(params._meta ? { _meta: params._meta } : {}),
+        ...(params.arguments ? { arguments: params.arguments } : {}),
+        ...(params.task ? { task: params.task } : {}),
+        toolName: params.name,
+        type: 'tools/call',
+      });
+      const response = await host.invoke(operation, requestOptions(options));
+      if (response.type !== 'tools/call') {
+        throw new Error('MCP host returned the wrong operation result');
+      }
+      // McpHostPort's owning host validates the SDK result envelope before it
+      // crosses this boundary. BrowserSafe preserves that JSON shape but erases
+      // the SDK declaration identity, so restore the already-validated view.
+      return response.result as ExplicitHttpMcpCallToolResult;
+    },
+    async close() {
+      if (!closed) {
+        closed = true;
+        try {
+          unwatch();
+        } finally {
+          lease.abort(new Error('MCP runtime adapter released'));
+        }
+      }
+    },
+    async listTools(options) {
+      const response = await host.invoke(
+        { configuredServerId, type: 'tools/list' },
+        requestOptions(options)
+      );
+      if (response.type !== 'tools/list') {
+        throw new Error('MCP host returned the wrong operation result');
+      }
+      // See callTool: the host is the validation authority for this SDK shape.
+      return response.result as ExplicitHttpMcpListToolsResult;
+    },
   };
 }
 
 /**
- * Build one structural runtime client while keeping transport ownership explicit:
- * the official MCP SDK owns every selected transport without probing, path
- * inference, response-shape collapse, or fallback.
+ * Build one runtime-scoped adapter over the host's singleton MCP authority.
+ * The adapter owns only its watch/lease; it never constructs or closes an SDK client.
  */
 export async function createMcpRuntimeClient(
   options: CreateMcpRuntimeClientOptions
 ): Promise<McpRuntimeClient | undefined> {
-  if (!options.config) {
+  if (options.host && options.config?.servers.length) {
+    McpConfigSchema.parse(options.config);
+    throw new Error('Legacy runtime MCP config cannot compete with MCP host authority');
+  }
+  if (
+    !options.host &&
+    Array.isArray(options.config?.servers) &&
+    options.config.servers.length === 0
+  ) {
     return;
   }
-  if (Array.isArray(options.config.servers) && options.config.servers.length === 0) {
-    return;
-  }
-  const { servers } = McpConfigSchema.parse(options.config);
-
-  const dependencies = options.dependencies ?? (await loadDefaultDependencies());
-  const serverClients = servers.map((server): TransportOwnedServerClient => {
-    if (server.transport === 'stdio') {
-      const clientOptions: ExplicitStdioMcpClientOptions = {
-        command: server.command,
-        name: server.name,
-        protocol: server.protocol,
-        ...(server.args ? { args: server.args } : {}),
-        ...(server.env ? { env: server.env } : {}),
-      };
-      return {
-        client: dependencies.createExplicitStdioClient(clientOptions),
-        server,
-      };
+  const config =
+    options.config && !options.host ? McpConfigSchema.parse(options.config) : undefined;
+  if (!options.host) {
+    if (config && config.servers.length > 0) {
+      throw new Error('Legacy runtime MCP config requires an MCP host capability');
     }
-    const clientOptions: ExplicitHttpMcpClientOptions = {
-      name: server.name,
-      protocol: server.protocol,
-      transport: server.transport,
-      url: server.url,
-      ...(server.headers ? { headers: server.headers } : {}),
-    };
-    return {
-      client: dependencies.createExplicitHttpClient(clientOptions),
-      server,
-    };
-  });
-  return new CompositeMcpRuntimeClient(serverClients);
+    return;
+  }
+  const authority = options.host.snapshot();
+  const servers = authority.servers.map(({ configuredServerId, enabledTools, generation }) => ({
+    ...(enabledTools ? { enabledTools: [...enabledTools] } : {}),
+    generation,
+    name: configuredServerId,
+  }));
+  if (servers.length === 0) {
+    return;
+  }
+  const serverClients: TransportOwnedServerClient[] = [];
+  try {
+    for (const { generation, ...server } of servers) {
+      serverClients.push({
+        client: createHostClient(options.host, server.name, generation),
+        server,
+      });
+    }
+    return new CompositeMcpRuntimeClient(serverClients);
+  } catch (error) {
+    await Promise.allSettled(serverClients.map(({ client }) => client.close()));
+    throw error;
+  }
 }
 
 class CompositeMcpRuntimeClient implements McpRuntimeClient {
-  constructor(private readonly serverClients: readonly TransportOwnedServerClient[]) {}
+  readonly configuredServers: readonly { enabledTools?: string[]; name: string }[];
+  constructor(private readonly serverClients: readonly TransportOwnedServerClient[]) {
+    this.configuredServers = serverClients.map(({ server }) => structuredClone(server));
+  }
 
   async listToolsetsWithErrors(): Promise<McpToolsetsWithErrors> {
     const toolsets: Record<string, ToolsInput> = {};
@@ -125,19 +190,16 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
   }
 
   async disconnect(): Promise<void> {
-    const operations = this.serverClients.map(({ client, server }) => ({
-      close: () => client.close(),
-      serverName: server.name,
-    }));
-    const results = await Promise.allSettled(operations.map(({ close }) => close()));
+    const results = await Promise.allSettled(
+      this.serverClients.map(({ client }) => client.close())
+    );
     for (const [index, result] of results.entries()) {
-      if (result.status !== 'rejected') {
-        continue;
+      if (result.status === 'rejected') {
+        logger.warn('MCP adapter release failed', {
+          error: result.reason,
+          serverName: this.serverClients[index]?.server.name ?? 'unknown',
+        });
       }
-      logger.warn('MCP client disconnect failed', {
-        error: result.reason,
-        serverName: operations[index]?.serverName ?? 'unknown',
-      });
     }
   }
 
