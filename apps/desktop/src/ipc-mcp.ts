@@ -141,8 +141,15 @@ async function applyConfigChange(
   const authorityEpoch = ++latestAuthorityEpoch;
   const config = cfg.config ?? { servers: [] };
   const committed = await runtime.replaceResolvedConfig(config);
-  lastCommittedResolvedConfig = structuredClone(config);
-  if (mcpLifecycleOpen && lifecycleEpoch === mcpLifecycleEpoch && loadEpoch === latestLoadEpoch) {
+  if (authorityEpoch === latestAuthorityEpoch) {
+    lastCommittedResolvedConfig = structuredClone(config);
+  }
+  if (
+    mcpLifecycleOpen &&
+    lifecycleEpoch === mcpLifecycleEpoch &&
+    loadEpoch === latestLoadEpoch &&
+    authorityEpoch === latestAuthorityEpoch
+  ) {
     last = cfg;
     notifyMcpConfigUpdated(cfg);
   }
@@ -376,27 +383,21 @@ async function restoreMcpFactoryResetSnapshot(
   mcpToolRegistry.clear();
   const disabledToolIds: string[] = [];
   for (const [serverName, tools] of Object.entries(snapshot.tools)) {
-    mcpToolRegistry.register(
-      serverName,
-      Object.fromEntries(
-        tools.map((tool) => [
-          tool.id,
-          {
-            ...(tool.description === undefined ? {} : { description: tool.description }),
-            ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
-          },
-        ])
-      )
-    );
-    disabledToolIds.push(...tools.filter((tool) => !tool.enabled).map((tool) => tool.id));
+    const restoredTools: Record<string, McpDiscoveredTool> = {};
+    for (const tool of tools) {
+      restoredTools[tool.id] = {
+        ...(tool.description === undefined ? {} : { description: tool.description }),
+        ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
+      };
+      if (!tool.enabled) {
+        disabledToolIds.push(tool.id);
+      }
+    }
+    mcpToolRegistry.register(serverName, restoredTools);
   }
   if (disabledToolIds.length > 0) {
     mcpToolRegistry.disableTools(disabledToolIds);
   }
-  if (last !== null) {
-    notifyMcpConfigUpdated(last);
-  }
-  notifyMcpToolsUpdated();
 }
 
 function throwMcpCleanupFailures(scope: 'reset' | 'shutdown', failures: unknown[]): void {
@@ -432,6 +433,8 @@ export async function resetMcpRuntimeForFactoryReset(
 ): Promise<void> {
   const { failures } = beginMcpRuntimeCleanup();
   await mcpLifecycleBarrier;
+  // A retry can begin while a failed resume still owns the original snapshot.
+  // Preserve that authority instead of replacing it with the already-purged state.
   pendingFactoryResetSnapshot ??= captureMcpFactoryResetSnapshot();
   try {
     await runtime.replaceResolvedConfig({ servers: [] });
@@ -455,11 +458,12 @@ export async function resumeMcpRuntimeAfterFactoryReset(
   if (mcpLifecycleOpen) {
     return;
   }
+  const shouldRestore = outcome === 'failed';
   const lifecycleEpoch = mcpLifecycleEpoch;
   const snapshot = pendingFactoryResetSnapshot;
   let resumedWatcher: null | (() => void) = null;
   try {
-    if (outcome === 'failed') {
+    if (shouldRestore) {
       if (snapshot === null) {
         throw new Error('Cannot restore MCP runtime after failed reset without a prior snapshot');
       }
@@ -472,8 +476,19 @@ export async function resumeMcpRuntimeAfterFactoryReset(
     if (lifecycleEpoch !== mcpLifecycleEpoch) {
       throw new Error('MCP runtime resume was retired before admission reopened');
     }
+    if (unwatch !== null) {
+      throw new Error(
+        'MCP runtime resume found an unretired config watcher; MCP config IPC remains closed until restart'
+      );
+    }
     unwatch = resumedWatcher;
     mcpLifecycleOpen = true;
+    if (shouldRestore) {
+      if (last !== null) {
+        notifyMcpConfigUpdated(last);
+      }
+      notifyMcpToolsUpdated();
+    }
     pendingFactoryResetSnapshot = null;
   } catch (error) {
     resumedWatcher?.();

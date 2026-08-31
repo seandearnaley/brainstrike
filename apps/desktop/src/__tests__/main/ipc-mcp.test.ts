@@ -110,6 +110,7 @@ describe('ipc-mcp handlers', () => {
   });
 
   afterEach(async () => {
+    await mcpIpc.resumeMcpRuntimeAfterFactoryReset(authority.runtime);
     await handlers.get('mcp:config:unwatch')?.();
     mcpToolRegistry.clear();
     vi.restoreAllMocks();

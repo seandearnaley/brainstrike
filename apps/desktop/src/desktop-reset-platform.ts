@@ -36,7 +36,11 @@ export interface DesktopFactoryResetResult {
   success: boolean;
 }
 
-const NO_RESET_FAILURE = Symbol('no-reset-failure');
+type ResetFailure =
+  | { readonly kind: 'failed'; readonly error: unknown }
+  | { readonly kind: 'none' };
+
+const NO_RESET_FAILURE: ResetFailure = { kind: 'none' };
 
 function combineResetFailure(failure: unknown, resumeFailure: unknown): unknown {
   const resetMessage = failure instanceof Error ? failure.message : String(failure);
@@ -54,11 +58,11 @@ async function resumeDesktopResetRuntime({
   resetDataSucceeded,
   resumeAfterReset,
 }: {
-  failure: unknown | typeof NO_RESET_FAILURE;
+  failure: ResetFailure;
   rendererReplacementSucceeded: boolean;
   resetDataSucceeded: boolean;
   resumeAfterReset: CreateDesktopFactoryResetHandlerOptions['resumeAfterReset'];
-}): Promise<unknown | typeof NO_RESET_FAILURE> {
+}): Promise<ResetFailure> {
   if (resetDataSucceeded && !rendererReplacementSucceeded) {
     return failure;
   }
@@ -66,7 +70,10 @@ async function resumeDesktopResetRuntime({
     await resumeAfterReset?.(resetDataSucceeded ? 'succeeded' : 'failed');
     return failure;
   } catch (error) {
-    return failure === NO_RESET_FAILURE ? error : combineResetFailure(failure, error);
+    return {
+      error: failure.kind === 'none' ? error : combineResetFailure(failure.error, error),
+      kind: 'failed',
+    };
   }
 }
 
@@ -131,7 +138,7 @@ export function createDesktopFactoryResetHandler({
   waitForDatabaseWorkSchedulerIdle,
 }: CreateDesktopFactoryResetHandlerOptions): () => Promise<DesktopFactoryResetResult> {
   const runReset = async (): Promise<DesktopFactoryResetResult> => {
-    let failure: unknown | typeof NO_RESET_FAILURE = NO_RESET_FAILURE;
+    let failure: ResetFailure = NO_RESET_FAILURE;
     let resetDataSucceeded = false;
     let rendererReplacementSucceeded = false;
     try {
@@ -163,7 +170,7 @@ export function createDesktopFactoryResetHandler({
       await completeSuccessfulReset();
       rendererReplacementSucceeded = true;
     } catch (error) {
-      failure = error;
+      failure = { error, kind: 'failed' };
     }
 
     // A failed purge must restore the pre-reset runtime snapshot. A successful
@@ -175,9 +182,10 @@ export function createDesktopFactoryResetHandler({
       resetDataSucceeded,
       resumeAfterReset,
     });
-    if (failure !== NO_RESET_FAILURE) {
-      const message = failure instanceof Error ? failure.message : String(failure);
-      logger.error('Failed to reset desktop application data:', failure);
+    if (failure.kind === 'failed') {
+      const message =
+        failure.error instanceof Error ? failure.error.message : String(failure.error);
+      logger.error('Failed to reset desktop application data:', failure.error);
       return { message, success: false };
     }
 
