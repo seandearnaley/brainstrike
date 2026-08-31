@@ -1,3 +1,4 @@
+import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
@@ -26,31 +27,83 @@ function requireExecutableTool(tool: ToolsInput[string] | undefined): Executable
   return tool as ExecutableTool;
 }
 
-describe('MCP runtime client', () => {
-  it('rejects duplicate server names before constructing any transport client', async () => {
-    const createExplicitHttpClient = vi.fn();
-    const createExplicitStdioClient = vi.fn();
+interface TestHostClient {
+  callTool: (...args: unknown[]) => Promise<ExplicitHttpMcpCallToolResult>;
+  close: ReturnType<typeof vi.fn>;
+  listTools: () => Promise<{ tools: unknown[] }>;
+  release?: () => void;
+}
 
+function createTestHost(clients: Record<string, TestHostClient>) {
+  const unwatch = vi.fn();
+  const host: McpHostPort = {
+    close: vi.fn(async () => ({
+      callbacksClosed: 0,
+      childProcessesClosed: 0,
+      clientsClosed: 0,
+      failures: [],
+      loopbackPortsClosed: 0,
+      probesClosed: 0,
+      requestsSettled: 0,
+      subscriptionsClosed: 0,
+    })),
+    invoke: vi.fn(async (operation, options) => {
+      const client = clients[operation.configuredServerId];
+      if (!client) {
+        throw new Error('unknown server');
+      }
+      if (operation.type === 'tools/list') {
+        return { result: await client.listTools(), type: 'tools/list' } as const;
+      }
+      return {
+        result: await client.callTool(
+          {
+            ...(operation._meta ? { _meta: operation._meta } : {}),
+            ...(operation.arguments ? { arguments: operation.arguments } : {}),
+            name: operation.toolName,
+          },
+          {
+            ...(options?.onProgress ? { onprogress: options.onProgress } : {}),
+            ...(options?.signal ? { signal: options.signal } : {}),
+          }
+        ),
+        type: 'tools/call',
+      } as const;
+    }),
+    replaceConfig: vi.fn(),
+    snapshot: () => ({
+      revision: 1,
+      servers: Object.keys(clients).map((name) => ({
+        configuredProtocol: 'legacy' as const,
+        configuredServerId: parseConfiguredMcpServerId(name),
+        generation: 7,
+        state: 'disconnected' as const,
+        transport: 'stdio' as const,
+      })),
+    }),
+    watch: vi.fn((filter) => {
+      const ids = filter.configuredServerIds;
+      if (ids?.length !== 1) {
+        throw new Error('test host requires one configured server id per lease');
+      }
+      return clients[ids[0]]?.release ?? unwatch;
+    }),
+  };
+  return { host, unwatch };
+}
+
+describe('MCP runtime client', () => {
+  it('rejects legacy runtime MCP config without a host capability', async () => {
     await expect(
       createMcpRuntimeClient({
         config: {
-          servers: [
-            { command: 'node', name: 'duplicate', transport: 'stdio' },
-            {
-              name: 'duplicate',
-              transport: 'streamable-http',
-              url: 'https://example.com/mcp',
-            },
-          ],
+          servers: [{ command: 'node', name: 'legacy', transport: 'stdio' }],
         },
-        dependencies: { createExplicitHttpClient, createExplicitStdioClient },
       })
-    ).rejects.toThrow('duplicate server name');
-    expect(createExplicitStdioClient).not.toHaveBeenCalled();
-    expect(createExplicitHttpClient).not.toHaveBeenCalled();
+    ).rejects.toThrow('MCP host capability');
   });
 
-  it('constructs one official SDK client for each explicitly selected transport', async () => {
+  it('discovers every configured transport through one host authority', async () => {
     const stdioClient = {
       callTool: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
@@ -64,7 +117,6 @@ describe('MCP runtime client', () => {
         ],
       }),
     };
-    const createExplicitStdioClient = vi.fn(() => stdioClient);
     const streamableClient = {
       callTool: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
@@ -75,62 +127,18 @@ describe('MCP runtime client', () => {
       close: vi.fn().mockResolvedValue(undefined),
       listTools: vi.fn().mockResolvedValue({ tools: [] }),
     };
-    const createExplicitHttpClient = vi.fn((options: { name: string }) =>
-      options.name === 'streamable' ? streamableClient : sseClient
-    );
+    const { host } = createTestHost({
+      legacy: sseClient,
+      local: stdioClient,
+      streamable: streamableClient,
+    });
 
     const runtimeClient = await createMcpRuntimeClient({
-      config: {
-        servers: [
-          {
-            args: ['server.js'],
-            command: 'node',
-            env: { NODE_ENV: 'test' },
-            name: 'local',
-            protocol: 'auto',
-            transport: 'stdio',
-          },
-          {
-            headers: { Authorization: 'Bearer streamable' },
-            name: 'streamable',
-            protocol: '2026-07-28',
-            transport: 'streamable-http',
-            url: 'https://example.com/sse',
-          },
-          {
-            headers: { Authorization: 'Bearer legacy' },
-            name: 'legacy',
-            transport: 'sse',
-            url: 'https://example.com/mcp',
-          },
-        ],
-      },
-      dependencies: { createExplicitHttpClient, createExplicitStdioClient },
+      config: undefined,
+      host,
     });
 
     expect(runtimeClient).toBeDefined();
-    expect(createExplicitStdioClient).toHaveBeenCalledOnce();
-    expect(createExplicitStdioClient).toHaveBeenCalledWith({
-      args: ['server.js'],
-      command: 'node',
-      env: { NODE_ENV: 'test' },
-      name: 'local',
-      protocol: 'auto',
-    });
-    expect(createExplicitHttpClient).toHaveBeenNthCalledWith(1, {
-      headers: { Authorization: 'Bearer streamable' },
-      name: 'streamable',
-      protocol: '2026-07-28',
-      transport: 'streamable-http',
-      url: 'https://example.com/sse',
-    });
-    expect(createExplicitHttpClient).toHaveBeenNthCalledWith(2, {
-      headers: { Authorization: 'Bearer legacy' },
-      name: 'legacy',
-      protocol: 'legacy',
-      transport: 'sse',
-      url: 'https://example.com/mcp',
-    });
 
     await expect(runtimeClient?.listToolsetsWithErrors()).resolves.toMatchObject({
       errors: {},
@@ -143,57 +151,45 @@ describe('MCP runtime client', () => {
         },
       },
     });
+    const runtimeB = await createMcpRuntimeClient({ config: undefined, host });
+    const approvalResume = await createMcpRuntimeClient({ config: undefined, host });
     await runtimeClient?.disconnect();
-    expect(stdioClient.close).toHaveBeenCalledOnce();
-    expect(streamableClient.close).toHaveBeenCalledOnce();
-    expect(sseClient.close).toHaveBeenCalledOnce();
+    await approvalResume?.disconnect();
+    await expect(runtimeB?.listToolsetsWithErrors()).resolves.toMatchObject({ errors: {} });
+    expect(host.watch).toHaveBeenCalledTimes(9);
+    expect(host.replaceConfig).not.toHaveBeenCalled();
+    expect(host.close).not.toHaveBeenCalled();
+    expect(stdioClient.close).not.toHaveBeenCalled();
+    await runtimeB?.disconnect();
   });
 
-  it('logs disconnect failures without poisoning a completed run or skipping other clients', async () => {
+  it('logs adapter release failures without closing host-owned clients', async () => {
     const logRecords: LogRecord[] = [];
     const removeLogListener = addLogListener((record) => logRecords.push(record));
     const brokenClient = {
       callTool: vi.fn(),
       close: vi.fn().mockRejectedValue(new Error('DELETE failed')),
       listTools: vi.fn().mockResolvedValue({ tools: [] }),
+      release: vi.fn(() => {
+        throw new Error('watch release failed');
+      }),
     };
     const healthyClient = {
       callTool: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
       listTools: vi.fn().mockResolvedValue({ tools: [] }),
     };
-    const runtimeClient = await createMcpRuntimeClient({
-      config: {
-        servers: [
-          {
-            name: 'broken',
-            transport: 'streamable-http',
-            url: 'https://broken.example/mcp',
-          },
-          {
-            name: 'healthy',
-            transport: 'sse',
-            url: 'https://healthy.example/sse',
-          },
-        ],
-      },
-      dependencies: {
-        createExplicitHttpClient: vi.fn((options: { name: string }) =>
-          options.name === 'broken' ? brokenClient : healthyClient
-        ),
-        createExplicitStdioClient: vi.fn(() => {
-          throw new Error('stdio client was not expected');
-        }),
-      },
-    });
+    const { host, unwatch } = createTestHost({ broken: brokenClient, healthy: healthyClient });
+    const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
 
     try {
       await expect(runtimeClient?.disconnect()).resolves.toBeUndefined();
-      expect(brokenClient.close).toHaveBeenCalledOnce();
-      expect(healthyClient.close).toHaveBeenCalledOnce();
+      expect(brokenClient.close).not.toHaveBeenCalled();
+      expect(healthyClient.close).not.toHaveBeenCalled();
+      expect(unwatch).toHaveBeenCalledOnce();
       expect(logRecords).toContainEqual(
         expect.objectContaining({
-          args: ['MCP client disconnect failed', expect.objectContaining({ serverName: 'broken' })],
+          args: ['MCP adapter release failed', expect.objectContaining({ serverName: 'broken' })],
           level: 'warn',
           scope: 'MastraAgentMcpRuntimeClient',
         })
@@ -245,22 +241,10 @@ describe('MCP runtime client', () => {
         ],
       }),
     };
+    const { host } = createTestHost({ remote: explicitClient });
     const runtimeClient = await createMcpRuntimeClient({
-      config: {
-        servers: [
-          {
-            name: 'remote',
-            transport: 'streamable-http',
-            url: 'https://example.com/mcp',
-          },
-        ],
-      },
-      dependencies: {
-        createExplicitHttpClient: vi.fn(() => explicitClient),
-        createExplicitStdioClient: vi.fn(() => {
-          throw new Error('stdio client was not expected');
-        }),
-      },
+      config: undefined,
+      host,
     });
 
     const discovered = await runtimeClient?.listToolsetsWithErrors();
@@ -318,9 +302,13 @@ describe('MCP runtime client', () => {
       },
       expect.objectContaining({
         onprogress: expect.any(Function),
-        signal: abortController.signal,
+        signal: expect.any(AbortSignal),
       })
     );
+    const forwardedSignal = callTool.mock.calls[0]?.[1]?.signal;
+    expect(forwardedSignal?.aborted).toBe(false);
+    abortController.abort();
+    expect(forwardedSignal?.aborted).toBe(true);
     expect(progressWrites).toEqual([
       {
         message: 'Halfway',
@@ -390,7 +378,7 @@ describe('MCP runtime client', () => {
         async (
           _params: unknown,
           options?: { onprogress?: (progress: unknown) => void }
-        ): Promise<unknown> => {
+        ): Promise<ExplicitHttpMcpCallToolResult> => {
           options?.onprogress?.({ progress: 1, total: 2 });
           return {
             content: [{ text: 'intentional failure', type: 'text' }],
@@ -410,33 +398,14 @@ describe('MCP runtime client', () => {
       }),
     };
     const brokenClient = {
-      callTool: vi.fn(),
+      callTool: vi.fn<() => Promise<ExplicitHttpMcpCallToolResult>>(),
       close: vi.fn().mockResolvedValue(undefined),
       listTools: vi.fn().mockRejectedValue(new Error('connection refused')),
     };
+    const { host } = createTestHost({ broken: brokenClient, healthy: healthyClient });
     const runtimeClient = await createMcpRuntimeClient({
-      config: {
-        servers: [
-          {
-            name: 'healthy',
-            transport: 'streamable-http',
-            url: 'https://healthy.example/mcp',
-          },
-          {
-            name: 'broken',
-            transport: 'sse',
-            url: 'https://broken.example/sse',
-          },
-        ],
-      },
-      dependencies: {
-        createExplicitHttpClient: vi.fn((options: { name: string }) =>
-          options.name === 'healthy' ? healthyClient : brokenClient
-        ),
-        createExplicitStdioClient: vi.fn(() => {
-          throw new Error('stdio client was not expected');
-        }),
-      },
+      config: undefined,
+      host,
     });
 
     const discovered = await runtimeClient?.listToolsetsWithErrors();
