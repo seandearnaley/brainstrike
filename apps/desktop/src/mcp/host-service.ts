@@ -3,6 +3,7 @@ import {
   type ConfiguredMcpServerId,
   type McpHostCloseReport,
   type McpHostConfig,
+  type McpHostControlRequest,
   type McpHostError,
   type McpHostInvokeOptions,
   type McpHostOperation,
@@ -30,6 +31,7 @@ const COUNTER_KEYS = {
 } satisfies Record<Counter, true>;
 const COUNTERS = Object.keys(COUNTER_KEYS) as readonly Counter[];
 export interface McpHostActor extends Pick<McpHostPort, 'close' | 'invoke'> {
+  connect(): Promise<McpHostServerSnapshot>;
   invalidated(): boolean;
   snapshot(): McpHostServerSnapshot;
 }
@@ -202,19 +204,43 @@ export class McpHostService implements McpHostPort {
     }
     return this.enqueueReplacement(parsed);
   }
-  private enqueueReplacement(
-    config: McpHostConfig,
-    invalidatedReplacementTarget?: ConfiguredMcpServerId
-  ): Promise<McpHostSnapshot> {
+  control(request: McpHostControlRequest): Promise<McpHostServerSnapshot> {
+    if (this.closePromise) {
+      return Promise.reject(new McpHostServiceError('mcp-host-closed'));
+    }
+    return this.enqueueSerialized(async () => {
+      const currentConfig = this.currentConfig();
+      const configured = currentConfig.servers.some(
+        ({ configuredServerId }) => configuredServerId === request.configuredServerId
+      );
+      if (!configured) {
+        throw new McpHostServiceError('mcp-host-server-unknown');
+      }
+      if (request.action === 'connect') {
+        return await this.getActor(request.configuredServerId).connect();
+      }
+      await this.applyConfig(currentConfig, request.configuredServerId, true);
+      const actor = this.getActor(request.configuredServerId);
+      return request.action === 'retry' ? await actor.connect() : actor.snapshot();
+    });
+  }
+  private enqueueSerialized<T>(operation: () => Promise<T>): Promise<T> {
     this.pendingReplacements += 1;
-    const replacement = this.replacementTail.then(() =>
-      this.applyConfig(config, invalidatedReplacementTarget)
-    );
+    const work = this.replacementTail.then(operation);
     const settled = () => {
       this.pendingReplacements -= 1;
     };
-    this.replacementTail = replacement.then(settled, settled);
-    return replacement;
+    this.replacementTail = work.then(settled, settled);
+    return work;
+  }
+  private enqueueReplacement(
+    config: McpHostConfig,
+    invalidatedReplacementTarget?: ConfiguredMcpServerId,
+    forceReplacement = false
+  ): Promise<McpHostSnapshot> {
+    return this.enqueueSerialized(
+      async () => await this.applyConfig(config, invalidatedReplacementTarget, forceReplacement)
+    );
   }
   watch(filter: McpHostWatchFilter, listener: (event: McpHostWatchEvent) => void): () => void {
     this.assertOpen();
@@ -239,7 +265,8 @@ export class McpHostService implements McpHostPort {
   }
   private async applyConfig(
     config: McpHostConfig,
-    invalidatedReplacementTarget?: ConfiguredMcpServerId
+    invalidatedReplacementTarget?: ConfiguredMcpServerId,
+    forceReplacement = false
   ): Promise<McpHostSnapshot> {
     this.assertOpen();
     if (this.replacementFailure) {
@@ -251,8 +278,11 @@ export class McpHostService implements McpHostPort {
       const replaceInvalidated =
         invalidatedReplacementTarget === undefined ||
         invalidatedReplacementTarget === server.configuredServerId;
+      const replaceForced =
+        forceReplacement && invalidatedReplacementTarget === server.configuredServerId;
       if (
         current &&
+        !replaceForced &&
         !(replaceInvalidated && current.actor.invalidated()) &&
         isDeepStrictEqual(current.config, server)
       ) {
@@ -322,6 +352,13 @@ export class McpHostService implements McpHostPort {
   }
   private currentConfig(): McpHostConfig {
     return { servers: [...this.actors.values()].map(({ config }) => config) };
+  }
+  private getActor(configuredServerId: ConfiguredMcpServerId): McpHostActor {
+    const actor = this.actors.get(configuredServerId)?.actor;
+    if (!actor) {
+      throw new McpHostServiceError('mcp-host-server-unknown');
+    }
+    return actor;
   }
   private assertOpen(): void {
     if (this.closePromise) {

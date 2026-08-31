@@ -30,7 +30,8 @@ export function createMcpAuthorityTestRuntime(
         configuredProtocol: server.protocol,
         configuredServerId: parseConfiguredMcpServerId(server.name),
         generation: current.revision + 1,
-        state: 'disconnected',
+        state:
+          server.startup === 'authentication-required' ? 'authentication-required' : 'disconnected',
         transport: server.transport,
       })),
     };
@@ -48,6 +49,15 @@ export function createMcpAuthorityTestRuntime(
       requestsSettled: 0,
       subscriptionsClosed: 0,
     })),
+    control: vi.fn(async (request) => {
+      const server = current.servers.find(
+        ({ configuredServerId }) => configuredServerId === request.configuredServerId
+      );
+      if (!server) {
+        throw new Error('Test MCP server is not configured');
+      }
+      return structuredClone(server);
+    }),
     invoke,
     replaceConfig: vi.fn(async () => current),
     snapshot: () => current,

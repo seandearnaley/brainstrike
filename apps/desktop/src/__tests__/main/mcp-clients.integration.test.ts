@@ -83,6 +83,7 @@ describe('mcp-clients', () => {
             env: {},
             name: configuredServerId,
             protocol: 'legacy',
+            startup: 'automatic',
             transport: 'stdio',
           },
         ],
@@ -125,6 +126,7 @@ describe('mcp-clients', () => {
             },
             name: configuredServerId,
             protocol: 'legacy',
+            startup: 'automatic',
             transport: 'stdio',
           },
         ],
@@ -148,6 +150,51 @@ describe('mcp-clients', () => {
       if (!runtimeCloseAttempted) {
         await runtime.host.close();
       }
+      await fsp.rm(directory, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  test('keeps startup responsive while user-paced stdio authorization exceeds ten seconds', async () => {
+    const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'desktop-mcp-auth-startup-'));
+    const pidFile = path.join(directory, 'pid');
+    const stateFile = path.join(directory, 'state.json');
+    const configuredServerId = parseConfiguredMcpServerId('stdio.auth-wait');
+    const runtime = createDesktopMcpHostRuntime();
+    try {
+      const startedAt = performance.now();
+      await runtime.replaceResolvedConfig({
+        servers: [
+          {
+            args: [stdioLifecycleServerEntrypoint],
+            command: process.execPath,
+            env: {
+              BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS: '10100',
+              BRAINSTRIKE_STDIO_TEST_PID_FILE: pidFile,
+              BRAINSTRIKE_STDIO_TEST_STATE_FILE: stateFile,
+            },
+            name: configuredServerId,
+            protocol: 'legacy',
+            startup: 'authentication-required',
+            transport: 'stdio',
+          },
+        ],
+      });
+      expect(performance.now() - startedAt).toBeLessThan(2000);
+      expect(runtime.host.snapshot().servers[0]).toMatchObject({
+        configuredServerId,
+        state: 'authentication-required',
+      });
+
+      const connect = runtime.host.control({
+        action: 'connect',
+        configuredServerId,
+      });
+      await expect.poll(() => runtime.host.snapshot().servers[0]?.state).toBe('authorizing');
+      const connected = await connect;
+      expect(connected).toMatchObject({ state: 'connected' });
+      await expect(fsp.stat(pidFile)).resolves.toBeTruthy();
+    } finally {
+      await runtime.host.close();
       await fsp.rm(directory, { force: true, recursive: true });
     }
   }, 30_000);

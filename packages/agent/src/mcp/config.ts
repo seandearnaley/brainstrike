@@ -16,6 +16,7 @@ export function toMcpVersionNegotiation(protocol: McpProtocol): {
 const ProtocolPolicySchema = {
   protocol: McpProtocolEnum.optional(),
 };
+const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
 
 const StdioSchema = z.object({
   args: z.array(z.string()).optional(),
@@ -24,6 +25,7 @@ const StdioSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   name: ConfiguredMcpServerIdSchema,
   ...ProtocolPolicySchema,
+  startup: StartupPolicySchema,
   transport: z.literal('stdio'),
 });
 
@@ -32,6 +34,7 @@ const HttpServerSchema = z.object({
   headers: z.record(z.string(), z.string()).optional(),
   name: ConfiguredMcpServerIdSchema,
   ...ProtocolPolicySchema,
+  startup: StartupPolicySchema,
   url: z.string().url(),
 });
 
@@ -58,6 +61,7 @@ const McpServerInputSchema = z
 export const McpServerSchema = McpServerInputSchema.transform((server) => ({
   ...server,
   protocol: server.protocol ?? ('legacy' as const),
+  startup: server.startup ?? ('automatic' as const),
 }));
 
 const McpConfigInputSchema = z
@@ -83,6 +87,7 @@ export const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
   servers: config.servers.map((server) => ({
     ...server,
     protocol: server.protocol ?? ('legacy' as const),
+    startup: server.startup ?? ('automatic' as const),
   })),
 }));
 

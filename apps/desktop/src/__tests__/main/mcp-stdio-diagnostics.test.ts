@@ -1,0 +1,48 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES,
+  MCP_STDIO_DIAGNOSTIC_MAX_MESSAGE_CHARS,
+  McpStdioDiagnosticCollector,
+} from '../../mcp/stdio-diagnostics';
+
+describe('McpStdioDiagnosticCollector', () => {
+  it('emits bounded line-safe diagnostics with OAuth material removed', () => {
+    const emitted = vi.fn();
+    const collector = new McpStdioDiagnosticCollector(emitted);
+    const bearer = `Bearer ${'secret-token-'.repeat(4)}`;
+
+    collector.write(
+      'Open https://auth.example/authorize?code=oauth-code&state=oauth-state\r\n' +
+        `Authorization: ${bearer}\ncode_verifier=pkce-secret&state=state-secret\n`
+    );
+    collector.write(
+      `unsafe\u0000line ${'x'.repeat(MCP_STDIO_DIAGNOSTIC_MAX_MESSAGE_CHARS + 50)}\n`
+    );
+    collector.flush();
+
+    const messages = emitted.mock.calls.map(([diagnostic]) => diagnostic.message).join('\n');
+    expect(messages).toContain('https://auth.example/authorize?[redacted-query]');
+    expect(messages).toContain('[redacted-oauth-parameter]');
+    expect(messages).toContain('[redacted-secret:bearer-token]');
+    expect(messages).not.toMatch(/oauth-code|oauth-state|pkce-secret|state-secret|secret-token/u);
+    expect(messages).not.toContain('\u0000');
+    for (const [diagnostic] of emitted.mock.calls) {
+      expect(diagnostic.message.length).toBeLessThanOrEqual(MCP_STDIO_DIAGNOSTIC_MAX_MESSAGE_CHARS);
+      expect(diagnostic.stream).toBe('stderr');
+    }
+  });
+
+  it('retains only the newest bounded diagnostics', () => {
+    const collector = new McpStdioDiagnosticCollector();
+    collector.write(
+      Array.from(
+        { length: MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES + 3 },
+        (_, index) => `line-${index}`
+      ).join('\n')
+    );
+    collector.flush();
+
+    expect(collector.snapshot()).toHaveLength(MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES);
+    expect(collector.snapshot()[0]?.message).toBe('line-3');
+  });
+});

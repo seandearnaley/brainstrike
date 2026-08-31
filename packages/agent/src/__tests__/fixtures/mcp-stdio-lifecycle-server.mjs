@@ -15,12 +15,16 @@ if (!pidFile) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_PID_FILE is required');
 }
 const rawConnectDelayMs = process.env['BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS'];
+const startupDiagnostic = process.env['BRAINSTRIKE_STDIO_TEST_STDERR'];
 const connectDelayMs = rawConnectDelayMs === undefined ? 0 : Number(rawConnectDelayMs);
 const paginateTools = process.env['BRAINSTRIKE_STDIO_TEST_PAGINATE_TOOLS'] === '1';
 const removeInvalidOutputAfterRestart =
   process.env['BRAINSTRIKE_STDIO_TEST_REMOVE_INVALID_OUTPUT_AFTER_RESTART'] === '1';
 if (!Number.isSafeInteger(connectDelayMs) || connectDelayMs < 0) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS must be a non-negative safe integer');
+}
+if (startupDiagnostic) {
+  console.error(startupDiagnostic);
 }
 
 async function readState() {

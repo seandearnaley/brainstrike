@@ -1963,6 +1963,15 @@ Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
 revisions, tool presence never implies connection success, and connected or
 failed zero-tool servers plus negotiation/config errors remain visible.
 
+Startup policy is explicit per configured server: `automatic` permits one
+bounded machine connection attempt during discovery, while
+`authentication-required` publishes an actionable status without constructing
+the transport or opening a browser. `connect`, `retry`, and `cancel` are
+explicit host controls; user-paced authorization is not governed by the
+automatic ten-second machine deadline. Stdio stderr is piped through the SDK's
+early-created stream, line-bounded and secret-redacted before it reaches the
+server snapshot or the warn-and-above durable log sink.
+
 Remote transport rules:
 - `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK
   inherits its documented safe environment allowlist and overlays only the
@@ -2195,7 +2204,8 @@ there is deliberately no post-error `disconnected` event. Raw internal causes
 reach one required main-process diagnostic sink; they may contain credentials
 and must never cross renderer IPC or bypass the platform redaction path.
 
-`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`:
+`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`,
+`control`, and `close`:
 
 - `snapshot` returns token-free authority state, negotiated protocol revision,
   server identity, capabilities, auth/lifecycle status, and bounded diagnostics.
@@ -2208,6 +2218,11 @@ and must never cross renderer IPC or bypass the platform redaction path.
   or cancels owned work explicitly, and closes old transports before publishing
   the replacement as ready. It never mutates a live client in place.
   Caller cancellation stays distinct from `mcp_generation_retired`; unexpected closure replaces only that server without replay.
+- `control` accepts only the closed `connect` / `retry` / `cancel` action union.
+  It is the sole way to begin user-paced authentication, retry a failed
+  generation, or cancel one; each action returns the resulting token-free
+  server snapshot and retains failed servers even when discovery found zero
+  tools.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 

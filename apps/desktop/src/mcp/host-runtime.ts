@@ -20,12 +20,14 @@ import { createLogger } from '@brainstrike/logging';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
 import { McpHostRevisionPublisher } from './host-revision-publisher';
 import { McpHostService } from './host-service';
+import { classifyMcpLifecycleFailure, McpLifecycleFailure } from './lifecycle-errors';
 import {
   McpServerActor,
   type McpServerActorClient,
   McpServerActorClientCleanupError,
   type McpServerActorClientFactory,
 } from './server-actor';
+import { McpStdioDiagnosticCollector } from './stdio-diagnostics';
 import { connectedStatus } from './types';
 
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
@@ -105,13 +107,22 @@ async function closeAfterFailure(client: ExplicitClient, cause: unknown): Promis
 async function connectClient(
   client: ExplicitClient,
   server: ResolvedMcpServer,
-  context: ActorContext
+  context: ActorContext,
+  diagnostics?: McpStdioDiagnosticCollector
 ): Promise<McpServerActorClient> {
   try {
-    await client.connect({ signal: context.signal });
+    await client.connect({
+      signal: context.signal,
+      ...(server.startup === 'automatic' ? { timeout: 10_000 } : {}),
+    });
   } catch (cause) {
-    return await closeAfterFailure(client, cause);
+    diagnostics?.flush();
+    return await closeAfterFailure(
+      client,
+      classifyMcpLifecycleFailure(cause, diagnostics?.snapshot())
+    );
   }
+  diagnostics?.flush();
   const status = connectedStatus(client, {
     configuredProtocol: server.protocol,
     name: server.name,
@@ -128,7 +139,11 @@ async function connectClient(
   let requestsSettled = 0;
   return {
     async close() {
-      await client.close();
+      try {
+        await client.close();
+      } finally {
+        diagnostics?.flush();
+      }
       return successfulCloseReport(server.transport, requestsSettled);
     },
     async invoke(operation, options) {
@@ -201,6 +216,7 @@ export class DesktopMcpHostRuntime {
           generation: input.generation,
           onInternalError: (code, cause) => this.reportInternalError(code, cause),
           onSnapshotChanged: input.onSnapshotChanged,
+          startup: input.config.startup,
           transport: input.config.transport.type,
         });
       },
@@ -209,6 +225,7 @@ export class DesktopMcpHostRuntime {
     });
     this.host = {
       close: () => this.service.close(),
+      control: (request) => this.service.control(request),
       invoke: (operation, options) => this.service.invoke(operation, options),
       replaceConfig: (config) =>
         this.enqueueReplacement(async () => await this.service.replaceConfig(config)),
@@ -249,6 +266,7 @@ export class DesktopMcpHostRuntime {
         configuredProtocol: server.protocol,
         configuredServerId,
         ...(server.enabledTools ? { enabledTools: server.enabledTools } : {}),
+        startup: server.startup,
         transport: { configRef, type: server.transport },
       };
     });
@@ -303,9 +321,19 @@ export class DesktopMcpHostRuntime {
     const common = {
       clientInfo: { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
       name: server.name,
-      onUnexpectedClose: context.onUnexpectedClose,
       protocol: server.protocol,
     };
+    const diagnostics =
+      server.transport === 'stdio'
+        ? new McpStdioDiagnosticCollector((diagnostic) => {
+            context.onDiagnostic(diagnostic);
+            logger.warn('MCP stdio diagnostic', {
+              diagnostic: diagnostic.message,
+              server: server.name,
+              truncated: diagnostic.truncated,
+            });
+          })
+        : undefined;
     const client =
       server.transport === 'stdio'
         ? this.createStdioTransportClient({
@@ -313,15 +341,19 @@ export class DesktopMcpHostRuntime {
             ...(server.args ? { args: server.args } : {}),
             command: server.command,
             ...(server.env ? { env: server.env } : {}),
+            onStderr: (chunk) => diagnostics?.write(chunk),
+            onUnexpectedClose: () =>
+              context.onUnexpectedClose(new McpLifecycleFailure('connection', 'mcp-child-exited')),
           })
         : this.createHttpTransportClient({
             ...common,
             ...(server.headers ? { headers: server.headers } : {}),
             lifecycle: 'host-owned',
+            onUnexpectedClose: () => context.onUnexpectedClose(),
             transport: server.transport,
             url: server.url,
           });
-    return connectClient(client, server, context);
+    return connectClient(client, server, context, diagnostics);
   }
 }
 

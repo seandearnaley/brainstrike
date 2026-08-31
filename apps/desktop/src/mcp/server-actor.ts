@@ -1,6 +1,7 @@
 import type {
   ConfiguredMcpServerId,
   McpHostCloseReport,
+  McpHostDiagnostic,
   McpHostError,
   McpHostInvokeOptions,
   McpHostOperation,
@@ -9,12 +10,14 @@ import type {
   McpNegotiatedStatus,
   McpStableErrorCategory,
 } from '@brainstrike/assistant-contract';
+import { MCP_HOST_DIAGNOSTIC_MAX_ENTRIES } from '@brainstrike/assistant-contract';
 import {
   parseMcpHostCloseReport,
   parseMcpHostOperationResult,
   parseMcpNegotiatedStatus,
 } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { OAuthError, ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
+import { McpLifecycleFailure } from './lifecycle-errors';
 
 type McpServerActorInvokeOptions = McpHostInvokeOptions & { signal: AbortSignal };
 export interface McpServerActorClient {
@@ -28,7 +31,8 @@ export class McpServerActorClientCleanupError extends AggregateError {
 interface ClientContext {
   configuredServerId: ConfiguredMcpServerId;
   generation: number;
-  onUnexpectedClose(): void;
+  onDiagnostic(diagnostic: McpHostDiagnostic): void;
+  onUnexpectedClose(failure?: McpLifecycleFailure): void;
   signal: AbortSignal;
 }
 export type McpServerActorClientFactory = (
@@ -45,18 +49,30 @@ interface McpServerActorOptions extends Pick<ClientContext, 'configuredServerId'
    */
   onInternalError(code: McpServerActorDiagnosticCode, cause: unknown): void;
   onSnapshotChanged?(snapshot: McpHostServerSnapshot): void;
+  startup: 'automatic' | 'authentication-required';
   transport: 'sse' | 'stdio' | 'streamable-http';
 }
 type ActorStatus =
-  | { state: 'closing' | 'connecting' | 'disconnected' }
+  | {
+      state: 'authentication-required' | 'authorizing' | 'closing' | 'connecting' | 'disconnected';
+    }
   | { error: McpHostError; state: 'error' }
   | { negotiated: McpNegotiatedStatus; state: 'connected' };
 type McpServerActorErrorCode =
+  | 'mcp-authentication-required'
   | 'mcp-client-close-failed'
   | 'mcp-client-close-report-invalid'
   | 'mcp-client-close-reported-failures'
   | 'mcp-client-creation-cleanup-failed'
   | 'mcp-client-creation-failed'
+  | 'mcp-auth-callback-timeout'
+  | 'mcp-browser-open-failed'
+  | 'mcp-child-exited'
+  | 'mcp-connection-failed'
+  | 'mcp-package-resolution-failed'
+  | 'mcp-protocol-timeout'
+  | 'mcp-server-rejected'
+  | 'mcp-spawn-not-found'
   | 'mcp-configured-server-mismatch'
   // Stable BST-1504 cross-process code; the underscore spelling is intentional.
   | 'mcp_generation_retired'
@@ -181,7 +197,8 @@ export function settleOnAbort<T>(work: Promise<T>, signal: AbortSignal): Promise
 }
 export class McpServerActor {
   private readonly generationAbort = new AbortController();
-  private readonly inFlight = new Set<Promise<McpHostOperationResult>>();
+  private readonly inFlight = new Set<Promise<unknown>>();
+  private readonly diagnostics: McpHostDiagnostic[] = [];
   private readonly retiredError = new ActorError('generation-retired', 'mcp_generation_retired');
   private client: McpServerActorClient | undefined;
   private clientClosePromise: Promise<McpHostCloseReport> | undefined;
@@ -189,8 +206,26 @@ export class McpServerActor {
   private closePromise: Promise<McpHostCloseReport> | undefined;
   private failure: ActorError | undefined;
   private transportInvalidated = false;
-  private status: ActorStatus = { state: 'disconnected' };
-  constructor(private readonly options: McpServerActorOptions) {}
+  private status: ActorStatus;
+  constructor(private readonly options: McpServerActorOptions) {
+    this.status = {
+      state:
+        options.startup === 'authentication-required' ? 'authentication-required' : 'disconnected',
+    };
+  }
+  connect(): Promise<McpHostServerSnapshot> {
+    if (this.closePromise || this.generationAbort.signal.aborted || this.transportInvalidated) {
+      return Promise.reject(this.retiredError);
+    }
+    if (this.failure) {
+      return Promise.reject(this.failure);
+    }
+    const work = this.getClient().then(() => this.snapshot());
+    this.inFlight.add(work);
+    const remove = () => this.inFlight.delete(work);
+    work.then(remove, remove);
+    return settleOnAbort(work, this.generationAbort.signal);
+  }
   close(): Promise<McpHostCloseReport> {
     if (this.closePromise) {
       return this.closePromise;
@@ -214,6 +249,9 @@ export class McpServerActor {
     }
     if (this.failure) {
       return Promise.reject(this.failure);
+    }
+    if (this.status.state === 'authentication-required') {
+      return Promise.reject(new ActorError('authentication', 'mcp-authentication-required'));
     }
     if (operation.configuredServerId !== this.options.configuredServerId) {
       // Caller misrouting is rejected without poisoning this server generation.
@@ -239,6 +277,7 @@ export class McpServerActor {
       configuredProtocol: this.options.configuredProtocol,
       configuredServerId: this.options.configuredServerId,
       ...(this.options.enabledTools ? { enabledTools: this.options.enabledTools } : {}),
+      ...(this.diagnostics.length > 0 ? { diagnostics: this.diagnostics } : {}),
       generation: this.options.generation,
       ...this.status,
       transport: this.options.transport,
@@ -267,7 +306,9 @@ export class McpServerActor {
       return this.clientPromise;
     }
     this.clientPromise = Promise.resolve().then(() => this.createClient());
-    this.change({ state: 'connecting' });
+    this.change({
+      state: this.options.startup === 'authentication-required' ? 'authorizing' : 'connecting',
+    });
     return this.clientPromise;
   }
   private async createClient(): Promise<McpServerActorClient> {
@@ -276,11 +317,15 @@ export class McpServerActor {
       client = await this.options.factory({
         configuredServerId: this.options.configuredServerId,
         generation: this.options.generation,
-        onUnexpectedClose: () => this.invalidateTransport(),
+        onDiagnostic: (diagnostic) => this.recordDiagnostic(diagnostic),
+        onUnexpectedClose: (failure) => this.invalidateTransport(failure),
         signal: this.generationAbort.signal,
       });
     } catch (cause) {
-      const error = new ActorError('connection', 'mcp-client-creation-failed');
+      const error =
+        cause instanceof McpLifecycleFailure
+          ? new ActorError(cause.category, cause.code)
+          : new ActorError('connection', 'mcp-client-creation-failed');
       const cleanupFailed = cause instanceof McpServerActorClientCleanupError;
       if (cleanupFailed) {
         this.clientClosePromise = Promise.resolve(
@@ -291,6 +336,11 @@ export class McpServerActor {
       this.throwIfAborted();
       if (!cleanupFailed) {
         this.diagnose(error.code, cause);
+      }
+      if (error.code === 'mcp-authentication-required') {
+        this.clientPromise = undefined;
+        this.change({ state: 'authentication-required' });
+        throw error;
       }
       throw this.fail(error);
     }
@@ -346,12 +396,23 @@ export class McpServerActor {
       throw this.fail(error);
     }
   }
-  private invalidateTransport(): void {
+  private invalidateTransport(failure?: McpLifecycleFailure): void {
     if (this.closePromise || this.transportInvalidated) {
       return;
     }
     this.transportInvalidated = true;
-    this.fail(new ActorError('connection', 'mcp-transport-closed'));
+    this.fail(
+      failure
+        ? new ActorError(failure.category, failure.code)
+        : new ActorError('connection', 'mcp-transport-closed')
+    );
+  }
+  private recordDiagnostic(diagnostic: McpHostDiagnostic): void {
+    this.diagnostics.push(structuredClone(diagnostic));
+    if (this.diagnostics.length > MCP_HOST_DIAGNOSTIC_MAX_ENTRIES) {
+      this.diagnostics.splice(0, this.diagnostics.length - MCP_HOST_DIAGNOSTIC_MAX_ENTRIES);
+    }
+    this.change(this.status);
   }
   private retireGeneration(): void {
     if (!this.generationAbort.signal.aborted) {

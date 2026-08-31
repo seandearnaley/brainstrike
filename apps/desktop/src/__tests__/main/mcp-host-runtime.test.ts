@@ -1,5 +1,7 @@
+import type { ExplicitHttpMcpClient } from '@brainstrike/agent/mcp-client';
 import type { McpHostCloseReport, McpHostConfig } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId, parseMcpHostConfig } from '@brainstrike/assistant-contract';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { McpHostService } from '../../mcp/host-service';
@@ -30,7 +32,7 @@ const client = () => ({
 const transportClient = () => ({
   callTool: vi.fn(async () => ({ content: [] })),
   close: vi.fn(async () => undefined),
-  connect: vi.fn(async () => undefined),
+  connect: vi.fn(async (_options?: TransportConnectOptions) => undefined),
   getNegotiatedProtocolVersion: vi.fn(() => '2026-07-28'),
   getProtocolEra: vi.fn(() => 'modern' as const),
   getServerCapabilities: vi.fn(() => ({ tools: {} })),
@@ -40,10 +42,12 @@ const transportClient = () => ({
 type HttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
 type StdioServer = Extract<ResolvedMcpServer, { transport: 'stdio' }>;
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
+type TransportConnectOptions = Parameters<ExplicitHttpMcpClient['connect']>[0];
 const http = (patch: Partial<HttpServer> = {}): HttpServer => ({
   headers: { Authorization: 'Bearer private-token' },
   name: parseConfiguredMcpServerId('team.linear.prod'),
   protocol: 'auto',
+  startup: 'automatic',
   transport: 'streamable-http',
   url: 'https://linear.example/mcp',
   ...patch,
@@ -54,6 +58,7 @@ const stdio = (patch: Partial<StdioServer> = {}): StdioServer => ({
   env: { PRIVATE_TOKEN: 'stdio-secret' },
   name: parseConfiguredMcpServerId('local.tools'),
   protocol: 'auto',
+  startup: 'automatic',
   transport: 'stdio',
   ...patch,
 });
@@ -389,6 +394,78 @@ describe('DesktopMcpHostRuntime', () => {
     }
   });
 
+  it('projects sanitized stdio diagnostics and sends the same text through durable logging', async () => {
+    const explicitClient = transportClient();
+    const records: LogRecord[] = [];
+    const stop = addLogListener((record) => records.push(record));
+    const runtime = createDesktopMcpHostRuntime({
+      createStdioTransportClient: (options) => {
+        options.onStderr?.(
+          'Authorize at https://auth.example/callback?code=private-code&state=private-state\n'
+        );
+        return explicitClient;
+      },
+    });
+    try {
+      await runtime.replaceResolvedConfig(resolved(stdio({ startup: 'authentication-required' })));
+      expect(runtime.host.snapshot().servers[0]?.state).toBe('authentication-required');
+
+      await runtime.host.control({
+        action: 'connect',
+        configuredServerId: parseConfiguredMcpServerId('local.tools'),
+      });
+
+      const diagnostic = runtime.host.snapshot().servers[0]?.diagnostics?.[0]?.message;
+      expect(diagnostic).toBe('Authorize at https://auth.example/callback?[redacted-query]');
+      expect(records).toContainEqual(
+        expect.objectContaining({
+          args: ['MCP stdio diagnostic', expect.objectContaining({ diagnostic })],
+          level: LogLevel.WARN,
+          message: 'MCP stdio diagnostic',
+          scope: 'DesktopMcpHostRuntime',
+        })
+      );
+      expect(JSON.stringify({ diagnostic, records })).not.toMatch(/private-code|private-state/u);
+    } finally {
+      stop();
+      await runtime.host.close();
+    }
+  });
+
+  it('keeps explicit authentication user-paced beyond the automatic ten-second deadline', async () => {
+    vi.useFakeTimers();
+    const connectGate = Promise.withResolvers<void>();
+    const explicitClient = transportClient();
+    explicitClient.connect.mockImplementation(async (options) => {
+      expect(options).not.toHaveProperty('timeout');
+      await connectGate.promise;
+    });
+    const runtime = createDesktopMcpHostRuntime({
+      createStdioTransportClient: () => explicitClient,
+    });
+    try {
+      await runtime.replaceResolvedConfig(resolved(stdio({ startup: 'authentication-required' })));
+      const connect = runtime.host.control({
+        action: 'connect',
+        configuredServerId: parseConfiguredMcpServerId('local.tools'),
+      });
+      await vi.waitFor(() => expect(explicitClient.connect).toHaveBeenCalledOnce());
+
+      let settled = false;
+      void connect.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(settled).toBe(false);
+
+      connectGate.resolve();
+      await expect(connect).resolves.toMatchObject({ state: 'connected' });
+    } finally {
+      await runtime.host.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('surfaces connection and cleanup failures together', async () => {
     const explicitClient = transportClient();
     const onInternalError = vi.fn();
@@ -409,7 +486,10 @@ describe('DesktopMcpHostRuntime', () => {
       'mcp-client-creation-failed',
       expect.objectContaining({
         errors: [
-          expect.objectContaining({ message: 'connect failed' }),
+          expect.objectContaining({
+            cause: expect.objectContaining({ message: 'connect failed' }),
+            code: 'mcp-connection-failed',
+          }),
           expect.objectContaining({ message: 'cleanup failed' }),
         ],
       })

@@ -53,6 +53,7 @@ export interface ExplicitStdioMcpClientOptions {
   extensionRegistry?: McpClientExtensionRegistry;
   listMaxPages?: ClientOptions['listMaxPages'];
   name: string;
+  onStderr?: (chunk: string) => void;
   onUnexpectedClose?: () => void;
   protocol?: McpProtocol;
   responseCacheStore?: ClientOptions['responseCacheStore'];
@@ -61,6 +62,7 @@ export interface ExplicitStdioMcpClientOptions {
 interface ActiveConnection {
   client: Client;
   disconnected: boolean;
+  removeStderrListener(): void;
   toolDefinitions: ReadonlyMap<string, ExplicitHttpMcpTool>;
   toolMetadataReady: boolean;
   toolMetadataRequest: Promise<ExplicitStdioMcpListToolsResult> | undefined;
@@ -79,6 +81,7 @@ interface NormalizedClientOptions {
   env?: Record<string, string>;
   extensionRegistry?: McpClientExtensionRegistry;
   listMaxPages: number;
+  onStderr?: (chunk: string) => void;
   onUnexpectedClose?: () => void;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
@@ -120,6 +123,7 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
+    ...(options.onStderr ? { onStderr: options.onStderr } : {}),
     protocol: options.protocol ?? 'legacy',
     responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
   };
@@ -232,6 +236,9 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const results = await Promise.allSettled(
       [...connections].flatMap(({ client, transport }) => [transport.close(), client.close()])
     );
+    for (const connection of connections) {
+      connection.removeStderrListener();
+    }
     await connectionSettled;
     const errors = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []
@@ -304,6 +311,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     } catch (error) {
       if (!connected) {
         await connection.client.close().catch(() => undefined);
+        connection.removeStderrListener();
       }
       throw error;
     }
@@ -328,10 +336,28 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       command: this.options.command,
       ...(this.options.args ? { args: this.options.args } : {}),
       ...(this.options.env ? { env: this.options.env } : {}),
+      ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
     });
+    const stderr = transport.stderr;
+    const onStderrData = (chunk: unknown) => {
+      const text =
+        typeof chunk === 'string'
+          ? chunk
+          : Buffer.isBuffer(chunk)
+            ? chunk.toString('utf8')
+            : String(chunk);
+      this.options.onStderr?.(text);
+    };
+    if (this.options.onStderr) {
+      if (!stderr) {
+        throw new Error('MCP stdio stderr pipe was requested but unavailable');
+      }
+      stderr.on('data', onStderrData);
+    }
     const connection: ActiveConnection = {
       client,
       disconnected: false,
+      removeStderrListener: () => stderr?.off('data', onStderrData),
       toolDefinitions: new Map(),
       toolMetadataReady: false,
       toolMetadataRequest: undefined,

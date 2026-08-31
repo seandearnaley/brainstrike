@@ -58,7 +58,8 @@ async function createFixture(
   extensionRegistry?: McpClientExtensionRegistry,
   fixturePath = FIXTURE_PATH,
   unexpectedCloseObserver?: () => void,
-  environment?: Readonly<Record<string, string>>
+  environment?: Readonly<Record<string, string>>,
+  onStderr?: (chunk: string) => void
 ): Promise<{
   capabilitiesFile: string;
   client: ExplicitStdioMcpClient;
@@ -85,6 +86,7 @@ async function createFixture(
       unexpectedCloses += 1;
       unexpectedCloseObserver?.();
     },
+    ...(onStderr ? { onStderr } : {}),
     protocol,
     ...(extensionRegistry ? { extensionRegistry } : {}),
   });
@@ -183,6 +185,21 @@ describe('ExplicitStdioMcpClient integration', () => {
       listToolCalls: 1,
       starts: 1,
     });
+  });
+
+  it('pipes child stderr to the host from the first startup byte', async () => {
+    const diagnostics: string[] = [];
+    const { client } = await createFixture(
+      'legacy',
+      undefined,
+      FIXTURE_PATH,
+      undefined,
+      { BRAINSTRIKE_STDIO_TEST_STDERR: 'early child diagnostic' },
+      (chunk) => diagnostics.push(chunk)
+    );
+
+    await client.connect();
+    await vi.waitFor(() => expect(diagnostics.join('')).toContain('early child diagnostic'));
   });
 
   it('does not repeat parameterized first-page discovery before a tool call', async () => {

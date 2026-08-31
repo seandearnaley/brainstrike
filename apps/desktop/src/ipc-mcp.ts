@@ -10,6 +10,7 @@ import {
   type McpHostSnapshot,
   type McpHostWatchEvent,
   parseConfiguredMcpServerId,
+  parseMcpHostControlRequest,
 } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
@@ -595,6 +596,20 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
 
   registry.registerInvoke(
     'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.lifecycleControl,
+    async (_event, request: unknown) =>
+      await trackConfigOperation(async (lifecycleEpoch) => {
+        const parsed = parseMcpHostControlRequest(request);
+        const result = await runtime.host.control(parsed);
+        if (parsed.action !== 'cancel' && result.state === 'connected') {
+          await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+        }
+        return structuredClone(result);
+      })
+  );
+
+  registry.registerInvoke(
+    'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGetPath,
     async (): Promise<string> => await getMcpConfigPath()
   );
@@ -837,9 +852,15 @@ async function discoverToolsFromConfig(
   }
 
   const committedIds = new Set(committed.servers.map((server) => server.configuredServerId));
+  const committedById = new Map(
+    committed.servers.map((server) => [server.configuredServerId, server] as const)
+  );
   const actionableServers = config.servers.filter(
     (server) =>
-      committedIds.has(parseConfiguredMcpServerId(server.name)) && !isPlaceholderServer(server)
+      committedIds.has(parseConfiguredMcpServerId(server.name)) &&
+      committedById.get(parseConfiguredMcpServerId(server.name))?.state !==
+        'authentication-required' &&
+      !isPlaceholderServer(server)
   );
   const skippedPlaceholderServers = config.servers
     .filter((server) => isPlaceholderServer(server))

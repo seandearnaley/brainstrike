@@ -10,6 +10,11 @@ const pidFile = process.env['BRAINSTRIKE_STDIO_TEST_PID_FILE'];
 if (!pidFile) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_PID_FILE is required');
 }
+const rawConnectDelayMs = process.env['BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS'];
+const connectDelayMs = rawConnectDelayMs === undefined ? 0 : Number(rawConnectDelayMs);
+if (!Number.isSafeInteger(connectDelayMs) || connectDelayMs < 0) {
+  throw new Error('BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS must be a non-negative safe integer');
+}
 
 async function readState() {
   try {
@@ -38,4 +43,7 @@ server.setRequestHandler('tools/list', async () => {
   await updateState((state) => ({ ...state, listToolCalls: state.listToolCalls + 1 }));
   return { tools: [] };
 });
+if (connectDelayMs > 0) {
+  await new Promise((resolve) => setTimeout(resolve, connectDelayMs));
+}
 await server.connect(new StdioServerTransport());

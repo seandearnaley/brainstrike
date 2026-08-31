@@ -93,6 +93,7 @@ const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
 const ProtocolPolicySchema = {
   protocol: McpProtocolEnum.optional(),
 };
+const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
 
 const StdioServerSchema = z.strictObject({
   args: z.array(SpawnStringSchema).optional(),
@@ -101,6 +102,7 @@ const StdioServerSchema = z.strictObject({
   env: EnvironmentSchema.optional(),
   name: ServerNameSchema,
   ...ProtocolPolicySchema,
+  startup: StartupPolicySchema,
   transport: z.literal('stdio'),
 });
 
@@ -109,6 +111,7 @@ const HttpServerSchema = z.strictObject({
   headers: HeadersSchema.optional(),
   name: ServerNameSchema,
   ...ProtocolPolicySchema,
+  startup: StartupPolicySchema,
   url: HttpUrlSchema,
 });
 
@@ -134,6 +137,7 @@ const McpServerInputSchema = z
 const McpServerSchema = McpServerInputSchema.transform((server) => ({
   ...server,
   protocol: server.protocol ?? ('legacy' as const),
+  startup: server.startup ?? ('automatic' as const),
 }));
 const McpConfigInputSchema = z
   .strictObject({
@@ -157,6 +161,7 @@ const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
   servers: config.servers.map((server) => ({
     ...server,
     protocol: server.protocol ?? ('legacy' as const),
+    startup: server.startup ?? ('automatic' as const),
   })),
 }));
 

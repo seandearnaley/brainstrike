@@ -53,6 +53,7 @@ const config = (...servers: [typeof alpha, 'auto' | 'legacy'][]): McpHostConfig 
   });
 interface ActorRecord {
   close: ReturnType<typeof vi.fn>;
+  connect: ReturnType<typeof vi.fn>;
   generation: number;
   invalidated: ReturnType<typeof vi.fn>;
   invoke: ReturnType<typeof vi.fn>;
@@ -81,14 +82,25 @@ function setup(
       state: 'disconnected' as const,
       transport: input.config.transport.type,
     }));
+    const connect = vi.fn(async () => ({
+      ...snapshot(),
+      negotiated: {
+        advertisedCapabilityIds: ['tools'],
+        era: 'modern' as const,
+        revision: '2026-07-28' as const,
+      },
+      state: 'connected' as const,
+    }));
     const actor: McpHostActor = {
       close,
+      connect,
       invalidated,
       invoke,
       snapshot,
     };
     records.push({
       close,
+      connect,
       generation: input.generation,
       invalidated,
       invoke,
@@ -106,6 +118,33 @@ function setup(
   };
 }
 describe('McpHostService', () => {
+  it('connects explicitly, retries with a fresh generation, and cancels back to a fresh actor', async () => {
+    const { host, records } = setup();
+    await host.replaceConfig(config([alpha, 'auto']));
+
+    await host.control({ action: 'connect', configuredServerId: alpha });
+    expect(records[0]?.connect).toHaveBeenCalledOnce();
+
+    await host.control({ action: 'retry', configuredServerId: alpha });
+    expect(records[0]?.close).toHaveBeenCalledOnce();
+    expect(records[1]?.generation).toBe(2);
+    expect(records[1]?.connect).toHaveBeenCalledOnce();
+
+    await host.control({ action: 'cancel', configuredServerId: alpha });
+    expect(records[1]?.close).toHaveBeenCalledOnce();
+    expect(records[2]?.generation).toBe(3);
+    expect(records[2]?.connect).not.toHaveBeenCalled();
+  });
+  it('does not let a queued control reapply a stale configuration', async () => {
+    const { host } = setup();
+    const first = host.replaceConfig(config([alpha, 'auto']));
+    const second = host.replaceConfig(config([beta, 'auto']));
+    const staleControl = host.control({ action: 'retry', configuredServerId: alpha });
+
+    await Promise.all([first, second]);
+    await expect(staleControl).rejects.toMatchObject({ code: 'mcp-host-server-unknown' });
+    expect(host.snapshot().servers[0]?.configuredServerId).toBe(beta);
+  });
   it('implements exact-id routing, detached snapshots, watches, and unchanged retention', async () => {
     const { actorFactory, host, records } = setup();
     const listener = vi.fn();
@@ -276,6 +315,18 @@ describe('McpHostService', () => {
         });
         return {
           close: async () => CLEAN,
+          connect: async () => ({
+            configuredProtocol: input.config.configuredProtocol,
+            configuredServerId: input.config.configuredServerId,
+            generation: input.generation,
+            negotiated: {
+              advertisedCapabilityIds: ['tools'],
+              era: 'modern' as const,
+              revision: '2026-07-28' as const,
+            },
+            state: 'connected' as const,
+            transport: input.config.transport.type,
+          }),
           invalidated: () => false,
           invoke: async () => RESULT,
           snapshot: () => ({
@@ -424,6 +475,18 @@ describe('McpHostService', () => {
           });
           return CLEAN;
         },
+        connect: async () => ({
+          configuredProtocol: input.config.configuredProtocol,
+          configuredServerId: input.config.configuredServerId,
+          generation: input.generation,
+          negotiated: {
+            advertisedCapabilityIds: ['tools'],
+            era: 'modern' as const,
+            revision: '2026-07-28' as const,
+          },
+          state: 'connected' as const,
+          transport: input.config.transport.type,
+        }),
         invalidated: () => false,
         invoke: async () => RESULT,
         snapshot: () => ({

@@ -271,6 +271,7 @@ describe('desktop explicit HTTP MCP client', () => {
           {
             name: configuredServerId,
             protocol: 'auto',
+            startup: 'automatic',
             transport: 'streamable-http',
             url: server.url,
           },

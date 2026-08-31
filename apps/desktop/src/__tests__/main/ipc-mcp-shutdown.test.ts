@@ -60,6 +60,7 @@ describe('terminal MCP shutdown cleanup', () => {
     const runtime = {
       host: {
         close: hostClose,
+        control: vi.fn(),
         invoke: vi.fn(),
         replaceConfig: vi.fn(),
         snapshot: vi.fn(() => ({ revision: 0, servers: [] })),

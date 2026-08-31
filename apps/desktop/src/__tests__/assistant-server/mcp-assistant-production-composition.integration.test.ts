@@ -140,6 +140,7 @@ it('keeps one desktop MCP host generation across fresh discovery and approval re
         enabledTools: [TOOL_ID],
         name: SERVER_ID,
         protocol: 'auto',
+        startup: 'automatic',
         transport: 'streamable-http',
         url: 'https://linear.invalid/mcp',
       },
