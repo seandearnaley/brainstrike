@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { McpConfigPanel } from './mcp-config-panel';
+import { McpServerStatusRow } from './mcp-server-status-row';
 import { TokenBudgetSummary } from './token-budget-summary';
 import type { McpConnectionStatus } from './tool-group-accordion';
 import { ToolGroupAccordion } from './tool-group-accordion';
@@ -472,17 +473,10 @@ export function UnifiedToolsSettings({
   const handleControlMcpServer = useCallback(
     async (request: McpHostControlRequest) => {
       if (!operations.controlMcpServer) {
-        return;
+        throw new Error('MCP lifecycle control is unavailable in this runtime.');
       }
-      try {
-        await operations.controlMcpServer(request);
-        await Promise.all([loadMcpData(), refreshTools()]);
-      } catch (cause) {
-        dispatch({
-          error: cause instanceof Error ? cause.message : 'Failed to control MCP server',
-          type: 'SET_ERROR',
-        });
-      }
+      await operations.controlMcpServer(request);
+      await Promise.all([loadMcpData(), refreshTools()]);
     },
     [loadMcpData, operations, refreshTools]
   );
@@ -748,90 +742,6 @@ interface ToolsPanelContentProps {
   tierFilter: ToolLoadingTier | 'all';
   toolGroups: ToolGroup[];
   totalCount: number;
-}
-
-function resolveMcpControlAction(
-  state: McpServerInfo['state']
-): McpHostControlRequest['action'] | undefined {
-  if (state === 'error') {
-    return 'retry';
-  }
-  if (state === 'connecting' || state === 'authorizing') {
-    return 'cancel';
-  }
-  if (state === 'authentication-required' || state === 'disconnected') {
-    return 'connect';
-  }
-  return undefined;
-}
-
-function McpServerStatusRow({
-  controlAvailable,
-  onControl,
-  server,
-}: {
-  controlAvailable: boolean;
-  onControl: (request: McpHostControlRequest) => Promise<void>;
-  server: McpServerInfo;
-}) {
-  const action = controlAvailable ? resolveMcpControlAction(server.state) : undefined;
-  return (
-    <div className="rounded-md border px-3 py-2 text-sm">
-      <div className="flex flex-wrap items-center gap-x-2">
-        <span className="font-medium">{server.configuredServerId}</span>
-        <span className="text-muted-foreground">{server.state}</span>
-        {action && (
-          <Button
-            data-testid={`mcp-${action}-${server.configuredServerId}`}
-            onClick={() =>
-              void onControl({ action, configuredServerId: server.configuredServerId })
-            }
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            {action === 'retry' ? 'Retry' : action === 'cancel' ? 'Cancel' : 'Connect'}
-          </Button>
-        )}
-        <span className="text-muted-foreground">
-          transport {server.transport} · policy {server.configuredProtocol} · generation{' '}
-          {server.generation}
-        </span>
-      </div>
-      {server.state === 'connected' && (
-        <div className="text-muted-foreground text-xs">
-          era {server.negotiated.era} · revision {server.negotiated.revision}
-          {server.negotiated.serverIdentity
-            ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
-            : ''}
-          {` · capabilities: ${
-            server.negotiated.advertisedCapabilityIds?.join(', ') ||
-            (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
-          }`}
-        </div>
-      )}
-      {server.state === 'error' && (
-        <div className="text-destructive text-xs">
-          {server.error.category} · {server.error.code} · {server.error.message}
-        </div>
-      )}
-      {server.diagnostics && server.diagnostics.length > 0 && (
-        <div
-          className="mt-1 whitespace-pre-line text-muted-foreground text-xs"
-          data-testid={`mcp-diagnostics-${server.configuredServerId}`}
-        >
-          {server.diagnostics
-            .map(
-              (diagnostic) =>
-                `${diagnostic.stream} · ${diagnostic.message}${
-                  diagnostic.truncated ? ' · truncated' : ''
-                }`
-            )
-            .join('\n')}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function ToolsPanelContent({
