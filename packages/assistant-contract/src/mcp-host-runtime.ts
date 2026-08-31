@@ -1,12 +1,39 @@
-import { CallToolResultSchema, ListToolsResultSchema } from '@modelcontextprotocol/core';
+import {
+  CallToolResultSchema,
+  CompleteResultSchema,
+  EmptyResultSchema,
+  GetPromptResultSchema,
+  ListPromptsResultSchema,
+  ListResourcesResultSchema,
+  ListResourceTemplatesResultSchema,
+  ListToolsResultSchema,
+  ReadResourceResultSchema,
+} from '@modelcontextprotocol/core';
 import { z } from 'zod';
-import type { McpHostCloseReport, McpHostJsonValue, McpHostOperationResult } from './mcp-host.js';
-import { McpHostErrorSchema } from './mcp-host.js';
+import type {
+  McpHostCatalog,
+  McpHostCatalogErrors,
+  McpHostCloseReport,
+  McpHostJsonValue,
+  McpHostOperationResult,
+} from './mcp-host.js';
+import { MCP_HOST_CATALOG_SECTIONS, McpHostErrorSchema, McpResourceUriSchema } from './mcp-host.js';
 import type { McpNegotiatedStatus } from './mcp-status.js';
 
 const McpHostOperationResultEnvelopeSchema = z.discriminatedUnion('type', [
   z.strictObject({ result: ListToolsResultSchema, type: z.literal('tools/list') }),
   z.strictObject({ result: CallToolResultSchema, type: z.literal('tools/call') }),
+  z.strictObject({ result: ListResourcesResultSchema, type: z.literal('resources/list') }),
+  z.strictObject({
+    result: ListResourceTemplatesResultSchema,
+    type: z.literal('resources/templates/list'),
+  }),
+  z.strictObject({ result: ReadResourceResultSchema, type: z.literal('resources/read') }),
+  z.strictObject({ result: ListPromptsResultSchema, type: z.literal('prompts/list') }),
+  z.strictObject({ result: GetPromptResultSchema, type: z.literal('prompts/get') }),
+  z.strictObject({ result: CompleteResultSchema, type: z.literal('completion/complete') }),
+  z.strictObject({ result: EmptyResultSchema, type: z.literal('resources/subscribe') }),
+  z.strictObject({ result: EmptyResultSchema, type: z.literal('resources/unsubscribe') }),
 ]);
 const McpHostJsonValueSchema: z.ZodType<McpHostJsonValue> = z.json();
 const McpHostCloseCounterSchema = z.number().int().nonnegative().safe();
@@ -19,6 +46,40 @@ const McpHostCloseReportSchema: z.ZodType<McpHostCloseReport> = z.strictObject({
   probesClosed: McpHostCloseCounterSchema,
   requestsSettled: McpHostCloseCounterSchema,
   subscriptionsClosed: McpHostCloseCounterSchema,
+});
+const McpHostServerFeaturesSchema = z.strictObject({
+  completion: z.boolean(),
+  promptListChanged: z.boolean(),
+  prompts: z.boolean(),
+  resourceListChanged: z.boolean(),
+  resourceSubscriptions: z.boolean(),
+  resources: z.boolean(),
+  toolListChanged: z.boolean(),
+  tools: z.boolean(),
+});
+const McpHostSubscriptionFilterSchema = z.strictObject({
+  promptsListChanged: z.boolean().optional(),
+  resourceSubscriptions: z.array(McpResourceUriSchema).optional(),
+  resourcesListChanged: z.boolean().optional(),
+  toolsListChanged: z.boolean().optional(),
+});
+const McpHostSubscriptionStatusSchema = z.strictObject({
+  honoredFilter: McpHostSubscriptionFilterSchema.optional(),
+  mode: z.enum(['legacy-unsolicited', 'modern-listen', 'none']),
+  state: z.enum(['closed', 'listening', 'retrying', 'unsupported']),
+});
+const McpHostCatalogErrorsSchema: z.ZodType<McpHostCatalogErrors> = z.partialRecord(
+  z.enum(MCP_HOST_CATALOG_SECTIONS),
+  McpHostErrorSchema
+);
+const McpHostCatalogSchema = z.strictObject({
+  errors: McpHostCatalogErrorsSchema,
+  features: McpHostServerFeaturesSchema,
+  prompts: ListPromptsResultSchema.optional(),
+  resources: ListResourcesResultSchema.optional(),
+  resourceTemplates: ListResourceTemplatesResultSchema.optional(),
+  subscription: McpHostSubscriptionStatusSchema,
+  tools: ListToolsResultSchema.optional(),
 });
 const McpNegotiatedStatusSchema = z.strictObject({
   advertisedCapabilityIds: z.array(z.string()).optional(),
@@ -100,6 +161,11 @@ function assertStrictJson(
 export function parseMcpHostOperationResult(value: unknown): McpHostOperationResult {
   assertStrictJson(value);
   return McpHostOperationResultEnvelopeSchema.parse(value) as McpHostOperationResult;
+}
+
+export function parseMcpHostCatalog(value: unknown): McpHostCatalog {
+  assertStrictJson(value);
+  return McpHostCatalogSchema.parse(value) as McpHostCatalog;
 }
 
 export function parseMcpHostCloseReport(value: unknown): McpHostCloseReport {
