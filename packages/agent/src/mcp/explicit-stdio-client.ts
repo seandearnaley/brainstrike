@@ -1,4 +1,4 @@
-import { Client, type ClientOptions } from '@modelcontextprotocol/client';
+import { Client, type ClientOptions, type JSONObject } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
   composeMcpTransportCapabilities,
@@ -6,7 +6,10 @@ import {
   type McpClientCapabilityOptions,
   type McpClientCapabilityRuntime,
 } from './client-capabilities';
-import type { McpClientExtensionRegistry } from './client-extension-registry';
+import type {
+  McpClientExtensionRegistry,
+  McpClientExtensionRequestContract,
+} from './client-extension-registry';
 import {
   createMcpResponseCacheStore,
   normalizeMcpCachePartition,
@@ -38,6 +41,7 @@ import type {
   ExplicitHttpMcpTool,
   NegotiatedProtocolFacts,
 } from './explicit-http-client';
+import { installRegisteredExtensionDispatch } from './registered-extension-dispatch';
 import {
   type McpServerFeatureEventDiagnosticSink,
   type McpServerFeatureEventHandlers,
@@ -387,6 +391,30 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     return connection.client.listen(filter, requestOptions);
   }
 
+  async requestExtension<Params extends JSONObject, Result>(
+    contract: McpClientExtensionRequestContract<Params, Result>,
+    params: Params,
+    options?: ExplicitStdioMcpRequestOptions
+  ): Promise<Result> {
+    const registry = this.options.extensionRegistry;
+    if (registry === undefined) {
+      throw new Error(`MCP extension request "${contract.method}" requires an extension registry`);
+    }
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    const prepared = await registry.prepareRequest(
+      contract,
+      params,
+      connection.client.getServerCapabilities()?.extensions,
+      connection.client.getNegotiatedProtocolVersion()
+    );
+    return connection.client.request(
+      { method: prepared.internalMethod, params: prepared.params },
+      prepared.resultSchema,
+      requestOptions
+    );
+  }
+
   watchServerFeatures(handlers: McpServerFeatureEventHandlers): () => void {
     return this.featureEvents.subscribe(handlers);
   }
@@ -542,12 +570,15 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const client = new Client(this.options.clientInfo, clientOptions);
     const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
     this.featureEvents.install(client);
-    const transport = new StdioClientTransport({
-      command: this.options.command,
-      ...(this.options.args ? { args: this.options.args } : {}),
-      ...(this.options.env ? { env: this.options.env } : {}),
-      ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
-    });
+    const transport = installRegisteredExtensionDispatch(
+      new StdioClientTransport({
+        command: this.options.command,
+        ...(this.options.args ? { args: this.options.args } : {}),
+        ...(this.options.env ? { env: this.options.env } : {}),
+        ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
+      }),
+      this.options.extensionRegistry
+    );
     const stderr = transport.stderr;
     const onStderrData = (chunk: unknown) => {
       const text =

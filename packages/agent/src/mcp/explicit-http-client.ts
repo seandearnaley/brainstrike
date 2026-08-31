@@ -3,6 +3,7 @@ import {
   Client,
   type ClientOptions,
   type InputRequiredResult,
+  type JSONObject,
   type McpSubscription,
   type OAuthClientProvider,
   SdkHttpError,
@@ -16,7 +17,10 @@ import {
   type McpClientCapabilityOptions,
   type McpClientCapabilityRuntime,
 } from './client-capabilities';
-import type { McpClientExtensionRegistry } from './client-extension-registry';
+import type {
+  McpClientExtensionRegistry,
+  McpClientExtensionRequestContract,
+} from './client-extension-registry';
 import {
   createMcpResponseCacheStore,
   normalizeMcpCachePartition,
@@ -24,6 +28,10 @@ import {
   normalizeMcpRequestOptions,
 } from './client-policy';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
+import {
+  applyRegisteredExtensionHttpHeaders,
+  installRegisteredExtensionDispatch,
+} from './registered-extension-dispatch';
 import {
   type McpServerFeatureEventDiagnosticSink,
   type McpServerFeatureEventHandlers,
@@ -269,7 +277,8 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 
 function createHeaderPreservingFetch(
   baseFetch: ExplicitHttpMcpFetch,
-  headers: Readonly<Record<string, string>> | undefined
+  headers: Readonly<Record<string, string>> | undefined,
+  extensionRegistry: McpClientExtensionRegistry | undefined
 ): ExplicitHttpMcpFetch {
   validateConfiguredHeaders(headers);
   const callerHeaders = new Headers(headers);
@@ -285,7 +294,10 @@ function createHeaderPreservingFetch(
       }
       mergedHeaders.set(name, value);
     });
-    return baseFetch(url, { ...init, headers: mergedHeaders });
+    return baseFetch(
+      url,
+      applyRegisteredExtensionHttpHeaders({ ...init, headers: mergedHeaders }, extensionRegistry)
+    );
   };
 }
 
@@ -337,7 +349,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
       ? {}
       : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
-    fetch: createHeaderPreservingFetch(baseFetch, options.headers),
+    fetch: createHeaderPreservingFetch(baseFetch, options.headers, options.extensionRegistry),
     inputRequired: capabilityConfiguration.inputRequired,
     lifecycle: validateLifecycle(options.lifecycle, name),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
@@ -522,6 +534,36 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   ): Promise<ExplicitHttpMcpSubscription> {
     const requestOptions = normalizeMcpRequestOptions(options);
     return this.runRequest((client) => client.listen(filter, requestOptions), requestOptions);
+  }
+
+  async requestExtension<Params extends JSONObject, Result>(
+    contract: McpClientExtensionRequestContract<Params, Result>,
+    params: Params,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<Result> {
+    const registry = this.options.extensionRegistry;
+    if (registry === undefined) {
+      throw new Error(`MCP extension request "${contract.method}" requires an extension registry`);
+    }
+    if (this.options.transport !== 'streamable-http') {
+      throw new Error(
+        `MCP extension request "${contract.method}" requires the streamable-http transport`
+      );
+    }
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest(async (client) => {
+      const prepared = await registry.prepareRequest(
+        contract,
+        params,
+        client.getServerCapabilities()?.extensions,
+        client.getNegotiatedProtocolVersion()
+      );
+      return client.request(
+        { method: prepared.internalMethod, params: prepared.params },
+        prepared.resultSchema,
+        requestOptions
+      );
+    }, requestOptions);
   }
 
   watchServerFeatures(handlers: McpServerFeatureEventHandlers): () => void {
@@ -918,16 +960,19 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
           fetch: this.options.fetch,
         });
       case 'streamable-http':
-        return new StreamableHTTPClientTransport(this.options.url, {
-          ...(this.options.authProvider ? { authProvider: this.options.authProvider } : {}),
-          fetch: this.options.fetch,
-          ...(this.options.maxStepUpRetries === undefined
-            ? {}
-            : { maxStepUpRetries: this.options.maxStepUpRetries }),
-          ...(this.options.onInsufficientScope === undefined
-            ? {}
-            : { onInsufficientScope: this.options.onInsufficientScope }),
-        });
+        return installRegisteredExtensionDispatch(
+          new StreamableHTTPClientTransport(this.options.url, {
+            ...(this.options.authProvider ? { authProvider: this.options.authProvider } : {}),
+            fetch: this.options.fetch,
+            ...(this.options.maxStepUpRetries === undefined
+              ? {}
+              : { maxStepUpRetries: this.options.maxStepUpRetries }),
+            ...(this.options.onInsufficientScope === undefined
+              ? {}
+              : { onInsufficientScope: this.options.onInsufficientScope }),
+          }),
+          this.options.extensionRegistry
+        );
       default:
         return unsupportedTransport(this.options.transport);
     }

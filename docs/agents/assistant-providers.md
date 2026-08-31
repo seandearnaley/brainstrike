@@ -1962,6 +1962,22 @@ predicate before the registry will project it. Invalid versions, malformed
 settings, duplicate registrations, and incomplete implementations throw; the
 registry never advertises a partial implementation or silently drops one.
 
+Registered extension requests are a separate closed dispatch surface: the host
+must provide an exact request contract with Standard Schema params/results and
+an explicit compatibility predicate for strictly parsed client/server settings.
+The registry seals immutable settings and method snapshots before a connection
+advertises them; late registration, valid post-connect settings mutation, and
+contract mutation cannot diverge dispatch from advertised capabilities. Active
+core/lifecycle namespaces and notifications are never eligible for the bridge.
+The explicit clients expose this surface only on the exactly negotiated
+`2026-07-28` revision; every other revision and unregistered method fails before
+transport dispatch. The released client SDK still treats historical
+extension methods that collide with retired core vocabulary as core-era methods,
+so Brainstrike routes only registered contracts through a non-colliding internal
+method and rewrites that method on its owned HTTP/stdio transport immediately
+before serialization. This is not an arbitrary custom-method escape hatch and
+does not patch the SDK dependency.
+
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
 | MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Disabled: no `ui://` resource reader, isolated sandbox/CSP/permissions enforcement, or validated app↔host `postMessage` RPC implementation is registered | No |

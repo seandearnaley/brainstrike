@@ -376,6 +376,17 @@ per SDK connection, settle subscribers independently, and report every rejection
 through the configured diagnostic sink. This transport seam does not itself
 claim product support or inject resource or prompt content into model context.
 
+Registered MCP extension requests use the host-owned
+`McpClientExtensionRegistry`: both peers must advertise the exact extension,
+the complete host implementation and strictly compatible client/server settings
+must validate, and params/results cross Standard Schema boundaries. The
+registry seals before connection advertisement, so late registration or mutable
+settings cannot change a live connection's dispatch surface. Only exact
+registered `2026-07-28` contracts outside active core/lifecycle and notification
+namespaces may use the owned transport rewrite from a non-colliding internal SDK
+method to the canonical wire method. Never generalize that bridge into arbitrary
+custom-method dispatch or a core-era bypass.
+
 Tips for MCP integration:
 
 - Keep remote tool processes isolated and sandboxed. Avoid passing  
