@@ -160,21 +160,21 @@ export function createSafeStorageMcpOAuthStore(
     get: (key: string) => unknown;
     set: (key: string, value: unknown) => void;
   };
-  const writes = new Map<string, Promise<void>>();
+  let queueTail: Promise<void> = Promise.resolve();
 
-  function enqueue(key: string, operation: () => Promise<void>): Promise<void> {
-    const next = (writes.get(key) ?? Promise.resolve()).then(operation);
-    writes.set(
-      key,
-      next.catch(() => undefined)
+  function enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
+    const result = queueTail.then(operation);
+    queueTail = result.then(
+      () => undefined,
+      () => undefined
     );
-    return next;
+    return result;
   }
 
   const result: McpOAuthStore = {
     async clear(identity) {
       const key = identityKey(identity);
-      await enqueue(key, async () => {
+      await enqueue(() => {
         const records = (typedStore.get('records') as EncryptedStoreSchema['records']) ?? {};
         if (!Object.hasOwn(records, key)) {
           return;
@@ -185,26 +185,26 @@ export function createSafeStorageMcpOAuthStore(
       });
     },
     async clearAll() {
-      await Promise.all([...writes.values()]);
-      await enqueue('__all__', async () => typedStore.set('records', {}));
+      await enqueue(() => typedStore.set('records', {}));
     },
     async read(identity) {
       const key = identityKey(identity);
-      await writes.get(key);
-      const records = (typedStore.get('records') as EncryptedStoreSchema['records']) ?? {};
-      const encrypted = records[key];
-      if (encrypted === undefined) {
-        return {};
-      }
-      assertSafeStorage(storage);
-      return parseRecords(storage.decryptString(Buffer.from(encrypted, 'base64')));
+      return await enqueue(() => {
+        const records = (typedStore.get('records') as EncryptedStoreSchema['records']) ?? {};
+        const encrypted = records[key];
+        if (encrypted === undefined) {
+          return {};
+        }
+        assertSafeStorage(storage);
+        return parseRecords(storage.decryptString(Buffer.from(encrypted, 'base64')));
+      });
     },
     async write(identity, nextRecords) {
       const key = identityKey(identity);
-      await enqueue(key, async () => {
+      await enqueue(() => {
         assertSafeStorage(storage);
         const records = (typedStore.get('records') as EncryptedStoreSchema['records']) ?? {};
-        const encrypted = Buffer.from(JSON.stringify(nextRecords));
+        const encrypted = storage.encryptString(JSON.stringify(nextRecords));
         const next = { ...records, [key]: encrypted.toString('base64') };
         typedStore.set('records', next);
       });
@@ -375,17 +375,24 @@ export async function createMcpOAuthClientProvider(
   validateClientMetadataUrl(options.clientMetadataUrl);
   const resourceUrl = resourceUrlFromServerUrl(serverUrl).href;
   const identity = { resourceUrl, serverId: options.serverId } as const;
+  const persistedRecords = await options.store.read(identity);
   const callback = await startLoopbackCallback(DEFAULT_CALLBACK_PATH);
-  const records = new Map<string, McpOAuthPersistedState>(
-    Object.entries(await options.store.read(identity))
-  );
+  const records = new Map<string, McpOAuthPersistedState>(Object.entries(persistedRecords));
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
   let authorizationCallback: Promise<URLSearchParams> | undefined;
+  let closePromise: Promise<void> | undefined;
+  let closed = false;
   let generation = 0;
   const tokenGenerations = new Map<string, number>();
   const tokenFlights = new Map<string, Promise<Response>>();
   let writeTail: Promise<void> = Promise.resolve();
+
+  const assertOpen = (): void => {
+    if (closed) {
+      throw new Error('MCP OAuth client provider is closed.');
+    }
+  };
 
   const persist = (): Promise<void> => {
     const next = writeTail.then(async () => {
@@ -431,34 +438,40 @@ export async function createMcpOAuthClientProvider(
   };
 
   const fetchBase = options.fetchFn ?? fetch;
+  const recordTokenGeneration = async (
+    response: Response,
+    requestGeneration: number
+  ): Promise<Response> => {
+    const payload = (await response
+      .clone()
+      .json()
+      .catch(() => undefined)) as unknown;
+    const record = isRecord(payload) ? payload : undefined;
+    if (typeof record?.['access_token'] === 'string') {
+      tokenGenerations.set(record['access_token'], requestGeneration);
+    }
+    return response;
+  };
   const fetchWithTokenFlight: FetchLike = async (input, init) => {
+    assertOpen();
     assertSecureOAuthUrl(input);
     const body = typeof init?.body === 'string' ? init.body : undefined;
     const params = body === undefined ? undefined : new URLSearchParams(body);
-    if (params?.get('grant_type') !== 'refresh_token') {
+    const grantType = params?.get('grant_type');
+    const requestGeneration = generation;
+    if (grantType !== 'authorization_code' && grantType !== 'refresh_token') {
       return await fetchBase(input, init);
+    }
+    if (grantType === 'authorization_code') {
+      return await recordTokenGeneration(await fetchBase(input, init), requestGeneration);
     }
     const url = String(input);
     const requestHeaders = new Headers(init?.headers);
     const key = `${url}\n${body}\n${requestHeaders.get('authorization') ?? ''}`;
     const existing = tokenFlights.get(key);
-    const requestGeneration = generation;
     const flight =
       existing ??
-      fetchBase(input, init).then(async (response) => {
-        const payload = (await response
-          .clone()
-          .json()
-          .catch(() => undefined)) as unknown;
-        const record =
-          typeof payload === 'object' && payload !== null && !Array.isArray(payload)
-            ? (payload as Readonly<Record<string, unknown>>)
-            : undefined;
-        if (typeof record?.['access_token'] === 'string') {
-          tokenGenerations.set(record['access_token'], requestGeneration);
-        }
-        return response;
-      });
+      fetchBase(input, init).then((response) => recordTokenGeneration(response, requestGeneration));
     if (!existing) {
       tokenFlights.set(key, flight);
       void flight.then(
@@ -481,15 +494,28 @@ export async function createMcpOAuthClientProvider(
   };
   // biome-ignore-end lint/style/useNamingConvention: OAuth metadata uses RFC wire names.
 
+  const closeProvider = (): Promise<void> => {
+    if (closePromise) {
+      return closePromise;
+    }
+    closed = true;
+    callback.cancel();
+    closePromise = Promise.all([writeTail, callback.close()]).then(() => {
+      liveProviders.delete(provider);
+    });
+    return closePromise;
+  };
+
   const provider: McpOAuthClientProvider = {
     clientMetadata,
     ...(options.clientMetadataUrl ? { clientMetadataUrl: options.clientMetadataUrl } : {}),
     async cancel() {
       generation += 1;
       tokenGenerations.clear();
-      callback.cancel();
+      await closeProvider();
     },
     async clientInformation(ctx?: OAuthClientInformationContext) {
+      assertOpen();
       if (ctx) {
         currentIssuer = ctx.issuer;
       }
@@ -505,17 +531,17 @@ export async function createMcpOAuthClientProvider(
         (options.preRegisteredClient.issuer === undefined ||
           options.preRegisteredClient.issuer === currentIssuer)
       ) {
-        return options.preRegisteredClient;
+        return options.preRegisteredClient.issuer === undefined && currentIssuer
+          ? { ...options.preRegisteredClient, issuer: currentIssuer }
+          : options.preRegisteredClient;
       }
       return;
     },
     async close() {
-      callback.cancel();
-      await writeTail;
-      await callback.close();
-      liveProviders.delete(provider);
+      await closeProvider();
     },
     async codeVerifier() {
+      assertOpen();
       return (
         currentRecord().codeVerifier ??
         (() => {
@@ -525,13 +551,16 @@ export async function createMcpOAuthClientProvider(
     },
     async disconnect() {
       generation += 1;
+      const closing = closeProvider();
+      tokenFlights.clear();
+      await writeTail;
       records.clear();
       currentIssuer = undefined;
       currentState = undefined;
       authorizationCallback = undefined;
       tokenGenerations.clear();
-      callback.cancel();
       await options.store.clear(identity);
+      await closing;
     },
     async discoveryState() {
       if (currentIssuer !== undefined) {
@@ -544,6 +573,7 @@ export async function createMcpOAuthClientProvider(
     },
     fetch: fetchWithTokenFlight,
     async invalidateCredentials(scope) {
+      assertOpen();
       if (scope === 'all') {
         await provider.disconnect();
         return;
@@ -568,6 +598,7 @@ export async function createMcpOAuthClientProvider(
       await persist();
     },
     async redirectToAuthorization(authorizationUrl) {
+      assertOpen();
       assertSecureOAuthUrl(authorizationUrl);
       const state = authorizationUrl.searchParams.get('state');
       if (!state || state !== currentState) {
@@ -585,6 +616,7 @@ export async function createMcpOAuthClientProvider(
         : (records.get(currentIssuer)?.resourceUrl ?? resourceUrl);
     },
     async saveClientInformation(info, ctx) {
+      assertOpen();
       currentIssuer = ctx?.issuer ?? info.issuer;
       if (currentIssuer === undefined) {
         throw new Error('MCP OAuth client information has no issuer.');
@@ -593,19 +625,23 @@ export async function createMcpOAuthClientProvider(
       await persist();
     },
     async saveCodeVerifier(value) {
+      assertOpen();
       replaceCurrentRecord({ codeVerifier: value });
       await persistCurrentRecord();
     },
     async saveDiscoveryState(state) {
+      assertOpen();
       currentIssuer = state.authorizationServerMetadata?.issuer ?? state.authorizationServerUrl;
       replaceCurrentRecord({ discoveryState: state });
       await persist();
     },
     async saveResourceUrl(value) {
+      assertOpen();
       replaceCurrentRecord({ resourceUrl: value });
       await persistCurrentRecord();
     },
     async saveTokens(tokens, ctx) {
+      assertOpen();
       currentIssuer = ctx?.issuer ?? tokens.issuer;
       if (currentIssuer === undefined) {
         throw new Error('MCP OAuth tokens have no issuer.');
@@ -618,6 +654,7 @@ export async function createMcpOAuthClientProvider(
       await persist();
     },
     state() {
+      assertOpen();
       currentState = randomBytes(32).toString('base64url');
       return currentState;
     },

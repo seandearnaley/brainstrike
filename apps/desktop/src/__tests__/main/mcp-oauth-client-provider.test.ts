@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
@@ -33,9 +33,13 @@ describe('MCP OAuth credential boundary', () => {
         }
       },
     };
+    const encryptString = vi.fn((value: string) =>
+      Buffer.from(`cipher:${Buffer.from(value, 'utf8').toString('base64')}`, 'utf8')
+    );
     const safeStorage = {
-      decryptString: (value: Buffer) => value.toString('utf8'),
-      encryptString: (value: string) => Buffer.from(value, 'utf8'),
+      decryptString: (value: Buffer) =>
+        Buffer.from(value.toString('utf8').replace(/^cipher:/u, ''), 'base64').toString('utf8'),
+      encryptString,
       getSelectedStorageBackend: () => 'keychain',
       isEncryptionAvailable: () => true,
     };
@@ -51,6 +55,7 @@ describe('MCP OAuth credential boundary', () => {
       },
     };
     await store.write(identity, persisted);
+    expect(encryptString).toHaveBeenCalledWith(JSON.stringify(persisted));
     expect(JSON.stringify(Object.fromEntries(values))).not.toContain('access-secret');
     expect(JSON.stringify(Object.fromEntries(values))).not.toContain('refresh-secret');
     await expect(store.read(identity)).resolves.toEqual(persisted);
@@ -91,6 +96,28 @@ describe('MCP OAuth credential boundary', () => {
     await provider.disconnect();
     await expect(provider.tokens({ issuer: 'https://auth.example.test' })).resolves.toBeUndefined();
     await expect(store.read(identity)).resolves.toEqual({});
+  });
+
+  it('makes cancellation terminal, closes the callback listener, and rejects stale credential saves', async () => {
+    provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    const callbackUrl = provider.redirectUrl;
+    await provider.cancel();
+
+    await expect(fetch(callbackUrl)).rejects.toThrow();
+    if (!provider.saveTokens) {
+      throw new Error('OAuth provider did not expose token persistence.');
+    }
+    await expect(
+      provider.saveTokens(
+        { access_token: 'stale-token', token_type: 'Bearer' },
+        { issuer: 'https://auth.example.test' }
+      )
+    ).rejects.toThrow('provider is closed');
   });
 
   it('partitions persisted state by configured server and canonical resource', async () => {
