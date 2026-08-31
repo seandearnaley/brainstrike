@@ -187,7 +187,11 @@ vi.mock('electron', () => ({
 }));
 
 import { loadToolPreferences, mcpToolRegistry } from '@brainstrike/agent';
-import { registerMcpIpcHandlers } from '../../ipc-mcp';
+import {
+  registerMcpIpcHandlers,
+  resetMcpRuntimeForFactoryReset,
+  resumeMcpRuntimeAfterFactoryReset,
+} from '../../ipc-mcp';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
 const authority = createMcpAuthorityTestRuntime(async (serverId) => {
@@ -225,7 +229,8 @@ describe('ipc-mcp tool preference loading', () => {
     vi.clearAllMocks();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await resumeMcpRuntimeAfterFactoryReset(authority.runtime);
     callOrder.length = 0;
   });
 
@@ -364,5 +369,32 @@ describe('ipc-mcp tool preference loading', () => {
     expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1);
     expect(mcpToolRegistry.disableTools).toHaveBeenCalledWith(['mock-server.tool.disable']);
     expect(mcpToolRegistry.enableTools).toHaveBeenCalledWith(['mock-server.tool.enable']);
+  });
+
+  it('fences preference persistence before factory reset purges the runtime', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    const preferenceWrite = Promise.withResolvers<void>();
+    saveToolPreferencesMock.mockReturnValueOnce(preferenceWrite.promise);
+    const registration = ipcHandleMock.mock.calls.find(
+      ([channel]) => channel === 'mcp:tools:disable'
+    );
+    const disable = registration?.[1] as
+      | ((event: unknown, toolIds: string[]) => Promise<void>)
+      | undefined;
+    if (!disable) {
+      throw new Error('tools:disable handler not registered');
+    }
+
+    const mutation = disable({}, ['mock-server.tool.disable']);
+    await vi.waitFor(() => expect(saveToolPreferencesMock).toHaveBeenCalledOnce());
+    const reset = resetMcpRuntimeForFactoryReset(authority.runtime);
+    await Promise.resolve();
+    expect(disposeClientsMock).not.toHaveBeenCalled();
+
+    preferenceWrite.resolve();
+    await mutation;
+    await reset;
+    expect(disposeClientsMock).toHaveBeenCalledOnce();
   });
 });
