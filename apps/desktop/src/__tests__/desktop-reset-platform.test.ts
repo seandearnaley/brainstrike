@@ -122,12 +122,14 @@ describe('createDesktopFactoryResetHandler', () => {
     const error = new Error('llm host refused to stop');
     resetDesktopApplicationDataMock.mockRejectedValueOnce(error);
     const logger = { error: vi.fn() };
+    const resumeAfterReset = vi.fn(async () => undefined);
 
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
       logger,
       resetLocalDatabase: vi.fn(async () => undefined),
+      resumeAfterReset,
       runtimes: [{ name: 'llm-host', stop: vi.fn(async () => undefined) }],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
         await work();
@@ -141,6 +143,87 @@ describe('createDesktopFactoryResetHandler', () => {
       success: false,
     });
     expect(logger.error).toHaveBeenCalledWith('Failed to reset desktop application data:', error);
+    expect(resumeAfterReset).toHaveBeenCalledOnce();
+  });
+
+  it('resumes MCP only after the enclosing data purge completes', async () => {
+    const purge = Promise.withResolvers<void>();
+    resetDesktopApplicationDataMock.mockImplementationOnce(async () => {
+      await purge.promise;
+      return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
+    });
+    const resumeAfterReset = vi.fn(async () => undefined);
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      logger: { error: vi.fn() },
+      resetLocalDatabase: vi.fn(async () => undefined),
+      resumeAfterReset,
+      runtimes: [],
+      runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
+    });
+
+    const result = handleReset();
+    await vi.waitFor(() => expect(resetDesktopApplicationDataMock).toHaveBeenCalledOnce());
+    expect(resumeAfterReset).not.toHaveBeenCalled();
+    purge.resolve();
+    await expect(result).resolves.toEqual({ success: true });
+    expect(resumeAfterReset).toHaveBeenCalledOnce();
+  });
+
+  it('coalesces overlapping reset requests through one purge and one resume', async () => {
+    const purge = Promise.withResolvers<void>();
+    resetDesktopApplicationDataMock.mockImplementationOnce(async () => {
+      await purge.promise;
+      return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
+    });
+    const resumeAfterReset = vi.fn(async () => undefined);
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      logger: { error: vi.fn() },
+      resetLocalDatabase: vi.fn(async () => undefined),
+      resumeAfterReset,
+      runtimes: [],
+      runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
+    });
+
+    const first = handleReset();
+    const second = handleReset();
+    await vi.waitFor(() => expect(resetDesktopApplicationDataMock).toHaveBeenCalledOnce());
+    purge.resolve();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { success: true },
+      { success: true },
+    ]);
+    expect(resumeAfterReset).toHaveBeenCalledOnce();
+  });
+
+  it('preserves reset and resume failure messages together', async () => {
+    resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('purge failed'));
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      logger: { error: vi.fn() },
+      resetLocalDatabase: vi.fn(async () => undefined),
+      resumeAfterReset: vi.fn(async () => {
+        throw new Error('watcher failed');
+      }),
+      runtimes: [],
+      runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
+    });
+
+    await expect(handleReset()).resolves.toEqual({
+      message: 'purge failed; reset runtime resume failed: watcher failed',
+      success: false,
+    });
   });
 
   it('attempts every runtime stop before reporting shutdown failures', async () => {
