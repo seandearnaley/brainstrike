@@ -2,6 +2,7 @@ import * as shared from './embedding-worker-renderer.shared';
 import { expect, test } from './embedding-worker-renderer.shared';
 
 const {
+  AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR,
   DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT,
   ERROR_LOCATOR,
   assertToolsPanelResponsive,
@@ -9,6 +10,7 @@ const {
   countRecordsContainingText,
   createLargeBackfillFixture,
   createTestBackfillJob,
+  ensureEmbeddingHostStarted,
   getEmbeddingHostPage,
   getEmbeddingHostStatus,
   getEmbeddingQueueStats,
@@ -22,10 +24,11 @@ const {
   waitForAppReadyInTest,
   waitForBackfillButtonEnabled,
   waitForBoundedBackfillEnqueueOrFatalError,
+  withTemporaryProcessEnv,
 } = shared;
 
 test.describe('Embedding Host Renderer - smoke', () => {
-  test('@desktop-runtime-hosts @desktop-embedding-lifecycle defers hidden embedding host startup until first use', async ({
+  test('@desktop-runtime-hosts @desktop-embedding-lifecycle @desktop-embedding-webgpu-configured defers hidden embedding host startup until first use when WebGPU is configured', async ({
     electron,
   }) => {
     const context = await electron.restart();
@@ -37,52 +40,13 @@ test.describe('Embedding Host Renderer - smoke', () => {
       return;
     }
 
-    const initialStatus = await window.evaluate(async () => {
-      const api = (
-        globalThis as unknown as Window & {
-          embeddingHost?: {
-            getStatus?: () => Promise<{
-              active: boolean;
-              lastError: string | null;
-              runtimeId: string;
-              runtimeKind: 'embedding-host';
-              state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-            }>;
-          };
-        }
-      ).embeddingHost;
-
-      if (!api?.getStatus) {
-        throw new Error('Embedding host bridge is not available');
-      }
-
-      return api.getStatus();
-    });
+    const initialStatus = await getEmbeddingHostStatus(window);
 
     expect(initialStatus.state).toBe('stopped');
     expect(initialStatus.lastError).toBeNull();
 
-    const status = await window.evaluate(async () => {
-      const api = (
-        globalThis as unknown as Window & {
-          embeddingHost?: {
-            ensureStarted?: () => Promise<{
-              active: boolean;
-              lastError: string | null;
-              runtimeId: string;
-              runtimeKind: 'embedding-host';
-              state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-            }>;
-          };
-        }
-      ).embeddingHost;
-
-      if (!api?.ensureStarted) {
-        throw new Error('Embedding host bridge is not available');
-      }
-
-      return api.ensureStarted();
-    });
+    await setVectorDevicePreference(window, 'webgpu');
+    const status = await ensureEmbeddingHostStarted(window);
 
     expect(status.state).toBe('running');
     expect(status.lastError).toBeNull();
@@ -116,6 +80,38 @@ test.describe('Embedding Host Renderer - smoke', () => {
     expect(
       hostLogs.some((record) => recordContainsText(record, 'Workerpool embedding task failed'))
     ).toBe(false);
+  });
+
+  test('@desktop-embedding-webgpu-unsupported surfaces unavailable automatic WebGPU selection exactly', async ({
+    electron,
+  }) => {
+    const restoreEnv = withTemporaryProcessEnv({
+      BRAINSTRIKE_E2E_ALLOW_GPU: undefined,
+      CI: 'true',
+      ELECTRON_DISABLE_GPU: '1',
+    });
+    try {
+      const context = await electron.restart();
+      const window = context.window;
+      await waitForAppReadyInTest(window);
+
+      if (await isDatabaseError(window)) {
+        await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
+        return;
+      }
+
+      const initialStatus = await getEmbeddingHostStatus(window);
+      expect(initialStatus.state).toBe('stopped');
+      expect(initialStatus.lastError).toBeNull();
+
+      const status = await ensureEmbeddingHostStarted(window);
+      expect(status.active).toBe(false);
+      expect(status.state).toBe('error');
+      expect(status.lastError).toBe(AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR);
+    } finally {
+      restoreEnv();
+      await electron.restart();
+    }
   });
 
   test('@desktop-embedding-lifecycle keeps the visible UI responsive while jobs are queued for the hidden host', async ({
