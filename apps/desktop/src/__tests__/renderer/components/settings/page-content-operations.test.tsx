@@ -68,7 +68,11 @@ interface CapturedToolsOperations {
   resetMcpConfig: () => Promise<void>;
   resetTools: () => Promise<void>;
   setMcpConfigPath?: (configPath: string | null) => Promise<void>;
+  subscribeMcpConfig: (
+    listener: (config: { error?: string; exists: boolean; path: string }) => void
+  ) => () => void;
   subscribeMcpServerStatus?: (listener: (event: McpHostWatchEvent) => void) => () => void;
+  subscribeMcpTools: (listener: () => void) => () => void;
   writeMcpConfigText?: (
     content: string
   ) => Promise<{ error?: string; path: string; success: boolean }>;
@@ -288,6 +292,10 @@ interface DesktopTestWindow {
     onServerStatusUpdated?: (
       listener: (snapshot: McpHostSnapshot) => void
     ) => (() => void) | undefined;
+    onConfigUpdated?: (
+      listener: (config: { error?: string; exists: boolean; path: string }) => void
+    ) => (() => void) | undefined;
+    onToolsUpdated?: (listener: (tools: unknown) => void) => (() => void) | undefined;
     readConfigText?: () => Promise<{ content: string; path: string } | null>;
     resetTools?: () => Promise<void>;
     selectPath?: () => Promise<string | null>;
@@ -333,7 +341,9 @@ describe('desktop SettingsPageContent tool operations', () => {
           },
         ],
       })),
+      onConfigUpdated: vi.fn(() => vi.fn()),
       onServerStatusUpdated: vi.fn(() => vi.fn()),
+      onToolsUpdated: vi.fn(() => vi.fn()),
       readConfigText: vi.fn(async () => ({ content: '{}', path: '/tmp/mcp.json' })),
       resetTools: vi.fn(async () => {}),
       selectPath: vi.fn(async () => '/tmp/selected.json'),
@@ -451,9 +461,50 @@ describe('desktop SettingsPageContent tool operations', () => {
     if (!subscribeMcpServerStatus) {
       throw new Error('Expected MCP status subscription to be available');
     }
+    const onServerStatusUpdated = mcp.onServerStatusUpdated;
+    if (!onServerStatusUpdated) {
+      throw new Error('Expected MCP status bridge subscription to be available');
+    }
+    const statusDisposer = vi.fn();
+    vi.mocked(onServerStatusUpdated).mockReturnValueOnce(statusDisposer);
     const unsubscribe = subscribeMcpServerStatus(listener);
-    expect(mcp.onServerStatusUpdated).toHaveBeenCalledWith(listener);
+    expect(onServerStatusUpdated).toHaveBeenCalledWith(listener);
+    const forwardedStatusListener = vi.mocked(onServerStatusUpdated).mock.calls[0]?.[0];
+    forwardedStatusListener?.(hostSnapshot);
+    expect(listener).toHaveBeenCalledWith(hostSnapshot);
     unsubscribe();
+    expect(statusDisposer).toHaveBeenCalledOnce();
+
+    const configListener = vi.fn();
+    const onConfigUpdated = mcp.onConfigUpdated;
+    if (!onConfigUpdated) {
+      throw new Error('Expected MCP config bridge subscription to be available');
+    }
+    const configDisposer = vi.fn();
+    vi.mocked(onConfigUpdated).mockReturnValueOnce(configDisposer);
+    const unsubscribeConfig = capturedOperations.subscribeMcpConfig(configListener);
+    expect(onConfigUpdated).toHaveBeenCalledWith(configListener);
+    const forwardedConfigListener = vi.mocked(onConfigUpdated).mock.calls[0]?.[0];
+    const configUpdate = { exists: false, path: '/tmp/new-mcp.json' };
+    forwardedConfigListener?.(configUpdate);
+    expect(configListener).toHaveBeenCalledWith(configUpdate);
+    unsubscribeConfig();
+    expect(configDisposer).toHaveBeenCalledOnce();
+
+    const toolsListener = vi.fn();
+    const onToolsUpdated = mcp.onToolsUpdated;
+    if (!onToolsUpdated) {
+      throw new Error('Expected MCP tools bridge subscription to be available');
+    }
+    const toolsDisposer = vi.fn();
+    vi.mocked(onToolsUpdated).mockReturnValueOnce(toolsDisposer);
+    const unsubscribeTools = capturedOperations.subscribeMcpTools(toolsListener);
+    expect(onToolsUpdated).toHaveBeenCalledWith(expect.any(Function));
+    const forwardedToolsListener = vi.mocked(onToolsUpdated).mock.calls[0]?.[0];
+    forwardedToolsListener?.(undefined);
+    expect(toolsListener).toHaveBeenCalledOnce();
+    unsubscribeTools();
+    expect(toolsDisposer).toHaveBeenCalledOnce();
 
     Reflect.deleteProperty(mcp, 'getServerStatusSnapshot');
     await expect(capturedOperations.getMcpServerStatus()).rejects.toThrow(

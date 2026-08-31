@@ -141,10 +141,15 @@ function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction): Tools
     case 'SET_ERROR':
       return { ...state, error: action.error };
     case 'RESET':
+      // Error-boundary retries reset view/loading state, not accepted MCP authority.
+      // The singleton host revision fence and matching config projection survive.
       return {
         ...initialToolsDataState,
         errorBoundaryKey: state.errorBoundaryKey,
         loading: action.loading,
+        mcpConfigInfo: state.mcpConfigInfo,
+        mcpRevision: state.mcpRevision,
+        mcpServers: state.mcpServers,
       };
     case 'INCREMENT_BOUNDARY_KEY':
       return { ...state, errorBoundaryKey: state.errorBoundaryKey + 1 };
@@ -220,7 +225,30 @@ function useToolsDataManager({
   operations,
   statsRef,
 }: UseToolsDataManagerParams) {
+  const mcpConfigEpochRef = useRef(0);
+  const subscribeMcpConfig = operations.subscribeMcpConfig;
   const subscribeMcpServerStatus = operations.subscribeMcpServerStatus;
+  const subscribeMcpTools = operations.subscribeMcpTools;
+  const clearMcpError = useCallback(() => {
+    if (!lastMcpErrorRef.current) {
+      return;
+    }
+    lastMcpErrorRef.current = null;
+    dispatch({ error: null, type: 'SET_ERROR' });
+  }, [dispatch, lastMcpErrorRef]);
+  const applyMcpConfigInfo = useCallback(
+    (configInfo: McpConfigInfo | null) => {
+      dispatch({ info: configInfo, type: 'SET_MCP_CONFIG_INFO' });
+      const configError = configInfo?.error;
+      if (configError) {
+        lastMcpErrorRef.current = configError;
+        dispatch({ error: configError, type: 'SET_ERROR' });
+      } else {
+        clearMcpError();
+      }
+    },
+    [clearMcpError, dispatch, lastMcpErrorRef]
+  );
   const fetchAndApplyTools = useCallback(async () => {
     try {
       const [toolsData, stats] = await Promise.all([operations.getTools(), operations.getStats()]);
@@ -246,6 +274,7 @@ function useToolsDataManager({
       return;
     }
     await Promise.resolve();
+    const configEpoch = mcpConfigEpochRef.current;
     try {
       if (operations.getMcpServerStatus) {
         const snapshot = await operations.getMcpServerStatus();
@@ -253,26 +282,21 @@ function useToolsDataManager({
       }
       if (operations.getMcpConfigInfo) {
         const configInfo = await operations.getMcpConfigInfo();
-        dispatch({ info: configInfo, type: 'SET_MCP_CONFIG_INFO' });
-        if (configInfo) {
-          const configError = configInfo.error;
-          if (configError) {
-            lastMcpErrorRef.current = configError;
-            dispatch({ error: configError, type: 'SET_ERROR' });
-            return;
-          }
+        if (configEpoch === mcpConfigEpochRef.current) {
+          applyMcpConfigInfo(configInfo);
         }
-      }
-      if (lastMcpErrorRef.current) {
-        lastMcpErrorRef.current = null;
-        dispatch({ error: null, type: 'SET_ERROR' });
+      } else if (configEpoch === mcpConfigEpochRef.current) {
+        clearMcpError();
       }
     } catch (err) {
+      if (configEpoch !== mcpConfigEpochRef.current) {
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Failed to load MCP tools';
       lastMcpErrorRef.current = message;
       dispatch({ error: message, type: 'SET_ERROR' });
     }
-  }, [operations, mcpAvailable, dispatch, lastMcpErrorRef]);
+  }, [applyMcpConfigInfo, clearMcpError, operations, mcpAvailable, dispatch, lastMcpErrorRef]);
 
   useEffect(() => {
     if (liveQueryEnabled) {
@@ -316,6 +340,25 @@ function useToolsDataManager({
     }
     await loadToolsData();
   }, [liveQueryEnabled, liveQuery, loadToolsData, dispatch]);
+
+  useEffect(() => {
+    if (!(mcpAvailable && subscribeMcpConfig)) {
+      return;
+    }
+    return subscribeMcpConfig((info) => {
+      mcpConfigEpochRef.current += 1;
+      applyMcpConfigInfo(info);
+    });
+  }, [applyMcpConfigInfo, mcpAvailable, subscribeMcpConfig]);
+
+  useEffect(() => {
+    if (!(mcpAvailable && subscribeMcpTools)) {
+      return;
+    }
+    return subscribeMcpTools(() => {
+      void refreshTools();
+    });
+  }, [mcpAvailable, refreshTools, subscribeMcpTools]);
 
   const handleMcpConfigUpdated = useCallback(async () => {
     await loadMcpData();
@@ -495,8 +538,8 @@ export function UnifiedToolsSettings({
   }, [mcpServers]);
 
   const getServerStatus = useCallback(
-    (serverName: string): McpConnectionStatus =>
-      serverStatusMap.get(serverName)?.status ?? 'disconnected',
+    (serverName: string): McpConnectionStatus | undefined =>
+      serverStatusMap.get(serverName)?.status,
     [serverStatusMap]
   );
 
@@ -658,7 +701,7 @@ interface ToolsPanelContentProps {
   errorBoundaryKey: number;
   expandedToolId: string | null;
   getServerError: (serverName: string) => string | undefined;
-  getServerStatus: (serverName: string) => McpConnectionStatus;
+  getServerStatus: (serverName: string) => McpConnectionStatus | undefined;
   hasTools: boolean;
   loading: boolean;
   mcpConfigInfo: McpConfigInfo | null;
@@ -898,7 +941,7 @@ interface ToolsAccordionListProps {
   errorBoundaryKey: number;
   expandedToolId: string | null;
   getServerError: (serverName: string) => string | undefined;
-  getServerStatus: (serverName: string) => McpConnectionStatus;
+  getServerStatus: (serverName: string) => McpConnectionStatus | undefined;
   onDisableGroup: (group: ToolGroup) => void;
   onEnableGroup: (group: ToolGroup) => void;
   onErrorBoundaryReset: () => void;
@@ -934,11 +977,12 @@ function ToolsAccordionList({
         <Accordion defaultValue={defaultExpandedGroups} type="multiple">
           {toolGroups.map((group) => {
             const serverName = group.source === 'mcp' ? group.serverName : undefined;
+            const connectionStatus = serverName ? getServerStatus(serverName) : undefined;
             const mcpProps =
               serverName === undefined
                 ? {}
                 : {
-                    connectionStatus: getServerStatus(serverName),
+                    ...(connectionStatus ? { connectionStatus } : {}),
                     errorMessage: getServerError(serverName),
                     ...(operations.openMcpConfig && {
                       onOpenConfigFile: () => operations.openMcpConfig?.(),
