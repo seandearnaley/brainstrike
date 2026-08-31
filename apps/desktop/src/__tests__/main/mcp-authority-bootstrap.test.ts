@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { loadToolPreferences, mcpToolRegistry } from '@brainstrike/agent';
 import {
   type McpHostCloseReport,
@@ -17,6 +15,7 @@ import {
   resumeMcpRuntimeAfterFactoryReset,
 } from '../../ipc-mcp';
 import type { LoadedMcpConfig, ResolvedMcpConfig } from '../../mcp-loader';
+import { readMainSourceSections } from './main-source-test-helpers';
 
 const mocks = vi.hoisted(() => ({
   disposeClients: vi.fn(async () => undefined),
@@ -111,6 +110,7 @@ describe('MCP desktop authority bootstrap', () => {
   let handlers: Map<string, RegisteredHandler>;
   let sentEvents: Array<{ channel: string; payload: unknown }>;
   let watchCallback: WatchCallback | undefined;
+  let watcherCloses: ReturnType<typeof vi.fn>[];
 
   const closeReport: McpHostCloseReport = {
     callbacksClosed: 0,
@@ -135,12 +135,13 @@ describe('MCP desktop authority bootstrap', () => {
     replaceResolvedConfig: mocks.replaceResolvedConfig,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mcpToolRegistry.clear();
     handlers = new Map();
     sentEvents = [];
     watchCallback = undefined;
+    watcherCloses = [];
     vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
       {
         isDestroyed: () => false,
@@ -173,13 +174,15 @@ describe('MCP desktop authority bootstrap', () => {
     mocks.getClient.mockReturnValue({ listTools: mocks.legacyListTools });
     mocks.watchMcpConfig.mockImplementation(async (callback: WatchCallback) => {
       watchCallback = callback;
-      return { close: vi.fn() };
+      const close = vi.fn();
+      watcherCloses.push(close);
+      return { close };
     });
+    await resumeMcpRuntimeAfterFactoryReset(runtime);
   });
 
   afterEach(async () => {
     await resetMcpRuntimeForFactoryReset(runtime);
-    await resumeMcpRuntimeAfterFactoryReset(runtime);
     mcpToolRegistry.clear();
   });
 
@@ -190,7 +193,7 @@ describe('MCP desktop authority bootstrap', () => {
   }
 
   it('injects the ready-scoped singleton runtime into MCP IPC', () => {
-    const source = readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
+    const { source } = readMainSourceSections();
     const readyStart = source.indexOf('app.whenReady()');
 
     expect(readyStart).toBeGreaterThanOrEqual(0);
@@ -376,7 +379,7 @@ describe('MCP desktop authority bootstrap', () => {
     await vi.waitFor(() => expect(mocks.setCustomMcpConfigPath).toHaveBeenCalledOnce());
     const replacementsBeforeReset = mocks.replaceResolvedConfig.mock.calls.length;
     const reset = resetMcpRuntimeForFactoryReset(runtime);
-    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
     expect(mocks.replaceResolvedConfig).toHaveBeenCalledTimes(replacementsBeforeReset);
 
     pathMutation.resolve();
@@ -385,9 +388,14 @@ describe('MCP desktop authority bootstrap', () => {
     expect(mocks.replaceResolvedConfig).toHaveBeenLastCalledWith({ servers: [] });
 
     const watcherBeforeResume = watchCallback;
+    const watchCallsBeforeResume = mocks.watchMcpConfig.mock.calls.length;
     await resumeMcpRuntimeAfterFactoryReset(runtime);
-    expect(mocks.watchMcpConfig).toHaveBeenCalledTimes(3);
+    expect(mocks.watchMcpConfig).toHaveBeenCalledTimes(watchCallsBeforeResume + 1);
     expect(watchCallback).not.toBe(watcherBeforeResume);
+    for (const retiredWatcherClose of watcherCloses.slice(0, watchCallsBeforeResume)) {
+      expect(retiredWatcherClose).toHaveBeenCalledOnce();
+    }
+    expect(watcherCloses.at(-1)).not.toHaveBeenCalled();
   });
 
   it('restores prior authority and projections before failed-reset admission reopens', async () => {
@@ -447,15 +455,25 @@ describe('MCP desktop authority bootstrap', () => {
     await expect(handlers.get('mcp:config:unwatch')?.()).resolves.toEqual({ watching: false });
   });
 
-  it('pins mutation-sensitive shutdown ordering, reset wiring, and aggregate serialization', () => {
-    const source = readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
-    const assistantDrain = source.indexOf("runShutdownStep('assistant-server'");
-    const mcpClose = source.indexOf("runShutdownStep('mcp-runtime'");
+  it('pins bounded shutdown ordering and renderer-ready reset wiring', () => {
+    const { assistantShutdownBlock: shutdownBlock, source } = readMainSourceSections();
+    const assistantDrain = shutdownBlock.indexOf("runShutdownStep('assistant-server'");
+    const settlement = shutdownBlock.indexOf('await Promise.allSettled([');
+    const mcpClose = shutdownBlock.indexOf("runShutdownStep('mcp-runtime'");
+    const orderingGuard = shutdownBlock.indexOf('if (!assistantServerDrained)');
     expect(assistantDrain).toBeGreaterThanOrEqual(0);
+    expect(settlement).toBeGreaterThan(assistantDrain);
+    expect(shutdownBlock).toContain('Promise.resolve().then(() => stopServer?.())');
     expect(mcpClose).toBeGreaterThan(assistantDrain);
-    expect(source).toContain('if (!assistantServerDrained)');
-    expect(source).toContain("from './desktop-error-serialization'");
-    expect(source).toContain('Promise.resolve().then(() => stopServer?.())');
-    expect(source).toMatch(/resumeAfterReset:[\s\S]*resumeMcpRuntimeAfterFactoryReset/);
+    expect(orderingGuard).toBeGreaterThan(mcpClose);
+
+    const resetStart = source.indexOf('const handleResetLocal = createDesktopFactoryResetHandler');
+    const resetEnd = source.indexOf('desktopDatabaseMaintenanceScheduler =', resetStart);
+    const resetBlock = source.slice(resetStart, resetEnd);
+    expect(resetStart).toBeGreaterThanOrEqual(0);
+    expect(resetEnd).toBeGreaterThan(resetStart);
+    expect(resetBlock).toContain('completeSuccessfulReset');
+    expect(resetBlock).toContain('completeFactoryResetRendererReplacement');
+    expect(resetBlock).toContain('resumeMcpRuntimeAfterFactoryReset');
   });
 });
