@@ -74,7 +74,9 @@ test('scheduled embedding smoke distinguishes configured WebGPU from unavailable
   assert.match(runStep?.run ?? '', /--grep="@desktop-embedding-"/);
   assert.match(embeddingSmoke, /@desktop-embedding-webgpu-configured/);
   assert.match(embeddingSmoke, /@desktop-embedding-webgpu-unsupported/);
-  assert.match(embeddingSmoke, /withTemporaryProcessEnv\(\{ CI: 'true' \}\)/);
+  assert.match(embeddingSmoke, /BRAINSTRIKE_E2E_ALLOW_GPU:\s*undefined/);
+  assert.match(embeddingSmoke, /CI:\s*'true'/);
+  assert.match(embeddingSmoke, /ELECTRON_DISABLE_GPU:\s*'1'/);
   assert.match(
     embeddingFixture,
     /Workspace Index requires WebGPU for automatic local embedding execution\./

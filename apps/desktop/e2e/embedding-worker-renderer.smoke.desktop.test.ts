@@ -85,7 +85,11 @@ test.describe('Embedding Host Renderer - smoke', () => {
   test('@desktop-embedding-webgpu-unsupported surfaces unavailable automatic WebGPU selection exactly', async ({
     electron,
   }) => {
-    const restoreEnv = withTemporaryProcessEnv({ CI: 'true' });
+    const restoreEnv = withTemporaryProcessEnv({
+      BRAINSTRIKE_E2E_ALLOW_GPU: undefined,
+      CI: 'true',
+      ELECTRON_DISABLE_GPU: '1',
+    });
     try {
       const context = await electron.restart();
       const window = context.window;
@@ -106,6 +110,7 @@ test.describe('Embedding Host Renderer - smoke', () => {
       expect(status.lastError).toBe(AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR);
     } finally {
       restoreEnv();
+      await electron.restart();
     }
   });
 
