@@ -14,9 +14,11 @@ import {
   parseMcpHostOperationResult,
   parseMcpNegotiatedStatus,
 } from '@brainstrike/assistant-contract/mcp-host-runtime';
+
+type McpServerActorInvokeOptions = McpHostInvokeOptions & { signal: AbortSignal };
 export interface McpServerActorClient {
   close(): McpHostCloseReport | Promise<McpHostCloseReport>;
-  invoke(operation: McpHostOperation, options: { signal: AbortSignal }): Promise<unknown>;
+  invoke(operation: McpHostOperation, options: McpServerActorInvokeOptions): Promise<unknown>;
   readonly negotiated: McpNegotiatedStatus;
 }
 export class McpServerActorClientCleanupError extends AggregateError {
@@ -33,6 +35,7 @@ export type McpServerActorClientFactory = (
 ) => McpServerActorClient | Promise<McpServerActorClient>;
 interface McpServerActorOptions extends Pick<ClientContext, 'configuredServerId' | 'generation'> {
   configuredProtocol: '2026-07-28' | 'auto' | 'legacy';
+  enabledTools?: readonly string[];
   factory: McpServerActorClientFactory;
   /**
    * Main-process-only diagnostic sink. The cause is RAW and UNSANITIZED and may
@@ -142,7 +145,9 @@ export class McpServerActor {
     const signal = options?.signal
       ? AbortSignal.any([this.generationAbort.signal, options.signal])
       : this.generationAbort.signal;
-    const work = Promise.resolve().then(() => this.runAccepted(operation, signal, options?.signal));
+    const work = Promise.resolve().then(() =>
+      this.runAccepted(operation, signal, options?.signal, options)
+    );
     const lease = settleOnAbort(work, signal);
     this.inFlight.add(work);
     const remove = () => this.inFlight.delete(work);
@@ -153,6 +158,7 @@ export class McpServerActor {
     return structuredClone({
       configuredProtocol: this.options.configuredProtocol,
       configuredServerId: this.options.configuredServerId,
+      ...(this.options.enabledTools ? { enabledTools: this.options.enabledTools } : {}),
       generation: this.options.generation,
       ...this.status,
       transport: this.options.transport,
@@ -231,7 +237,8 @@ export class McpServerActor {
   private async runAccepted(
     operation: McpHostOperation,
     signal: AbortSignal,
-    callerSignal?: AbortSignal
+    callerSignal?: AbortSignal,
+    hostOptions?: McpHostInvokeOptions
   ): Promise<McpHostOperationResult> {
     const client = await this.getClient();
     this.throwIfAborted(callerSignal);
@@ -240,7 +247,7 @@ export class McpServerActor {
     }
     let result: unknown;
     try {
-      result = await client.invoke(operation, { signal });
+      result = await client.invoke(operation, { ...hostOptions, signal });
     } catch (cause) {
       this.throwIfAborted(callerSignal);
       const error = new ActorError('transport', 'mcp-transport-operation-failed');

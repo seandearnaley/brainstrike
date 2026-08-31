@@ -132,6 +132,7 @@ async function connectClient(
       return successfulCloseReport(server.transport, requestsSettled);
     },
     async invoke(operation, options) {
+      const onProgress = options.onProgress;
       try {
         if (operation.type === 'tools/list') {
           return await client.listTools({ signal: options.signal }, listToolsParams(operation));
@@ -143,7 +144,11 @@ async function connectClient(
             name: operation.toolName,
             ...(operation.task ? { task: operation.task } : {}),
           },
-          { resetTimeoutOnProgress: true, signal: options.signal }
+          {
+            ...(onProgress ? { onprogress: onProgress } : {}),
+            resetTimeoutOnProgress: true,
+            signal: options.signal,
+          }
         );
       } finally {
         requestsSettled += 1;
@@ -191,6 +196,7 @@ export class DesktopMcpHostRuntime {
         return new McpServerActor({
           configuredProtocol: input.config.configuredProtocol,
           configuredServerId: input.config.configuredServerId,
+          ...(input.config.enabledTools ? { enabledTools: input.config.enabledTools } : {}),
           factory: (context) => this.createActorClient(server, context),
           generation: input.generation,
           onInternalError: (code, cause) => this.reportInternalError(code, cause),

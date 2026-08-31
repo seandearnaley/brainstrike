@@ -30,7 +30,6 @@ export interface CollectCombinedToolsOptions {
   toolNameMap: Map<string, string>;
 }
 
-type McpServerConfig = NonNullable<McpConfig['servers']>[number];
 type McpToolsets = Record<string, ToolsInput>;
 
 export async function collectCombinedTools({
@@ -44,11 +43,11 @@ export async function collectCombinedTools({
 }: CollectCombinedToolsOptions): Promise<ToolsInput> {
   const combined: ToolsInput = sanitizedLocalTools ? { ...sanitizedLocalTools } : {};
 
-  if (!(mcpClient && mcpConfig)) {
+  if (!mcpClient) {
     return combined;
   }
 
-  const serverList = mcpConfig.servers ?? [];
+  const serverList = mcpConfig ? mcpConfig.servers : mcpClient.configuredServers;
   const namedServers = serverList.filter((server) => server?.name);
   if (namedServers.length === 0) {
     return combined;
@@ -277,8 +276,13 @@ function namespaceServerTools(serverName: string, serverTools: ToolsInput): Tool
   );
 }
 
+interface McpServerToolFilter {
+  enabledTools?: string[] | undefined;
+  name: string;
+}
+
 function filterEnabledServerTools(
-  server: McpServerConfig,
+  server: McpServerToolFilter,
   serverTools: ToolsInput,
   toolNameMap: Map<string, string>
 ): ToolsInput | undefined {
@@ -306,7 +310,7 @@ function filterEnabledServerTools(
 }
 
 function getRegistryCandidateToolIds(
-  server: McpServerConfig,
+  server: McpServerToolFilter,
   sanitizedToolId: string,
   toolNameMap: ReadonlyMap<string, string>
 ): string[] {

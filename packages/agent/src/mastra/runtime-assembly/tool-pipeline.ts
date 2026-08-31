@@ -12,6 +12,8 @@
  * `prepareHostedToolDiscovery` owns the discovery + model-projection phase and
  * runs after the caller has resolved the language model.
  */
+
+import type { McpHostPort } from '@brainstrike/assistant-contract';
 import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
 import {
   findProviderDefinition,
@@ -403,6 +405,7 @@ export interface RuntimeToolMapParams {
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
   localTools: ToolsInput | undefined;
   mcpConfig: McpConfig | undefined;
+  mcpHost: McpHostPort | undefined;
   mcpTimeoutMs: number | undefined;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
   planModeActive: boolean;
@@ -436,9 +439,9 @@ export interface RuntimeToolMapResult {
 export async function composeRuntimeToolMap(
   params: RuntimeToolMapParams
 ): Promise<RuntimeToolMapResult> {
-  const mcpClient = await createMcpRuntimeClient({
-    config: params.mcpConfig,
-  });
+  const mcpClient = await createMcpRuntimeClient(
+    params.mcpHost ? { config: undefined, host: params.mcpHost } : { config: params.mcpConfig }
+  );
 
   // Agent Skills (desktop-injected engine): fold Mastra's canonical
   // skill/skill_read/skill_search tools into the LOCAL tool map BEFORE
@@ -459,7 +462,9 @@ export async function composeRuntimeToolMap(
   const combinedTools = await collectCombinedTools({
     durableArtifactSettlement: Boolean(params.toolOutputArtifactStore),
     mcpClient,
-    mcpConfig: params.mcpConfig,
+    // The injected host snapshot is the sole server/configuration authority.
+    // Legacy serialized config is only meaningful on the no-host path above.
+    mcpConfig: params.mcpHost ? undefined : params.mcpConfig,
     sanitizedLocalTools,
     scaledDefaultTokens: params.resolvedToolResultBudget.transportResultTokens,
     timeoutOverrideMs: params.mcpTimeoutMs,
