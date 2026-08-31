@@ -227,4 +227,17 @@ describe('ExplicitHttpMcpClient validation', () => {
     expect(invalidate.call(client, connection)).toBe(false);
     expect(client.getConnectionGeneration()).toBe(8);
   });
+
+  it('rejects configured authorization headers beside a host-owned auth provider', () => {
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          authProvider: { token: async () => 'host-owned-token' },
+          headers: { Authorization: 'Bearer configured-token' },
+          name: 'conflicting-auth-canary',
+          transport: 'streamable-http',
+          url: 'https://example.test/mcp',
+        })
+    ).toThrow('must not combine configured Authorization headers with authProvider');
+  });
 });

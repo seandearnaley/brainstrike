@@ -99,6 +99,16 @@ const ProtocolPolicySchema = {
 };
 const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
 
+const McpCredentialReferenceSchema = z.strictObject({
+  id: z.uuid(),
+  store: z.literal('mcp-credentials'),
+});
+const McpAuthSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('none') }),
+  z.strictObject({ credential: McpCredentialReferenceSchema, type: z.literal('bearer') }),
+  z.strictObject({ type: z.literal('oauth-user') }),
+]);
+
 const StdioServerSchema = z.strictObject({
   args: z.array(SpawnStringSchema).optional(),
   command: NonEmptySpawnStringSchema,
@@ -111,6 +121,7 @@ const StdioServerSchema = z.strictObject({
 });
 
 const HttpServerSchema = z.strictObject({
+  auth: McpAuthSchema.optional(),
   enabledTools: z.array(z.string()).optional(),
   headers: HeadersSchema.optional(),
   name: ServerNameSchema,
@@ -148,6 +159,18 @@ const McpServerInputSchema = z
         code: 'custom',
         message: 'user-paced stdio authorization requires protocol "legacy"',
         path: ['protocol'],
+      });
+    }
+    if (
+      server.transport !== 'stdio' &&
+      server.auth !== undefined &&
+      server.auth.type !== 'none' &&
+      Object.keys(server.headers ?? {}).some((name) => name.toLowerCase() === 'authorization')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'auth mode must not be combined with an Authorization header',
+        path: ['auth'],
       });
     }
   });

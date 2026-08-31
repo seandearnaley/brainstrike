@@ -1,7 +1,9 @@
 import {
+  type AuthProvider,
   Client,
   type ClientOptions,
   type InputRequiredResult,
+  type OAuthClientProvider,
   SdkHttpError,
   SSEClientTransport,
   StreamableHTTPClientTransport,
@@ -68,6 +70,7 @@ export interface NegotiatedProtocolFacts {
 }
 
 export interface ExplicitHttpMcpClientOptions {
+  authProvider?: AuthProvider | OAuthClientProvider;
   cachePartition?: ClientOptions['cachePartition'];
   clientInfo?: {
     name: string;
@@ -80,10 +83,13 @@ export interface ExplicitHttpMcpClientOptions {
   inputRequired?: ClientOptions['inputRequired'];
   lifecycle?: ExplicitHttpMcpLifecycle;
   listMaxPages?: ClientOptions['listMaxPages'];
+  maxStepUpRetries?: number;
   name: string;
+  onInsufficientScope?: 'reauthorize' | 'throw';
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol?: McpProtocol;
   responseCacheStore?: ClientOptions['responseCacheStore'];
+  skipIssuerMetadataValidation?: boolean;
   transport: ExplicitHttpMcpTransport;
   url: string | URL;
 }
@@ -98,6 +104,7 @@ interface ActiveConnection {
 }
 
 interface NormalizedClientOptions {
+  authProvider?: AuthProvider | OAuthClientProvider;
   cachePartition?: ClientOptions['cachePartition'];
   clientInfo: {
     name: string;
@@ -109,9 +116,12 @@ interface NormalizedClientOptions {
   inputRequired?: ClientOptions['inputRequired'];
   lifecycle: ExplicitHttpMcpLifecycle;
   listMaxPages: number;
+  maxStepUpRetries?: number;
+  onInsufficientScope?: 'reauthorize' | 'throw';
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
+  skipIssuerMetadataValidation?: boolean;
   transport: ExplicitHttpMcpTransport;
   url: URL;
 }
@@ -157,6 +167,10 @@ function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | u
       throw new Error(`Configured MCP header "${name}" is protocol-owned`);
     }
   }
+}
+
+function hasAuthorizationHeader(headers: Readonly<Record<string, string>> | undefined): boolean {
+  return Object.keys(headers ?? {}).some((name) => name.toLowerCase() === 'authorization');
 }
 
 function isReconnectableSessionError(error: unknown, hadSession: boolean): boolean {
@@ -228,7 +242,13 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     options.cachePartition,
     options.responseCacheStore !== undefined
   );
+  if (options.authProvider && hasAuthorizationHeader(options.headers)) {
+    throw new Error(
+      `MCP client "${name}" must not combine configured Authorization headers with authProvider`
+    );
+  }
   return {
+    ...(options.authProvider ? { authProvider: options.authProvider } : {}),
     ...(cachePartition === undefined ? {} : { cachePartition }),
     clientInfo: { ...clientInfo },
     ...(options.defaultCacheTtlMs === undefined
@@ -239,9 +259,18 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
     lifecycle: validateLifecycle(options.lifecycle, name),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
+    ...(options.maxStepUpRetries === undefined
+      ? {}
+      : { maxStepUpRetries: options.maxStepUpRetries }),
     ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
+    ...(options.onInsufficientScope === undefined
+      ? {}
+      : { onInsufficientScope: options.onInsufficientScope }),
     protocol,
     responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
+    ...(options.skipIssuerMetadataValidation === undefined
+      ? {}
+      : { skipIssuerMetadataValidation: options.skipIssuerMetadataValidation }),
     transport: options.transport,
     url,
   };
@@ -640,10 +669,23 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private createTransport(): ExplicitHttpTransport {
     switch (this.options.transport) {
       case 'sse':
-        return new SSEClientTransport(this.options.url, { fetch: this.options.fetch });
+        return new SSEClientTransport(this.options.url, {
+          ...(this.options.authProvider ? { authProvider: this.options.authProvider } : {}),
+          fetch: this.options.fetch,
+        });
       case 'streamable-http':
         return new StreamableHTTPClientTransport(this.options.url, {
+          ...(this.options.authProvider ? { authProvider: this.options.authProvider } : {}),
           fetch: this.options.fetch,
+          ...(this.options.maxStepUpRetries === undefined
+            ? {}
+            : { maxStepUpRetries: this.options.maxStepUpRetries }),
+          ...(this.options.onInsufficientScope === undefined
+            ? {}
+            : { onInsufficientScope: this.options.onInsufficientScope }),
+          ...(this.options.skipIssuerMetadataValidation === undefined
+            ? {}
+            : { skipIssuerMetadataValidation: this.options.skipIssuerMetadataValidation }),
         });
       default:
         return unsupportedTransport(this.options.transport);
