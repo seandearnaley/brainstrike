@@ -29,6 +29,7 @@ import {
   expectLeadingContextBreakdown,
   expectMastraAgentError,
   mastraInstances,
+  mcpHost,
   mcpInstances,
   resetMastraStreamHarness,
   setMcpToolsets,
@@ -2106,6 +2107,7 @@ describe('mastra streaming integration', () => {
           },
         ],
       },
+      mcpHost,
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
         'local tool': {
@@ -2211,6 +2213,7 @@ describe('mastra streaming integration', () => {
         mcpConfig: {
           servers: [{ command: 'echo', name: 'search', transport: 'stdio' }],
         },
+        mcpHost,
         runtime: { apiKey: 'key', provider: 'openai' },
       })
     ).rejects.toMatchObject({
@@ -2341,6 +2344,7 @@ describe('mastra streaming integration', () => {
           },
         ],
       },
+      mcpHost,
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
         'brainstrike.listEmbeddingSpaces': {

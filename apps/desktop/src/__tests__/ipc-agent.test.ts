@@ -394,9 +394,9 @@ describe('registerAgentIpcHandlers', () => {
       await chatHandler({} as IpcMainInvokeEvent, messages, runtime);
 
       expect(mockStreamMastraAgent).toHaveBeenCalledWith(messages, {
+        mcpHost: expect.any(Object),
         runtime: {
           apiKey: 'secret-key',
-          mcpConfig,
           mcpEnabled: false,
           model: 'claude-sonnet-4-6',
           projectId: 'proj-123',
@@ -405,7 +405,7 @@ describe('registerAgentIpcHandlers', () => {
       });
     });
 
-    it('passes filesystem MCP config through to the agent runtime', async () => {
+    it('passes the desktop MCP host through to the agent runtime', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
           async next() {
@@ -440,12 +440,13 @@ describe('registerAgentIpcHandlers', () => {
       expect(mockStreamMastraAgent).toHaveBeenCalledWith(
         messages,
         expect.objectContaining({
-          runtime: expect.objectContaining({ mcpConfig: rawConfig }),
+          mcpHost: expect.any(Object),
+          runtime: expect.not.objectContaining({ mcpConfig: expect.anything() }),
         })
       );
     });
 
-    it('ignores runtime-supplied MCP config and uses the loaded desktop config', async () => {
+    it('ignores runtime-supplied MCP config and uses the desktop host', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
           async next() {
@@ -483,10 +484,11 @@ describe('registerAgentIpcHandlers', () => {
       expect(mockStreamMastraAgent).toHaveBeenCalledTimes(1);
       const [, options] = mockStreamMastraAgent.mock.calls[0] as [
         unknown,
-        { runtime: Record<string, unknown> },
+        { mcpHost?: unknown; runtime: Record<string, unknown> },
       ];
       expect(options.runtime['provider']).toBe('openai');
-      expect(options.runtime['mcpConfig']).toEqual(rawConfig);
+      expect(options.runtime['mcpConfig']).toBeUndefined();
+      expect(options.mcpHost).toEqual(expect.any(Object));
     });
 
     it('throws when provider is missing or unsupported', async () => {
