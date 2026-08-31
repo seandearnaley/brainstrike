@@ -26,6 +26,8 @@ import {
   type AssistantTaskItemInput,
   assignTaskIds,
   type ManageTaskListResult,
+  type McpHostPort,
+  parseConfiguredMcpServerId,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
@@ -37,6 +39,8 @@ import type { Transport } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
+import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import {
   type AgentHookRunner,
   HOOK_RESULT_ENVELOPE_FIELD,
@@ -85,6 +89,126 @@ const MCP_STDIO_TEXT_RAW_ONLY_TAIL = 'mcp-stdio-multimodal-raw-only-tail';
 const MIXED_MEDIA_STDIO_SERVER_PATH = fileURLToPath(
   new URL('./fixtures/mcp-mixed-media-stdio-server.mjs', import.meta.url)
 );
+
+// This fixture verifies real SDK transport traffic, not DesktopMcpHostRuntime's
+// actor accounting. Its host close report is therefore deliberately inert;
+// dedicated host-runtime tests own the authoritative counters.
+const INERT_MCP_HOST_CLOSE_REPORT = {
+  callbacksClosed: 0,
+  childProcessesClosed: 0,
+  clientsClosed: 1,
+  failures: [],
+  loopbackPortsClosed: 0,
+  probesClosed: 0,
+  requestsSettled: 0,
+  subscriptionsClosed: 0,
+} as const;
+
+function createRealTransportMcpHost(
+  server:
+    | { name: string; transport: 'streamable-http'; url: string }
+    | {
+        args: readonly string[];
+        command: string;
+        env: Record<string, string>;
+        name: string;
+        transport: 'stdio';
+      }
+): McpHostPort {
+  const configuredServerId = parseConfiguredMcpServerId(server.name);
+  const client =
+    server.transport === 'stdio'
+      ? new ExplicitStdioMcpClient({
+          args: server.args,
+          command: server.command,
+          env: server.env,
+          name: server.name,
+        })
+      : new ExplicitHttpMcpClient({
+          name: server.name,
+          transport: server.transport,
+          url: server.url,
+        });
+  // Deliberately inert: tool routing consumes only identity/generation here.
+  // Live connection-state projection is covered by the host-runtime suite.
+  const snapshot = {
+    revision: 1,
+    servers: [
+      {
+        configuredProtocol: 'legacy' as const,
+        configuredServerId,
+        generation: 1,
+        state: 'disconnected' as const,
+        transport: server.transport,
+      },
+    ],
+  };
+
+  return {
+    async close() {
+      await client.close();
+      return INERT_MCP_HOST_CLOSE_REPORT;
+    },
+    async invoke(operation, options) {
+      if (operation.configuredServerId !== configuredServerId) {
+        throw new Error(`Unexpected MCP server id: ${operation.configuredServerId}`);
+      }
+      const requestOptions = {
+        ...(options?.onProgress ? { onprogress: options.onProgress } : {}),
+        ...(options?.signal ? { signal: options.signal } : {}),
+      };
+      if (operation.type === 'tools/list') {
+        return {
+          result: await client.listTools(
+            requestOptions,
+            operation.cursor ? { cursor: operation.cursor } : undefined
+          ),
+          type: operation.type,
+        };
+      }
+      return {
+        result: await client.callTool(
+          {
+            ...(operation._meta ? { _meta: operation._meta } : {}),
+            ...(operation.arguments ? { arguments: operation.arguments } : {}),
+            ...(operation.task ? { task: operation.task } : {}),
+            name: operation.toolName,
+          },
+          requestOptions
+        ),
+        type: operation.type,
+      };
+    },
+    replaceConfig: async () => {
+      throw new Error('Test MCP host config is immutable');
+    },
+    snapshot: () => snapshot,
+    watch: () => () => undefined,
+  };
+}
+
+async function closeHttpMcpFixture(
+  mcpHost: Pick<McpHostPort, 'close'>,
+  server: { close(): Promise<void> }
+): Promise<void> {
+  const failures: unknown[] = [];
+  try {
+    await mcpHost.close();
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    await server.close();
+  } catch (error) {
+    failures.push(error);
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'MCP HTTP fixture cleanup failed');
+  }
+}
 
 /**
  * A scripted LanguageModelV2: first turn emits a single tool call; once the
@@ -840,6 +964,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
     const server = await startStreamableMcpServer();
+    const mcpHost = createRealTransportMcpHost({
+      name: 'remote',
+      transport: 'streamable-http',
+      url: server.url,
+    });
     modelHolder.current = createScriptedToolCallModel({
       discover: true,
       finalText: 'The remote server echoed hello.',
@@ -853,15 +982,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       const iterator = await streamMastraAgent(
         [{ id: 'u-remote', parts: [{ text: 'echo remotely', type: 'text' }], role: 'user' }],
         {
-          mcpConfig: {
-            servers: [
-              {
-                name: 'remote',
-                transport: 'streamable-http',
-                url: server.url,
-              },
-            ],
-          },
+          mcpHost,
           runtime: { apiKey: 'test-key', provider: 'openai' },
         }
       );
@@ -869,7 +990,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         chunks.push(chunk);
       }
     } finally {
-      await server.close();
+      await closeHttpMcpFixture(mcpHost, server);
     }
 
     expect(server.executions).toEqual(['hello']);
@@ -905,6 +1026,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
   it('preserves MCP image and audio as model-native media while bounding companion text', async () => {
     const server = await startStreamableMcpServer();
+    const mcpHost = createRealTransportMcpHost({
+      name: 'remote',
+      transport: 'streamable-http',
+      url: server.url,
+    });
     let modelFacingToolOutput: unknown;
     modelHolder.current = createScriptedToolCallModel({
       discover: true,
@@ -928,15 +1054,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
           },
         ],
         {
-          mcpConfig: {
-            servers: [
-              {
-                name: 'remote',
-                transport: 'streamable-http',
-                url: server.url,
-              },
-            ],
-          },
+          mcpHost,
           runtime: { apiKey: 'test-key', provider: 'openai' },
         }
       );
@@ -944,7 +1062,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         // Consuming the real stream drives the remote tool and second model step.
       }
     } finally {
-      await server.close();
+      await closeHttpMcpFixture(mcpHost, server);
     }
 
     expect(server.executions).toEqual(['multimodal']);
@@ -990,31 +1108,33 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       toolName: 'stdio_multimodal',
     });
 
-    const iterator = await streamMastraAgent(
-      [
+    const stdioServer = {
+      args: [MIXED_MEDIA_STDIO_SERVER_PATH],
+      command: process.execPath,
+      env: {},
+      name: 'stdio',
+      transport: 'stdio' as const,
+    };
+    const mcpHost = createRealTransportMcpHost(stdioServer);
+    try {
+      const iterator = await streamMastraAgent(
+        [
+          {
+            id: 'u-stdio-multimodal',
+            parts: [{ text: 'return stdio media', type: 'text' }],
+            role: 'user',
+          },
+        ],
         {
-          id: 'u-stdio-multimodal',
-          parts: [{ text: 'return stdio media', type: 'text' }],
-          role: 'user',
-        },
-      ],
-      {
-        mcpConfig: {
-          servers: [
-            {
-              args: [MIXED_MEDIA_STDIO_SERVER_PATH],
-              command: process.execPath,
-              env: {},
-              name: 'stdio',
-              transport: 'stdio',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
+          mcpHost,
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        }
+      );
+      for await (const _chunk of iterator) {
+        // Consuming the real stream drives the child-process MCP tool and second model step.
       }
-    );
-    for await (const _chunk of iterator) {
-      // Consuming the real stream drives the child-process MCP tool and second model step.
+    } finally {
+      await mcpHost.close();
     }
 
     expect(modelFacingToolOutput).toMatchObject({ type: 'content' });
@@ -1060,31 +1180,33 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       toolName: 'stdio_structured_only',
     });
 
-    const iterator = await streamMastraAgent(
-      [
+    const stdioServer = {
+      args: [MIXED_MEDIA_STDIO_SERVER_PATH],
+      command: process.execPath,
+      env: {},
+      name: 'stdio',
+      transport: 'stdio' as const,
+    };
+    const mcpHost = createRealTransportMcpHost(stdioServer);
+    try {
+      const iterator = await streamMastraAgent(
+        [
+          {
+            id: 'u-stdio-structured-only',
+            parts: [{ text: 'return structured stdio output', type: 'text' }],
+            role: 'user',
+          },
+        ],
         {
-          id: 'u-stdio-structured-only',
-          parts: [{ text: 'return structured stdio output', type: 'text' }],
-          role: 'user',
-        },
-      ],
-      {
-        mcpConfig: {
-          servers: [
-            {
-              args: [MIXED_MEDIA_STDIO_SERVER_PATH],
-              command: process.execPath,
-              env: {},
-              name: 'stdio',
-              transport: 'stdio',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
+          mcpHost,
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        }
+      );
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
       }
-    );
-    for await (const chunk of iterator) {
-      chunks.push(chunk);
+    } finally {
+      await mcpHost.close();
     }
 
     expect(chunks).toContainEqual(
