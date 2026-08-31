@@ -21,7 +21,6 @@ type WatchCallback = (config: unknown) => Promise<void>;
 interface LoadResult {
   servers?: Array<{ name?: string }>;
 }
-
 function mockWatchImpl(setter: (cb: WatchCallback) => void, ret: { close: () => void }) {
   const mock = watchMcpConfig as unknown as import('vitest').Mock<
     (onChange: WatchCallback) => { close: () => void }
@@ -692,7 +691,7 @@ describe('ipc-mcp handlers', () => {
         throw new Error('config handlers not registered');
       }
 
-      const selected = selectHandler();
+      const selected = selectHandler({ sender: { id: 1 } });
       await vi.waitFor(() => expect(dialog.showOpenDialog).toHaveBeenCalledOnce());
       await expect(getHandler()).resolves.toEqual({
         exists: false,
@@ -713,7 +712,7 @@ describe('ipc-mcp handlers', () => {
       if (!handler) {
         throw new Error('handler not registered');
       }
-      const result = await handler();
+      const result = await handler({ sender: { id: 1 } });
 
       expect(result).toBeNull();
     });
@@ -728,7 +727,7 @@ describe('ipc-mcp handlers', () => {
       if (!handler) {
         throw new Error('handler not registered');
       }
-      const result = await handler();
+      const result = await handler({ sender: { id: 1 } });
 
       expect(result).toBe(path.resolve('/tmp/mcp.json'));
     });
@@ -757,7 +756,9 @@ describe('ipc-mcp handlers', () => {
       if (!handler) {
         throw new Error('handler not registered');
       }
-      await expect(selectHandler()).resolves.toBe(path.resolve('/tmp/new.json'));
+      await expect(selectHandler({ sender: { id: 1 } })).resolves.toBe(
+        path.resolve('/tmp/new.json')
+      );
       const result = await handler({} as never, '/tmp/new.json');
 
       expect(setCustomMcpConfigPath).toHaveBeenCalledWith(path.resolve('/tmp/new.json'));
