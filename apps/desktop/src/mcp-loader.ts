@@ -783,13 +783,16 @@ export interface McpWatcher {
 }
 
 export async function watchMcpConfig(
-  onChange: (config: LoadedMcpConfig) => void
+  onChange: (config: LoadedMcpConfig) => Promise<void> | void
 ): Promise<McpWatcher> {
   const p = await getMcpConfigPath();
   // ensure directory exists to avoid immediate watch errors
   await ensureMcpDirExists();
   const watchedFileName = path.basename(p);
   let timer: NodeJS.Timeout | null = null;
+  let changeEpoch = 0;
+  let closed = false;
+  let callbackTail = Promise.resolve();
   const watcher = fs.watch(path.dirname(p), async (_ev, filename) => {
     if (filename?.toString() !== watchedFileName) {
       return;
@@ -797,9 +800,41 @@ export async function watchMcpConfig(
     if (timer) {
       clearTimeout(timer);
     }
+    const eventEpoch = ++changeEpoch;
     timer = setTimeout(async () => {
-      onChange(await loadMcpConfig());
+      let config: LoadedMcpConfig;
+      try {
+        config = await loadMcpConfig();
+      } catch (error) {
+        logger.error('MCP config watcher reload failed', { error });
+        return;
+      }
+      if (closed || eventEpoch !== changeEpoch) {
+        return;
+      }
+      const callback = callbackTail.then(async () => {
+        if (closed || eventEpoch !== changeEpoch) {
+          return;
+        }
+        await onChange(config);
+      });
+      callbackTail = callback.catch(() => undefined);
+      try {
+        await callback;
+      } catch (error) {
+        logger.error('MCP config watcher callback failed', { error });
+      }
     }, 100);
   });
-  return { close: () => watcher.close() };
+  return {
+    close: () => {
+      closed = true;
+      changeEpoch += 1;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      watcher.close();
+    },
+  };
 }
