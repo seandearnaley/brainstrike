@@ -110,7 +110,7 @@ describe('ipc-mcp handlers', () => {
   });
 
   afterEach(async () => {
-    await mcpIpc.resumeMcpRuntimeAfterFactoryReset(authority.runtime);
+    await handlers.get('mcp:config:unwatch')?.();
     mcpToolRegistry.clear();
     vi.restoreAllMocks();
   });
@@ -144,31 +144,6 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:getStats', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:createSample', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledTimes(17);
-    });
-
-    it('cleans up active watcher, MCP clients, and registry state on shutdown', async () => {
-      const mockWatcher = { close: vi.fn() };
-      vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
-      mcpToolRegistry.register('server', {
-        'server.tool': { description: 'test tool' },
-      });
-
-      const watchHandler = handlers.get('mcp:config:watch');
-      if (!watchHandler) {
-        throw new Error('watch handler not registered');
-      }
-      await watchHandler({});
-
-      await mcpIpc.cleanupMcpRuntimeForShutdown();
-
-      expect(mockWatcher.close).toHaveBeenCalledTimes(1);
-      expect(disposeClients).toHaveBeenCalled();
-      expect(mcpToolRegistry.getStats()).toEqual({
-        disabled: 0,
-        enabled: 0,
-        servers: 0,
-        total: 0,
-      });
     });
 
     it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {

@@ -41,6 +41,14 @@ let mcpLifecycleEpoch = 0;
 let mcpLifecycleOpen = true;
 let latestAuthorityEpoch = 0;
 let latestLoadEpoch = 0;
+let lastCommittedResolvedConfig: NonNullable<LoadedMcpConfig['config']> = { servers: [] };
+interface McpFactoryResetSnapshot {
+  readonly authorityConfig: NonNullable<LoadedMcpConfig['config']>;
+  readonly config: LoadedMcpConfig | null;
+  readonly selectedConfigPath: string | null;
+  readonly tools: ReturnType<typeof mcpToolRegistry.getAllTools>;
+}
+let pendingFactoryResetSnapshot: McpFactoryResetSnapshot | null = null;
 const logger = createLogger('DesktopMcpIpc');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
@@ -133,6 +141,7 @@ async function applyConfigChange(
   const authorityEpoch = ++latestAuthorityEpoch;
   const config = cfg.config ?? { servers: [] };
   const committed = await runtime.replaceResolvedConfig(config);
+  lastCommittedResolvedConfig = structuredClone(config);
   if (mcpLifecycleOpen && lifecycleEpoch === mcpLifecycleEpoch && loadEpoch === latestLoadEpoch) {
     last = cfg;
     notifyMcpConfigUpdated(cfg);
@@ -344,6 +353,49 @@ function purgeMcpRuntimeProjection(): void {
   mcpToolRegistry.clear();
 }
 
+function captureMcpFactoryResetSnapshot(): McpFactoryResetSnapshot {
+  return {
+    authorityConfig: structuredClone(lastCommittedResolvedConfig),
+    config: last === null ? null : structuredClone(last),
+    selectedConfigPath: lastUserSelectedConfigPath,
+    tools: getSerializableTools(),
+  };
+}
+
+async function restoreMcpFactoryResetSnapshot(
+  runtime: McpAuthorityRuntime,
+  snapshot: McpFactoryResetSnapshot
+): Promise<void> {
+  await runtime.replaceResolvedConfig(snapshot.authorityConfig);
+  lastCommittedResolvedConfig = structuredClone(snapshot.authorityConfig);
+  last = snapshot.config;
+  lastUserSelectedConfigPath = snapshot.selectedConfigPath;
+  mcpToolRegistry.clear();
+  const disabledToolIds: string[] = [];
+  for (const [serverName, tools] of Object.entries(snapshot.tools)) {
+    mcpToolRegistry.register(
+      serverName,
+      Object.fromEntries(
+        tools.map((tool) => [
+          tool.id,
+          {
+            ...(tool.description === undefined ? {} : { description: tool.description }),
+            ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
+          },
+        ])
+      )
+    );
+    disabledToolIds.push(...tools.filter((tool) => !tool.enabled).map((tool) => tool.id));
+  }
+  if (disabledToolIds.length > 0) {
+    mcpToolRegistry.disableTools(disabledToolIds);
+  }
+  if (last !== null) {
+    notifyMcpConfigUpdated(last);
+  }
+  notifyMcpToolsUpdated();
+}
+
 function throwMcpCleanupFailures(scope: 'reset' | 'shutdown', failures: unknown[]): void {
   if (failures.length > 0) {
     throw new AggregateError(failures, `MCP runtime ${scope} cleanup failed`);
@@ -355,6 +407,7 @@ export async function cleanupMcpRuntimeForShutdown(
 ): Promise<void> {
   const { failures } = beginMcpRuntimeCleanup();
   await mcpLifecycleBarrier;
+  pendingFactoryResetSnapshot = null;
   purgeMcpRuntimeProjection();
   const [hostClose, legacyClose] = await Promise.allSettled([
     runtime.host.close(),
@@ -376,8 +429,10 @@ export async function resetMcpRuntimeForFactoryReset(
 ): Promise<void> {
   const { failures } = beginMcpRuntimeCleanup();
   await mcpLifecycleBarrier;
+  pendingFactoryResetSnapshot ??= captureMcpFactoryResetSnapshot();
   try {
     await runtime.replaceResolvedConfig({ servers: [] });
+    lastCommittedResolvedConfig = { servers: [] };
   } catch (error) {
     failures.push(error);
   }
@@ -391,15 +446,35 @@ export async function resetMcpRuntimeForFactoryReset(
 }
 
 export async function resumeMcpRuntimeAfterFactoryReset(
-  runtime: McpAuthorityRuntime = getDesktopMcpHostRuntime()
+  runtime: McpAuthorityRuntime = getDesktopMcpHostRuntime(),
+  outcome: 'failed' | 'succeeded' = 'succeeded'
 ): Promise<void> {
   if (mcpLifecycleOpen) {
     return;
   }
-  mcpLifecycleOpen = true;
+  const lifecycleEpoch = mcpLifecycleEpoch;
+  const snapshot = pendingFactoryResetSnapshot;
+  let resumedWatcher: null | (() => void) = null;
   try {
-    await restartConfigWatcher(runtime);
+    if (outcome === 'failed') {
+      if (snapshot === null) {
+        throw new Error('Cannot restore MCP runtime after failed reset without a prior snapshot');
+      }
+      await restoreMcpFactoryResetSnapshot(runtime, snapshot);
+    }
+    const watcher = await watchMcpConfig((config) =>
+      handleConfigChange(runtime, config, lifecycleEpoch)
+    );
+    resumedWatcher = () => watcher.close();
+    if (lifecycleEpoch !== mcpLifecycleEpoch) {
+      throw new Error('MCP runtime resume was retired before admission reopened');
+    }
+    unwatch = resumedWatcher;
+    mcpLifecycleOpen = true;
+    pendingFactoryResetSnapshot = null;
   } catch (error) {
+    resumedWatcher?.();
+    unwatch = null;
     mcpLifecycleOpen = false;
     throw error;
   }
