@@ -111,6 +111,7 @@ describe('stdio client', () => {
     expect(clientConnectMock).toHaveBeenCalledTimes(1);
     expect(clientCtorMock).toHaveBeenCalledWith(expect.anything(), {
       capabilities: {},
+      inputRequired: { autoFulfill: true, maxRounds: 8 },
       listMaxPages: 64,
       responseCacheStore: expect.any(responseCacheStoreCtorMock),
       versionNegotiation: { mode: 'auto' },

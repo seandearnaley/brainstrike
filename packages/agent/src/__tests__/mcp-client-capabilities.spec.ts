@@ -1,6 +1,7 @@
 import { type Client, type ElicitRequest, specTypeSchemas } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  composeMcpTransportCapabilities,
   createMcpClientCapabilityRuntime,
   createMcpElicitationCapability,
   createMcpRootsCapability,
@@ -9,6 +10,39 @@ import {
 } from '../mcp/client-capabilities';
 
 describe('MCP client capabilities', () => {
+  it('composes one shared transport policy without conflating handlers and manual mode', () => {
+    expect(composeMcpTransportCapabilities({})).toMatchObject({
+      inputRequired: { autoFulfill: true, maxRounds: DEFAULT_MCP_INPUT_REQUIRED_MAX_ROUNDS },
+      runtime: { capabilities: {} },
+    });
+    expect(
+      composeMcpTransportCapabilities({
+        clientCapabilities: { roots: { handle: vi.fn(), listChanged: true } },
+        inputRequired: { autoFulfill: false, maxRounds: 3 },
+      })
+    ).toMatchObject({
+      inputRequired: { autoFulfill: false, maxRounds: 3 },
+      runtime: { capabilities: { roots: { listChanged: true } } },
+    });
+  });
+
+  it('reports the exact conflicting or malformed input-required field', () => {
+    expect(() =>
+      composeMcpTransportCapabilities({
+        clientCapabilities: { maxInputRequiredRounds: 2 },
+        inputRequired: { maxRounds: 3 },
+      })
+    ).toThrow('clientCapabilities.maxInputRequiredRounds and inputRequired.maxRounds');
+    expect(() =>
+      composeMcpTransportCapabilities({
+        inputRequired: { autoFulfill: 'yes' as never },
+      })
+    ).toThrow('inputRequired.autoFulfill must be a boolean');
+    expect(() => composeMcpTransportCapabilities({ inputRequired: { maxRounds: 0 } })).toThrow(
+      'inputRequired.maxRounds must be a positive safe integer'
+    );
+  });
+
   it('advertises only complete handlers and keeps deprecated capabilities independently gated', () => {
     expect(
       createMcpClientCapabilityRuntime({

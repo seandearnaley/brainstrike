@@ -52,8 +52,38 @@ const server = new Server(
     name: 'brainstrike-stdio-lifecycle-fixture',
     version: '1.0.0',
   },
-  { capabilities: { tools: {} } }
+  { capabilities: { prompts: {}, resources: {}, tools: {} } }
 );
+
+server.setRequestHandler('prompts/list', async () => {
+  const state = await updateState((current) => ({
+    ...current,
+    listPromptCalls: (current.listPromptCalls ?? 0) + 1,
+  }));
+  return { prompts: [{ name: `prompt-${state.starts}` }] };
+});
+
+server.setRequestHandler('resources/list', async () => {
+  const state = await updateState((current) => ({
+    ...current,
+    listResourceCalls: (current.listResourceCalls ?? 0) + 1,
+  }));
+  return {
+    resources: [{ name: `resource-${state.starts}`, uri: `file:///resource-${state.starts}` }],
+  };
+});
+
+server.setRequestHandler('resources/templates/list', async () => {
+  const state = await updateState((current) => ({
+    ...current,
+    listResourceTemplateCalls: (current.listResourceTemplateCalls ?? 0) + 1,
+  }));
+  return {
+    resourceTemplates: [
+      { name: `template-${state.starts}`, uriTemplate: `file:///template-${state.starts}/{id}` },
+    ],
+  };
+});
 
 server.setRequestHandler('tools/list', async (request) => {
   const state = await updateState((state) => ({

@@ -1,5 +1,11 @@
 import { Client, type ClientOptions } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import {
+  composeMcpTransportCapabilities,
+  type McpClientCapabilityLease,
+  type McpClientCapabilityOptions,
+  type McpClientCapabilityRuntime,
+} from './client-capabilities';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
 import {
   createMcpResponseCacheStore,
@@ -12,6 +18,12 @@ import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpInputRequiredResult,
+  ExplicitHttpMcpListPromptsParams,
+  ExplicitHttpMcpListPromptsResult,
+  ExplicitHttpMcpListResourcesParams,
+  ExplicitHttpMcpListResourcesResult,
+  ExplicitHttpMcpListResourceTemplatesParams,
+  ExplicitHttpMcpListResourceTemplatesResult,
   ExplicitHttpMcpListToolsParams,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
@@ -47,6 +59,7 @@ type ExplicitStdioMcpNormalCallOptions = Omit<
 export interface ExplicitStdioMcpClientOptions {
   args?: readonly string[];
   cachePartition?: ClientOptions['cachePartition'];
+  clientCapabilities?: McpClientCapabilityOptions;
   clientInfo?: {
     name: string;
     version: string;
@@ -55,6 +68,7 @@ export interface ExplicitStdioMcpClientOptions {
   defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   env?: Readonly<Record<string, string>>;
   extensionRegistry?: McpClientExtensionRegistry;
+  inputRequired?: ClientOptions['inputRequired'];
   listMaxPages?: ClientOptions['listMaxPages'];
   name: string;
   onStderr?: (chunk: string) => void;
@@ -65,6 +79,8 @@ export interface ExplicitStdioMcpClientOptions {
 }
 
 interface ActiveConnection {
+  capabilityLease: McpClientCapabilityLease;
+  catalogRefreshes: Set<McpCatalogKind>;
   client: Client;
   disconnected: boolean;
   removeStderrListener(): void;
@@ -74,9 +90,12 @@ interface ActiveConnection {
   transport: StdioClientTransport;
 }
 
+type McpCatalogKind = 'prompts' | 'resource-templates' | 'resources' | 'tools';
+
 interface NormalizedClientOptions {
   args?: string[];
   cachePartition?: ClientOptions['cachePartition'];
+  capabilityRuntime: McpClientCapabilityRuntime;
   clientInfo: {
     name: string;
     version: string;
@@ -85,11 +104,13 @@ interface NormalizedClientOptions {
   defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   env?: Record<string, string>;
   extensionRegistry?: McpClientExtensionRegistry;
+  inputRequired: NonNullable<ClientOptions['inputRequired']>;
   listMaxPages: number;
   onStderr?: (chunk: string) => void;
   onUnexpectedClose?: () => void;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
+  serverName: string;
   userPacedAuth: boolean;
 }
 
@@ -121,7 +142,12 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     options.cachePartition,
     options.responseCacheStore !== undefined
   );
+  const capabilityConfiguration = composeMcpTransportCapabilities({
+    ...(options.clientCapabilities ? { clientCapabilities: options.clientCapabilities } : {}),
+    ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
+  });
   return {
+    capabilityRuntime: capabilityConfiguration.runtime,
     clientInfo: { ...clientInfo },
     ...(cachePartition === undefined ? {} : { cachePartition }),
     command: validateNonEmpty(options.command, 'MCP stdio command'),
@@ -131,11 +157,13 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     ...(options.args ? { args: [...options.args] } : {}),
     ...(options.env ? { env: { ...options.env } } : {}),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
+    inputRequired: capabilityConfiguration.inputRequired,
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
     ...(options.onStderr ? { onStderr: options.onStderr } : {}),
     protocol,
     responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
+    serverName: name,
     userPacedAuth: options.userPacedAuth ?? false,
   };
 }
@@ -192,11 +220,46 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     if (!params) {
       return this.refreshToolMetadata(connection, requestOptions);
     }
-    const result = await connection.client.listTools(params, requestOptions);
+    const result = await connection.client.listTools(
+      params,
+      this.resolveCatalogOptions(connection, 'tools', params, requestOptions)
+    );
     if (params.cursor === undefined) {
+      connection.catalogRefreshes.add('tools');
       this.replaceToolMetadata(connection, result);
     }
     return result;
+  }
+
+  async listPrompts(
+    options?: ExplicitStdioMcpRequestOptions,
+    params?: ExplicitHttpMcpListPromptsParams
+  ): Promise<ExplicitHttpMcpListPromptsResult> {
+    return this.listCatalog('prompts', options, params, (client, requestParams, requestOptions) =>
+      client.listPrompts(requestParams, requestOptions)
+    );
+  }
+
+  async listResources(
+    options?: ExplicitStdioMcpRequestOptions,
+    params?: ExplicitHttpMcpListResourcesParams
+  ): Promise<ExplicitHttpMcpListResourcesResult> {
+    return this.listCatalog('resources', options, params, (client, requestParams, requestOptions) =>
+      client.listResources(requestParams, requestOptions)
+    );
+  }
+
+  async listResourceTemplates(
+    options?: ExplicitStdioMcpRequestOptions,
+    params?: ExplicitHttpMcpListResourceTemplatesParams
+  ): Promise<ExplicitHttpMcpListResourceTemplatesResult> {
+    return this.listCatalog(
+      'resource-templates',
+      options,
+      params,
+      (client, requestParams, requestOptions) =>
+        client.listResourceTemplates(requestParams, requestOptions)
+    );
   }
 
   async callTool(
@@ -225,6 +288,13 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     return connection.client.callTool(params, requestOptions);
   }
 
+  async sendRootsListChanged(options?: ExplicitStdioMcpRequestOptions): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    requestOptions.signal?.throwIfAborted();
+    await connection.client.sendRootsListChanged();
+  }
+
   close(): Promise<void> {
     if (this.closePromise) {
       return this.closePromise;
@@ -248,11 +318,8 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     this.connectPromise = undefined;
 
     const results = await Promise.allSettled(
-      [...connections].flatMap(({ client, transport }) => [transport.close(), client.close()])
+      [...connections].map((connection) => this.closeConnection(connection))
     );
-    for (const connection of connections) {
-      connection.removeStderrListener();
-    }
     await connectionSettled;
     const errors = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []
@@ -314,6 +381,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     let connected = false;
     try {
       await connection.client.connect(connection.transport, options);
+      await this.options.capabilityRuntime.afterConnect(connection.client, options?.signal);
       connected = true;
       if (this.closed) {
         throw closedClientError();
@@ -324,17 +392,46 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       return connection;
     } catch (error) {
       if (!connected) {
-        await connection.client.close().catch(() => undefined);
-        connection.removeStderrListener();
+        try {
+          await this.closeConnection(connection);
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            'Opening and cleaning up an MCP stdio connection both failed'
+          );
+        }
       }
       throw error;
     }
   }
 
+  private async closeConnection(connection: ActiveConnection): Promise<void> {
+    const results = await Promise.allSettled([
+      connection.capabilityLease.close(),
+      connection.transport.close(),
+      connection.client.close(),
+    ]);
+    connection.removeStderrListener();
+    const errors = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (errors.length === 1) {
+      throw errors[0];
+    }
+    if (errors.length > 1) {
+      throw new AggregateError(errors, 'Closing one MCP stdio connection failed');
+    }
+  }
+
   private createConnection(): ActiveConnection {
     const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
+    const capabilities = {
+      ...this.options.capabilityRuntime.capabilities,
+      ...(extensions ? { extensions } : {}),
+    };
     const clientOptions: ClientOptions = {
-      capabilities: extensions ? { extensions } : {},
+      capabilities,
+      inputRequired: this.options.inputRequired,
       listMaxPages: this.options.listMaxPages,
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
       ...(this.options.cachePartition === undefined
@@ -346,6 +443,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       responseCacheStore: this.options.responseCacheStore,
     };
     const client = new Client(this.options.clientInfo, clientOptions);
+    const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
     const transport = new StdioClientTransport({
       command: this.options.command,
       ...(this.options.args ? { args: this.options.args } : {}),
@@ -369,6 +467,8 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       stderr.on('data', onStderrData);
     }
     const connection: ActiveConnection = {
+      capabilityLease,
+      catalogRefreshes: new Set(),
       client,
       disconnected: false,
       removeStderrListener: () => stderr?.off('data', onStderrData),
@@ -403,6 +503,41 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     }
   }
 
+  private async listCatalog<Params extends { cursor?: string | undefined }, Result>(
+    kind: Exclude<McpCatalogKind, 'tools'>,
+    options: ExplicitStdioMcpRequestOptions | undefined,
+    params: Params | undefined,
+    request: (
+      client: Client,
+      params: Params | undefined,
+      options: NonNullable<Parameters<Client['listTools']>[1]>
+    ) => Promise<Result>
+  ): Promise<Result> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    const result = await request(
+      connection.client,
+      params,
+      this.resolveCatalogOptions(connection, kind, params, requestOptions)
+    );
+    if (params?.cursor === undefined) {
+      connection.catalogRefreshes.add(kind);
+    }
+    return result;
+  }
+
+  private resolveCatalogOptions(
+    connection: ActiveConnection,
+    kind: McpCatalogKind,
+    params: { cursor?: string | undefined } | undefined,
+    options: ExplicitStdioMcpRequestOptions | undefined
+  ): NonNullable<Parameters<Client['listTools']>[1]> {
+    if (params?.cursor !== undefined || connection.catalogRefreshes.has(kind)) {
+      return options ?? {};
+    }
+    return { ...(options ?? {}), cacheMode: 'refresh' };
+  }
+
   private refreshToolMetadata(
     connection: ActiveConnection,
     options?: ExplicitStdioMcpRequestOptions
@@ -410,8 +545,12 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     if (connection.toolMetadataRequest) {
       return connection.toolMetadataRequest;
     }
-    const request = connection.client.listTools(undefined, options);
+    const request = connection.client.listTools(
+      undefined,
+      this.resolveCatalogOptions(connection, 'tools', undefined, options)
+    );
     const metadataRequest = request.then((result) => {
+      connection.catalogRefreshes.add('tools');
       this.replaceToolMetadata(connection, result);
       return result;
     });

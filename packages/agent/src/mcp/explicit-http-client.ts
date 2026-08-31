@@ -8,6 +8,12 @@ import {
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+import {
+  composeMcpTransportCapabilities,
+  type McpClientCapabilityLease,
+  type McpClientCapabilityOptions,
+  type McpClientCapabilityRuntime,
+} from './client-capabilities';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
 import {
   createMcpResponseCacheStore,
@@ -45,9 +51,22 @@ export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Pr
 
 type SdkRequestOptions = NonNullable<Parameters<Client['callTool']>[1]>;
 export type ExplicitHttpMcpRequestOptions = SdkRequestOptions;
+type ExplicitHttpMcpListRequestOptions = NonNullable<Parameters<Client['listTools']>[1]>;
 
 export type ExplicitHttpMcpListToolsResult = Awaited<ReturnType<Client['listTools']>>;
 export type ExplicitHttpMcpListToolsParams = NonNullable<Parameters<Client['listTools']>[0]>;
+export type ExplicitHttpMcpListPromptsResult = Awaited<ReturnType<Client['listPrompts']>>;
+export type ExplicitHttpMcpListPromptsParams = NonNullable<Parameters<Client['listPrompts']>[0]>;
+export type ExplicitHttpMcpListResourcesResult = Awaited<ReturnType<Client['listResources']>>;
+export type ExplicitHttpMcpListResourcesParams = NonNullable<
+  Parameters<Client['listResources']>[0]
+>;
+export type ExplicitHttpMcpListResourceTemplatesResult = Awaited<
+  ReturnType<Client['listResourceTemplates']>
+>;
+export type ExplicitHttpMcpListResourceTemplatesParams = NonNullable<
+  Parameters<Client['listResourceTemplates']>[0]
+>;
 export type ExplicitHttpMcpTool = ExplicitHttpMcpListToolsResult['tools'][number];
 export type ExplicitHttpMcpCallToolParams = Parameters<Client['callTool']>[0];
 export type ExplicitHttpMcpCallToolResult = Awaited<ReturnType<Client['callTool']>>;
@@ -73,6 +92,7 @@ export interface NegotiatedProtocolFacts {
 export interface ExplicitHttpMcpClientOptions {
   authProvider?: AuthProvider | OAuthClientProvider;
   cachePartition?: ClientOptions['cachePartition'];
+  clientCapabilities?: McpClientCapabilityOptions;
   clientInfo?: {
     name: string;
     version: string;
@@ -97,15 +117,19 @@ export interface ExplicitHttpMcpClientOptions {
 type ExplicitHttpTransport = SSEClientTransport | StreamableHTTPClientTransport;
 
 interface ActiveConnection {
+  capabilityLease: McpClientCapabilityLease;
   client: Client;
   disconnected: boolean;
   generation: number;
   transport: ExplicitHttpTransport;
 }
 
+type McpCatalogKind = 'prompts' | 'resource-templates' | 'resources' | 'tools';
+
 interface NormalizedClientOptions {
   authProvider?: AuthProvider | OAuthClientProvider;
   cachePartition?: ClientOptions['cachePartition'];
+  capabilityRuntime: McpClientCapabilityRuntime;
   clientInfo: {
     name: string;
     version: string;
@@ -113,7 +137,7 @@ interface NormalizedClientOptions {
   defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   extensionRegistry?: McpClientExtensionRegistry;
   fetch: ExplicitHttpMcpFetch;
-  inputRequired?: ClientOptions['inputRequired'];
+  inputRequired: NonNullable<ClientOptions['inputRequired']>;
   lifecycle: ExplicitHttpMcpLifecycle;
   listMaxPages: number;
   maxStepUpRetries?: number;
@@ -121,6 +145,7 @@ interface NormalizedClientOptions {
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
+  serverName: string;
   transport: ExplicitHttpMcpTransport;
   url: URL;
 }
@@ -281,22 +306,28 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     );
   }
   const scopeStepUp = normalizeScopeStepUpOptions(options);
+  const capabilityConfiguration = composeMcpTransportCapabilities({
+    ...(options.clientCapabilities ? { clientCapabilities: options.clientCapabilities } : {}),
+    ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
+  });
   return {
     ...(options.authProvider ? { authProvider: options.authProvider } : {}),
     ...(cachePartition === undefined ? {} : { cachePartition }),
+    capabilityRuntime: capabilityConfiguration.runtime,
     clientInfo: { ...clientInfo },
     ...(options.defaultCacheTtlMs === undefined
       ? {}
       : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     fetch: createHeaderPreservingFetch(baseFetch, options.headers),
-    ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
+    inputRequired: capabilityConfiguration.inputRequired,
     lifecycle: validateLifecycle(options.lifecycle, name),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...scopeStepUp,
     ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
     protocol,
     responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
+    serverName: name,
     transport: options.transport,
     url,
   };
@@ -323,7 +354,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private recoveryPromise: Promise<ActiveConnection> | undefined;
   private toolDefinitions = new Map<string, ExplicitHttpMcpTool>();
   private connectionGeneration = 0;
-  private catalogGeneration = 0;
+  private readonly catalogGenerations = new Map<McpCatalogKind, number>();
 
   constructor(options: ExplicitHttpMcpClientOptions) {
     this.options = normalizeOptions(options);
@@ -361,14 +392,16 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     let successfulGeneration: number | undefined;
     const result = await this.runRequest((client, connection) => {
       successfulGeneration = connection.generation;
-      const catalogOptions =
-        params?.cursor === undefined && this.catalogGeneration !== connection.generation
-          ? { ...requestOptions, cacheMode: 'refresh' as const }
-          : requestOptions;
+      const catalogOptions = this.resolveCatalogOptions(
+        'tools',
+        connection,
+        params,
+        requestOptions
+      );
       return client.listTools(params, catalogOptions);
     }, requestOptions);
     if (params?.cursor === undefined) {
-      this.catalogGeneration = successfulGeneration ?? this.connectionGeneration;
+      this.catalogGenerations.set('tools', successfulGeneration ?? this.connectionGeneration);
       const nextToolDefinitions = new Map<string, ExplicitHttpMcpTool>();
       for (const tool of result.tools) {
         nextToolDefinitions.set(tool.name, tool);
@@ -380,6 +413,37 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       this.toolDefinitions.set(tool.name, tool);
     }
     return result;
+  }
+
+  async listPrompts(
+    options?: ExplicitHttpMcpRequestOptions,
+    params?: ExplicitHttpMcpListPromptsParams
+  ): Promise<ExplicitHttpMcpListPromptsResult> {
+    return this.listCatalog('prompts', options, params, (client, requestParams, requestOptions) =>
+      client.listPrompts(requestParams, requestOptions)
+    );
+  }
+
+  async listResources(
+    options?: ExplicitHttpMcpRequestOptions,
+    params?: ExplicitHttpMcpListResourcesParams
+  ): Promise<ExplicitHttpMcpListResourcesResult> {
+    return this.listCatalog('resources', options, params, (client, requestParams, requestOptions) =>
+      client.listResources(requestParams, requestOptions)
+    );
+  }
+
+  async listResourceTemplates(
+    options?: ExplicitHttpMcpRequestOptions,
+    params?: ExplicitHttpMcpListResourceTemplatesParams
+  ): Promise<ExplicitHttpMcpListResourceTemplatesResult> {
+    return this.listCatalog(
+      'resource-templates',
+      options,
+      params,
+      (client, requestParams, requestOptions) =>
+        client.listResourceTemplates(requestParams, requestOptions)
+    );
   }
 
   async callTool(
@@ -404,6 +468,14 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
         toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
       return client.callTool(params, requestOptions);
     }, normalizedOptions);
+  }
+
+  async sendRootsListChanged(options?: ExplicitHttpMcpRequestOptions): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    await this.runRequest((client) => {
+      requestOptions.signal?.throwIfAborted();
+      return client.sendRootsListChanged();
+    }, requestOptions);
   }
 
   close(): Promise<void> {
@@ -503,6 +575,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     let connected = false;
     try {
       await client.connect(transport, options);
+      await this.options.capabilityRuntime.afterConnect(client, options?.signal);
       connected = true;
       if (this.closed) {
         if (!this.closePromise) {
@@ -517,7 +590,15 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       return connection;
     } catch (error) {
       if (!connected) {
-        await client.close().catch(() => undefined);
+        try {
+          await this.closeConnection(connection);
+        } catch (cleanupError) {
+          const primaryError = options?.signal?.aborted ? options.signal.reason : error;
+          throw new AggregateError(
+            [primaryError, cleanupError],
+            'Opening and cleaning up an MCP HTTP connection both failed'
+          );
+        }
       }
       options?.signal?.throwIfAborted();
       throw error;
@@ -543,6 +624,12 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     }
 
     try {
+      await connection.capabilityLease.close();
+    } catch (error) {
+      errors.push(error);
+    }
+
+    try {
       await connection.client.close();
     } catch (error) {
       errors.push(error);
@@ -552,14 +639,19 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       throw errors[0];
     }
     if (errors.length > 1) {
-      throw new AggregateError(errors, 'MCP session termination and local close both failed');
+      throw new AggregateError(errors, 'MCP session termination or owned local cleanup failed');
     }
   }
 
   private createConnection(): ActiveConnection {
     const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
+    const capabilities = {
+      ...this.options.capabilityRuntime.capabilities,
+      ...(extensions ? { extensions } : {}),
+    };
     const clientOptions: ClientOptions = {
-      capabilities: extensions ? { extensions } : {},
+      capabilities,
+      inputRequired: this.options.inputRequired,
       listMaxPages: this.options.listMaxPages,
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
       ...(this.options.cachePartition === undefined
@@ -569,10 +661,11 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
         ? {}
         : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
       responseCacheStore: this.options.responseCacheStore,
-      ...(this.options.inputRequired ? { inputRequired: this.options.inputRequired } : {}),
     };
     const client = new Client(this.options.clientInfo, clientOptions);
+    const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
     const connection = {
+      capabilityLease,
       client,
       disconnected: false,
       generation: this.connectionGeneration,
@@ -613,6 +706,47 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       }
       throw error;
     }
+  }
+
+  private async listCatalog<Params extends { cursor?: string | undefined }, Result>(
+    kind: Exclude<McpCatalogKind, 'tools'>,
+    options: ExplicitHttpMcpRequestOptions | undefined,
+    params: Params | undefined,
+    request: (
+      client: Client,
+      params: Params | undefined,
+      options: ExplicitHttpMcpListRequestOptions
+    ) => Promise<Result>
+  ): Promise<Result> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    let successfulGeneration: number | undefined;
+    const result = await this.runRequest((client, connection) => {
+      successfulGeneration = connection.generation;
+      return request(
+        client,
+        params,
+        this.resolveCatalogOptions(kind, connection, params, requestOptions)
+      );
+    }, requestOptions);
+    if (params?.cursor === undefined) {
+      this.catalogGenerations.set(kind, successfulGeneration ?? this.connectionGeneration);
+    }
+    return result;
+  }
+
+  private resolveCatalogOptions(
+    kind: McpCatalogKind,
+    connection: ActiveConnection,
+    params: { cursor?: string | undefined } | undefined,
+    options: ExplicitHttpMcpRequestOptions
+  ): ExplicitHttpMcpListRequestOptions {
+    if (
+      params?.cursor !== undefined ||
+      this.catalogGenerations.get(kind) === connection.generation
+    ) {
+      return options;
+    }
+    return { ...options, cacheMode: 'refresh' };
   }
 
   private recoverConnection(
@@ -676,7 +810,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     connection.disconnected = true;
     this.connectionGeneration += 1;
     this.toolDefinitions = new Map();
-    this.catalogGeneration = 0;
+    this.catalogGenerations.clear();
     if (this.activeConnection === connection) {
       this.activeConnection = undefined;
       if (retainForLocalCleanup) {

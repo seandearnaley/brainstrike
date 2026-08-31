@@ -271,6 +271,190 @@ describe('ExplicitHttpMcpClient protocol blockers', { timeout: 30_000 }, () => {
     );
   });
 
+  it('refreshes every positive-TTL catalog independently after reconnect', async () => {
+    const wireCounts = new Map<string, number>();
+    let generation = 1;
+    let expired = false;
+    let sessionId = 'session-1';
+    const client = trackClient({
+      cachePartition: 'catalog-principal',
+      defaultCacheTtlMs: 60_000,
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body = (await request.json()) as { id?: number; method?: string };
+        if (body.method) {
+          wireCounts.set(body.method, (wireCounts.get(body.method) ?? 0) + 1);
+        }
+        if (body.method === 'initialize') {
+          sessionId = `session-${generation}`;
+          return new Response(
+            JSON.stringify({
+              id: body.id,
+              jsonrpc: '2.0',
+              result: {
+                capabilities: { prompts: {}, resources: {}, tools: {} },
+                protocolVersion: '2025-11-25',
+                serverInfo: { name: 'catalog-server', version: '1' },
+              },
+            }),
+            { headers: { 'content-type': 'application/json', 'mcp-session-id': sessionId } }
+          );
+        }
+        if (body.method === 'notifications/initialized') {
+          return new Response(null, { status: 202 });
+        }
+        if (body.method === 'tools/call' && expired) {
+          expired = false;
+          generation += 1;
+          return new Response('expired', { status: 404 });
+        }
+        if (request.headers.get('mcp-session-id') !== sessionId) {
+          return new Response('expired', { status: 404 });
+        }
+        if (body.method === 'tools/list') {
+          return modernResponse(body.id, {
+            cacheScope: 'private',
+            resultType: 'complete',
+            tools: [{ inputSchema: { type: 'object' }, name: `tool-${generation}` }],
+            ttlMs: 60_000,
+          });
+        }
+        if (body.method === 'resources/list') {
+          return modernResponse(body.id, {
+            cacheScope: 'private',
+            resources: [{ name: `resource-${generation}`, uri: `file:///resource-${generation}` }],
+            resultType: 'complete',
+            ttlMs: 60_000,
+          });
+        }
+        if (body.method === 'resources/templates/list') {
+          return modernResponse(body.id, {
+            cacheScope: 'private',
+            resourceTemplates: [
+              {
+                name: `template-${generation}`,
+                uriTemplate: `file:///template-${generation}/{id}`,
+              },
+            ],
+            resultType: 'complete',
+            ttlMs: 60_000,
+          });
+        }
+        if (body.method === 'prompts/list') {
+          return modernResponse(body.id, {
+            cacheScope: 'private',
+            prompts: [{ name: `prompt-${generation}` }],
+            resultType: 'complete',
+            ttlMs: 60_000,
+          });
+        }
+        return modernResponse(body.id, {
+          content: [{ text: 'called', type: 'text' }],
+          resultType: 'complete',
+        });
+      },
+      name: 'all-catalog-generation-canary',
+      responseCacheStore: new InMemoryResponseCacheStore(),
+      transport: 'streamable-http',
+      url: 'https://catalog-generation.invalid/mcp',
+    });
+
+    await Promise.all([
+      client.listTools(),
+      client.listResources(),
+      client.listResourceTemplates(),
+      client.listPrompts(),
+    ]);
+    await Promise.all([
+      client.listTools(),
+      client.listResources(),
+      client.listResourceTemplates(),
+      client.listPrompts(),
+    ]);
+    expired = true;
+    await client.callTool({ name: 'tool-1' });
+
+    const [tools, resources, templates, prompts] = await Promise.all([
+      client.listTools(),
+      client.listResources(),
+      client.listResourceTemplates(),
+      client.listPrompts(),
+    ]);
+
+    expect(tools.tools[0]?.name).toBe('tool-2');
+    expect(resources.resources[0]?.name).toBe('resource-2');
+    expect(templates.resourceTemplates[0]?.name).toBe('template-2');
+    expect(prompts.prompts[0]?.name).toBe('prompt-2');
+    for (const method of [
+      'tools/list',
+      'resources/list',
+      'resources/templates/list',
+      'prompts/list',
+    ]) {
+      expect(wireCounts.get(method)).toBe(2);
+    }
+  });
+
+  it('routes roots changes through lifecycle recovery with only a pre-send abort check', async () => {
+    let generation = 1;
+    let rootsAttempts = 0;
+    let sessionId = 'session-1';
+    const inFlightAbort = new AbortController();
+    const client = trackClient({
+      clientCapabilities: {
+        roots: { handle: async () => ({ roots: [] }), listChanged: true },
+      },
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body = (await request.json()) as { id?: number; method?: string };
+        if (body.method === 'initialize') {
+          sessionId = `session-${generation}`;
+          return new Response(
+            JSON.stringify({
+              id: body.id,
+              jsonrpc: '2.0',
+              result: {
+                capabilities: {},
+                protocolVersion: '2025-11-25',
+                serverInfo: { name: 'roots-recovery-server', version: '1' },
+              },
+            }),
+            { headers: { 'content-type': 'application/json', 'mcp-session-id': sessionId } }
+          );
+        }
+        if (body.method === 'notifications/initialized') {
+          return new Response(null, { status: 202 });
+        }
+        if (body.method === 'notifications/roots/list_changed') {
+          rootsAttempts += 1;
+          if (rootsAttempts === 1) {
+            generation += 1;
+            return new Response('expired', { status: 404 });
+          }
+          inFlightAbort.abort(new Error('aborted after send started'));
+          return new Response(null, { status: 202 });
+        }
+        throw new Error(`Unexpected method: ${String(body.method)}`);
+      },
+      name: 'roots-recovery-canary',
+      transport: 'streamable-http',
+      url: 'https://roots-recovery.invalid/mcp',
+    });
+
+    await client.connect();
+    await expect(client.sendRootsListChanged({ signal: inFlightAbort.signal })).resolves.toBe(
+      undefined
+    );
+    expect(rootsAttempts).toBe(2);
+
+    const preAborted = new AbortController();
+    preAborted.abort(new Error('aborted before send'));
+    await expect(client.sendRootsListChanged({ signal: preAborted.signal })).rejects.toThrow(
+      'aborted before send'
+    );
+    expect(rootsAttempts).toBe(2);
+  });
+
   it('emits canonical modern routing and x-mcp-header values from the tool definition', async () => {
     const requests: RecordedRequest[] = [];
     const client = trackClient({
@@ -436,6 +620,172 @@ describe('ExplicitHttpMcpClient protocol blockers', { timeout: 30_000 }, () => {
       requestState: 'opaque-state',
       resultType: 'input_required',
     });
+  });
+
+  it('automatically fulfils modern elicitation with byte-exact request state', async () => {
+    const calls: unknown[] = [];
+    const client = trackClient({
+      clientCapabilities: {
+        elicitation: {
+          form: true,
+          handle: async (request) => {
+            expect(request.params.message).toBe('Choose a city');
+            return { action: 'accept', content: { city: 'Lisbon' } };
+          },
+          url: false,
+        },
+      },
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body = (await request.clone().json()) as {
+          id?: number;
+          method?: string;
+          params?: Record<string, unknown>;
+        };
+        if (body.method === 'server/discover') {
+          return modernResponse(body.id, {
+            capabilities: { tools: {} },
+            resultType: 'complete',
+            supportedVersions: ['2026-07-28'],
+          });
+        }
+        calls.push(body.params);
+        if (calls.length === 1) {
+          return modernResponse(body.id, {
+            inputRequests: {
+              city: {
+                method: 'elicitation/create',
+                params: {
+                  message: 'Choose a city',
+                  mode: 'form',
+                  requestedSchema: {
+                    properties: { city: { type: 'string' } },
+                    required: ['city'],
+                    type: 'object',
+                  },
+                },
+              },
+            },
+            requestState: 'opaque-state-\u0000-byte',
+            resultType: 'input_required',
+          });
+        }
+        expect(body.params).toMatchObject({
+          inputResponses: {
+            city: { action: 'accept', content: { city: 'Lisbon' } },
+          },
+          requestState: 'opaque-state-\u0000-byte',
+        });
+        return modernResponse(body.id, {
+          content: [{ text: 'Booked for Lisbon', type: 'text' }],
+          resultType: 'complete',
+        });
+      },
+      name: 'automatic-input-required-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: 'https://input-required.invalid/mcp',
+    });
+
+    await expect(client.callTool({ name: 'book' })).resolves.toMatchObject({
+      content: [{ text: 'Booked for Lisbon', type: 'text' }],
+    });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('fails closed on invalid accepted content without retrying the tool', async () => {
+    let toolCalls = 0;
+    const client = trackClient({
+      clientCapabilities: {
+        elicitation: {
+          form: true,
+          handle: async () => ({ action: 'accept', content: { city: 42 } }),
+          url: false,
+        },
+      },
+      fetch: async (input, init) => {
+        const body = (await new Request(input, init).json()) as { id?: number; method?: string };
+        if (body.method === 'server/discover') {
+          return modernResponse(body.id, {
+            capabilities: { tools: {} },
+            resultType: 'complete',
+            supportedVersions: ['2026-07-28'],
+          });
+        }
+        toolCalls += 1;
+        return modernResponse(body.id, {
+          inputRequests: {
+            city: {
+              method: 'elicitation/create',
+              params: {
+                message: 'Choose a city',
+                requestedSchema: {
+                  properties: { city: { type: 'string' } },
+                  required: ['city'],
+                  type: 'object',
+                },
+              },
+            },
+          },
+          requestState: 'state',
+          resultType: 'input_required',
+        });
+      },
+      name: 'invalid-elicitation-content-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: 'https://input-required.invalid/mcp',
+    });
+
+    await expect(client.callTool({ name: 'book' })).rejects.toThrow();
+    expect(toolCalls).toBe(1);
+  });
+
+  it('surfaces finite input-required round exhaustion', async () => {
+    let toolCalls = 0;
+    const client = trackClient({
+      clientCapabilities: {
+        elicitation: {
+          form: true,
+          handle: async () => ({ action: 'decline' }),
+          url: false,
+        },
+        maxInputRequiredRounds: 2,
+      },
+      fetch: async (input, init) => {
+        const body = (await new Request(input, init).json()) as { id?: number; method?: string };
+        if (body.method === 'server/discover') {
+          return modernResponse(body.id, {
+            capabilities: { tools: {} },
+            resultType: 'complete',
+            supportedVersions: ['2026-07-28'],
+          });
+        }
+        toolCalls += 1;
+        return modernResponse(body.id, {
+          inputRequests: {
+            confirmation: {
+              method: 'elicitation/create',
+              params: {
+                message: 'Continue?',
+                requestedSchema: { properties: {}, type: 'object' },
+              },
+            },
+          },
+          requestState: `state-${toolCalls}`,
+          resultType: 'input_required',
+        });
+      },
+      name: 'round-exhaustion-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: 'https://input-required.invalid/mcp',
+    });
+
+    await expect(client.callTool({ name: 'loop' })).rejects.toMatchObject({
+      code: 'INPUT_REQUIRED_ROUNDS_EXCEEDED',
+    });
+    expect(toolCalls).toBe(3);
   });
 
   it('types manual input_required as a public result union without widening normal calls', () => {
