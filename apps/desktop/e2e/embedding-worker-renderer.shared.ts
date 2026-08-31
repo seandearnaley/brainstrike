@@ -320,6 +320,8 @@ export const REAL_WORLD_MIXED_STATE_FILE_COUNT = 1002;
 export const REAL_WORLD_BACKGROUND_FILE_COUNT = 96;
 export const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 8;
 export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.';
+export const AUTOMATIC_WEBGPU_UNAVAILABLE_ERROR =
+  'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically. WASM fallback (WebGPU not available) No WebGPU adapter found - GPU may not support WebGPU or driver update needed WebGPU adapter is unavailable.';
 
 export const ERROR_LOCATOR = '[data-testid="db-init-error"]';
 
@@ -354,6 +356,22 @@ export async function getEmbeddingHostStatus(page: Page): Promise<EmbeddingHostS
       throw new Error('Embedding host bridge is not available');
     }
     return await host.getStatus();
+  });
+}
+
+export async function ensureEmbeddingHostStarted(page: Page): Promise<EmbeddingHostStatus> {
+  return await page.evaluate<EmbeddingHostStatus>(async () => {
+    const host = (
+      window as Window & {
+        embeddingHost?: {
+          ensureStarted?: () => Promise<EmbeddingHostStatus>;
+        };
+      }
+    ).embeddingHost;
+    if (!host?.ensureStarted) {
+      throw new Error('Embedding host bridge is not available');
+    }
+    return await host.ensureStarted();
   });
 }
 
