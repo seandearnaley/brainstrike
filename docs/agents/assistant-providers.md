@@ -2263,6 +2263,23 @@ Terminal host close invalidates queued and future watch registrations because
 the closed watch DTO has no terminal event variant; a future terminal event
 requires an explicit contract/schema revision rather than an invented payload.
 
+Desktop lifecycle composition lives in `ipc-mcp.ts`. Shutdown first stops and
+drains the assistant HTTP server, then closes MCP configuration admission,
+stops the file watcher, awaits every tracked load/replacement/discovery, clears
+the renderer projection, and terminally closes the singleton host plus the
+legacy status-boundary clients. Host close-report failures and legacy cleanup
+failures are preserved together in one visible `AggregateError`; a zero-failure
+host proof therefore covers its clients, accepted requests, subscriptions,
+callbacks, loopback ports, probes, and stdio children. Factory reset uses the
+same lifecycle fence but does not close the singleton: after prior config work
+settles it installs explicit empty authority, purges projections and legacy
+clients, and keeps admission closed through the enclosing database/user-data
+purge. The reset coordinator then reopens admission and restores the permanent
+file watcher without reloading pre-reset authority, so the continuing process
+can accept a fresh empty or new configuration. Work admitted before the fence
+cannot publish after cleanup, and a watcher created across the fence is closed
+immediately.
+
 Assistant adapters may discover and invoke but cannot mutate auth or
 configuration. Renderer IPC receives only snapshots and explicit Settings
 actions such as Authenticate, Reauthorize, Disconnect, Retry, and Replace

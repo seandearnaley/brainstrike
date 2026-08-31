@@ -150,16 +150,20 @@ describe('createDesktopFactoryResetHandler', () => {
         return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
       }
     );
-    const stopFailure = new Error('stop failed');
+    const stopFailure = new Error('embedding stop failed');
+    const secondStopFailure = new Error('chunking stop failed');
+    const logger = { error: vi.fn() };
     const embeddingHostStop = vi.fn(async () => {
       throw stopFailure;
     });
-    const chunkingHostStop = vi.fn(async () => undefined);
+    const chunkingHostStop = vi.fn(async () => {
+      throw secondStopFailure;
+    });
 
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
-      logger: { error: vi.fn() },
+      logger,
       resetLocalDatabase: vi.fn(async () => undefined),
       runtimes: [
         { name: 'embedding-host', stop: embeddingHostStop },
@@ -173,10 +177,14 @@ describe('createDesktopFactoryResetHandler', () => {
     });
 
     await expect(handleReset()).resolves.toEqual({
-      message: 'Failed to stop desktop reset runtimes: embedding-host',
+      message: 'Failed to stop desktop reset runtimes: embedding-host, chunking-host',
       success: false,
     });
     expect(embeddingHostStop).toHaveBeenCalledTimes(1);
     expect(chunkingHostStop).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Failed to reset desktop application data:',
+      expect.objectContaining({ errors: [stopFailure, secondStopFailure] })
+    );
   });
 });
