@@ -81,7 +81,15 @@ export class MockResponse extends EventEmitter {
     if (chunk === undefined || chunk === null) {
       return true;
     }
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    const buffer = Buffer.isBuffer(chunk)
+      ? Buffer.from(chunk)
+      : chunk instanceof Uint8Array
+        ? Buffer.from(chunk)
+        : chunk instanceof ArrayBuffer
+          ? Buffer.from(new Uint8Array(chunk))
+          : ArrayBuffer.isView(chunk)
+            ? Buffer.from(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength))
+            : Buffer.from(String(chunk));
     this.bodyChunks.push(buffer);
     return true;
   }
