@@ -528,9 +528,53 @@ function RunPythonPreview({ approval }: { approval: AssistantToolApprovalRequest
 
 function RootLabel({ root }: { root: string }) {
   return (
-    <span className="ml-2 rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-      {root}
+    <span
+      className="inline-flex min-w-0 max-w-full rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+      data-testid="approval-workspace-root"
+    >
+      <span className="shrink-0 whitespace-pre">{'Workspace root: '}</span>
+      <span
+        className="min-w-0 truncate font-mono"
+        data-testid="approval-workspace-root-value"
+        title={root}
+      >
+        {root}
+      </span>
     </span>
+  );
+}
+
+function FileTargetSummary({
+  action,
+  path,
+  root,
+}: {
+  action?: string;
+  path: string;
+  root: string | undefined;
+}) {
+  return (
+    <p
+      className="flex min-w-0 flex-wrap items-center font-medium text-foreground/90 text-xs"
+      data-testid="approval-file-target-summary"
+    >
+      {action ? <span>{action}</span> : null}
+      <span className="inline-flex min-w-0 max-w-full items-center">
+        {action ? <span className="shrink-0 whitespace-pre">{' · '}</span> : null}
+        <span className="inline-flex min-w-0 max-w-full">
+          <span className="shrink-0 whitespace-pre">{'Path: '}</span>
+          <span className="min-w-0 truncate font-mono" title={path}>
+            {path}
+          </span>
+        </span>
+      </span>
+      {root ? (
+        <span className="inline-flex min-w-0 max-w-full items-center">
+          <span className="shrink-0 whitespace-pre">{' · '}</span>
+          <RootLabel root={root} />
+        </span>
+      ) : null}
+    </p>
   );
 }
 
@@ -725,10 +769,7 @@ function ApprovalPreview({ approval }: { approval: AssistantToolApprovalRequest 
     const isTruncated = oldPreview.truncated || newPreview.truncated;
     return (
       <div className="mt-3">
-        <p className="truncate font-medium text-foreground/90 text-xs">
-          <span className="font-mono">{parsed.path}</span>
-          {parsed.root ? <RootLabel root={parsed.root} /> : null}
-        </p>
+        <FileTargetSummary path={parsed.path} root={parsed.root} />
         <div className="mt-1.5 h-72 overflow-hidden rounded-md border border-border">
           <DiffView
             ariaLabel={`Proposed changes to ${parsed.path}`}
@@ -754,10 +795,7 @@ function ApprovalPreview({ approval }: { approval: AssistantToolApprovalRequest 
     const contentPreview = truncatePreviewText(parsed.content);
     return (
       <div className="mt-3">
-        <p className="truncate font-medium text-foreground/90 text-xs">
-          Creates or overwrites <span className="font-mono">{parsed.path}</span>
-          {parsed.root ? <RootLabel root={parsed.root} /> : null}
-        </p>
+        <FileTargetSummary action="Creates or overwrites" path={parsed.path} root={parsed.root} />
         <div className="mt-1.5 h-64 overflow-hidden rounded-md border border-border">
           <CodeSurface
             ariaLabel={`New content for ${parsed.path}`}
