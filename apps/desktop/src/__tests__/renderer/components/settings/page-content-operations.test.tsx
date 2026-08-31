@@ -1,3 +1,8 @@
+import {
+  type McpHostSnapshot,
+  type McpHostWatchEvent,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -47,7 +52,7 @@ interface CapturedToolsOperations {
   enableTools: (ids: string[]) => Promise<void>;
   getMcpConfigInfo: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
   getMcpConfigPath?: () => Promise<string>;
-  getMcpServerStatus: () => Promise<McpServerStatusSnapshot[]>;
+  getMcpServerStatus: () => Promise<McpHostSnapshot>;
   getStats: () => Promise<{
     byCategory: Record<string, number>;
     bySource: { mcp: number; native: number };
@@ -63,6 +68,7 @@ interface CapturedToolsOperations {
   resetMcpConfig: () => Promise<void>;
   resetTools: () => Promise<void>;
   setMcpConfigPath?: (configPath: string | null) => Promise<void>;
+  subscribeMcpServerStatus?: (listener: (event: McpHostWatchEvent) => void) => () => void;
   writeMcpConfigText?: (
     content: string
   ) => Promise<{ error?: string; path: string; success: boolean }>;
@@ -70,21 +76,24 @@ interface CapturedToolsOperations {
 
 let capturedOperations: CapturedToolsOperations | null = null;
 
-const serverStatuses = [
-  {
-    configuredProtocol: 'auto',
-    name: 'local',
-    negotiated: {
-      advertisedCapabilityIds: ['tools'],
-      era: 'modern',
-      revision: '2026-07-28',
-      serverIdentity: { name: 'linear', title: 'Linear', version: '2.0.0' },
+const hostSnapshot = {
+  revision: 7,
+  servers: [
+    {
+      configuredProtocol: 'auto',
+      configuredServerId: parseConfiguredMcpServerId('local'),
+      generation: 2,
+      negotiated: {
+        advertisedCapabilityIds: ['tools'],
+        era: 'modern',
+        revision: '2026-07-28',
+        serverIdentity: { name: 'linear', title: 'Linear', version: '2.0.0' },
+      },
+      state: 'connected',
+      transport: 'streamable-http',
     },
-    state: 'connected',
-    transport: 'streamable-http',
-  },
-] as const;
-type McpServerStatusSnapshot = (typeof serverStatuses)[number];
+  ],
+} as const satisfies McpHostSnapshot;
 
 vi.mock('@brainstrike/agent/tool-metadata', () => ({
   DESKTOP_NATIVE_TOOL_IDS: ['native-read'],
@@ -262,14 +271,23 @@ interface DesktopTestWindow {
     enableTools?: (ids: string[]) => Promise<void>;
     getConfig?: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
     getPath?: () => Promise<string>;
-    getServerStatuses?: () => Promise<McpServerStatusSnapshot[]>;
+    getServerStatusSnapshot?: () => Promise<McpHostSnapshot>;
     getToolStats?: () => Promise<{ enabled: number; servers: number; total: number }>;
     listTools?: () => Promise<
       Record<
         string,
-        Array<{ description?: string; enabled: boolean; id: string; inputSchema?: unknown }>
+        Array<{
+          description?: string;
+          enabled: boolean;
+          id: string;
+          inputSchema?: unknown;
+          serverName?: string;
+        }>
       >
     >;
+    onServerStatusUpdated?: (
+      listener: (snapshot: McpHostSnapshot) => void
+    ) => (() => void) | undefined;
     readConfigText?: () => Promise<{ content: string; path: string } | null>;
     resetTools?: () => Promise<void>;
     selectPath?: () => Promise<string | null>;
@@ -302,7 +320,7 @@ describe('desktop SettingsPageContent tool operations', () => {
       enableTools: vi.fn(async () => {}),
       getConfig: vi.fn(async () => ({ exists: true, path: '/tmp/mcp.json' })),
       getPath: vi.fn(async () => '/tmp/mcp.json'),
-      getServerStatuses: vi.fn(async () => [...serverStatuses]),
+      getServerStatusSnapshot: vi.fn(async () => hostSnapshot),
       getToolStats: vi.fn(async () => ({ enabled: 1, servers: 1, total: 2 })),
       listTools: vi.fn(async () => ({
         local: [
@@ -311,9 +329,11 @@ describe('desktop SettingsPageContent tool operations', () => {
             enabled: false,
             id: 'mcp-search',
             inputSchema: { type: 'object' },
+            serverName: 'local',
           },
         ],
       })),
+      onServerStatusUpdated: vi.fn(() => vi.fn()),
       readConfigText: vi.fn(async () => ({ content: '{}', path: '/tmp/mcp.json' })),
       resetTools: vi.fn(async () => {}),
       selectPath: vi.fn(async () => '/tmp/selected.json'),
@@ -423,12 +443,63 @@ describe('desktop SettingsPageContent tool operations', () => {
       throw new Error('Expected MCP tool bridge to be available');
     }
     const callsBeforeStatus = vi.mocked(mcp.listTools).mock.calls.length;
-    await expect(capturedOperations.getMcpServerStatus()).resolves.toEqual(serverStatuses);
+    await expect(capturedOperations.getMcpServerStatus()).resolves.toEqual(hostSnapshot);
     expect(mcp.listTools).toHaveBeenCalledTimes(callsBeforeStatus);
 
-    Reflect.deleteProperty(mcp, 'getServerStatuses');
+    const listener = vi.fn();
+    const subscribeMcpServerStatus = capturedOperations.subscribeMcpServerStatus;
+    if (!subscribeMcpServerStatus) {
+      throw new Error('Expected MCP status subscription to be available');
+    }
+    const unsubscribe = subscribeMcpServerStatus(listener);
+    expect(mcp.onServerStatusUpdated).toHaveBeenCalledWith(listener);
+    unsubscribe();
+
+    Reflect.deleteProperty(mcp, 'getServerStatusSnapshot');
     await expect(capturedOperations.getMcpServerStatus()).rejects.toThrow(
-      'MCP bridge is missing getServerStatuses'
+      'MCP bridge is missing getServerStatusSnapshot'
+    );
+  });
+
+  it('omits the live status operation when the preload subscription is unavailable', async () => {
+    const mcp = getDesktopWindow().mcp;
+    if (!mcp) {
+      throw new Error('Expected MCP bridge to be available');
+    }
+    Reflect.deleteProperty(mcp, 'onServerStatusUpdated');
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+
+    render(<SettingsPageContent />);
+
+    expect(capturedOperations).not.toHaveProperty('subscribeMcpServerStatus');
+  });
+
+  it('rejects MCP tool projection identities that disagree with their group key', async () => {
+    const mcp = getDesktopWindow().mcp;
+    if (!mcp?.listTools) {
+      throw new Error('Expected MCP tools bridge to be available');
+    }
+    vi.mocked(mcp.listTools).mockResolvedValueOnce({
+      local: [
+        {
+          enabled: true,
+          id: 'local.search',
+          serverName: 'different-server',
+        },
+      ],
+    });
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations) {
+      throw new Error('Expected tools operations to be captured');
+    }
+
+    await expect(capturedOperations.getTools()).rejects.toThrow(
+      'MCP tool projection identity mismatch: group "local" contains server "different-server"'
     );
   });
 

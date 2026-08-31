@@ -1957,7 +1957,11 @@ tool/result association, isolated sandbox and enforced CSP, validated
 bidirectional messages, permission/consent, lifecycle cleanup, and renderer
 tests. A partial or text-only host never advertises the extension.
 
-Desktop Settings consumes browser-safe `McpServerStatusSnapshot` through read-only `mcp:status:get` IPC; the registry holds each client's synchronous snapshot without a second cache. Tool presence never implies connection success, connected zero-tool servers and negotiation errors remain visible, and config reads never initialize or dispose clients. BST-1465 later moves this contract behind the single host authority.
+Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
+`McpHostSnapshot` through `mcp:status:get` and revisioned
+`mcp:status:updated` events. Renderer state accepts only strictly newer
+revisions, tool presence never implies connection success, and connected or
+failed zero-tool servers plus negotiation/config errors remain visible.
 
 Remote transport rules:
 - `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK

@@ -315,6 +315,7 @@ describe('preload runtime contract', () => {
       MCP_CONFIG_WATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWatch,
       MCP_CONFIG_WRITE_TEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWriteText,
       MCP_STATUS_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
+      MCP_STATUS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated,
       MCP_TOOLS_DISABLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisable,
       MCP_TOOLS_DISABLE_SERVER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisableServer,
       MCP_TOOLS_ENABLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnable,
@@ -371,7 +372,8 @@ describe('preload runtime contract', () => {
     for (const [constantName, channel] of Object.entries(expectedConstants)) {
       expect(extractPreloadStringConstant(preloadSource, constantName)).toBe(channel);
     }
-    expect(preloadSource).toContain('getServerStatuses: (): Promise<McpServerStatusSnapshot[]> =>');
+    expect(preloadSource).toContain('getServerStatusSnapshot: (): Promise<McpHostSnapshot> =>');
+    expect(preloadSource).toContain('onServerStatusUpdated:');
 
     const preloadWithoutContractDefinitions = removePreloadStringConstantDefinitions(preloadSource);
     for (const channel of Object.values(expectedConstants)) {
