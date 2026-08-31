@@ -11,7 +11,11 @@ import {
 } from '@brainstrike/assistant-contract';
 import { BrowserWindow, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from '../../ipc-mcp';
+import {
+  registerMcpIpcHandlers,
+  resetMcpRuntimeForFactoryReset,
+  resumeMcpRuntimeAfterFactoryReset,
+} from '../../ipc-mcp';
 import type { LoadedMcpConfig, ResolvedMcpConfig } from '../../mcp-loader';
 
 const mocks = vi.hoisted(() => ({
@@ -173,7 +177,8 @@ describe('MCP desktop authority bootstrap', () => {
   });
 
   afterEach(async () => {
-    await cleanupMcpRuntimeForShutdown();
+    await resetMcpRuntimeForFactoryReset(runtime);
+    await resumeMcpRuntimeAfterFactoryReset(runtime);
     mcpToolRegistry.clear();
   });
 
