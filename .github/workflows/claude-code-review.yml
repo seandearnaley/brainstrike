@@ -10,6 +10,13 @@ on:
     # be requested explicitly via close/reopen.
     types: [opened, ready_for_review, reopened]
 
+# Keep an active review alive so a later lifecycle event cannot strand partial
+# comments. GitHub retains only the newest pending event in each PR-scoped group,
+# while reviews for distinct PR numbers remain independent.
+concurrency:
+  group: claude-auto-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   review:
     # The Claude action keeps GitHub OIDC below; only the ephemeral x64 runner
@@ -40,13 +47,14 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run Claude auto-review
-        id: claude-review
+      - name: Run primary Claude auto-review
+        id: claude-review-primary
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         if: ${{ steps.claude-workflow-change.outputs.changed != 'true' }}
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          show_full_output: false
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
@@ -69,16 +77,152 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 
-      - name: Report incomplete Claude review
-        if: ${{ steps.claude-review.outcome == 'failure' }}
+      - name: Classify primary Claude failure
+        id: classify-claude-failure
+        if: ${{ steps.claude-review-primary.outcome == 'failure' }}
         env:
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude-review-primary.outputs.execution_file }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync, statSync } from 'node:fs';
+
+          const MAX_BYTES = 10 * 1024 * 1024;
+          let classification = 'invalid-execution-record';
+          let retryable = false;
+
+          const containsToolUse = (value) => {
+            if (!value || typeof value !== 'object') return false;
+            if (value.type === 'tool_use') return true;
+            const children = Array.isArray(value) ? value : Object.values(value);
+            return children.some(containsToolUse);
+          };
+
+          const collectStrings = (value, strings) => {
+            if (typeof value === 'string') {
+              strings.push(value);
+              return;
+            }
+            if (!value || typeof value !== 'object') return;
+            const children = Array.isArray(value) ? value : Object.values(value);
+            for (const child of children) collectStrings(child, strings);
+          };
+
+          try {
+            const file = process.env.CLAUDE_EXECUTION_FILE;
+            if (!file || statSync(file).size > MAX_BYTES) throw new Error('invalid execution file');
+            const messages = JSON.parse(readFileSync(file, 'utf8'));
+            if (!Array.isArray(messages) || messages.length === 0) throw new Error('invalid messages');
+
+            const terminal = messages.at(-1);
+            if (terminal?.type !== 'result' || terminal.is_error !== true) {
+              classification = 'unknown';
+            } else {
+              const noPriorWork =
+                Number.isFinite(terminal.num_turns) &&
+                terminal.num_turns >= 0 &&
+                terminal.num_turns <= 1 &&
+                Number.isFinite(terminal.total_cost_usd) &&
+                terminal.total_cost_usd === 0 &&
+                Array.isArray(terminal.permission_denials) &&
+                terminal.permission_denials.length === 0 &&
+                !containsToolUse(messages);
+
+              if (!noPriorWork) {
+                classification = 'partial-or-unknown';
+              } else {
+                const strings = [];
+                collectStrings(messages, strings);
+                const diagnostic = strings.join('\n');
+                const exhausted =
+                  /you['’](?:ve hit your(?: weekly)? limit|re out of extra usage)|credit balance|(?:organization )?spend limit|monthly limit|billing (?:limit|error|required)|quota (?:exhausted|exceeded)/i.test(
+                    diagnostic
+                  );
+                const assistantStatus = messages.find((message) =>
+                  Number.isInteger(message?.apiErrorStatus)
+                )?.apiErrorStatus;
+                const apiStatus = Number.isInteger(terminal.api_error_status)
+                  ? terminal.api_error_status
+                  : assistantStatus;
+                const exactRateLimit =
+                  apiStatus === 429 &&
+                  /\brate_limit_error\b|This request would exceed (?:your (?:organization's|account's)|the) rate limit\. Please try again later\./i.test(
+                    diagnostic
+                  );
+                const exactOverload =
+                  apiStatus === 529 &&
+                  /\boverloaded_error\b|\bAPI Error: 529\b|\bOverloaded\b/i.test(diagnostic);
+
+                if (exhausted) {
+                  classification = 'capacity-exhausted';
+                } else if (
+                  terminal.subtype === 'success' &&
+                  terminal.terminal_reason === 'api_error' &&
+                  (exactRateLimit || exactOverload)
+                ) {
+                  classification = 'transient-capacity';
+                  retryable = true;
+                } else {
+                  classification = 'unknown';
+                }
+              }
+            }
+          } catch {
+            classification = 'invalid-execution-record';
+          }
+
+          appendFileSync(process.env.GITHUB_OUTPUT, `classification=${classification}\nretryable=${retryable}\n`);
+          if (process.env.GITHUB_STEP_SUMMARY) {
+            appendFileSync(
+              process.env.GITHUB_STEP_SUMMARY,
+              `### Claude auto-review failure\n\n- Classification: \`${classification}\`\n- Retryable: \`${retryable}\`\n`
+            );
+          }
+          console.log(`Claude auto-review failure: ${classification}; retryable: ${retryable}.`);
+          NODE
+
+      - name: Back off before one safe retry
+        if: ${{ steps.classify-claude-failure.outputs.retryable == 'true' }}
+        run: sleep 60
+
+      - name: Retry Claude auto-review once
+        id: claude-review-retry
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        if: ${{ steps.classify-claude-failure.outputs.retryable == 'true' }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          show_full_output: false
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review only the exact pull request diff returned by `gh pr diff`, with a focus on:
+            - Code quality and best practices
+            - Potential bugs or issues
+            - Security implications
+            - Performance considerations
+
+            Do not inspect or crawl the checked-out repository. Use `gh pr view` only for pull
+            request metadata and `gh pr diff` only for the exact pull request diff.
+
+            Use `gh pr comment` for top-level feedback.
+            Use `mcp__github_inline_comment__create_inline_comment` to highlight specific code issues.
+            Only post GitHub comments - don't submit review text as messages.
+
+          claude_args: |
+            --model claude-opus-5 --max-turns 80 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+
+      - name: Report incomplete Claude review
+        if: ${{ always() && steps.claude-workflow-change.outputs.changed != 'true' && steps.claude-review-primary.outcome != 'success' && steps.claude-review-retry.outcome != 'success' }}
+        env:
+          FAILURE_CLASSIFICATION: ${{ steps.classify-claude-failure.outputs.classification || 'unknown' }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "## Claude auto-review did not complete
 
-          The review action failed before producing a completed review disposition. Review coverage is incomplete; this includes runs that reach the configured 80-turn limit.
+          The review action failed before producing a completed review disposition. Review coverage is incomplete; sanitized failure classification: $FAILURE_CLASSIFICATION.
 
           Inspect the failed workflow run: $RUN_URL"
           echo "::error::Claude auto-review did not complete; an incomplete-review disposition was posted."

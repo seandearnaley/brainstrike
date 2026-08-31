@@ -727,7 +727,7 @@ measurement and worker-message validation modules remain in unit coverage, and
 the web L98/F85/B73/S89 thresholds are unchanged. Do not broaden this exception
 or replace it with a wildcard.
 
-### Claude auto-review fails with a visible incomplete disposition (BST-1412)
+### Claude auto-review capacity and incomplete dispositions (BST-451, BST-1412)
 
 Claude Auto Review is bounded to the exact pull request diff and the existing
 GitHub review surfaces: `gh pr view`, `gh pr diff`, `gh pr comment`, and the
@@ -737,14 +737,53 @@ the observed `directory mismatch ... tsconfig.json` text in run `32562173635`
 was a comment printed by the action's own Bun launcher, not a Claude tool call
 or a repository tsconfig failure.
 
-The Claude action step uses `continue-on-error` only so a following failure
-handler can post an explicit `Claude auto-review did not complete` PR comment.
-That handler runs exclusively when the action step's outcome is `failure` and
-then exits non-zero, so successful reviews do not receive duplicate failure
-comments and incomplete reviews keep the workflow red. Contract coverage lives
-in `scripts/__tests__/claude-auto-review-contract.test.mjs`; it executes the
-handler with a fake `gh`, verifies the visible PR disposition, and proves the
-handler preserves a failing exit status.
+Automated reviews use the metered `ANTHROPIC_API_KEY`; the subscription-scoped
+`CLAUDE_CODE_OAUTH_TOKEN` remains for interactive workflows and must not return
+to this automation path. Workflow concurrency is scoped by pull request number
+with `cancel-in-progress: false`: an active review cannot be cancelled after it
+may have posted feedback, GitHub coalesces duplicate pending lifecycle events,
+and reviews for distinct PRs never cancel one another.
+
+The action keeps `show_full_output: false`. Its private execution file can
+contain prompts, model messages, and tool results, so the failure classifier
+emits only a sanitized terminal category. Exactly one retry after a 60-second
+backoff is allowed only when the final execution record proves all of these:
+
+- a direct API `429 rate_limit_error` or `529 overloaded_error` ended the run;
+- the terminal result reports at most one turn, exactly `$0` cost, no tool use,
+  and no permission denial; and
+- no subscription, extra-usage, credit, billing, quota, or spend-exhaustion
+  signature is present.
+
+Missing/malformed execution data, unknown or authentication failures,
+subscription/spend exhaustion, and any partial review remain non-retryable.
+This prevents a second attempt from duplicating comments after Claude has done
+work. Both action attempts use `continue-on-error` only so classification and
+the final handler can run. The handler posts one explicit
+`Claude auto-review did not complete` comment and exits non-zero unless either
+the primary attempt or the one safe retry actually succeeded; there is no
+degraded green fallback.
+
+Operator recovery:
+
+1. Read the sanitized classification in the workflow summary and PR comment;
+   never expose or upload the raw execution file.
+2. Let `transient-capacity` make its one automatic retry. If that retry fails,
+   inspect Anthropic service status and API rate-limit configuration before one
+   manual rerun; do not start parallel retries.
+3. For `capacity-exhausted`, restore API credits/spend capacity or repair the
+   funded repository key, then rerun once. For auth, unknown, partial, or
+   invalid-record failures, diagnose the action/workflow instead of rerunning
+   blindly.
+
+Claude Auto Review is advisory and is not one of the five required checks, so
+its red status alone does not change the ruleset merge gate. It still means
+review coverage is incomplete: reviewers must not claim Claude review evidence,
+and any independently required review dependency must be satisfied before
+merge. Contract coverage lives in
+`scripts/__tests__/claude-auto-review-contract.test.mjs`; it executes the
+private classifier and final handler with deterministic fixtures, including
+negative controls for partial work, unknown failures, and duplicate comments.
 
 ### Cost-ranked Linux x64 jobs run on Ubicloud (BST-765)
 
