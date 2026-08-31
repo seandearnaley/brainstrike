@@ -439,9 +439,10 @@ export interface RuntimeToolMapResult {
 export async function composeRuntimeToolMap(
   params: RuntimeToolMapParams
 ): Promise<RuntimeToolMapResult> {
-  const mcpClient = await createMcpRuntimeClient(
-    params.mcpHost ? { config: undefined, host: params.mcpHost } : { config: params.mcpConfig }
-  );
+  const mcpClient = await createMcpRuntimeClient({
+    config: params.mcpConfig,
+    ...(params.mcpHost ? { host: params.mcpHost } : {}),
+  });
 
   // Agent Skills (desktop-injected engine): fold Mastra's canonical
   // skill/skill_read/skill_search tools into the LOCAL tool map BEFORE
