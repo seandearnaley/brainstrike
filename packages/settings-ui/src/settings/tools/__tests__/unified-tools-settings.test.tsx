@@ -1351,6 +1351,85 @@ describe('UnifiedToolsSettings', () => {
       expect(connect).toBeEnabled();
     });
 
+    it('shows core feature support, browsable catalogs, and catalog errors independently of tools', async () => {
+      const operations = createMockOperations();
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 1,
+        servers: [
+          {
+            ...connectedMcpStatus,
+            catalog: {
+              errors: {
+                prompts: {
+                  category: 'operation',
+                  code: 'mcp-prompts-failed',
+                  message: 'MCP catalog operation failed',
+                },
+              },
+              features: {
+                completion: true,
+                promptListChanged: true,
+                prompts: true,
+                resourceListChanged: true,
+                resourceSubscriptions: true,
+                resources: true,
+                toolListChanged: false,
+                tools: true,
+              },
+              prompts: { prompts: [{ name: 'fallback-prompt', title: '   ' }] },
+              resources: {
+                resources: Array.from({ length: 7 }, (_, index) => ({
+                  name: `BST-${1471 + index}`,
+                  uri: `linear://issue/BST-${1471 + index}`,
+                })),
+              },
+              resourceTemplates: {
+                resourceTemplates: [{ name: 'issue', uriTemplate: 'linear://issue/{identifier}' }],
+              },
+              subscription: {
+                honoredFilter: {
+                  promptsListChanged: true,
+                  resourceSubscriptions: Array.from(
+                    { length: 7 },
+                    (_, index) => `linear://issue/subscription-${index + 1}`
+                  ),
+                  resourcesListChanged: true,
+                },
+                mode: 'modern-listen',
+                state: 'listening',
+              },
+              tools: {
+                tools: [{ inputSchema: { type: 'object' }, name: 'issue_lookup', title: '  ' }],
+              },
+            },
+          },
+        ],
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const catalog = await screen.findByTestId('mcp-server-catalog-github');
+      expect(catalog).toHaveTextContent('Resources Supported');
+      expect(catalog).toHaveTextContent('Prompts Supported');
+      expect(catalog).toHaveTextContent('Completion Supported');
+      expect(catalog).toHaveTextContent('Resource subscriptions Supported');
+      expect(catalog).toHaveTextContent('Resource list changes Supported');
+      expect(catalog).toHaveTextContent('Prompt list changes Supported');
+      expect(catalog).toHaveTextContent('Tool list changes Unsupported');
+      expect(catalog).toHaveTextContent('Resources (showing 5 of 7)');
+      expect(catalog).toHaveTextContent('BST-1471');
+      expect(catalog).not.toHaveTextContent('BST-1477');
+      expect(catalog).toHaveTextContent('linear://issue/{identifier}');
+      expect(catalog).toHaveTextContent('fallback-prompt');
+      expect(catalog).toHaveTextContent('issue_lookup');
+      expect(catalog).toHaveTextContent('modern-listen · listening');
+      expect(catalog).toHaveTextContent('resource subscriptions 7');
+      expect(catalog).toHaveTextContent('Honored resource subscriptions (showing 5 of 7)');
+      expect(catalog).not.toHaveTextContent('linear://issue/subscription-7');
+      expect(catalog).toHaveTextContent('mcp-prompts-failed');
+    });
+
     it('distinguishes an explicit empty host snapshot from a malformed config', async () => {
       const operations = createMockOperations();
       operations.getTools = vi.fn().mockResolvedValue([]);

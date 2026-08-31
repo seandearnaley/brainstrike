@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@brainstrike/ui';
 import { useRef, useState } from 'react';
+import { McpServerCatalog } from './mcp-support-status';
 import type { McpServerInfo } from './types';
 
 const MCP_CONTROL_LABELS = {
@@ -157,16 +158,21 @@ export function McpServerStatusRow({
       </div>
       <McpAuthStatus server={server} />
       {server.state === 'connected' && (
-        <div className="text-muted-foreground text-xs">
-          era {server.negotiated.era} · revision {server.negotiated.revision}
-          {server.negotiated.serverIdentity
-            ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
-            : ''}
-          {` · capabilities: ${
-            server.negotiated.advertisedCapabilityIds?.join(', ') ||
-            (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
-          }`}
-        </div>
+        <>
+          <div className="text-muted-foreground text-xs">
+            era {server.negotiated.era} · revision {server.negotiated.revision}
+            {server.negotiated.serverIdentity
+              ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
+              : ''}
+            {` · capabilities: ${
+              server.negotiated.advertisedCapabilityIds?.join(', ') ||
+              (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
+            }`}
+          </div>
+          {server.catalog && (
+            <McpServerCatalog catalog={server.catalog} serverId={server.configuredServerId} />
+          )}
+        </>
       )}
       {server.state === 'error' && (
         <div className="text-destructive text-xs">
