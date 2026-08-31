@@ -57,6 +57,19 @@ describe('ExplicitHttpMcpClient validation', () => {
     );
   });
 
+  it('rejects a non-callable server-feature diagnostic sink from an untyped consumer', () => {
+    const options = {
+      name: 'invalid-feature-diagnostic-canary',
+      onServerFeatureEventError: 'not-callable',
+      transport: 'streamable-http',
+      url: 'https://example.test/mcp',
+    };
+
+    expect(() => Reflect.construct(ExplicitHttpMcpClient, [options])).toThrow(
+      'onServerFeatureEventError must be a function'
+    );
+  });
+
   it.each(['auto', '2026-07-28'] as const)(
     'rejects protocol %s on legacy SSE at the public client boundary',
     (protocol) => {
@@ -206,6 +219,140 @@ describe('ExplicitHttpMcpClient validation', () => {
       expect.anything(),
       expect.not.objectContaining({ toolDefinition: expect.anything() })
     );
+  });
+
+  it('forces each first cursorless catalog request to refresh after every HTTP connection generation', async () => {
+    const client = new ExplicitHttpMcpClient({
+      name: 'http-catalog-refresh-canary',
+      transport: 'streamable-http',
+      url: 'https://example.test/mcp',
+    });
+    const observed: Array<{ cacheMode: unknown; method: string }> = [];
+    const sdkClient = {
+      listPrompts: vi.fn(async (_params, options) => {
+        observed.push({ cacheMode: options.cacheMode, method: 'prompts/list' });
+        return { prompts: [] };
+      }),
+      listResources: vi.fn(async (_params, options) => {
+        observed.push({ cacheMode: options.cacheMode, method: 'resources/list' });
+        return { resources: [] };
+      }),
+      listResourceTemplates: vi.fn(async (_params, options) => {
+        observed.push({ cacheMode: options.cacheMode, method: 'resources/templates/list' });
+        return { resourceTemplates: [] };
+      }),
+      listTools: vi.fn(async (_params, options) => {
+        observed.push({ cacheMode: options.cacheMode, method: 'tools/list' });
+        return { tools: [] };
+      }),
+    };
+    let generation = 1;
+    Reflect.set(
+      client,
+      'runRequest',
+      async (
+        request: (target: typeof sdkClient, connection: { generation: number }) => Promise<unknown>
+      ) => await request(sdkClient, { generation })
+    );
+
+    const listEveryCatalog = async (): Promise<void> => {
+      await client.listTools();
+      await client.listResources();
+      await client.listResourceTemplates();
+      await client.listPrompts();
+    };
+    await listEveryCatalog();
+    await listEveryCatalog();
+    generation = 2;
+    await listEveryCatalog();
+
+    expect(observed).toEqual(
+      [1, 2, 3].flatMap((round) =>
+        ['tools/list', 'resources/list', 'resources/templates/list', 'prompts/list'].map(
+          (method) => ({ cacheMode: round === 2 ? undefined : 'refresh', method })
+        )
+      )
+    );
+  });
+
+  it('forces each first cursorless catalog request to refresh for every stdio connection', async () => {
+    const client = new ExplicitStdioMcpClient({
+      command: 'mcp-server',
+      name: 'stdio-catalog-refresh-canary',
+    });
+    const observed: Array<{ cacheMode: unknown; method: string }> = [];
+    const sdkClient = {
+      listPrompts: vi.fn(async (_params, options) => {
+        observed.push({ cacheMode: options.cacheMode, method: 'prompts/list' });
+        return { prompts: [] };
+      }),
+      listResources: vi.fn(async (_params, options) => {
+        observed.push({ cacheMode: options.cacheMode, method: 'resources/list' });
+        return { resources: [] };
+      }),
+      listResourceTemplates: vi.fn(async (_params, options) => {
+        observed.push({ cacheMode: options.cacheMode, method: 'resources/templates/list' });
+        return { resourceTemplates: [] };
+      }),
+      listTools: vi.fn(async (_params, options) => {
+        observed.push({ cacheMode: options.cacheMode, method: 'tools/list' });
+        return { tools: [] };
+      }),
+    };
+    const createConnection = () => ({
+      catalogRefreshes: new Set(),
+      client: sdkClient,
+      disconnected: false,
+      removeStderrListener: vi.fn(),
+      toolDefinitions: new Map(),
+      toolMetadataReady: false,
+      toolMetadataRequest: undefined,
+      transport: { close: vi.fn() },
+    });
+    let connection = createConnection();
+    Reflect.set(client, 'getConnection', async () => connection);
+
+    const listEveryCatalog = async (): Promise<void> => {
+      await client.listTools();
+      await client.listResources();
+      await client.listResourceTemplates();
+      await client.listPrompts();
+    };
+    await listEveryCatalog();
+    await listEveryCatalog();
+    connection = createConnection();
+    await listEveryCatalog();
+
+    expect(observed).toEqual(
+      [1, 2, 3].flatMap((round) =>
+        ['tools/list', 'resources/list', 'resources/templates/list', 'prompts/list'].map(
+          (method) => ({ cacheMode: round === 2 ? undefined : 'refresh', method })
+        )
+      )
+    );
+  });
+
+  it('routes modern listen through the HTTP request recovery seam', async () => {
+    const client = new ExplicitHttpMcpClient({
+      name: 'listen-recovery-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: 'https://example.test/mcp',
+    });
+    const listen = vi.fn(async () => ({ close: vi.fn(), id: 'subscription-1' }));
+    const runRequest = vi.fn(
+      async (request: (target: { listen: typeof listen }) => Promise<unknown>) =>
+        await request({ listen })
+    );
+    Reflect.set(client, 'runRequest', runRequest);
+    Reflect.set(client, 'getConnection', () => {
+      throw new Error('listen bypassed runRequest');
+    });
+
+    await expect(client.listen({ toolsListChanged: true })).resolves.toMatchObject({
+      id: 'subscription-1',
+    });
+    expect(runRequest).toHaveBeenCalledOnce();
   });
 
   it('advances the observable generation as soon as an active connection is invalidated', () => {

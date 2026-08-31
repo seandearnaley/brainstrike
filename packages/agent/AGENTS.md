@@ -366,6 +366,16 @@ budgets. Tool progress is emitted as a transient custom stream part; a
 progress-writer failure is logged but never overrides the remote tool's primary
 result or error.
 
+The dedicated MCP client subpath also preserves resources, resource templates,
+prompts, completions, pagination, cache hints, and era-specific subscriptions.
+Unsupported lists fail through strict typed SDK capability errors instead of
+returning empty arrays. The first cursorless tools/resources/templates/prompts
+list on each SDK connection forces a cache refresh; later requests retain normal
+SDK cache semantics. Server-feature notification handlers are registered once
+per SDK connection, settle subscribers independently, and report every rejection
+through the configured diagnostic sink. This transport seam does not itself
+claim product support or inject resource or prompt content into model context.
+
 Tips for MCP integration:
 
 - Keep remote tool processes isolated and sandboxed. Avoid passing  

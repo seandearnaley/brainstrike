@@ -2088,7 +2088,17 @@ Ownership and flow:
    `@brainstrike/agent/mcp-client`, own the stable SDK v2 split-package transports,
    lazy/concurrency-safe connection, request forwarding, and idempotent close.
    The HTTP client additionally owns header composition and Streamable HTTP
-   session termination. `client-extension-registry.ts` is the typed host-owned
+   session termination. Core resource/template/prompt/completion operations and
+   modern `subscriptions/listen` remain on the same request/recovery seam as
+   tools. The first cursorless tools/resources/templates/prompts list on every
+   new HTTP or stdio connection forces the SDK cache to refresh; subsequent
+   requests use the caller/SDK cache policy. Feature-event subscribers settle
+   independently with `Promise.allSettled`, and each rejection reaches the
+   explicit diagnostic sink even when another subscriber or the sink itself
+   rejects. SDK client close remains the sole subscription/listener teardown
+   owner. This transport support does not update the product support matrix;
+   the desktop authority layer must integrate and verify it first.
+   `client-extension-registry.ts` is the typed host-owned
    capability boundary; it does not implement an extension itself. Only
    non-empty MCP config loads the dedicated subpath; keep split SDK packages out
    of root/browser-safe/Hosted Web bundles (the emitted-bundle verifier enforces

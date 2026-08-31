@@ -1,8 +1,15 @@
+// biome-ignore-all lint/style/noExcessiveLinesPerFile: real modern and legacy protocol fixtures are atomic lifecycle tests
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import { createMcpHandler, McpServer, type Transport } from '@modelcontextprotocol/server';
+import {
+  completable,
+  createMcpHandler,
+  McpServer,
+  ResourceTemplate,
+  type Transport,
+} from '@modelcontextprotocol/server';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -63,6 +70,95 @@ function createEchoServer(): McpServer {
     isError: true,
   }));
 
+  return server;
+}
+
+function createCoreFeatureServer(): McpServer {
+  const server = new McpServer({ name: 'core-feature-test-server', version: '1.0.0' });
+  server.registerTool('search', { description: 'Search issues' }, async () => ({ content: [] }));
+  server.registerResource(
+    'BST-1471',
+    'linear://issue/BST-1471',
+    {
+      cacheHint: { cacheScope: 'private', ttlMs: 1000 },
+      description: 'Issue body',
+      mimeType: 'text/markdown',
+      title: 'MCP core server features',
+    },
+    async (uri) => ({
+      contents: [
+        { mimeType: 'text/markdown', text: '# BST-1471', uri: uri.href },
+        {
+          blob: 'AAEC',
+          mimeType: 'application/octet-stream',
+          uri: 'linear://issue/BST-1471/attachment',
+        },
+      ],
+    })
+  );
+  server.registerResource(
+    'issue',
+    new ResourceTemplate('linear://issue/{identifier}', {
+      complete: {
+        identifier: (value) => ['BST-1471', 'BST-1472'].filter((id) => id.startsWith(value)),
+      },
+      list: undefined,
+    }),
+    { description: 'Issue by identifier', mimeType: 'text/markdown', title: 'Issue' },
+    async (uri) => ({ contents: [{ text: uri.href, uri: uri.href }] })
+  );
+  server.registerPrompt(
+    'summarize-issue',
+    {
+      argsSchema: z.object({
+        identifier: z.string(),
+        tone: completable(z.string(), (value) =>
+          ['formal', 'friendly'].filter((tone) => tone.startsWith(value))
+        ),
+      }),
+      description: 'Summarize one issue',
+      title: 'Summarize issue',
+    },
+    ({ identifier, tone }) => ({
+      description: 'A mixed-content prompt',
+      messages: [
+        {
+          content: { text: `Write a ${tone} summary for ${identifier}.`, type: 'text' },
+          role: 'user',
+        },
+        {
+          content: { data: 'aW1hZ2U=', mimeType: 'image/png', type: 'image' },
+          role: 'assistant',
+        },
+        {
+          content: {
+            name: identifier,
+            type: 'resource_link',
+            uri: `linear://issue/${identifier}`,
+          },
+          role: 'assistant',
+        },
+        {
+          content: {
+            resource: {
+              mimeType: 'text/markdown',
+              text: `# ${identifier}`,
+              uri: `linear://issue/${identifier}`,
+            },
+            type: 'resource',
+          },
+          role: 'assistant',
+        },
+      ],
+    })
+  );
+  server.server.registerCapabilities({
+    prompts: { listChanged: true },
+    resources: { listChanged: true, subscribe: true },
+    tools: { listChanged: true },
+  });
+  server.server.setRequestHandler('resources/subscribe', async () => ({}));
+  server.server.setRequestHandler('resources/unsubscribe', async () => ({}));
   return server;
 }
 
@@ -186,6 +282,7 @@ async function startStreamableServer(options: {
 }
 
 async function startSseServer(options: {
+  createMcpServer?: () => McpServer;
   pathname: string;
   requests: RecordedRequest[];
 }): Promise<RunningServer> {
@@ -202,7 +299,7 @@ async function startSseServer(options: {
 
     if (request.method === 'GET' && url.pathname === options.pathname) {
       transport = new SSEServerTransport('/messages', response);
-      mcpServer = createEchoServer();
+      mcpServer = options.createMcpServer?.() ?? createEchoServer();
       await mcpServer.connect(transport);
       return;
     }
@@ -466,6 +563,120 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
       name: 'explicit-http-test-server',
       version: '1.0.0',
     });
+  });
+  it('rejects unsupported core feature lists with a typed capability error', async () => {
+    const handler = createMcpHandler(() => createEchoServer(), { legacy: 'reject' });
+    cleanupTasks.push(() => handler.close());
+    const client = trackClient({
+      fetch: (input, init) => handler.fetch(new Request(input, init)),
+      name: 'strict-capability-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: new URL('http://mcp-modern.invalid/mcp'),
+    });
+
+    await client.connect();
+    await expect(client.listResources()).rejects.toMatchObject({
+      code: SdkErrorCode.CapabilityNotSupported,
+    });
+  });
+  it('preserves every core server feature through a real modern server', async () => {
+    const handler = createMcpHandler(() => createCoreFeatureServer(), { legacy: 'reject' });
+    cleanupTasks.push(() => handler.close());
+    const client = trackClient({
+      fetch: (input, init) => handler.fetch(new Request(input, init)),
+      name: 'modern-core-features',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: new URL('http://mcp-modern.invalid/mcp'),
+    });
+
+    expect((await client.listResources()).resources).toMatchObject([
+      { name: 'BST-1471', uri: 'linear://issue/BST-1471' },
+    ]);
+    expect((await client.listResourceTemplates()).resourceTemplates).toMatchObject([
+      { name: 'issue', uriTemplate: 'linear://issue/{identifier}' },
+    ]);
+    expect(await client.readResource({ uri: 'linear://issue/BST-1471' })).toMatchObject({
+      cacheScope: 'private',
+      contents: [
+        { text: '# BST-1471', uri: 'linear://issue/BST-1471' },
+        { blob: 'AAEC', mimeType: 'application/octet-stream' },
+      ],
+      ttlMs: 1000,
+    });
+    expect((await client.listPrompts()).prompts).toMatchObject([{ name: 'summarize-issue' }]);
+    expect(
+      await client.getPrompt({
+        arguments: { identifier: 'BST-1471', tone: 'formal' },
+        name: 'summarize-issue',
+      })
+    ).toMatchObject({
+      messages: [
+        { content: { type: 'text' } },
+        { content: { type: 'image' } },
+        { content: { type: 'resource_link' } },
+        { content: { type: 'resource' } },
+      ],
+    });
+    await expect(
+      client.complete({
+        argument: { name: 'tone', value: 'f' },
+        ref: { name: 'summarize-issue', type: 'ref/prompt' },
+      })
+    ).resolves.toMatchObject({ completion: { values: ['formal', 'friendly'] } });
+    await expect(
+      client.subscribeResource({ uri: 'linear://issue/BST-1471' })
+    ).rejects.toMatchObject({ code: SdkErrorCode.MethodNotSupportedByProtocolVersion });
+  });
+
+  it('preserves every core server feature and legacy resource subscriptions over real SSE', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startSseServer({
+      createMcpServer: createCoreFeatureServer,
+      pathname: '/legacy-core',
+      requests,
+    });
+    const client = trackClient({
+      name: 'legacy-core-features',
+      protocol: 'legacy',
+      transport: 'sse',
+      url: server.url,
+    });
+
+    expect((await client.listResources()).resources).toHaveLength(1);
+    expect((await client.listResourceTemplates()).resourceTemplates).toHaveLength(1);
+    expect(await client.readResource({ uri: 'linear://issue/BST-1471' })).toMatchObject({
+      contents: [{ text: '# BST-1471' }, { blob: 'AAEC' }],
+    });
+    expect((await client.listPrompts()).prompts).toHaveLength(1);
+    expect(
+      await client.getPrompt({
+        arguments: { identifier: 'BST-1471', tone: 'friendly' },
+        name: 'summarize-issue',
+      })
+    ).toMatchObject({
+      messages: [
+        { content: { type: 'text' } },
+        { content: { type: 'image' } },
+        { content: { type: 'resource_link' } },
+        { content: { type: 'resource' } },
+      ],
+    });
+    await expect(
+      client.complete({
+        argument: { name: 'tone', value: 'f' },
+        ref: { name: 'summarize-issue', type: 'ref/prompt' },
+      })
+    ).resolves.toMatchObject({ completion: { values: ['formal', 'friendly'] } });
+    await client.subscribeResource({ uri: 'linear://issue/BST-1471' });
+    await client.unsubscribeResource({ uri: 'linear://issue/BST-1471' });
+    await expect(client.listen({ toolsListChanged: true })).rejects.toMatchObject({
+      code: SdkErrorCode.MethodNotSupportedByProtocolVersion,
+    });
+    expect(requests.map((request) => requestMethod(request.body))).not.toContain(
+      'subscriptions/listen'
+    );
   });
   it('auto-negotiates legacy only after the modern probe returns legacy evidence', async () => {
     const requests: RecordedRequest[] = [];

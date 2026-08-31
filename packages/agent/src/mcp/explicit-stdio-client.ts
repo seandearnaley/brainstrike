@@ -17,6 +17,10 @@ import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpCompleteParams,
+  ExplicitHttpMcpCompleteResult,
+  ExplicitHttpMcpGetPromptParams,
+  ExplicitHttpMcpGetPromptResult,
   ExplicitHttpMcpInputRequiredResult,
   ExplicitHttpMcpListPromptsParams,
   ExplicitHttpMcpListPromptsResult,
@@ -26,10 +30,20 @@ import type {
   ExplicitHttpMcpListResourceTemplatesResult,
   ExplicitHttpMcpListToolsParams,
   ExplicitHttpMcpListToolsResult,
+  ExplicitHttpMcpReadResourceParams,
+  ExplicitHttpMcpReadResourceResult,
   ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpSubscription,
+  ExplicitHttpMcpSubscriptionFilter,
   ExplicitHttpMcpTool,
   NegotiatedProtocolFacts,
 } from './explicit-http-client';
+import {
+  type McpServerFeatureEventDiagnosticSink,
+  type McpServerFeatureEventHandlers,
+  McpServerFeatureEventRegistry,
+  resolveMcpServerFeatureEventDiagnosticSink,
+} from './server-feature-events';
 import { notifyUnexpectedClose } from './unexpected-close-observer';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
@@ -55,6 +69,22 @@ type ExplicitStdioMcpNormalCallOptions = Omit<
 > & {
   allowInputRequired?: false;
 };
+export type ExplicitStdioMcpListResourcesParams = ExplicitHttpMcpListResourcesParams;
+export type ExplicitStdioMcpListResourcesResult = ExplicitHttpMcpListResourcesResult;
+export type ExplicitStdioMcpListResourceTemplatesParams =
+  ExplicitHttpMcpListResourceTemplatesParams;
+export type ExplicitStdioMcpListResourceTemplatesResult =
+  ExplicitHttpMcpListResourceTemplatesResult;
+export type ExplicitStdioMcpReadResourceParams = ExplicitHttpMcpReadResourceParams;
+export type ExplicitStdioMcpReadResourceResult = ExplicitHttpMcpReadResourceResult;
+export type ExplicitStdioMcpListPromptsParams = ExplicitHttpMcpListPromptsParams;
+export type ExplicitStdioMcpListPromptsResult = ExplicitHttpMcpListPromptsResult;
+export type ExplicitStdioMcpGetPromptParams = ExplicitHttpMcpGetPromptParams;
+export type ExplicitStdioMcpGetPromptResult = ExplicitHttpMcpGetPromptResult;
+export type ExplicitStdioMcpCompleteParams = ExplicitHttpMcpCompleteParams;
+export type ExplicitStdioMcpCompleteResult = ExplicitHttpMcpCompleteResult;
+export type ExplicitStdioMcpSubscription = ExplicitHttpMcpSubscription;
+export type ExplicitStdioMcpSubscriptionFilter = ExplicitHttpMcpSubscriptionFilter;
 
 export interface ExplicitStdioMcpClientOptions {
   args?: readonly string[];
@@ -71,6 +101,7 @@ export interface ExplicitStdioMcpClientOptions {
   inputRequired?: ClientOptions['inputRequired'];
   listMaxPages?: ClientOptions['listMaxPages'];
   name: string;
+  onServerFeatureEventError?: McpServerFeatureEventDiagnosticSink;
   onStderr?: (chunk: string) => void;
   onUnexpectedClose?: () => void;
   protocol?: McpProtocol;
@@ -106,6 +137,7 @@ interface NormalizedClientOptions {
   extensionRegistry?: McpClientExtensionRegistry;
   inputRequired: NonNullable<ClientOptions['inputRequired']>;
   listMaxPages: number;
+  onServerFeatureEventError: McpServerFeatureEventDiagnosticSink;
   onStderr?: (chunk: string) => void;
   onUnexpectedClose?: () => void;
   protocol: McpProtocol;
@@ -159,6 +191,10 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     inputRequired: capabilityConfiguration.inputRequired,
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
+    onServerFeatureEventError: resolveMcpServerFeatureEventDiagnosticSink(
+      options.onServerFeatureEventError,
+      name
+    ),
     ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
     ...(options.onStderr ? { onStderr: options.onStderr } : {}),
     protocol,
@@ -181,11 +217,13 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   private closePromise: Promise<void> | undefined;
   private closed = false;
   private connectPromise: Promise<ActiveConnection> | undefined;
+  private readonly featureEvents: McpServerFeatureEventRegistry;
   private readonly options: NormalizedClientOptions;
   private pendingConnection: ActiveConnection | undefined;
 
   constructor(options: ExplicitStdioMcpClientOptions) {
     this.options = normalizeOptions(options);
+    this.featureEvents = new McpServerFeatureEventRegistry(this.options.onServerFeatureEventError);
   }
 
   async connect(options?: ExplicitStdioMcpRequestOptions): Promise<void> {
@@ -293,6 +331,64 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const connection = await this.getConnection(requestOptions);
     requestOptions.signal?.throwIfAborted();
     await connection.client.sendRootsListChanged();
+  }
+
+  async readResource(
+    params: ExplicitStdioMcpReadResourceParams,
+    options?: ExplicitStdioMcpRequestOptions
+  ): Promise<ExplicitStdioMcpReadResourceResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    return connection.client.readResource(params, requestOptions);
+  }
+
+  async getPrompt(
+    params: ExplicitStdioMcpGetPromptParams,
+    options?: ExplicitStdioMcpRequestOptions
+  ): Promise<ExplicitStdioMcpGetPromptResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    return connection.client.getPrompt(params, requestOptions);
+  }
+
+  async complete(
+    params: ExplicitStdioMcpCompleteParams,
+    options?: ExplicitStdioMcpRequestOptions
+  ): Promise<ExplicitStdioMcpCompleteResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    return connection.client.complete(params, requestOptions);
+  }
+
+  async subscribeResource(
+    params: ExplicitStdioMcpReadResourceParams,
+    options?: ExplicitStdioMcpRequestOptions
+  ): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    await connection.client.subscribeResource(params, requestOptions);
+  }
+
+  async unsubscribeResource(
+    params: ExplicitStdioMcpReadResourceParams,
+    options?: ExplicitStdioMcpRequestOptions
+  ): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    await connection.client.unsubscribeResource(params, requestOptions);
+  }
+
+  async listen(
+    filter: ExplicitStdioMcpSubscriptionFilter,
+    options?: ExplicitStdioMcpRequestOptions
+  ): Promise<ExplicitStdioMcpSubscription> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    return connection.client.listen(filter, requestOptions);
+  }
+
+  watchServerFeatures(handlers: McpServerFeatureEventHandlers): () => void {
+    return this.featureEvents.subscribe(handlers);
   }
 
   close(): Promise<void> {
@@ -429,8 +525,9 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       ...this.options.capabilityRuntime.capabilities,
       ...(extensions ? { extensions } : {}),
     };
-    const clientOptions: ClientOptions = {
+    const clientOptions = {
       capabilities,
+      enforceStrictCapabilities: true,
       inputRequired: this.options.inputRequired,
       listMaxPages: this.options.listMaxPages,
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
@@ -441,9 +538,10 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
         ? {}
         : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
       responseCacheStore: this.options.responseCacheStore,
-    };
+    } satisfies ClientOptions;
     const client = new Client(this.options.clientInfo, clientOptions);
     const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
+    this.featureEvents.install(client);
     const transport = new StdioClientTransport({
       command: this.options.command,
       ...(this.options.args ? { args: this.options.args } : {}),

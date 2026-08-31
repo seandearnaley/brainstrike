@@ -36,6 +36,7 @@ const {
     this['getProtocolEra'] = () => 'modern';
     this['getServerCapabilities'] = () => ({ tools: {} });
     this['getServerVersion'] = () => ({ name: 'test-server', version: '2.0.0' });
+    this['setNotificationHandler'] = vi.fn();
   }
   function MockTransport(this: Record<string, unknown>) {
     this['close'] = closeTransport;
@@ -111,6 +112,7 @@ describe('stdio client', () => {
     expect(clientConnectMock).toHaveBeenCalledTimes(1);
     expect(clientCtorMock).toHaveBeenCalledWith(expect.anything(), {
       capabilities: {},
+      enforceStrictCapabilities: true,
       inputRequired: { autoFulfill: true, maxRounds: 8 },
       listMaxPages: 64,
       responseCacheStore: expect.any(responseCacheStoreCtorMock),
