@@ -95,6 +95,11 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
   },
   {
     reason:
+      'Linux-x64 CI provisioning for the Native Electron Package job; the deterministic workflow contract covers its retry, verification, ordering, and archive-reuse semantics locally.',
+    step: 'native-electron › Provision Electron binary',
+  },
+  {
+    reason:
       'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
     step: 'native-electron › Load the native capability in Electron',
   },

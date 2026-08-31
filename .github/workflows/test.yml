@@ -757,6 +757,28 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
+      # Both the native smoke (`electron`) and electron-builder need the same
+      # Electron release archive. Provision it once with bounded transfers and
+      # retries, extract it for the smoke, then pass the verified zip to
+      # electron-builder so this job has one visible download boundary instead
+      # of two implicit fetches.
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p,fs.constants.X_OK);if(fs.statSync(p).size===0){throw new Error('empty Electron binary at '+p)}console.log('Electron binary present at '+p)"
+          echo "ELECTRON_DIST=$ELECTRON_ZIP" >> "$GITHUB_ENV"
+
       - name: Build desktop dependency graph
         run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
 
@@ -764,7 +786,10 @@ jobs:
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
 
       - name: Package the desktop application
-        run: pnpm --filter @brainstrike/desktop run pack
+        run: |
+          set -euo pipefail
+          test -n "${ELECTRON_DIST:-}"
+          pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST"
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged

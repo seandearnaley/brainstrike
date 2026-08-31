@@ -76,7 +76,7 @@ truncation. Use the narrow mode for controlled, sequential same-head memory
 calibration runs; it is evidence collection, not a way to replace or route
 required PR checks.
 
-### Desktop Electron provisioning (BST-563)
+### Desktop Electron provisioning (BST-563, BST-1252)
 
 The Desktop E2E smoke job in `test.yml` and both regression jobs in
 `desktop-e2e.yml` download Electron directly from GitHub Releases and extract
@@ -90,6 +90,16 @@ because a future `container:` job may not define `RUNNER_TEMP`. The paired
 pins the no-lifecycle premise, requires all three jobs to use the shared
 `setup-workspace` action, and fails if the unused cache or raw `RUNNER_TEMP`
 path returns.
+
+The `Native Electron Package` job has a separate packaging need: its native
+smoke launches Electron before electron-builder runs, and electron-builder
+otherwise fetches the same release archive again. It now provisions one
+`${RUNNER_TEMP:-/tmp}/electron.zip` before either consumer, bounds each transfer
+to three minutes, retries transfer errors three times with a visible failure
+after exhaustion, verifies the extracted executable is non-empty and runnable,
+and passes that same zip to electron-builder through
+`config.electronDist`. This keeps one bounded, observable download boundary and
+does not restore the obsolete `~/.cache/electron` Actions cache.
 
 Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
 each `webContents.getOSProcessId()`. Electron 43 does not expose the older
