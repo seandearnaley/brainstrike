@@ -3,7 +3,7 @@ import path from 'node:path';
 import { mcpToolRegistry } from '@brainstrike/agent';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from '../../ipc-mcp';
+import * as mcpIpc from '../../ipc-mcp';
 import { disposeClients, initClients } from '../../mcp';
 import {
   getMcpConfigPath,
@@ -101,7 +101,7 @@ describe('ipc-mcp handlers', () => {
     mockHandle.mockImplementation((channel: string, handler: RegisteredHandler) => {
       handlers.set(channel, handler);
     });
-    registerMcpIpcHandlers({ runtime: authority.runtime });
+    mcpIpc.registerMcpIpcHandlers({ runtime: authority.runtime });
     const unwatchHandler = handlers.get('mcp:config:unwatch');
     if (unwatchHandler) {
       await unwatchHandler();
@@ -109,7 +109,8 @@ describe('ipc-mcp handlers', () => {
     vi.mocked(watchMcpConfig).mockClear();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await mcpIpc.resumeMcpRuntimeAfterFactoryReset(authority.runtime);
     mcpToolRegistry.clear();
     vi.restoreAllMocks();
   });
@@ -158,7 +159,7 @@ describe('ipc-mcp handlers', () => {
       }
       await watchHandler({});
 
-      await cleanupMcpRuntimeForShutdown();
+      await mcpIpc.cleanupMcpRuntimeForShutdown();
 
       expect(mockWatcher.close).toHaveBeenCalledTimes(1);
       expect(disposeClients).toHaveBeenCalled();
@@ -173,7 +174,7 @@ describe('ipc-mcp handlers', () => {
     it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {
       const mockWatcher = { close: vi.fn() };
       vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
-      const unregister = registerMcpIpcHandlers({ runtime: authority.runtime });
+      const unregister = mcpIpc.registerMcpIpcHandlers({ runtime: authority.runtime });
 
       const watchHandler = handlers.get('mcp:config:watch');
       if (!watchHandler) {
@@ -257,7 +258,7 @@ describe('ipc-mcp handlers', () => {
     it('waits for startup discovery, then reads config without replacing live clients', async () => {
       const startup = Promise.withResolvers<unknown>();
       vi.mocked(loadMcpConfig).mockReturnValueOnce(startup.promise as never);
-      registerMcpIpcHandlers({ runtime: authority.runtime });
+      mcpIpc.registerMcpIpcHandlers({ runtime: authority.runtime });
       const statusHandler = handlers.get('mcp:status:get');
       if (!statusHandler) {
         throw new Error('status handler not registered');
