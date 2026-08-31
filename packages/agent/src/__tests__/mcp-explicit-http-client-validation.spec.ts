@@ -1,6 +1,12 @@
 import { InMemoryResponseCacheStore } from '@modelcontextprotocol/client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
+  MAX_MCP_MAX_TOTAL_TIMEOUT_MS,
+  normalizeMcpRequestOptions,
+} from '../mcp/client-policy';
 import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
+import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 
 describe('ExplicitHttpMcpClient validation', () => {
   it.each(['file:///tmp/mcp.sock', 'ftp://example.test/mcp'])(
@@ -127,5 +133,98 @@ describe('ExplicitHttpMcpClient validation', () => {
           url: 'https://example.test/mcp',
         })
     ).toThrow('MCP response cache partition must not be empty');
+  });
+
+  it('applies the same shared-cache partition guard to stdio', () => {
+    expect(
+      () =>
+        new ExplicitStdioMcpClient({
+          command: 'mcp-server',
+          name: 'unpartitioned-stdio-cache-canary',
+          responseCacheStore: new InMemoryResponseCacheStore(),
+        })
+    ).toThrow('MCP response cache partition is required when sharing a response cache store');
+  });
+
+  it('trims the shared-cache principal partition', () => {
+    expect(
+      () =>
+        new ExplicitStdioMcpClient({
+          cachePartition: ' principal-a ',
+          command: 'mcp-server',
+          name: 'partitioned-stdio-cache-canary',
+          responseCacheStore: new InMemoryResponseCacheStore(),
+        })
+    ).not.toThrow();
+  });
+
+  it('defaults the absolute timeout while permitting a larger bounded policy', () => {
+    expect(normalizeMcpRequestOptions(undefined).maxTotalTimeout).toBe(
+      DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS
+    );
+    expect(
+      normalizeMcpRequestOptions({ maxTotalTimeout: MAX_MCP_MAX_TOTAL_TIMEOUT_MS }).maxTotalTimeout
+    ).toBe(MAX_MCP_MAX_TOTAL_TIMEOUT_MS);
+    expect(() =>
+      normalizeMcpRequestOptions({ maxTotalTimeout: MAX_MCP_MAX_TOTAL_TIMEOUT_MS + 1 })
+    ).toThrow(`at most ${MAX_MCP_MAX_TOTAL_TIMEOUT_MS}`);
+  });
+
+  it('re-resolves catalog metadata for a recovered call instead of retaining the old generation', async () => {
+    const client = new ExplicitHttpMcpClient({
+      name: 'recovered-tool-definition-canary',
+      transport: 'streamable-http',
+      url: 'https://example.test/mcp',
+    });
+    const oldDefinition = {
+      inputSchema: {
+        properties: { account: { type: 'string', 'x-mcp-header': 'X-Account' } },
+        type: 'object',
+      },
+      name: 'lookup',
+    } as const;
+    Reflect.set(client, 'toolDefinitions', new Map([['lookup', oldDefinition]]));
+    const firstCall = vi.fn(async () => ({ content: [] }));
+    const recoveredCall = vi.fn(async () => ({ content: [] }));
+    Reflect.set(
+      client,
+      'runRequest',
+      async (request: (sdkClient: { callTool: typeof firstCall }) => Promise<unknown>) => {
+        await request({ callTool: firstCall });
+        Reflect.set(client, 'toolDefinitions', new Map());
+        return await request({ callTool: recoveredCall });
+      }
+    );
+
+    await client.callTool({ arguments: { account: 'acct-old' }, name: 'lookup' });
+
+    expect(firstCall).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ toolDefinition: oldDefinition })
+    );
+    expect(recoveredCall).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ toolDefinition: expect.anything() })
+    );
+  });
+
+  it('advances the observable generation as soon as an active connection is invalidated', () => {
+    const client = new ExplicitHttpMcpClient({
+      name: 'invalidation-generation-canary',
+      transport: 'streamable-http',
+      url: 'https://example.test/mcp',
+    });
+    const connection = { disconnected: false };
+    Reflect.set(client, 'connectionGeneration', 7);
+    Reflect.set(client, 'activeConnection', connection);
+    const invalidate = Reflect.get(client, 'invalidateConnection') as (
+      this: ExplicitHttpMcpClient,
+      value: typeof connection
+    ) => boolean;
+
+    expect(invalidate.call(client, connection)).toBe(true);
+    expect(client.getConnectionGeneration()).toBe(8);
+    expect(invalidate.call(client, connection)).toBe(false);
+    expect(client.getConnectionGeneration()).toBe(8);
   });
 });

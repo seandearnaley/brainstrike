@@ -340,13 +340,15 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     options?: ExplicitHttpMcpManualCallOptions | ExplicitHttpMcpNormalCallOptions
   ): Promise<ExplicitHttpMcpCallToolResult | ExplicitHttpMcpInputRequiredResult> {
     const normalizedOptions = normalizeMcpRequestOptions(options);
-    const toolDefinition =
-      normalizedOptions.toolDefinition === undefined
-        ? this.toolDefinitions.get(params.name)
-        : undefined;
-    const requestOptions =
-      toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
-    return this.runRequest((client) => client.callTool(params, requestOptions), requestOptions);
+    return this.runRequest((client) => {
+      const toolDefinition =
+        normalizedOptions.toolDefinition === undefined
+          ? this.toolDefinitions.get(params.name)
+          : undefined;
+      const requestOptions =
+        toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
+      return client.callTool(params, requestOptions);
+    }, normalizedOptions);
   }
 
   close(): Promise<void> {
@@ -530,6 +532,9 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<T> {
     const connection = await this.getConnection(options);
+    const hadSession =
+      connection.transport instanceof StreamableHTTPClientTransport &&
+      connection.transport.sessionId !== undefined;
     try {
       return await request(connection.client, connection);
     } catch (error) {
@@ -539,7 +544,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       }
       if (
         connection.transport instanceof StreamableHTTPClientTransport &&
-        isReconnectableSessionError(error, connection.transport.sessionId !== undefined)
+        isReconnectableSessionError(error, hadSession)
       ) {
         if (this.options.lifecycle === 'host-owned') {
           if (this.invalidateConnection(connection, true)) {
@@ -614,6 +619,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     }
     const unexpected = !this.closed && this.activeConnection === connection;
     connection.disconnected = true;
+    this.connectionGeneration += 1;
     this.toolDefinitions = new Map();
     this.catalogGeneration = 0;
     if (this.activeConnection === connection) {

@@ -8,7 +8,10 @@ export const DEFAULT_MCP_LIST_MAX_PAGES = 64;
 export const MAX_MCP_LIST_MAX_PAGES = 256;
 export const MCP_RESPONSE_CACHE_MAX_ENTRIES = 128;
 export const DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS = 600_000;
-export const MAX_MCP_MAX_TOTAL_TIMEOUT_MS = 600_000;
+// The default keeps ordinary requests bounded, while the one-hour ceiling lets
+// explicitly approved long-running tools outlive that default without creating
+// an unbounded progress-reset loop.
+export const MAX_MCP_MAX_TOTAL_TIMEOUT_MS = 3_600_000;
 
 export function normalizeMcpCachePartition(
   value: unknown,
@@ -28,7 +31,7 @@ export function normalizeMcpCachePartition(
   if (value.trim().length === 0) {
     throw new Error('MCP response cache partition must not be empty');
   }
-  return value;
+  return value.trim();
 }
 
 export function normalizeMcpListMaxPages(value: unknown): number {

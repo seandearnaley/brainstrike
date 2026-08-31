@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
 import {
   createMcpResponseCacheStore,
+  normalizeMcpCachePartition,
   normalizeMcpListMaxPages,
   normalizeMcpRequestOptions,
 } from './client-policy';
@@ -10,6 +11,7 @@ import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpInputRequiredResult,
   ExplicitHttpMcpListToolsParams,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
@@ -28,6 +30,15 @@ export type ExplicitStdioMcpCallToolResult = ExplicitHttpMcpCallToolResult;
 export type ExplicitStdioMcpListToolsParams = ExplicitHttpMcpListToolsParams;
 export type ExplicitStdioMcpListToolsResult = ExplicitHttpMcpListToolsResult;
 export type ExplicitStdioMcpRequestOptions = ExplicitHttpMcpRequestOptions;
+type ExplicitStdioMcpManualCallOptions = ExplicitStdioMcpRequestOptions & {
+  allowInputRequired: true;
+};
+type ExplicitStdioMcpNormalCallOptions = Omit<
+  ExplicitStdioMcpRequestOptions,
+  'allowInputRequired'
+> & {
+  allowInputRequired?: false;
+};
 
 export interface ExplicitStdioMcpClientOptions {
   args?: readonly string[];
@@ -93,9 +104,13 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
   validateNonEmpty(clientInfo.name, 'MCP client info name');
   validateNonEmpty(clientInfo.version, 'MCP client info version');
 
+  const cachePartition = normalizeMcpCachePartition(
+    options.cachePartition,
+    options.responseCacheStore !== undefined
+  );
   return {
     clientInfo: { ...clientInfo },
-    ...(options.cachePartition === undefined ? {} : { cachePartition: options.cachePartition }),
+    ...(cachePartition === undefined ? {} : { cachePartition }),
     command: validateNonEmpty(options.command, 'MCP stdio command'),
     ...(options.defaultCacheTtlMs === undefined
       ? {}
@@ -168,8 +183,16 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
 
   async callTool(
     params: ExplicitStdioMcpCallToolParams,
-    options?: ExplicitStdioMcpRequestOptions
-  ): Promise<ExplicitStdioMcpCallToolResult> {
+    options: ExplicitStdioMcpManualCallOptions
+  ): Promise<ExplicitStdioMcpCallToolResult | ExplicitHttpMcpInputRequiredResult>;
+  async callTool(
+    params: ExplicitStdioMcpCallToolParams,
+    options?: ExplicitStdioMcpNormalCallOptions
+  ): Promise<ExplicitStdioMcpCallToolResult>;
+  async callTool(
+    params: ExplicitStdioMcpCallToolParams,
+    options?: ExplicitStdioMcpManualCallOptions | ExplicitStdioMcpNormalCallOptions
+  ): Promise<ExplicitStdioMcpCallToolResult | ExplicitHttpMcpInputRequiredResult> {
     const normalizedOptions = normalizeMcpRequestOptions(options);
     const connection = await this.getConnection(normalizedOptions);
     if (!connection.toolMetadataReady) {
