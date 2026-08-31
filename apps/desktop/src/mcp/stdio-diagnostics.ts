@@ -12,6 +12,8 @@ const TRUNCATION_MARKER = '…[truncated]';
 const URL_PATTERN = /https?:\/\/[^\s?#]+(?:\?[^\s#]*)?(?:#[^\s]*)?/giu;
 const OAUTH_PARAMETER_PATTERN =
   /\b(?:authorization_code|access_token|refresh_token|code|code_verifier|verifier|state)=([^&\s]+)/giu;
+const STRUCTURED_SECRET_ASSIGNMENT_PATTERN =
+  /(?<![A-Z0-9_-])((?:\\?["']?)(?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|code[_-]?verifier|verifier|state|token|secret|password|api[_-]?key|apikey|cookie|set-cookie)(?:\\?["']?\s*[:=]\s*))(?!\[redacted-|MCP_REDACTED_MARKER_)[^\r\n,}\]]+/giu;
 const LINE_UNSAFE_PATTERN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
 function redactUrl(value: string): string {
@@ -41,6 +43,25 @@ function boundMessage(value: string): { message: string; truncated: boolean } {
   };
 }
 
+function redactStructuredSecretAssignments(value: string): string {
+  const markers: string[] = [];
+  const protectedValue = value.replace(/\[redacted-[^\]]+\]/gu, (marker) => {
+    const index = markers.push(marker) - 1;
+    return `MCP_REDACTED_MARKER_${index}_END`;
+  });
+  const redacted = protectedValue.replace(
+    STRUCTURED_SECRET_ASSIGNMENT_PATTERN,
+    (match: string, prefix: string) =>
+      match.slice(prefix.length).trimStart().startsWith('MCP_REDACTED_MARKER_')
+        ? match
+        : `${prefix}[redacted-structured-secret]`
+  );
+  return redacted.replace(
+    /MCP_REDACTED_MARKER_(\d+)_END/gu,
+    (_match, index: string) => markers[Number(index)] ?? '[redacted-structured-secret]'
+  );
+}
+
 export function sanitizeStdioDiagnosticLine(raw: string): McpHostDiagnostic | null {
   const lineSafe = stripAnsi(raw).replace(LINE_UNSAFE_PATTERN, '�').trim();
   if (lineSafe.length === 0) {
@@ -51,7 +72,7 @@ export function sanitizeStdioDiagnosticLine(raw: string): McpHostDiagnostic | nu
     (match) => `${match.slice(0, match.indexOf('=') + 1)}[redacted-oauth-parameter]`
   );
   const scrubbed = scrubLikelySecretValues(oauthRedacted).text;
-  const bounded = boundMessage(scrubbed);
+  const bounded = boundMessage(redactStructuredSecretAssignments(scrubbed));
   return Object.freeze({
     message: bounded.message,
     stream: 'stderr' as const,

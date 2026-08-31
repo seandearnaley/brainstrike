@@ -95,6 +95,20 @@ const publicConfig = (
 afterEach(() => vi.restoreAllMocks());
 
 describe('DesktopMcpHostRuntime', () => {
+  it('does not connect a user-paced authentication server during startup replacement', async () => {
+    const createActorClient = vi.fn((_server: ResolvedMcpServer, _context: ActorContext) =>
+      client()
+    );
+    const runtime = createDesktopMcpHostRuntime({ createActorClient, createConfigRef: () => REF });
+
+    await runtime.replaceResolvedConfig(resolved(stdio({ startup: 'authentication-required' })));
+
+    expect(createActorClient).not.toHaveBeenCalled();
+    expect(runtime.host.snapshot().servers[0]).toMatchObject({
+      state: 'authentication-required',
+    });
+  });
+
   it('reuses refs only for identical private configs and exposes no private material', async () => {
     const replace = vi.spyOn(McpHostService.prototype, 'replaceConfig');
     const { runtime } = setup();

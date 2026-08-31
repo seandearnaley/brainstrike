@@ -24,6 +24,10 @@ const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit stdio MCP client is closed';
 const DISCONNECTED_DURING_CONNECT_ERROR_MESSAGE =
   'MCP stdio connection closed during initialization';
+// The SDK 2.0.0 public API requires a numeric request timeout. This is the
+// platform maximum timer value, used only for the human-paced auth handshake;
+// cancellation remains signal-driven through the transport/client lifecycle.
+const USER_PACED_AUTH_SDK_TIMEOUT_MS = 2_147_483_647;
 
 export type ExplicitStdioMcpCallToolParams = ExplicitHttpMcpCallToolParams;
 export type ExplicitStdioMcpCallToolResult = ExplicitHttpMcpCallToolResult;
@@ -57,6 +61,7 @@ export interface ExplicitStdioMcpClientOptions {
   onUnexpectedClose?: () => void;
   protocol?: McpProtocol;
   responseCacheStore?: ClientOptions['responseCacheStore'];
+  userPacedAuth?: boolean;
 }
 
 interface ActiveConnection {
@@ -85,6 +90,7 @@ interface NormalizedClientOptions {
   onUnexpectedClose?: () => void;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
+  userPacedAuth: boolean;
 }
 
 function closedClientError(): Error {
@@ -106,6 +112,10 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
   };
   validateNonEmpty(clientInfo.name, 'MCP client info name');
   validateNonEmpty(clientInfo.version, 'MCP client info version');
+  const protocol = options.protocol ?? 'legacy';
+  if (options.userPacedAuth && protocol !== 'legacy') {
+    throw new Error('MCP user-paced stdio authorization requires legacy protocol policy');
+  }
 
   const cachePartition = normalizeMcpCachePartition(
     options.cachePartition,
@@ -124,8 +134,9 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
     ...(options.onStderr ? { onStderr: options.onStderr } : {}),
-    protocol: options.protocol ?? 'legacy',
+    protocol,
     responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
+    userPacedAuth: options.userPacedAuth ?? false,
   };
 }
 
@@ -150,7 +161,10 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   async connect(options?: ExplicitStdioMcpRequestOptions): Promise<void> {
-    await this.getConnection(normalizeMcpRequestOptions(options));
+    const requestOptions = this.options.userPacedAuth
+      ? { ...(options ?? {}), timeout: options?.timeout ?? USER_PACED_AUTH_SDK_TIMEOUT_MS }
+      : normalizeMcpRequestOptions(options);
+    await this.getConnection(requestOptions);
   }
 
   getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {

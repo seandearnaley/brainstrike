@@ -2316,6 +2316,21 @@ actions such as Authenticate, Reauthorize, Disconnect, Retry, and Replace
 Configuration. Opaque server, invocation, continuation, task, and Apps ids are
 never reconstructed from display names.
 
+The startup policy is conservative for interactive stdio OAuth wrappers: an
+`npx -y mcp-remote ...` shape is normalized to `authentication-required`, even
+when the legacy config omitted startup policy, so config loading and startup
+discovery cannot spawn a browser. Connect, Cancel, and Retry are capability-
+gated Settings actions. Cancel is dispatched directly to the owning actor,
+aborts the active connect signal, and settles child/listener cleanup without
+waiting behind config replacement or discovery work. User-paced stdio auth
+omits Brainstrike's absolute request budget and uses the Node platform-maximum
+numeric timer (`2^31 - 1` ms) required by the SDK 2.0.0 public request API;
+this is an SDK constraint, not a product auth deadline, and cancellation is
+still signal-driven. Ordinary post-connect requests retain the normal bounded
+request policy. Discovery starts all actionable servers concurrently, while
+status snapshots retain every zero-tool, authentication-required, and failed
+server plus bounded, redacted stderr diagnostics.
+
 Production migrates atomically to `@modelcontextprotocol/client@2.0.0`; v1 and
 v2 class instances never cross the host boundary. The release tag used by this
 contract peels to `cc4b41617ce3601b1290d67216ea0b194a3cd9ac`, and modern

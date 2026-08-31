@@ -53,6 +53,20 @@ describe('mcp-loader', () => {
     expect(config.servers).toHaveLength(2);
     expect(config.servers[0]?.transport).toBe('stdio');
     expect(config.servers[1]?.transport).toBe('sse');
+
+    const interactive = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            args: ['-y', 'mcp-remote', 'https://mcp.example.test/mcp'],
+            command: 'npx',
+            name: 'interactive-remote',
+            transport: 'stdio',
+          },
+        ],
+      })
+    );
+    expect(interactive.servers[0]?.startup).toBe('authentication-required');
   });
 
   it('applies one configured-server identity policy at every parser boundary', async () => {

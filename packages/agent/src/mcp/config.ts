@@ -18,6 +18,32 @@ const ProtocolPolicySchema = {
 };
 const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
 
+export function isInteractiveMcpStdioServer(
+  command: string,
+  args: readonly string[] | undefined
+): boolean {
+  const executable = command.replaceAll('\\', '/').split('/').at(-1);
+  return (
+    executable === 'mcp-remote' || args?.some((argument) => argument === 'mcp-remote') === true
+  );
+}
+
+function resolveStartupPolicy(server: {
+  args?: readonly string[] | undefined;
+  command?: string | undefined;
+  startup?: 'automatic' | 'authentication-required' | undefined;
+  transport: string;
+}): 'automatic' | 'authentication-required' {
+  if (
+    server.transport === 'stdio' &&
+    server.command !== undefined &&
+    isInteractiveMcpStdioServer(server.command, server.args)
+  ) {
+    return 'authentication-required';
+  }
+  return server.startup ?? 'automatic';
+}
+
 const StdioSchema = z.object({
   args: z.array(z.string()).optional(),
   command: z.string().min(1),
@@ -61,7 +87,7 @@ const McpServerInputSchema = z
 export const McpServerSchema = McpServerInputSchema.transform((server) => ({
   ...server,
   protocol: server.protocol ?? ('legacy' as const),
-  startup: server.startup ?? ('automatic' as const),
+  startup: resolveStartupPolicy(server),
 }));
 
 const McpConfigInputSchema = z
@@ -87,7 +113,7 @@ export const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
   servers: config.servers.map((server) => ({
     ...server,
     protocol: server.protocol ?? ('legacy' as const),
-    startup: server.startup ?? ('automatic' as const),
+    startup: resolveStartupPolicy(server),
   })),
 }));
 

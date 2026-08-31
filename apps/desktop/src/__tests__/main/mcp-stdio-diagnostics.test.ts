@@ -45,4 +45,24 @@ describe('McpStdioDiagnosticCollector', () => {
     expect(collector.snapshot()).toHaveLength(MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES);
     expect(collector.snapshot()[0]?.message).toBe('line-3');
   });
+
+  it('redacts structured, colon-delimited, escaped, and multiline secret values', () => {
+    const collector = new McpStdioDiagnosticCollector();
+    collector.write(
+      '{"access_token":"json-secret","refresh_token":"refresh-secret"}\n' +
+        'Authorization: colon-secret\n' +
+        '{\\"token\\":\\"escaped-secret\\"}\n' +
+        '{\n  "client_secret": "multiline-secret"\n}\n'
+    );
+    collector.flush();
+
+    const messages = collector
+      .snapshot()
+      .map(({ message }) => message)
+      .join('\n');
+    expect(messages).toContain('[redacted-structured-secret]');
+    expect(messages).not.toMatch(
+      /json-secret|refresh-secret|colon-secret|escaped-secret|multiline-secret/u
+    );
+  });
 });

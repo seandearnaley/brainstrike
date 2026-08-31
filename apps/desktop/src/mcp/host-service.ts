@@ -14,6 +14,8 @@ import {
   type McpHostWatchEvent,
   type McpHostWatchFilter,
   parseMcpHostConfig,
+  parseMcpHostControlRequest,
+  parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
 import type { McpHostRevisionPublisher } from './host-revision-publisher';
 import { settleOnAbort } from './server-actor';
@@ -31,6 +33,7 @@ const COUNTER_KEYS = {
 } satisfies Record<Counter, true>;
 const COUNTERS = Object.keys(COUNTER_KEYS) as readonly Counter[];
 export interface McpHostActor extends Pick<McpHostPort, 'close' | 'invoke'> {
+  cancel(): Promise<McpHostServerSnapshot>;
   connect(): Promise<McpHostServerSnapshot>;
   invalidated(): boolean;
   snapshot(): McpHostServerSnapshot;
@@ -156,6 +159,12 @@ export class McpHostService implements McpHostPort {
     operation: McpHostOperation,
     options?: McpHostInvokeOptions
   ): Promise<McpHostOperationResult> {
+    let parsedOperation: McpHostOperation;
+    try {
+      parsedOperation = parseMcpHostOperation(operation);
+    } catch (cause) {
+      return Promise.reject(cause);
+    }
     if (this.closePromise) {
       return Promise.reject(new McpHostServiceError('mcp-host-closed'));
     }
@@ -164,7 +173,7 @@ export class McpHostService implements McpHostPort {
     }
     const getEntry = (): ActorEntry => {
       this.assertOpen();
-      const entry = this.actors.get(operation.configuredServerId);
+      const entry = this.actors.get(parsedOperation.configuredServerId);
       if (!entry) {
         throw new McpHostServiceError('mcp-host-server-unknown');
       }
@@ -172,13 +181,14 @@ export class McpHostService implements McpHostPort {
     };
     const invokeCurrent = (): Promise<McpHostOperationResult> => {
       options?.signal?.throwIfAborted();
-      return getEntry().actor.invoke(operation, options);
+      return getEntry().actor.invoke(parsedOperation, options);
     };
     const invokeWithSelfHeal = (): Promise<McpHostOperationResult> => {
       if (getEntry().actor.invalidated()) {
-        return this.enqueueReplacement(this.currentConfig(), operation.configuredServerId).then(
-          invokeCurrent
-        );
+        return this.enqueueReplacement(
+          this.currentConfig(),
+          parsedOperation.configuredServerId
+        ).then(invokeCurrent);
       }
       return invokeCurrent();
     };
@@ -205,23 +215,35 @@ export class McpHostService implements McpHostPort {
     return this.enqueueReplacement(parsed);
   }
   control(request: McpHostControlRequest): Promise<McpHostServerSnapshot> {
+    let parsedRequest: McpHostControlRequest;
+    try {
+      parsedRequest = parseMcpHostControlRequest(request);
+    } catch (cause) {
+      return Promise.reject(cause);
+    }
     if (this.closePromise) {
       return Promise.reject(new McpHostServiceError('mcp-host-closed'));
+    }
+    if (parsedRequest.action === 'cancel') {
+      const current = this.actors.get(parsedRequest.configuredServerId);
+      if (!current) {
+        return Promise.reject(new McpHostServiceError('mcp-host-server-unknown'));
+      }
+      return current.actor.cancel();
     }
     return this.enqueueSerialized(async () => {
       const currentConfig = this.currentConfig();
       const configured = currentConfig.servers.some(
-        ({ configuredServerId }) => configuredServerId === request.configuredServerId
+        ({ configuredServerId }) => configuredServerId === parsedRequest.configuredServerId
       );
       if (!configured) {
         throw new McpHostServiceError('mcp-host-server-unknown');
       }
-      if (request.action === 'connect') {
-        return await this.getActor(request.configuredServerId).connect();
+      if (parsedRequest.action === 'connect') {
+        return await this.getActor(parsedRequest.configuredServerId).connect();
       }
-      await this.applyConfig(currentConfig, request.configuredServerId, true);
-      const actor = this.getActor(request.configuredServerId);
-      return request.action === 'retry' ? await actor.connect() : actor.snapshot();
+      await this.applyConfig(currentConfig, parsedRequest.configuredServerId, true);
+      return await this.getActor(parsedRequest.configuredServerId).connect();
     });
   }
   private enqueueSerialized<T>(operation: () => Promise<T>): Promise<T> {

@@ -344,6 +344,7 @@ export class DesktopMcpHostRuntime {
             onStderr: (chunk) => diagnostics?.write(chunk),
             onUnexpectedClose: () =>
               context.onUnexpectedClose(new McpLifecycleFailure('connection', 'mcp-child-exited')),
+            userPacedAuth: server.startup === 'authentication-required',
           })
         : this.createHttpTransportClient({
             ...common,

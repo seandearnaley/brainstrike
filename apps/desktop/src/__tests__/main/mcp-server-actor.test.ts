@@ -137,6 +137,31 @@ describe('McpServerActor', () => {
     await expect(subject.connect()).resolves.toMatchObject({ state: 'connected' });
     expect(factory).toHaveBeenCalledOnce();
   });
+  it('does not let a cancelled old factory clear an immediate retry client', async () => {
+    const oldFactory = deferred<McpServerActorClient>();
+    const oldClose = vi.fn(async () => report);
+    let factoryCalls = 0;
+    const subject = actor(
+      () => {
+        factoryCalls += 1;
+        return factoryCalls === 1 ? oldFactory.promise : Promise.resolve(client());
+      },
+      linearId,
+      vi.fn(),
+      'authentication-required'
+    );
+
+    const firstConnect = subject.connect();
+    await vi.waitFor(() => expect(subject.snapshot().state).toBe('authorizing'));
+    await expect(subject.cancel()).resolves.toMatchObject({ state: 'authentication-required' });
+
+    const retry = subject.connect();
+    await expect(retry).resolves.toMatchObject({ state: 'connected' });
+    oldFactory.resolve(client(undefined, oldClose));
+    await expect(firstConnect).rejects.toBeDefined();
+    await vi.waitFor(() => expect(oldClose).toHaveBeenCalledOnce());
+    expect(subject.snapshot().state).toBe('connected');
+  });
   it('publishes accepted work and one client promise before factory reentry', async () => {
     const invoke = vi.fn(client().invoke);
     let reentered: Promise<McpHostOperationResult> = Promise.resolve(callResult);

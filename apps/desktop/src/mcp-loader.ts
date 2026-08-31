@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { McpProtocolEnum, type McpProtocolMigration } from '@brainstrike/agent';
+import {
+  isInteractiveMcpStdioServer,
+  McpProtocolEnum,
+  type McpProtocolMigration,
+} from '@brainstrike/agent';
 import { ConfiguredMcpServerIdSchema } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { app, safeStorage } from 'electron';
@@ -134,10 +138,18 @@ const McpServerInputSchema = z
       });
     }
   });
+function resolveStartupPolicy(
+  server: z.infer<typeof McpServerInputSchema>
+): 'automatic' | 'authentication-required' {
+  if (server.transport === 'stdio' && isInteractiveMcpStdioServer(server.command, server.args)) {
+    return 'authentication-required';
+  }
+  return server.startup ?? 'automatic';
+}
 const McpServerSchema = McpServerInputSchema.transform((server) => ({
   ...server,
   protocol: server.protocol ?? ('legacy' as const),
-  startup: server.startup ?? ('automatic' as const),
+  startup: resolveStartupPolicy(server),
 }));
 const McpConfigInputSchema = z
   .strictObject({
@@ -161,7 +173,7 @@ const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
   servers: config.servers.map((server) => ({
     ...server,
     protocol: server.protocol ?? ('legacy' as const),
-    startup: server.startup ?? ('automatic' as const),
+    startup: resolveStartupPolicy(server),
   })),
 }));
 

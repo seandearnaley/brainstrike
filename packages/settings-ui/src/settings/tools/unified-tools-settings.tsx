@@ -6,7 +6,7 @@
  * dense tool rows, and integrated MCP status display.
  */
 
-import { MCP_SUPPORT_MATRIX } from '@brainstrike/assistant-contract';
+import { MCP_SUPPORT_MATRIX, type McpHostControlRequest } from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
@@ -469,6 +469,24 @@ export function UnifiedToolsSettings({
     }
   }, [operations, loadMcpData, refreshTools]);
 
+  const handleControlMcpServer = useCallback(
+    async (request: McpHostControlRequest) => {
+      if (!operations.controlMcpServer) {
+        return;
+      }
+      try {
+        await operations.controlMcpServer(request);
+        await Promise.all([loadMcpData(), refreshTools()]);
+      } catch (cause) {
+        dispatch({
+          error: cause instanceof Error ? cause.message : 'Failed to control MCP server',
+          type: 'SET_ERROR',
+        });
+      }
+    },
+    [loadMcpData, operations, refreshTools]
+  );
+
   const handleResetMcpConfig = useCallback(async () => {
     if (operations.resetMcpConfig) {
       await operations.resetMcpConfig();
@@ -628,6 +646,7 @@ export function UnifiedToolsSettings({
       mcpRevision={mcpRevision}
       mcpServers={mcpServers}
       onCategoryChange={(category) => uiDispatch({ category, type: 'SET_CATEGORY_FILTER' })}
+      onControlMcpServer={handleControlMcpServer}
       onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
       onDisableGroup={handleDisableGroup}
       onDismissConfigAlert={handleDismissConfigAlert}
@@ -708,6 +727,7 @@ interface ToolsPanelContentProps {
   mcpRevision: number;
   mcpServers: McpServerInfo[];
   onCategoryChange: (category: ToolCategory | 'all') => void;
+  onControlMcpServer: (request: McpHostControlRequest) => Promise<void>;
   onCreateSample: (() => Promise<void>) | undefined;
   onDisableGroup: (group: ToolGroup) => void;
   onDismissConfigAlert: () => void;
@@ -730,6 +750,90 @@ interface ToolsPanelContentProps {
   totalCount: number;
 }
 
+function resolveMcpControlAction(
+  state: McpServerInfo['state']
+): McpHostControlRequest['action'] | undefined {
+  if (state === 'error') {
+    return 'retry';
+  }
+  if (state === 'connecting' || state === 'authorizing') {
+    return 'cancel';
+  }
+  if (state === 'authentication-required' || state === 'disconnected') {
+    return 'connect';
+  }
+  return undefined;
+}
+
+function McpServerStatusRow({
+  controlAvailable,
+  onControl,
+  server,
+}: {
+  controlAvailable: boolean;
+  onControl: (request: McpHostControlRequest) => Promise<void>;
+  server: McpServerInfo;
+}) {
+  const action = controlAvailable ? resolveMcpControlAction(server.state) : undefined;
+  return (
+    <div className="rounded-md border px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-x-2">
+        <span className="font-medium">{server.configuredServerId}</span>
+        <span className="text-muted-foreground">{server.state}</span>
+        {action && (
+          <Button
+            data-testid={`mcp-${action}-${server.configuredServerId}`}
+            onClick={() =>
+              void onControl({ action, configuredServerId: server.configuredServerId })
+            }
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {action === 'retry' ? 'Retry' : action === 'cancel' ? 'Cancel' : 'Connect'}
+          </Button>
+        )}
+        <span className="text-muted-foreground">
+          transport {server.transport} · policy {server.configuredProtocol} · generation{' '}
+          {server.generation}
+        </span>
+      </div>
+      {server.state === 'connected' && (
+        <div className="text-muted-foreground text-xs">
+          era {server.negotiated.era} · revision {server.negotiated.revision}
+          {server.negotiated.serverIdentity
+            ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
+            : ''}
+          {` · capabilities: ${
+            server.negotiated.advertisedCapabilityIds?.join(', ') ||
+            (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
+          }`}
+        </div>
+      )}
+      {server.state === 'error' && (
+        <div className="text-destructive text-xs">
+          {server.error.category} · {server.error.code} · {server.error.message}
+        </div>
+      )}
+      {server.diagnostics && server.diagnostics.length > 0 && (
+        <div
+          className="mt-1 whitespace-pre-line text-muted-foreground text-xs"
+          data-testid={`mcp-diagnostics-${server.configuredServerId}`}
+        >
+          {server.diagnostics
+            .map(
+              (diagnostic) =>
+                `${diagnostic.stream} · ${diagnostic.message}${
+                  diagnostic.truncated ? ' · truncated' : ''
+                }`
+            )
+            .join('\n')}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolsPanelContent({
   budgetData,
   categoryFilter,
@@ -745,6 +849,7 @@ function ToolsPanelContent({
   mcpRevision,
   mcpServers,
   onCategoryChange,
+  onControlMcpServer,
   onCreateSample,
   onDisableGroup,
   onDismissConfigAlert,
@@ -821,33 +926,12 @@ function ToolsPanelContent({
           data-testid="mcp-server-status-list"
         >
           {mcpServers.map((server) => (
-            <div className="rounded-md border px-3 py-2 text-sm" key={server.configuredServerId}>
-              <div className="flex flex-wrap items-center gap-x-2">
-                <span className="font-medium">{server.configuredServerId}</span>
-                <span className="text-muted-foreground">{server.state}</span>
-                <span className="text-muted-foreground">
-                  transport {server.transport} · policy {server.configuredProtocol} · generation{' '}
-                  {server.generation}
-                </span>
-              </div>
-              {server.state === 'connected' && (
-                <div className="text-muted-foreground text-xs">
-                  era {server.negotiated.era} · revision {server.negotiated.revision}
-                  {server.negotiated.serverIdentity
-                    ? ` · ${server.negotiated.serverIdentity.name} ${server.negotiated.serverIdentity.version}`
-                    : ''}
-                  {` · capabilities: ${
-                    server.negotiated.advertisedCapabilityIds?.join(', ') ||
-                    (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
-                  }`}
-                </div>
-              )}
-              {server.state === 'error' && (
-                <div className="text-destructive text-xs">
-                  {server.error.category} · {server.error.code} · {server.error.message}
-                </div>
-              )}
-            </div>
+            <McpServerStatusRow
+              controlAvailable={Boolean(operations.controlMcpServer)}
+              key={server.configuredServerId}
+              onControl={onControlMcpServer}
+              server={server}
+            />
           ))}
         </div>
       )}

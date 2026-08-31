@@ -52,6 +52,7 @@ const config = (...servers: [typeof alpha, 'auto' | 'legacy'][]): McpHostConfig 
     })),
   });
 interface ActorRecord {
+  cancel: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   connect: ReturnType<typeof vi.fn>;
   generation: number;
@@ -91,7 +92,9 @@ function setup(
       },
       state: 'connected' as const,
     }));
+    const cancel = vi.fn(async () => ({ ...snapshot(), state: 'disconnected' as const }));
     const actor: McpHostActor = {
+      cancel,
       close,
       connect,
       invalidated,
@@ -99,6 +102,7 @@ function setup(
       snapshot,
     };
     records.push({
+      cancel,
       close,
       connect,
       generation: input.generation,
@@ -118,7 +122,7 @@ function setup(
   };
 }
 describe('McpHostService', () => {
-  it('connects explicitly, retries with a fresh generation, and cancels back to a fresh actor', async () => {
+  it('connects explicitly, retries with a fresh generation, and cancels the active actor', async () => {
     const { host, records } = setup();
     await host.replaceConfig(config([alpha, 'auto']));
 
@@ -131,9 +135,8 @@ describe('McpHostService', () => {
     expect(records[1]?.connect).toHaveBeenCalledOnce();
 
     await host.control({ action: 'cancel', configuredServerId: alpha });
-    expect(records[1]?.close).toHaveBeenCalledOnce();
-    expect(records[2]?.generation).toBe(3);
-    expect(records[2]?.connect).not.toHaveBeenCalled();
+    expect(records[1]?.cancel).toHaveBeenCalledOnce();
+    expect(records).toHaveLength(2);
   });
   it('does not let a queued control reapply a stale configuration', async () => {
     const { host } = setup();
@@ -184,6 +187,20 @@ describe('McpHostService', () => {
       category: 'host-closed',
       code: 'mcp-host-closed',
     });
+  });
+  it('validates invoke and control payloads at the host-service boundary', async () => {
+    const { host, records } = setup();
+    await host.replaceConfig(config([alpha, 'auto']));
+
+    await expect(host.invoke({ ...LIST, extra: true } as unknown as typeof LIST)).rejects.toThrow();
+    await expect(
+      host.control({ action: 'unknown', configuredServerId: alpha } as unknown as {
+        action: 'connect';
+        configuredServerId: typeof alpha;
+      })
+    ).rejects.toThrow();
+    expect(records[0]?.invoke).not.toHaveBeenCalled();
+    expect(records[0]?.connect).not.toHaveBeenCalled();
   });
   it('passively drains accepted work and closes old before creating new without replay', async () => {
     const oldClosed = deferred<McpHostCloseReport>();
@@ -314,6 +331,13 @@ describe('McpHostService', () => {
           transport: input.config.transport.type,
         });
         return {
+          cancel: async () => ({
+            configuredProtocol: input.config.configuredProtocol,
+            configuredServerId: input.config.configuredServerId,
+            generation: input.generation,
+            state: 'disconnected',
+            transport: input.config.transport.type,
+          }),
           close: async () => CLEAN,
           connect: async () => ({
             configuredProtocol: input.config.configuredProtocol,
@@ -465,6 +489,13 @@ describe('McpHostService', () => {
     const publisher = new McpHostRevisionPublisher({ onDiagnostic: diagnostic });
     const host = new McpHostService({
       actorFactory: (input) => ({
+        cancel: async () => ({
+          configuredProtocol: input.config.configuredProtocol,
+          configuredServerId: input.config.configuredServerId,
+          generation: input.generation,
+          state: 'disconnected',
+          transport: input.config.transport.type,
+        }),
         close: async () => {
           input.onSnapshotChanged({
             configuredProtocol: input.config.configuredProtocol,

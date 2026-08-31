@@ -199,6 +199,46 @@ describe('mcp-clients', () => {
     }
   }, 30_000);
 
+  test('cancels user-paced authorization out of band and reaps the stdio child', async () => {
+    const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'desktop-mcp-auth-cancel-'));
+    const pidFile = path.join(directory, 'pid');
+    const configuredServerId = parseConfiguredMcpServerId('stdio.auth-cancel');
+    const runtime = createDesktopMcpHostRuntime();
+    try {
+      await runtime.replaceResolvedConfig({
+        servers: [
+          {
+            args: [stdioLifecycleServerEntrypoint],
+            command: process.execPath,
+            env: {
+              BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS: '10000',
+              BRAINSTRIKE_STDIO_TEST_PID_FILE: pidFile,
+              BRAINSTRIKE_STDIO_TEST_STATE_FILE: path.join(directory, 'state.json'),
+            },
+            name: configuredServerId,
+            protocol: 'legacy',
+            startup: 'authentication-required',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      const connecting = runtime.host.control({ action: 'connect', configuredServerId });
+      await expect
+        .poll(() => fsp.readFile(pidFile, 'utf8'), { timeout: 5000 })
+        .toMatch(/^[1-9]\d*$/u);
+      const pid = parsePositivePid(await fsp.readFile(pidFile, 'utf8'));
+
+      const cancelled = runtime.host.control({ action: 'cancel', configuredServerId });
+      await expect(cancelled).resolves.toMatchObject({ state: 'authentication-required' });
+      await expect(connecting).rejects.toBeDefined();
+      await expect.poll(() => processIsGone(pid), { timeout: 10_000 }).toBe(true);
+    } finally {
+      await runtime.host.close();
+      await fsp.rm(directory, { force: true, recursive: true });
+    }
+  }, 30_000);
+
   test('hot re-init replaces clients', async () => {
     initClients({
       servers: [{ args: ['-e', ''], command: 'node', name: 'filesystem', transport: 'stdio' }],

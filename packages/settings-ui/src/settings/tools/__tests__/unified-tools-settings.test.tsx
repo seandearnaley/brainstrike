@@ -1019,6 +1019,60 @@ describe('UnifiedToolsSettings', () => {
       expect(statusList).toHaveTextContent('capabilities: tools');
     });
 
+    it('renders zero-tool lifecycle failures, diagnostics, and capability-wired controls', async () => {
+      const operations = createMockOperations();
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 4,
+        servers: [
+          {
+            configuredProtocol: 'legacy',
+            configuredServerId: parseConfiguredMcpServerId('auth-server'),
+            generation: 1,
+            state: 'authentication-required',
+            transport: 'stdio',
+          },
+          {
+            configuredProtocol: 'legacy',
+            configuredServerId: parseConfiguredMcpServerId('connecting-server'),
+            generation: 1,
+            state: 'authorizing',
+            transport: 'stdio',
+          },
+          {
+            configuredProtocol: 'legacy',
+            configuredServerId: parseConfiguredMcpServerId('failed-server'),
+            diagnostics: [{ message: 'stderr is safe', stream: 'stderr', truncated: false }],
+            error: {
+              category: 'connection',
+              code: 'mcp-connection-failed',
+              message: 'MCP server connection failed',
+            },
+            generation: 1,
+            state: 'error',
+            transport: 'stdio',
+          },
+        ],
+      });
+      operations.controlMcpServer = vi.fn().mockResolvedValue({ revision: 4, servers: [] });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const statusList = await screen.findByTestId('mcp-server-status-list');
+      expect(statusList).toHaveTextContent('stderr · stderr is safe');
+      expect(screen.getByTestId('mcp-connect-auth-server')).toBeInTheDocument();
+      expect(screen.getByTestId('mcp-cancel-connecting-server')).toBeInTheDocument();
+      expect(screen.getByTestId('mcp-retry-failed-server')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('mcp-cancel-connecting-server'));
+      await waitFor(() =>
+        expect(operations.controlMcpServer).toHaveBeenCalledWith({
+          action: 'cancel',
+          configuredServerId: parseConfiguredMcpServerId('connecting-server'),
+        })
+      );
+    });
+
     it('distinguishes an explicit empty host snapshot from a malformed config', async () => {
       const operations = createMockOperations();
       operations.getTools = vi.fn().mockResolvedValue([]);

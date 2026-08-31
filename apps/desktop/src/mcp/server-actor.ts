@@ -202,6 +202,7 @@ export class McpServerActor {
   private readonly retiredError = new ActorError('generation-retired', 'mcp_generation_retired');
   private client: McpServerActorClient | undefined;
   private clientClosePromise: Promise<McpHostCloseReport> | undefined;
+  private connectAttempt: AbortController | undefined;
   private clientPromise: Promise<McpServerActorClient> | undefined;
   private closePromise: Promise<McpHostCloseReport> | undefined;
   private failure: ActorError | undefined;
@@ -220,11 +221,38 @@ export class McpServerActor {
     if (this.failure) {
       return Promise.reject(this.failure);
     }
-    const work = this.getClient().then(() => this.snapshot());
+    const client = this.getClient();
+    const attemptSignal = this.connectAttempt?.signal;
+    const signal = attemptSignal
+      ? AbortSignal.any([this.generationAbort.signal, attemptSignal])
+      : this.generationAbort.signal;
+    const work = client.then(() => this.snapshot());
     this.inFlight.add(work);
     const remove = () => this.inFlight.delete(work);
     work.then(remove, remove);
-    return settleOnAbort(work, this.generationAbort.signal);
+    return settleOnAbort(work, signal);
+  }
+  cancel(): Promise<McpHostServerSnapshot> {
+    if (this.closePromise || this.generationAbort.signal.aborted || this.transportInvalidated) {
+      return Promise.reject(this.retiredError);
+    }
+
+    const attempt = this.connectAttempt;
+    if (attempt && !attempt.signal.aborted) {
+      attempt.abort(new DOMException('MCP connection cancelled', 'AbortError'));
+    }
+    const close = this.client ? this.closeClient(false) : Promise.resolve(EMPTY_REPORT);
+    this.clientPromise = undefined;
+    this.connectAttempt = undefined;
+    const nextState =
+      this.options.startup === 'authentication-required'
+        ? 'authentication-required'
+        : 'disconnected';
+    return close.then(() => {
+      this.clientClosePromise = undefined;
+      this.change({ state: nextState });
+      return this.snapshot();
+    });
   }
   close(): Promise<McpHostCloseReport> {
     if (this.closePromise) {
@@ -302,54 +330,58 @@ export class McpServerActor {
     return this.failure;
   }
   private getClient(): Promise<McpServerActorClient> {
+    if (this.client) {
+      return Promise.resolve(this.client);
+    }
     if (this.clientPromise) {
       return this.clientPromise;
     }
-    this.clientPromise = Promise.resolve().then(() => this.createClient());
+    const attempt = new AbortController();
+    this.connectAttempt = attempt;
+    const clientPromise = Promise.resolve().then(() => this.createClient(attempt));
+    this.clientPromise = clientPromise;
+    void clientPromise.then(
+      () => {
+        if (this.clientPromise === clientPromise) {
+          this.clientPromise = undefined;
+          this.connectAttempt = undefined;
+        }
+      },
+      () => {
+        if (this.clientPromise === clientPromise) {
+          this.clientPromise = undefined;
+          this.connectAttempt = undefined;
+        }
+      }
+    );
     this.change({
       state: this.options.startup === 'authentication-required' ? 'authorizing' : 'connecting',
     });
     return this.clientPromise;
   }
-  private async createClient(): Promise<McpServerActorClient> {
-    let client: McpServerActorClient;
+  private async createClient(attempt: AbortController): Promise<McpServerActorClient> {
+    const client = await this.createClientForAttempt(attempt);
     try {
-      client = await this.options.factory({
-        configuredServerId: this.options.configuredServerId,
-        generation: this.options.generation,
-        onDiagnostic: (diagnostic) => this.recordDiagnostic(diagnostic),
-        onUnexpectedClose: (failure) => this.invalidateTransport(failure),
-        signal: this.generationAbort.signal,
-      });
+      this.throwIfAborted(attempt.signal);
     } catch (cause) {
-      const error =
-        cause instanceof McpLifecycleFailure
-          ? new ActorError(cause.category, cause.code)
-          : new ActorError('connection', 'mcp-client-creation-failed');
-      const cleanupFailed = cause instanceof McpServerActorClientCleanupError;
-      if (cleanupFailed) {
-        this.clientClosePromise = Promise.resolve(
-          this.closeFailureReport(new ActorError('transport', 'mcp-client-creation-cleanup-failed'))
-        );
-        this.diagnose(error.code, cause);
+      if (this.generationAbort.signal.aborted) {
+        this.client = client;
+        throw cause;
       }
-      this.throwIfAborted();
-      if (!cleanupFailed) {
-        this.diagnose(error.code, cause);
-      }
-      if (error.code === 'mcp-authentication-required') {
-        this.clientPromise = undefined;
-        this.change({ state: 'authentication-required' });
-        throw error;
-      }
-      throw this.fail(error);
+      await Promise.resolve(client.close()).catch(() => undefined);
+      this.restorePreConnectState(attempt);
+      throw cause;
+    }
+    if (this.connectAttempt !== attempt) {
+      await Promise.resolve(client.close()).catch(() => undefined);
+      throw attempt.signal.reason;
     }
     this.client = client;
-    this.throwIfAborted();
     let status: McpNegotiatedStatus;
     try {
       status = parseMcpNegotiatedStatus(client.negotiated);
     } catch (cause) {
+      this.throwIfAborted(attempt.signal);
       const cleanupReport = await this.closeClient(false);
       const cleanupFailed = cleanupReport.failures.length > 0;
       const error = new ActorError(
@@ -363,6 +395,46 @@ export class McpServerActor {
       this.change({ negotiated: status, state: 'connected' });
     }
     return client;
+  }
+  private async createClientForAttempt(attempt: AbortController): Promise<McpServerActorClient> {
+    try {
+      return await this.options.factory({
+        configuredServerId: this.options.configuredServerId,
+        generation: this.options.generation,
+        onDiagnostic: (diagnostic) => this.recordDiagnostic(diagnostic),
+        onUnexpectedClose: (failure) => this.invalidateTransport(failure),
+        signal: AbortSignal.any([this.generationAbort.signal, attempt.signal]),
+      });
+    } catch (cause) {
+      const error =
+        cause instanceof McpLifecycleFailure
+          ? new ActorError(cause.category, cause.code)
+          : new ActorError('connection', 'mcp-client-creation-failed');
+      const cleanupFailed = cause instanceof McpServerActorClientCleanupError;
+      if (cleanupFailed) {
+        this.clientClosePromise = Promise.resolve(
+          this.closeFailureReport(new ActorError('transport', 'mcp-client-creation-cleanup-failed'))
+        );
+        this.diagnose(error.code, cause);
+      }
+      if (attempt.signal.aborted) {
+        this.restorePreConnectState(attempt);
+        throw attempt.signal.reason;
+      }
+      this.throwIfAborted();
+      if (!cleanupFailed) {
+        this.diagnose(error.code, cause);
+      }
+      if (error.code === 'mcp-authentication-required') {
+        if (this.connectAttempt === attempt) {
+          this.clientPromise = undefined;
+          this.connectAttempt = undefined;
+        }
+        this.change({ state: 'authentication-required' });
+        throw error;
+      }
+      throw this.fail(error);
+    }
   }
   private async runAccepted(
     operation: McpHostOperation,
@@ -424,6 +496,19 @@ export class McpServerActor {
       throw this.retiredError;
     }
     callerSignal?.throwIfAborted();
+  }
+  private restorePreConnectState(attempt: AbortController): void {
+    if (this.connectAttempt !== attempt) {
+      return;
+    }
+    this.clientPromise = undefined;
+    this.connectAttempt = undefined;
+    this.change({
+      state:
+        this.options.startup === 'authentication-required'
+          ? 'authentication-required'
+          : 'disconnected',
+    });
   }
   private async closeAfterDrain(): Promise<McpHostCloseReport> {
     await Promise.allSettled([...this.inFlight]);
