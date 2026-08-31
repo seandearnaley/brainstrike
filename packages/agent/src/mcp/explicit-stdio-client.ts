@@ -1,13 +1,21 @@
-import { Client } from '@modelcontextprotocol/client';
+import { Client, type ClientOptions } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
+import {
+  createMcpResponseCacheStore,
+  normalizeMcpCachePartition,
+  normalizeMcpListMaxPages,
+  normalizeMcpRequestOptions,
+} from './client-policy';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpInputRequiredResult,
   ExplicitHttpMcpListToolsParams,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpTool,
   NegotiatedProtocolFacts,
 } from './explicit-http-client';
 import { notifyUnexpectedClose } from './unexpected-close-observer';
@@ -22,24 +30,38 @@ export type ExplicitStdioMcpCallToolResult = ExplicitHttpMcpCallToolResult;
 export type ExplicitStdioMcpListToolsParams = ExplicitHttpMcpListToolsParams;
 export type ExplicitStdioMcpListToolsResult = ExplicitHttpMcpListToolsResult;
 export type ExplicitStdioMcpRequestOptions = ExplicitHttpMcpRequestOptions;
+type ExplicitStdioMcpManualCallOptions = ExplicitStdioMcpRequestOptions & {
+  allowInputRequired: true;
+};
+type ExplicitStdioMcpNormalCallOptions = Omit<
+  ExplicitStdioMcpRequestOptions,
+  'allowInputRequired'
+> & {
+  allowInputRequired?: false;
+};
 
 export interface ExplicitStdioMcpClientOptions {
   args?: readonly string[];
+  cachePartition?: ClientOptions['cachePartition'];
   clientInfo?: {
     name: string;
     version: string;
   };
   command: string;
+  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   env?: Readonly<Record<string, string>>;
   extensionRegistry?: McpClientExtensionRegistry;
+  listMaxPages?: ClientOptions['listMaxPages'];
   name: string;
   onUnexpectedClose?: () => void;
   protocol?: McpProtocol;
+  responseCacheStore?: ClientOptions['responseCacheStore'];
 }
 
 interface ActiveConnection {
   client: Client;
   disconnected: boolean;
+  toolDefinitions: ReadonlyMap<string, ExplicitHttpMcpTool>;
   toolMetadataReady: boolean;
   toolMetadataRequest: Promise<ExplicitStdioMcpListToolsResult> | undefined;
   transport: StdioClientTransport;
@@ -47,15 +69,19 @@ interface ActiveConnection {
 
 interface NormalizedClientOptions {
   args?: string[];
+  cachePartition?: ClientOptions['cachePartition'];
   clientInfo: {
     name: string;
     version: string;
   };
   command: string;
+  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   env?: Record<string, string>;
   extensionRegistry?: McpClientExtensionRegistry;
+  listMaxPages: number;
   onUnexpectedClose?: () => void;
   protocol: McpProtocol;
+  responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
 }
 
 function closedClientError(): Error {
@@ -78,14 +104,24 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
   validateNonEmpty(clientInfo.name, 'MCP client info name');
   validateNonEmpty(clientInfo.version, 'MCP client info version');
 
+  const cachePartition = normalizeMcpCachePartition(
+    options.cachePartition,
+    options.responseCacheStore !== undefined
+  );
   return {
     clientInfo: { ...clientInfo },
+    ...(cachePartition === undefined ? {} : { cachePartition }),
     command: validateNonEmpty(options.command, 'MCP stdio command'),
+    ...(options.defaultCacheTtlMs === undefined
+      ? {}
+      : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
     ...(options.args ? { args: [...options.args] } : {}),
     ...(options.env ? { env: { ...options.env } } : {}),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
+    listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
     protocol: options.protocol ?? 'legacy',
+    responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
   };
 }
 
@@ -110,7 +146,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   async connect(options?: ExplicitStdioMcpRequestOptions): Promise<void> {
-    await this.getConnection(options);
+    await this.getConnection(normalizeMcpRequestOptions(options));
   }
 
   getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
@@ -133,26 +169,42 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     options?: ExplicitStdioMcpRequestOptions,
     params?: ExplicitStdioMcpListToolsParams
   ): Promise<ExplicitStdioMcpListToolsResult> {
-    const connection = await this.getConnection(options);
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
     if (!params) {
-      return this.refreshToolMetadata(connection, options);
+      return this.refreshToolMetadata(connection, requestOptions);
     }
-    const result = await connection.client.listTools(params, options);
+    const result = await connection.client.listTools(params, requestOptions);
     if (params.cursor === undefined) {
-      connection.toolMetadataReady = true;
+      this.replaceToolMetadata(connection, result);
     }
     return result;
   }
 
   async callTool(
     params: ExplicitStdioMcpCallToolParams,
-    options?: ExplicitStdioMcpRequestOptions
-  ): Promise<ExplicitStdioMcpCallToolResult> {
-    const connection = await this.getConnection(options);
+    options: ExplicitStdioMcpManualCallOptions
+  ): Promise<ExplicitStdioMcpCallToolResult | ExplicitHttpMcpInputRequiredResult>;
+  async callTool(
+    params: ExplicitStdioMcpCallToolParams,
+    options?: ExplicitStdioMcpNormalCallOptions
+  ): Promise<ExplicitStdioMcpCallToolResult>;
+  async callTool(
+    params: ExplicitStdioMcpCallToolParams,
+    options?: ExplicitStdioMcpManualCallOptions | ExplicitStdioMcpNormalCallOptions
+  ): Promise<ExplicitStdioMcpCallToolResult | ExplicitHttpMcpInputRequiredResult> {
+    const normalizedOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(normalizedOptions);
     if (!connection.toolMetadataReady) {
-      await this.refreshToolMetadata(connection, options);
+      await this.refreshToolMetadata(connection, normalizedOptions);
     }
-    return connection.client.callTool(params, options);
+    const toolDefinition =
+      normalizedOptions.toolDefinition === undefined
+        ? connection.toolDefinitions.get(params.name)
+        : undefined;
+    const requestOptions =
+      toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
+    return connection.client.callTool(params, requestOptions);
   }
 
   close(): Promise<void> {
@@ -259,10 +311,19 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
 
   private createConnection(): ActiveConnection {
     const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
-    const client = new Client(this.options.clientInfo, {
+    const clientOptions: ClientOptions = {
       capabilities: extensions ? { extensions } : {},
+      listMaxPages: this.options.listMaxPages,
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
-    });
+      ...(this.options.cachePartition === undefined
+        ? {}
+        : { cachePartition: this.options.cachePartition }),
+      ...(this.options.defaultCacheTtlMs === undefined
+        ? {}
+        : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
+      responseCacheStore: this.options.responseCacheStore,
+    };
+    const client = new Client(this.options.clientInfo, clientOptions);
     const transport = new StdioClientTransport({
       command: this.options.command,
       ...(this.options.args ? { args: this.options.args } : {}),
@@ -271,6 +332,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const connection: ActiveConnection = {
       client,
       disconnected: false,
+      toolDefinitions: new Map(),
       toolMetadataReady: false,
       toolMetadataRequest: undefined,
       transport,
@@ -287,6 +349,9 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     // established active connection notifies the observer.
     const unexpected = !this.closed && this.activeConnection === connection;
     connection.disconnected = true;
+    connection.toolDefinitions = new Map();
+    connection.toolMetadataReady = false;
+    connection.toolMetadataRequest = undefined;
     if (this.activeConnection === connection) {
       this.activeConnection = undefined;
     }
@@ -306,20 +371,28 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       return connection.toolMetadataRequest;
     }
     const request = connection.client.listTools(undefined, options);
-    connection.toolMetadataRequest = request;
-    void request.then(
-      () => {
-        connection.toolMetadataReady = true;
-        if (connection.toolMetadataRequest === request) {
-          connection.toolMetadataRequest = undefined;
-        }
-      },
-      () => {
-        if (connection.toolMetadataRequest === request) {
-          connection.toolMetadataRequest = undefined;
-        }
+    const metadataRequest = request.then((result) => {
+      this.replaceToolMetadata(connection, result);
+      return result;
+    });
+    connection.toolMetadataRequest = metadataRequest;
+    const clearRequest = (): void => {
+      if (connection.toolMetadataRequest === metadataRequest) {
+        connection.toolMetadataRequest = undefined;
       }
-    );
-    return request;
+    };
+    void metadataRequest.then(clearRequest, clearRequest);
+    return metadataRequest;
+  }
+
+  private replaceToolMetadata(
+    connection: ActiveConnection,
+    result: ExplicitStdioMcpListToolsResult
+  ): void {
+    if (connection.disconnected) {
+      return;
+    }
+    connection.toolDefinitions = new Map(result.tools.map((tool) => [tool.name, tool]));
+    connection.toolMetadataReady = true;
   }
 }

@@ -3,6 +3,7 @@ import {
   type McpNegotiatedStatus,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
+import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 import {
   McpServerActor,
@@ -96,6 +97,34 @@ async function failure(promise: Promise<unknown>, code: string): Promise<unknown
   return error;
 }
 describe('McpServerActor', () => {
+  it('maps SDK and protocol failures to safe stable host categories', async () => {
+    const cases = [
+      [
+        new SdkError(SdkErrorCode.ListPaginationExceeded, 'private pagination detail', {
+          listMaxPages: 1,
+          method: 'tools/list',
+        }),
+        'mcp-list-pagination-exceeded',
+        'operation',
+      ],
+      [
+        new ProtocolError(-32_020, 'private header mismatch detail'),
+        'mcp-header-mismatch',
+        'protocol',
+      ],
+    ] as const;
+    for (const [cause, code, category] of cases) {
+      const subject = actor(async () =>
+        client(async () => {
+          throw cause;
+        })
+      );
+      const error = await subject.invoke(LIST).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ category, code, message: 'MCP server actor operation failed' });
+      expect(subject.snapshot()).toMatchObject({ error: { category, code } });
+    }
+  });
+
   it('publishes accepted work and one client promise before factory reentry', async () => {
     const invoke = vi.fn(client().invoke);
     let reentered: Promise<McpHostOperationResult> = Promise.resolve(callResult);

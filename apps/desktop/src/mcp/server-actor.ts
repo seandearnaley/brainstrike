@@ -14,6 +14,7 @@ import {
   parseMcpHostOperationResult,
   parseMcpNegotiatedStatus,
 } from '@brainstrike/assistant-contract/mcp-host-runtime';
+import { OAuthError, ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 
 type McpServerActorInvokeOptions = McpHostInvokeOptions & { signal: AbortSignal };
 export interface McpServerActorClient {
@@ -59,6 +60,23 @@ type McpServerActorErrorCode =
   | 'mcp-configured-server-mismatch'
   // Stable BST-1504 cross-process code; the underscore spelling is intentional.
   | 'mcp_generation_retired'
+  | 'mcp-authentication-failed'
+  | 'mcp-authorization-denied'
+  | 'mcp-capability-missing'
+  | 'mcp-header-mismatch'
+  | 'mcp-era-mismatch'
+  | 'mcp-era-negotiation-failed'
+  | 'mcp-input-rounds-exhausted'
+  | 'mcp-invalid-result'
+  | 'mcp-invalid-params'
+  | 'mcp-list-pagination-exceeded'
+  | 'mcp-oauth-flow-failed'
+  | 'mcp-protocol-error'
+  | 'mcp-request-timeout'
+  | 'mcp-result-type-unsupported'
+  | 'mcp-sdk-error'
+  | 'mcp-sdk-http-failed'
+  | 'mcp-session-termination-failed'
   | 'mcp-negotiated-status-cleanup-failed'
   | 'mcp-negotiated-status-invalid'
   | 'mcp-result-invalid'
@@ -73,6 +91,68 @@ class ActorError extends Error {
     super('MCP server actor operation failed');
     this.name = 'McpServerActorError';
   }
+}
+
+const MCP_HEADER_MISMATCH_CODE = -32_020;
+
+interface MappedMcpOperationError {
+  category: McpStableErrorCategory;
+  code: McpServerActorErrorCode;
+}
+
+function mapMcpOperationError(error: unknown): MappedMcpOperationError {
+  if (OAuthError.isInstance(error)) {
+    return { category: 'authentication', code: 'mcp-oauth-flow-failed' };
+  }
+  if (ProtocolError.isInstance(error)) {
+    switch (error.code) {
+      case MCP_HEADER_MISMATCH_CODE:
+        return { category: 'protocol', code: 'mcp-header-mismatch' };
+      case -32_021:
+        return { category: 'protocol', code: 'mcp-capability-missing' };
+      case -32_022:
+        return { category: 'protocol', code: 'mcp-era-mismatch' };
+      case -32_602:
+        return { category: 'protocol', code: 'mcp-invalid-params' };
+      default:
+        return { category: 'protocol', code: 'mcp-protocol-error' };
+    }
+  }
+  if (SdkError.isInstance(error)) {
+    switch (error.code) {
+      case SdkErrorCode.ClientHttpAuthentication:
+        return { category: 'authentication', code: 'mcp-authentication-failed' };
+      case SdkErrorCode.ClientHttpForbidden:
+        return { category: 'authorization', code: 'mcp-authorization-denied' };
+      case SdkErrorCode.ClientHttpFailedToTerminateSession:
+        return { category: 'transport', code: 'mcp-session-termination-failed' };
+      case SdkErrorCode.EraNegotiationFailed:
+        return { category: 'protocol', code: 'mcp-era-negotiation-failed' };
+      case SdkErrorCode.InputRequiredRoundsExceeded:
+        return { category: 'operation', code: 'mcp-input-rounds-exhausted' };
+      case SdkErrorCode.InvalidResult:
+        return { category: 'protocol', code: 'mcp-invalid-result' };
+      case SdkErrorCode.ListPaginationExceeded:
+        return { category: 'operation', code: 'mcp-list-pagination-exceeded' };
+      case SdkErrorCode.MethodNotSupportedByProtocolVersion:
+        return { category: 'protocol', code: 'mcp-era-mismatch' };
+      case SdkErrorCode.RequestTimeout:
+        return { category: 'operation', code: 'mcp-request-timeout' };
+      case SdkErrorCode.UnsupportedResultType:
+        return { category: 'protocol', code: 'mcp-result-type-unsupported' };
+      case SdkErrorCode.ConnectionClosed:
+        return { category: 'connection', code: 'mcp-transport-closed' };
+      case SdkErrorCode.ClientHttpFailedToOpenStream:
+      case SdkErrorCode.ClientHttpNotImplemented:
+      case SdkErrorCode.ClientHttpUnexpectedContent:
+      case SdkErrorCode.SendFailed:
+      case SdkErrorCode.NotConnected:
+        return { category: 'transport', code: 'mcp-sdk-http-failed' };
+      default:
+        return { category: 'transport', code: 'mcp-sdk-error' };
+    }
+  }
+  return { category: 'transport', code: 'mcp-transport-operation-failed' };
 }
 function freezeCloseReport(report: McpHostCloseReport): McpHostCloseReport {
   const failures = Object.freeze(report.failures.map((failure) => Object.freeze({ ...failure })));
@@ -250,7 +330,8 @@ export class McpServerActor {
       result = await client.invoke(operation, { ...hostOptions, signal });
     } catch (cause) {
       this.throwIfAborted(callerSignal);
-      const error = new ActorError('transport', 'mcp-transport-operation-failed');
+      const mapped = mapMcpOperationError(cause);
+      const error = new ActorError(mapped.category, mapped.code);
       this.diagnose(error.code, cause);
       this.fail(error);
       throw error;

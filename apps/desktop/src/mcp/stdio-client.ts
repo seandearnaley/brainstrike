@@ -1,4 +1,4 @@
-import { ExplicitStdioMcpClient } from '@brainstrike/agent/mcp-client';
+import { type ExplicitHttpMcpTool, ExplicitStdioMcpClient } from '@brainstrike/agent/mcp-client';
 import type { McpServerStatusSnapshot } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { McpServer } from '../mcp-loader';
@@ -55,6 +55,7 @@ function toError(error: unknown): Error {
 
 export function createStdioClient(server: Extract<McpServer, { transport: 'stdio' }>): McpClient {
   const discoveredToolNames = new Map<string, string>();
+  const discoveredToolDefinitions = new Map<string, ExplicitHttpMcpTool>();
   const statusBase = {
     configuredProtocol: server.protocol ?? ('legacy' as const),
     name: server.name,
@@ -106,6 +107,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
             });
             connected = undefined;
             discoveredToolNames.clear();
+            discoveredToolDefinitions.clear();
             status = { ...statusBase, state: 'disconnected' };
           }
         },
@@ -149,6 +151,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
     const result = await client.listTools();
     const discovered: Record<string, McpDiscoveredTool> = {};
     discoveredToolNames.clear();
+    discoveredToolDefinitions.clear();
 
     for (const tool of result.tools) {
       const toolId = `${server.name}.${tool.name}`;
@@ -156,6 +159,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         throw new Error(`Duplicate MCP tool ID discovered for server '${server.name}': ${toolId}`);
       }
       discoveredToolNames.set(toolId, tool.name);
+      discoveredToolDefinitions.set(toolId, tool);
       discovered[toolId] = {
         ...(tool.description ? { description: tool.description } : {}),
         ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
@@ -181,6 +185,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
       }
 
       const { client } = await ensureConnected();
+      const toolDefinition = discoveredToolDefinitions.get(toolId);
       return await client.callTool(
         {
           arguments: params ?? {},
@@ -195,6 +200,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
               }
             : {}),
           ...(opts?.signal ? { signal: opts.signal } : {}),
+          ...(toolDefinition === undefined ? {} : { toolDefinition }),
           resetTimeoutOnProgress: true,
         }
       );
@@ -205,6 +211,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
       connected = undefined;
       lastConnectFailure = undefined;
       discoveredToolNames.clear();
+      discoveredToolDefinitions.clear();
       status = { ...statusBase, state: 'disconnected' };
 
       if (!current) {

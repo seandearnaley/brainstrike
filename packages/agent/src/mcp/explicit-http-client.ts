@@ -1,10 +1,18 @@
 import {
   Client,
+  type ClientOptions,
+  type InputRequiredResult,
   SdkHttpError,
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
+import {
+  createMcpResponseCacheStore,
+  normalizeMcpCachePartition,
+  normalizeMcpListMaxPages,
+  normalizeMcpRequestOptions,
+} from './client-policy';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
 import {
   diagnoseInvalidatedCloseFailure,
@@ -20,6 +28,8 @@ const PROTOCOL_OWNED_HEADERS = new Set([
   'accept',
   'content-type',
   'last-event-id',
+  'mcp-method',
+  'mcp-name',
   'mcp-protocol-version',
   'mcp-session-id',
 ]);
@@ -30,20 +40,25 @@ export type ExplicitHttpMcpUnexpectedCloseObserver = () => void | Promise<void>;
 
 export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
-type SdkRequestOptions = NonNullable<Parameters<Client['listTools']>[1]>;
-export interface ExplicitHttpMcpRequestOptions {
-  maxTotalTimeout?: NonNullable<SdkRequestOptions['maxTotalTimeout']>;
-  onprogress?: NonNullable<SdkRequestOptions['onprogress']>;
-  resetTimeoutOnProgress?: NonNullable<SdkRequestOptions['resetTimeoutOnProgress']>;
-  signal?: NonNullable<SdkRequestOptions['signal']>;
-  timeout?: NonNullable<SdkRequestOptions['timeout']>;
-}
+type SdkRequestOptions = NonNullable<Parameters<Client['callTool']>[1]>;
+export type ExplicitHttpMcpRequestOptions = SdkRequestOptions;
 
 export type ExplicitHttpMcpListToolsResult = Awaited<ReturnType<Client['listTools']>>;
 export type ExplicitHttpMcpListToolsParams = NonNullable<Parameters<Client['listTools']>[0]>;
 export type ExplicitHttpMcpTool = ExplicitHttpMcpListToolsResult['tools'][number];
 export type ExplicitHttpMcpCallToolParams = Parameters<Client['callTool']>[0];
 export type ExplicitHttpMcpCallToolResult = Awaited<ReturnType<Client['callTool']>>;
+export type ExplicitHttpMcpInputRequiredResult = InputRequiredResult;
+
+type ExplicitHttpMcpManualCallOptions = ExplicitHttpMcpRequestOptions & {
+  allowInputRequired: true;
+};
+type ExplicitHttpMcpNormalCallOptions = Omit<
+  ExplicitHttpMcpRequestOptions,
+  'allowInputRequired'
+> & {
+  allowInputRequired?: false;
+};
 
 export interface NegotiatedProtocolFacts {
   getNegotiatedProtocolVersion: () => ReturnType<Client['getNegotiatedProtocolVersion']>;
@@ -53,17 +68,22 @@ export interface NegotiatedProtocolFacts {
 }
 
 export interface ExplicitHttpMcpClientOptions {
+  cachePartition?: ClientOptions['cachePartition'];
   clientInfo?: {
     name: string;
     version: string;
   };
+  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   extensionRegistry?: McpClientExtensionRegistry;
   fetch?: ExplicitHttpMcpFetch;
   headers?: Readonly<Record<string, string>>;
+  inputRequired?: ClientOptions['inputRequired'];
   lifecycle?: ExplicitHttpMcpLifecycle;
+  listMaxPages?: ClientOptions['listMaxPages'];
   name: string;
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol?: McpProtocol;
+  responseCacheStore?: ClientOptions['responseCacheStore'];
   transport: ExplicitHttpMcpTransport;
   url: string | URL;
 }
@@ -73,19 +93,25 @@ type ExplicitHttpTransport = SSEClientTransport | StreamableHTTPClientTransport;
 interface ActiveConnection {
   client: Client;
   disconnected: boolean;
+  generation: number;
   transport: ExplicitHttpTransport;
 }
 
 interface NormalizedClientOptions {
+  cachePartition?: ClientOptions['cachePartition'];
   clientInfo: {
     name: string;
     version: string;
   };
+  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   extensionRegistry?: McpClientExtensionRegistry;
   fetch: ExplicitHttpMcpFetch;
+  inputRequired?: ClientOptions['inputRequired'];
   lifecycle: ExplicitHttpMcpLifecycle;
+  listMaxPages: number;
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol: McpProtocol;
+  responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
   transport: ExplicitHttpMcpTransport;
   url: URL;
 }
@@ -126,7 +152,8 @@ function validateUnexpectedCloseObserver(
 
 function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
   for (const name of Object.keys(headers ?? {})) {
-    if (PROTOCOL_OWNED_HEADERS.has(name.toLowerCase())) {
+    const lowerName = name.toLowerCase();
+    if (PROTOCOL_OWNED_HEADERS.has(lowerName) || lowerName.startsWith('mcp-param-')) {
       throw new Error(`Configured MCP header "${name}" is protocol-owned`);
     }
   }
@@ -197,13 +224,24 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
   }
 
   const baseFetch: ExplicitHttpMcpFetch = options.fetch ?? ((input, init) => fetch(input, init));
+  const cachePartition = normalizeMcpCachePartition(
+    options.cachePartition,
+    options.responseCacheStore !== undefined
+  );
   return {
+    ...(cachePartition === undefined ? {} : { cachePartition }),
     clientInfo: { ...clientInfo },
+    ...(options.defaultCacheTtlMs === undefined
+      ? {}
+      : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     fetch: createHeaderPreservingFetch(baseFetch, options.headers),
+    ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
     lifecycle: validateLifecycle(options.lifecycle, name),
+    listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
     protocol,
+    responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
     transport: options.transport,
     url,
   };
@@ -228,13 +266,16 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private readonly options: NormalizedClientOptions;
   private pendingConnection: ActiveConnection | undefined;
   private recoveryPromise: Promise<ActiveConnection> | undefined;
+  private toolDefinitions = new Map<string, ExplicitHttpMcpTool>();
+  private connectionGeneration = 0;
+  private catalogGeneration = 0;
 
   constructor(options: ExplicitHttpMcpClientOptions) {
     this.options = normalizeOptions(options);
   }
 
   async connect(options?: ExplicitHttpMcpRequestOptions): Promise<void> {
-    await this.getConnection(options);
+    await this.getConnection(normalizeMcpRequestOptions(options));
   }
 
   getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
@@ -253,18 +294,61 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     return this.activeConnection?.client.getServerVersion();
   }
 
+  getConnectionGeneration(): number {
+    return this.connectionGeneration;
+  }
+
   async listTools(
     options?: ExplicitHttpMcpRequestOptions,
     params?: ExplicitHttpMcpListToolsParams
   ): Promise<ExplicitHttpMcpListToolsResult> {
-    return this.runRequest((client) => client.listTools(params, options), options);
+    const requestOptions = normalizeMcpRequestOptions(options);
+    let successfulGeneration: number | undefined;
+    const result = await this.runRequest((client, connection) => {
+      successfulGeneration = connection.generation;
+      const catalogOptions =
+        params?.cursor === undefined && this.catalogGeneration !== connection.generation
+          ? { ...requestOptions, cacheMode: 'refresh' as const }
+          : requestOptions;
+      return client.listTools(params, catalogOptions);
+    }, requestOptions);
+    if (params?.cursor === undefined) {
+      this.catalogGeneration = successfulGeneration ?? this.connectionGeneration;
+      const nextToolDefinitions = new Map<string, ExplicitHttpMcpTool>();
+      for (const tool of result.tools) {
+        nextToolDefinitions.set(tool.name, tool);
+      }
+      this.toolDefinitions = nextToolDefinitions;
+      return result;
+    }
+    for (const tool of result.tools) {
+      this.toolDefinitions.set(tool.name, tool);
+    }
+    return result;
   }
 
   async callTool(
     params: ExplicitHttpMcpCallToolParams,
-    options?: ExplicitHttpMcpRequestOptions
-  ): Promise<ExplicitHttpMcpCallToolResult> {
-    return this.runRequest((client) => client.callTool(params, options), options);
+    options: ExplicitHttpMcpManualCallOptions
+  ): Promise<ExplicitHttpMcpCallToolResult | ExplicitHttpMcpInputRequiredResult>;
+  async callTool(
+    params: ExplicitHttpMcpCallToolParams,
+    options?: ExplicitHttpMcpNormalCallOptions
+  ): Promise<ExplicitHttpMcpCallToolResult>;
+  async callTool(
+    params: ExplicitHttpMcpCallToolParams,
+    options?: ExplicitHttpMcpManualCallOptions | ExplicitHttpMcpNormalCallOptions
+  ): Promise<ExplicitHttpMcpCallToolResult | ExplicitHttpMcpInputRequiredResult> {
+    const normalizedOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => {
+      const toolDefinition =
+        normalizedOptions.toolDefinition === undefined
+          ? this.toolDefinitions.get(params.name)
+          : undefined;
+      const requestOptions =
+        toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
+      return client.callTool(params, requestOptions);
+    }, normalizedOptions);
   }
 
   close(): Promise<void> {
@@ -292,6 +376,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     this.connectPromise = undefined;
     this.recoveryPromise = undefined;
     this.invalidatedConnections.clear();
+    this.toolDefinitions = new Map();
 
     const errors: unknown[] = [];
     for (const connection of connections) {
@@ -327,6 +412,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   }
 
   private startConnection(options?: ExplicitHttpMcpRequestOptions): Promise<ActiveConnection> {
+    this.connectionGeneration += 1;
     const connection = this.createConnection();
     this.pendingConnection = connection;
     const connectPromise = this.openConnection(connection, options);
@@ -417,22 +503,40 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
 
   private createConnection(): ActiveConnection {
     const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
-    const client = new Client(this.options.clientInfo, {
+    const clientOptions: ClientOptions = {
       capabilities: extensions ? { extensions } : {},
+      listMaxPages: this.options.listMaxPages,
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
-    });
-    const connection = { client, disconnected: false, transport: this.createTransport() };
+      ...(this.options.cachePartition === undefined
+        ? {}
+        : { cachePartition: this.options.cachePartition }),
+      ...(this.options.defaultCacheTtlMs === undefined
+        ? {}
+        : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
+      responseCacheStore: this.options.responseCacheStore,
+      ...(this.options.inputRequired ? { inputRequired: this.options.inputRequired } : {}),
+    };
+    const client = new Client(this.options.clientInfo, clientOptions);
+    const connection = {
+      client,
+      disconnected: false,
+      generation: this.connectionGeneration,
+      transport: this.createTransport(),
+    };
     client.onclose = () => this.invalidateConnection(connection);
     return connection;
   }
 
   private async runRequest<T>(
-    request: (client: Client) => Promise<T>,
+    request: (client: Client, connection: ActiveConnection) => Promise<T>,
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<T> {
     const connection = await this.getConnection(options);
+    const hadSession =
+      connection.transport instanceof StreamableHTTPClientTransport &&
+      connection.transport.sessionId !== undefined;
     try {
-      return await request(connection.client);
+      return await request(connection.client, connection);
     } catch (error) {
       options?.signal?.throwIfAborted();
       if (this.closed) {
@@ -440,7 +544,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       }
       if (
         connection.transport instanceof StreamableHTTPClientTransport &&
-        isReconnectableSessionError(error, connection.transport.sessionId !== undefined)
+        isReconnectableSessionError(error, hadSession)
       ) {
         if (this.options.lifecycle === 'host-owned') {
           if (this.invalidateConnection(connection, true)) {
@@ -450,7 +554,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
         }
         const recovered = await this.recoverConnection(connection, options);
         options?.signal?.throwIfAborted();
-        return request(recovered.client);
+        return request(recovered.client, recovered);
       }
       throw error;
     }
@@ -515,6 +619,9 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     }
     const unexpected = !this.closed && this.activeConnection === connection;
     connection.disconnected = true;
+    this.connectionGeneration += 1;
+    this.toolDefinitions = new Map();
+    this.catalogGeneration = 0;
     if (this.activeConnection === connection) {
       this.activeConnection = undefined;
       if (retainForLocalCleanup) {

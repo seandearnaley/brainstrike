@@ -6,6 +6,7 @@ const {
   clientCallToolMock,
   clientCloseMock,
   clientCtorMock,
+  responseCacheStoreCtorMock,
   transportCtorMock,
 } = vi.hoisted(() => {
   const connect = vi.fn(async () => {});
@@ -39,6 +40,7 @@ const {
   function MockTransport(this: Record<string, unknown>) {
     this['close'] = closeTransport;
   }
+  class MockResponseCacheStore {}
 
   return {
     clientCallToolMock: callTool,
@@ -46,12 +48,14 @@ const {
     clientConnectMock: connect,
     clientCtorMock: vi.fn(MockClient),
     clientListToolsMock: listTools,
+    responseCacheStoreCtorMock: MockResponseCacheStore,
     transportCtorMock: vi.fn(MockTransport),
   };
 });
 
 vi.mock('@modelcontextprotocol/client', () => ({
   Client: clientCtorMock,
+  InMemoryResponseCacheStore: responseCacheStoreCtorMock,
 }));
 
 vi.mock('@modelcontextprotocol/client/stdio', () => ({
@@ -107,6 +111,8 @@ describe('stdio client', () => {
     expect(clientConnectMock).toHaveBeenCalledTimes(1);
     expect(clientCtorMock).toHaveBeenCalledWith(expect.anything(), {
       capabilities: {},
+      listMaxPages: 64,
+      responseCacheStore: expect.any(responseCacheStoreCtorMock),
       versionNegotiation: { mode: 'auto' },
     });
     expect(clientListToolsMock).toHaveBeenCalledTimes(1);
