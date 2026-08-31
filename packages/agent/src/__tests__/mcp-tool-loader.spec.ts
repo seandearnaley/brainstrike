@@ -51,7 +51,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const result = await collectCombinedTools({
-        mcpClient: {} as McpRuntimeClient,
+        mcpClient: { configuredServers: [] } as McpRuntimeClient,
         mcpConfig: undefined,
         sanitizedLocalTools: localTools,
         scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
