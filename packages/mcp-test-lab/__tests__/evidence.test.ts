@@ -35,7 +35,12 @@ describe('verifyMcpEvidenceBundle', () => {
     evidence.negotiation.capabilities[0] = 'changed';
     bytes.fill(0);
     expect(bundle.schema.ticket).toBe('BST-1484');
-    expect(bundle.schema.negotiation.capabilities).toEqual(['tools']);
+    expect(bundle.schema.negotiation.capabilities).toEqual([
+      'completions',
+      'prompts',
+      'resources',
+      'tools',
+    ]);
     expect(bundle.artifacts[0]?.extractedText).toBe('sanitized log');
     expect(Reflect.set(bundle.schema, 'ticket', 'BST-9999')).toBe(false);
     expect(bundle.schema.ticket).toBe('BST-1484');

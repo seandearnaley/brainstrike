@@ -8,6 +8,7 @@ import {
   getMcpLabScenario,
   MCP_LAB_CONFORMANCE_SOURCE,
   MCP_LAB_CONFORMANCE_VERSION,
+  MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE,
   MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
   MCP_LAB_SCENARIO_IDS,
   MCP_LAB_SDK_SOURCE,
@@ -75,7 +76,7 @@ describe('MCP lab scenario manifest', () => {
       availability: 'executable',
       description: 'Executable modern reference based on the official SDK v2 everything server',
       fixture: 'official-sdk-v2-everything-reference',
-      fixtureSource: MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
+      fixtureSource: MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE,
       id: 'modern-reference',
       network: 'loopback-only',
       protocol: { era: 'modern', version: '2026-07-28' },
@@ -116,6 +117,12 @@ describe('MCP lab scenario manifest', () => {
       path: 'test/conformance/src/everythingServer.ts',
       repositoryUrl: 'https://github.com/modelcontextprotocol/typescript-sdk.git',
       sha256: '3a94417774fa20b17971e8162f9865b1cefd2650c7d88fdcd17f971d91213852',
+    });
+    expect(MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE).toMatchObject({
+      kind: 'brainstrike-owned-derived-profile',
+      path: 'packages/mcp-test-lab/src/official-everything-profile.ts',
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      upstream: MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
     });
     expect(MCP_LAB_CONFORMANCE_SOURCE).toEqual({
       commitSha: 'a9896553900a2ef61787b57adfcbbe936a8ab1f9',

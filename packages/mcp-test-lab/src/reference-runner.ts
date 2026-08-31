@@ -116,6 +116,15 @@ function startCase(runnerCase: McpLabRunnerCase): Promise<McpLabSession> {
   return startMcpLabScenario(runnerCase.scenarioId, { execution: runnerCase.execution });
 }
 
+function correlationSuffix(runnerCase: McpLabRunnerCase, phase: McpLabRunnerPhase): string {
+  if (phase !== 'red') {
+    return '';
+  }
+  return runnerCase.scenarioId === 'modern-reference'
+    ? '-intentional-tool-error'
+    : '-missing-tool-rejection';
+}
+
 export function isMissingToolProtocolError(error: unknown, toolName: string): boolean {
   return (
     error instanceof ProtocolError &&
@@ -156,6 +165,71 @@ function echoText(value: unknown): string | undefined {
   return typeof structured.text === 'string' ? structured.text : undefined;
 }
 
+function hasTextContent(value: unknown, expected: string): boolean {
+  if (typeof value !== 'object' || value === null || !('content' in value)) {
+    return false;
+  }
+  return (
+    Array.isArray(value.content) &&
+    value.content.some(
+      (entry) =>
+        typeof entry === 'object' && entry !== null && 'text' in entry && entry.text === expected
+    )
+  );
+}
+
+async function probeModernCapabilities(client: Client, signal: AbortSignal): Promise<boolean> {
+  const tool = await client.callTool({ name: 'test_simple_text' }, { signal });
+  const resources = await client.listResources(undefined, { signal });
+  const resource = await client.readResource({ uri: 'test://static-text' }, { signal });
+  const prompts = await client.listPrompts(undefined, { signal });
+  const prompt = await client.getPrompt({ name: 'test_simple_prompt' }, { signal });
+  const completion = await client.complete(
+    {
+      argument: { name: 'unused', value: '' },
+      ref: { name: 'test_simple_prompt', type: 'ref/prompt' },
+    },
+    { signal }
+  );
+  const subscription = await client.listen({}, { signal });
+  await subscription.close();
+  return (
+    hasTextContent(tool, 'This is a simple text response for testing.') &&
+    resources.resources.some(({ uri }) => uri === 'test://static-text') &&
+    resource.contents.some(
+      (entry) =>
+        'text' in entry && entry.text === 'This is the content of the static text resource.'
+    ) &&
+    prompts.prompts.some(({ name }) => name === 'test_simple_prompt') &&
+    prompt.messages.some(
+      ({ content }) =>
+        content.type === 'text' && content.text === 'This is a simple prompt for testing.'
+    ) &&
+    completion.completion.values.length === 0 &&
+    completion.completion.total === 0 &&
+    completion.completion.hasMore === false
+  );
+}
+
+function isIntentionalToolError(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'isError' in value &&
+    value.isError === true &&
+    'content' in value &&
+    Array.isArray(value.content) &&
+    value.content.some(
+      (entry) =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        'text' in entry &&
+        typeof entry.text === 'string' &&
+        entry.text.includes('intentionally returns an error')
+    )
+  );
+}
+
 async function runReferenceTest(
   client: Client,
   runnerCase: McpLabRunnerCase,
@@ -163,21 +237,15 @@ async function runReferenceTest(
   value: string,
   signal: AbortSignal
 ): Promise<boolean> {
-  if (phase !== 'red' && runnerCase.scenarioId === 'modern-reference') {
-    const result = await client.callTool({ name: 'test_simple_text' }, { signal });
-    return (
-      typeof result === 'object' &&
-      result !== null &&
-      'content' in result &&
-      Array.isArray(result.content) &&
-      result.content.some(
-        (entry) =>
-          typeof entry === 'object' &&
-          entry !== null &&
-          'text' in entry &&
-          entry.text === 'This is a simple text response for testing.'
-      )
-    );
+  if (runnerCase.scenarioId === 'modern-reference') {
+    if (phase !== 'red') {
+      return probeModernCapabilities(client, signal);
+    }
+    const result = await client.callTool({ name: 'test_error_handling' }, { signal });
+    if (!isIntentionalToolError(result)) {
+      throw new Error('MCP reference runner RED tool did not return the pinned intentional error');
+    }
+    return false;
   }
   if (phase !== 'red') {
     return (
@@ -300,7 +368,7 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
     return Object.freeze({
       capabilities: Object.freeze(Object.keys(serverCapabilities).sort()),
       correlationIds: Object.freeze([
-        `${this.runnerCase.id}-${this.phase}${this.phase === 'red' ? '-tool-rejection' : ''}`,
+        `${this.runnerCase.id}-${this.phase}${correlationSuffix(this.runnerCase, this.phase)}`,
       ]),
       exitStatus: passed ? 0 : 1,
       negotiation:

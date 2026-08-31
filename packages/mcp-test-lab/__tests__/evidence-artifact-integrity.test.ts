@@ -100,14 +100,22 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
       expect(received).toEqual(bytes);
       return 'Linear authorization required';
     });
+    const extractScreenshotMetadata = vi.fn(async (received: Uint8Array) => {
+      expect(received).toEqual(bytes);
+      return 'Software=Brainstrike';
+    });
     const result = await verifyMcpEvidenceArtifactIntegrity(evidence, {
+      extractScreenshotMetadata,
       extractScreenshotText,
       maxArtifactBytes: MAX_ARTIFACT_BYTES,
       readArtifactContent: async () => bytes,
     });
 
     expect(extractScreenshotText).toHaveBeenCalledOnce();
-    expect(result.artifacts[0]?.extractedText).toBe('Linear authorization required');
+    expect(extractScreenshotMetadata).toHaveBeenCalledOnce();
+    expect(result.artifacts[0]?.extractedText).toBe(
+      'Linear authorization required\nSoftware=Brainstrike'
+    );
   });
 
   it('rejects duplicate references before reading any artifact', async () => {
@@ -159,6 +167,7 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
 
     await expect(
       verifyMcpEvidenceArtifactIntegrity(evidence, {
+        extractScreenshotMetadata: async () => '',
         extractScreenshotText: async () => {
           throw new Error(secret);
         },
@@ -198,6 +207,10 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
     });
 
     const result = await verifyMcpEvidenceArtifactIntegrity(evidence, {
+      extractScreenshotMetadata: async (received) => {
+        expect(received).toEqual(original);
+        return '';
+      },
       extractScreenshotText: async (received) => {
         source.fill(0);
         expect(received).toEqual(original);
@@ -208,7 +221,32 @@ describe('verifyMcpEvidenceArtifactIntegrity', () => {
       readArtifactContent: async () => source,
     });
 
-    expect(result.artifacts[0]?.extractedText).toBe('window');
+    expect(result.artifacts[0]?.extractedText).toBe('window\n');
+  });
+
+  it('requires and sanitizes screenshot metadata extraction', async () => {
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+    const evidence = evidenceWithArtifact(bytes, {
+      kind: 'screenshot',
+      reference: 'artifacts/window.png',
+    });
+    await expect(
+      verifyMcpEvidenceArtifactIntegrity(evidence, {
+        extractScreenshotText: async () => 'window',
+        maxArtifactBytes: MAX_ARTIFACT_BYTES,
+        readArtifactContent: async () => bytes,
+      })
+    ).rejects.toMatchObject({ code: 'screenshot_metadata_extractor_missing' });
+    await expect(
+      verifyMcpEvidenceArtifactIntegrity(evidence, {
+        extractScreenshotMetadata: async () => {
+          throw new Error('secret metadata');
+        },
+        extractScreenshotText: async () => 'window',
+        maxArtifactBytes: MAX_ARTIFACT_BYTES,
+        readArtifactContent: async () => bytes,
+      })
+    ).rejects.toMatchObject({ code: 'screenshot_metadata_extraction_failed' });
   });
 
   it('passes and enforces an explicit artifact byte limit', async () => {

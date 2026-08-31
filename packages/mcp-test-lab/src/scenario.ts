@@ -1,3 +1,5 @@
+import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profile.js';
+
 export const MCP_LAB_SDK_VERSION = '2.0.0' as const;
 export const MCP_LAB_CONFORMANCE_VERSION = '0.2.0-alpha.10' as const;
 
@@ -22,6 +24,13 @@ export const MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE = Object.freeze({
   path: 'test/conformance/src/everythingServer.ts',
   repositoryUrl: MCP_LAB_SDK_SOURCE.repositoryUrl,
   sha256: '3a94417774fa20b17971e8162f9865b1cefd2650c7d88fdcd17f971d91213852',
+} as const);
+
+export const MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE = Object.freeze({
+  kind: 'brainstrike-owned-derived-profile',
+  path: 'packages/mcp-test-lab/src/official-everything-profile.ts',
+  sha256: OFFICIAL_EVERYTHING_PROFILE_SHA256,
+  upstream: MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
 } as const);
 
 const BRAINSTRIKE_HTTP_FIXTURE_SOURCE = Object.freeze({
@@ -58,7 +67,7 @@ export type McpLabFixtureSource =
   | typeof BRAINSTRIKE_HTTP_FIXTURE_SOURCE
   | typeof BRAINSTRIKE_OAUTH_FIXTURE_SOURCE
   | typeof BRAINSTRIKE_STDIO_FIXTURE_SOURCE
-  | typeof MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE;
+  | typeof MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE;
 
 export interface McpLabScenario {
   readonly authentication: 'none' | 'oauth';
@@ -99,7 +108,7 @@ const REFERENCE = Object.freeze({
 function freezeScenario(scenario: McpLabScenario): McpLabScenario {
   return Object.freeze({
     ...scenario,
-    fixtureSource: scenario.fixtureSource,
+    fixtureSource: Object.freeze({ ...scenario.fixtureSource }),
     protocol: Object.freeze({ ...scenario.protocol }),
     reference: REFERENCE,
   });
@@ -124,7 +133,7 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = Object.fre
     availability: 'executable',
     description: 'Executable modern reference based on the official SDK v2 everything server',
     fixture: 'official-sdk-v2-everything-reference',
-    fixtureSource: MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
+    fixtureSource: MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE,
     id: 'modern-reference',
     network: 'loopback-only',
     protocol: { era: 'modern', version: '2026-07-28' },

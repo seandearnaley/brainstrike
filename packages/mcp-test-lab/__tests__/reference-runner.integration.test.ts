@@ -59,7 +59,11 @@ describe('MCP official reference runner', () => {
       expect(schema.cleanup.command).toBe(COMMAND);
       expect(schema.commands.every(({ command }) => command === COMMAND)).toBe(true);
       expect(schema.correlationIds).toHaveLength(3);
-      expect(schema.correlationIds[0]).toBe(`${caseIds[index]}-red-tool-rejection`);
+      expect(schema.correlationIds[0]).toBe(
+        index === 0
+          ? `${caseIds[index]}-red-intentional-tool-error`
+          : `${caseIds[index]}-red-missing-tool-rejection`
+      );
       expect(schema.negotiation.capabilities).toEqual(
         schema.scenarioId === 'modern-reference'
           ? ['completions', 'prompts', 'resources', 'tools']

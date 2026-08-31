@@ -1,9 +1,21 @@
 import { isMcpLabCorrelationId } from './faults.js';
+import {
+  getMcpLabScenario,
+  MCP_LAB_SCENARIO_IDS,
+  type McpLabFixture,
+  type McpLabScenarioId,
+} from './scenario.js';
 
 export const MCP_EVIDENCE_SCHEMA_VERSION = '1.1.0' as const;
 const SDK_PACKAGE = '@modelcontextprotocol/client' as const;
 const CONFORMANCE_PACKAGE = '@modelcontextprotocol/conformance' as const;
 const MAX_EVIDENCE_ARRAY_ITEMS = 1000;
+const MCP_EVIDENCE_FIXTURE_IDS = Object.freeze([
+  'brainstrike-oauth-reference',
+  'brainstrike-sdk-v2-reference',
+  'brainstrike-stdio-reference',
+  'official-sdk-v2-everything-reference',
+] as const satisfies readonly McpLabFixture[]);
 export type McpCommandPhase = 'green' | 'red' | 'verification';
 export type McpProtocolEra = 'legacy' | 'modern';
 export type McpArtifactKind = 'log' | 'report' | 'screenshot' | 'trace';
@@ -48,17 +60,22 @@ export interface McpEvidenceBlocker {
 }
 export type McpEvidenceFixtureVersion =
   | {
-      readonly id: string;
+      readonly id: McpLabFixture;
       readonly kind: 'brainstrike-owned';
       readonly path: string;
     }
   | {
-      readonly commitSha: string;
-      readonly id: string;
-      readonly kind: 'official-typescript-sdk';
+      readonly id: McpLabFixture;
+      readonly kind: 'brainstrike-owned-derived-profile';
       readonly path: string;
-      readonly repositoryUrl: string;
       readonly sha256: string;
+      readonly upstream: {
+        readonly commitSha: string;
+        readonly kind: 'official-typescript-sdk';
+        readonly path: string;
+        readonly repositoryUrl: string;
+        readonly sha256: string;
+      };
     };
 export interface McpDesktopManualScenarioEvidence {
   readonly artifactReferences: readonly string[];
@@ -121,7 +138,7 @@ export interface McpEvidenceSchema {
     readonly era: McpProtocolEra;
     readonly revision: string;
   };
-  readonly scenarioId: string;
+  readonly scenarioId: McpLabScenarioId;
   readonly schemaVersion: typeof MCP_EVIDENCE_SCHEMA_VERSION;
   readonly ticket: string;
   readonly versions: {
@@ -182,12 +199,7 @@ export function parseMcpEvidenceSchema(input: unknown): McpEvidenceSchema {
     desktop: parseDesktopEvidence(root['desktop'], artifacts, blockers),
     git: parseGit(root['git']),
     negotiation: parseNegotiation(root['negotiation']),
-    scenarioId: matchingString(
-      root['scenarioId'],
-      '$.scenarioId',
-      /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-      'lowercase scenario id'
-    ),
+    scenarioId: oneOf(root['scenarioId'], '$.scenarioId', MCP_LAB_SCENARIO_IDS),
     schemaVersion: exactLiteral(
       root['schemaVersion'],
       MCP_EVIDENCE_SCHEMA_VERSION,
@@ -202,6 +214,7 @@ export function parseMcpEvidenceSchema(input: unknown): McpEvidenceSchema {
       `must equal $.negotiation.revision "${schema.negotiation.revision}"`
     );
   }
+  assertCanonicalScenarioClaims(schema);
   assertProofOrder(schema.commands);
   return schema;
 }
@@ -300,7 +313,7 @@ function parseDesktopEvidence(
     cdt: {
       endpoint: cdtEndpoint(cdt['endpoint'], '$.desktop.cdt.endpoint'),
       inspected: exactLiteral(cdt['inspected'], true, '$.desktop.cdt.inspected'),
-      rendererUrl: nonEmptyString(cdt['rendererUrl'], '$.desktop.cdt.rendererUrl'),
+      rendererUrl: desktopRendererUrl(cdt['rendererUrl'], '$.desktop.cdt.rendererUrl'),
       targetTitle: exactLiteral(
         cdt['targetTitle'],
         'BrainStrike Agent Debug',
@@ -341,7 +354,7 @@ function parseDesktopMatrix(
     const id = oneOf(value['id'], `${path}.id`, MCP_DESKTOP_MANUAL_SCENARIO_IDS);
     const status = oneOf(value['status'], `${path}.status`, ['passed', 'blocked']);
     const references = parseUniqueStrings(
-      value['artifactReferences'],
+      nonEmptyArray(value['artifactReferences'], `${path}.artifactReferences`),
       `${path}.artifactReferences`,
       (reference) => artifactReferences.includes(reference),
       'declared artifact reference'
@@ -397,6 +410,27 @@ function cdtEndpoint(input: unknown, path: string): string {
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry) => right.includes(entry));
 }
+function assertCanonicalScenarioClaims(schema: McpEvidenceSchema): void {
+  const scenario = getMcpLabScenario(schema.scenarioId);
+  const expectedCapabilities =
+    schema.scenarioId === 'modern-reference'
+      ? ['completions', 'prompts', 'resources', 'tools']
+      : ['tools'];
+  if (
+    schema.versions.spec !== scenario.protocol.version ||
+    schema.versions.sdk.version !== scenario.reference.sdkVersion ||
+    schema.versions.conformance.version !== scenario.reference.conformanceVersion ||
+    schema.negotiation.era !== scenario.protocol.era ||
+    schema.negotiation.revision !== scenario.protocol.version ||
+    !sameStringSet(schema.negotiation.capabilities, expectedCapabilities)
+  ) {
+    invalid('$', `evidence claims do not match scenario "${schema.scenarioId}"`);
+  }
+  const expectedFixture = { id: scenario.fixture, ...scenario.fixtureSource };
+  if (JSON.stringify(schema.versions.fixture) !== JSON.stringify(expectedFixture)) {
+    invalid('$.versions.fixture', `must match scenario "${schema.scenarioId}" provenance`);
+  }
+}
 function parseGit(input: unknown): McpEvidenceSchema['git'] {
   const value = strictObject(input, '$.git', ['commitSha', 'workspaceState']);
   return {
@@ -449,49 +483,65 @@ function parseFixtureVersion(input: unknown): McpEvidenceFixtureVersion {
   if (kind === 'brainstrike-owned') {
     const value = strictObject(input, '$.versions.fixture', ['kind', 'id', 'path']);
     return {
-      id: matchingString(
-        value['id'],
-        '$.versions.fixture.id',
-        /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-        'lowercase fixture id'
-      ),
+      id: oneOf(value['id'], '$.versions.fixture.id', MCP_EVIDENCE_FIXTURE_IDS),
       kind,
       path: repositoryPath(value['path'], '$.versions.fixture.path'),
     };
   }
-  if (kind !== 'official-typescript-sdk') {
-    invalid('$.versions.fixture.kind', 'must be "brainstrike-owned" or "official-typescript-sdk"');
+  if (kind !== 'brainstrike-owned-derived-profile') {
+    invalid(
+      '$.versions.fixture.kind',
+      'must be "brainstrike-owned" or "brainstrike-owned-derived-profile"'
+    );
   }
   const value = strictObject(input, '$.versions.fixture', [
     'kind',
     'id',
+    'path',
+    'sha256',
+    'upstream',
+  ]);
+  const upstream = strictObject(value['upstream'], '$.versions.fixture.upstream', [
+    'kind',
     'path',
     'repositoryUrl',
     'commitSha',
     'sha256',
   ]);
   return {
-    commitSha: matchingString(
-      value['commitSha'],
-      '$.versions.fixture.commitSha',
-      /^[0-9a-f]{40}$/,
-      'full lowercase 40-character commit SHA'
-    ),
-    id: matchingString(
-      value['id'],
-      '$.versions.fixture.id',
-      /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-      'lowercase fixture id'
-    ),
+    id: oneOf(value['id'], '$.versions.fixture.id', MCP_EVIDENCE_FIXTURE_IDS),
     kind,
     path: repositoryPath(value['path'], '$.versions.fixture.path'),
-    repositoryUrl: repositoryUrl(value['repositoryUrl'], '$.versions.fixture.repositoryUrl'),
     sha256: matchingString(
       value['sha256'],
       '$.versions.fixture.sha256',
       /^[0-9a-f]{64}$/,
       'lowercase SHA-256 digest'
     ),
+    upstream: {
+      commitSha: matchingString(
+        upstream['commitSha'],
+        '$.versions.fixture.upstream.commitSha',
+        /^[0-9a-f]{40}$/,
+        'full lowercase 40-character commit SHA'
+      ),
+      kind: exactLiteral(
+        upstream['kind'],
+        'official-typescript-sdk',
+        '$.versions.fixture.upstream.kind'
+      ),
+      path: repositoryPath(upstream['path'], '$.versions.fixture.upstream.path'),
+      repositoryUrl: repositoryUrl(
+        upstream['repositoryUrl'],
+        '$.versions.fixture.upstream.repositoryUrl'
+      ),
+      sha256: matchingString(
+        upstream['sha256'],
+        '$.versions.fixture.upstream.sha256',
+        /^[0-9a-f]{64}$/,
+        'lowercase SHA-256 digest'
+      ),
+    },
   };
 }
 function parseCommands(input: unknown): readonly McpEvidenceCommand[] {
@@ -845,6 +895,28 @@ function repositoryUrl(input: unknown, path: string): string {
     !url.pathname.endsWith('.git')
   ) {
     invalid(path, 'must be an HTTPS Git repository URL without credentials or parameters');
+  }
+  return value;
+}
+function desktopRendererUrl(input: unknown, path: string): string {
+  const value = nonEmptyString(input, path);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    invalid(path, 'must be an HTTP(S) loopback renderer URL with an explicit port');
+  }
+  if (
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') ||
+    url.port === '' ||
+    url.username !== '' ||
+    url.password !== ''
+  ) {
+    invalid(
+      path,
+      'must be an HTTP(S) loopback renderer URL with an explicit port and no credentials'
+    );
   }
   return value;
 }

@@ -2066,8 +2066,12 @@ profile of the official SDK v2 `test/conformance/src/everythingServer.ts` at
 tag `@modelcontextprotocol/server@2.0.0`, peeled commit
 `cc4b41617ce3601b1290d67216ea0b194a3cd9ac`, and source SHA-256
 `3a94417774fa20b17971e8162f9865b1cefd2650c7d88fdcd17f971d91213852`.
-It exercises the official tool, resource, prompt, and completion capability
-shape without claiming to vendor or run the full upstream conformance server.
+The executable, behavior-defining data lives separately in
+`official-everything-profile.ts`; evidence records and binds both that local
+profile digest and the upstream source pin. A live integration test verifies
+the upstream bytes and every profile anchor. It exercises the official tool,
+resource, prompt, completion, and modern subscription capability shape without
+claiming to vendor or run the full upstream conformance server.
 The legacy scenario retains the Brainstrike-owned SDK v2 echo fixture. Both
 use focused real client exchanges over in-process and ephemeral loopback HTTP.
 Loopback listeners bind only `127.0.0.1` on an
@@ -2086,14 +2090,15 @@ token-free zero counts for clients, states, codes, and tokens after clearing the
 The private artifact-integrity core reads each unique reference once and in
 order, passes an explicit positive byte limit to the reader, rejects an
 oversized result, and copies Buffer, shared, or reader-owned bytes before
-SHA-256 and extraction. Text decoding is fatal UTF-8, screenshots require an
-explicit extractor, and dependency failures expose only bounded error codes,
+SHA-256 and extraction. Text decoding is fatal UTF-8; screenshots require
+separate rendered-text and metadata extractors, and both outputs are scanned.
+Dependency failures expose only bounded error codes,
 never artifact content. It remains non-public behind the immutable facade.
 
 The `./evidence` verifier accepts a closed exact-head schema, binds RED, GREEN,
 and verification commands, reads each unique artifact exactly once, hashes the
 original bytes, decodes text with fatal UTF-8 handling, and requires explicit
-screenshot text extraction. Before returning, it sanitizes schema metadata and
+screenshot text plus metadata extraction. Before returning, it sanitizes schema metadata and
 every extracted artifact without trusting the schema's `sanitized` assertion.
 Schema metadata is sanitized before artifact dependency I/O, so credential-bearing
 references cannot reach readers or integrity-error diagnostics.
@@ -2115,15 +2120,18 @@ interpreting an absent field. Protocol-lab-only runs record the closed
 must name the isolated agent-debug profile, fixed app identity, loopback CDT
 origin and inspected renderer, a green Electron E2E command, and every id in
 the prescribed Settings/OAuth/assistant/cancel/restart/config/concurrency/
-disconnect matrix. Each matrix result points only at declared artifacts;
+disconnect matrix. Each matrix result points at one or more declared artifacts;
 blocked rows name a top-level blocker. At least one screenshot plus one durable
 log or trace is required, and the successful secret-scan claim must cover every
 artifact exactly once. The verifier still scans all metadata and extracted
 artifact content itself before dependency I/O, including credential-bearing
 redirect URLs, authorization codes, PKCE verifiers, bearer values, and secrets.
 The versions block also carries a closed fixture-provenance arm: Brainstrike
-fixtures name their repository path, while the official modern profile records
-its upstream repository, path, peeled commit, and source digest.
+fixtures name their repository path, while the derived official modern profile
+records its local executable profile digest separately from its upstream
+repository, path, peeled commit, and source digest. Scenario id, protocol,
+capabilities, SDK/conformance versions, and fixture provenance must match the
+closed scenario manifest exactly.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a

@@ -201,6 +201,7 @@ describe('verifyMcpEvidenceBundle secret sanitization', () => {
 
     await expect(
       verifyMcpEvidenceBundle(evidence, {
+        extractScreenshotMetadata: async () => '',
         extractScreenshotText,
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent,
@@ -214,6 +215,21 @@ describe('verifyMcpEvidenceBundle secret sanitization', () => {
     });
     expect(readArtifactContent).toHaveBeenCalledOnce();
     expect(extractScreenshotText).toHaveBeenCalledOnce();
+  });
+
+  it('rejects credentials embedded in screenshot metadata', async () => {
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+    const evidence = evidenceWithArtifact('screenshot', bytes);
+    await expect(
+      verifyMcpEvidenceBundle(evidence, {
+        extractScreenshotMetadata: async () => `access_token=${SECRET}`,
+        extractScreenshotText: async () => 'safe pixels',
+        maxArtifactBytes: MAX_ARTIFACT_BYTES,
+        readArtifactContent: async () => bytes,
+      })
+    ).rejects.toMatchObject({
+      issue: { code: 'secret_detected', path: '$.artifacts[0].content' },
+    });
   });
 
   it('does not expose secret values in errors or enumerable issue data', async () => {
@@ -288,6 +304,7 @@ describe('verifyMcpEvidenceBundle secret sanitization', () => {
 
     await expect(
       verifyMcpEvidenceBundle(evidence, {
+        extractScreenshotMetadata: async () => '',
         extractScreenshotText,
         maxArtifactBytes: MAX_ARTIFACT_BYTES,
         readArtifactContent,

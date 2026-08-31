@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+import { OFFICIAL_EVERYTHING_PROFILE as profile } from './official-everything-profile.js';
 import type { McpLabFixture } from './scenario.js';
 
 function createBrainstrikeEchoReferenceServer(): McpServer {
@@ -31,63 +32,58 @@ function createBrainstrikeEchoReferenceServer(): McpServer {
  * process-global conformance fixture.
  */
 function createOfficialEverythingReferenceServer(): McpServer {
-  const server = new McpServer(
-    { name: 'mcp-conformance-test-server', version: '1.0.0' },
-    {
-      capabilities: {
-        completions: {},
-        prompts: { listChanged: true },
-        resources: { listChanged: true, subscribe: true },
-        tools: { listChanged: true },
-      },
-    }
-  );
+  const server = new McpServer(profile.server, { capabilities: profile.capabilities });
 
   server.registerTool(
-    'test_simple_text',
-    { description: 'Tests simple text content response' },
+    profile.tools.simpleText.name,
+    { description: profile.tools.simpleText.description },
     async () => ({
-      content: [{ text: 'This is a simple text response for testing.', type: 'text' }],
+      content: [{ text: profile.tools.simpleText.text, type: 'text' }],
     })
   );
+  server.registerTool(
+    profile.tools.error.name,
+    { description: profile.tools.error.description },
+    async () => {
+      throw new Error(profile.tools.error.message);
+    }
+  );
   server.registerResource(
-    'static-text',
-    'test://static-text',
+    profile.resource.name,
+    profile.resource.uri,
     {
-      description: 'A static text resource for testing',
-      mimeType: 'text/plain',
-      title: 'Static Text Resource',
+      description: profile.resource.description,
+      mimeType: profile.resource.mimeType,
+      title: profile.resource.title,
     },
     async () => ({
       contents: [
         {
-          mimeType: 'text/plain',
-          text: 'This is the content of the static text resource.',
-          uri: 'test://static-text',
+          mimeType: profile.resource.mimeType,
+          text: profile.resource.text,
+          uri: profile.resource.uri,
         },
       ],
     })
   );
   server.registerPrompt(
-    'test_simple_prompt',
+    profile.prompt.name,
     {
-      description: 'A simple prompt without arguments',
-      title: 'Simple Test Prompt',
+      description: profile.prompt.description,
+      title: profile.prompt.title,
     },
     async () => ({
       messages: [
         {
-          content: { text: 'This is a simple prompt for testing.', type: 'text' },
+          content: { text: profile.prompt.message, type: 'text' },
           role: 'user',
         },
       ],
     })
   );
   server.server.setRequestHandler('completion/complete', async () => ({
-    completion: { hasMore: false, total: 0, values: [] },
+    completion: { ...profile.completion, values: [...profile.completion.values] },
   }));
-  server.server.setRequestHandler('resources/subscribe', async () => ({}));
-  server.server.setRequestHandler('resources/unsubscribe', async () => ({}));
   return server;
 }
 

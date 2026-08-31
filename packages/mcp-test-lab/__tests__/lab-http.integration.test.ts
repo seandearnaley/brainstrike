@@ -232,8 +232,11 @@ describe('MCP lab in-process HTTP references', () => {
         ],
       });
     } finally {
-      await client.close();
-      await lab.close();
+      try {
+        await client.close();
+      } finally {
+        await lab.close();
+      }
     }
   });
 
