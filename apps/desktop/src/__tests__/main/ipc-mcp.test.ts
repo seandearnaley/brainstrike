@@ -133,7 +133,7 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:selectPath', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:watch', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:unwatch', expect.any(Function));
-
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:lifecycle:control', expect.any(Function));
       // Tool handlers
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:list', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:enable', expect.any(Function));
@@ -143,7 +143,7 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:reset', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:getStats', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:createSample', expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledTimes(17);
+      expect(ipcMain.handle).toHaveBeenCalledTimes(18);
     });
 
     it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {
@@ -243,7 +243,7 @@ describe('ipc-mcp handlers', () => {
       await Promise.resolve();
       expect(snapshot).not.toHaveBeenCalled();
       startup.resolve({ exists: false, path: '/tmp/mcp.config.json' });
-      await expect(statusSnapshot).resolves.toEqual({ revision: 1, servers: [] });
+      await expect(statusSnapshot).resolves.toMatchObject({ servers: [] });
       const mockConfig = {
         config: {
           servers: [

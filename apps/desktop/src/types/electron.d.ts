@@ -5,6 +5,8 @@ import type {
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
   AssistantRewindResult,
+  McpHostControlRequest,
+  McpHostServerSnapshot,
   McpHostSnapshot,
   McpHostWatchEvent,
   SkillsScanResultSummary,
@@ -459,6 +461,7 @@ declare global {
       ) => (() => void) | undefined;
     };
     mcp: {
+      controlServer: (request: McpHostControlRequest) => Promise<McpHostServerSnapshot>;
       getConfig: () => Promise<McpConfigStatus>;
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;

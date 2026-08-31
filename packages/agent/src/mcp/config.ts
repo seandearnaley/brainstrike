@@ -16,6 +16,41 @@ export function toMcpVersionNegotiation(protocol: McpProtocol): {
 const ProtocolPolicySchema = {
   protocol: McpProtocolEnum.optional(),
 };
+const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
+
+export function isInteractiveMcpStdioServer(
+  command: string,
+  args: readonly string[] | undefined
+): boolean {
+  const executable = command
+    .replaceAll('\\', '/')
+    .split('/')
+    .at(-1)
+    ?.replace(/\.(?:cmd|exe|ps1)$/u, '');
+  return (
+    executable === 'mcp-remote' ||
+    args?.some((argument) => /^mcp-remote(?:@[^/\s]+)?$/u.test(argument)) === true
+  );
+}
+
+function resolveStartupPolicy(server: {
+  args?: readonly string[] | undefined;
+  command?: string | undefined;
+  startup?: 'automatic' | 'authentication-required' | undefined;
+  transport: string;
+}): 'automatic' | 'authentication-required' {
+  if (server.startup !== undefined) {
+    return server.startup;
+  }
+  if (
+    server.transport === 'stdio' &&
+    server.command !== undefined &&
+    isInteractiveMcpStdioServer(server.command, server.args)
+  ) {
+    return 'authentication-required';
+  }
+  return 'automatic';
+}
 
 const StdioSchema = z.object({
   args: z.array(z.string()).optional(),
@@ -24,6 +59,7 @@ const StdioSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   name: ConfiguredMcpServerIdSchema,
   ...ProtocolPolicySchema,
+  startup: StartupPolicySchema,
   transport: z.literal('stdio'),
 });
 
@@ -32,6 +68,7 @@ const HttpServerSchema = z.object({
   headers: z.record(z.string(), z.string()).optional(),
   name: ConfiguredMcpServerIdSchema,
   ...ProtocolPolicySchema,
+  startup: StartupPolicySchema,
   url: z.string().url(),
 });
 
@@ -53,11 +90,23 @@ const McpServerInputSchema = z
         path: ['protocol'],
       });
     }
+    if (
+      server.transport === 'stdio' &&
+      resolveStartupPolicy(server) === 'authentication-required' &&
+      server.protocol === 'auto'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'user-paced stdio authorization requires protocol "legacy"',
+        path: ['protocol'],
+      });
+    }
   });
 
 export const McpServerSchema = McpServerInputSchema.transform((server) => ({
   ...server,
   protocol: server.protocol ?? ('legacy' as const),
+  startup: resolveStartupPolicy(server),
 }));
 
 const McpConfigInputSchema = z
@@ -83,6 +132,7 @@ export const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
   servers: config.servers.map((server) => ({
     ...server,
     protocol: server.protocol ?? ('legacy' as const),
+    startup: resolveStartupPolicy(server),
   })),
 }));
 

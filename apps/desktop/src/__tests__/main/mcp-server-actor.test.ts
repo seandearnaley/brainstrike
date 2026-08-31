@@ -76,9 +76,10 @@ const base = (id: typeof linearId) => ({
 function actor(
   factory: McpServerActorClientFactory,
   id = linearId,
-  onInternalError: (code: string, cause: unknown) => void = vi.fn()
+  onInternalError: (code: string, cause: unknown) => void = vi.fn(),
+  startup: 'automatic' | 'authentication-required' = 'automatic'
 ): McpServerActor {
-  return new McpServerActor({ ...base(id), factory, onInternalError });
+  return new McpServerActor({ ...base(id), factory, onInternalError, startup });
 }
 function client(
   invoke: McpServerActorClient['invoke'] = async (request) =>
@@ -125,6 +126,42 @@ describe('McpServerActor', () => {
     }
   });
 
+  it('keeps user-paced authentication actionable until an explicit connect', async () => {
+    const factory = vi.fn(async () => client());
+    const subject = actor(factory, linearId, vi.fn(), 'authentication-required');
+
+    expect(subject.snapshot().state).toBe('authentication-required');
+    await failure(subject.invoke(LIST), 'mcp-authentication-required');
+    expect(factory).not.toHaveBeenCalled();
+
+    await expect(subject.connect()).resolves.toMatchObject({ state: 'connected' });
+    expect(factory).toHaveBeenCalledOnce();
+  });
+  it('does not let a cancelled old factory clear an immediate retry client', async () => {
+    const oldFactory = deferred<McpServerActorClient>();
+    const oldClose = vi.fn(async () => report);
+    let factoryCalls = 0;
+    const subject = actor(
+      () => {
+        factoryCalls += 1;
+        return factoryCalls === 1 ? oldFactory.promise : Promise.resolve(client());
+      },
+      linearId,
+      vi.fn(),
+      'authentication-required'
+    );
+
+    const firstConnect = subject.connect();
+    await vi.waitFor(() => expect(subject.snapshot().state).toBe('authorizing'));
+    await expect(subject.cancel()).resolves.toMatchObject({ state: 'authentication-required' });
+
+    const retry = subject.connect();
+    await expect(retry).resolves.toMatchObject({ state: 'connected' });
+    oldFactory.resolve(client(undefined, oldClose));
+    await expect(firstConnect).rejects.toBeDefined();
+    await vi.waitFor(() => expect(oldClose).toHaveBeenCalledOnce());
+    expect(subject.snapshot().state).toBe('connected');
+  });
   it('publishes accepted work and one client promise before factory reentry', async () => {
     const invoke = vi.fn(client().invoke);
     let reentered: Promise<McpHostOperationResult> = Promise.resolve(callResult);
@@ -399,6 +436,7 @@ describe('McpServerActor', () => {
       factory: async () => client(async () => invalidResult, closeClient),
       onInternalError: vi.fn(),
       onSnapshotChanged: (snapshot) => events.push(snapshot),
+      startup: 'automatic',
     });
 
     await failure(subject.invoke(LIST), 'mcp-result-invalid');
@@ -434,6 +472,7 @@ describe('McpServerActor', () => {
       onSnapshotChanged: () => {
         throw raw;
       },
+      startup: 'automatic',
     });
 
     await expect(subject.invoke(LIST)).resolves.toEqual(listResult);
@@ -449,6 +488,7 @@ describe('McpServerActor', () => {
       factory: () => pending.promise,
       onInternalError: vi.fn(),
       onSnapshotChanged: (snapshot) => events.push(snapshot),
+      startup: 'automatic',
     });
     const second = actor(async () => client(), githubId);
     expect(first.snapshot()).toEqual({ ...base(linearId), state: 'disconnected' });

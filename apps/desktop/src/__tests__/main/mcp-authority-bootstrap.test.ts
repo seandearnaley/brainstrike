@@ -68,6 +68,7 @@ const server = (name: string): ResolvedMcpConfig['servers'][number] => ({
   command: '/test/mcp-server',
   name: parseConfiguredMcpServerId(name),
   protocol: 'legacy',
+  startup: 'automatic',
   transport: 'stdio',
 });
 
@@ -125,6 +126,7 @@ describe('MCP desktop authority bootstrap', () => {
   const runtime = {
     host: {
       close: vi.fn(async () => closeReport),
+      control: vi.fn(),
       invoke: mocks.hostInvoke,
       replaceConfig: vi.fn(),
       snapshot: vi.fn(() => snapshot(0)),

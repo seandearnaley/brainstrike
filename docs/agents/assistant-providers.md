@@ -1963,6 +1963,15 @@ Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
 revisions, tool presence never implies connection success, and connected or
 failed zero-tool servers plus negotiation/config errors remain visible.
 
+Startup policy is explicit per configured server: `automatic` permits one
+bounded machine connection attempt during discovery, while
+`authentication-required` publishes an actionable status without constructing
+the transport or opening a browser. `connect`, `retry`, and `cancel` are
+explicit host controls; user-paced authorization is not governed by the
+automatic ten-second machine deadline. Stdio stderr is piped through the SDK's
+early-created stream, line-bounded and secret-redacted before it reaches the
+server snapshot or the warn-and-above durable log sink.
+
 Remote transport rules:
 - `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK
   inherits its documented safe environment allowlist and overlays only the
@@ -2195,7 +2204,8 @@ there is deliberately no post-error `disconnected` event. Raw internal causes
 reach one required main-process diagnostic sink; they may contain credentials
 and must never cross renderer IPC or bypass the platform redaction path.
 
-`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`:
+`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`,
+`control`, and `close`:
 
 - `snapshot` returns token-free authority state, negotiated protocol revision,
   server identity, capabilities, auth/lifecycle status, and bounded diagnostics.
@@ -2208,6 +2218,11 @@ and must never cross renderer IPC or bypass the platform redaction path.
   or cancels owned work explicitly, and closes old transports before publishing
   the replacement as ready. It never mutates a live client in place.
   Caller cancellation stays distinct from `mcp_generation_retired`; unexpected closure replaces only that server without replay.
+- `control` accepts only the closed `connect` / `retry` / `cancel` action union.
+  It is the sole way to begin user-paced authentication, retry a failed
+  generation, or cancel one; each action returns the resulting token-free
+  server snapshot and retains failed servers even when discovery found zero
+  tools.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 
@@ -2300,6 +2315,21 @@ configuration. Renderer IPC receives only snapshots and explicit Settings
 actions such as Authenticate, Reauthorize, Disconnect, Retry, and Replace
 Configuration. Opaque server, invocation, continuation, task, and Apps ids are
 never reconstructed from display names.
+
+The startup policy is conservative for interactive stdio OAuth wrappers: an
+`npx -y mcp-remote ...` shape is normalized to `authentication-required`, even
+when the legacy config omitted startup policy, so config loading and startup
+discovery cannot spawn a browser. Connect, Cancel, and Retry are capability-
+gated Settings actions. Cancel is dispatched directly to the owning actor,
+aborts the active connect signal, and settles child/listener cleanup without
+waiting behind config replacement or discovery work. User-paced stdio auth
+omits Brainstrike's absolute request budget and uses the Node platform-maximum
+numeric timer (`2^31 - 1` ms) required by the SDK 2.0.0 public request API;
+this is an SDK constraint, not a product auth deadline, and cancellation is
+still signal-driven. Ordinary post-connect requests retain the normal bounded
+request policy. Discovery starts all actionable servers concurrently, while
+status snapshots retain every zero-tool, authentication-required, and failed
+server plus bounded, redacted stderr diagnostics.
 
 Production migrates atomically to `@modelcontextprotocol/client@2.0.0`; v1 and
 v2 class instances never cross the host boundary. The release tag used by this

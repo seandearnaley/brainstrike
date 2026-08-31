@@ -24,6 +24,10 @@ const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit stdio MCP client is closed';
 const DISCONNECTED_DURING_CONNECT_ERROR_MESSAGE =
   'MCP stdio connection closed during initialization';
+// The SDK 2.0.0 public API requires a numeric request timeout. This is the
+// platform maximum timer value, used only for the human-paced auth handshake;
+// cancellation remains signal-driven through the transport/client lifecycle.
+const USER_PACED_AUTH_SDK_TIMEOUT_MS = 2_147_483_647;
 
 export type ExplicitStdioMcpCallToolParams = ExplicitHttpMcpCallToolParams;
 export type ExplicitStdioMcpCallToolResult = ExplicitHttpMcpCallToolResult;
@@ -53,14 +57,17 @@ export interface ExplicitStdioMcpClientOptions {
   extensionRegistry?: McpClientExtensionRegistry;
   listMaxPages?: ClientOptions['listMaxPages'];
   name: string;
+  onStderr?: (chunk: string) => void;
   onUnexpectedClose?: () => void;
   protocol?: McpProtocol;
   responseCacheStore?: ClientOptions['responseCacheStore'];
+  userPacedAuth?: boolean;
 }
 
 interface ActiveConnection {
   client: Client;
   disconnected: boolean;
+  removeStderrListener(): void;
   toolDefinitions: ReadonlyMap<string, ExplicitHttpMcpTool>;
   toolMetadataReady: boolean;
   toolMetadataRequest: Promise<ExplicitStdioMcpListToolsResult> | undefined;
@@ -79,9 +86,11 @@ interface NormalizedClientOptions {
   env?: Record<string, string>;
   extensionRegistry?: McpClientExtensionRegistry;
   listMaxPages: number;
+  onStderr?: (chunk: string) => void;
   onUnexpectedClose?: () => void;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
+  userPacedAuth: boolean;
 }
 
 function closedClientError(): Error {
@@ -103,6 +112,10 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
   };
   validateNonEmpty(clientInfo.name, 'MCP client info name');
   validateNonEmpty(clientInfo.version, 'MCP client info version');
+  const protocol = options.protocol ?? 'legacy';
+  if (options.userPacedAuth && protocol !== 'legacy') {
+    throw new Error('MCP user-paced stdio authorization requires legacy protocol policy');
+  }
 
   const cachePartition = normalizeMcpCachePartition(
     options.cachePartition,
@@ -120,8 +133,10 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     ...(options.onUnexpectedClose ? { onUnexpectedClose: options.onUnexpectedClose } : {}),
-    protocol: options.protocol ?? 'legacy',
+    ...(options.onStderr ? { onStderr: options.onStderr } : {}),
+    protocol,
     responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
+    userPacedAuth: options.userPacedAuth ?? false,
   };
 }
 
@@ -146,7 +161,10 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   async connect(options?: ExplicitStdioMcpRequestOptions): Promise<void> {
-    await this.getConnection(normalizeMcpRequestOptions(options));
+    const requestOptions = this.options.userPacedAuth
+      ? { ...(options ?? {}), timeout: options?.timeout ?? USER_PACED_AUTH_SDK_TIMEOUT_MS }
+      : normalizeMcpRequestOptions(options);
+    await this.getConnection(requestOptions);
   }
 
   getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
@@ -232,6 +250,9 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const results = await Promise.allSettled(
       [...connections].flatMap(({ client, transport }) => [transport.close(), client.close()])
     );
+    for (const connection of connections) {
+      connection.removeStderrListener();
+    }
     await connectionSettled;
     const errors = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []
@@ -304,6 +325,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     } catch (error) {
       if (!connected) {
         await connection.client.close().catch(() => undefined);
+        connection.removeStderrListener();
       }
       throw error;
     }
@@ -328,10 +350,28 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       command: this.options.command,
       ...(this.options.args ? { args: this.options.args } : {}),
       ...(this.options.env ? { env: this.options.env } : {}),
+      ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
     });
+    const stderr = transport.stderr;
+    const onStderrData = (chunk: unknown) => {
+      const text =
+        typeof chunk === 'string'
+          ? chunk
+          : Buffer.isBuffer(chunk)
+            ? chunk.toString('utf8')
+            : String(chunk);
+      this.options.onStderr?.(text);
+    };
+    if (this.options.onStderr) {
+      if (!stderr) {
+        throw new Error('MCP stdio stderr pipe was requested but unavailable');
+      }
+      stderr.on('data', onStderrData);
+    }
     const connection: ActiveConnection = {
       client,
       disconnected: false,
+      removeStderrListener: () => stderr?.off('data', onStderrData),
       toolDefinitions: new Map(),
       toolMetadataReady: false,
       toolMetadataRequest: undefined,

@@ -7,6 +7,7 @@ import {
   McpConfiguredProtocolSchema,
   type McpConnectionState,
   type McpHostCloseReport,
+  type McpHostControlRequest,
   McpHostErrorSchema,
   type McpHostOperation,
   type McpHostOperationResult,
@@ -26,7 +27,7 @@ import type { McpConfiguredProtocol, McpStatusTransport } from '../mcp-status.js
 
 const id = parseConfiguredMcpServerId('😀'.repeat(65));
 const uuid = '123e4567-e89b-42d3-a456-426614174000';
-const SAFE_CONFIG = `{"servers":[{"auth":{"type":"none"},"configuredProtocol":"legacy","configuredServerId":"stdio-server","transport":{"configRef":"${uuid}","type":"stdio"}},{"auth":{"type":"oauth-user"},"configuredProtocol":"auto","configuredServerId":"http-server","transport":{"configRef":"${uuid}","type":"streamable-http"}},{"auth":{"credential":{"id":"${uuid}","store":"mcp-credentials"},"type":"bearer"},"configuredProtocol":"legacy","configuredServerId":"sse-server","transport":{"configRef":"${uuid}","type":"sse"}}]}`;
+const SAFE_CONFIG = `{"servers":[{"auth":{"type":"none"},"configuredProtocol":"legacy","configuredServerId":"stdio-server","startup":"automatic","transport":{"configRef":"${uuid}","type":"stdio"}},{"auth":{"type":"oauth-user"},"configuredProtocol":"auto","configuredServerId":"http-server","startup":"authentication-required","transport":{"configRef":"${uuid}","type":"streamable-http"}},{"auth":{"credential":{"id":"${uuid}","store":"mcp-credentials"},"type":"bearer"},"configuredProtocol":"legacy","configuredServerId":"sse-server","startup":"automatic","transport":{"configRef":"${uuid}","type":"sse"}}]}`;
 const LIST_ENVELOPE =
   '{"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"linear","version":"1"}},"nextCursor":"next","tools":[{"_meta":{"vendor":"linear"},"annotations":{"readOnlyHint":true},"description":"Get issue","execution":{"taskSupport":"optional"},"icons":[{"mimeType":"image/svg+xml","sizes":["any"],"src":"https://linear.app/icon.svg","theme":"dark"}],"inputSchema":{"properties":{"id":{"type":"string"}},"type":"object"},"name":"issue.get","outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema"},"title":"Get issue"}]}';
 const CALL_ENVELOPE =
@@ -100,6 +101,11 @@ describe('MCP host contract', () => {
     const config = parseMcpHostConfig(structuredClone(JSON.parse(SAFE_CONFIG)));
     expect(operation.type).toBe('tools/call');
     expect(config.servers.map(({ auth }) => auth.type)).toEqual(['none', 'oauth-user', 'bearer']);
+    expect(config.servers.map(({ startup }) => startup)).toEqual([
+      'automatic',
+      'authentication-required',
+      'automatic',
+    ]);
     expect(() => parseMcpHostConfig({ servers: [config.servers[0], config.servers[0]] })).toThrow(
       'duplicate configured server id'
     );
@@ -220,8 +226,9 @@ describe('MCP host contract', () => {
     expect(servers.map(({ state }) => state)).toEqual(MCP_CONNECTION_STATES);
     expectTypeOf<McpHostServerSnapshot['state']>().toEqualTypeOf<McpConnectionState>();
     expectTypeOf<keyof McpHostPort>().toEqualTypeOf<
-      'snapshot' | 'invoke' | 'watch' | 'replaceConfig' | 'close'
+      'snapshot' | 'invoke' | 'watch' | 'replaceConfig' | 'control' | 'close'
     >();
+    expectTypeOf<McpHostControlRequest['action']>().toEqualTypeOf<'connect' | 'retry' | 'cancel'>();
   });
 
   it('strictly parses negotiated status and close proof DTOs', () => {

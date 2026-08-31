@@ -148,6 +148,7 @@ export const DESKTOP_IPC_CHANNELS = {
     configUpdated: 'mcp:config:updated',
     configWatch: 'mcp:config:watch',
     configWriteText: 'mcp:config:writeText',
+    lifecycleControl: 'mcp:lifecycle:control',
     statusGet: 'mcp:status:get',
     statusUpdated: 'mcp:status:updated',
     toolsDisable: 'mcp:tools:disable',

@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { McpProtocolEnum, type McpProtocolMigration } from '@brainstrike/agent';
+import {
+  isInteractiveMcpStdioServer,
+  McpProtocolEnum,
+  type McpProtocolMigration,
+} from '@brainstrike/agent';
 import { ConfiguredMcpServerIdSchema } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { app, safeStorage } from 'electron';
@@ -93,6 +97,7 @@ const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
 const ProtocolPolicySchema = {
   protocol: McpProtocolEnum.optional(),
 };
+const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
 
 const StdioServerSchema = z.strictObject({
   args: z.array(SpawnStringSchema).optional(),
@@ -101,6 +106,7 @@ const StdioServerSchema = z.strictObject({
   env: EnvironmentSchema.optional(),
   name: ServerNameSchema,
   ...ProtocolPolicySchema,
+  startup: StartupPolicySchema,
   transport: z.literal('stdio'),
 });
 
@@ -109,6 +115,7 @@ const HttpServerSchema = z.strictObject({
   headers: HeadersSchema.optional(),
   name: ServerNameSchema,
   ...ProtocolPolicySchema,
+  startup: StartupPolicySchema,
   url: HttpUrlSchema,
 });
 
@@ -130,10 +137,35 @@ const McpServerInputSchema = z
         path: ['protocol'],
       });
     }
+    if (
+      server.transport === 'stdio' &&
+      (server.startup === 'authentication-required' ||
+        (server.startup === undefined &&
+          isInteractiveMcpStdioServer(server.command, server.args))) &&
+      server.protocol === 'auto'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'user-paced stdio authorization requires protocol "legacy"',
+        path: ['protocol'],
+      });
+    }
   });
+function resolveStartupPolicy(
+  server: z.infer<typeof McpServerInputSchema>
+): 'automatic' | 'authentication-required' {
+  if (server.startup !== undefined) {
+    return server.startup;
+  }
+  if (server.transport === 'stdio' && isInteractiveMcpStdioServer(server.command, server.args)) {
+    return 'authentication-required';
+  }
+  return 'automatic';
+}
 const McpServerSchema = McpServerInputSchema.transform((server) => ({
   ...server,
   protocol: server.protocol ?? ('legacy' as const),
+  startup: resolveStartupPolicy(server),
 }));
 const McpConfigInputSchema = z
   .strictObject({
@@ -157,6 +189,7 @@ const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
   servers: config.servers.map((server) => ({
     ...server,
     protocol: server.protocol ?? ('legacy' as const),
+    startup: resolveStartupPolicy(server),
   })),
 }));
 

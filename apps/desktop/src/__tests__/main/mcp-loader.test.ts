@@ -53,6 +53,20 @@ describe('mcp-loader', () => {
     expect(config.servers).toHaveLength(2);
     expect(config.servers[0]?.transport).toBe('stdio');
     expect(config.servers[1]?.transport).toBe('sse');
+
+    const interactive = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            args: ['-y', 'mcp-remote', 'https://mcp.example.test/mcp'],
+            command: 'npx',
+            name: 'interactive-remote',
+            transport: 'stdio',
+          },
+        ],
+      })
+    );
+    expect(interactive.servers[0]?.startup).toBe('authentication-required');
   });
 
   it('applies one configured-server identity policy at every parser boundary', async () => {
@@ -108,6 +122,42 @@ describe('mcp-loader', () => {
         })
       )
     ).toThrow(/legacy SSE transport requires protocol "legacy"/u);
+  });
+
+  it('requires an explicit marker for user-paced authentication startup', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    const config = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            args: ['-y', 'mcp-remote', 'https://mcp.linear.app/mcp'],
+            command: 'npx',
+            name: 'linear',
+            startup: 'authentication-required',
+            transport: 'stdio',
+          },
+        ],
+      })
+    );
+
+    expect(config.servers[0]).toMatchObject({
+      name: 'linear',
+      startup: 'authentication-required',
+    });
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              command: 'node',
+              name: 'invalid',
+              startup: 'guess-auth-from-command',
+              transport: 'stdio',
+            },
+          ],
+        })
+      )
+    ).toThrow('invalid_mcp_config');
   });
 
   it('decrypts encrypted values and applies to headers/env', async () => {

@@ -74,10 +74,17 @@ export const McpHostErrorSchema: z.ZodType<McpHostError> = z.strictObject({
 interface McpHostServerSnapshotBase {
   configuredProtocol: McpConfiguredProtocol;
   configuredServerId: ConfiguredMcpServerId;
+  diagnostics?: readonly McpHostDiagnostic[];
   enabledTools?: readonly string[];
   generation: number;
   transport: McpStatusTransport;
 }
+export interface McpHostDiagnostic {
+  message: string;
+  stream: 'stderr';
+  truncated: boolean;
+}
+export const MCP_HOST_DIAGNOSTIC_MAX_ENTRIES = 20;
 type PendingMcpConnectionState = Exclude<McpConnectionState, 'connected' | 'error'>;
 export type McpHostServerSnapshot = McpHostServerSnapshotBase &
   (
@@ -136,12 +143,17 @@ const TransportSchema = z.strictObject({
   configRef: ReferenceIdSchema,
   type: McpStatusTransportSchema,
 });
+export const McpStartupPolicySchema = z
+  .enum(['automatic', 'authentication-required'])
+  .default('automatic');
+export type McpStartupPolicy = z.output<typeof McpStartupPolicySchema>;
 const McpConfiguredServerSchema = z
   .strictObject({
     auth: AuthSchema,
     configuredProtocol: McpConfiguredProtocolSchema,
     configuredServerId: ConfiguredMcpServerIdSchema,
     enabledTools: z.array(z.string()).optional(),
+    startup: McpStartupPolicySchema,
     transport: TransportSchema,
   })
   .refine(
@@ -162,6 +174,14 @@ const McpHostConfigSchema = z.strictObject({
 export type McpHostConfig = z.output<typeof McpHostConfigSchema>;
 export const parseMcpHostConfig = (value: unknown): McpHostConfig =>
   McpHostConfigSchema.parse(value);
+
+export const McpHostControlRequestSchema = z.strictObject({
+  action: z.enum(['connect', 'retry', 'cancel']),
+  configuredServerId: ConfiguredMcpServerIdSchema,
+});
+export type McpHostControlRequest = z.output<typeof McpHostControlRequestSchema>;
+export const parseMcpHostControlRequest = (value: unknown): McpHostControlRequest =>
+  McpHostControlRequestSchema.parse(value);
 
 type BrowserSafe<T> = unknown extends T
   ? McpHostJsonValue
@@ -209,6 +229,7 @@ export type McpHostCloseReport = Readonly<Record<McpHostCloseCounter, number>> &
 };
 export interface McpHostPort {
   close(): Promise<McpHostCloseReport>;
+  control(request: McpHostControlRequest): Promise<McpHostServerSnapshot>;
   invoke(
     operation: McpHostOperation,
     options?: McpHostInvokeOptions

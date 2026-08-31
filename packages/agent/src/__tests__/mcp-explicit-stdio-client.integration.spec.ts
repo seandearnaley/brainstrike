@@ -58,7 +58,9 @@ async function createFixture(
   extensionRegistry?: McpClientExtensionRegistry,
   fixturePath = FIXTURE_PATH,
   unexpectedCloseObserver?: () => void,
-  environment?: Readonly<Record<string, string>>
+  environment?: Readonly<Record<string, string>>,
+  onStderr?: (chunk: string) => void,
+  userPacedAuth = false
 ): Promise<{
   capabilitiesFile: string;
   client: ExplicitStdioMcpClient;
@@ -85,7 +87,9 @@ async function createFixture(
       unexpectedCloses += 1;
       unexpectedCloseObserver?.();
     },
+    ...(onStderr ? { onStderr } : {}),
     protocol,
+    userPacedAuth,
     ...(extensionRegistry ? { extensionRegistry } : {}),
   });
   cleanupTasks.push(() => client.close());
@@ -184,6 +188,38 @@ describe('ExplicitStdioMcpClient integration', () => {
       starts: 1,
     });
   });
+
+  it('pipes child stderr to the host from the first startup byte', async () => {
+    const diagnostics: string[] = [];
+    const { client } = await createFixture(
+      'legacy',
+      undefined,
+      FIXTURE_PATH,
+      undefined,
+      { BRAINSTRIKE_STDIO_TEST_STDERR: 'early child diagnostic' },
+      (chunk) => diagnostics.push(chunk)
+    );
+
+    await client.connect();
+    await vi.waitFor(() => expect(diagnostics.join('')).toContain('early child diagnostic'));
+  });
+
+  it('keeps user-paced authorization alive past the SDK default timeout', async () => {
+    const startedAt = performance.now();
+    const { client } = await createFixture(
+      'legacy',
+      undefined,
+      FIXTURE_PATH,
+      undefined,
+      { BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS: '60100' },
+      undefined,
+      true
+    );
+
+    await client.connect();
+
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(60_000);
+  }, 75_000);
 
   it('does not repeat parameterized first-page discovery before a tool call', async () => {
     const { client, stateFile } = await createFixture();

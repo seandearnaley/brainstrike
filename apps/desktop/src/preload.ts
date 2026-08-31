@@ -9,6 +9,7 @@ type WorktreeAdoptParams = import('@brainstrike/types').WorktreeAdoptParams;
 type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
 type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
+type McpHostControlRequest = import('@brainstrike/assistant-contract').McpHostControlRequest;
 type McpHostWatchEvent = import('@brainstrike/assistant-contract').McpHostWatchEvent;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
@@ -257,6 +258,7 @@ const ASSISTANT_GET_URL_CHANNEL = 'assistant:get-url' as const;
 const ASSISTANT_GET_AUTH_CHANNEL = 'assistant:get-auth' as const;
 const MCP_CONFIG_GET_CHANNEL = 'mcp:config:get' as const;
 const MCP_STATUS_GET_CHANNEL = 'mcp:status:get' as const;
+const MCP_LIFECYCLE_CONTROL_CHANNEL = 'mcp:lifecycle:control' as const;
 const MCP_STATUS_UPDATED_EVENT = 'mcp:status:updated' as const;
 const MCP_CONFIG_UPDATED_EVENT = 'mcp:config:updated' as const;
 const MCP_CONFIG_WATCH_CHANNEL = 'mcp:config:watch' as const;
@@ -829,6 +831,8 @@ contextBridge.exposeInMainWorld('agent', {
 
 // MCP Config API (desktop-only)
 contextBridge.exposeInMainWorld('mcp', {
+  controlServer: (request: McpHostControlRequest) =>
+    ipcRenderer.invoke(MCP_LIFECYCLE_CONTROL_CHANNEL, request),
   createSampleConfig: () => ipcRenderer.invoke(MCP_CONFIG_CREATE_SAMPLE_CHANNEL),
   disableServerTools: (serverName: string) =>
     ipcRenderer.invoke(MCP_TOOLS_DISABLE_SERVER_CHANNEL, serverName),

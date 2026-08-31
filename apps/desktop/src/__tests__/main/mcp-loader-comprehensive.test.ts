@@ -339,6 +339,7 @@ describe('mcp-loader comprehensive tests', () => {
         command: 'cmd',
         name: 'minimal',
         protocol: 'legacy',
+        startup: 'automatic',
         transport: 'stdio',
       });
     });
@@ -352,6 +353,7 @@ describe('mcp-loader comprehensive tests', () => {
       expect(result.servers[0]).toEqual({
         name: 'minimal-sse',
         protocol: 'legacy',
+        startup: 'automatic',
         transport: 'sse',
         url: 'http://example.com',
       });
@@ -1124,10 +1126,17 @@ describe('mcp-loader comprehensive tests', () => {
       const result = await withDecryptedSecrets(config);
       expect(result).toEqual({
         servers: [
-          { command: 'cmd', name: 'plain', protocol: 'legacy', transport: 'stdio' },
+          {
+            command: 'cmd',
+            name: 'plain',
+            protocol: 'legacy',
+            startup: 'automatic',
+            transport: 'stdio',
+          },
           {
             name: 'plain-sse',
             protocol: 'legacy',
+            startup: 'automatic',
             transport: 'sse',
             url: 'http://example.com',
           },

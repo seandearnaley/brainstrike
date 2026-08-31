@@ -10,6 +10,7 @@ import {
   type McpHostSnapshot,
   type McpHostWatchEvent,
   parseConfiguredMcpServerId,
+  parseMcpHostControlRequest,
 } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
@@ -595,6 +596,25 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
 
   registry.registerInvoke(
     'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.lifecycleControl,
+    async (_event, request: unknown) => {
+      const parsed = parseMcpHostControlRequest(request);
+      if (parsed.action === 'cancel') {
+        await mcpLifecycleBarrier;
+        return structuredClone(await runtime.host.control(parsed));
+      }
+      return await trackConfigOperation(async (lifecycleEpoch) => {
+        const result = await runtime.host.control(parsed);
+        if (result.state === 'connected') {
+          await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
+        }
+        return structuredClone(result);
+      });
+    }
+  );
+
+  registry.registerInvoke(
+    'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGetPath,
     async (): Promise<string> => await getMcpConfigPath()
   );
@@ -837,9 +857,15 @@ async function discoverToolsFromConfig(
   }
 
   const committedIds = new Set(committed.servers.map((server) => server.configuredServerId));
+  const committedById = new Map(
+    committed.servers.map((server) => [server.configuredServerId, server] as const)
+  );
   const actionableServers = config.servers.filter(
     (server) =>
-      committedIds.has(parseConfiguredMcpServerId(server.name)) && !isPlaceholderServer(server)
+      committedIds.has(parseConfiguredMcpServerId(server.name)) &&
+      committedById.get(parseConfiguredMcpServerId(server.name))?.state !==
+        'authentication-required' &&
+      !isPlaceholderServer(server)
   );
   const skippedPlaceholderServers = config.servers
     .filter((server) => isPlaceholderServer(server))
@@ -861,40 +887,45 @@ async function discoverToolsFromConfig(
     servers: actionableServers.map((server) => server.name),
   });
 
-  const discoveries: DiscoveredServerTools[] = [];
-  for (const server of actionableServers) {
-    try {
-      const result = await runtime.host.invoke({
-        configuredServerId: parseConfiguredMcpServerId(server.name),
-        type: 'tools/list',
-      });
-      if (result.type !== 'tools/list') {
-        throw new Error('MCP host returned a non-tools result for tools/list discovery');
+  const discoveries = await Promise.all(
+    actionableServers.map(async (server): Promise<DiscoveredServerTools | undefined> => {
+      const configuredServerId = parseConfiguredMcpServerId(server.name);
+      try {
+        const result = await runtime.host.invoke({
+          configuredServerId,
+          type: 'tools/list',
+        });
+        if (result.type !== 'tools/list') {
+          throw new Error('MCP host returned a non-tools result for tools/list discovery');
+        }
+        const toolNames = new Set<string>();
+        const tools: Record<string, McpDiscoveredTool> = Object.fromEntries(
+          result.result.tools.map((tool) => {
+            if (toolNames.has(tool.name)) {
+              throw new Error(`MCP server returned duplicate tool '${tool.name}'`);
+            }
+            toolNames.add(tool.name);
+            return [
+              `${server.name}.${tool.name}`,
+              {
+                ...(tool.description ? { description: tool.description } : {}),
+                ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
+              },
+            ];
+          })
+        );
+        return { server, tools };
+      } catch (error) {
+        logger.warn('MCP server discovery failed; skipping server', {
+          error: error instanceof Error ? error.message : String(error),
+          server: server.name,
+        });
+        return undefined;
       }
-      const toolNames = new Set<string>();
-      const tools: Record<string, McpDiscoveredTool> = Object.fromEntries(
-        result.result.tools.map((tool) => {
-          if (toolNames.has(tool.name)) {
-            throw new Error(`MCP server returned duplicate tool '${tool.name}'`);
-          }
-          toolNames.add(tool.name);
-          return [
-            `${server.name}.${tool.name}`,
-            {
-              ...(tool.description ? { description: tool.description } : {}),
-              ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
-            },
-          ];
-        })
-      );
-      discoveries.push({ server, tools });
-    } catch (error) {
-      logger.warn('MCP server discovery failed; skipping server', {
-        error: error instanceof Error ? error.message : String(error),
-        server: server.name,
-      });
-    }
-  }
+    })
+  ).then((results) =>
+    results.filter((discovery): discovery is DiscoveredServerTools => discovery !== undefined)
+  );
 
   logger.info('Tool discovery complete', {
     servers: discoveries.length,

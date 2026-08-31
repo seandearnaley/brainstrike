@@ -118,6 +118,56 @@ describe('MCP config parser', () => {
     ).toThrow(/invalid_mcp_config/u);
   });
 
+  it('recognizes versioned and platform-shim mcp-remote forms without overriding explicit startup', () => {
+    const detected = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            args: ['-y', 'mcp-remote@latest', 'https://mcp.example.test/mcp'],
+            command: 'npx',
+            name: 'versioned',
+            transport: 'stdio',
+          },
+          {
+            command: 'C:\\bin\\mcp-remote.cmd',
+            name: 'shim',
+            transport: 'stdio',
+          },
+          {
+            args: ['-y', 'mcp-remote@0.1.29', 'https://mcp.example.test/mcp'],
+            command: 'npx',
+            name: 'explicit',
+            startup: 'automatic',
+            transport: 'stdio',
+          },
+        ],
+      })
+    );
+    expect(detected.servers.map(({ startup }) => startup)).toEqual([
+      'authentication-required',
+      'authentication-required',
+      'automatic',
+    ]);
+  });
+
+  it('rejects user-paced stdio authorization with auto negotiation at config load', () => {
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              args: ['-y', 'mcp-remote@latest', 'https://mcp.example.test/mcp'],
+              command: 'npx',
+              name: 'unreachable',
+              protocol: 'auto',
+              transport: 'stdio',
+            },
+          ],
+        })
+      )
+    ).toThrow('user-paced stdio authorization requires protocol');
+  });
+
   it('rejects duplicate server names across different transports at the duplicate path', () => {
     const config = {
       servers: [

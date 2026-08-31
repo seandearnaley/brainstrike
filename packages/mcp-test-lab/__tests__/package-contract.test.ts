@@ -251,7 +251,7 @@ describe('MCP test lab package contract', () => {
       'normal teardown cannot create false listener-failure diagnostics'
     );
     expect(normalizedContract).toContain(
-      '`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, and `close`'
+      '`McpHostPort` exposes exactly `snapshot`, `invoke`, `watch`, `replaceConfig`, `control`, and `close`'
     );
     expect(normalizedContract).toContain('dedicated encrypted MCP credential store');
     expect(normalizedContract).toContain('`@modelcontextprotocol/client@2.0.0`');

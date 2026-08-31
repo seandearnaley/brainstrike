@@ -290,6 +290,7 @@ export type {
   ResolvedMcpServer,
 } from './mcp/config';
 export {
+  isInteractiveMcpStdioServer,
   McpConfigSchema,
   McpProtocolEnum,
   McpServerSchema,

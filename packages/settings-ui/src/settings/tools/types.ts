@@ -2,7 +2,11 @@
  * Types for the Unified Tools Settings UI
  */
 
-import type { McpHostServerSnapshot, McpHostSnapshot } from '@brainstrike/assistant-contract';
+import type {
+  McpHostControlRequest,
+  McpHostServerSnapshot,
+  McpHostSnapshot,
+} from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 
 /**
@@ -92,6 +96,8 @@ export type McpServerInfo = McpHostServerSnapshot;
  * Platform-specific implementations provide these callbacks.
  */
 export interface ToolsSettingsOperations {
+  /** Connect, cancel, or retry one MCP server when the host exposes lifecycle control. */
+  controlMcpServer?: (request: McpHostControlRequest) => Promise<McpHostServerSnapshot>;
   /** Create a sample MCP config file */
   createSampleConfig?: () => Promise<{ success: boolean; path: string; error?: string }>;
   /** Disable all tools from a source */
