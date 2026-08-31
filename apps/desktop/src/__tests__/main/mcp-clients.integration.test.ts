@@ -15,6 +15,36 @@ const filesystemServerEntrypoint = path.join(
   path.dirname(filesystemServerPackageJsonPath),
   'dist/index.js'
 );
+const stdioLifecycleServerEntrypoint = path.resolve(
+  import.meta.dirname,
+  '../fixtures/mcp-stdio-lifecycle-server.mjs'
+);
+
+function processIsGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') {
+      return true;
+    }
+    if (code === 'EPERM') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function parsePositivePid(value: string): number {
+  const pid = Number(value.trim());
+  if (!(Number.isSafeInteger(pid) && pid > 0)) {
+    throw new Error(
+      `Desktop stdio lifecycle fixture wrote an invalid pid: ${JSON.stringify(value)}`
+    );
+  }
+  return pid;
+}
 
 describe('mcp-clients', () => {
   afterEach(async () => {
@@ -73,6 +103,52 @@ describe('mcp-clients', () => {
       });
     } finally {
       await runtime.host.close();
+    }
+  }, 30_000);
+
+  test('desktop host reaps its real stdio child process on close', async () => {
+    const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'desktop-mcp-lifecycle-'));
+    const pidFile = path.join(directory, 'pid');
+    const stateFile = path.join(directory, 'state.json');
+    const configuredServerId = parseConfiguredMcpServerId('stdio.lifecycle');
+    const runtime = createDesktopMcpHostRuntime();
+    let runtimeCloseAttempted = false;
+    try {
+      await runtime.replaceResolvedConfig({
+        servers: [
+          {
+            args: [stdioLifecycleServerEntrypoint],
+            command: process.execPath,
+            env: {
+              BRAINSTRIKE_STDIO_TEST_PID_FILE: pidFile,
+              BRAINSTRIKE_STDIO_TEST_STATE_FILE: stateFile,
+            },
+            name: configuredServerId,
+            protocol: 'legacy',
+            transport: 'stdio',
+          },
+        ],
+      });
+      await runtime.host.invoke({ configuredServerId, type: 'tools/list' });
+      const pid = parsePositivePid(await fsp.readFile(pidFile, 'utf8'));
+
+      runtimeCloseAttempted = true;
+      await expect(runtime.host.close()).resolves.toMatchObject({
+        childProcessesClosed: 1,
+        clientsClosed: 1,
+        failures: [],
+        requestsSettled: 1,
+      });
+      await expect.poll(() => processIsGone(pid), { timeout: 10_000 }).toBe(true);
+      await expect(fsp.readFile(stateFile, 'utf8').then(JSON.parse)).resolves.toMatchObject({
+        listToolCalls: 1,
+        starts: 1,
+      });
+    } finally {
+      if (!runtimeCloseAttempted) {
+        await runtime.host.close();
+      }
+      await fsp.rm(directory, { force: true, recursive: true });
     }
   }, 30_000);
 
