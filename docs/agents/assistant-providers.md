@@ -2285,7 +2285,15 @@ purge instead restores the captured pre-reset authority and projections before
 admission reopens. Every config IPC
 operation joins the lifecycle barrier before its first asynchronous side
 effect. Work admitted before the fence therefore cannot publish after cleanup,
-and a watcher created across the fence is closed immediately.
+and a watcher created across the fence is closed immediately. The tracked
+operation queue is deliberately non-reentrant: code already inside it must use
+the `*ForLifecycle` helpers with the captured epoch. File-watcher callbacks use
+the lifecycle barrier and generation checks but deliberately stay outside the
+serialized IPC queue. The native config picker is also outside that queue and
+barrier because it is user-paced; only its final selected-path grant is
+epoch-guarded. Config unwatch remains teardown-safe after admission closes.
+Tool mutations capture the registry authority epoch at invocation and reject
+visibly if a queued config reload rebuilt the registry before they execute.
 
 Assistant adapters may discover and invoke but cannot mutate auth or
 configuration. Renderer IPC receives only snapshots and explicit Settings

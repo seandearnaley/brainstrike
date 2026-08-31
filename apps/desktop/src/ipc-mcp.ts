@@ -208,6 +208,9 @@ function trackConfigOperation<T>(operation: (lifecycleEpoch: number) => Promise<
   if (!mcpLifecycleOpen) {
     return Promise.reject(new Error('MCP config lifecycle is closed for cleanup'));
   }
+  // Non-reentrant by construction: code already inside a tracked operation
+  // must call the *ForLifecycle helpers with its captured epoch. Re-entering
+  // this queue from an operation would await its own unsettled tail forever.
   const lifecycleEpoch = mcpLifecycleEpoch;
   const pending = mcpConfigOperationTail.then(async () => {
     if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch) {
@@ -484,12 +487,17 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   logger.debug('Registering MCP IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
   const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
-  const updateToolPreferences = async (mutation: () => void): Promise<void> =>
+  const updateToolPreferences = async (mutation: () => void): Promise<void> => {
+    const expectedAuthorityEpoch = latestAuthorityEpoch;
     await trackConfigOperation(async () => {
+      if (expectedAuthorityEpoch !== latestAuthorityEpoch) {
+        throw new Error('MCP tool registry changed before the deferred mutation executed');
+      }
       mutation();
       notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     });
+  };
 
   registry.registerInvoke(
     'mcp',
@@ -592,25 +600,33 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSelectPath,
-    async (): Promise<string | null> =>
-      await trackConfigOperation(async () => {
-        const result = await dialog.showOpenDialog({
-          filters: [
-            { extensions: ['json'], name: 'JSON Config' },
-            { extensions: ['*'], name: 'All Files' },
-          ],
-          properties: ['openFile'],
-          title: 'Select MCP Configuration File',
-        });
+    async (): Promise<string | null> => {
+      if (!mcpLifecycleOpen) {
+        throw new Error('MCP config lifecycle is closed for cleanup');
+      }
+      const lifecycleEpoch = mcpLifecycleEpoch;
+      // The native dialog is user-paced and must not occupy the serialized
+      // config queue or reset barrier. Only its eventual module-local grant is
+      // epoch-guarded, so a selection resolving across cleanup fails visibly.
+      const result = await dialog.showOpenDialog({
+        filters: [
+          { extensions: ['json'], name: 'JSON Config' },
+          { extensions: ['*'], name: 'All Files' },
+        ],
+        properties: ['openFile'],
+        title: 'Select MCP Configuration File',
+      });
+      if (!mcpLifecycleOpen || lifecycleEpoch !== mcpLifecycleEpoch) {
+        throw new Error('MCP config path selection was retired before completion');
+      }
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
 
-        if (result.canceled || result.filePaths.length === 0) {
-          return null;
-        }
-
-        const selectedPath = result.filePaths[0] ?? null;
-        lastUserSelectedConfigPath = selectedPath ? path.resolve(selectedPath) : null;
-        return lastUserSelectedConfigPath;
-      })
+      const selectedPath = result.filePaths[0] ?? null;
+      lastUserSelectedConfigPath = selectedPath ? path.resolve(selectedPath) : null;
+      return lastUserSelectedConfigPath;
+    }
   );
 
   registry.registerInvoke(
@@ -628,11 +644,14 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUnwatch,
-    async (): Promise<{ watching: false }> =>
-      await trackConfigOperation(async () => {
-        stopConfigWatcher();
-        return { watching: false as const };
-      })
+    async (): Promise<{ watching: false }> => {
+      // Teardown remains meaningful after admission closes. Wait for every
+      // previously tracked operation, then stop idempotently without trying to
+      // enter the now-closed serialized operation queue.
+      await mcpLifecycleBarrier;
+      stopConfigWatcher();
+      return { watching: false as const };
+    }
   );
 
   // Tool management IPC handlers

@@ -328,6 +328,11 @@ while admission is still closed, installs the watcher, and only then reopens.
 If renderer replacement fails after a successful purge, admission remains
 closed and the reset failure is visible.
 
+The MCP config-operation queue is non-reentrant. Tracked handlers call only
+their `*ForLifecycle` helpers, watcher callbacks stay generation-guarded outside
+the queue, and the user-paced native file picker never holds the reset barrier.
+Unwatch remains an idempotent teardown operation after admission closes.
+
 Every reset runtime is attempted even when another fails. Their original
 rejections remain ordered in one `AggregateError`, while the visible message
 names every failed runtime; never replace those causes with a names-only error.
