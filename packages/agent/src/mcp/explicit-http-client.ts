@@ -26,6 +26,7 @@ const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
 // Session termination is advisory. Bound it so a stalled server cannot prevent
 // the owned SDK client from aborting its local fetches and releasing handlers.
 const SESSION_TERMINATION_TIMEOUT_MS = 250;
+const MAX_STEP_UP_RETRIES = 3;
 const PROTOCOL_OWNED_HEADERS = new Set([
   'accept',
   'content-type',
@@ -89,7 +90,6 @@ export interface ExplicitHttpMcpClientOptions {
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol?: McpProtocol;
   responseCacheStore?: ClientOptions['responseCacheStore'];
-  skipIssuerMetadataValidation?: boolean;
   transport: ExplicitHttpMcpTransport;
   url: string | URL;
 }
@@ -121,7 +121,6 @@ interface NormalizedClientOptions {
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
-  skipIssuerMetadataValidation?: boolean;
   transport: ExplicitHttpMcpTransport;
   url: URL;
 }
@@ -171,6 +170,40 @@ function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | u
 
 function hasAuthorizationHeader(headers: Readonly<Record<string, string>> | undefined): boolean {
   return Object.keys(headers ?? {}).some((name) => name.toLowerCase() === 'authorization');
+}
+
+function normalizeMaxStepUpRetries(value: unknown): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 0 ||
+    (value as number) > MAX_STEP_UP_RETRIES
+  ) {
+    throw new Error(
+      `MCP OAuth step-up retries must be a safe integer from 0 to ${MAX_STEP_UP_RETRIES}`
+    );
+  }
+  return value as number;
+}
+
+function normalizeScopeStepUpOptions(
+  options: ExplicitHttpMcpClientOptions
+): Pick<NormalizedClientOptions, 'maxStepUpRetries' | 'onInsufficientScope'> {
+  if (
+    options.transport === 'sse' &&
+    (options.maxStepUpRetries !== undefined || options.onInsufficientScope !== undefined)
+  ) {
+    throw new Error('MCP OAuth scope step-up options require Streamable HTTP transport');
+  }
+  const maxStepUpRetries = normalizeMaxStepUpRetries(options.maxStepUpRetries);
+  return {
+    ...(maxStepUpRetries === undefined ? {} : { maxStepUpRetries }),
+    ...(options.onInsufficientScope === undefined
+      ? {}
+      : { onInsufficientScope: options.onInsufficientScope }),
+  };
 }
 
 function isReconnectableSessionError(error: unknown, hadSession: boolean): boolean {
@@ -247,6 +280,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
       `MCP client "${name}" must not combine configured Authorization headers with authProvider`
     );
   }
+  const scopeStepUp = normalizeScopeStepUpOptions(options);
   return {
     ...(options.authProvider ? { authProvider: options.authProvider } : {}),
     ...(cachePartition === undefined ? {} : { cachePartition }),
@@ -259,18 +293,10 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
     lifecycle: validateLifecycle(options.lifecycle, name),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
-    ...(options.maxStepUpRetries === undefined
-      ? {}
-      : { maxStepUpRetries: options.maxStepUpRetries }),
+    ...scopeStepUp,
     ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
-    ...(options.onInsufficientScope === undefined
-      ? {}
-      : { onInsufficientScope: options.onInsufficientScope }),
     protocol,
     responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
-    ...(options.skipIssuerMetadataValidation === undefined
-      ? {}
-      : { skipIssuerMetadataValidation: options.skipIssuerMetadataValidation }),
     transport: options.transport,
     url,
   };
@@ -683,9 +709,6 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
           ...(this.options.onInsufficientScope === undefined
             ? {}
             : { onInsufficientScope: this.options.onInsufficientScope }),
-          ...(this.options.skipIssuerMetadataValidation === undefined
-            ? {}
-            : { skipIssuerMetadataValidation: this.options.skipIssuerMetadataValidation }),
         });
       default:
         return unsupportedTransport(this.options.transport);

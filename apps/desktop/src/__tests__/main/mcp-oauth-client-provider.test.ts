@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
@@ -9,13 +9,6 @@ import {
 const identity = { resourceUrl: 'https://mcp.example.test/mcp', serverId: 'linear' } as const;
 
 describe('MCP OAuth credential boundary', () => {
-  let provider: Awaited<ReturnType<typeof createMcpOAuthClientProvider>> | undefined;
-
-  afterEach(async () => {
-    await provider?.close();
-    provider = undefined;
-  });
-
   it('encrypts the dedicated store and refuses an insecure safeStorage backend', async () => {
     const values = new Map<string, string>();
     const electronStore = {
@@ -67,57 +60,12 @@ describe('MCP OAuth credential boundary', () => {
     await expect(insecure.write(identity, persisted)).rejects.toThrow(
       'OS-backed safeStorage encryption'
     );
-  });
 
-  it('keeps OAuth material inside main-process state and clears it on disconnect', async () => {
-    const store = createInMemoryMcpOAuthStore();
-    provider = await createMcpOAuthClientProvider({
-      openExternal: async () => undefined,
-      serverId: identity.serverId,
-      serverUrl: identity.resourceUrl,
-      store,
-    });
-    if (!(provider.saveDiscoveryState && provider.saveTokens)) {
-      throw new Error('OAuth provider did not expose persistence methods.');
-    }
-    await provider.saveDiscoveryState({ authorizationServerUrl: 'https://auth.example.test' });
-    await provider.saveTokens(
-      {
-        access_token: 'access-secret',
-        issuer: 'https://auth.example.test',
-        refresh_token: 'refresh-secret',
-        token_type: 'Bearer',
-      },
-      { issuer: 'https://auth.example.test' }
+    const malformed = createSafeStorageMcpOAuthStore(
+      { ...electronStore, get: () => ['not', 'a', 'record'] } as never,
+      safeStorage
     );
-
-    expect(JSON.stringify(provider)).not.toContain('access-secret');
-    expect(JSON.stringify(provider)).not.toContain('refresh-secret');
-    await provider.disconnect();
-    await expect(provider.tokens({ issuer: 'https://auth.example.test' })).resolves.toBeUndefined();
-    await expect(store.read(identity)).resolves.toEqual({});
-  });
-
-  it('makes cancellation terminal, closes the callback listener, and rejects stale credential saves', async () => {
-    provider = await createMcpOAuthClientProvider({
-      openExternal: async () => undefined,
-      serverId: identity.serverId,
-      serverUrl: identity.resourceUrl,
-      store: createInMemoryMcpOAuthStore(),
-    });
-    const callbackUrl = provider.redirectUrl;
-    await provider.cancel();
-
-    await expect(fetch(callbackUrl)).rejects.toThrow();
-    if (!provider.saveTokens) {
-      throw new Error('OAuth provider did not expose token persistence.');
-    }
-    await expect(
-      provider.saveTokens(
-        { access_token: 'stale-token', token_type: 'Bearer' },
-        { issuer: 'https://auth.example.test' }
-      )
-    ).rejects.toThrow('provider is closed');
+    await expect(malformed.read(identity)).rejects.toThrow('encrypted store is malformed');
   });
 
   it('partitions persisted state by configured server and canonical resource', async () => {

@@ -7,7 +7,7 @@ import {
   StreamableHTTPClientTransport,
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
@@ -282,6 +282,178 @@ async function completeAuthorization(
 }
 
 describe('desktop-main MCP OAuthClientProvider', () => {
+  it('keeps protocol invalidation recoverable while terminal disconnect remains separate', async () => {
+    const identity = {
+      resourceUrl: 'https://mcp.example.test/mcp',
+      serverId: 'recoverable-invalidation',
+    } as const;
+    const store = createInMemoryMcpOAuthStore();
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    const invalidateCredentials = provider.invalidateCredentials;
+    if (!(invalidateCredentials && provider.saveDiscoveryState && provider.saveTokens)) {
+      throw new Error('OAuth provider did not expose credential lifecycle methods.');
+    }
+    await provider.saveDiscoveryState({ authorizationServerUrl: 'https://auth.example.test' });
+    await provider.saveTokens(
+      { access_token: 'initial-token', token_type: 'Bearer' },
+      { issuer: 'https://auth.example.test' }
+    );
+
+    await invalidateCredentials('all');
+
+    const state = await provider.state?.();
+    if (state === undefined) {
+      throw new Error('OAuth provider did not expose authorization state.');
+    }
+    expect(state).toEqual(expect.any(String));
+    await expect(store.read(identity)).resolves.toEqual({});
+    await provider.close();
+  });
+
+  it('does not resurrect a refresh token response from an invalidated generation', async () => {
+    const responseGate = Promise.withResolvers<Response>();
+    const provider = await createMcpOAuthClientProvider({
+      fetchFn: async () => await responseGate.promise,
+      openExternal: async () => undefined,
+      serverId: 'stale-refresh',
+      serverUrl: 'https://mcp.example.test/mcp',
+      store: createInMemoryMcpOAuthStore(),
+    });
+    if (!(provider.invalidateCredentials && provider.saveDiscoveryState && provider.saveTokens)) {
+      throw new Error('OAuth provider did not expose credential lifecycle methods.');
+    }
+    await provider.saveDiscoveryState({ authorizationServerUrl: 'https://auth.example.test' });
+    const refresh = provider.fetch('https://auth.example.test/token', {
+      body: 'grant_type=refresh_token&refresh_token=old',
+      method: 'POST',
+    });
+    await provider.invalidateCredentials('tokens');
+    responseGate.resolve(Response.json({ access_token: 'stale-token', token_type: 'Bearer' }));
+    await refresh;
+    await provider.saveTokens(
+      { access_token: 'stale-token', token_type: 'Bearer' },
+      { issuer: 'https://auth.example.test' }
+    );
+
+    await expect(provider.tokens({ issuer: 'https://auth.example.test' })).resolves.toBeUndefined();
+    await provider.close();
+  });
+
+  it('refuses an issuer-less token choice when persisted issuers are ambiguous', async () => {
+    const identity = {
+      resourceUrl: 'https://mcp.example.test/mcp',
+      serverId: 'issuer-ambiguity',
+    } as const;
+    const store = createInMemoryMcpOAuthStore();
+    await store.write(identity, {
+      'https://auth-a.example.test': {
+        tokens: { access_token: 'token-a', token_type: 'Bearer' },
+        updatedAt: 1,
+      },
+      'https://auth-b.example.test': {
+        tokens: { access_token: 'token-b', token_type: 'Bearer' },
+        updatedAt: 2,
+      },
+    });
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+
+    await expect(provider.tokens()).resolves.toBeUndefined();
+    await expect(provider.discoveryState?.()).resolves.toBeUndefined();
+    await provider.close();
+  });
+
+  it('times out an abandoned authorization callback and closes its listener', async () => {
+    vi.useFakeTimers();
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: 'callback-timeout',
+      serverUrl: 'https://mcp.example.test/mcp',
+      store: createInMemoryMcpOAuthStore(),
+    });
+    try {
+      if (!provider.state) {
+        throw new Error('OAuth provider did not expose authorization state.');
+      }
+      const authorization = new URL('https://auth.example.test/authorize');
+      authorization.searchParams.set('state', await provider.state());
+      await provider.redirectToAuthorization(authorization);
+      const callback = provider.waitForAuthorizationCallback();
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+
+      await expect(callback).rejects.toThrow('authorization callback timed out');
+      await expect(fetch(provider.redirectUrl)).rejects.toThrow();
+    } finally {
+      await provider.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps OAuth material inside main-process state and clears it on disconnect', async () => {
+    const identity = {
+      resourceUrl: 'https://mcp.example.test/mcp',
+      serverId: 'linear',
+    } as const;
+    const store = createInMemoryMcpOAuthStore();
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    if (!(provider.saveDiscoveryState && provider.saveTokens)) {
+      throw new Error('OAuth provider did not expose persistence methods.');
+    }
+    await provider.saveDiscoveryState({ authorizationServerUrl: 'https://auth.example.test' });
+    await provider.saveTokens(
+      {
+        access_token: 'access-secret',
+        issuer: 'https://auth.example.test',
+        refresh_token: 'refresh-secret',
+        token_type: 'Bearer',
+      },
+      { issuer: 'https://auth.example.test' }
+    );
+
+    expect(JSON.stringify(provider)).not.toContain('access-secret');
+    expect(JSON.stringify(provider)).not.toContain('refresh-secret');
+    await provider.disconnect();
+    await expect(provider.tokens({ issuer: 'https://auth.example.test' })).resolves.toBeUndefined();
+    await expect(store.read(identity)).resolves.toEqual({});
+  });
+
+  it('makes cancellation terminal, closes the callback listener, and rejects stale credential saves', async () => {
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: 'linear',
+      serverUrl: 'https://mcp.example.test/mcp',
+      store: createInMemoryMcpOAuthStore(),
+    });
+    const callbackUrl = provider.redirectUrl;
+    await provider.cancel();
+
+    await expect(fetch(callbackUrl)).rejects.toThrow();
+    if (!provider.saveTokens) {
+      throw new Error('OAuth provider did not expose token persistence.');
+    }
+    await expect(
+      provider.saveTokens(
+        { access_token: 'stale-token', token_type: 'Bearer' },
+        { issuer: 'https://auth.example.test' }
+      )
+    ).rejects.toThrow('provider is closed');
+  });
+
   it.each([
     ['CIMD', 'cimd' as const, undefined],
     ['pre-registered', 'preregistered' as const, { client_id: 'pre-client' }],

@@ -17,6 +17,7 @@ import ElectronStore from 'electron-store';
 
 const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
 const MAX_CALLBACK_URL_BYTES = 16 * 1024;
+const AUTHORIZATION_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 const LOOPBACK_HOST = '127.0.0.1';
 
 export interface McpOAuthPersistedState {
@@ -98,6 +99,16 @@ function parseRecords(raw: string): Readonly<Record<string, McpOAuthPersistedSta
   return parsed as Readonly<Record<string, McpOAuthPersistedState>>;
 }
 
+function parseEncryptedRecordMap(value: unknown): EncryptedStoreSchema['records'] {
+  if (value === undefined) {
+    return {};
+  }
+  if (!isRecord(value) || Object.values(value).some((entry) => typeof entry !== 'string')) {
+    throw new Error('MCP OAuth encrypted store is malformed.');
+  }
+  return value as EncryptedStoreSchema['records'];
+}
+
 function validatePersistedRecord(value: unknown): void {
   if (
     !isRecord(value) ||
@@ -175,7 +186,7 @@ export function createSafeStorageMcpOAuthStore(
     async clear(identity) {
       const key = identityKey(identity);
       await enqueue(() => {
-        const records = (typedStore.get('records') as EncryptedStoreSchema['records']) ?? {};
+        const records = parseEncryptedRecordMap(typedStore.get('records'));
         if (!Object.hasOwn(records, key)) {
           return;
         }
@@ -190,7 +201,7 @@ export function createSafeStorageMcpOAuthStore(
     async read(identity) {
       const key = identityKey(identity);
       return await enqueue(() => {
-        const records = (typedStore.get('records') as EncryptedStoreSchema['records']) ?? {};
+        const records = parseEncryptedRecordMap(typedStore.get('records'));
         const encrypted = records[key];
         if (encrypted === undefined) {
           return {};
@@ -203,7 +214,7 @@ export function createSafeStorageMcpOAuthStore(
       const key = identityKey(identity);
       await enqueue(() => {
         assertSafeStorage(storage);
-        const records = (typedStore.get('records') as EncryptedStoreSchema['records']) ?? {};
+        const records = parseEncryptedRecordMap(typedStore.get('records'));
         const encrypted = storage.encryptString(JSON.stringify(nextRecords));
         const next = { ...records, [key]: encrypted.toString('base64') };
         typedStore.set('records', next);
@@ -256,6 +267,7 @@ async function startLoopbackCallback(pathname: string): Promise<LoopbackCallback
   let port = 0;
   let expectedState: string | undefined;
   let pending: PendingCallback | undefined;
+  let pendingTimeout: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
   let closed = false;
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
@@ -290,6 +302,10 @@ async function startLoopbackCallback(pathname: string): Promise<LoopbackCallback
     settled = true;
     const current = pending;
     pending = undefined;
+    if (pendingTimeout) {
+      clearTimeout(pendingTimeout);
+      pendingTimeout = undefined;
+    }
     current?.resolve(new URLSearchParams(url.searchParams));
   });
 
@@ -329,6 +345,10 @@ async function startLoopbackCallback(pathname: string): Promise<LoopbackCallback
       settled = true;
       const current = pending;
       pending = undefined;
+      if (pendingTimeout) {
+        clearTimeout(pendingTimeout);
+        pendingTimeout = undefined;
+      }
       current?.reject(new Error('MCP OAuth authorization was cancelled.'));
     },
     close: teardown,
@@ -340,6 +360,16 @@ async function startLoopbackCallback(pathname: string): Promise<LoopbackCallback
           return;
         }
         pending = { reject, resolve };
+        pendingTimeout = setTimeout(() => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          pending = undefined;
+          pendingTimeout = undefined;
+          reject(new Error('MCP OAuth authorization callback timed out.'));
+          void teardown();
+        }, AUTHORIZATION_CALLBACK_TIMEOUT_MS);
       }),
   };
 }
@@ -375,8 +405,19 @@ export async function createMcpOAuthClientProvider(
   validateClientMetadataUrl(options.clientMetadataUrl);
   const resourceUrl = resourceUrlFromServerUrl(serverUrl).href;
   const identity = { resourceUrl, serverId: options.serverId } as const;
-  const persistedRecords = await options.store.read(identity);
-  const callback = await startLoopbackCallback(DEFAULT_CALLBACK_PATH);
+  const callbackPromise = startLoopbackCallback(DEFAULT_CALLBACK_PATH);
+  let persistedRecords: Readonly<Record<string, McpOAuthPersistedState>>;
+  let callback: LoopbackCallback;
+  try {
+    [persistedRecords, callback] = await Promise.all([
+      options.store.read(identity),
+      callbackPromise,
+    ]);
+  } catch (cause) {
+    const openedCallback = await callbackPromise.catch(() => undefined);
+    await openedCallback?.close();
+    throw cause;
+  }
   const records = new Map<string, McpOAuthPersistedState>(Object.entries(persistedRecords));
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
@@ -438,6 +479,8 @@ export async function createMcpOAuthClientProvider(
   };
 
   const fetchBase = options.fetchFn ?? fetch;
+  const tokenTag = (accessToken: string): string =>
+    createHash('sha256').update(accessToken, 'utf8').digest('hex');
   const recordTokenGeneration = async (
     response: Response,
     requestGeneration: number
@@ -448,7 +491,7 @@ export async function createMcpOAuthClientProvider(
       .catch(() => undefined)) as unknown;
     const record = isRecord(payload) ? payload : undefined;
     if (typeof record?.['access_token'] === 'string') {
-      tokenGenerations.set(record['access_token'], requestGeneration);
+      tokenGenerations.set(tokenTag(record['access_token']), requestGeneration);
     }
     return response;
   };
@@ -506,6 +549,18 @@ export async function createMcpOAuthClientProvider(
     return closePromise;
   };
 
+  const clearAllState = async (): Promise<void> => {
+    generation += 1;
+    callback.cancel();
+    tokenFlights.clear();
+    await writeTail;
+    records.clear();
+    currentIssuer = undefined;
+    currentState = undefined;
+    authorizationCallback = undefined;
+    await options.store.clear(identity);
+  };
+
   const provider: McpOAuthClientProvider = {
     clientMetadata,
     ...(options.clientMetadataUrl ? { clientMetadataUrl: options.clientMetadataUrl } : {}),
@@ -550,32 +605,22 @@ export async function createMcpOAuthClientProvider(
       );
     },
     async disconnect() {
-      generation += 1;
       const closing = closeProvider();
-      tokenFlights.clear();
-      await writeTail;
-      records.clear();
-      currentIssuer = undefined;
-      currentState = undefined;
-      authorizationCallback = undefined;
+      await clearAllState();
       tokenGenerations.clear();
-      await options.store.clear(identity);
       await closing;
     },
     async discoveryState() {
       if (currentIssuer !== undefined) {
         return records.get(currentIssuer)?.discoveryState;
       }
-      const latest = [...records.values()].sort(
-        (left, right) => right.updatedAt - left.updatedAt
-      )[0];
-      return latest?.discoveryState;
+      return records.size === 1 ? records.values().next().value?.discoveryState : undefined;
     },
     fetch: fetchWithTokenFlight,
     async invalidateCredentials(scope) {
       assertOpen();
       if (scope === 'all') {
-        await provider.disconnect();
+        await clearAllState();
         return;
       }
       if (currentIssuer === undefined) {
@@ -586,7 +631,6 @@ export async function createMcpOAuthClientProvider(
       }
       if (scope === 'tokens') {
         generation += 1;
-        tokenGenerations.clear();
         clearCurrentRecordField('tokens');
       }
       if (scope === 'verifier') {
@@ -646,8 +690,13 @@ export async function createMcpOAuthClientProvider(
       if (currentIssuer === undefined) {
         throw new Error('MCP OAuth tokens have no issuer.');
       }
-      const tokenGeneration = tokenGenerations.get(tokens.access_token);
-      if (tokenGeneration !== undefined && tokenGeneration !== generation) {
+      const tag = tokenTag(tokens.access_token);
+      const tokenGeneration = tokenGenerations.get(tag);
+      tokenGenerations.delete(tag);
+      if (
+        (tokenGeneration === undefined && generation !== 0) ||
+        (tokenGeneration !== undefined && tokenGeneration !== generation)
+      ) {
         return;
       }
       replaceCurrentRecord({ tokens });
@@ -665,10 +714,7 @@ export async function createMcpOAuthClientProvider(
       if (currentIssuer !== undefined) {
         return records.get(currentIssuer)?.tokens;
       }
-      const latest = [...records.values()].sort(
-        (left, right) => right.updatedAt - left.updatedAt
-      )[0];
-      return latest?.tokens;
+      return records.size === 1 ? records.values().next().value?.tokens : undefined;
     },
     async validateResourceURL(server, resource) {
       const expected = resourceUrlFromServerUrl(server);

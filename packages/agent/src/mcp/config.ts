@@ -125,6 +125,13 @@ const McpServerInputSchema = z
         path: ['auth'],
       });
     }
+    if (server.transport !== 'stdio' && server.auth !== undefined && server.auth.type !== 'none') {
+      context.addIssue({
+        code: 'custom',
+        message: 'MCP authentication requires the BST-1469 production host composition',
+        path: ['auth'],
+      });
+    }
   });
 
 export const McpServerSchema = McpServerInputSchema.transform((server) => ({
