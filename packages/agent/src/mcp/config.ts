@@ -22,9 +22,14 @@ export function isInteractiveMcpStdioServer(
   command: string,
   args: readonly string[] | undefined
 ): boolean {
-  const executable = command.replaceAll('\\', '/').split('/').at(-1);
+  const executable = command
+    .replaceAll('\\', '/')
+    .split('/')
+    .at(-1)
+    ?.replace(/\.(?:cmd|exe|ps1)$/u, '');
   return (
-    executable === 'mcp-remote' || args?.some((argument) => argument === 'mcp-remote') === true
+    executable === 'mcp-remote' ||
+    args?.some((argument) => /^mcp-remote(?:@[^/\s]+)?$/u.test(argument)) === true
   );
 }
 
@@ -34,6 +39,9 @@ function resolveStartupPolicy(server: {
   startup?: 'automatic' | 'authentication-required' | undefined;
   transport: string;
 }): 'automatic' | 'authentication-required' {
+  if (server.startup !== undefined) {
+    return server.startup;
+  }
   if (
     server.transport === 'stdio' &&
     server.command !== undefined &&
@@ -41,7 +49,7 @@ function resolveStartupPolicy(server: {
   ) {
     return 'authentication-required';
   }
-  return server.startup ?? 'automatic';
+  return 'automatic';
 }
 
 const StdioSchema = z.object({
@@ -79,6 +87,17 @@ const McpServerInputSchema = z
       context.addIssue({
         code: 'custom',
         message: 'legacy SSE transport requires protocol "legacy"',
+        path: ['protocol'],
+      });
+    }
+    if (
+      server.transport === 'stdio' &&
+      resolveStartupPolicy(server) === 'authentication-required' &&
+      server.protocol === 'auto'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'user-paced stdio authorization requires protocol "legacy"',
         path: ['protocol'],
       });
     }

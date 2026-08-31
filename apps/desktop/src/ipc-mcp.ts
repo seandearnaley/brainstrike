@@ -597,15 +597,20 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.lifecycleControl,
-    async (_event, request: unknown) =>
-      await trackConfigOperation(async (lifecycleEpoch) => {
-        const parsed = parseMcpHostControlRequest(request);
+    async (_event, request: unknown) => {
+      const parsed = parseMcpHostControlRequest(request);
+      if (parsed.action === 'cancel') {
+        await mcpLifecycleBarrier;
+        return structuredClone(await runtime.host.control(parsed));
+      }
+      return await trackConfigOperation(async (lifecycleEpoch) => {
         const result = await runtime.host.control(parsed);
-        if (parsed.action !== 'cancel' && result.state === 'connected') {
+        if (result.state === 'connected') {
           await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
         }
         return structuredClone(result);
-      })
+      });
+    }
   );
 
   registry.registerInvoke(

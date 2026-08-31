@@ -137,14 +137,30 @@ const McpServerInputSchema = z
         path: ['protocol'],
       });
     }
+    if (
+      server.transport === 'stdio' &&
+      (server.startup === 'authentication-required' ||
+        (server.startup === undefined &&
+          isInteractiveMcpStdioServer(server.command, server.args))) &&
+      server.protocol === 'auto'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'user-paced stdio authorization requires protocol "legacy"',
+        path: ['protocol'],
+      });
+    }
   });
 function resolveStartupPolicy(
   server: z.infer<typeof McpServerInputSchema>
 ): 'automatic' | 'authentication-required' {
+  if (server.startup !== undefined) {
+    return server.startup;
+  }
   if (server.transport === 'stdio' && isInteractiveMcpStdioServer(server.command, server.args)) {
     return 'authentication-required';
   }
-  return server.startup ?? 'automatic';
+  return 'automatic';
 }
 const McpServerSchema = McpServerInputSchema.transform((server) => ({
   ...server,

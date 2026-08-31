@@ -1,7 +1,7 @@
 import type { ExplicitHttpMcpClient } from '@brainstrike/agent/mcp-client';
 import type { McpHostCloseReport, McpHostConfig } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId, parseMcpHostConfig } from '@brainstrike/assistant-contract';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { McpHostService } from '../../mcp/host-service';
@@ -408,7 +408,7 @@ describe('DesktopMcpHostRuntime', () => {
     }
   });
 
-  it('projects sanitized stdio diagnostics and sends the same text through durable logging', async () => {
+  it('projects sanitized stdio diagnostics without treating every child line as a warning', async () => {
     const explicitClient = transportClient();
     const records: LogRecord[] = [];
     const stop = addLogListener((record) => records.push(record));
@@ -431,13 +431,8 @@ describe('DesktopMcpHostRuntime', () => {
 
       const diagnostic = runtime.host.snapshot().servers[0]?.diagnostics?.[0]?.message;
       expect(diagnostic).toBe('Authorize at https://auth.example/callback?[redacted-query]');
-      expect(records).toContainEqual(
-        expect.objectContaining({
-          args: ['MCP stdio diagnostic', expect.objectContaining({ diagnostic })],
-          level: LogLevel.WARN,
-          message: 'MCP stdio diagnostic',
-          scope: 'DesktopMcpHostRuntime',
-        })
+      expect(records).not.toContainEqual(
+        expect.objectContaining({ message: 'MCP stdio diagnostic' })
       );
       expect(JSON.stringify({ diagnostic, records })).not.toMatch(/private-code|private-state/u);
     } finally {

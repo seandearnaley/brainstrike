@@ -138,6 +138,34 @@ describe('McpHostService', () => {
     expect(records[1]?.cancel).toHaveBeenCalledOnce();
     expect(records).toHaveLength(2);
   });
+  it('does not hold configuration replacement behind a user-paced connect', async () => {
+    const { host, records } = setup();
+    await host.replaceConfig(config([alpha, 'auto']));
+    const pendingSnapshot = host.snapshot().servers[0];
+    if (!pendingSnapshot) {
+      throw new Error('Expected configured actor snapshot');
+    }
+    const connectGate = Promise.withResolvers<void>();
+    records[0]?.connect.mockImplementation(async () => {
+      await connectGate.promise;
+      return {
+        ...pendingSnapshot,
+        negotiated: {
+          advertisedCapabilityIds: ['tools'],
+          era: 'modern' as const,
+          revision: '2026-07-28' as const,
+        },
+        state: 'connected' as const,
+      };
+    });
+
+    const connecting = host.control({ action: 'connect', configuredServerId: alpha });
+    await vi.waitFor(() => expect(records[0]?.connect).toHaveBeenCalledOnce());
+    await expect(host.replaceConfig(config([beta, 'auto']))).resolves.toBeDefined();
+
+    connectGate.resolve();
+    await expect(connecting).resolves.toBeDefined();
+  });
   it('does not let a queued control reapply a stale configuration', async () => {
     const { host } = setup();
     const first = host.replaceConfig(config([alpha, 'auto']));

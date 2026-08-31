@@ -224,12 +224,12 @@ export class McpHostService implements McpHostPort {
     if (this.closePromise) {
       return Promise.reject(new McpHostServiceError('mcp-host-closed'));
     }
-    if (parsedRequest.action === 'cancel') {
+    if (parsedRequest.action === 'cancel' || parsedRequest.action === 'connect') {
       const current = this.actors.get(parsedRequest.configuredServerId);
       if (!current) {
         return Promise.reject(new McpHostServiceError('mcp-host-server-unknown'));
       }
-      return current.actor.cancel();
+      return parsedRequest.action === 'cancel' ? current.actor.cancel() : current.actor.connect();
     }
     return this.enqueueSerialized(async () => {
       const currentConfig = this.currentConfig();
@@ -238,9 +238,6 @@ export class McpHostService implements McpHostPort {
       );
       if (!configured) {
         throw new McpHostServiceError('mcp-host-server-unknown');
-      }
-      if (parsedRequest.action === 'connect') {
-        return await this.getActor(parsedRequest.configuredServerId).connect();
       }
       await this.applyConfig(currentConfig, parsedRequest.configuredServerId, true);
       return await this.getActor(parsedRequest.configuredServerId).connect();

@@ -327,7 +327,7 @@ export class DesktopMcpHostRuntime {
       server.transport === 'stdio'
         ? new McpStdioDiagnosticCollector((diagnostic) => {
             context.onDiagnostic(diagnostic);
-            logger.warn('MCP stdio diagnostic', {
+            logger.debug('MCP stdio diagnostic', {
               diagnostic: diagnostic.message,
               server: server.name,
               truncated: diagnostic.truncated,

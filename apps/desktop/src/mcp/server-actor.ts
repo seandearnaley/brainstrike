@@ -205,6 +205,7 @@ export class McpServerActor {
   private connectAttempt: AbortController | undefined;
   private clientPromise: Promise<McpServerActorClient> | undefined;
   private closePromise: Promise<McpHostCloseReport> | undefined;
+  private diagnosticPublishQueued = false;
   private failure: ActorError | undefined;
   private transportInvalidated = false;
   private status: ActorStatus;
@@ -484,7 +485,16 @@ export class McpServerActor {
     if (this.diagnostics.length > MCP_HOST_DIAGNOSTIC_MAX_ENTRIES) {
       this.diagnostics.splice(0, this.diagnostics.length - MCP_HOST_DIAGNOSTIC_MAX_ENTRIES);
     }
-    this.change(this.status);
+    if (this.diagnosticPublishQueued) {
+      return;
+    }
+    this.diagnosticPublishQueued = true;
+    queueMicrotask(() => {
+      this.diagnosticPublishQueued = false;
+      if (!this.closePromise) {
+        this.change(this.status);
+      }
+    });
   }
   private retireGeneration(): void {
     if (!this.generationAbort.signal.aborted) {
