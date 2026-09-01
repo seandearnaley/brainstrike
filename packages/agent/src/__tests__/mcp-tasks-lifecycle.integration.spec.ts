@@ -1,10 +1,17 @@
-import { type McpTaskAuthorityLease, type McpTaskRecord, McpTaskRepository } from '@brainstrike/db';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import {
+  type McpTaskAuthorityLease,
+  type McpTaskRecord,
+  McpTaskRepository,
+  MigrationRunner,
+  migrations,
+  wasmLoader,
+} from '@brainstrike/db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPGliteTestDataDir } from '../../../db/__tests__/test-data-dir.js';
-import { MigrationRunner, migrations } from '../../../db/src/migrations/index.js';
-import { wasmLoader } from '../../../db/src/wasm-loader.js';
 import { MCP_TASKS_GET_REQUEST_CONTRACT } from '../mcp/tasks-extension.js';
 import {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
@@ -151,7 +158,7 @@ describe('McpTaskLifecycle', () => {
   it('recovers the exact principal task from a real database restart at its durable cadence', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(createdTask.createdAt));
-    const dataDir = createPGliteTestDataDir('pglite-agent-mcp-task-restart');
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'pglite-agent-mcp-task-restart-'));
     db = await openDatabaseAt(dataDir);
     const firstRepository = new McpTaskRepository(db);
     const firstAuthority = await firstRepository.openAuthority(authorityInput);

@@ -1,9 +1,13 @@
-import { type McpTaskAuthorityLease, McpTaskRepository } from '@brainstrike/db';
+import {
+  type McpTaskAuthorityLease,
+  McpTaskRepository,
+  MigrationRunner,
+  migrations,
+  wasmLoader,
+} from '@brainstrike/db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MigrationRunner, migrations } from '../../../db/src/migrations/index.js';
-import { wasmLoader } from '../../../db/src/wasm-loader.js';
 import {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
   McpTaskLifecycle,
