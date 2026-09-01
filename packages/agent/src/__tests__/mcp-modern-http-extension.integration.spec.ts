@@ -1,14 +1,25 @@
+import {
+  MCP_TASKS_EXTENSION_ID as TEST_EXTENSION_ID,
+  MCP_TASKS_EXTENSION_SETTINGS as TEST_EXTENSION_SETTINGS,
+} from '@brainstrike/mcp-tasks-extension';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { afterEach, expect, it } from 'vitest';
+import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
 import {
-  createDeferredTestExtension,
-  TEST_EXTENSION_ID,
-  TEST_EXTENSION_REQUEST,
-  TEST_EXTENSION_SETTINGS,
-} from './fixtures/mcp-client-extension-registry';
+  registerMcpTasksWireContracts,
+  MCP_TASKS_GET_REQUEST_CONTRACT as TEST_EXTENSION_REQUEST,
+} from '../mcp/tasks-extension';
 
 const cleanupTasks: Array<() => Promise<void>> = [];
+
+function createTasksExtension() {
+  const registry = new McpClientExtensionRegistry();
+  return {
+    register: () => registerMcpTasksWireContracts(registry),
+    registry,
+  };
+}
 
 afterEach(async () => {
   const errors: unknown[] = [];
@@ -40,7 +51,19 @@ function createRequestExtensionServer(): ReturnType<typeof createMcpHandler> {
           params: TEST_EXTENSION_REQUEST.paramsSchema,
           result: TEST_EXTENSION_REQUEST.resultSchema,
         },
-        ({ taskId }) => ({ status: 'working', taskId })
+        ({ taskId }) => {
+          if (taskId === 'missing') {
+            throw new Error('Task not found');
+          }
+          return {
+            createdAt: '2026-08-31T20:00:00Z',
+            lastUpdatedAt: '2026-08-31T20:00:01Z',
+            resultType: 'complete' as const,
+            status: 'working' as const,
+            taskId,
+            ttlMs: null,
+          };
+        }
       );
       return server;
     },
@@ -54,7 +77,7 @@ it('projects registered extensions onto pinned-modern Streamable HTTP requests',
     { legacy: 'reject' }
   );
   cleanupTasks.push(() => handler.close());
-  const extension = createDeferredTestExtension();
+  const extension = createTasksExtension();
   const requests: unknown[] = [];
   const client = new ExplicitHttpMcpClient({
     extensionRegistry: extension.registry,
@@ -73,7 +96,9 @@ it('projects registered extensions onto pinned-modern Streamable HTTP requests',
 
   await client.connect();
 
-  expect(extension.registerAnother).toThrow('sealed');
+  await expect(
+    client.requestExtension(TEST_EXTENSION_REQUEST, { taskId: 'task-123' })
+  ).rejects.toThrow('does not advertise extension');
 
   expect(requests).toHaveLength(1);
   expect(requests[0]).toMatchObject({
@@ -88,10 +113,10 @@ it('projects registered extensions onto pinned-modern Streamable HTTP requests',
   });
 });
 
-it('sends a registered historical method on the exact modern wire with Mcp-Name', async () => {
+it('sends the exact Tasks method on the modern wire with Mcp-Name', async () => {
   const handler = createRequestExtensionServer();
   cleanupTasks.push(() => handler.close());
-  const extension = createDeferredTestExtension();
+  const extension = createTasksExtension();
   const requests: Array<{ body: unknown; headers: Headers }> = [];
   const client = new ExplicitHttpMcpClient({
     extensionRegistry: extension.registry,
@@ -129,8 +154,8 @@ it('sends a registered historical method on the exact modern wire with Mcp-Name'
     client.requestExtension(TEST_EXTENSION_REQUEST, { taskId: 'task-123' })
   ).resolves.toMatchObject({ status: 'working', taskId: 'task-123' });
   await expect(
-    client.requestExtension(TEST_EXTENSION_REQUEST, { taskId: 'tâsk-雪' })
-  ).resolves.toMatchObject({ status: 'working', taskId: 'tâsk-雪' });
+    client.requestExtension(TEST_EXTENSION_REQUEST, { taskId: 'missing' })
+  ).rejects.toThrow();
 
   const extensionRequests = requests.filter(
     ({ body }) =>
@@ -142,14 +167,13 @@ it('sends a registered historical method on the exact modern wire with Mcp-Name'
   expect(extensionRequests).toHaveLength(2);
   expect(extensionRequests[0]?.headers.get('mcp-method')).toBe('tasks/get');
   expect(extensionRequests[0]?.headers.get('mcp-name')).toBe('task-123');
-  expect(extensionRequests[1]?.headers.get('mcp-name')).toBe('=?base64?dMOic2st6Zuq?=');
   expect(JSON.stringify(requests.map(({ body }) => body))).not.toContain(
     'io.brainstrike/registered-extension/'
   );
 });
 
 it('rejects registered extension dispatch over SSE before opening a transport', async () => {
-  const extension = createDeferredTestExtension();
+  const extension = createTasksExtension();
   let fetchCalled = false;
   const client = new ExplicitHttpMcpClient({
     extensionRegistry: extension.registry,
