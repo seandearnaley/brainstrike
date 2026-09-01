@@ -3,18 +3,25 @@ import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   buildControlledEnvironment,
   buildOfficialClientInvocations,
+  initializeWindowsJobOwnership,
   OFFICIAL_OUTPUT_ROOT,
+  resolvePinnedConformanceEntry,
   runOfficialClientInvocation,
   runOfficialClientInvocations,
 } from '../run-official-mcp-client-conformance.mjs';
 
+const assignWindowsJob = (windowsJob) => initializeWindowsJobOwnership('win32', () => windowsJob);
+
 test('builds exact core and auth invocations for both pinned protocol revisions', () => {
   const invocations = buildOfficialClientInvocations({
-    binaryPath: '/repo/packages/mcp-test-lab/node_modules/.bin/conformance',
+    conformanceEntryPath:
+      '/repo/packages/mcp-test-lab/node_modules/@modelcontextprotocol/conformance/dist/index.js',
+    nodePath: '/runtime/node',
     outputRoot: '/repo/artifacts/official-client',
     repoRoot: '/repo',
   });
@@ -24,6 +31,7 @@ test('builds exact core and auth invocations for both pinned protocol revisions'
     ['2025-11-25', '2026-07-28'].flatMap((protocolVersion) =>
       ['core', 'auth'].map((suite) => ({
         argv: [
+          '/repo/packages/mcp-test-lab/node_modules/@modelcontextprotocol/conformance/dist/index.js',
           'client',
           '--command',
           'node apps/desktop/dist/official-conformance-client-entry.js',
@@ -38,8 +46,21 @@ test('builds exact core and auth invocations for both pinned protocol revisions'
           '--output-dir',
           `/repo/artifacts/official-client/${protocolVersion}/${suite}`,
         ],
-        command: '/repo/packages/mcp-test-lab/node_modules/.bin/conformance',
+        command: '/runtime/node',
       }))
+    )
+  );
+});
+
+test('resolves the exact pinned JavaScript entry instead of a platform shim', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+  assert.equal(
+    resolvePinnedConformanceEntry(repoRoot),
+    fileURLToPath(
+      new URL(
+        '../../packages/mcp-test-lab/node_modules/@modelcontextprotocol/conformance/dist/index.js',
+        import.meta.url
+      )
     )
   );
 });
@@ -76,6 +97,17 @@ test('handles an asynchronous spawn error when no process group was created', as
   queueMicrotask(() => child.emit('error', new Error('spawn ENOENT')));
 
   await assert.rejects(result, /2025-11-25\/core failed to start/u);
+});
+
+test('settles a pid-less spawn even when the injected child emits no error', async () => {
+  const child = Object.assign(new EventEmitter(), { pid: undefined });
+  await assert.rejects(
+    runOfficialClientInvocation(
+      { argv: ['client'], command: '/missing/conformance', id: 'pid-less' },
+      { spawnProcess: () => child }
+    ),
+    /pid-less failed to start/u
+  );
 });
 
 test('spawns without a shell and SIGKILLs the owned group after a clean close', async () => {
@@ -127,7 +159,8 @@ test('enforces the deadline with SIGTERM then SIGKILL and reports no child outpu
 
 test('runs all four suites, preserves every failure, and applies suite deadline headroom', async () => {
   const invocations = buildOfficialClientInvocations({
-    binaryPath: '/repo/conformance',
+    conformanceEntryPath: '/repo/conformance/dist/index.js',
+    nodePath: '/runtime/node',
     outputRoot: '/repo/packages/mcp-test-lab/artifacts/official-client-conformance',
     repoRoot: '/repo',
   });
@@ -179,6 +212,286 @@ test('preserves the invocation failure when final cleanup also fails', async () 
       error.cause instanceof AggregateError &&
       error.cause.errors.some((cause) => cause.message.includes('failed (exit 9)')) &&
       error.cause.errors.some((cause) => cause.message === 'kill failed')
+  );
+});
+
+test('assigns the outer Windows process to the native Job before any suite starts', async () => {
+  const order = [];
+  const windowsJob = {
+    activeProcessCount: () => 1,
+    initialize: () => order.push('assign'),
+    terminateOtherProcesses: () => 0,
+  };
+
+  await runOfficialClientInvocations(
+    [{ argv: ['client'], command: 'conformance.exe', id: '2026-07-28/core' }],
+    {
+      loadWindowsJob: () => windowsJob,
+      platform: 'win32',
+      runInvocation: async (_invocation, options) => {
+        order.push('spawn');
+        assert.equal(options.platform, 'win32');
+        assert.equal(options.windowsJob, windowsJob);
+      },
+    }
+  );
+
+  assert.deepEqual(order, ['assign', 'spawn']);
+});
+
+test('preserves native Windows Job load and assignment causes', () => {
+  const loadCause = new Error('missing native addon path');
+  assert.throws(
+    () =>
+      initializeWindowsJobOwnership('win32', () => {
+        throw loadCause;
+      }),
+    (error) =>
+      error.message ===
+        'Official MCP conformance cannot start on Windows without Job Object ownership' &&
+      error.cause === loadCause
+  );
+
+  const assignmentCause = new Error('AssignProcessToJobObject failed');
+  assert.throws(
+    () =>
+      initializeWindowsJobOwnership('win32', () => ({
+        activeProcessCount: () => 1,
+        initialize: () => {
+          throw assignmentCause;
+        },
+        terminateOtherProcesses: () => 0,
+      })),
+    (error) =>
+      error.message === 'Official MCP conformance Windows Job Object assignment failed' &&
+      error.cause === assignmentCause
+  );
+});
+
+test('initializes a cached Windows Job controller only once', () => {
+  let initializeCalls = 0;
+  const windowsJob = {
+    activeProcessCount: () => 1,
+    initialize: () => {
+      initializeCalls += 1;
+    },
+    terminateOtherProcesses: () => 0,
+  };
+
+  assert.equal(
+    initializeWindowsJobOwnership('win32', () => windowsJob),
+    windowsJob
+  );
+  assert.equal(
+    initializeWindowsJobOwnership('win32', () => windowsJob),
+    windowsJob
+  );
+  assert.equal(initializeCalls, 1);
+});
+
+test('refuses an unassigned Windows Job controller before spawning', async () => {
+  let spawned = false;
+  await assert.rejects(
+    runOfficialClientInvocation(
+      { argv: ['client'], command: 'conformance.exe', id: 'unassigned-job' },
+      {
+        platform: 'win32',
+        spawnProcess: () => {
+          spawned = true;
+          return Object.assign(new EventEmitter(), { pid: 199 });
+        },
+        windowsJob: {
+          activeProcessCount: () => 1,
+          initialize: () => {},
+          terminateOtherProcesses: () => 0,
+        },
+      }
+    ),
+    /requires assigned Windows Job Object ownership/u
+  );
+  assert.equal(spawned, false);
+});
+
+test('uses only the owned Windows Job and controlled process inputs after a clean close', async () => {
+  const child = Object.assign(new EventEmitter(), { pid: 211 });
+  const calls = [];
+  let activeProcesses = 2;
+  const windowsJob = assignWindowsJob({
+    activeProcessCount: () => activeProcesses,
+    initialize: () => {},
+    terminateOtherProcesses: (exitCode) => {
+      calls.push(['terminate', exitCode]);
+      activeProcesses = 1;
+      return 1;
+    },
+  });
+  const result = runOfficialClientInvocation(
+    { argv: ['client'], command: 'conformance.exe', id: '2026-07-28/core' },
+    {
+      env: { NO_COLOR: '1', PATH: 'C:\\Windows\\System32' },
+      platform: 'win32',
+      spawnProcess: (command, argv, options) => {
+        calls.push(['spawn', command, argv, options]);
+        return child;
+      },
+      windowsJob,
+    }
+  );
+  child.emit('close', 0, null);
+
+  await assert.doesNotReject(result);
+  assert.deepEqual(calls, [
+    [
+      'spawn',
+      'conformance.exe',
+      ['client'],
+      {
+        cwd: undefined,
+        detached: false,
+        env: { NO_COLOR: '1', PATH: 'C:\\Windows\\System32' },
+        shell: false,
+        stdio: 'ignore',
+      },
+    ],
+    ['terminate', 1],
+  ]);
+});
+
+test('terminates the owned Windows Job at the deadline without a POSIX signal fallback', async () => {
+  const child = Object.assign(new EventEmitter(), { pid: 223 });
+  const calls = [];
+  let activeProcesses = 2;
+  const result = runOfficialClientInvocation(
+    { argv: ['client'], command: 'conformance.exe', id: '2026-07-28/auth' },
+    {
+      deadlineMs: 5,
+      killGroup: async () => calls.push('posix-kill'),
+      platform: 'win32',
+      spawnProcess: () => child,
+      windowsJob: assignWindowsJob({
+        activeProcessCount: () => activeProcesses,
+        initialize: () => {},
+        terminateOtherProcesses: (exitCode) => {
+          calls.push(['terminate', exitCode]);
+          activeProcesses = 1;
+          return 1;
+        },
+      }),
+    }
+  );
+
+  await assert.rejects(result, /2026-07-28\/auth exceeded its 5ms process deadline/u);
+  assert.deepEqual(calls, [['terminate', 1]]);
+});
+
+test('preserves synchronous and asynchronous Windows start failures with cleanup causes', async () => {
+  const syncCause = new Error('CreateProcess failed');
+  await assert.rejects(
+    runOfficialClientInvocation(
+      { argv: ['client'], command: 'conformance.exe', id: 'sync-start' },
+      {
+        platform: 'win32',
+        spawnProcess: () => {
+          throw syncCause;
+        },
+        windowsJob: assignWindowsJob({
+          activeProcessCount: () => 1,
+          initialize: () => {},
+          terminateOtherProcesses: () => 0,
+        }),
+      }
+    ),
+    (error) => error.message.endsWith('sync-start failed to start') && error.cause === syncCause
+  );
+
+  const child = Object.assign(new EventEmitter(), { pid: undefined });
+  const cleanupCause = new Error('job membership query failed');
+  const asyncStartCause = new Error('CreateProcess async failure');
+  const asyncResult = runOfficialClientInvocation(
+    { argv: ['client'], command: 'conformance.exe', id: 'async-start' },
+    {
+      platform: 'win32',
+      spawnProcess: () => child,
+      windowsJob: assignWindowsJob({
+        activeProcessCount: () => {
+          throw cleanupCause;
+        },
+        initialize: () => {},
+        terminateOtherProcesses: () => 0,
+      }),
+    }
+  );
+  queueMicrotask(() => child.emit('error', asyncStartCause));
+
+  await assert.rejects(
+    asyncResult,
+    (error) =>
+      error.message.endsWith('async-start cleanup failed') &&
+      error.cause instanceof AggregateError &&
+      error.cause.errors.some(
+        (cause) =>
+          cause.message.endsWith('async-start failed to start') && cause.cause === asyncStartCause
+      ) &&
+      error.cause.errors.includes(cleanupCause)
+  );
+});
+
+test('preserves timeout or exit failure together with Windows cleanup failure', async () => {
+  const run = async ({ close, deadlineMs = 1000, id }) => {
+    const child = Object.assign(new EventEmitter(), { pid: 227 });
+    const cleanupCause = new Error(`${id} cleanup failed`);
+    const result = runOfficialClientInvocation(
+      { argv: ['client'], command: 'conformance.exe', id },
+      {
+        deadlineMs,
+        platform: 'win32',
+        spawnProcess: () => child,
+        windowsJob: assignWindowsJob({
+          activeProcessCount: () => {
+            throw cleanupCause;
+          },
+          initialize: () => {},
+          terminateOtherProcesses: () => 0,
+        }),
+      }
+    );
+    close?.(child);
+    return assert.rejects(
+      result,
+      (error) =>
+        error.message.endsWith(`${id} cleanup failed`) &&
+        error.cause instanceof AggregateError &&
+        error.cause.errors.some((cause) => cause.message.includes(id)) &&
+        error.cause.errors.includes(cleanupCause)
+    );
+  };
+
+  await run({ close: (child) => child.emit('close', 9, null), id: 'failed-exit' });
+  await run({ deadlineMs: 5, id: 'timed-out' });
+});
+
+test('surfaces Windows cleanup failure after an otherwise clean close', async () => {
+  const child = Object.assign(new EventEmitter(), { pid: 229 });
+  const cleanupCause = new Error('clean-close membership query failed');
+  const result = runOfficialClientInvocation(
+    { argv: ['client'], command: 'conformance.exe', id: 'clean-close' },
+    {
+      platform: 'win32',
+      spawnProcess: () => child,
+      windowsJob: assignWindowsJob({
+        activeProcessCount: () => {
+          throw cleanupCause;
+        },
+        initialize: () => {},
+        terminateOtherProcesses: () => 0,
+      }),
+    }
+  );
+  child.emit('close', 0, null);
+
+  await assert.rejects(
+    result,
+    (error) => error.message.endsWith('clean-close cleanup failed') && error.cause === cleanupCause
   );
 });
 

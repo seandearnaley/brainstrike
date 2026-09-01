@@ -2265,21 +2265,30 @@ Process/environment parsing, official-suite orchestration, auth scenarios,
 expected-failure consumption, and CI ownership remain separate later layers.
 
 The bounded official-runner driver is
-`scripts/run-official-mcp-client-conformance.mjs`. It invokes the exact pinned
-`@modelcontextprotocol/conformance@0.2.0-alpha.10` executable as argv arrays for
-the `core` and `auth` suites at both protocol revisions, passes only an
-allowlisted environment, and owns a detached POSIX process group with bounded
-SIGTERM/SIGKILL teardown. Every suite runs even when an earlier suite fails,
+`scripts/run-official-mcp-client-conformance.mjs`. It validates the exact pinned
+`@modelcontextprotocol/conformance@0.2.0-alpha.10` manifest, then invokes its
+declared `dist/index.js` through `process.execPath` and argv arrays rather than
+using platform-specific package-manager shims. It runs the `core` and `auth`
+suites at both protocol revisions, passes only an allowlisted environment, and
+owns a detached POSIX process group with bounded SIGTERM/SIGKILL teardown.
+Every suite runs even when an earlier suite fails,
 then the driver throws one aggregate failure; the ten-minute outer deadline is
 headroom over alpha.10's parallel per-scenario 30-second timeouts. Runner output
 is not inherited because alpha.10 logs the credential-bearing conformance
 context; structured results go only below the ignored
-`packages/mcp-test-lab/artifacts/` directory. Windows fails closed until a Job
-Object owner is added. The bundled desktop process entry rejects conformance
-auth context. C2b1 adds `elicitation-sep1034-client-defaults` and `sse-retry`;
-the complete auth scenario adapter and Windows ownership remain required before
-either full suite is a release claim. The empty ledgers keep the suite driver
-fail-closed until those remaining layers land.
+`packages/mcp-test-lab/artifacts/` directory. On Windows (BST-1557, a bounded
+child of the BST-1472 verifier project), the outer driver loads the existing
+`@brainstrike/windows-job-native` capability from Desktop and assigns itself to
+its kill-on-close Job Object before the first suite spawn.
+Every child inherits that owner; timeout, failed start, failed exit, and clean
+close all verify authoritative Job membership and terminate only remaining Job
+members. Load, assignment, and cleanup failures stay visible with their primary
+causes, and unexpected outer-process exit closes the Job handle. There is no
+process-enumeration fallback. The bundled desktop process entry rejects
+conformance auth context. C2b1 adds `elicitation-sep1034-client-defaults` and
+`sse-retry`; the complete auth scenario adapter remains required before either
+full suite is a release claim. The empty ledgers keep the suite driver
+fail-closed until that remaining layer lands.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
