@@ -345,10 +345,17 @@ extraction lives in `runtime-assembly/usage-metering.ts`):
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
 gates → provider-native swap → artifact settlement → model-output projection →
 Agent`. The still-unregistered MCP Apps path captures its admission capability
-immediately after the plan/permission/suspend gates. It receives no separate
-policy, plan, enabled-tool, or storage decision: a tool omitted by any ordinary
-gate is absent and fails visibly. An admitted App call keeps the raw host result
-shape while using the shared guard and hooks exactly once.
+immediately after the plan/permission/suspend gates. Admission returns an
+opaque one-use executor bound to the exact post-gate tool entry and exact
+server/tool identity; the Apps preparer has no separate invocation, guard, or
+hook injection seam. It receives no separate policy, plan, enabled-tool, or
+storage decision: a tool omitted by any ordinary gate is absent and fails
+visibly. The authority-owned per-call abort signal marks that bound execution
+for raw MCP result retention, so the transport adapter and temporary preview
+wrapper preserve the complete successful `CallToolResult` before artifact and
+model projection. An admitted App call therefore uses the ordinary guard,
+hooks, and execution-duration telemetry exactly once. Replaying the bound
+executor fails visibly before another tool execution can start.
 
 The final
 projection uses Mastra's native `toModelOutput`, so the mapping observes the

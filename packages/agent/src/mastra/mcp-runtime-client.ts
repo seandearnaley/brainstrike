@@ -20,8 +20,26 @@ import type { StreamChunk } from '../types';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
 
 const logger = createLogger('MastraAgentMcpRuntimeClient');
+const rawCallToolResultSignals = new WeakSet<AbortSignal>();
 
 export const MCP_PROGRESS_STREAM_PART_TYPE = 'brainstrike.mcp-progress.chunk';
+
+/**
+ * Mark one authority-owned execution signal as requiring the complete
+ * successful MCP CallToolResult. The in-memory identity marker cannot be
+ * forged by model input and survives Mastra's execution-context reconstruction
+ * without adding a parallel transport callback.
+ */
+export function retainRawMcpCallToolResult(signal: AbortSignal): AbortSignal {
+  rawCallToolResultSignals.add(signal);
+  return signal;
+}
+
+export function shouldRetainRawMcpCallToolResult(signal: unknown): boolean {
+  return Boolean(
+    signal && typeof signal === 'object' && rawCallToolResultSignals.has(signal as AbortSignal)
+  );
+}
 
 export interface McpToolsetsWithErrors {
   errors: Record<string, string>;
@@ -372,6 +390,9 @@ async function executeMcpTool(
 
   if (result.isError) {
     throw new Error(extractMcpToolError(result));
+  }
+  if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
+    return result;
   }
   if (result.structuredContent === undefined) {
     return result;

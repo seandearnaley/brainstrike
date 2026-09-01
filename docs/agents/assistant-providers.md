@@ -2188,15 +2188,19 @@ server generation, holds every `ask` decision until its opaque host consent id
 is approved, and releases provenance on denial, cancellation, failure, or
 close. The `@brainstrike/agent` runtime captures an Apps admission capability
 from its post-plan/post-permission/post-storage tool map. The preparer accepts
-that admission capability instead of policy inputs, so it cannot recreate or
-bypass ordinary admission. Its direct host invocation preserves the canonical
-App-facing `CallToolResult`; it cannot be prepared unless the ordinary map
-admitted the exact tool. Calls absent from that map fail visibly; admitted calls
-use the shared guard and Pre/PostToolUse chain exactly once. Telemetry
-contains only tool name, outcome, and duration—never input, output, or app context.
-This is infrastructure, not capability graduation: production Apps
-advertisement remains disabled until the host surface and packaged lifecycle
-layers are complete and reviewed together.
+that admission capability instead of policy or invocation inputs, so it cannot
+recreate or bypass ordinary admission or pair one decision with another
+server/action executor. Admission returns an opaque one-use executor bound to
+the exact post-gate tool entry and exact server/tool identity. The executor is
+captured before artifact/model projection; a private in-memory marker on the
+authority-owned abort signal preserves the complete successful App-facing
+`CallToolResult` through the transport and temporary preview wrappers. Calls
+absent from the ordinary map fail visibly; admitted calls use the already-bound
+guard, Pre/PostToolUse hooks, and execution-duration telemetry exactly once,
+and replay fails before a second execution. Apps telemetry contains only tool
+name, outcome, and duration—never input, output, or app context. This is
+infrastructure, not capability graduation: production Apps registration and
+advertisement remain disabled; BST-1572 owns release enablement.
 
 The BST-1571 host surface lives in the browser adapter package
 `@brainstrike/mcp-app-host-ui` inside assistant-experience, not in the shared
