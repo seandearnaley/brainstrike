@@ -192,7 +192,10 @@ describe('MCP config parser', () => {
       })
     );
     expect(() => parseMcpConfig(JSON.stringify(config))).toThrow(
-      'invalid_mcp_config: servers.1.name: duplicate server name'
+      JSON.stringify({
+        code: 'invalid_mcp_config',
+        issues: [{ message: 'duplicate server name', path: 'servers.1.name' }],
+      })
     );
   });
 
@@ -204,8 +207,22 @@ describe('MCP config parser', () => {
   });
 
   it('reports malformed JSON without echoing configuration contents', () => {
-    expect(() => parseMcpConfig('{"servers":["secret-looking-value"')).toThrow(
-      'invalid_mcp_config: <root>: invalid JSON syntax'
-    );
+    const secret = 'secret-looking-value';
+    let error: unknown;
+    try {
+      parseMcpConfig(`{"servers":["${secret}"`);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toMatchObject({
+      code: 'invalid_mcp_config',
+      issues: [{ message: 'invalid JSON syntax', path: '' }],
+      message: JSON.stringify({
+        code: 'invalid_mcp_config',
+        issues: [{ message: 'invalid JSON syntax', path: '' }],
+      }),
+    });
+    expect(String(error)).not.toContain(secret);
   });
 });

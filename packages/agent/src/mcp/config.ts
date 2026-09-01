@@ -1,8 +1,8 @@
 import {
   McpConfigValidationError,
   parseMcpConfigValue as parseSharedMcpConfigValue,
-  parseMcpServerValue as parseSharedMcpServerValue,
   McpConfigSchema as SharedMcpConfigSchema,
+  type McpServer as SharedMcpServer,
   McpServerSchema as SharedMcpServerSchema,
 } from '@brainstrike/assistant-contract/mcp-config';
 
@@ -11,12 +11,26 @@ export * from '@brainstrike/assistant-contract/mcp-config';
 const UNSUPPORTED_BEARER_MESSAGE =
   'MCP bearer authentication requires a production credential resolver';
 
-function bearerAuthUnsupported(server: unknown): boolean {
-  if (!(typeof server === 'object' && server !== null && 'auth' in server)) {
-    return false;
+function bearerAuthUnsupported(server: SharedMcpServer): boolean {
+  switch (server.transport) {
+    case 'stdio':
+      return false;
+    case 'sse':
+    case 'streamable-http':
+      return server.auth?.type === 'bearer';
+    default: {
+      const exhaustiveServer: never = server;
+      return exhaustiveServer;
+    }
   }
-  const auth = server.auth;
-  return typeof auth === 'object' && auth !== null && 'type' in auth && auth.type === 'bearer';
+}
+
+function throwCapabilityValidationError(error: {
+  issues: readonly { message: string; path: readonly PropertyKey[] }[];
+}): never {
+  throw new McpConfigValidationError(
+    error.issues.map((issue) => ({ message: issue.message, path: issue.path.join('.') }))
+  );
 }
 
 export const McpServerSchema = SharedMcpServerSchema.superRefine((server, context) => {
@@ -37,23 +51,21 @@ export const McpConfigSchema = SharedMcpConfigSchema.superRefine((config, contex
   }
 });
 
-export function parseMcpServerValue(value: unknown): ReturnType<typeof parseSharedMcpServerValue> {
-  const server = parseSharedMcpServerValue(value);
-  if (bearerAuthUnsupported(server)) {
-    throw new McpConfigValidationError([{ message: UNSUPPORTED_BEARER_MESSAGE, path: 'auth' }]);
+export function parseMcpServerValue(value: unknown): ReturnType<typeof McpServerSchema.parse> {
+  const parsed = McpServerSchema.safeParse(value);
+  if (!parsed.success) {
+    return throwCapabilityValidationError(parsed.error);
   }
-  return server;
+  return parsed.data;
 }
 
 export function parseMcpConfigValue(value: unknown): ReturnType<typeof parseSharedMcpConfigValue> {
   const parsed = parseSharedMcpConfigValue(value);
-  const serverIndex = parsed.config.servers.findIndex(bearerAuthUnsupported);
-  if (serverIndex !== -1) {
-    throw new McpConfigValidationError([
-      { message: UNSUPPORTED_BEARER_MESSAGE, path: `servers.${serverIndex}.auth` },
-    ]);
+  const capabilityScoped = McpConfigSchema.safeParse(parsed.config);
+  if (!capabilityScoped.success) {
+    return throwCapabilityValidationError(capabilityScoped.error);
   }
-  return parsed;
+  return { config: capabilityScoped.data, migrations: parsed.migrations };
 }
 
 export function parseMcpConfigWithMigrations(

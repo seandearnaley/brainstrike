@@ -69,14 +69,20 @@ describe('MCP config contract', () => {
   });
 
   it.each([
-    ['unknown root field', { debug: true, servers: [] }],
+    [
+      'unknown root field',
+      { debug: true, servers: [] },
+      [{ message: 'Unrecognized key: "debug"', path: '' }],
+    ],
     [
       'unknown server field',
       { servers: [{ command: 'node', fallback: true, name: 'local', transport: 'stdio' }] },
+      [{ message: 'Unrecognized key: "fallback"', path: 'servers.0' }],
     ],
     [
       'invalid spawn value',
       { servers: [{ command: 'node\0shell', name: 'local', transport: 'stdio' }] },
+      [{ message: 'invalid spawn string', path: 'servers.0.command' }],
     ],
     [
       'embedded URL credentials',
@@ -89,6 +95,7 @@ describe('MCP config contract', () => {
           },
         ],
       },
+      [{ message: 'must not include credentials', path: 'servers.0.url' }],
     ],
     [
       'duplicate case-insensitive headers',
@@ -102,15 +109,18 @@ describe('MCP config contract', () => {
           },
         ],
       },
+      [{ message: 'duplicate HTTP header name', path: 'servers.0.headers.authorization' }],
     ],
-  ])('rejects %s with the observable canonical error', (_name, value) => {
+  ])('rejects %s with exact canonical diagnostics', (_name, value, expectedIssues) => {
     expect(() => parseMcpConfigValue(value)).toThrow(McpConfigValidationError);
     try {
       parseMcpConfigValue(value);
       throw new Error('Expected MCP config validation to fail');
     } catch (error) {
-      expect(error).toMatchObject({ code: 'invalid_mcp_config' });
-      expect(String(error)).toContain('invalid_mcp_config');
+      expect(error).toMatchObject({ code: 'invalid_mcp_config', issues: expectedIssues });
+      expect((error as Error).message).toBe(
+        JSON.stringify({ code: 'invalid_mcp_config', issues: expectedIssues })
+      );
     }
   });
 });

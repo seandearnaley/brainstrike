@@ -2117,17 +2117,21 @@ enum/multiselect schema; unconstrained arrays are rejected by the SDK ingress
 schema.
 
 Ownership and flow:
-1. Config — `packages/assistant-contract/src/mcp-config.ts` exclusively owns the
-   strict server/config schemas, normalization, migration records, and the
-   observable `invalid_mcp_config` validation error. Agent JSON ingestion and
-   Desktop JSONC ingestion are thin adapters that both call
-   `parseMcpConfigValue`; Desktop retains only syntax/location and duplicate-key
-   diagnostics, then revalidates decrypted server records through the same
-   shared seam. Unknown root/server fields, malformed spawn/HTTP values, and
-   unsupported policy combinations fail visibly. The explicit empty authority
-   `{ servers: [] }` is valid and never invents a server. Public renderer status
-   exposes server name, transport, effective protocol policy, and token-free
-   migration records.
+1. Config — `packages/assistant-contract/src/mcp-config.ts` owns the shared
+   transport grammar, normalization, migration records, and machine-readable
+   `invalid_mcp_config` diagnostics at the explicit `mcp-config` package
+   subpath. Consumers add capability-scoped wrappers: Agent rejects bearer
+   references because it has no production credential resolver, while Desktop
+   accepts them and resolves credentials in its owning host. Agent JSON and
+   Desktop JSONC ingestion both use the shared grammar; Desktop additionally
+   retains syntax/location, duplicate-key, and established user-facing prose
+   diagnostics and revalidates decrypted records. Unknown fields, malformed
+   spawn/HTTP values, and unsupported policy combinations fail visibly.
+   `{ servers: [] }` is accepted
+   as an explicit request for no configured servers; it does not synthesize a
+   server, and Agent without a host returns no runtime client. Public renderer
+   status exposes server name, transport, effective protocol policy, and
+   token-free migration records.
 2. Official clients — `packages/agent/src/mcp/explicit-stdio-client.ts` and
    `explicit-http-client.ts`, exported only from
    `@brainstrike/agent/mcp-client`, own the stable SDK v2 split-package transports,

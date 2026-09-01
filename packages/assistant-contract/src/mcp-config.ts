@@ -15,11 +15,7 @@ export class McpConfigValidationError extends Error {
   readonly issues: readonly McpConfigValidationIssue[];
 
   constructor(issues: readonly McpConfigValidationIssue[]) {
-    super(
-      `invalid_mcp_config: ${issues
-        .map(({ message, path }) => `${path.length > 0 ? path : '<root>'}: ${message}`)
-        .join('; ')}`
-    );
+    super(JSON.stringify({ code: 'invalid_mcp_config', issues }));
     this.name = 'McpConfigValidationError';
     this.issues = issues;
   }
