@@ -1,0 +1,76 @@
+import path from 'node:path';
+import type { ElectronApplication, Page } from 'playwright';
+import { _electron as electron } from 'playwright';
+import { closeElectronApp } from './electron-helpers.mts';
+
+export function packagedDesktopExecutablePath(): string {
+  const releaseRoot = path.resolve(process.cwd(), 'release');
+  if (process.platform === 'darwin') {
+    const directory = process.arch === 'arm64' ? 'mac-arm64' : 'mac';
+    return path.join(
+      releaseRoot,
+      directory,
+      'BrainStrike Desktop.app',
+      'Contents',
+      'MacOS',
+      'BrainStrike Desktop'
+    );
+  }
+  if (process.platform === 'win32') {
+    const directory = process.arch === 'arm64' ? 'win-arm64-unpacked' : 'win-unpacked';
+    return path.join(releaseRoot, directory, 'BrainStrike Desktop.exe');
+  }
+  if (process.platform === 'linux') {
+    const directory = process.arch === 'arm64' ? 'linux-arm64-unpacked' : 'linux-unpacked';
+    return path.join(releaseRoot, directory, 'brainstrike-desktop');
+  }
+  throw new Error(`Packaged desktop verifier does not support ${process.platform}`);
+}
+
+function inheritedEnvironment(): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined) {
+      environment[key] = value;
+    }
+  }
+  return environment;
+}
+
+export async function launchPackagedDesktop(options: {
+  readonly environment?: Readonly<Record<string, string>>;
+  readonly userDataDir: string;
+}): Promise<{ readonly app: ElectronApplication; readonly window: Page }> {
+  const app = await electron.launch({
+    args: [
+      '--test-mode',
+      `--user-data-dir=${options.userDataDir}`,
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-extensions',
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
+    ],
+    env: {
+      ...inheritedEnvironment(),
+      ...options.environment,
+      ['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES']: '1',
+      ['BRAINSTRIKE_E2E_USER_DATA_DIR']: options.userDataDir,
+      ['BRAINSTRIKE_OPENAI_API_KEY']: 'test-api-key-for-e2e-tests',
+      ['ELECTRON_IS_E2E_TEST']: 'true',
+      ['NODE_OPTIONS']: '',
+    },
+    executablePath: packagedDesktopExecutablePath(),
+    timeout: 120_000,
+  });
+  const window = await app.firstWindow({ timeout: 60_000 });
+  await window.waitForLoadState('domcontentloaded');
+  return { app, window };
+}
+
+export async function closePackagedDesktop(context: {
+  readonly app: ElectronApplication;
+  readonly window: Page;
+}): Promise<void> {
+  await closeElectronApp(context);
+}

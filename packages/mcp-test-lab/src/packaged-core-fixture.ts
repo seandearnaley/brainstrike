@@ -1,3 +1,4 @@
+import { createMcpLabFaultPlan } from './faults.js';
 import { type McpLabCleanupReport, type McpLabSession, startMcpLabScenario } from './lab.js';
 import type { McpLabScenarioId } from './scenario.js';
 
@@ -26,8 +27,13 @@ export interface PackagedCoreFixtureCleanupReport {
 }
 
 export interface PackagedCoreFixture {
+  authorizationDelayObserved(): boolean;
   close(): Promise<PackagedCoreFixtureCleanupReport>;
   readonly manifest: PackagedCoreFixtureManifest;
+}
+
+export interface PackagedCoreFixtureOptions {
+  readonly authorizationDelayMs?: number;
 }
 
 function assertLoopbackEndpoint(session: McpLabSession): URL {
@@ -57,11 +63,36 @@ function toCleanupReport(report: McpLabCleanupReport): PackagedCoreFixtureCleanu
 }
 
 export async function startPackagedCoreFixture(
-  id: PackagedCoreFixtureId
+  id: PackagedCoreFixtureId,
+  options: PackagedCoreFixtureOptions = {}
 ): Promise<PackagedCoreFixture> {
+  if (
+    options.authorizationDelayMs !== undefined &&
+    (!Number.isSafeInteger(options.authorizationDelayMs) ||
+      options.authorizationDelayMs < 100 ||
+      options.authorizationDelayMs > 10_000)
+  ) {
+    throw new Error('Packaged core authorization delay must be an integer from 100 to 10000 ms');
+  }
+  if (options.authorizationDelayMs !== undefined && id !== 'oauth-reference') {
+    throw new Error('Packaged core authorization delay is available only for the OAuth fixture');
+  }
+  const faultPlan =
+    options.authorizationDelayMs === undefined
+      ? undefined
+      : createMcpLabFaultPlan([
+          {
+            fault: { delayMs: options.authorizationDelayMs, kind: 'delay' },
+            id: 'packaged-core-authorization-delay',
+            match: { method: 'oauth/authorize', occurrence: 1, phase: 'authorization' },
+          },
+        ]);
   const session =
     id === 'oauth-reference'
-      ? await startMcpLabScenario(id, { execution: 'loopback' })
+      ? await startMcpLabScenario(id, {
+          execution: 'loopback',
+          ...(faultPlan ? { faultPlan } : {}),
+        })
       : await startMcpLabScenario(id, { execution: 'loopback' });
   const endpoint = assertLoopbackEndpoint(session);
   const manifest: PackagedCoreFixtureManifest = Object.freeze({
@@ -74,6 +105,8 @@ export async function startPackagedCoreFixture(
     url: endpoint.href,
   });
   return Object.freeze({
+    authorizationDelayObserved: () =>
+      faultPlan?.untriggeredIds().includes('packaged-core-authorization-delay') === false,
     close: async () => toCleanupReport(await session.close()),
     manifest,
   });

@@ -2240,7 +2240,13 @@ token-free zero counts for clients, states, codes, and tokens after clearing the
 starts only the owned modern, legacy, or OAuth loopback scenarios and returns a
 closed token-free manifest plus an exact cleanup report. Desktop tests consume
 that public verifier API; they do not copy its handlers or import it into a
-production application dependency graph.
+production application dependency graph. Its one optional authorization delay
+is bounded, OAuth-only, and directly observable so cancellation proof cannot
+race ahead of the native-browser request. The packaged verifier also records
+the owned stdio child PID and requires process death after shutdown, restart,
+and factory reset; its post-connect diagnostic command emits fixed
+secret-shaped data and terminates the owned child only to prove
+unexpected-close cleanup and durable log sanitization.
 
 The private artifact-integrity core reads each unique reference once and in
 order, passes an explicit positive byte limit to the reader, rejects an

@@ -121,6 +121,15 @@ function isExactStringArray(value: unknown, expected: string): value is readonly
   return Array.isArray(value) && value.length === 1 && value[0] === expected;
 }
 
+function requestsSupportedAuthorizationCodeGrant(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.includes('authorization_code') &&
+    value.every((grant) => grant === 'authorization_code' || grant === 'refresh_token') &&
+    new Set(value).size === value.length
+  );
+}
+
 function methodNotAllowed(method: string): Response {
   return new Response('Method not allowed', { headers: { allow: method }, status: 405 });
 }
@@ -376,7 +385,7 @@ async function registerClient(
     typeof clientName !== 'string' ||
     clientName.length === 0 ||
     clientName.length > 128 ||
-    !isExactStringArray(body['grant_types'], 'authorization_code') ||
+    !requestsSupportedAuthorizationCodeGrant(body['grant_types']) ||
     !isExactStringArray(body['response_types'], 'code') ||
     body['token_endpoint_auth_method'] !== 'none' ||
     (body['scope'] !== undefined && body['scope'] !== 'mcp')

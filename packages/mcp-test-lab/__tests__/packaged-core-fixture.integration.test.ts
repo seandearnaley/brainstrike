@@ -55,3 +55,17 @@ it('owns bounded OAuth and legacy loopback fixtures for packaged Electron', asyn
     expect(legacyReport).toMatchObject({ clean: true });
   }
 });
+
+it('accepts one bounded OAuth authorization delay and rejects it elsewhere', async () => {
+  await expect(
+    startPackagedCoreFixture('legacy-reference', { authorizationDelayMs: 100 })
+  ).rejects.toThrow(/only for the OAuth fixture/u);
+  await expect(
+    startPackagedCoreFixture('oauth-reference', { authorizationDelayMs: 99 })
+  ).rejects.toThrow(/100 to 10000/u);
+  const oauth = await startPackagedCoreFixture('oauth-reference', {
+    authorizationDelayMs: 100,
+  });
+  expect(oauth.authorizationDelayObserved()).toBe(false);
+  expect((await oauth.close()).clean).toBe(false);
+});
