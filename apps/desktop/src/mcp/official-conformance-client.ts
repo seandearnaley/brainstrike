@@ -1,5 +1,5 @@
 import type { McpClientCapabilityOptions } from '@brainstrike/agent/mcp-client';
-import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { type McpHostOperation, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 import { parseMcpConfig, type ResolvedMcpConfig } from '../mcp-loader';
 import {
@@ -17,6 +17,19 @@ import {
 } from './official-conformance-oauth';
 
 const CONFORMANCE_SERVER_ID = parseConfiguredMcpServerId('official-conformance');
+const OfficialCustomHeaderContextSchema = z.strictObject({
+  name: z.literal('http-custom-headers'),
+  toolCalls: z.tuple([
+    z.strictObject({
+      arguments: z.record(z.string(), z.json()),
+      name: z.literal('test_custom_headers'),
+    }),
+    z.strictObject({
+      arguments: z.record(z.string(), z.json()),
+      name: z.literal('test_custom_headers_null'),
+    }),
+  ]),
+});
 const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
   z.strictObject({
     protocolVersion: z.literal('2025-11-25'),
@@ -39,6 +52,23 @@ const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
     serverUrl: z.string().min(1),
   }),
   z.strictObject({
+    protocolVersion: z.literal('2026-07-28'),
+    scenario: z.enum([
+      'request-metadata',
+      'sep-2322-client-request-state',
+      'http-standard-headers',
+      'http-invalid-tool-headers',
+      'json-schema-ref-no-deref',
+    ]),
+    serverUrl: z.string().min(1),
+  }),
+  z.strictObject({
+    context: z.string().min(1),
+    protocolVersion: z.literal('2026-07-28'),
+    scenario: z.literal('http-custom-headers'),
+    serverUrl: z.string().min(1),
+  }),
+  z.strictObject({
     context: z.string().optional(),
     protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
     scenario: BaselineOfficialAuthScenarioNameSchema,
@@ -52,10 +82,8 @@ const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
   }),
 ]);
 type ProductionConformanceInput = z.output<typeof ProductionConformanceInputSchema>;
-type ToolScenario = Exclude<
-  ProductionConformanceInput['scenario'],
-  'initialize' | OfficialAuthScenarioName
->;
+type McpToolArguments = NonNullable<Extract<McpHostOperation, { type: 'tools/call' }>['arguments']>;
+type ToolScenario = 'elicitation-sep1034-client-defaults' | 'sse-retry' | 'tools_call';
 const AUTH_SCENARIO_TOOL = Object.freeze({ arguments: {}, name: 'test-tool' });
 
 function scenarioTool(scenario: ToolScenario): {
@@ -100,6 +128,18 @@ function cleanupError(
 function clientCapabilitiesForScenario(
   scenario: ProductionConformanceInput['scenario']
 ): McpClientCapabilityOptions | undefined {
+  if (scenario === 'sep-2322-client-request-state') {
+    return {
+      elicitation: {
+        form: true,
+        handle: async (_request, context) => {
+          context.signal.throwIfAborted();
+          return { action: 'accept', content: { confirmed: true } };
+        },
+        url: false,
+      },
+    };
+  }
   if (scenario !== 'elicitation-sep1034-client-defaults') {
     return;
   }
@@ -121,14 +161,35 @@ function isOfficialAuthScenario(value: string): value is OfficialAuthScenarioNam
 }
 
 function isToolScenario(value: ProductionConformanceInput['scenario']): value is ToolScenario {
-  return value !== 'initialize' && !isOfficialAuthScenario(value);
+  return (
+    value === 'elicitation-sep1034-client-defaults' ||
+    value === 'sse-retry' ||
+    value === 'tools_call'
+  );
+}
+
+export function parseOfficialCustomHeaderContext(context: string | undefined) {
+  if (context === undefined) {
+    throw new Error('Official MCP custom-header context is required');
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(context);
+  } catch {
+    throw new Error('Official MCP custom-header context is invalid');
+  }
+  const parsed = OfficialCustomHeaderContextSchema.safeParse(decoded);
+  if (!parsed.success) {
+    throw new Error('Official MCP custom-header context is invalid');
+  }
+  return parsed.data;
 }
 
 async function callScenarioTool(
   runtime: ProductionConformanceClientRuntime,
   listed: Awaited<ReturnType<ProductionConformanceClientRuntime['host']['invoke']>>,
   name: string,
-  arguments_: Record<string, number>
+  arguments_: McpToolArguments
 ): Promise<void> {
   if (listed.type !== 'tools/list') {
     throw new Error('Production MCP conformance client received an invalid tools/list result');
@@ -149,6 +210,83 @@ async function callScenarioTool(
     throw new Error('Production MCP conformance server reported a tools/call error', {
       cause: called.result,
     });
+  }
+}
+
+async function runHttpStandardHeadersScenario(
+  runtime: ProductionConformanceClientRuntime,
+  listed: Awaited<ReturnType<ProductionConformanceClientRuntime['host']['invoke']>>
+): Promise<void> {
+  await callScenarioTool(runtime, listed, 'test_headers', {});
+  const resources = await runtime.host.invoke({
+    configuredServerId: CONFORMANCE_SERVER_ID,
+    type: 'resources/list',
+  });
+  if (resources.type !== 'resources/list') {
+    throw new Error('Production MCP conformance client received an invalid resources/list result');
+  }
+  const [resource] = resources.result.resources;
+  if (!resource) {
+    throw new Error('Production MCP conformance server exposes no resource for header proof');
+  }
+  await runtime.host.invoke({
+    configuredServerId: CONFORMANCE_SERVER_ID,
+    type: 'resources/read',
+    uri: resource.uri,
+  });
+  const prompts = await runtime.host.invoke({
+    configuredServerId: CONFORMANCE_SERVER_ID,
+    type: 'prompts/list',
+  });
+  if (prompts.type !== 'prompts/list') {
+    throw new Error('Production MCP conformance client received an invalid prompts/list result');
+  }
+  const [prompt] = prompts.result.prompts;
+  if (!prompt) {
+    throw new Error('Production MCP conformance server exposes no prompt for header proof');
+  }
+  await runtime.host.invoke({
+    configuredServerId: CONFORMANCE_SERVER_ID,
+    name: prompt.name,
+    type: 'prompts/get',
+  });
+}
+
+async function runModernScenario(
+  parsed: ProductionConformanceInput,
+  runtime: ProductionConformanceClientRuntime,
+  listed: Awaited<ReturnType<ProductionConformanceClientRuntime['host']['invoke']>>
+): Promise<boolean> {
+  switch (parsed.scenario) {
+    case 'json-schema-ref-no-deref':
+      return true;
+    case 'sep-2322-client-request-state':
+      for (const name of [
+        'test_mrtr_echo_state',
+        'test_mrtr_unrelated',
+        'test_mrtr_no_state',
+        'test_mrtr_no_result_type',
+      ]) {
+        await callScenarioTool(runtime, listed, name, {});
+      }
+      return true;
+    case 'http-standard-headers':
+      await runHttpStandardHeadersScenario(runtime, listed);
+      return true;
+    case 'http-custom-headers': {
+      if (!('context' in parsed)) {
+        throw new Error('Official MCP custom-header context is required');
+      }
+      for (const toolCall of parseOfficialCustomHeaderContext(parsed.context).toolCalls) {
+        await callScenarioTool(runtime, listed, toolCall.name, toolCall.arguments);
+      }
+      return true;
+    }
+    case 'http-invalid-tool-headers':
+      await callScenarioTool(runtime, listed, 'valid_tool', { region: 'us-west1' });
+      return true;
+    default:
+      return false;
   }
 }
 
@@ -201,6 +339,18 @@ async function executeProductionScenario(
   authScenario: OfficialAuthScenarioName | undefined
 ): Promise<void> {
   await runtime.replaceResolvedConfig(config);
+  if (parsed.scenario === 'request-metadata') {
+    const connected = await runtime.host.control({
+      action: 'connect',
+      configuredServerId: CONFORMANCE_SERVER_ID,
+    });
+    if (connected.state !== 'connected') {
+      throw new Error(
+        'Production MCP conformance metadata connection did not reach connected state'
+      );
+    }
+    return;
+  }
   if (authScenario) {
     const connected = await runtime.host.control({
       action: 'connect',
@@ -220,6 +370,9 @@ async function executeProductionScenario(
   if (authScenario && authScenario !== 'auth/pre-registration') {
     // The alpha.10 auth fixtures expose one common tool after authorization.
     await callScenarioTool(runtime, listed, AUTH_SCENARIO_TOOL.name, AUTH_SCENARIO_TOOL.arguments);
+    return;
+  }
+  if (await runModernScenario(parsed, runtime, listed)) {
     return;
   }
   // Pre-registration is proven by the authenticated connect and tools/list; its

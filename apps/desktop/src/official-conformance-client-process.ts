@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { runProductionMcpConformanceClient } from './mcp/official-conformance-client';
+import {
+  parseOfficialCustomHeaderContext,
+  runProductionMcpConformanceClient,
+} from './mcp/official-conformance-client';
 import {
   AllOfficialAuthScenarioNameSchema,
   parseOfficialAuthScenarioContext,
@@ -43,6 +46,8 @@ export function parseOfficialConformanceProcessInput(
   const authScenario = AllOfficialAuthScenarioNameSchema.safeParse(parsed.scenario);
   if (authScenario.success) {
     parseOfficialAuthScenarioContext(authScenario.data, context);
+  } else if (parsed.scenario === 'http-custom-headers') {
+    parseOfficialCustomHeaderContext(context);
   } else if (context !== undefined) {
     throw new Error('Production MCP conformance context is invalid');
   }

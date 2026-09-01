@@ -2311,14 +2311,19 @@ and its explicit Linear blocker in the later official-result evidence layer.
 The production conformance client entry lives in
 `apps/desktop/src/mcp/official-conformance-client.ts`. It accepts only a
 validated server URL, exact `2025-11-25` or `2026-07-28` protocol revision, and
-the non-auth `initialize`, `tools_call`, `elicitation-sep1034-client-defaults`,
-or `sse-retry` scenario, plus the exact fourteen-name alpha.10 auth baseline in
-upstream order and the exact eleven-name modern auth closeout. The eleven
+the closed non-auth set: `initialize`, `tools_call`,
+`elicitation-sep1034-client-defaults`, `sse-retry`, `request-metadata`,
+`sep-2322-client-request-state`, `http-standard-headers`,
+`http-custom-headers`, `http-invalid-tool-headers`, and
+`json-schema-ref-no-deref`; plus the exact fourteen-name alpha.10 auth baseline
+in upstream order and the exact eleven-name modern auth closeout. The six new
+non-auth scenarios and the eleven
 resource, offline-access, authorization-server migration, authorization-response
 issuer, and metadata-issuer scenarios are accepted only at `2026-07-28`; the
 client schema rejects a fabricated `2025-11-25` pairing before runtime creation.
-The last two non-auth scenarios are accepted only at
-`2025-11-25`, matching their alpha.10 applicability window. It builds configuration
+`elicitation-sep1034-client-defaults` and `sse-retry` are accepted only at
+`2025-11-25`, matching their alpha.10 applicability window, while `tools_call`
+is valid at either declared revision. It builds configuration
 through the production loader, creates a fresh `DesktopMcpHostRuntime`, and
 drives list/call through `McpHostPort`; it never constructs a parallel SDK
 client. Legacy runs select explicit `legacy`, modern runs pin `2026-07-28`, and
@@ -2326,6 +2331,14 @@ client. Legacy runs select explicit `legacy`, modern runs pin `2026-07-28`, and
 inapplicable scenarios fail rather than falling back. The elicitation adapter
 accepts with empty content and explicitly advertises SDK-owned primitive
 default application; SSE retry remains owned by the production HTTP transport.
+The metadata scenario performs the production connect lifecycle without an
+unowned probe request. The MRTR scenario invokes the four upstream tools through
+the production capability engine, including the absent-`resultType` compatibility
+case. Standard-header coverage drives tools, resources, and prompts through the
+ordinary host port; custom-header coverage accepts only the exact upstream
+two-call context; invalid-header coverage calls only the surviving valid tool;
+and JSON Schema reference coverage lists tools without dereferencing network
+references.
 Auth runs use `oauth-user` plus `authentication-required`, an ephemeral store,
 the canonical CIMD client URL only for `auth/basic-cimd`, and exact context
 rules: thirteen scenarios require no context while `auth/pre-registration`
