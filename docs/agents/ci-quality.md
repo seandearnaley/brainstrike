@@ -59,9 +59,14 @@ described in `assistant-providers.md`, outside the scheduled verifier loop.
 
 The same schedule/manual workflow has a separate
 `Official MCP auth conformance (advisory prerelease)` job. It builds the
-Desktop main-process runtime dependencies and bundle, then runs
-`node scripts/run-official-mcp-client-conformance.mjs` under a three-minute step
-and eight-minute job bound. The job is explicitly `continue-on-error`: pinned
+Desktop main-process runtime dependencies and bundle through the root command.
+
+```bash
+pnpm run verify:mcp:official
+```
+
+Its combined build/run step has a seven-minute bound and its job an eight-minute
+bound. The job is explicitly `continue-on-error`: pinned
 `@modelcontextprotocol/conformance@0.2.0-alpha.10` remains prerelease evidence,
 not a required gate. Its runner executes the closed 28-case auth matrix without
 `--expected-failures` or `--output-dir`, suppresses credential-bearing child
@@ -74,6 +79,28 @@ Scenario pass/fail counts always sum to the execution count; Job cleanup has its
 own status and never inflates scenario failures. If evidence collection or its
 atomic write fails after conformance has already failed, the job preserves both
 causes rather than replacing the primary conformance failure.
+
+BST-1576 adds a second independent advisory job,
+`Official MCP modern auth closeout (advisory prerelease)`. It runs:
+
+```bash
+pnpm run verify:mcp:official -- --profile modern-closeout
+```
+
+The command has a four-minute build allowance, ten-minute runner allowance,
+14-minute combined step bound, and 18-minute job bound.
+The profile executes exactly the eleven alpha.10 scenarios that apply only at
+`2026-07-28`, sequentially inside one evidence wave, with zero expected failures.
+It uploads only
+`packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json`
+for 14 days under `mcp-official-modern-auth-${{ github.sha }}`. The baseline
+BST-1560 job remains its reviewed 28 executions; neither job passes
+`--expected-failures` or `--output-dir`, and neither uploads raw auth output.
+The ten-minute step is load-bearing math: 11 × 45-second scenario deadlines is
+495 seconds, leaving 105 seconds for setup, cleanup, and sanitized evidence
+persistence. The 18-minute job additionally reserves the four-minute build and
+four minutes for workflow setup/upload. Shared typed descriptors and workflow
+contract tests pin these budgets; both jobs remain advisory.
 
 ### Open PR to Linear conformance (BST-521)
 

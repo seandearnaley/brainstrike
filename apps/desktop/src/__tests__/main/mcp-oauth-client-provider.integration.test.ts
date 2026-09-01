@@ -1,3 +1,4 @@
+// biome-ignore-all lint/style/noExcessiveLinesPerFile: one real-network OAuth fixture keeps cross-scenario lifecycle assertions coherent.
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -20,10 +21,24 @@ import type { ResolvedMcpServer } from '../../mcp-loader';
 type OAuthHttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
 
 interface FakeOAuthServerOptions {
-  readonly callbackMode?: 'legitimate' | 'invalid-state-first' | 'issuer-mismatch';
+  readonly authorizationServerUrl?: () => string;
+  readonly callbackMode?:
+    | 'invalid-state-first'
+    | 'issuer-mismatch'
+    | 'issuer-missing'
+    | 'issuer-normalized'
+    | 'legitimate';
   readonly clientRegistration: 'cimd' | 'dcr' | 'preregistered';
+  readonly expectedResourceUrl?: () => string;
   readonly insufficientScope?: boolean | number;
+  readonly issParameterSupported?: boolean;
+  readonly mcpTokenAccepted?: (token: string | undefined, locallyIssued: boolean) => boolean;
+  readonly metadataIssuerMismatch?: boolean;
+  readonly offlineAccessSupported?: boolean;
+  readonly onAuthenticatedMcpRequest?: () => void;
+  readonly registeredClientId?: string;
   readonly resourceMismatch?: boolean;
+  readonly tokenPrefix?: string;
 }
 
 interface FakeOAuthServer {
@@ -34,6 +49,7 @@ interface FakeOAuthServer {
   readonly mcpRequests: Readonly<Record<string, unknown>>[];
   readonly refreshCount: () => number;
   readonly tokenCount: () => number;
+  readonly tokenRequests: URLSearchParams[];
   readonly url: URL;
 }
 
@@ -70,6 +86,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
   const authorizationRequests: URLSearchParams[] = [];
   const dcrRequests: Readonly<Record<string, unknown>>[] = [];
   const mcpRequests: Readonly<Record<string, unknown>>[] = [];
+  const tokenRequests: URLSearchParams[] = [];
   const codes = new Map<string, { challenge: string; clientId: string; redirectUri: string }>();
   const tokens = new Map<string, { scope: string }>();
   let nextCode = 0;
@@ -89,7 +106,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
     const requestUrl = new URL(request.url ?? '/', baseUrl);
     if (requestUrl.pathname === '/.well-known/oauth-protected-resource') {
       json(response, 200, {
-        authorization_servers: [baseUrl.href],
+        authorization_servers: [options.authorizationServerUrl?.() ?? baseUrl.href],
         bearer_methods_supported: ['header'],
         resource: options.resourceMismatch
           ? new URL('/other', baseUrl).href
@@ -101,15 +118,20 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
     if (requestUrl.pathname === '/.well-known/oauth-authorization-server') {
       json(response, 200, {
         authorization_endpoint: new URL('/authorize', baseUrl).href,
-        authorization_response_iss_parameter_supported: true,
+        ...(options.issParameterSupported === false
+          ? {}
+          : { authorization_response_iss_parameter_supported: true }),
         client_id_metadata_document_supported: options.clientRegistration === 'cimd',
         code_challenge_methods_supported: ['S256'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
-        issuer: baseUrl.href,
+        issuer: options.metadataIssuerMismatch ? 'https://attacker.example.test' : baseUrl.href,
         registration_endpoint:
           options.clientRegistration === 'dcr' ? new URL('/register', baseUrl).href : undefined,
         response_types_supported: ['code'],
-        scopes_supported: ['read', 'write', 'offline_access'],
+        scopes_supported:
+          options.offlineAccessSupported === false
+            ? ['read', 'write']
+            : ['read', 'write', 'offline_access'],
         token_endpoint: new URL('/token', baseUrl).href,
         token_endpoint_auth_methods_supported: ['none'],
       });
@@ -120,7 +142,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
       dcrRequests.push(body);
       json(response, 201, {
         application_type: 'native',
-        client_id: 'dcr-client',
+        client_id: options.registeredClientId ?? 'dcr-client',
         grant_types: ['authorization_code', 'refresh_token'],
         redirect_uris: body['redirect_uris'],
         response_types: ['code'],
@@ -143,12 +165,15 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
       const callback = new URL(redirectUri);
       callback.searchParams.set('code', code);
       callback.searchParams.set('state', state);
-      callback.searchParams.set(
-        'iss',
-        options.callbackMode === 'issuer-mismatch'
-          ? new URL('/attacker', baseUrl).href
-          : baseUrl.href
-      );
+      if (options.callbackMode !== 'issuer-missing') {
+        const issuer =
+          options.callbackMode === 'issuer-mismatch'
+            ? new URL('/attacker', baseUrl).href
+            : options.callbackMode === 'issuer-normalized'
+              ? baseUrl.href.replace(/\/$/u, '')
+              : baseUrl.href;
+        callback.searchParams.set('iss', issuer);
+      }
       if (options.callbackMode === 'invalid-state-first') {
         const invalid = new URL(callback);
         invalid.searchParams.set('state', 'invalid-state');
@@ -161,6 +186,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
     if (requestUrl.pathname === '/token' && request.method === 'POST') {
       tokenCountValue += 1;
       const params = new URLSearchParams(await readBody(request));
+      tokenRequests.push(params);
       const grantType = params.get('grant_type');
       if (grantType === 'authorization_code') {
         const code = params.get('code');
@@ -169,7 +195,8 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
           !record ||
           params.get('client_id') !== record.clientId ||
           params.get('redirect_uri') !== record.redirectUri ||
-          params.get('resource') !== new URL('/mcp', baseUrl).href ||
+          params.get('resource') !==
+            (options.expectedResourceUrl?.() ?? new URL('/mcp', baseUrl).href) ||
           params.get('code_verifier') === null ||
           createHash('sha256')
             .update(params.get('code_verifier') ?? '', 'ascii')
@@ -178,7 +205,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
           json(response, 400, { error: 'invalid_grant' });
           return;
         }
-        const token = `access-${++nextToken}`;
+        const token = `${options.tokenPrefix ?? 'access'}-${++nextToken}`;
         tokens.set(token, { scope: params.get('scope') ?? 'read offline_access' });
         json(response, 200, {
           access_token: token,
@@ -191,7 +218,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
       }
       if (grantType === 'refresh_token') {
         refreshCountValue += 1;
-        const token = `refreshed-${++nextToken}`;
+        const token = `${options.tokenPrefix ?? 'refreshed'}-${++nextToken}`;
         tokens.set(token, { scope: params.get('scope') ?? 'read offline_access' });
         json(response, 200, {
           access_token: token,
@@ -210,7 +237,9 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
       mcpRequests.push(body);
       const token = request.headers.authorization?.replace(/^Bearer /u, '');
       const tokenRecord = token ? tokens.get(token) : undefined;
-      if (!tokenRecord || forceRefresh) {
+      const tokenAccepted =
+        options.mcpTokenAccepted?.(token, tokenRecord !== undefined) ?? tokenRecord !== undefined;
+      if (!tokenAccepted || forceRefresh) {
         forceRefresh = false;
         response.writeHead(401, {
           'www-authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource', baseUrl).href}" scope="read"`,
@@ -218,6 +247,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
         response.end();
         return;
       }
+      options.onAuthenticatedMcpRequest?.();
       if (remainingInsufficientScope > 0 && body['method'] === 'tools/call') {
         remainingInsufficientScope -= 1;
         response.writeHead(403, {
@@ -265,6 +295,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
     mcpRequests,
     refreshCount: () => refreshCountValue,
     tokenCount: () => tokenCountValue,
+    tokenRequests,
     url: new URL('/mcp', baseUrl),
   };
 }
@@ -578,32 +609,60 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     await provider.close();
   });
 
-  it('refuses an issuer-less token choice when persisted issuers are ambiguous', async () => {
-    const identity = {
-      resourceUrl: 'https://mcp.example.test/mcp',
-      scopeKey: '',
-      serverId: 'issuer-ambiguity',
-    } as const;
-    const store = createInMemoryMcpOAuthStore();
-    await store.write(identity, {
-      'https://auth-a.example.test': {
-        tokens: { access_token: 'token-a', token_type: 'Bearer' },
-        updatedAt: 1,
-      },
-      'https://auth-b.example.test': {
-        tokens: { access_token: 'token-b', token_type: 'Bearer' },
-        updatedAt: 2,
-      },
-    });
+  it('keeps flow X discovery stale across overlapping flow Y reads and saves', async () => {
     const provider = await createMcpOAuthClientProvider({
       openExternal: async () => undefined,
-      serverId: identity.serverId,
-      serverUrl: identity.resourceUrl,
-      store,
+      serverId: 'overlapping-issuers',
+      serverUrl: 'https://mcp.example.test/mcp',
+      store: createInMemoryMcpOAuthStore(),
+    });
+    if (!(provider.saveDiscoveryState && provider.saveTokens)) {
+      throw new Error('OAuth provider did not expose issuer persistence methods.');
+    }
+    const issuerX = 'https://honest-x.example.test';
+    const issuerY = 'https://honest-y.example.test';
+    const discoveryX = { authorizationServerUrl: issuerX };
+    for (const issuer of [issuerX, issuerY]) {
+      await provider.saveDiscoveryState(
+        issuer === issuerX ? discoveryX : { authorizationServerUrl: issuer }
+      );
+      await provider.saveTokens(
+        { access_token: `${issuer}-token`, token_type: 'Bearer' },
+        { issuer }
+      );
+    }
+
+    await provider.tokens({ issuer: issuerX });
+    await provider.tokens();
+    await provider.tokens({ issuer: issuerY });
+    await expect(provider.discoveryState?.()).resolves.toEqual({
+      authorizationServerUrl: issuerY,
+    });
+    await provider.saveDiscoveryState({ authorizationServerUrl: issuerY });
+    await provider.saveTokens(
+      { access_token: 'y-replacement', token_type: 'Bearer' },
+      { issuer: issuerY }
+    );
+    await expect(provider.discoveryState?.()).resolves.toEqual({
+      authorizationServerUrl: issuerY,
     });
 
-    await expect(provider.tokens()).resolves.toBeUndefined();
+    await provider.tokens({ issuer: issuerX });
+    await provider.saveDiscoveryState(discoveryX);
     await expect(provider.discoveryState?.()).resolves.toBeUndefined();
+    const replacementDiscovery = {
+      authorizationServerUrl: issuerX,
+      resourceMetadataUrl: 'https://mcp.example.test/fresh-metadata',
+    };
+    await provider.saveDiscoveryState(replacementDiscovery);
+    await expect(provider.discoveryState?.()).resolves.toEqual(replacementDiscovery);
+    await provider.saveTokens(
+      { access_token: 'x-replacement', token_type: 'Bearer' },
+      { issuer: issuerX }
+    );
+
+    await provider.saveDiscoveryState(discoveryX);
+    await expect(provider.discoveryState?.()).resolves.toEqual(discoveryX);
     await provider.close();
   });
 
@@ -757,6 +816,104 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     await provider.close();
   });
 
+  it.each([
+    ['advertised and present', true, 'legitimate' as const],
+    ['not advertised and absent', false, 'issuer-missing' as const],
+  ])('accepts iss when %s', async (_label, issParameterSupported, callbackMode) => {
+    const server = await startFakeOAuthServer({
+      callbackMode,
+      clientRegistration: 'dcr',
+      issParameterSupported,
+    });
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: followAuthorizationRedirect,
+      serverId: 'issuer-accepted',
+      serverUrl: server.url,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    const { client, transport } = await createClient(provider, server.url);
+
+    await completeAuthorization(provider, client, transport);
+
+    expect(server.tokenCount()).toBe(1);
+    await provider.close();
+  });
+
+  it.each([
+    ['advertised but missing', true, 'issuer-missing' as const],
+    ['advertised but wrong', true, 'issuer-mismatch' as const],
+    ['unadvertised but wrong', false, 'issuer-mismatch' as const],
+    ['normalization-equivalent', true, 'issuer-normalized' as const],
+  ])('rejects iss when %s before token exchange', async (_label, supported, callbackMode) => {
+    const server = await startFakeOAuthServer({
+      callbackMode,
+      clientRegistration: 'dcr',
+      issParameterSupported: supported,
+    });
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: followAuthorizationRedirect,
+      serverId: 'issuer-rejected',
+      serverUrl: server.url,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    const { client, transport } = await createClient(provider, server.url);
+
+    await expect(client.connect(transport)).rejects.toBeInstanceOf(UnauthorizedError);
+    await expect(
+      transport.finishAuth(await takeAuthorizationCallback(provider))
+    ).rejects.toBeInstanceOf(IssuerMismatchError);
+
+    expect(server.tokenCount()).toBe(0);
+    await client.close().catch(() => undefined);
+    await provider.close();
+  });
+
+  it('rejects mismatched authorization-server metadata before using its endpoints', async () => {
+    const server = await startFakeOAuthServer({
+      clientRegistration: 'dcr',
+      metadataIssuerMismatch: true,
+    });
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: followAuthorizationRedirect,
+      serverId: 'metadata-issuer-mismatch',
+      serverUrl: server.url,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    const { client, transport } = await createClient(provider, server.url);
+
+    await expect(client.connect(transport)).rejects.toBeInstanceOf(IssuerMismatchError);
+
+    expect(server.authorizationRequests).toHaveLength(0);
+    expect(server.dcrRequests).toHaveLength(0);
+    expect(server.tokenCount()).toBe(0);
+    await client.close().catch(() => undefined);
+    await provider.close();
+  });
+
+  it.each([
+    ['adds', true],
+    ['does not add', false],
+  ])('%s offline_access according to authorization-server metadata', async (_label, supported) => {
+    const server = await startFakeOAuthServer({
+      clientRegistration: 'dcr',
+      offlineAccessSupported: supported,
+    });
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: followAuthorizationRedirect,
+      serverId: 'offline-access',
+      serverUrl: server.url,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    const { client, transport } = await createClient(provider, server.url);
+
+    await completeAuthorization(provider, client, transport);
+
+    expect(server.authorizationRequests[0]?.get('scope')?.split(' ')).toEqual(
+      supported ? ['read', 'offline_access'] : ['read']
+    );
+    await provider.close();
+  });
+
   it('rejects protected-resource metadata that names a different canonical resource', async () => {
     const server = await startFakeOAuthServer({
       clientRegistration: 'dcr',
@@ -770,7 +927,75 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     });
     const { client, transport } = await createClient(provider, server.url);
     await expect(client.connect(transport)).rejects.toThrow('protected-resource metadata');
+    expect(server.authorizationRequests).toHaveLength(0);
+    expect(server.dcrRequests).toHaveLength(0);
     await client.close().catch(() => undefined);
+    await provider.close();
+  });
+
+  it('re-registers after a rejected bearer reveals an authorization-server migration', async () => {
+    let honestOriginalResourceUrl: string | undefined;
+    const honestReplacementAuthorizationServer = await startFakeOAuthServer({
+      clientRegistration: 'dcr',
+      expectedResourceUrl: () => {
+        if (honestOriginalResourceUrl === undefined) {
+          throw new Error('honest original resource URL is not available');
+        }
+        return honestOriginalResourceUrl;
+      },
+      registeredClientId: 'honest-replacement-client',
+      tokenPrefix: 'honest-replacement-token',
+    });
+    let migrated = false;
+    const honestOriginalAuthorizationServer = await startFakeOAuthServer({
+      authorizationServerUrl: () =>
+        migrated
+          ? new URL('/', honestReplacementAuthorizationServer.url).href
+          : new URL('/', honestOriginalAuthorizationServer.url).href,
+      clientRegistration: 'dcr',
+      mcpTokenAccepted: (token, locallyIssued) =>
+        migrated ? token?.startsWith('honest-replacement-token') === true : locallyIssued,
+      onAuthenticatedMcpRequest: () => {
+        migrated = true;
+      },
+      registeredClientId: 'honest-original-client',
+      tokenPrefix: 'honest-original-token',
+    });
+    honestOriginalResourceUrl = honestOriginalAuthorizationServer.url.href;
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: followAuthorizationRedirect,
+      serverId: 'authorization-server-migration',
+      serverUrl: honestOriginalAuthorizationServer.url,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    const initial = await createClient(provider, honestOriginalAuthorizationServer.url);
+    await completeAuthorization(provider, initial.client, initial.transport);
+
+    const migratedClient = await createClient(provider, honestOriginalAuthorizationServer.url);
+    await expect(migratedClient.client.connect(migratedClient.transport)).rejects.toBeInstanceOf(
+      UnauthorizedError
+    );
+    await migratedClient.transport.finishAuth(await takeAuthorizationCallback(provider));
+    await migratedClient.client.close().catch(() => undefined);
+    const replacementClient = await createClient(provider, honestOriginalAuthorizationServer.url);
+    await expect(
+      replacementClient.client.connect(replacementClient.transport)
+    ).resolves.toBeUndefined();
+    await expect(replacementClient.client.listTools()).resolves.toEqual({ tools: [] });
+
+    expect(honestReplacementAuthorizationServer.dcrRequests).toHaveLength(1);
+    expect(honestReplacementAuthorizationServer.authorizationRequests[0]?.get('client_id')).toBe(
+      'honest-replacement-client'
+    );
+    expect(honestReplacementAuthorizationServer.tokenRequests[0]?.get('client_id')).toBe(
+      'honest-replacement-client'
+    );
+    expect(
+      honestReplacementAuthorizationServer.authorizationRequests.some(
+        (request) => request.get('client_id') === 'honest-original-client'
+      )
+    ).toBe(false);
+    await replacementClient.client.close();
     await provider.close();
   });
 

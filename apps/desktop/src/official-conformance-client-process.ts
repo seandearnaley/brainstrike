@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { runProductionMcpConformanceClient } from './mcp/official-conformance-client';
 import {
-  OfficialAuthScenarioNameSchema,
+  AllOfficialAuthScenarioNameSchema,
   parseOfficialAuthScenarioContext,
 } from './mcp/official-conformance-oauth';
 
@@ -35,7 +35,7 @@ export function parseOfficialConformanceProcessInput(
     scenario: environment['MCP_CONFORMANCE_SCENARIO'],
     serverUrl: argv[0],
   });
-  const authScenario = OfficialAuthScenarioNameSchema.safeParse(parsed.scenario);
+  const authScenario = AllOfficialAuthScenarioNameSchema.safeParse(parsed.scenario);
   if (authScenario.success) {
     parseOfficialAuthScenarioContext(authScenario.data, context);
   } else if (context !== undefined) {

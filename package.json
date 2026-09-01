@@ -120,6 +120,7 @@
     "test:vector": "pnpm --filter @brainstrike/db test:vector",
     "type-check": "node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run type-check --summarize --log-order=grouped",
     "verify:mcp": "node scripts/run-mcp-verification.mjs",
+    "verify:mcp:official": "pnpm --filter @brainstrike/assistant-contract build && pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main && node scripts/run-official-mcp-client-conformance.mjs",
     "vercel:build": "pnpm build:web",
     "vercel:dev": "pnpm dev --filter @brainstrike/web"
   },

@@ -430,6 +430,9 @@ test('writes exact-head prerelease advisory evidence with only fixed result data
     required: false,
     version: '0.2.0-alpha.10',
   });
+  assert.equal(evidence.schemaVersion, '1.0.0');
+  assert.equal(evidence.ticket, 'BST-1560');
+  assert.equal('profile' in evidence, false);
   assert.equal(JSON.stringify(evidence).includes('credential-bearing child diagnostic'), false);
 
   const directory = mkdtempSync(path.join(tmpdir(), 'bst-1560-evidence-'));

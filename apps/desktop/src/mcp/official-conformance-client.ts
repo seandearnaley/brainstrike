@@ -9,9 +9,11 @@ import {
 } from './host-runtime';
 import { createOfficialConformanceAuthorizationOpener } from './official-conformance-authorization';
 import {
+  AllOfficialAuthScenarioNameSchema,
+  BaselineOfficialAuthScenarioNameSchema,
   createEphemeralOfficialConformanceOAuthRuntime,
+  ModernOnlyOfficialAuthScenarioNameSchema,
   type OfficialAuthScenarioName,
-  OfficialAuthScenarioNameSchema,
 } from './official-conformance-oauth';
 
 const CONFORMANCE_SERVER_ID = parseConfiguredMcpServerId('official-conformance');
@@ -39,7 +41,13 @@ const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
   z.strictObject({
     context: z.string().optional(),
     protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
-    scenario: OfficialAuthScenarioNameSchema,
+    scenario: BaselineOfficialAuthScenarioNameSchema,
+    serverUrl: z.string().min(1),
+  }),
+  z.strictObject({
+    context: z.string().optional(),
+    protocolVersion: z.literal('2026-07-28'),
+    scenario: ModernOnlyOfficialAuthScenarioNameSchema,
     serverUrl: z.string().min(1),
   }),
 ]);
@@ -109,7 +117,7 @@ function clientCapabilitiesForScenario(
 }
 
 function isOfficialAuthScenario(value: string): value is OfficialAuthScenarioName {
-  return OfficialAuthScenarioNameSchema.safeParse(value).success;
+  return AllOfficialAuthScenarioNameSchema.safeParse(value).success;
 }
 
 function isToolScenario(value: ProductionConformanceInput['scenario']): value is ToolScenario {

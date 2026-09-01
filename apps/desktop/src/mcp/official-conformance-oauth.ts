@@ -1,4 +1,11 @@
 // biome-ignore-all lint/style/useNamingConvention: canonical MCP conformance and OAuth wire fields use snake_case.
+
+import {
+  OFFICIAL_AUTH_BASELINE_SCENARIOS,
+  OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS,
+  OFFICIAL_AUTH_SCENARIOS,
+  type OfficialAuthScenarioName,
+} from '@brainstrike/assistant-contract/official-auth-conformance';
 import type { StoredOAuthClientInformation } from '@modelcontextprotocol/client';
 import { z } from 'zod';
 import type { DesktopMcpHostRuntimeDependencies } from './host-runtime';
@@ -6,24 +13,14 @@ import { createInMemoryMcpOAuthStore, createMcpOAuthClientProvider } from './oau
 
 const NonEmpty = z.string().min(1);
 const CIMD_CLIENT_METADATA_URL = 'https://conformance-test.local/client-metadata.json';
-export const OFFICIAL_AUTH_SCENARIO_NAMES = [
-  'auth/metadata-default',
-  'auth/metadata-var1',
-  'auth/metadata-var2',
-  'auth/metadata-var3',
-  'auth/basic-cimd',
-  'auth/scope-from-www-authenticate',
-  'auth/scope-from-scopes-supported',
-  'auth/scope-omitted-when-undefined',
-  'auth/scope-step-up',
-  'auth/scope-retry-limit',
-  'auth/token-endpoint-auth-basic',
-  'auth/token-endpoint-auth-post',
-  'auth/token-endpoint-auth-none',
-  'auth/pre-registration',
-] as const;
-export type OfficialAuthScenarioName = (typeof OFFICIAL_AUTH_SCENARIO_NAMES)[number];
-export const OfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_SCENARIO_NAMES);
+export const OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_BASELINE_SCENARIOS;
+export const MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS;
+export type { OfficialAuthScenarioName };
+export const BaselineOfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_BASELINE_SCENARIOS);
+export const AllOfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_SCENARIOS);
+export const ModernOnlyOfficialAuthScenarioNameSchema = z.enum(
+  MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES
+);
 const OfficialConformanceOAuthContextSchema = z.discriminatedUnion('name', [
   z.strictObject({
     client_id: NonEmpty,

@@ -58,13 +58,9 @@ jobs:
         with:
           turbo-cache: 'true'
 
-      - name: Build official MCP client dependencies and entry
-        timeout-minutes: 4
-        run: pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main
-
       - name: Run official MCP auth conformance
-        timeout-minutes: 3
-        run: node scripts/run-official-mcp-client-conformance.mjs
+        timeout-minutes: 7
+        run: pnpm run verify:mcp:official
 
       - name: Upload official MCP auth evidence
         if: ${{ always() }}
@@ -72,5 +68,32 @@ jobs:
         with:
           name: mcp-official-auth-${{ github.sha }}
           path: packages/mcp-test-lab/artifacts/official-auth-evidence.json
+          if-no-files-found: error
+          retention-days: 14
+
+  official_modern_auth:
+    name: Official MCP modern auth closeout (advisory prerelease)
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    timeout-minutes: 18
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Run official MCP modern auth closeout
+        timeout-minutes: 14
+        run: pnpm run verify:mcp:official -- --profile modern-closeout
+
+      - name: Upload official MCP modern auth evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-official-modern-auth-${{ github.sha }}
+          path: packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json
           if-no-files-found: error
           retention-days: 14

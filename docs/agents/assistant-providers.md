@@ -2255,8 +2255,12 @@ The production conformance client entry lives in
 `apps/desktop/src/mcp/official-conformance-client.ts`. It accepts only a
 validated server URL, exact `2025-11-25` or `2026-07-28` protocol revision, and
 the non-auth `initialize`, `tools_call`, `elicitation-sep1034-client-defaults`,
-or `sse-retry` scenario, plus the exact fourteen-name alpha.10 auth suite in
-upstream order. The last two non-auth scenarios are accepted only at
+or `sse-retry` scenario, plus the exact fourteen-name alpha.10 auth baseline in
+upstream order and the exact eleven-name modern auth closeout. The eleven
+resource, offline-access, authorization-server migration, authorization-response
+issuer, and metadata-issuer scenarios are accepted only at `2026-07-28`; the
+client schema rejects a fabricated `2025-11-25` pairing before runtime creation.
+The last two non-auth scenarios are accepted only at
 `2025-11-25`, matching their alpha.10 applicability window. It builds configuration
 through the production loader, creates a fresh `DesktopMcpHostRuntime`, and
 drives list/call through `McpHostPort`; it never constructs a parallel SDK
@@ -2290,9 +2294,24 @@ through `process.execPath` and argv arrays rather than platform-specific
 package-manager shims. The exact upstream alpha.10 CLI manifests have fourteen
 auth scenarios at `2025-11-25` and 25 at `2026-07-28`. BST-1560 runs its reviewed
 fourteen-scenario production-auth profile once at each declared revision in
-exactly two parallel revision waves; the eleven modern-only resource,
-offline-access, issuer, and migration scenarios are owned by BST-1576 and block
-any complete official-auth claim. Every invocation uses
+exactly two parallel revision waves. The production adapter and runner consume
+one typed authority in `@brainstrike/assistant-contract`; Desktop consumes its
+built subpath while repository scripts load its runtime-independent source; it
+owns scenario manifests and each profile's evidence path, ticket, schema, execution strategy,
+and timeout budget. The script test independently invokes alpha.10's `list`
+command at both revisions, so the installed CLI remains the manifest oracle.
+Both root commands build the contract and Desktop main bundle before running.
+
+```bash
+pnpm run verify:mcp:official
+pnpm run verify:mcp:official -- --profile modern-closeout
+```
+
+BST-1576's closed modern profile is exactly the remaining eleven scenarios in one
+`2026-07-28` wave, and sequential scenario process ownership. Sequential ownership
+prevents one detached conformance process group's final reap from interfering with
+another scenario while retaining the same per-scenario and outer Job Object bounds.
+Every invocation uses
 official single-scenario mode, a 30-second upstream timeout and a 45-second
 outer deadline, so the official process's exit status is authoritative. The
 driver never passes `--expected-failures` or auth `--output-dir`: alpha.10's raw
@@ -2301,24 +2320,36 @@ Child stdio is not inherited. Results retain only fixed revision/scenario ids,
 pass/fail status, timings, and a closed start/timeout/cleanup/exit/runner failure
 discriminator; failures aggregate once without child diagnostics.
 
-The driver writes one atomic, mode-0600
-`packages/mcp-test-lab/artifacts/official-auth-evidence.json` file. It binds the
-exact Git head and clean/dirty state, verified empty ledgers, both wave timings,
-all 28 fixed result ids, cleanup status, and the explicit
-`{ prerelease: true, required: false }` conformance classification. No raw auth
+The baseline driver writes one atomic, mode-0600
+`packages/mcp-test-lab/artifacts/official-auth-evidence.json` file; the modern
+closeout writes only
+`packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json`.
+The baseline preserves BST-1560 schema `1.0.0` exactly and has no `profile` field;
+the modern artifact uses schema `1.1.0` and records
+`profile: "modern-closeout"`. Both bind their owning ticket, exact Git head and
+clean/dirty state, verified empty ledgers, wave timings, fixed result ids, cleanup
+status, and the explicit `{ prerelease: true, required: false }` conformance
+classification. No raw auth
 artifact directory exists. On Windows (BST-1557, a bounded child of the
 BST-1472 verifier project), the outer driver loads the existing
 `@brainstrike/windows-job-native` capability from Desktop and assigns itself to
 its kill-on-close Job Object before the first scenario spawn.
 Every child inherits that owner. Per-invocation cleanup remains isolated on
-POSIX; Windows cleanup, including a timed-out scenario, is deferred until all
-siblings in a revision wave settle, then authoritative Job membership is checked
-and any remaining descendants are terminated. Timeout, failed start, failed exit
+POSIX. Sequential Windows runs clean each scenario's descendants before starting
+the next; parallel baseline runs defer cleanup until all siblings in a revision
+wave settle so one scenario cannot terminate another. Authoritative Job membership
+is then checked and remaining descendants are terminated. Timeout, failed start, failed exit
 and cleanup failure remain visible;
 there is no process-enumeration fallback. The bundled desktop process entry
 accepts only the exact auth context rules above and otherwise emits one fixed
 stderr line. The official package remains prerelease advisory evidence, never a
 required release claim.
+
+The modern workflow step has a ten-minute timeout: eleven sequential 45-second
+deadlines consume at most 495 seconds, leaving 105 seconds for runner setup,
+cleanup, and evidence persistence. Its 18-minute advisory job also reserves four
+minutes for the build and four for workflow setup/upload. Contract tests compare
+these values to the shared descriptor; per-scenario deadlines are not shortened.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
@@ -2627,6 +2658,32 @@ provider fetch must be passed to the SDK transport for refresh coalescing and
 disconnect fencing to apply. The later UX ticket owns the explicit
 Authenticate/Reauthorize action and the startup `authentication_required`
 projection; no background connection may open a browser implicitly.
+
+The `2026-07-28` authorization-server migration contract requires a challenged
+bearer request to rediscover protected-resource metadata before selecting the next
+authorization server. A context-free token read marks that issuer's discovery stale;
+reads and unrelated saves neither consume nor clear it. Only successful replacement
+token persistence for that issuer clears the mark (close/reset clears all), forcing
+fresh PRM while remaining bounded by persisted issuer records. Callback-leg discovery
+remains available for RFC 9207 `iss` validation. Client information, tokens, and discovery
+remain issuer-partitioned, so migration re-registers instead of replaying credentials.
+
+Deterministic production-provider coverage lives in
+`apps/desktop/src/__tests__/main/mcp-oauth-client-provider.integration.test.ts`.
+It observes resource mismatch before DCR/authorization, `offline_access` inclusion
+only when AS metadata supports it, the required RFC 9207 response matrix,
+metadata-issuer rejection before endpoint use, and a real two-AS migration with
+replacement registration and no original-AS credential reuse. The alpha.10
+closeout remains the final 11/11 fixture proof; an always-connected host mock is
+not security evidence.
+
+Canonical basis: the [MCP 2026-07-28 authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)
+requires strict authorization-response issuer validation and issuer-bound client
+credentials; RFC 9207 requires validation before code redemption; RFC 8707 and RFC
+9728 define resource binding and protected-resource metadata. The installed
+alpha.10 package resolves to npm `gitHead`
+`a9896553900a2ef61787b57adfcbbe936a8ab1f9`; its CLI is the applicability authority,
+not later upstream `main`.
 
 The package exports `./faults` only after every fault variant, declaration key,
 match key, occurrence, reachability rule, and coordinate shape is validated.
