@@ -2294,8 +2294,16 @@ through `process.execPath` and argv arrays rather than platform-specific
 package-manager shims. The exact upstream alpha.10 CLI manifests have fourteen
 auth scenarios at `2025-11-25` and 25 at `2026-07-28`. BST-1560 runs its reviewed
 fourteen-scenario production-auth profile once at each declared revision in
-exactly two parallel revision waves. BST-1576 owns the separate closed
-`--profile modern-closeout`: exactly the remaining eleven scenarios, exactly one
+exactly two parallel revision waves. The production adapter and runner consume
+one typed authority at
+`@brainstrike/assistant-contract/official-auth-conformance`; it owns scenario
+manifests and each profile's evidence path, ticket, schema, execution strategy,
+and timeout budget. The script test independently invokes alpha.10's `list`
+command at both revisions, so the installed CLI remains the manifest oracle.
+Run the baseline with `pnpm run verify:mcp:official` and the closeout with
+`pnpm run verify:mcp:official -- --profile modern-closeout`.
+
+BST-1576's closed modern profile is exactly the remaining eleven scenarios in one
 `2026-07-28` wave, and sequential scenario process ownership. Sequential ownership
 prevents one detached conformance process group's final reap from interfering with
 another scenario while retaining the same per-scenario and outer Job Object bounds.
@@ -2312,22 +2320,32 @@ The baseline driver writes one atomic, mode-0600
 `packages/mcp-test-lab/artifacts/official-auth-evidence.json` file; the modern
 closeout writes only
 `packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json`.
-Each binds its closed profile, owning ticket, exact Git head and clean/dirty state,
-verified empty ledgers, wave timings, fixed result ids, cleanup status, and the explicit
-`{ prerelease: true, required: false }` conformance classification. No raw auth
+The baseline preserves BST-1560 schema `1.0.0` exactly and has no `profile` field;
+the modern artifact uses schema `1.1.0` and records
+`profile: "modern-closeout"`. Both bind their owning ticket, exact Git head and
+clean/dirty state, verified empty ledgers, wave timings, fixed result ids, cleanup
+status, and the explicit `{ prerelease: true, required: false }` conformance
+classification. No raw auth
 artifact directory exists. On Windows (BST-1557, a bounded child of the
 BST-1472 verifier project), the outer driver loads the existing
 `@brainstrike/windows-job-native` capability from Desktop and assigns itself to
 its kill-on-close Job Object before the first scenario spawn.
 Every child inherits that owner. Per-invocation cleanup remains isolated on
-POSIX; Windows cleanup, including a timed-out scenario, is deferred until all
-siblings in a revision wave settle, then authoritative Job membership is checked
-and any remaining descendants are terminated. Timeout, failed start, failed exit
+POSIX. Sequential Windows runs clean each scenario's descendants before starting
+the next; parallel baseline runs defer cleanup until all siblings in a revision
+wave settle so one scenario cannot terminate another. Authoritative Job membership
+is then checked and remaining descendants are terminated. Timeout, failed start, failed exit
 and cleanup failure remain visible;
 there is no process-enumeration fallback. The bundled desktop process entry
 accepts only the exact auth context rules above and otherwise emits one fixed
 stderr line. The official package remains prerelease advisory evidence, never a
 required release claim.
+
+The modern workflow step has a ten-minute timeout: eleven sequential 45-second
+deadlines consume at most 495 seconds, leaving 105 seconds for runner setup,
+cleanup, and evidence persistence. Its 18-minute advisory job also reserves four
+minutes for the build and four for workflow setup/upload. Contract tests compare
+these values to the shared descriptor; per-scenario deadlines are not shortened.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
@@ -2646,6 +2664,15 @@ persisted until bearer use so RFC 9207 `iss` validation still compares against t
 issuer recorded before authorization. Client information, tokens, and discovery
 remain issuer-partitioned, so migration re-registers instead of replaying credentials
 from the previous authorization server.
+
+Deterministic production-provider coverage lives in
+`apps/desktop/src/__tests__/main/mcp-oauth-client-provider.integration.test.ts`.
+It observes resource mismatch before DCR/authorization, `offline_access` inclusion
+only when AS metadata supports it, the required RFC 9207 response matrix,
+metadata-issuer rejection before endpoint use, and a real two-AS migration with
+replacement registration and no original-AS credential reuse. The alpha.10
+closeout remains the final 11/11 fixture proof; an always-connected host mock is
+not security evidence.
 
 Canonical basis: the [MCP 2026-07-28 authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)
 requires strict authorization-response issuer validation and issuer-bound client

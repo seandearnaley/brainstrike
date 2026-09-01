@@ -324,6 +324,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.8
         version: 2.5.8
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:packages/assistant-contract
       '@commitlint/cli':
         specifier: ^21.2.2
         version: 21.2.2(@types/node@24.13.3)(@typescript/typescript6@6.0.2)

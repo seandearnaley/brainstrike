@@ -73,10 +73,18 @@ test('runs the modern-only profile as one sequentially owned wave and rejects sh
   });
   let active = 0;
   let maxActive = 0;
+  const windowsJob = {
+    activeProcessCount: () => 1,
+    initialize: () => undefined,
+    terminateOtherProcesses: () => 0,
+  };
   const report = await runOfficialClientInvocations(invocations, {
+    loadWindowsJob: () => windowsJob,
+    platform: 'win32',
     profile: 'modern-closeout',
     runInvocation: async (_invocation, options) => {
       assert.equal(options.deadlineMs, 45_000);
+      assert.equal(options.deferWindowsCleanup, false);
       active += 1;
       maxActive = Math.max(maxActive, active);
       await new Promise((resolve) => setImmediate(resolve));

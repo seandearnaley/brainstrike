@@ -5,59 +5,21 @@ import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  OFFICIAL_AUTH_BASELINE_SCENARIOS,
+  OFFICIAL_AUTH_CONFORMANCE_PROFILES,
+  OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS,
+  OFFICIAL_AUTH_PROTOCOL_VERSIONS,
+  OFFICIAL_AUTH_SCENARIOS_BY_PROTOCOL,
+} from '@brainstrike/assistant-contract/official-auth-conformance';
 
 const CONFORMANCE_VERSION = '0.2.0-alpha.10';
 const CLIENT_COMMAND = 'node apps/desktop/dist/official-conformance-client-entry.js';
-const PROTOCOL_VERSIONS = ['2025-11-25', '2026-07-28'];
 const BASELINE_PROFILE = 'baseline';
 const MODERN_CLOSEOUT_PROFILE = 'modern-closeout';
-export const OFFICIAL_AUTH_SCENARIOS = [
-  'auth/metadata-default',
-  'auth/metadata-var1',
-  'auth/metadata-var2',
-  'auth/metadata-var3',
-  'auth/basic-cimd',
-  'auth/scope-from-www-authenticate',
-  'auth/scope-from-scopes-supported',
-  'auth/scope-omitted-when-undefined',
-  'auth/scope-step-up',
-  'auth/scope-retry-limit',
-  'auth/token-endpoint-auth-basic',
-  'auth/token-endpoint-auth-post',
-  'auth/token-endpoint-auth-none',
-  'auth/pre-registration',
-];
-export const OFFICIAL_MODERN_AUTH_SCENARIOS = [
-  'auth/resource-mismatch',
-  'auth/offline-access-scope',
-  'auth/offline-access-not-supported',
-  'auth/authorization-server-migration',
-  'auth/iss-supported',
-  'auth/iss-not-advertised',
-  'auth/iss-supported-missing',
-  'auth/iss-wrong-issuer',
-  'auth/iss-unexpected',
-  'auth/iss-normalized',
-  'auth/metadata-issuer-mismatch',
-];
-export const OFFICIAL_ALPHA10_AUTH_SCENARIOS = [
-  ...OFFICIAL_AUTH_SCENARIOS,
-  ...OFFICIAL_MODERN_AUTH_SCENARIOS,
-];
-export const OFFICIAL_ALPHA10_AUTH_SCENARIOS_BY_PROTOCOL = Object.freeze({
-  '2025-11-25': OFFICIAL_AUTH_SCENARIOS,
-  '2026-07-28': OFFICIAL_ALPHA10_AUTH_SCENARIOS,
-});
-const OFFICIAL_AUTH_PROFILE_SCENARIOS = Object.freeze({
-  [BASELINE_PROFILE]: Object.freeze({
-    '2025-11-25': OFFICIAL_AUTH_SCENARIOS,
-    '2026-07-28': OFFICIAL_AUTH_SCENARIOS,
-  }),
-  [MODERN_CLOSEOUT_PROFILE]: Object.freeze({
-    '2026-07-28': OFFICIAL_MODERN_AUTH_SCENARIOS,
-  }),
-});
-const SCENARIO_DEADLINE_MS = 45_000;
+export const OFFICIAL_AUTH_SCENARIOS = OFFICIAL_AUTH_BASELINE_SCENARIOS;
+export const OFFICIAL_MODERN_AUTH_SCENARIOS = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS;
+export const OFFICIAL_ALPHA10_AUTH_SCENARIOS_BY_PROTOCOL = OFFICIAL_AUTH_SCENARIOS_BY_PROTOCOL;
 const WINDOWS_JOB_CLEANUP_TIMEOUT_MS = 2000;
 const WINDOWS_JOB_POLL_INTERVAL_MS = 10;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -65,11 +27,11 @@ const requireDesktopDependency = createRequire(path.join(REPO_ROOT, 'apps/deskto
 const initializedWindowsJobs = new WeakSet();
 export const OFFICIAL_EVIDENCE_PATH = path.join(
   REPO_ROOT,
-  'packages/mcp-test-lab/artifacts/official-auth-evidence.json'
+  OFFICIAL_AUTH_CONFORMANCE_PROFILES.baseline.evidencePath
 );
 export const OFFICIAL_MODERN_AUTH_EVIDENCE_PATH = path.join(
   REPO_ROOT,
-  'packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json'
+  OFFICIAL_AUTH_CONFORMANCE_PROFILES[MODERN_CLOSEOUT_PROFILE].evidencePath
 );
 const SAFE_ENVIRONMENT_NAMES = [
   'CI',
@@ -98,7 +60,7 @@ export function buildOfficialClientInvocations({
   nodePath = process.execPath,
   profile = BASELINE_PROFILE,
 }) {
-  const scenariosByProtocol = officialAuthProfileScenarios(profile);
+  const scenariosByProtocol = officialAuthProfileDescriptor(profile).scenariosByProtocol;
   return Object.entries(scenariosByProtocol).flatMap(([protocolVersion, scenarios]) =>
     scenarios.map((scenario) => ({
       argv: [
@@ -120,12 +82,11 @@ export function buildOfficialClientInvocations({
   );
 }
 
-function officialAuthProfileScenarios(profile) {
-  const scenarios = OFFICIAL_AUTH_PROFILE_SCENARIOS[profile];
-  if (scenarios === undefined) {
+export function officialAuthProfileDescriptor(profile) {
+  if (!Object.hasOwn(OFFICIAL_AUTH_CONFORMANCE_PROFILES, profile)) {
     throw new Error('Official MCP auth conformance profile is invalid');
   }
-  return scenarios;
+  return OFFICIAL_AUTH_CONFORMANCE_PROFILES[profile];
 }
 
 export function parseOfficialAuthProfile(argv) {
@@ -139,10 +100,7 @@ export function parseOfficialAuthProfile(argv) {
 }
 
 function evidencePathForProfile(profile) {
-  officialAuthProfileScenarios(profile);
-  return profile === MODERN_CLOSEOUT_PROFILE
-    ? OFFICIAL_MODERN_AUTH_EVIDENCE_PATH
-    : OFFICIAL_EVIDENCE_PATH;
+  return path.join(REPO_ROOT, officialAuthProfileDescriptor(profile).evidencePath);
 }
 
 export function validateExpectedFailureLedgers(
@@ -150,13 +108,15 @@ export function validateExpectedFailureLedgers(
   { readDirectory = readdirSync, readFile = readFileSync } = {}
 ) {
   const ledgerRoot = path.join(repoRoot, 'packages/mcp-test-lab/conformance/expected-failures');
-  const expectedFiles = PROTOCOL_VERSIONS.map((protocolVersion) => `${protocolVersion}.json`);
+  const expectedFiles = OFFICIAL_AUTH_PROTOCOL_VERSIONS.map(
+    (protocolVersion) => `${protocolVersion}.json`
+  );
   const actualFiles = [...readDirectory(ledgerRoot)].sort();
   if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
     throw new Error('Official MCP expected-failure ledger files are invalid');
   }
   return Object.fromEntries(
-    PROTOCOL_VERSIONS.map((protocolVersion) => {
+    OFFICIAL_AUTH_PROTOCOL_VERSIONS.map((protocolVersion) => {
       let ledger;
       try {
         ledger = JSON.parse(readFile(path.join(ledgerRoot, `${protocolVersion}.json`), 'utf8'));
@@ -189,11 +149,11 @@ export function buildOfficialAuthEvidence({
   report,
   startedAt,
 }) {
-  officialAuthProfileScenarios(profile);
+  const descriptor = officialAuthProfileDescriptor(profile);
   const results = report.waves.flatMap((wave) => wave.results);
   const passed = results.filter((result) => result.status === 'passed').length;
   const failed = results.length - passed;
-  return {
+  const evidence = {
     completedAt,
     conformance: {
       package: '@modelcontextprotocol/conformance',
@@ -203,8 +163,7 @@ export function buildOfficialAuthEvidence({
     },
     expectedFailures: ledgers,
     git,
-    profile,
-    schemaVersion: '1.1.0',
+    schemaVersion: descriptor.schemaVersion,
     startedAt,
     summary: {
       cleanup: report.failureIds.some((id) => id.endsWith('/cleanup')) ? 'failed' : 'confirmed',
@@ -212,9 +171,10 @@ export function buildOfficialAuthEvidence({
       failed,
       passed,
     },
-    ticket: profile === MODERN_CLOSEOUT_PROFILE ? 'BST-1576' : 'BST-1560',
+    ticket: descriptor.ticket,
     waves: report.waves,
   };
+  return descriptor.evidenceProfile ? { ...evidence, profile } : evidence;
 }
 
 export function writeOfficialAuthEvidence(outputPath, evidence) {
@@ -498,7 +458,7 @@ export async function runOfficialClientInvocations(
   invocations,
   {
     cwd,
-    deadlineMs = SCENARIO_DEADLINE_MS,
+    deadlineMs,
     env = buildControlledEnvironment(),
     loadWindowsJob = loadWindowsJobNative,
     now = Date.now,
@@ -507,7 +467,9 @@ export async function runOfficialClientInvocations(
     runInvocation = runOfficialClientInvocation,
   } = {}
 ) {
-  const scenariosByProtocol = officialAuthProfileScenarios(profile);
+  const descriptor = officialAuthProfileDescriptor(profile);
+  const scenariosByProtocol = descriptor.scenariosByProtocol;
+  const invocationDeadlineMs = deadlineMs ?? descriptor.scenarioDeadlineMs;
   const profileProtocols = Object.keys(scenariosByProtocol);
   const canonicalInvocations = profileProtocols.flatMap((protocolVersion) =>
     scenariosByProtocol[protocolVersion].map((scenario) => ({
@@ -539,8 +501,9 @@ export async function runOfficialClientInvocations(
       try {
         await runInvocation(invocation, {
           cwd,
-          deadlineMs,
-          deferWindowsCleanup: platform === 'win32',
+          deadlineMs: invocationDeadlineMs,
+          deferWindowsCleanup:
+            platform === 'win32' && descriptor.execution === 'parallel-by-protocol',
           env,
           platform,
           windowsJob,
@@ -556,7 +519,7 @@ export async function runOfficialClientInvocations(
       }
     };
     const results = [];
-    if (profile === MODERN_CLOSEOUT_PROFILE) {
+    if (descriptor.execution === 'sequential') {
       for (const invocation of wave) {
         results.push(await runScenario(invocation));
       }

@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.8",
+    "@brainstrike/assistant-contract": "workspace:*",
     "@commitlint/cli": "^21.2.2",
     "@commitlint/config-conventional": "^21.2.2",
     "@commitlint/types": "^21.2.0",
@@ -120,6 +121,7 @@
     "test:vector": "pnpm --filter @brainstrike/db test:vector",
     "type-check": "node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run type-check --summarize --log-order=grouped",
     "verify:mcp": "node scripts/run-mcp-verification.mjs",
+    "verify:mcp:official": "node scripts/run-official-mcp-client-conformance.mjs",
     "vercel:build": "pnpm build:web",
     "vercel:dev": "pnpm dev --filter @brainstrike/web"
   },

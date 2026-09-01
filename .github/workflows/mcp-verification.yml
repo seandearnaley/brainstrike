@@ -64,7 +64,7 @@ jobs:
 
       - name: Run official MCP auth conformance
         timeout-minutes: 3
-        run: node scripts/run-official-mcp-client-conformance.mjs
+        run: pnpm run verify:mcp:official
 
       - name: Upload official MCP auth evidence
         if: ${{ always() }}
@@ -79,7 +79,7 @@ jobs:
     name: Official MCP modern auth closeout (advisory prerelease)
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
-    timeout-minutes: 8
+    timeout-minutes: 18
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -94,8 +94,8 @@ jobs:
         run: pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main
 
       - name: Run official MCP modern auth closeout
-        timeout-minutes: 3
-        run: node scripts/run-official-mcp-client-conformance.mjs --profile modern-closeout
+        timeout-minutes: 10
+        run: pnpm run verify:mcp:official -- --profile modern-closeout
 
       - name: Upload official MCP modern auth evidence
         if: ${{ always() }}

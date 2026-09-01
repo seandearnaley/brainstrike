@@ -66,6 +66,11 @@
       "import": "./dist/mcp-host-runtime.js",
       "require": "./dist/mcp-host-runtime.js"
     },
+    "./official-auth-conformance": {
+      "types": "./dist/official-auth-conformance.d.ts",
+      "import": "./dist/official-auth-conformance.js",
+      "require": "./dist/official-auth-conformance.js"
+    },
     "./citation-markers": {
       "types": "./dist/citation-markers.d.ts",
       "import": "./dist/citation-markers.js",
