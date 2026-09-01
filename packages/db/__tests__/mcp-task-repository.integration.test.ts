@@ -229,6 +229,56 @@ describe('McpTaskRepository', () => {
     ).rejects.toThrow(TypeError);
   });
 
+  it('lists only resumable tasks for one exact live identity scope', async () => {
+    await openNumbered();
+    const repository = new McpTaskRepository(db);
+    await repository.create(
+      { ...identity, status: 'working', taskId: 'working' },
+      currentGeneration
+    );
+    await repository.create(
+      {
+        ...identity,
+        inputMetadata: { prompt: 'choose' },
+        status: 'input_required',
+        taskId: 'input',
+      },
+      currentGeneration
+    );
+    await repository.create(
+      {
+        ...identity,
+        resultMetadata: { answer: 42 },
+        status: 'completed',
+        taskId: 'completed',
+      },
+      currentGeneration
+    );
+    await repository.create(
+      {
+        ...identity,
+        generation: 8,
+        status: 'working',
+        taskId: 'replacement',
+      },
+      { currentGeneration: 8 }
+    );
+    await repository.create(
+      {
+        ...identity,
+        principalId: 'other',
+        status: 'working',
+        taskId: 'other-principal',
+      },
+      currentGeneration
+    );
+
+    await expect(repository.listActive(identity)).resolves.toMatchObject([
+      { ...identity, status: 'working', taskId: 'working' },
+      { ...identity, status: 'input_required', taskId: 'input' },
+    ]);
+  });
+
   it('rejects malformed inputs and corrupted persisted rows', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);
