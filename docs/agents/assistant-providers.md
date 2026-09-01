@@ -2016,12 +2016,15 @@ Reset aborts and drains registered creates before the authority and task tables
 are cleared, so a late insert cannot repopulate a fresh database. If PostgreSQL's canonical JSONB
 representation exceeds the durable budget, the lifecycle persists the remote
 status plus a bounded blocked diagnostic (field, exact byte count, limit, and
-SHA-256) and no raw payload; the row is terminal to local recovery rather than
-remaining a false-green `working` handle.
+SHA-256) and no raw payload; it publishes neither the rejected remote state nor
+an interaction event, so oversized input cannot trigger `tasks/update`. The row
+is terminal to local recovery rather than remaining a false-green `working`
+handle.
 Server replacement, removal, disconnect, reset, restart, lifecycle close, and
 caller cancellation abort timers, queued permits, and in-flight requests; a
 late stale-authority response cannot publish. The poller rejects a mismatched
-task id, terminally exposes bounded transport-attempt exhaustion, honors
+task id, terminally exposes the single canonical `maxTransportFailures`
+transport-attempt budget, honors
 changing `pollIntervalMs`, treats `ttlMs` as a lifetime backstop, and creates no
 subscription lease. This remains opt-in substrate: production registration,
 mid-flight input/cancellation interactions, renderer controls, and support

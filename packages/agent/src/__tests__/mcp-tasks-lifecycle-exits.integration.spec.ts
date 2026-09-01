@@ -8,6 +8,7 @@ import {
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { McpTaskInteraction } from '../mcp/tasks-interaction.js';
 import {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
   McpTaskLifecycle,
@@ -271,6 +272,48 @@ describe('McpTaskLifecycle exit fencing', () => {
       expect.objectContaining({ cause: failure })
     );
     expectNoLifecycleLeaks(lifecycle);
+  });
+
+  it('uses maxTransportFailures as the sole bounded observation-attempt budget', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(CREATED_AT));
+    db = await openDatabase();
+    const transportFailure = new Error('transport unavailable');
+    const requestExtension = vi.fn(() => Promise.reject(transportFailure));
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: { requestExtension },
+      limits: {
+        ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
+        initialPollMs: 10,
+        maxBackoffMs: 40,
+        maxTransportFailures: 1,
+        minimumPollMs: 10,
+      },
+      onUpdate: vi.fn(),
+      repository,
+    });
+    const tracked = await lifecycle.track(task('task-single-attempt', { pollIntervalMs: 10 }));
+    const observeFailure = vi.fn();
+    void tracked.settled.catch(observeFailure);
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    try {
+      expect(observeFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cause: transportFailure,
+          failures: 1,
+          taskId: 'task-single-attempt',
+        })
+      );
+      expect(requestExtension).toHaveBeenCalledOnce();
+    } finally {
+      await lifecycle.stop('closed');
+      expectNoLifecycleLeaks(lifecycle);
+    }
   });
 
   it('exposes bounded transport exhaustion as the terminal observation failure', async () => {
@@ -557,6 +600,98 @@ describe('McpTaskLifecycle exit fencing', () => {
         authority
       )
     ).rejects.toThrow(/blockedDiagnostic values are invalid/u);
+  });
+
+  it('does not publish oversized input state or send tasks/update after blocking it durably', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(CREATED_AT));
+    db = await openDatabase();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const rawSentinel = `oversized-input-${'x'.repeat(7000)}`;
+    const observationPort = new McpTaskObservationPort();
+    const elicitation = vi.fn(async () => ({ action: 'decline' as const }));
+    const updateTask = vi.fn(async () => ({ resultType: 'complete' as const }));
+    const neverCloses = Promise.withResolvers<void>();
+    const interaction = new McpTaskInteraction({
+      client: {
+        listenTasks: vi.fn(async () => ({
+          close: vi.fn(async () => undefined),
+          closed: neverCloses.promise,
+          honoredTaskIds: [],
+        })),
+        requestExtension: updateTask,
+      },
+      elicitation: { form: true, handle: elicitation, url: false },
+      observationPort,
+      scope: {
+        authorityEpoch: authority.authorityEpoch,
+        principalId: authority.principalId,
+        resource: authority.resource,
+        serverId: authority.serverId,
+      },
+    });
+    const onUpdate = vi.fn();
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: {
+        requestExtension: vi.fn(
+          async (): Promise<GetTaskResult> => ({
+            createdAt: CREATED_AT,
+            inputRequests: {
+              ...Object.fromEntries(
+                Array.from({ length: 10 }, (_, index) => `approval-${index}`).map((inputKey) => [
+                  inputKey,
+                  {
+                    method: 'elicitation/create' as const,
+                    params: {
+                      message: `${inputKey}:${rawSentinel}`,
+                      mode: 'form' as const,
+                      requestedSchema: {
+                        properties: { approved: { type: 'boolean' as const } },
+                        required: ['approved'],
+                        type: 'object' as const,
+                      },
+                    },
+                  },
+                ])
+              ),
+            },
+            lastUpdatedAt: '2026-09-01T05:00:00.100Z',
+            resultType: 'task',
+            status: 'input_required',
+            taskId: 'task-oversized-input',
+            ttlMs: 10_000,
+          })
+        ),
+      },
+      observationPort,
+      onUpdate,
+      repository,
+    });
+    await interaction.start(['task-oversized-input']);
+    const tracked = await lifecycle.track(task('task-oversized-input'));
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    const settled = await tracked.settled;
+    expect(settled).toMatchObject({
+      blockedDiagnostic: {
+        code: 'mcp_task_state_too_large',
+        field: 'inputMetadata',
+        remoteStatus: 'input_required',
+      },
+      status: 'input_required',
+    });
+    expect(JSON.stringify(settled)).not.toContain(rawSentinel);
+    expect(onUpdate).toHaveBeenCalledWith(settled);
+    try {
+      expect(elicitation.mock.calls.length).toBe(0);
+      expect(updateTask.mock.calls.length).toBe(0);
+    } finally {
+      await interaction.close();
+      expectNoLifecycleLeaks(lifecycle);
+    }
   });
 
   it('waits for an in-flight create before reset clears the real database', async () => {
