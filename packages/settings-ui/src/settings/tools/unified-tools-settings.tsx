@@ -6,7 +6,7 @@
  * dense tool rows, and integrated MCP status display.
  */
 
-import { MCP_SUPPORT_MATRIX, type McpHostControlRequest } from '@brainstrike/assistant-contract';
+import type { McpHostControlRequest } from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
@@ -26,6 +26,7 @@ import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { McpConfigPanel } from './mcp-config-panel';
 import { McpServerStatusRow } from './mcp-server-status-row';
+import { McpSupportMatrix } from './mcp-support-status';
 import { TokenBudgetSummary } from './token-budget-summary';
 import type { McpConnectionStatus } from './tool-group-accordion';
 import { ToolGroupAccordion } from './tool-group-accordion';
@@ -876,57 +877,6 @@ function ToolsPanelContent({
         />
       )}
     </div>
-  );
-}
-
-function McpSupportMatrix() {
-  return (
-    <section
-      aria-labelledby="mcp-support-title"
-      className="space-y-2"
-      data-testid="mcp-support-matrix"
-    >
-      <div>
-        <h3 className="font-medium text-sm" id="mcp-support-title">
-          MCP protocol support
-        </h3>
-        <p className="text-muted-foreground text-xs">
-          Core support and optional extensions are independent capabilities.
-        </p>
-      </div>
-      <div className="space-y-2">
-        {MCP_SUPPORT_MATRIX.map((entry) => (
-          <div
-            className="rounded-md border px-3 py-2 text-sm"
-            data-implementation-ticket={entry.implementationTicket ?? ''}
-            data-status={entry.status}
-            data-testid={`mcp-support-row-${entry.id}`}
-            key={entry.id}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-medium">{entry.label}</span>
-              <span
-                className={
-                  entry.status === 'supported'
-                    ? 'text-emerald-700 dark:text-emerald-300'
-                    : 'text-muted-foreground'
-                }
-                data-testid={`mcp-support-status-${entry.id}`}
-              >
-                {entry.status === 'supported' ? 'Supported' : 'Unsupported'}
-              </span>
-            </div>
-            <div className="break-all font-mono text-muted-foreground text-xs">{entry.id}</div>
-            <p className="text-muted-foreground text-xs">{entry.evidence}</p>
-            {'requirements' in entry && (
-              <p className="text-muted-foreground text-xs">
-                Graduation gates: {entry.requirements.join(', ')}.
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }
 
