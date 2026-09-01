@@ -2219,6 +2219,23 @@ a `*.browser.test.ts` file run by the package's `test:browser`
 script in the Browser tests lane (Playwright image), never in the Unit lanes. Nothing registers this
 sandbox, advertises Apps, or implements app RPC, consent, or production UI.
 
+BST-1570 adds the still-disabled frame bridge. A bridge binds exactly one
+opaque-origin frame source and one live monotonic generation, requires the
+`ui/initialize` response plus `ui/notifications/initialized` handshake before
+normal dispatch, and applies the stable Apps/standard message parsers in both
+directions. Source or origin mismatches are reported and ignored without giving
+an unrelated frame a teardown primitive; malformed, unknown, replayed, or stale
+traffic from the bound frame fails that channel closed. Requests and
+notifications use bounded pending sets, owned deadlines and abort listeners;
+request IDs are type-sensitive and one-shot, and correlated errors are safe.
+Replacement, disconnect, close, or a bound-frame protocol failure aborts every
+inbound callback, rejects every outbound request, clears every timer, removes
+the message listener, and retires all request IDs. Real opaque-origin Chromium
+and electron-builder-packaged Electron verifiers pin replacement, failure,
+disconnect, and close quiescence; the packaged verifier asserts
+`app.isPackaged === true`. This bridge still does not own resources or consent,
+register Apps support, or expose a production renderer surface.
+
 Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
 `McpHostSnapshot` through `mcp:status:get` and revisioned
 `mcp:status:updated` events. Renderer state accepts only strictly newer
