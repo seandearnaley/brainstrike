@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseMcpConfig as parseAgentMcpConfig } from '@brainstrike/agent';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -78,6 +79,95 @@ describe('mcp-loader', () => {
       expect(() => parseMcpConfig(input)).toThrow();
     }
   });
+
+  it('composes shared semantic schemas without redeclaring policy in desktop', () => {
+    const loaderSource = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../mcp-loader.ts'),
+      'utf-8'
+    );
+    const schemaSource = loaderSource.slice(0, loaderSource.indexOf('const logger'));
+
+    expect(schemaSource).toMatch(/McpStdioServerInputSchema\.omit\(\{ auth: true \}\)\s*\.extend/u);
+    expect(schemaSource).toContain('McpStreamableHttpServerInputSchema.extend');
+    expect(schemaSource).toContain('McpSseServerInputSchema.extend');
+    expect(schemaSource).not.toMatch(
+      /McpConfiguredAuthSchema|McpProtocolEnum|resolveMcpStartupPolicy|duplicate server name/u
+    );
+    expect(schemaSource).not.toMatch(/z\.literal\('(stdio|streamable-http|sse)'\)/u);
+  });
+
+  it.each([
+    {
+      config: {
+        servers: [
+          {
+            auth: { scopes: ['read'], type: 'oauth-user' },
+            name: 'oauth',
+            protocol: 'auto',
+            transport: 'streamable-http',
+            url: 'https://example.test/mcp',
+          },
+        ],
+      },
+      expected: 'valid',
+    },
+    {
+      config: {
+        servers: [
+          {
+            args: ['-y', 'mcp-remote@latest', 'https://example.test/mcp'],
+            command: 'npx',
+            name: 'interactive',
+            protocol: 'auto',
+            transport: 'stdio',
+          },
+        ],
+      },
+      expected: 'user-paced stdio authorization requires protocol',
+    },
+    {
+      config: {
+        servers: [
+          {
+            auth: { type: 'oauth-user' },
+            name: 'automatic-oauth',
+            startup: 'automatic',
+            transport: 'streamable-http',
+            url: 'https://example.test/mcp',
+          },
+        ],
+      },
+      expected: 'OAuth user authentication requires startup',
+    },
+    {
+      config: {
+        servers: [
+          {
+            auth: { type: 'none' },
+            enabledTools: ['search'],
+            name: 'legacy-sse',
+            protocol: 'legacy',
+            transport: 'sse',
+            url: 'https://example.test/sse',
+          },
+        ],
+      },
+      expected: 'valid',
+    },
+  ] as const)(
+    'keeps canonical semantic parsing in parity for $config.servers.0.name',
+    async ({ config, expected }) => {
+      const { parseMcpConfig } = await import('../../mcp-loader');
+      const input = JSON.stringify(config);
+      if (expected === 'valid') {
+        expect(parseMcpConfig(input)).toEqual(parseAgentMcpConfig(input));
+        return;
+      }
+
+      expect(() => parseAgentMcpConfig(input)).toThrow(expected);
+      expect(() => parseMcpConfig(input)).toThrow(expected);
+    }
+  );
 
   it('requires explicit user startup for native OAuth HTTP servers', async () => {
     const { parseMcpConfig } = await import('../../mcp-loader');

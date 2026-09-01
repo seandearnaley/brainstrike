@@ -2095,10 +2095,18 @@ enum/multiselect schema; unconstrained arrays are rejected by the SDK ingress
 schema.
 
 Ownership and flow:
-1. Config — `apps/desktop/src/mcp-loader.ts` is the strict JSONC/Zod desktop
-   boundary; `packages/agent/src/mcp/config.ts` is the serializable agent
-   contract. Public renderer status exposes server name, transport, effective
-   protocol policy, and token-free migration records.
+1. Config — `packages/agent/src/mcp/config.ts` is the canonical semantic
+   authority for transport, authentication, startup, enabled-tool, protocol,
+   duplicate-name, and normalization policy. `apps/desktop/src/mcp-loader.ts`
+   composes its schemas by extending the exported canonical per-transport input
+   schemas, then layers strict JSONC objects, duplicate/forbidden source-property
+   detection, spawn/environment rules, WHATWG header checks, credential-free
+   HTTP(S) URLs, and post-decryption revalidation on top. The desktop parser's
+   empty server list is an intentional template-only mode; every non-empty list
+   passes through the canonical config schema. Never copy semantic refinements
+   or defaults back into the desktop boundary. Public renderer status exposes
+   server name, transport, effective protocol policy, and token-free migration
+   records.
 2. Official clients — `packages/agent/src/mcp/explicit-stdio-client.ts` and
    `explicit-http-client.ts`, exported only from
    `@brainstrike/agent/mcp-client`, own the stable SDK v2 split-package transports,
@@ -2119,6 +2127,14 @@ Ownership and flow:
    non-empty MCP config loads the dedicated subpath; keep split SDK packages out
    of root/browser-safe/Hosted Web bundles (the emitted-bundle verifier enforces
    this).
+   The two intentional SDK-v1 dependency islands are third-party provenance
+   owners, not production client authority: `@modelcontextprotocol/ext-apps@1.7.5`
+   belongs to `packages/mcp-app-host` for its pinned generated Apps schema, and
+   `@modelcontextprotocol/conformance@0.2.0-alpha.10` belongs to
+   `packages/mcp-test-lab` and the bounded official-runner driver. Their
+   transitive `@modelcontextprotocol/sdk@1.x` copies must remain isolated from
+   the SDK-v2 production transport graph; do not remove, hoist into production,
+   or misreport them as duplicate route ownership.
 3. Desktop clients — `apps/desktop/src/mcp/http-client.ts` adapts that shared
    client to the desktop `McpClient` discovery/call contract. `sse-client.ts`
    is only a compatibility factory delegating to the canonical adapter; no

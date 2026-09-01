@@ -59,7 +59,7 @@ export function resolveMcpStartupPolicy(server: {
   return 'automatic';
 }
 
-const StdioSchema = z.object({
+export const McpStdioServerInputSchema = z.object({
   args: z.array(z.string()).optional(),
   auth: z.never().optional(),
   command: z.string().min(1),
@@ -71,7 +71,7 @@ const StdioSchema = z.object({
   transport: z.literal('stdio'),
 });
 
-const HttpServerSchema = z.object({
+const HttpServerInputSchema = z.object({
   auth: McpConfiguredAuthSchema.optional(),
   enabledTools: z.array(z.string()).optional(),
   headers: z.record(z.string(), z.string()).optional(),
@@ -81,16 +81,20 @@ const HttpServerSchema = z.object({
   url: z.string().url(),
 });
 
-const StreamableHttpSchema = HttpServerSchema.extend({
+export const McpStreamableHttpServerInputSchema = HttpServerInputSchema.extend({
   transport: z.literal('streamable-http'),
 });
 
-const SseSchema = HttpServerSchema.extend({
+export const McpSseServerInputSchema = HttpServerInputSchema.extend({
   transport: z.literal('sse'),
 });
 
-const McpServerInputSchema = z
-  .discriminatedUnion('transport', [StdioSchema, StreamableHttpSchema, SseSchema])
+export const McpServerInputSchema = z
+  .discriminatedUnion('transport', [
+    McpStdioServerInputSchema,
+    McpStreamableHttpServerInputSchema,
+    McpSseServerInputSchema,
+  ])
   .superRefine((server, context) => {
     if (server.transport === 'sse' && server.protocol && server.protocol !== 'legacy') {
       context.addIssue({
@@ -148,7 +152,7 @@ export const McpServerSchema = McpServerInputSchema.transform((server) => ({
   startup: resolveMcpStartupPolicy(server),
 }));
 
-const McpConfigInputSchema = z
+export const McpConfigInputSchema = z
   .object({
     servers: z.array(McpServerInputSchema).min(1),
   })

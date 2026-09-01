@@ -2,15 +2,13 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {
-  isInteractiveMcpStdioServer,
-  McpProtocolEnum,
+  McpConfigSchema as CanonicalMcpConfigSchema,
+  McpServerSchema as CanonicalMcpServerSchema,
   type McpProtocolMigration,
-  resolveMcpStartupPolicy,
+  McpSseServerInputSchema,
+  McpStdioServerInputSchema,
+  McpStreamableHttpServerInputSchema,
 } from '@brainstrike/agent';
-import {
-  ConfiguredMcpServerIdSchema,
-  McpConfiguredAuthSchema,
-} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { app, safeStorage } from 'electron';
 import {
@@ -28,7 +26,6 @@ const NonEmptyStringSchema = z
   .string()
   .min(1, 'must not be empty')
   .refine((value) => value.trim().length > 0, 'must not be blank');
-const ServerNameSchema = ConfiguredMcpServerIdSchema;
 const SpawnStringSchema = z
   .string()
   .refine((value) => !value.includes('\0'), 'invalid spawn string');
@@ -98,129 +95,53 @@ const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
     }
   }
 });
-const ProtocolPolicySchema = {
-  protocol: McpProtocolEnum.optional(),
-};
-const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
-
-const StdioServerSchema = z.strictObject({
-  args: z.array(SpawnStringSchema).optional(),
-  command: NonEmptySpawnStringSchema,
-  enabledTools: z.array(z.string()).optional(),
-  env: EnvironmentSchema.optional(),
-  name: ServerNameSchema,
-  ...ProtocolPolicySchema,
-  startup: StartupPolicySchema,
-  transport: z.literal('stdio'),
-});
-
-const HttpServerSchema = z.strictObject({
-  auth: McpConfiguredAuthSchema.optional(),
-  enabledTools: z.array(z.string()).optional(),
-  headers: HeadersSchema.optional(),
-  name: ServerNameSchema,
-  ...ProtocolPolicySchema,
-  startup: StartupPolicySchema,
-  url: HttpUrlSchema,
-});
-
-const StreamableHttpServerSchema = HttpServerSchema.extend({
-  transport: z.literal('streamable-http'),
-});
-
-const SseServerSchema = HttpServerSchema.extend({
-  transport: z.literal('sse'),
-});
-
-const McpServerInputSchema = z
-  .discriminatedUnion('transport', [StdioServerSchema, StreamableHttpServerSchema, SseServerSchema])
-  .superRefine((server, context) => {
-    if (server.transport === 'sse' && server.protocol && server.protocol !== 'legacy') {
-      context.addIssue({
-        code: 'custom',
-        message: 'legacy SSE transport requires protocol "legacy"',
-        path: ['protocol'],
-      });
-    }
-    if (
-      server.transport === 'stdio' &&
-      (server.startup === 'authentication-required' ||
-        (server.startup === undefined &&
-          isInteractiveMcpStdioServer(server.command, server.args))) &&
-      server.protocol === 'auto'
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'user-paced stdio authorization requires protocol "legacy"',
-        path: ['protocol'],
-      });
-    }
-    if (
-      server.transport !== 'stdio' &&
-      server.auth !== undefined &&
-      server.auth.type !== 'none' &&
-      Object.keys(server.headers ?? {}).some((name) => name.toLowerCase() === 'authorization')
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'auth mode must not be combined with an Authorization header',
-        path: ['auth'],
-      });
-    }
-    if (server.transport !== 'stdio' && server.auth?.type === 'bearer') {
-      context.addIssue({
-        code: 'custom',
-        message: 'MCP bearer authentication requires a production credential resolver',
-        path: ['auth'],
-      });
-    }
-    if (
-      server.transport !== 'stdio' &&
-      server.auth?.type === 'oauth-user' &&
-      server.startup === 'automatic'
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'OAuth user authentication requires startup "authentication-required"',
-        path: ['startup'],
-      });
-    }
-  });
-const McpServerSchema = McpServerInputSchema.transform((server) => ({
-  ...server,
-  protocol: server.protocol ?? ('legacy' as const),
-  startup: resolveMcpStartupPolicy(server),
-}));
-const McpConfigInputSchema = z
-  .strictObject({
-    servers: z.array(McpServerInputSchema),
+const StdioServerSchema = McpStdioServerInputSchema.omit({ auth: true })
+  .extend({
+    args: z.array(SpawnStringSchema).optional(),
+    command: NonEmptySpawnStringSchema,
+    env: EnvironmentSchema.optional(),
   })
-  .superRefine((config, context) => {
-    const serverNames = new Set<string>();
-    for (const [index, server] of config.servers.entries()) {
-      if (serverNames.has(server.name)) {
-        context.addIssue({
-          code: 'custom',
-          message: 'duplicate server name',
-          path: ['servers', index, 'name'],
-        });
-        continue;
-      }
-      serverNames.add(server.name);
+  .strict();
+
+const StreamableHttpServerSchema = McpStreamableHttpServerInputSchema.extend({
+  headers: HeadersSchema.optional(),
+  url: HttpUrlSchema,
+}).strict();
+
+const SseServerSchema = McpSseServerInputSchema.extend({
+  headers: HeadersSchema.optional(),
+  url: HttpUrlSchema,
+}).strict();
+
+const McpServerInputSchema = z.discriminatedUnion('transport', [
+  StdioServerSchema,
+  StreamableHttpServerSchema,
+  SseServerSchema,
+]);
+const McpServerSchema = McpServerInputSchema.transform((server, context) => {
+  const canonical = CanonicalMcpServerSchema.safeParse(server);
+  if (!canonical.success) {
+    for (const issue of canonical.error.issues) {
+      context.addIssue({
+        code: 'custom',
+        message: issue.message,
+        path: [...issue.path],
+      });
     }
-  });
-const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
-  servers: config.servers.map((server) => ({
-    ...server,
-    protocol: server.protocol ?? ('legacy' as const),
-    startup: resolveMcpStartupPolicy(server),
-  })),
-}));
+    return z.NEVER;
+  }
+  return canonical.data;
+});
+const McpConfigInputSchema = z.strictObject({
+  servers: z.array(McpServerInputSchema),
+});
 
 export type McpServer = z.input<typeof McpServerSchema>;
 export type ResolvedMcpServer = z.output<typeof McpServerSchema>;
-export type McpConfig = z.input<typeof McpConfigSchema>;
-export type ResolvedMcpConfig = z.output<typeof McpConfigSchema>;
+export type McpConfig = z.input<typeof McpConfigInputSchema>;
+export interface ResolvedMcpConfig {
+  servers: ResolvedMcpServer[];
+}
 const logger = createLogger('DesktopMcpLoader');
 
 const DEFAULT_MCP_CONFIG_TEMPLATE = `{
@@ -386,7 +307,16 @@ function validateMcpConfig(value: unknown): {
         ]
       : []
   );
-  return { config: McpConfigSchema.parse(parsed.data), migrations };
+  if (parsed.data.servers.length === 0) {
+    return { config: { servers: [] }, migrations };
+  }
+  const canonical = CanonicalMcpConfigSchema.safeParse(parsed.data);
+  if (!canonical.success) {
+    throw new Error(
+      `invalid_mcp_config: ${canonical.error.issues.map(formatValidationIssue).join('; ')}`
+    );
+  }
+  return { config: canonical.data, migrations };
 }
 
 function parseMcpConfigDocument(text: string): {

@@ -291,9 +291,14 @@ export type {
 } from './mcp/config';
 export {
   isInteractiveMcpStdioServer,
+  McpConfigInputSchema,
   McpConfigSchema,
   McpProtocolEnum,
+  McpServerInputSchema,
   McpServerSchema,
+  McpSseServerInputSchema,
+  McpStdioServerInputSchema,
+  McpStreamableHttpServerInputSchema,
   McpTransportEnum,
   parseMcpConfig,
   parseMcpConfigWithMigrations,
