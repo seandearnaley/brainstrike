@@ -94,6 +94,8 @@ const BRAINSTRIKE_RESET_TABLES = [
   // and a reset that kept tombstones for data it just destroyed would carry
   // "deletes" of rows that never existed on the fresh database.
   'brainstrike_mind_ops',
+  // Principal-bound MCP Tasks handles (migration 114, BST-1562).
+  'brainstrike_mcp_tasks',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
   // Shadow-git snapshot ledger (migration 081, BST-1164). Turn↔commit-oid
@@ -178,7 +180,7 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
   ];
 }
 
-/** The full 39-relation reset set (24 Brainstrike + 9 core + the Mastra six). */
+/** The full 40-relation reset set (25 Brainstrike + 9 core + the Mastra six). */
 export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }

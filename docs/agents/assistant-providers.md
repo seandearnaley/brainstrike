@@ -1987,6 +1987,11 @@ custom-method escape hatch and does not patch the SDK dependency.
 | OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
 
+Migration 114 and `McpTaskRepository` provide the factory-reset-covered,
+principal/resource/generation-bound Tasks persistence substrate. This does not
+advertise the extension; polling, input, cancellation, and wire registration
+remain owned by later BST-1473 layers.
+
 BST-1509 owns the Settings/diagnostics rendering of this matrix and modern
 per-request wire proof; the registry remains its host-owned source of truth.
 
