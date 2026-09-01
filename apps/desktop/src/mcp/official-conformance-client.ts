@@ -1,7 +1,12 @@
+import type { McpClientCapabilityOptions } from '@brainstrike/agent/mcp-client';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 import { parseMcpConfig, type ResolvedMcpConfig } from '../mcp-loader';
-import { createDesktopMcpHostRuntime, type DesktopMcpHostRuntime } from './host-runtime';
+import {
+  createDesktopMcpHostRuntime,
+  type DesktopMcpHostRuntime,
+  type DesktopMcpHostRuntimeDependencies,
+} from './host-runtime';
 
 const CONFORMANCE_SERVER_ID = parseConfiguredMcpServerId('official-conformance');
 const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
@@ -15,7 +20,33 @@ const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
     scenario: z.literal('tools_call'),
     serverUrl: z.string().min(1),
   }),
+  z.strictObject({
+    protocolVersion: z.literal('2025-11-25'),
+    scenario: z.literal('elicitation-sep1034-client-defaults'),
+    serverUrl: z.string().min(1),
+  }),
+  z.strictObject({
+    protocolVersion: z.literal('2025-11-25'),
+    scenario: z.literal('sse-retry'),
+    serverUrl: z.string().min(1),
+  }),
 ]);
+type ProductionConformanceInput = z.output<typeof ProductionConformanceInputSchema>;
+type ToolScenario = Exclude<ProductionConformanceInput['scenario'], 'initialize'>;
+
+function scenarioTool(scenario: ToolScenario): {
+  arguments: Record<string, number>;
+  name: string;
+} {
+  switch (scenario) {
+    case 'elicitation-sep1034-client-defaults':
+      return { arguments: {}, name: 'test_client_elicitation_defaults' };
+    case 'sse-retry':
+      return { arguments: {}, name: 'test_reconnection' };
+    case 'tools_call':
+      return { arguments: { a: 5, b: 3 }, name: 'add_numbers' };
+  }
+}
 
 export interface ProductionConformanceClientRuntime {
   readonly host: Pick<DesktopMcpHostRuntime['host'], 'close' | 'invoke'>;
@@ -25,7 +56,9 @@ export interface ProductionConformanceClientRuntime {
 }
 
 interface ProductionConformanceClientDependencies {
-  createRuntime?: () => ProductionConformanceClientRuntime;
+  createRuntime?: (
+    dependencies: DesktopMcpHostRuntimeDependencies
+  ) => ProductionConformanceClientRuntime;
 }
 
 function cleanupError(
@@ -37,6 +70,25 @@ function cleanupError(
   return new Error('Production MCP conformance client cleanup reported failures', {
     cause: report,
   });
+}
+
+function clientCapabilitiesForScenario(
+  scenario: ProductionConformanceInput['scenario']
+): McpClientCapabilityOptions | undefined {
+  if (scenario !== 'elicitation-sep1034-client-defaults') {
+    return;
+  }
+  return {
+    elicitation: {
+      applyDefaults: true,
+      form: true,
+      handle: async (_request, context) => {
+        context.signal.throwIfAborted();
+        return { action: 'accept', content: {} };
+      },
+      url: false,
+    },
+  };
 }
 
 export async function runProductionMcpConformanceClient(
@@ -58,7 +110,12 @@ export async function runProductionMcpConformanceClient(
       ],
     })
   );
-  const runtime = dependencies.createRuntime?.() ?? createDesktopMcpHostRuntime();
+  const runtimeDependencies = {
+    resolveClientCapabilities: () => clientCapabilitiesForScenario(parsed.scenario),
+  } satisfies DesktopMcpHostRuntimeDependencies;
+  const runtime =
+    dependencies.createRuntime?.(runtimeDependencies) ??
+    createDesktopMcpHostRuntime(runtimeDependencies);
   const failures: unknown[] = [];
   try {
     await runtime.replaceResolvedConfig(config);
@@ -69,14 +126,15 @@ export async function runProductionMcpConformanceClient(
     if (listed.type !== 'tools/list') {
       throw new Error('Production MCP conformance client received an invalid tools/list result');
     }
-    if (parsed.scenario === 'tools_call') {
-      if (!listed.result.tools.some(({ name }) => name === 'add_numbers')) {
-        throw new Error('Production MCP conformance server does not expose add_numbers');
+    if (parsed.scenario !== 'initialize') {
+      const target = scenarioTool(parsed.scenario);
+      if (!listed.result.tools.some(({ name }) => name === target.name)) {
+        throw new Error(`Production MCP conformance server does not expose ${target.name}`);
       }
       const called = await runtime.host.invoke({
-        arguments: { a: 5, b: 3 },
+        arguments: target.arguments,
         configuredServerId: CONFORMANCE_SERVER_ID,
-        toolName: 'add_numbers',
+        toolName: target.name,
         type: 'tools/call',
       });
       if (called.type !== 'tools/call') {

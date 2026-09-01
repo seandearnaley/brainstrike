@@ -2250,15 +2250,19 @@ and its explicit Linear blocker in the later official-result evidence layer.
 The production conformance client entry lives in
 `apps/desktop/src/mcp/official-conformance-client.ts`. It accepts only a
 validated server URL, exact `2025-11-25` or `2026-07-28` protocol revision, and
-the non-auth `initialize` or `tools_call` scenario. It builds configuration
+the non-auth `initialize`, `tools_call`, `elicitation-sep1034-client-defaults`,
+or `sse-retry` scenario. The last two are accepted only at `2025-11-25`, matching
+their alpha.10 applicability window. It builds configuration
 through the production loader, creates a fresh `DesktopMcpHostRuntime`, and
 drives list/call through `McpHostPort`; it never constructs a parallel SDK
 client. Legacy runs select explicit `legacy`, modern runs pin `2026-07-28`, and
 `initialize` is accepted only at its canonical legacy revision. Unknown or
-inapplicable scenarios fail rather than falling back. Every run closes the host and
-rejects a non-empty cleanup-failure report. Process/environment parsing,
-official-suite orchestration, auth scenarios, expected-failure consumption,
-and CI ownership remain separate later layers.
+inapplicable scenarios fail rather than falling back. The elicitation adapter
+accepts with empty content and explicitly advertises SDK-owned primitive
+default application; SSE retry remains owned by the production HTTP transport.
+Every run closes the host and rejects a non-empty cleanup-failure report.
+Process/environment parsing, official-suite orchestration, auth scenarios,
+expected-failure consumption, and CI ownership remain separate later layers.
 
 The bounded official-runner driver is
 `scripts/run-official-mcp-client-conformance.mjs`. It invokes the exact pinned
@@ -2272,10 +2276,10 @@ is not inherited because alpha.10 logs the credential-bearing conformance
 context; structured results go only below the ignored
 `packages/mcp-test-lab/artifacts/` directory. Windows fails closed until a Job
 Object owner is added. The bundled desktop process entry rejects conformance
-auth context. C2b must add `elicitation-defaults`, `sse-retry`, the complete
-auth scenario adapter, and Windows ownership before either full suite is a
-release claim; the empty ledgers make the C2a suite driver an executable
-fail-closed tripwire until then.
+auth context. C2b1 adds `elicitation-sep1034-client-defaults` and `sse-retry`;
+the complete auth scenario adapter and Windows ownership remain required before
+either full suite is a release claim. The empty ledgers keep the suite driver
+fail-closed until those remaining layers land.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
