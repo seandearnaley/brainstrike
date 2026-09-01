@@ -26,7 +26,8 @@ export const MCP_CLIENT_INPUT_MAX_BYTES = 32_768;
 
 const REDACTED = '[REDACTED]';
 const SENSITIVE_LOG_KEY = /authorization|cookie|credential|password|secret|token|api[-_]?key/iu;
-const SENSITIVE_FORM_FIELD = /api[\s_-]?key|credential|password|payment|secret|token/iu;
+const SENSITIVE_FORM_IDENTIFIER =
+  /(?:^| )(?:credential|cvc|cvv|passcode|passphrase|password|secret|token)(?: |$)|^(?:api key|access key|private key|credit card|card number|bank account|payment method)$/u;
 const LOG_LEVELS: readonly LoggingLevel[] = [
   'debug',
   'info',
@@ -375,7 +376,7 @@ export function validateMcpElicitationRequest(
     for (const [propertyName, definition] of Object.entries(
       formRequest.params.requestedSchema.properties
     )) {
-      if (SENSITIVE_FORM_FIELD.test(propertyName) || hasSensitiveFormHint(definition)) {
+      if (isSensitiveFormIdentifier(propertyName) || hasSensitiveFormHint(definition)) {
         throw new Error('MCP form elicitation may not request sensitive information; use URL mode');
       }
     }
@@ -384,20 +385,36 @@ export function validateMcpElicitationRequest(
   assertElicitationUrl((request as McpUrlElicitationRequest).params.url, urlPolicy);
 }
 
+function isSensitiveFormIdentifier(value: string): boolean {
+  const normalized = value
+    .replaceAll(/([a-z\d])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .replaceAll(/[^a-z\d]+/gu, ' ')
+    .trim();
+  return SENSITIVE_FORM_IDENTIFIER.test(normalized);
+}
+
 function hasSensitiveFormHint(value: unknown): boolean {
-  if (typeof value === 'string') {
-    return SENSITIVE_FORM_FIELD.test(value);
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!(current && typeof current === 'object')) {
+      continue;
+    }
+    for (const [key, entry] of Object.entries(current)) {
+      const metadataHint =
+        (key === 'format' || key === 'title') &&
+        typeof entry === 'string' &&
+        isSensitiveFormIdentifier(entry);
+      if (isSensitiveFormIdentifier(key) || metadataHint) {
+        return true;
+      }
+      if (entry && typeof entry === 'object') {
+        pending.push(entry);
+      }
+    }
   }
-  if (Array.isArray(value)) {
-    return value.some(hasSensitiveFormHint);
-  }
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      Object.entries(value).some(
-        ([key, entry]) => SENSITIVE_FORM_FIELD.test(key) || hasSensitiveFormHint(entry)
-      )
-  );
+  return false;
 }
 
 function assertElicitationUrl(input: string, policy: McpUrlElicitationPolicy): URL {

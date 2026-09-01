@@ -448,13 +448,7 @@ export class DesktopMcpHostRuntime {
         return this.service.close();
       },
       control: (request) =>
-        Promise.resolve().then(() => {
-          const parsed = parseMcpHostControlRequest(request);
-          if (parsed.action !== 'connect') {
-            this.retirePresentations(parsed.configuredServerId);
-          }
-          return this.service.control(parsed);
-        }),
+        Promise.resolve().then(() => this.service.control(parseMcpHostControlRequest(request))),
       invoke: (operation, options) =>
         Promise.resolve().then(() => {
           const parsed = parseMcpHostOperation(operation);
@@ -465,9 +459,6 @@ export class DesktopMcpHostRuntime {
       replaceConfig: (config) =>
         this.enqueueReplacement(async () => {
           const parsed = parseMcpHostConfig(config);
-          for (const server of this.service.snapshot().servers) {
-            this.elicitationPresenter.retireServer(server.configuredServerId, server.generation);
-          }
           return await this.service.replaceConfig(parsed);
         }),
       snapshot: () => this.service.snapshot(),

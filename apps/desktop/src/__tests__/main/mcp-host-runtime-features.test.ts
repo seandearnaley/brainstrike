@@ -50,13 +50,48 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('DesktopMcpHostRuntime core feature composition', () => {
   it('retires suspended elicitation on every production authority invalidation path', async () => {
-    for (const cause of ['unexpected-close', 'disconnect', 'replacement', 'reset', 'close']) {
+    for (const cause of [
+      'unexpected-close',
+      'disconnect',
+      'replacement',
+      'reset',
+      'close',
+      'invalid-reauthorize',
+    ]) {
       let authority: ReturnType<typeof createDesktopMcpHostRuntime>['elicitationPresenter'];
+      let activePresentation: Parameters<Parameters<typeof authority.attach>[0]>[0] | undefined;
       let unexpectedClose: (() => void) | undefined;
+      const dispatchStarted = Promise.withResolvers<void>();
+      const elicitationResult = Promise.withResolvers<unknown>();
       const presented = Promise.withResolvers<void>();
       const explicitClient = transportClient();
       explicitClient.callTool.mockImplementation(async () => {
-        await authority.presenter.presentForm(
+        dispatchStarted.resolve();
+        await elicitationResult.promise;
+        return { content: [] };
+      });
+      const runtime = createDesktopMcpHostRuntime({
+        createHttpTransportClient: (options) => {
+          unexpectedClose = options.onUnexpectedClose;
+          return explicitClient;
+        },
+      });
+      authority = runtime.elicitationPresenter;
+      authority.attach((presentation) => {
+        activePresentation = presentation;
+        presented.resolve();
+      });
+      await runtime.replaceResolvedConfig(resolved(http()));
+      await runtime.host.invoke({ configuredServerId: http().name, type: 'tools/list' });
+      const pending = runtime.host.invoke({
+        arguments: {},
+        configuredServerId: http().name,
+        toolName: 'suspend',
+        type: 'tools/call',
+      });
+      await dispatchStarted.promise;
+      void authority.presenter
+        .presentForm(
           {
             method: 'elicitation/create',
             params: {
@@ -70,27 +105,21 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
             serverName: http().name,
             signal: new AbortController().signal,
           }
-        );
-        return { content: [] };
-      });
-      const runtime = createDesktopMcpHostRuntime({
-        createHttpTransportClient: (options) => {
-          unexpectedClose = options.onUnexpectedClose;
-          return explicitClient;
-        },
-      });
-      authority = runtime.elicitationPresenter;
-      authority.attach(() => presented.resolve());
-      await runtime.replaceResolvedConfig(resolved(http()));
-      await runtime.host.invoke({ configuredServerId: http().name, type: 'tools/list' });
-      const pending = runtime.host.invoke({
-        arguments: {},
-        configuredServerId: http().name,
-        toolName: 'suspend',
-        type: 'tools/call',
-      });
+        )
+        .then(elicitationResult.resolve, elicitationResult.reject);
       await presented.promise;
-      if (cause === 'unexpected-close') {
+      if (cause === 'invalid-reauthorize') {
+        await expect(
+          runtime.host.control({ action: 'reauthorize', configuredServerId: http().name })
+        ).rejects.toMatchObject({ code: 'mcp-host-reauthorize-requires-oauth' });
+        authority.settle({
+          action: 'cancel',
+          configuredServerId: http().name,
+          generation: 1,
+          id: activePresentation?.id,
+          requestId: 'queued',
+        });
+      } else if (cause === 'unexpected-close') {
         unexpectedClose?.();
       } else if (cause === 'disconnect') {
         await runtime.host.control({ action: 'disconnect', configuredServerId: http().name });
@@ -103,7 +132,9 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
       } else {
         await runtime.host.close();
       }
-      await expect(pending).rejects.toBeDefined();
+      await (cause === 'invalid-reauthorize'
+        ? expect(pending).resolves.toBeDefined()
+        : expect(pending).rejects.toBeDefined());
       if (cause !== 'close') {
         await runtime.host.close();
       }
