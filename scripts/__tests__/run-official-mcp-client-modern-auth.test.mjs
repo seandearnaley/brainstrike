@@ -83,6 +83,7 @@ test('runs the modern-only profile as one sequentially owned wave and rejects sh
     loadWindowsJob: () => windowsJob,
     platform: 'win32',
     profile: 'modern-closeout',
+    provisionClientRuntime: async () => undefined,
     runInvocation: async (_invocation, options) => {
       assert.equal(options.deadlineMs, 45_000);
       assert.equal(options.deferWindowsCleanup, false);
@@ -112,6 +113,7 @@ test('builds fixed secret-safe BST-1576 evidence without a raw auth directory', 
   });
   const report = await runOfficialClientInvocations(invocations, {
     profile: 'modern-closeout',
+    provisionClientRuntime: async () => undefined,
     runInvocation: async () => undefined,
   });
   const evidence = buildOfficialAuthEvidence({

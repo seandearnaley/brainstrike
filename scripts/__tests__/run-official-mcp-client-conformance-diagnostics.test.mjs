@@ -99,6 +99,7 @@ test('emits per-scenario diagnostics for failures and none for passes', async ()
   await assert.rejects(
     runOfficialClientInvocations(invocations, {
       platform: 'linux',
+      provisionClientRuntime: async () => undefined,
       runInvocation,
       writeDiagnostics: (text) => written.push(text),
     }),

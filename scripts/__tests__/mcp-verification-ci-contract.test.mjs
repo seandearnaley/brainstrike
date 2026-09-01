@@ -98,7 +98,8 @@ test('official prerelease auth conformance is a bounded advisory job with saniti
   const source = readRepoFile('scripts/run-official-mcp-client-conformance.mjs');
   assert.match(source, /packages\/assistant-contract\/src\/official-auth-conformance\.ts/u);
   assert.doesNotMatch(source, /@brainstrike\/assistant-contract\/official-auth-conformance/u);
-  assert.match(source, /loadElectron = \(\) => requireDesktopDependency\('electron'\)/u);
+  assert.match(source, /requireDesktopDependency\('electron'\)/u);
+  assert.match(source, /provisionClientRuntime = provisionElectronClientRuntime/u);
   assert.match(source, /provisionClientRuntime: provisionElectronClientRuntime/u);
   assert.doesNotMatch(source, /'--expected-failures'/u);
   assert.doesNotMatch(source, /'--output-dir'/u);

@@ -91,6 +91,9 @@ export function buildControlledEnvironment(source = process.env) {
 }
 
 export function provisionElectronClientRuntime({
+  // Electron 43's CommonJS loader synchronously runs install.js when path.txt
+  // or the resolved binary is absent. Requiring it here therefore completes
+  // extraction before any scenario process can load the same package.
   loadElectron = () => requireDesktopDependency('electron'),
   runtimeExists = existsSync,
 } = {}) {
@@ -655,7 +658,7 @@ export async function runOfficialClientInvocations(
     now = Date.now,
     platform = process.platform,
     profile = BASELINE_PROFILE,
-    provisionClientRuntime,
+    provisionClientRuntime = provisionElectronClientRuntime,
     runInvocation = runOfficialClientInvocation,
     writeDiagnostics = (text) => process.stderr.write(text),
   } = {}
@@ -683,10 +686,8 @@ export async function runOfficialClientInvocations(
       `Official MCP auth conformance requires the exact canonical ${executionCount}-scenario matrix`
     );
   }
-  if (provisionClientRuntime !== undefined) {
-    await provisionClientRuntime();
-  }
   const windowsJob = initializeWindowsJobOwnership(platform, loadWindowsJob);
+  await provisionClientRuntime();
   const failures = [];
   const waves = [];
   for (const protocolVersion of profileProtocols) {
