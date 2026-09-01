@@ -2239,6 +2239,14 @@ repository, path, peeled commit, and source digest. Scenario id, protocol,
 capabilities, SDK/conformance versions, and fixture provenance must match the
 closed scenario manifest exactly.
 
+Official client-conformance expected-failure policy is separate from scenario
+provenance and does not imply that the official runner executed. The dedicated
+`packages/mcp-test-lab/conformance/expected-failures/` directory contains
+exactly `2025-11-25.json` and `2026-07-28.json`; both use the closed
+`{ "client": string[] }` shape and remain empty for a truthful zero-failure
+release claim. Adding an accepted failure requires a reviewed contract change
+and its explicit Linear blocker in the later official-result evidence layer.
+
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
 transport, fault coordinate, OAuth route, evidence guarantee, or runner before
