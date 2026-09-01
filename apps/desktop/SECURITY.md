@@ -309,6 +309,27 @@ single configured HTTP MCP resource.
   `oauth-user` modes for HTTP transports. Stdio cannot select MCP HTTP OAuth,
   and an explicit auth mode cannot be combined with an `Authorization` header.
 
+### MCP external bearer references
+
+- JSONC contains only the strict `mcp-credentials` UUID reference. Its token is
+  an `api_key` envelope in the existing `brainstrike-secrets` safeStorage store
+  under `mcp-credentials:<uuid>`; no second credential store or plaintext
+  configuration channel exists.
+- `DesktopMcpHostRuntime` receives a credential authority capability, never a
+  token. The capability resolves on each request, validates the bearer-token
+  grammar, rejects a competing Authorization header, binds use to the exact
+  configured resource origin, and attaches the header inside the final owned
+  fetch boundary. It does not cache the resolved value.
+- Public config/status and renderer IPC expose only the UUID reference or the
+  token-free `missing | stored | unreadable` state. Missing, unreadable,
+  malformed, cross-origin, and conflicting-auth failures have fixed codes and
+  static messages; underlying keychain errors and token material are not
+  chained into runtime errors or diagnostics.
+- Disconnect destroys the HTTP client/closure but does not delete an externally
+  managed credential that another configuration may reference. Factory reset
+  clears the shared secrets authority; because every fetch resolves afresh, a
+  closure created before reset cannot continue authenticating afterward.
+
 The focused fake-authorization-server suite and production-host integration are
 `src/__tests__/main/mcp-oauth-client-provider.integration.test.ts`; the
 credential boundary and config contracts are covered by the adjacent unit

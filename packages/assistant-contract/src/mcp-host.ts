@@ -84,9 +84,13 @@ export interface McpHostOAuthAuthSnapshot {
   resourceUrl: string;
   type: 'oauth-user';
 }
+export interface McpHostBearerAuthSnapshot {
+  credentialState: 'missing' | 'stored' | 'unreadable';
+  type: 'bearer';
+}
 export type McpHostAuthSnapshot =
   | { type: 'none' }
-  | { state: 'configured'; type: 'bearer' }
+  | McpHostBearerAuthSnapshot
   | McpHostOAuthAuthSnapshot;
 export const McpHostErrorSchema: z.ZodType<McpHostError> = z.strictObject({
   category: McpStableErrorCategorySchema,

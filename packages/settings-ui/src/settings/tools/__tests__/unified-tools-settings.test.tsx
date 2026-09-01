@@ -1250,6 +1250,34 @@ describe('UnifiedToolsSettings', () => {
       );
     });
 
+    it('renders bearer credential availability without reference or secret material', async () => {
+      const operations = createMockOperations();
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 6,
+        servers: (['stored', 'missing', 'unreadable'] as const).map((credentialState, index) => ({
+          auth: {
+            credentialState,
+            secretSentinel: 'bearer-secret-must-not-render',
+            type: 'bearer' as const,
+          },
+          configuredProtocol: 'auto' as const,
+          configuredServerId: parseConfiguredMcpServerId(`bearer-${credentialState}`),
+          generation: index + 1,
+          state: 'disconnected' as const,
+          transport: 'streamable-http' as const,
+        })),
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const statusList = await screen.findByTestId('mcp-server-status-list');
+      expect(statusList).toHaveTextContent('Bearer credential stored');
+      expect(statusList).toHaveTextContent('Bearer credential not stored');
+      expect(statusList).toHaveTextContent('Bearer credential unreadable');
+      expect(statusList).not.toHaveTextContent('bearer-secret-must-not-render');
+    });
+
     it('does not run credential-destructive OAuth controls when confirmation is declined', async () => {
       const operations = createMockOperations();
       const server: McpHostServerSnapshot = {
