@@ -7,7 +7,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
-import { type McpConfigInput, McpConfigSchema } from '../mcp/config';
+import { type McpConfigInput, parseMcpConfigValue } from '../mcp/config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
@@ -131,7 +131,7 @@ export async function createMcpRuntimeClient(
   options: CreateMcpRuntimeClientOptions
 ): Promise<McpRuntimeClient | undefined> {
   if (options.host && options.config?.servers.length) {
-    McpConfigSchema.parse(options.config);
+    parseMcpConfigValue(options.config);
     throw new Error('Legacy runtime MCP config cannot compete with MCP host authority');
   }
   if (
@@ -142,7 +142,7 @@ export async function createMcpRuntimeClient(
     return;
   }
   const config =
-    options.config && !options.host ? McpConfigSchema.parse(options.config) : undefined;
+    options.config && !options.host ? parseMcpConfigValue(options.config).config : undefined;
   if (!options.host) {
     if (config && config.servers.length > 0) {
       throw new Error('Legacy runtime MCP config requires an MCP host capability');
