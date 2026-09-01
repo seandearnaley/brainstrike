@@ -18,6 +18,7 @@ import {
   type RefObject,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   useTransition,
@@ -28,6 +29,7 @@ interface ActionState {
   readonly diagnostic: McpTaskDiagnostic | null;
   readonly focus: 'alert' | 'summary' | null;
   readonly revision: number;
+  readonly taskKey: string | null;
 }
 
 const INITIAL_ACTION_STATE: ActionState = {
@@ -35,7 +37,21 @@ const INITIAL_ACTION_STATE: ActionState = {
   diagnostic: null,
   focus: null,
   revision: 0,
+  taskKey: null,
 };
+
+interface PendingAction {
+  readonly action: McpTaskActionRequest['action'];
+  readonly taskKey: string;
+  readonly token: number;
+}
+
+interface TaskActionOutcome {
+  readonly announcement: string | null;
+  readonly diagnostic: McpTaskDiagnostic | null;
+  readonly focus: 'alert' | 'summary';
+  readonly task: McpTaskPresentation | null;
+}
 
 export interface McpTaskStatusCardProps {
   readonly controller: McpTaskPresentationControllerPort;
@@ -45,6 +61,52 @@ export interface McpTaskStatusCardProps {
 
 function formatTimestamp(value: string): string {
   return value.replace('T', ' ').replace('.000Z', ' UTC');
+}
+
+function taskSnapshotKey(task: McpTaskPresentation): string {
+  return JSON.stringify([
+    task.handle.generation,
+    task.handle.principalId,
+    task.handle.resource,
+    task.handle.serverId,
+    task.handle.taskId,
+    task.updatedAt,
+  ]);
+}
+
+async function executeTaskAction(
+  controller: McpTaskPresentationControllerPort,
+  action: McpTaskActionRequest['action'],
+  handle: McpTaskPresentation['handle']
+): Promise<TaskActionOutcome> {
+  try {
+    const result = await controller.act({ action, handle });
+    if (result.ok) {
+      return {
+        announcement: action === 'recover' ? 'Task recovery resumed.' : 'Task cancelled.',
+        diagnostic: null,
+        focus: 'summary',
+        task: result.task,
+      };
+    }
+    return {
+      announcement: null,
+      diagnostic: result.diagnostic,
+      focus: 'alert',
+      task: null,
+    };
+  } catch {
+    return {
+      announcement: null,
+      diagnostic: {
+        code: 'action_failed',
+        message:
+          action === 'recover' ? 'MCP task recovery failed.' : 'MCP task cancellation failed.',
+      },
+      focus: 'alert',
+      task: null,
+    };
+  }
 }
 
 function historyRows(history: McpTaskPresentation['history']): readonly {
@@ -153,59 +215,59 @@ export function McpTaskStatusCard({
 }: McpTaskStatusCardProps): ReactElement {
   const titleId = useId();
   const alertRef = useRef<HTMLDivElement>(null);
-  const inFlightRef = useRef(false);
+  const inFlightRef = useRef<PendingAction | null>(null);
+  const revisionRef = useRef(0);
   const summaryRef = useRef<HTMLDivElement>(null);
+  const taskKey = taskSnapshotKey(task);
+  const taskKeyRef = useRef(taskKey);
   const [actionState, setActionState] = useState(INITIAL_ACTION_STATE);
-  const [pendingAction, setPendingAction] = useState<McpTaskActionRequest['action'] | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const tokenRef = useRef(0);
   const [, startTransition] = useTransition();
+  const visibleActionState = actionState.taskKey === taskKey ? actionState : INITIAL_ACTION_STATE;
+  const visiblePendingAction = pendingAction?.taskKey === taskKey ? pendingAction.action : null;
+
+  useLayoutEffect(() => {
+    taskKeyRef.current = taskKey;
+  }, [taskKey]);
 
   const runAction = (action: McpTaskActionRequest['action']): void => {
-    if (inFlightRef.current) {
+    if (inFlightRef.current?.taskKey === taskKey) {
       return;
     }
-    inFlightRef.current = true;
-    setPendingAction(action);
+    const pending = { action, taskKey, token: tokenRef.current + 1 };
+    tokenRef.current = pending.token;
+    inFlightRef.current = pending;
+    setPendingAction(pending);
     startTransition(async () => {
-      let nextState: ActionState;
-      try {
-        const result = await controller.act({ action, handle: task.handle });
-        if (result.ok) {
-          onTaskChange(result.task);
-          nextState = {
-            announcement: action === 'recover' ? 'Task recovery resumed.' : 'Task cancelled.',
-            diagnostic: null,
-            focus: 'summary',
-            revision: actionState.revision + 1,
-          };
-        } else {
-          nextState = {
-            announcement: null,
-            diagnostic: result.diagnostic,
-            focus: 'alert',
-            revision: actionState.revision + 1,
-          };
+      const outcome = await executeTaskAction(controller, action, task.handle);
+      if (taskKeyRef.current !== pending.taskKey) {
+        if (inFlightRef.current?.token === pending.token) {
+          inFlightRef.current = null;
         }
-      } catch {
-        nextState = {
-          announcement: null,
-          diagnostic: {
-            code: 'action_failed',
-            message:
-              action === 'recover' ? 'MCP task recovery failed.' : 'MCP task cancellation failed.',
-          },
-          focus: 'alert',
-          revision: actionState.revision + 1,
-        };
+        return;
       }
-      setActionState(nextState);
-      setPendingAction(null);
-      inFlightRef.current = false;
+      if (outcome.task) {
+        onTaskChange(outcome.task);
+      }
+      revisionRef.current += 1;
+      setActionState({
+        announcement: outcome.announcement,
+        diagnostic: outcome.diagnostic,
+        focus: outcome.focus,
+        revision: revisionRef.current,
+        taskKey: outcome.task ? taskSnapshotKey(outcome.task) : pending.taskKey,
+      });
+      if (inFlightRef.current?.token === pending.token) {
+        setPendingAction(null);
+        inFlightRef.current = null;
+      }
     });
   };
 
   useEffect(() => {
-    focusOutcome(actionState, alertRef, summaryRef);
-  }, [actionState]);
+    focusOutcome(visibleActionState, alertRef, summaryRef);
+  }, [visibleActionState]);
 
   return (
     <section
@@ -257,7 +319,7 @@ export function McpTaskStatusCard({
         ) : null}
       </details>
 
-      {actionState.diagnostic ? (
+      {visibleActionState.diagnostic ? (
         <div
           className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-destructive text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           ref={alertRef}
@@ -265,19 +327,23 @@ export function McpTaskStatusCard({
           tabIndex={-1}
         >
           <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <span>{actionState.diagnostic.message}</span>
+          <span>{visibleActionState.diagnostic.message}</span>
         </div>
       ) : null}
 
-      {actionState.announcement ? (
+      {visibleActionState.announcement ? (
         <span aria-live="polite" className="sr-only" role="status">
-          {actionState.announcement}
+          {visibleActionState.announcement}
         </span>
       ) : null}
 
       {task.canCancel || task.recovery === 'restart_required' ? (
         <div className="mt-3">
-          <TaskActionButtons onAction={runAction} pendingAction={pendingAction} task={task} />
+          <TaskActionButtons
+            onAction={runAction}
+            pendingAction={visiblePendingAction}
+            task={task}
+          />
         </div>
       ) : null}
     </section>

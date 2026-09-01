@@ -166,4 +166,35 @@ describe('McpTaskStatusCard', () => {
     pending.resolve({ ok: true, task: task({ recovery: 'live' }) });
     await waitFor(() => expect(screen.queryByText('Recovering…')).not.toBeInTheDocument());
   });
+
+  it('does not let an action for a replaced task overwrite the new card task', async () => {
+    const pending = Promise.withResolvers<McpTaskActionResult>();
+    const control = controller(pending.promise);
+    const onTaskChange = vi.fn<(nextTask: McpTaskPresentation) => void>();
+    const user = userEvent.setup();
+    const original = task();
+    const replacement = task({
+      handle: { ...HANDLE, generation: 8, taskId: 'replacement-task' },
+      recovery: 'live',
+      statusMessage: 'Replacement task is live',
+      updatedAt: '2026-09-01T05:00:05.000Z',
+    });
+    const view = render(
+      <McpTaskStatusCard controller={control.port} onTaskChange={onTaskChange} task={original} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Recover task' }));
+    view.rerender(
+      <McpTaskStatusCard controller={control.port} onTaskChange={onTaskChange} task={replacement} />
+    );
+
+    expect(screen.getByText('Replacement task is live')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel task' })).toBeEnabled();
+
+    pending.resolve({ ok: true, task: task({ recovery: 'live' }) });
+    await waitFor(() => expect(control.act).toHaveBeenCalledTimes(1));
+
+    expect(onTaskChange).not.toHaveBeenCalled();
+    expect(screen.getByText('Replacement task is live')).toBeInTheDocument();
+  });
 });
