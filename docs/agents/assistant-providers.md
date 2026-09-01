@@ -2186,10 +2186,14 @@ BST-1571 adds the still-unregistered app-originated `tools/call` authority.
 `McpAppToolCallAuthority` accepts only app-visible tools owned by the exact
 server generation, holds every `ask` decision until its opaque host consent id
 is approved, and releases provenance on denial, cancellation, failure, or
-close. The `@brainstrike/agent` preparer uses the same permission resolver,
-timeout guard, Pre/PostToolUse hook seam, cancellation signal, and bounded
-guarded-error projection as ordinary assistant tools. Its telemetry contains
-only tool name, outcome, and duration—never input, output, or app context.
+close. The `@brainstrike/agent` runtime captures an Apps admission capability
+from its post-plan/post-permission/post-storage tool map. The preparer accepts
+that admission capability instead of policy inputs, so it cannot recreate or
+bypass ordinary admission. Its direct host invocation preserves the canonical
+App-facing `CallToolResult`; it cannot be prepared unless the ordinary map
+admitted the exact tool. Calls absent from that map fail visibly; admitted calls
+use the shared guard and Pre/PostToolUse chain exactly once. Telemetry
+contains only tool name, outcome, and duration—never input, output, or app context.
 This is infrastructure, not capability graduation: production Apps
 advertisement remains disabled until the host surface and packaged lifecycle
 layers are complete and reviewed together.

@@ -220,9 +220,13 @@ export {
 } from './mastra/mastra-agent-error';
 export type {
   McpAppOrdinaryToolCallOptions,
+  McpAppToolAdmissionCapability,
   McpAppToolCallTelemetry,
 } from './mastra/mcp-app-tool-call';
-export { createMcpAppOrdinaryToolCallPreparer } from './mastra/mcp-app-tool-call';
+export {
+  createMcpAppOrdinaryToolCallPreparer,
+  McpAppToolNotAdmittedError,
+} from './mastra/mcp-app-tool-call';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,

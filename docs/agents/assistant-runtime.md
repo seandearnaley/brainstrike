@@ -344,7 +344,13 @@ lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
 extraction lives in `runtime-assembly/usage-metering.ts`):
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
 gates → provider-native swap → artifact settlement → model-output projection →
-Agent`. The final
+Agent`. The still-unregistered MCP Apps path captures its admission capability
+immediately after the plan/permission/suspend gates. It receives no separate
+policy, plan, enabled-tool, or storage decision: a tool omitted by any ordinary
+gate is absent and fails visibly. An admitted App call keeps the raw host result
+shape while using the shared guard and hooks exactly once.
+
+The final
 projection uses Mastra's native `toModelOutput`, so the mapping observes the
 post-hook execution result without replacing it. A discriminated internal
 carrier takes PostToolUse context to `toModelOutput`; Mastra's official

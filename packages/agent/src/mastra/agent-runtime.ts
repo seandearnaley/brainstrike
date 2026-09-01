@@ -32,6 +32,7 @@ import {
 } from './default-instructions';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
 import type { McpRuntimeClient } from './mcp-runtime-client';
 import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
@@ -144,6 +145,8 @@ export interface MastraAgentRuntime {
    * `brainstrike.context-breakdown` data part.
    */
   instructionBreakdown: InstructionBreakdown;
+  /** App-originated admission captured from this runtime's admitted tool map. */
+  mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient?: McpRuntimeClient;
   /**
    * Whether a permission-policy snapshot was enforced when this runtime built its
@@ -456,6 +459,7 @@ export async function createMastraAgentRuntime(
     artifactSettledTools,
     askTools,
     guardedTools,
+    mcpAppToolAdmission,
     mcpClient,
     resilienceConfig,
     sanitizedLocalToolIds,
@@ -634,6 +638,7 @@ export async function createMastraAgentRuntime(
       await mcpClient?.disconnect();
     },
     instructionBreakdown,
+    mcpAppToolAdmission,
     // Present iff a policy snapshot gated this run's tool map — the signal the
     // resume gate uses to tell all-allowed (empty askTools) from a genuine
     // global-approval run (see resolveResumeApprovalGate / MastraAgentRuntime).
