@@ -86,6 +86,7 @@
       "packages": [
         "@brainstrike/agent",
         "@brainstrike/assistant-service",
+        "@brainstrike/mcp-app-host",
         "@brainstrike/mcp-tasks-extension"
       ],
       "mayDependOn": [
