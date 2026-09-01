@@ -48,7 +48,7 @@ jobs:
     name: Official MCP auth conformance (advisory prerelease)
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
-    timeout-minutes: 8
+    timeout-minutes: 11
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -57,6 +57,40 @@ jobs:
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: 'true'
+
+      # The conformance scenario children execute the desktop dist entry,
+      # which resolves the real Electron module path. Electron has no install
+      # lifecycle (see the provisioning contract), so without this step the
+      # parallel legacy wave races an on-demand download and children die on
+      # EEXIST extraction collisions (dist/*.pak). Provision exactly once,
+      # before any child spawns.
+      - name: Provision Electron binary
+        timeout-minutes: 3
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ARCH=$(node -p "process.arch")
+          if node -e "const fs=require('fs');fs.accessSync(require('electron'),fs.constants.X_OK)" 2>/dev/null; then
+            echo "Electron binary already provisioned; skipping download"
+            exit 0
+          fi
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          SHASUMS="${RUNNER_TEMP:-/tmp}/electron-SHASUMS256.txt"
+          ASSET="electron-v${VER}-linux-${ARCH}.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/${ASSET}"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          curl -fsSL --connect-timeout 20 --max-time 60 --retry 3 --retry-delay 5 --retry-all-errors -o "$SHASUMS" "https://github.com/electron/electron/releases/download/v${VER}/SHASUMS256.txt"
+          EXPECTED=$(grep " \*${ASSET}$" "$SHASUMS" | awk '{print $1}')
+          test -n "$EXPECTED"
+          echo "${EXPECTED} *${ELECTRON_ZIP}" | sha256sum -c -
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p,fs.constants.X_OK);console.log('Electron binary present at '+p)"
 
       - name: Run official MCP auth conformance
         timeout-minutes: 7
@@ -75,7 +109,7 @@ jobs:
     name: Official MCP modern auth closeout (advisory prerelease)
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
-    timeout-minutes: 18
+    timeout-minutes: 21
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -84,6 +118,37 @@ jobs:
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: 'true'
+
+      # Same rationale as official_auth: one provisioning, no per-child
+      # download races, and the sequential closeout stops depending on the
+      # first child winning an on-demand download inside its own deadline.
+      - name: Provision Electron binary
+        timeout-minutes: 3
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ARCH=$(node -p "process.arch")
+          if node -e "const fs=require('fs');fs.accessSync(require('electron'),fs.constants.X_OK)" 2>/dev/null; then
+            echo "Electron binary already provisioned; skipping download"
+            exit 0
+          fi
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          SHASUMS="${RUNNER_TEMP:-/tmp}/electron-SHASUMS256.txt"
+          ASSET="electron-v${VER}-linux-${ARCH}.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/${ASSET}"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          curl -fsSL --connect-timeout 20 --max-time 60 --retry 3 --retry-delay 5 --retry-all-errors -o "$SHASUMS" "https://github.com/electron/electron/releases/download/v${VER}/SHASUMS256.txt"
+          EXPECTED=$(grep " \*${ASSET}$" "$SHASUMS" | awk '{print $1}')
+          test -n "$EXPECTED"
+          echo "${EXPECTED} *${ELECTRON_ZIP}" | sha256sum -c -
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p,fs.constants.X_OK);console.log('Electron binary present at '+p)"
 
       - name: Run official MCP modern auth closeout
         timeout-minutes: 14

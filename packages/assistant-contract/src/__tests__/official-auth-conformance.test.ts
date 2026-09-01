@@ -16,6 +16,7 @@ describe('official auth conformance authority', () => {
       expect(descriptor.stepTimeoutMinutes * 60_000).toBeGreaterThanOrEqual(requiredStepMs);
       expect(descriptor.jobTimeoutMinutes).toBeGreaterThanOrEqual(
         descriptor.buildTimeoutMinutes +
+          descriptor.provisionTimeoutMinutes +
           descriptor.stepTimeoutMinutes +
           descriptor.workflowOverheadMinutes
       );

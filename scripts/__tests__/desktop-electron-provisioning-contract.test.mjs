@@ -6,7 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const workflowPaths = ['.github/workflows/test.yml', '.github/workflows/desktop-e2e.yml'];
+const workflowPaths = [
+  '.github/workflows/test.yml',
+  '.github/workflows/desktop-e2e.yml',
+  '.github/workflows/mcp-verification.yml',
+];
+// mcp-verification.yml is deliberately included: its provisioning steps must
+// also never reintroduce the unused ~/.cache/electron cache location.
 const electronCacheConfigPaths = [...workflowPaths, '.github/actions/setup-workspace/action.yml'];
 const desktopSetupJobs = [
   { job: 'desktop-e2e', relativePath: '.github/workflows/test.yml', turboCache: 'false' },
@@ -84,7 +90,7 @@ test('desktop workflows and their shared action do not cache the unused Electron
   }
 });
 
-test('all four provisioning steps use the container-safe runner temp fallback', () => {
+test('every provisioning step uses the container-safe runner temp fallback', () => {
   const provisioningSteps = workflowPaths.flatMap((relativePath) =>
     allSteps(loadWorkflow(relativePath))
       .filter(({ name }) => name === 'Provision Electron binary')
@@ -93,8 +99,8 @@ test('all four provisioning steps use the container-safe runner temp fallback', 
 
   assert.equal(
     provisioningSteps.length,
-    4,
-    'expected native packaging, smoke, and two regression provisioning sites'
+    6,
+    'expected native packaging, smoke, two regression, and two official-conformance provisioning sites'
   );
   for (const { relativePath, run } of provisioningSteps) {
     assert.equal(typeof run, 'string', `${relativePath} provisioning must remain a shell step`);

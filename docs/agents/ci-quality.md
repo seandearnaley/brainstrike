@@ -65,8 +65,13 @@ Desktop main-process runtime dependencies and bundle through the root command.
 pnpm run verify:mcp:official
 ```
 
-Its combined build/run step has a seven-minute bound and its job an eight-minute
-bound. The job is explicitly `continue-on-error`: pinned
+Its combined build/run step has a seven-minute bound and its job an 11-minute
+bound (four-minute build, three-minute Electron provisioning, three-minute run,
+one minute of workflow overhead). A bounded three-minute "Provision Electron
+binary" step runs before the suite: the conformance children execute the desktop
+dist entry, which requires the real Electron binary, and Electron has no install
+lifecycle — provisioning once prevents parallel children racing an on-demand
+download into EEXIST extraction failures. The job is explicitly `continue-on-error`: pinned
 `@modelcontextprotocol/conformance@0.2.0-alpha.10` remains prerelease evidence,
 not a required gate. Its runner executes the closed 28-case auth matrix without
 `--expected-failures` or `--output-dir`, captures child output through a
@@ -92,7 +97,8 @@ pnpm run verify:mcp:official -- --profile modern-closeout
 ```
 
 The command has a four-minute build allowance, ten-minute runner allowance,
-14-minute combined step bound, and 18-minute job bound.
+14-minute combined step bound, and 21-minute job bound (which also reserves the
+three-minute Electron provisioning step both official jobs share).
 The profile executes exactly the eleven alpha.10 scenarios that apply only at
 `2026-07-28`, sequentially inside one evidence wave, with zero expected failures.
 It uploads only
@@ -102,8 +108,9 @@ BST-1560 job remains its reviewed 28 executions; neither job passes
 `--expected-failures` or `--output-dir`, and neither uploads raw auth output.
 The ten-minute step is load-bearing math: 11 × 45-second scenario deadlines is
 495 seconds, leaving 105 seconds for setup, cleanup, and sanitized evidence
-persistence. The 18-minute job additionally reserves the four-minute build and
-four minutes for workflow setup/upload. Shared typed descriptors and workflow
+persistence. The 21-minute job additionally reserves the four-minute build,
+the three-minute Electron provisioning step, and four minutes for workflow
+setup/upload. Shared typed descriptors and workflow
 contract tests pin these budgets; both jobs remain advisory.
 
 ### Open PR to Linear conformance (BST-521)

@@ -2397,8 +2397,9 @@ required release claim.
 
 The modern workflow step has a ten-minute timeout: eleven sequential 45-second
 deadlines consume at most 495 seconds, leaving 105 seconds for runner setup,
-cleanup, and evidence persistence. Its 18-minute advisory job also reserves four
-minutes for the build and four for workflow setup/upload. Contract tests compare
+cleanup, and evidence persistence. Its 21-minute advisory job also reserves four
+minutes for the build, three for the bounded Electron provisioning step, and
+four for workflow setup/upload. Contract tests compare
 these values to the shared descriptor; per-scenario deadlines are not shortened.
 
 Add verifier capabilities incrementally. A package export may appear only in
