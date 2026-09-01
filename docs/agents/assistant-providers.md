@@ -2209,6 +2209,18 @@ denies, and settlement restores focus to the host-provided recovery target.
 The sandbox slot is inert and hidden from assistive technology while consent is
 open. This surface still does not register or advertise MCP Apps in production.
 
+The BST-1571 packaged verifier bundles those production authority and surface
+modules into an otherwise inert host harness, launches the exact
+electron-builder output, and first asserts `app.isPackaged === true`. It drives
+the host exclusively through accessible role/name selectors and proves consent
+focus entry, denial recovery, sanitized failure recovery, and completion
+recovery. Completion, tab close, replacement, disconnect, shutdown, denial,
+and execution failure must each leave zero authority listeners, pending
+approvals, and pending calls; the window owner awaits tab-close cleanup before
+destroying its packaged `BrowserWindow`. Together with BST-1570's packaged
+bridge verifier, this pins both bridge and call-authority cleanup without
+mounting or advertising MCP Apps in the production desktop renderer.
+
 BST-1567 owns the disabled Apps wire-contract projection from the immutable
 `@modelcontextprotocol/ext-apps@1.7.5` schema and stable `2026-01-26` spec. It
 accepts all 15 stable `ui/*` methods plus `tools/call`, `resources/read`,
