@@ -11,15 +11,13 @@ const {
   enableServerToolsMock,
   disableServerToolsMock,
   resetToolsMock,
+  listToolsMock,
   loadToolPreferencesMock,
   saveToolPreferencesMock,
   loadMcpConfigMock,
   watchMcpConfigMock,
   getMcpConfigPathMock,
   setCustomMcpConfigPathMock,
-  initClientsMock,
-  getClientMock,
-  disposeClientsMock,
   ipcHandleMock,
   showOpenDialogMock,
   getPathMock,
@@ -83,33 +81,17 @@ const {
   const getConfigPath = vi.fn(async () => '/mock/path');
   const setCustomConfigPath = vi.fn(async () => {});
 
-  const listTools = vi.fn(async () => {
-    order.push('list-tools');
-    return {
-      'mock-server.tool.disable': { description: 'Disabled tool' },
-      'mock-server.tool.enable': { description: 'Enabled tool' },
-    };
-  });
-
-  const discoveryClient = {
-    callTool: vi.fn(),
-    dispose: vi.fn(),
-    listTools,
-    name: 'mock-server',
-    supportsTool: vi.fn(() => false),
-    transport: 'stdio' as const,
-  };
-
-  const initClients = vi.fn(() => {
-    order.push('init-clients');
-  });
-  const getClient = vi.fn((serverName: string) => {
-    if (serverName === 'mock-server') {
-      return discoveryClient;
+  const listTools = vi.fn(
+    async (
+      _serverName: string
+    ): Promise<Record<string, { description: string; inputSchema?: unknown }>> => {
+      order.push('list-tools');
+      return {
+        'mock-server.tool.disable': { description: 'Disabled tool' },
+        'mock-server.tool.enable': { description: 'Enabled tool' },
+      };
     }
-    return;
-  });
-  const disposeClients = vi.fn();
+  );
 
   const ipcHandle = vi.fn();
   const showOpenDialog = vi.fn();
@@ -119,16 +101,13 @@ const {
     callOrder: order,
     disableServerToolsMock: disableServerTools,
     disableToolsMock: disable,
-    disposeClientsMock: disposeClients,
     enableServerToolsMock: enableServerTools,
     enableToolsMock: enable,
     getAllToolsMock: getAllTools,
-    getClientMock: getClient,
     getEnabledToolsMock: getEnabledTools,
     getMcpConfigPathMock: getConfigPath,
     getPathMock: getPath,
     getStatsMock: getStats,
-    initClientsMock: initClients,
     ipcHandleMock: ipcHandle,
     listToolsMock: listTools,
     loadMcpConfigMock: loadConfig,
@@ -171,13 +150,6 @@ vi.mock('../../mcp-loader', () => ({
   writeMcpConfigText: vi.fn(),
 }));
 
-vi.mock('../../mcp', () => ({
-  __esModule: true,
-  disposeClients: disposeClientsMock,
-  getClient: getClientMock,
-  initClients: initClientsMock,
-}));
-
 vi.mock('electron', () => ({
   __esModule: true,
   app: { getPath: getPathMock },
@@ -195,8 +167,7 @@ import {
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
 const authority = createMcpAuthorityTestRuntime(async (serverId) => {
-  const client = getClientMock(serverId);
-  const discovered = client ? await client.listTools() : {};
+  const discovered = await listToolsMock(serverId);
   return {
     tools: Object.entries(discovered).map(([toolId, tool]) => {
       if (!(typeof tool === 'object' && tool)) {
@@ -271,27 +242,20 @@ describe('ipc-mcp tool preference loading', () => {
       exists: true,
       path: '/mock/config.json',
     } as unknown as Awaited<ReturnType<typeof loadMcpConfigMock>>);
-    getClientMock.mockReturnValueOnce({
-      callTool: vi.fn(),
-      dispose: vi.fn(),
-      listTools: vi.fn(async () => ({
-        'filesystem.list_directory': {
-          description: 'Get a detailed listing of files and directories.',
-          inputSchema: { type: 'filesystem.list_directory.schema' },
-        },
-        'filesystem.read_file': {
-          description: 'Read the complete contents of a file from the file system.',
-          inputSchema: { type: 'filesystem.read_file.schema' },
-        },
-        'filesystem.search_files': {
-          description: 'Recursively search for files in a directory.',
-          inputSchema: { type: 'filesystem.search_files.schema' },
-        },
-      })),
-      name: 'filesystem',
-      supportsTool: vi.fn(() => false),
-      transport: 'stdio',
-    } as unknown as ReturnType<typeof getClientMock>);
+    listToolsMock.mockResolvedValueOnce({
+      'filesystem.list_directory': {
+        description: 'Get a detailed listing of files and directories.',
+        inputSchema: { type: 'filesystem.list_directory.schema' },
+      },
+      'filesystem.read_file': {
+        description: 'Read the complete contents of a file from the file system.',
+        inputSchema: { type: 'filesystem.read_file.schema' },
+      },
+      'filesystem.search_files': {
+        description: 'Recursively search for files in a directory.',
+        inputSchema: { type: 'filesystem.search_files.schema' },
+      },
+    });
 
     registerMcpIpcHandlers({ runtime: authority.runtime });
 
@@ -388,14 +352,16 @@ describe('ipc-mcp tool preference loading', () => {
 
     const mutation = disable({}, ['mock-server.tool.disable']);
     await vi.waitFor(() => expect(saveToolPreferencesMock).toHaveBeenCalledOnce());
+    const replacementsBeforeReset = authority.replaceResolvedConfig.mock.calls.length;
     const reset = resetMcpRuntimeForFactoryReset(authority.runtime);
     await new Promise((resolve) => setImmediate(resolve));
-    expect(disposeClientsMock).not.toHaveBeenCalled();
+    expect(authority.replaceResolvedConfig).toHaveBeenCalledTimes(replacementsBeforeReset);
 
     preferenceWrite.resolve();
     await mutation;
     await reset;
-    expect(disposeClientsMock).toHaveBeenCalledOnce();
+    expect(authority.replaceResolvedConfig).toHaveBeenCalledTimes(replacementsBeforeReset + 1);
+    expect(authority.replaceResolvedConfig).toHaveBeenLastCalledWith({ servers: [] });
   });
 
   it('rejects a deferred tool mutation when a queued config reload rebuilds the registry', async () => {
