@@ -3,7 +3,11 @@ import type { McpHostCloseReport, McpHostConfig } from '@brainstrike/assistant-c
 import { parseConfiguredMcpServerId, parseMcpHostConfig } from '@brainstrike/assistant-contract';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
+import {
+  createDesktopMcpHostRuntime,
+  getDesktopMcpHostRuntime,
+  openExternalWithElectron,
+} from '../../mcp/host-runtime';
 import { McpHostService } from '../../mcp/host-service';
 import {
   createInMemoryMcpOAuthStore,
@@ -109,6 +113,27 @@ const publicConfig = (
   });
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('Electron shell loader', () => {
+  it.each(['namespace', 'default'] as const)(
+    'opens through the %s CommonJS interop shape',
+    async (shape) => {
+      const openExternal = vi.fn(async () => undefined);
+      const shell = { openExternal };
+      const electron = shape === 'namespace' ? { shell } : { default: { shell } };
+
+      await openExternalWithElectron('https://authorize.example.test', async () => electron);
+
+      expect(openExternal).toHaveBeenCalledWith('https://authorize.example.test');
+    }
+  );
+
+  it('fails visibly when Electron exposes no shell module', async () => {
+    await expect(
+      openExternalWithElectron('https://authorize.example.test', async () => ({ default: {} }))
+    ).rejects.toThrow('Electron shell module is unavailable');
+  });
+});
 
 describe('DesktopMcpHostRuntime', () => {
   it('does not connect a user-paced authentication server during startup replacement', async () => {

@@ -26,6 +26,19 @@ describe('MCP OAuth credential boundary', () => {
     expect(createStore).toHaveBeenCalledOnce();
   });
 
+  it('retries lazy secure persistence initialization after a rejected attempt', async () => {
+    const delegate = createInMemoryMcpOAuthStore();
+    const createStore = vi
+      .fn<() => Promise<ReturnType<typeof createInMemoryMcpOAuthStore>>>()
+      .mockRejectedValueOnce(new Error('safe storage unavailable'))
+      .mockResolvedValue(delegate);
+    const store = createLazySafeStorageMcpOAuthStore(createStore);
+
+    await expect(store.read(identity)).rejects.toThrow('safe storage unavailable');
+    await expect(store.read(identity)).resolves.toEqual({});
+    expect(createStore).toHaveBeenCalledTimes(2);
+  });
+
   it('encrypts the dedicated store and refuses an insecure safeStorage backend', async () => {
     const values = new Map<string, string>();
     const electronStore = {

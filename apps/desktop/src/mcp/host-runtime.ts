@@ -18,7 +18,6 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { shell } from 'electron';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
 import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features';
 import { McpHostRevisionPublisher } from './host-revision-publisher';
@@ -61,7 +60,7 @@ interface ExplicitClient extends NegotiatedProtocolFacts {
   unsubscribeResource: McpCoreFeatureClient['unsubscribeResource'];
   watchServerFeatures: McpCoreFeatureClient['watchServerFeatures'];
 }
-interface RuntimeDependencies {
+export interface DesktopMcpHostRuntimeDependencies {
   createActorClient?: (
     server: ResolvedMcpServer,
     context: ActorContext
@@ -74,6 +73,46 @@ interface RuntimeDependencies {
   onInternalError?: (code: string, cause: unknown) => Promise<void> | void;
   openExternal?: (url: string) => Promise<void>;
   resolveClientCapabilities?: (server: ResolvedMcpServer) => McpClientCapabilityOptions | undefined;
+}
+
+function createDefaultOAuthStore(): McpOAuthStore {
+  return createLazySafeStorageMcpOAuthStore(async () => {
+    const { createDefaultSafeStorageMcpOAuthStore } = await import('./oauth-safe-storage-defaults');
+    return createDefaultSafeStorageMcpOAuthStore();
+  });
+}
+
+interface ElectronShell {
+  openExternal(url: string): Promise<void>;
+}
+
+function isElectronShell(value: unknown): value is ElectronShell {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof Reflect.get(value, 'openExternal') === 'function'
+  );
+}
+
+export async function openExternalWithElectron(
+  url: string,
+  loadElectron: () => Promise<unknown> = async () => await import('electron')
+): Promise<void> {
+  const electron = await loadElectron();
+  if (typeof electron !== 'object' || electron === null) {
+    throw new Error('Electron shell module is unavailable.');
+  }
+  const direct = Reflect.get(electron, 'shell');
+  const defaultExport = Reflect.get(electron, 'default');
+  const nested =
+    typeof defaultExport === 'object' && defaultExport !== null
+      ? Reflect.get(defaultExport, 'shell')
+      : undefined;
+  const shell = isElectronShell(direct) ? direct : nested;
+  if (!isElectronShell(shell)) {
+    throw new Error('Electron shell module is unavailable.');
+  }
+  await shell.openExternal(url);
 }
 interface PrivateConfigEntry {
   auth: McpHostAuthSnapshot;
@@ -267,24 +306,30 @@ export class DesktopMcpHostRuntime {
   readonly host: McpHostPort;
   private replacementTail: Promise<void> = Promise.resolve();
   private stagedByRef: Map<string, PrivateConfigEntry> | undefined;
-  private readonly createActorClient: NonNullable<RuntimeDependencies['createActorClient']>;
+  private readonly createActorClient: NonNullable<
+    DesktopMcpHostRuntimeDependencies['createActorClient']
+  >;
   private readonly createConfigRef: () => string;
   private readonly createHttpTransportClient: NonNullable<
-    RuntimeDependencies['createHttpTransportClient']
+    DesktopMcpHostRuntimeDependencies['createHttpTransportClient']
   >;
-  private readonly createOAuthProvider: NonNullable<RuntimeDependencies['createOAuthProvider']>;
-  private readonly onInternalError: NonNullable<RuntimeDependencies['onInternalError']>;
+  private readonly createOAuthProvider: NonNullable<
+    DesktopMcpHostRuntimeDependencies['createOAuthProvider']
+  >;
+  private readonly onInternalError: NonNullable<
+    DesktopMcpHostRuntimeDependencies['onInternalError']
+  >;
   private readonly oauthStore: McpOAuthStore;
-  private readonly openExternal: NonNullable<RuntimeDependencies['openExternal']>;
+  private readonly openExternal: NonNullable<DesktopMcpHostRuntimeDependencies['openExternal']>;
   private readonly resolveClientCapabilities: NonNullable<
-    RuntimeDependencies['resolveClientCapabilities']
+    DesktopMcpHostRuntimeDependencies['resolveClientCapabilities']
   >;
   private readonly service: McpHostPort;
   private readonly createStdioTransportClient: NonNullable<
-    RuntimeDependencies['createStdioTransportClient']
+    DesktopMcpHostRuntimeDependencies['createStdioTransportClient']
   >;
 
-  constructor(dependencies: RuntimeDependencies = {}) {
+  constructor(dependencies: DesktopMcpHostRuntimeDependencies = {}) {
     this.createConfigRef = dependencies.createConfigRef ?? randomUUID;
     this.createHttpTransportClient =
       dependencies.createHttpTransportClient ?? ((options) => new ExplicitHttpMcpClient(options));
@@ -298,8 +343,8 @@ export class DesktopMcpHostRuntime {
     this.onInternalError =
       dependencies.onInternalError ??
       ((code, cause) => logger.error('MCP host runtime failure', { cause, code }));
-    this.oauthStore = dependencies.oauthStore ?? createLazySafeStorageMcpOAuthStore();
-    this.openExternal = dependencies.openExternal ?? (async (url) => await shell.openExternal(url));
+    this.oauthStore = dependencies.oauthStore ?? createDefaultOAuthStore();
+    this.openExternal = dependencies.openExternal ?? openExternalWithElectron;
     const publisher = new McpHostRevisionPublisher({
       onDiagnostic: ({ code }, cause) => this.reportInternalError(code, cause),
     });
@@ -611,7 +656,7 @@ export class DesktopMcpHostRuntime {
 }
 
 export const createDesktopMcpHostRuntime = (
-  dependencies?: RuntimeDependencies
+  dependencies?: DesktopMcpHostRuntimeDependencies
 ): DesktopMcpHostRuntime => new DesktopMcpHostRuntime(dependencies);
 
 let singleton: DesktopMcpHostRuntime | undefined;

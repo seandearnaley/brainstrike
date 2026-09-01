@@ -13,8 +13,6 @@ import {
   type StoredOAuthTokens,
   validateClientMetadataUrl,
 } from '@modelcontextprotocol/client';
-import { safeStorage } from 'electron';
-import ElectronStore from 'electron-store';
 
 const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
 const MAX_CALLBACK_URL_BYTES = 16 * 1024;
@@ -48,25 +46,30 @@ export interface McpOAuthStore {
   ): Promise<void>;
 }
 
-interface EncryptedStoreSchema {
+export interface EncryptedStoreSchema {
   records: Record<string, string>;
 }
 
 const encryptedStores = new Set<McpOAuthStore>();
 const liveProviders = new Set<McpOAuthClientProvider>();
 
-interface SafeStorageLike {
+export interface McpOAuthSafeStorage {
   decryptString(value: Buffer): string;
   encryptString(value: string): Buffer;
   getSelectedStorageBackend?(): string;
   isEncryptionAvailable(): boolean;
 }
 
+export interface McpOAuthEncryptedStore {
+  get(key: string): unknown;
+  set(key: string, value: unknown): void;
+}
+
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function assertSafeStorage(storage: SafeStorageLike): void {
+function assertSafeStorage(storage: McpOAuthSafeStorage): void {
   if (!storage.isEncryptionAvailable() || storage.getSelectedStorageBackend?.() === 'basic_text') {
     throw new Error('MCP OAuth persistence requires OS-backed safeStorage encryption.');
   }
@@ -273,15 +276,9 @@ function validatePersistedDiscoveryState(value: unknown): void {
 }
 
 export function createSafeStorageMcpOAuthStore(
-  store: ElectronStore<EncryptedStoreSchema> = new ElectronStore<EncryptedStoreSchema>({
-    name: 'brainstrike-mcp-oauth',
-  }),
-  storage: SafeStorageLike = safeStorage
+  store: McpOAuthEncryptedStore,
+  storage: McpOAuthSafeStorage
 ): McpOAuthStore {
-  const typedStore = store as ElectronStore<EncryptedStoreSchema> & {
-    get: (key: string) => unknown;
-    set: (key: string, value: unknown) => void;
-  };
   let queueTail: Promise<void> = Promise.resolve();
 
   function enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -297,22 +294,22 @@ export function createSafeStorageMcpOAuthStore(
     async clear(identity) {
       const key = identityKey(identity);
       await enqueue(() => {
-        const records = parseEncryptedRecordMap(typedStore.get('records'));
+        const records = parseEncryptedRecordMap(store.get('records'));
         if (!Object.hasOwn(records, key)) {
           return;
         }
         const next = { ...records };
         delete next[key];
-        typedStore.set('records', next);
+        store.set('records', next);
       });
     },
     async clearAll() {
-      await enqueue(() => typedStore.set('records', {}));
+      await enqueue(() => store.set('records', {}));
     },
     async read(identity) {
       const key = identityKey(identity);
       return await enqueue(() => {
-        const records = parseEncryptedRecordMap(typedStore.get('records'));
+        const records = parseEncryptedRecordMap(store.get('records'));
         const encrypted = records[key];
         if (encrypted === undefined) {
           return {};
@@ -325,10 +322,10 @@ export function createSafeStorageMcpOAuthStore(
       const key = identityKey(identity);
       await enqueue(() => {
         assertSafeStorage(storage);
-        const records = parseEncryptedRecordMap(typedStore.get('records'));
+        const records = parseEncryptedRecordMap(store.get('records'));
         const encrypted = storage.encryptString(JSON.stringify(nextRecords));
         const next = { ...records, [key]: encrypted.toString('base64') };
-        typedStore.set('records', next);
+        store.set('records', next);
       });
     },
   };
@@ -337,25 +334,41 @@ export function createSafeStorageMcpOAuthStore(
 }
 
 export function createLazySafeStorageMcpOAuthStore(
-  createStore: () => McpOAuthStore = createSafeStorageMcpOAuthStore
+  createStore: () => McpOAuthStore | Promise<McpOAuthStore>
 ): McpOAuthStore {
   let store: McpOAuthStore | undefined;
-  const resolveStore = (): McpOAuthStore => {
-    store ??= createStore();
-    return store;
+  let pending: Promise<McpOAuthStore> | undefined;
+  const resolveStore = (): Promise<McpOAuthStore> => {
+    if (store) {
+      return Promise.resolve(store);
+    }
+    pending ??= Promise.resolve()
+      .then(createStore)
+      .then(
+        (created) => {
+          store = created;
+          pending = undefined;
+          return created;
+        },
+        (error: unknown) => {
+          pending = undefined;
+          throw error;
+        }
+      );
+    return pending;
   };
   return {
     async clear(identity) {
-      await resolveStore().clear(identity);
+      await (await resolveStore()).clear(identity);
     },
     async clearAll() {
-      await resolveStore().clearAll();
+      await (await resolveStore()).clearAll();
     },
     async read(identity) {
-      return await resolveStore().read(identity);
+      return await (await resolveStore()).read(identity);
     },
     async write(identity, records) {
-      await resolveStore().write(identity, records);
+      await (await resolveStore()).write(identity, records);
     },
   };
 }
