@@ -49,6 +49,66 @@ const resolved = (...servers: ResolvedMcpServer[]): ResolvedMcpConfig => ({ serv
 afterEach(() => vi.restoreAllMocks());
 
 describe('DesktopMcpHostRuntime core feature composition', () => {
+  it('retires suspended elicitation on every production authority invalidation path', async () => {
+    for (const cause of ['unexpected-close', 'disconnect', 'replacement', 'reset', 'close']) {
+      let authority: ReturnType<typeof createDesktopMcpHostRuntime>['elicitationPresenter'];
+      let unexpectedClose: (() => void) | undefined;
+      const presented = Promise.withResolvers<void>();
+      const explicitClient = transportClient();
+      explicitClient.callTool.mockImplementation(async () => {
+        await authority.presenter.presentForm(
+          {
+            method: 'elicitation/create',
+            params: {
+              message: 'Choose',
+              mode: 'form',
+              requestedSchema: { properties: {}, type: 'object' },
+            },
+          },
+          {
+            requestId: 'queued',
+            serverName: http().name,
+            signal: new AbortController().signal,
+          }
+        );
+        return { content: [] };
+      });
+      const runtime = createDesktopMcpHostRuntime({
+        createHttpTransportClient: (options) => {
+          unexpectedClose = options.onUnexpectedClose;
+          return explicitClient;
+        },
+      });
+      authority = runtime.elicitationPresenter;
+      authority.attach(() => presented.resolve());
+      await runtime.replaceResolvedConfig(resolved(http()));
+      await runtime.host.invoke({ configuredServerId: http().name, type: 'tools/list' });
+      const pending = runtime.host.invoke({
+        arguments: {},
+        configuredServerId: http().name,
+        toolName: 'suspend',
+        type: 'tools/call',
+      });
+      await presented.promise;
+      if (cause === 'unexpected-close') {
+        unexpectedClose?.();
+      } else if (cause === 'disconnect') {
+        await runtime.host.control({ action: 'disconnect', configuredServerId: http().name });
+      } else if (cause === 'replacement') {
+        await runtime.replaceResolvedConfig(
+          resolved({ ...http(), url: 'https://new.example/mcp' })
+        );
+      } else if (cause === 'reset') {
+        await runtime.replaceResolvedConfig(resolved());
+      } else {
+        await runtime.host.close();
+      }
+      await expect(pending).rejects.toBeDefined();
+      if (cause !== 'close') {
+        await runtime.host.close();
+      }
+    }
+  });
   it.each([
     { childProcessesClosed: 0, cursor: '', server: http() },
     { childProcessesClosed: 1, cursor: 'next-page', server: stdio() },

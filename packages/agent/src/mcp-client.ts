@@ -16,6 +16,8 @@ export {
   type McpTransportCapabilityConfiguration,
   type SanitizedMcpServerLog,
   sanitizeMcpServerLog,
+  validateMcpElicitationRequest,
+  validateMcpElicitationResult,
 } from './mcp/client-capabilities';
 export {
   type McpClientExtensionContract,
