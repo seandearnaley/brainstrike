@@ -2053,7 +2053,11 @@ the transport or opening a browser. `connect`, `retry`, `cancel`, `disconnect`,
 and `reauthorize` are explicit host controls; user-paced authorization is not governed by the
 automatic ten-second machine deadline. Stdio stderr is piped through the SDK's
 early-created stream, line-bounded and secret-redacted before it reaches the
-server snapshot or the warn-and-above durable log sink.
+server snapshot. Healthy stderr remains a session-only debug signal. On connect
+failure or unexpected child exit, the host emits at most one durable `warn` per
+server generation containing only the last five sanitized diagnostics plus an
+honest omitted count; the per-server snapshot remains a 20-entry session ring.
+Raw child stderr never enters either path.
 
 Remote transport rules:
 - `stdio` constructs only the official SDK's `StdioClientTransport`. The SDK

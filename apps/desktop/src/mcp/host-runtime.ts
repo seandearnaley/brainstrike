@@ -211,6 +211,7 @@ async function connectClient(
     await onConnected?.();
   } catch (cause) {
     diagnostics?.flush();
+    reportStdioFailureDiagnostics(server, context.generation, diagnostics);
     return await closeAfterFailure(
       client,
       classifyMcpLifecycleFailure(cause, diagnostics?.snapshot()),
@@ -295,6 +296,23 @@ async function connectClient(
       return () => catalogListeners.delete(listener);
     },
   };
+}
+
+function reportStdioFailureDiagnostics(
+  server: ResolvedMcpServer,
+  generation: number,
+  diagnostics?: McpStdioDiagnosticCollector
+): void {
+  const report = diagnostics?.takeFailureReport();
+  if (!report) {
+    return;
+  }
+  logger.warn('MCP stdio failure diagnostics', {
+    diagnostics: report.diagnostics,
+    generation,
+    omittedDiagnostics: report.omittedDiagnostics,
+    server: server.name,
+  });
 }
 
 export class DesktopMcpHostRuntime {
@@ -575,8 +593,10 @@ export class DesktopMcpHostRuntime {
         command: server.command,
         ...(server.env ? { env: server.env } : {}),
         onStderr: (chunk) => diagnostics?.write(chunk),
-        onUnexpectedClose: () =>
-          context.onUnexpectedClose(new McpLifecycleFailure('connection', 'mcp-child-exited')),
+        onUnexpectedClose: () => {
+          reportStdioFailureDiagnostics(server, context.generation, diagnostics);
+          context.onUnexpectedClose(new McpLifecycleFailure('connection', 'mcp-child-exited'));
+        },
         userPacedAuth: server.startup === 'authentication-required',
       });
       return connectClient(

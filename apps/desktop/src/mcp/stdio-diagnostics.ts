@@ -7,6 +7,7 @@ import stripAnsi from 'strip-ansi';
 
 export const MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES = MCP_HOST_DIAGNOSTIC_MAX_ENTRIES;
 export const MCP_STDIO_DIAGNOSTIC_MAX_MESSAGE_CHARS = 512;
+export const MCP_STDIO_DURABLE_FAILURE_MAX_ENTRIES = 5;
 const MAX_BUFFERED_LINE_CHARS = 8192;
 const TRUNCATION_MARKER = '…[truncated]';
 const URL_PATTERN = /https?:\/\/[^\s?#]+(?:\?[^\s#]*)?(?:#[^\s]*)?/giu;
@@ -20,10 +21,11 @@ function redactUrl(value: string): string {
   return value.replace(URL_PATTERN, (candidate) => {
     try {
       const url = new URL(candidate);
+      const safeUrl = `${url.origin}${url.pathname}`;
       if (!(url.search || url.hash)) {
-        return candidate;
+        return safeUrl;
       }
-      return `${url.origin}${url.pathname}?[redacted-query]`;
+      return `${safeUrl}?[redacted-query]`;
     } catch {
       return '[redacted-auth-url]';
     }
@@ -83,6 +85,8 @@ export function sanitizeStdioDiagnosticLine(raw: string): McpHostDiagnostic | nu
 export class McpStdioDiagnosticCollector {
   private buffer = '';
   private droppedBufferedChars = 0;
+  private emittedCount = 0;
+  private failureReportTaken = false;
   private readonly retained: McpHostDiagnostic[] = [];
 
   constructor(private readonly onDiagnostic?: (diagnostic: McpHostDiagnostic) => void) {}
@@ -98,6 +102,22 @@ export class McpStdioDiagnosticCollector {
 
   snapshot(): readonly McpHostDiagnostic[] {
     return structuredClone(this.retained);
+  }
+
+  takeFailureReport(): {
+    diagnostics: readonly McpHostDiagnostic[];
+    omittedDiagnostics: number;
+  } | null {
+    this.flush();
+    if (this.failureReportTaken || this.retained.length === 0) {
+      return null;
+    }
+    this.failureReportTaken = true;
+    const diagnostics = this.retained.slice(-MCP_STDIO_DURABLE_FAILURE_MAX_ENTRIES);
+    return Object.freeze({
+      diagnostics: structuredClone(diagnostics),
+      omittedDiagnostics: Math.max(0, this.emittedCount - diagnostics.length),
+    });
   }
 
   write(chunk: string): void {
@@ -126,6 +146,7 @@ export class McpStdioDiagnosticCollector {
     if (!diagnostic) {
       return;
     }
+    this.emittedCount += 1;
     this.retained.push(diagnostic);
     if (this.retained.length > MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES) {
       this.retained.splice(0, this.retained.length - MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES);
