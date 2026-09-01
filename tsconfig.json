@@ -119,6 +119,9 @@
       "@brainstrike/agent": [
         "./packages/agent/dist/index.d.ts"
       ],
+      "@brainstrike/mcp-tasks-extension": [
+        "./packages/mcp-tasks-extension/src/index.ts"
+      ],
       "@brainstrike/embeddings": [
         "./packages/embeddings/src"
       ],

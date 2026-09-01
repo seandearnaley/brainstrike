@@ -85,7 +85,8 @@
       "owner": "assistant",
       "packages": [
         "@brainstrike/agent",
-        "@brainstrike/assistant-service"
+        "@brainstrike/assistant-service",
+        "@brainstrike/mcp-tasks-extension"
       ],
       "mayDependOn": [
         "indexing",
