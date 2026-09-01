@@ -36,77 +36,88 @@ export type McpContentApplicationRequest = {
     readonly authority: McpContentAuthority;
   };
 }[McpContentOperationType];
-export interface McpContentApplicationInvokeOptions {
-  readonly signal?: AbortSignal;
+export type McpContentApplicationInternalErrorCode =
+  | 'mcp-content-host-invoke-failed'
+  | 'mcp-content-host-snapshot-failed'
+  | 'mcp-content-host-watch-failed'
+  | 'mcp-content-result-validation-failed';
+export interface McpContentApplicationPortOptions {
+  onInternalError(
+    code: McpContentApplicationInternalErrorCode,
+    cause: unknown
+  ): Promise<void> | void;
 }
 export interface McpContentApplicationPort {
   execute(
     request: McpContentApplicationRequest,
-    options?: McpContentApplicationInvokeOptions
+    options?: Readonly<{ signal?: AbortSignal }>
   ): Promise<McpContentApplicationResult>;
 }
 export const MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES = 256 * 1024;
 export const MCP_CONTENT_APPLICATION_MAX_RESULT_BYTES = 4 * 1024 * 1024;
 
-const ERROR_DESCRIPTOR_VALUES = {
+const ERROR_VALUES = {
   cancelled: ['cancelled', 'mcp_content_cancelled'],
   hostFailed: ['host', 'mcp_content_host_operation_failed'],
   invalidRequest: ['configuration', 'mcp_content_request_invalid'],
   invalidResult: ['protocol', 'mcp_content_result_invalid'],
+  invokeFailed: ['host', 'mcp_content_host_invoke_failed'],
   largeRequest: ['request-too-large', 'mcp_content_request_too_large'],
   largeResult: ['result-too-large', 'mcp_content_result_too_large'],
   mismatchedResult: ['protocol', 'mcp_content_result_type_mismatch'],
   notConnected: ['not-connected', 'mcp_content_server_not_connected'],
   retired: ['generation-retired', 'mcp_content_generation_retired'],
+  snapshotFailed: ['host', 'mcp_content_host_snapshot_failed'],
   unknownServer: ['configuration', 'mcp_content_server_unknown'],
   unsupported: ['unsupported', 'mcp_content_operation_unsupported'],
+  watchFailed: ['host', 'mcp_content_host_watch_failed'],
 } as const;
 const ERROR_MESSAGES = {
   cancelled: 'MCP content request was cancelled',
   hostFailed: 'MCP content host operation failed',
   invalidRequest: 'MCP content request is invalid',
   invalidResult: 'MCP content result is invalid',
+  invokeFailed: 'MCP content host invocation failed',
   largeRequest: 'MCP content request too large',
   largeResult: 'MCP content result too large',
   mismatchedResult: 'MCP content result type mismatch',
   notConnected: 'MCP content server not connected',
   retired: 'MCP content generation retired',
+  snapshotFailed: 'MCP content host snapshot failed',
   unknownServer: 'MCP content server is not configured',
   unsupported: 'MCP content operation unsupported',
+  watchFailed: 'MCP content host watch failed',
 } as const;
-type McpContentApplicationErrorKind = keyof typeof ERROR_DESCRIPTOR_VALUES;
-export type McpContentApplicationErrorDescriptor = {
-  [Kind in McpContentApplicationErrorKind]: {
-    readonly category: (typeof ERROR_DESCRIPTOR_VALUES)[Kind][0];
-    readonly code: (typeof ERROR_DESCRIPTOR_VALUES)[Kind][1];
-    readonly message: (typeof ERROR_MESSAGES)[Kind];
-  };
-}[McpContentApplicationErrorKind];
-export type McpContentApplicationErrorCategory = McpContentApplicationErrorDescriptor['category'];
-export type McpContentApplicationErrorCode = McpContentApplicationErrorDescriptor['code'];
+type McpContentApplicationErrorKind = keyof typeof ERROR_VALUES;
+type McpContentApplicationErrorTuple = (typeof ERROR_VALUES)[McpContentApplicationErrorKind];
 
 export class McpContentApplicationError extends Error {
-  readonly category: McpContentApplicationErrorCategory;
-  readonly code: McpContentApplicationErrorCode;
+  readonly category: McpContentApplicationErrorTuple[0];
+  readonly code: McpContentApplicationErrorTuple[1];
   readonly hostError?: McpHostError;
 
   constructor(kind: McpContentApplicationErrorKind, hostError?: McpHostError) {
-    const [category, code] = ERROR_DESCRIPTOR_VALUES[kind];
+    const [category, code] = ERROR_VALUES[kind];
     super(ERROR_MESSAGES[kind]);
     this.name = 'McpContentApplicationError';
     this.category = category;
     this.code = code;
     if (hostError) {
-      this.hostError = Object.freeze({ ...hostError });
+      this.hostError = Object.freeze(hostError);
     }
   }
 }
-type ContentHostPort = Pick<McpHostPort, 'invoke' | 'snapshot' | 'watch'>;
-function applicationError(
-  kind: McpContentApplicationErrorKind,
-  hostError?: McpHostError
-): McpContentApplicationError {
+function applicationError(kind: McpContentApplicationErrorKind, hostError?: McpHostError) {
   return new McpContentApplicationError(kind, hostError);
+}
+function reportInternalError(
+  options: McpContentApplicationPortOptions,
+  code: McpContentApplicationInternalErrorCode,
+  cause: unknown
+): void {
+  try {
+    void Promise.resolve(options.onInternalError(code, cause)).catch(() => {});
+  } catch {}
 }
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -145,6 +156,15 @@ function isJsonValue(value: unknown, ancestors = new Set<object>()): boolean {
   ancestors.delete(value);
   return valid;
 }
+function exceedsUtf8Limit(serialized: string | undefined, limit: number): boolean {
+  if (serialized === undefined || serialized.length * 3 <= limit) {
+    return false;
+  }
+  if (serialized.length > limit) {
+    return true;
+  }
+  return TEXT_ENCODER.encode(serialized).byteLength > limit;
+}
 function parseSerializedRequest(request: unknown): unknown {
   let serialized: string | undefined;
   try {
@@ -152,13 +172,10 @@ function parseSerializedRequest(request: unknown): unknown {
       throw new TypeError('MCP content request is not strict JSON');
     }
     serialized = JSON.stringify(request);
-  } catch {
-    throw applicationError('invalidRequest');
+  } catch (cause) {
+    throw applicationError(cause instanceof RangeError ? 'largeRequest' : 'invalidRequest');
   }
-  if (serialized === undefined) {
-    throw applicationError('invalidRequest');
-  }
-  if (TEXT_ENCODER.encode(serialized).byteLength > MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES) {
+  if (exceedsUtf8Limit(serialized, MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES)) {
     throw applicationError('largeRequest');
   }
   return request;
@@ -169,12 +186,19 @@ function parseAuthority(request: unknown): McpContentAuthority {
       throw new TypeError('MCP content request authority is invalid');
     }
     const authority = request['authority'];
-    if (!Number.isSafeInteger(authority['generation']) || Number(authority['generation']) < 0) {
-      throw new TypeError('MCP content request generation is invalid');
+    const generation = Number(authority['generation']);
+    if (
+      Reflect.ownKeys(authority).length !== 2 ||
+      !Object.hasOwn(authority, 'configuredServerId') ||
+      !Object.hasOwn(authority, 'generation') ||
+      !Number.isSafeInteger(generation) ||
+      generation < 0
+    ) {
+      throw new TypeError('MCP content request authority fields are invalid');
     }
     return {
       configuredServerId: parseConfiguredMcpServerId(authority['configuredServerId']),
-      generation: Number(authority['generation']),
+      generation,
     };
   } catch {
     throw applicationError('invalidRequest');
@@ -183,12 +207,9 @@ function parseAuthority(request: unknown): McpContentAuthority {
 function findOperationDescriptor(type: string): McpContentOperationDescriptor | undefined {
   return CONTENT_OPERATION_DESCRIPTORS.find((descriptor) => descriptor.type === type);
 }
-function isContentOperationResult(
-  result: McpHostOperationResult
-): result is McpContentApplicationResult {
-  return findOperationDescriptor(result.type) !== undefined;
-}
-function isContentOperation(operation: McpHostOperation): operation is McpContentHostOperation {
+function isContentOperation(
+  operation: McpHostOperation | McpHostOperationResult
+): operation is McpContentHostOperation | McpContentApplicationResult {
   return findOperationDescriptor(operation.type) !== undefined;
 }
 function parseOperation(
@@ -220,42 +241,50 @@ function parseOperation(
 }
 function readHostError(error: unknown): McpHostError | undefined {
   try {
-    if (!isRecord(error)) {
-      return;
-    }
-    const parsed = McpHostErrorSchema.safeParse({
-      category: Reflect.get(error, 'category'),
-      code: Reflect.get(error, 'code'),
-      message: Reflect.get(error, 'message'),
-    });
+    const parsed = McpHostErrorSchema.safeParse(
+      isRecord(error)
+        ? { category: error['category'], code: error['code'], message: error['message'] }
+        : error
+    );
     return parsed.success ? parsed.data : undefined;
   } catch {
     return;
   }
 }
+function closeWatch(
+  unwatch: (() => void) | undefined,
+  options: McpContentApplicationPortOptions
+): McpContentApplicationError | undefined {
+  try {
+    unwatch?.();
+    return;
+  } catch (cause) {
+    reportInternalError(options, 'mcp-content-host-watch-failed', cause);
+    return applicationError('watchFailed', readHostError(cause));
+  }
+}
 function validateResult(
   result: unknown,
-  operationType: McpContentOperationType
+  operationType: McpContentOperationType,
+  options: McpContentApplicationPortOptions
 ): McpContentApplicationResult {
   let serialized: string;
   try {
     serialized = JSON.stringify(result);
-  } catch {
-    throw applicationError('invalidResult');
+  } catch (cause) {
+    throw applicationError(cause instanceof RangeError ? 'largeResult' : 'invalidResult');
   }
-  if (TEXT_ENCODER.encode(serialized).byteLength > MCP_CONTENT_APPLICATION_MAX_RESULT_BYTES) {
+  if (exceedsUtf8Limit(serialized, MCP_CONTENT_APPLICATION_MAX_RESULT_BYTES)) {
     throw applicationError('largeResult');
   }
   let parsed: McpHostOperationResult;
   try {
     parsed = parseMcpHostOperationResult(result);
-  } catch {
+  } catch (cause) {
+    reportInternalError(options, 'mcp-content-result-validation-failed', cause);
     throw applicationError('invalidResult');
   }
-  if (parsed.type !== operationType) {
-    throw applicationError('mismatchedResult');
-  }
-  if (!isContentOperationResult(parsed)) {
+  if (parsed.type !== operationType || !isContentOperation(parsed)) {
     throw applicationError('mismatchedResult');
   }
   return parsed;
@@ -283,22 +312,15 @@ function authorityError(
   }
   return;
 }
-function assertInitialAuthority(
-  snapshot: McpHostSnapshot,
-  authority: McpContentAuthority,
-  descriptor: McpContentOperationDescriptor
-): void {
-  const error = authorityError(snapshot, authority, descriptor, false);
-  if (error) {
-    throw error;
-  }
-}
 function assertNotTerminated(termination: McpContentApplicationError | undefined): void {
   if (termination) {
     throw termination;
   }
 }
-export function createMcpContentApplicationPort(host: ContentHostPort): McpContentApplicationPort {
+export function createMcpContentApplicationPort(
+  host: Pick<McpHostPort, 'invoke' | 'snapshot' | 'watch'>,
+  portOptions: McpContentApplicationPortOptions
+): McpContentApplicationPort {
   return {
     async execute(request, options = {}) {
       const parsedRequest = parseSerializedRequest(request);
@@ -320,40 +342,73 @@ export function createMcpContentApplicationPort(host: ContentHostPort): McpConte
         }
       };
       const onCallerAbort = (): void => terminate(applicationError('cancelled'));
+      const snapshot = (): McpHostSnapshot => {
+        try {
+          return host.snapshot();
+        } catch (cause) {
+          reportInternalError(portOptions, 'mcp-content-host-snapshot-failed', cause);
+          throw applicationError('snapshotFailed', readHostError(cause));
+        }
+      };
+      const invoke = async (): Promise<unknown> => {
+        try {
+          return await host.invoke(operation, { signal: operationAbort.signal });
+        } catch (cause) {
+          if (termination) {
+            throw termination;
+          }
+          const hostError = readHostError(cause);
+          if (hostError?.category === 'generation-retired') {
+            throw applicationError('retired');
+          }
+          if (hostError) {
+            throw applicationError('hostFailed', hostError);
+          }
+          reportInternalError(portOptions, 'mcp-content-host-invoke-failed', cause);
+          throw applicationError('invokeFailed');
+        }
+      };
       options.signal?.addEventListener('abort', onCallerAbort, { once: true });
       if (options.signal?.aborted) {
         onCallerAbort();
       }
       let unwatch: (() => void) | undefined;
+      let outcome:
+        | { readonly error: unknown; readonly ok: false }
+        | { readonly ok: true; readonly value: McpContentApplicationResult };
       try {
         assertNotTerminated(termination);
-        assertInitialAuthority(host.snapshot(), authority, descriptor);
-        assertNotTerminated(termination);
-        unwatch = host.watch({ configuredServerIds: [authority.configuredServerId] }, (event) =>
-          retireIfChanged(event)
-        );
-        retireIfChanged(host.snapshot());
-        assertNotTerminated(termination);
-        const result = await host.invoke(operation, { signal: operationAbort.signal });
-        retireIfChanged(host.snapshot());
-        assertNotTerminated(termination);
-        return validateResult(result, operation.type);
-      } catch (error) {
-        if (termination) {
-          throw termination;
+        const initialError = authorityError(snapshot(), authority, descriptor, false);
+        if (initialError) {
+          throw initialError;
         }
-        if (error instanceof McpContentApplicationError) {
-          throw error;
+        assertNotTerminated(termination);
+        try {
+          unwatch = host.watch({ configuredServerIds: [authority.configuredServerId] }, (event) =>
+            retireIfChanged(event)
+          );
+        } catch (cause) {
+          reportInternalError(portOptions, 'mcp-content-host-watch-failed', cause);
+          throw applicationError('watchFailed', readHostError(cause));
         }
-        const hostError = readHostError(error);
-        if (hostError?.category === 'generation-retired') {
-          throw applicationError('retired');
-        }
-        throw applicationError('hostFailed', hostError);
-      } finally {
-        options.signal?.removeEventListener('abort', onCallerAbort);
-        unwatch?.();
+        retireIfChanged(snapshot());
+        assertNotTerminated(termination);
+        const result = await invoke();
+        retireIfChanged(snapshot());
+        assertNotTerminated(termination);
+        outcome = { ok: true, value: validateResult(result, operation.type, portOptions) };
+      } catch (cause) {
+        outcome = { error: cause, ok: false };
       }
+      options.signal?.removeEventListener('abort', onCallerAbort);
+      const cleanupError = closeWatch(unwatch, portOptions);
+      if (!outcome.ok) {
+        throw outcome.error;
+      }
+      if (cleanupError) {
+        throw cleanupError;
+      }
+      return outcome.value;
     },
   };
 }

@@ -1,8 +1,4 @@
-import type {
-  McpHostCatalog,
-  McpHostCloseReport,
-  McpHostOperation,
-} from '@brainstrike/assistant-contract';
+import type { McpHostOperation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import {
   createMcpContentApplicationPort,
@@ -13,7 +9,8 @@ import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import type { ResolvedMcpConfig } from '../../mcp-loader';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
-const CLEAN: McpHostCloseReport = {
+const FIRST_URL = 'https://linear.example/first';
+const CLEAN = {
   callbacksClosed: 0,
   childProcessesClosed: 0,
   clientsClosed: 1,
@@ -22,8 +19,8 @@ const CLEAN: McpHostCloseReport = {
   probesClosed: 0,
   requestsSettled: 0,
   subscriptionsClosed: 0,
-};
-const CATALOG: McpHostCatalog = {
+} as const;
+const CATALOG = {
   errors: {},
   features: {
     completion: true,
@@ -36,26 +33,22 @@ const CATALOG: McpHostCatalog = {
     tools: true,
   },
   subscription: { mode: 'none', state: 'unsupported' },
-};
+} as const;
 type Runtime = ReturnType<typeof createDesktopMcpHostRuntime>;
 type Invoke = (
   operation: McpHostOperation,
   options: { signal: AbortSignal },
   generation: number
 ) => Promise<unknown>;
-function config(url?: string): ResolvedMcpConfig {
+function config(...urls: string[]): ResolvedMcpConfig {
   return {
-    servers: url
-      ? [
-          {
-            name: SERVER_ID,
-            protocol: 'auto',
-            startup: 'automatic',
-            transport: 'streamable-http',
-            url,
-          },
-        ]
-      : [],
+    servers: urls.map((url) => ({
+      name: SERVER_ID,
+      protocol: 'auto',
+      startup: 'automatic',
+      transport: 'streamable-http',
+      url,
+    })),
   };
 }
 function result(operation: McpHostOperation): unknown {
@@ -69,18 +62,16 @@ function runtime(invoke: Invoke = async (operation) => result(operation)): Runti
     createActorClient: (_server, context) => ({
       catalog: () => CATALOG,
       close: vi.fn(async () => CLEAN),
-      invoke: vi.fn(
-        async (operation, options) => await invoke(operation, options, context.generation)
-      ),
+      invoke: vi.fn(async (operation, options) => invoke(operation, options, context.generation)),
       negotiated: { era: 'modern', revision: '2026-07-28' },
     }),
     onInternalError: vi.fn(),
   });
 }
-async function ready(
-  target: Runtime,
-  url = 'https://linear.example/first'
-): Promise<McpContentApplicationRequest> {
+function contentPort(target: Runtime) {
+  return createMcpContentApplicationPort(target.host, { onInternalError: vi.fn() });
+}
+async function ready(target: Runtime, url = FIRST_URL) {
   await target.replaceResolvedConfig(config(url));
   await target.host.control({ action: 'connect', configuredServerId: SERVER_ID });
   const server = target.host.snapshot().servers[0];
@@ -91,27 +82,30 @@ async function ready(
     authority: { configuredServerId: server.configuredServerId, generation: server.generation },
     type: 'resources/read',
     uri: 'linear://issue/BST-1578',
-  };
+  } satisfies McpContentApplicationRequest;
 }
 function rejectOnAbort(signal: AbortSignal): Promise<never> {
-  if (signal.aborted) {
-    return Promise.reject(signal.reason);
-  }
   return new Promise<never>((_resolve, reject) =>
     signal.addEventListener('abort', () => reject(signal.reason), { once: true })
   );
 }
 describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', () => {
-  it('maps terminal close and leaves no application watch registered', async () => {
+  it('rejects authority after terminal close and empty-config reset', async () => {
     const target = runtime();
     const request = await ready(target);
-    const port = createMcpContentApplicationPort(target.host);
-    const close = await target.host.close();
-    await expect(port.execute(request)).rejects.toMatchObject({
-      code: 'mcp_content_host_operation_failed',
+    const close = target.host.close();
+    await expect(contentPort(target).execute(request)).rejects.toMatchObject({
+      code: 'mcp_content_host_watch_failed',
       hostError: { category: 'host-closed', code: 'mcp-host-closed' },
     });
-    expect(close.subscriptionsClosed).toBe(0);
+    expect((await close).subscriptionsClosed).toBe(0);
+    const resetTarget = runtime();
+    const resetRequest = await ready(resetTarget);
+    await resetTarget.replaceResolvedConfig(config());
+    await expect(contentPort(resetTarget).execute(resetRequest)).rejects.toMatchObject({
+      code: 'mcp_content_server_unknown',
+    });
+    await resetTarget.host.close();
   });
   it('retires accepted work during real config replacement', async () => {
     let invocationSignal: AbortSignal | undefined;
@@ -123,7 +117,7 @@ describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', (
       return await rejectOnAbort(options.signal);
     });
     const request = await ready(target);
-    const pending = createMcpContentApplicationPort(target.host).execute(request);
+    const pending = contentPort(target).execute(request);
     await vi.waitFor(() => expect(invocationSignal).toBeDefined());
     const replacement = target.replaceResolvedConfig(config('https://linear.example/next'));
     await expect(pending).rejects.toMatchObject({ code: 'mcp_content_generation_retired' });
@@ -131,16 +125,6 @@ describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', (
     expect(target.host.snapshot().servers[0]?.generation).toBeGreaterThan(
       request.authority.generation
     );
-    await target.host.close();
-  });
-  it('rejects pre-reset authority after empty config', async () => {
-    const target = runtime();
-    const request = await ready(target);
-    const port = createMcpContentApplicationPort(target.host);
-    await target.replaceResolvedConfig(config());
-    await expect(port.execute(request)).rejects.toMatchObject({
-      code: 'mcp_content_server_unknown',
-    });
     await target.host.close();
   });
   it('unwatches before queued replacement delivery', async () => {
@@ -157,12 +141,10 @@ describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', (
       return result(operation);
     });
     const request = await ready(target);
-    const pending = createMcpContentApplicationPort(target.host).execute(request);
-    await expect(pending).resolves.toMatchObject({
-      type: 'resources/read',
-    });
+    const pending = contentPort(target).execute(request);
+    await expect(pending).resolves.toMatchObject({ type: 'resources/read' });
     await replaced.promise;
-    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    await Promise.resolve();
     expect((await target.host.close()).subscriptionsClosed).toBe(0);
   });
 });

@@ -2524,20 +2524,16 @@ generation. Settings may browse catalog metadata and errors, but resource and
 prompt bodies are never eager model context: only explicit user browsing or a
 typed authorized host operation reads them.
 
-BST-1578 adds the first explicit content application seam at
-`@brainstrike/assistant-service/mcp-content-application-port`. Its closed
-browser-safe request union contains only `resources/read`, `prompts/get`, and
-`completion/complete`; each request carries its authorized server generation.
-Serialized `_meta`, URI, prompt, and completion inputs must fit the 256 KiB
-UTF-8 request limit before host invocation. The adapter owns one filtered watch
-and cancellation lease over the existing `McpHostPort` singleton, checking
-authority before/after watch registration and after invocation. The exact
-generation must be connected and advertise the operation's catalog feature;
-missing state/capability, cancellation, and retirement have dedicated errors.
-Results are schema-validated, operation-matched, and limited to 4 MiB serialized
-UTF-8; request and result overflow reject rather than truncate. The seam exposes
-neither raw `invoke` nor SDK clients, adds no renderer IPC/UI/persistence or
-subscriptions, and never injects content into model context.
+BST-1578 adds `@brainstrike/assistant-service/mcp-content-application-port`, a browser-safe seam
+limited to `resources/read`, `prompts/get`, and `completion/complete` for one authorized server
+generation. Inputs must fit 256 KiB before invocation. One filtered watch and cancellation lease
+check authority around registration and invocation; the generation must be connected and advertise
+the catalog feature. Capability/state, cancellation, retirement, snapshot, watch, unknown invoke,
+and result-validation failures retain public or diagnostic taxonomy. The required internal-error
+sink receives raw causes on the trusted redaction path; public errors remain fixed, cause-free, and
+safe. Schema-validated, operation-matched results are limited to 4 MiB serialized UTF-8 and reject
+overflow. The seam exposes no raw `invoke`, SDK client, renderer IPC/UI/persistence, subscription,
+or automatic model-context injection.
 
 Every promise-returning host operation reports malformed input and terminal
 closure as a rejected promise; `McpHostService` owns the typed `mcp-host-closed`
