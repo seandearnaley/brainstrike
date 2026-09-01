@@ -22,6 +22,14 @@ export const MCP_SUPPORT_MATRIX = [
     status: 'supported',
   },
   {
+    evidence: 'Host adapters and ownership proofs are not present in this contract-only layer.',
+    id: 'core:server-features',
+    implementationTicket: 'BST-1471',
+    kind: 'core',
+    label: 'MCP core server features',
+    status: 'unsupported',
+  },
+  {
     evidence: 'No complete Apps host is registered.',
     id: 'io.modelcontextprotocol/ui',
     implementationTicket: 'BST-1474',

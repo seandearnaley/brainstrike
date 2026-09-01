@@ -1,8 +1,20 @@
-import { CallToolResultSchema, ListToolsResultSchema } from '@modelcontextprotocol/core';
+import {
+  CallToolResultSchema,
+  CompleteResultSchema,
+  EmptyResultSchema,
+  GetPromptResultSchema,
+  ListPromptsResultSchema,
+  ListResourcesResultSchema,
+  ListResourceTemplatesResultSchema,
+  ListToolsResultSchema,
+  ReadResourceResultSchema,
+} from '@modelcontextprotocol/core';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
   type ConfiguredMcpServerId,
   MCP_CONNECTION_STATES,
+  MCP_CORE_SERVER_PROJECTION,
+  MCP_HOST_CATALOG_SECTIONS,
   MCP_STABLE_ERROR_CATEGORIES,
   McpConfiguredProtocolSchema,
   type McpConnectionState,
@@ -21,6 +33,7 @@ import {
   resolveMcpHostControlActions,
 } from '../mcp-host.js';
 import {
+  parseMcpHostCatalog,
   parseMcpHostCloseReport,
   parseMcpHostOperationResult,
   parseMcpNegotiatedStatus,
@@ -36,6 +49,102 @@ const CALL_ENVELOPE =
   '{"_meta":{"trace":"secret-looking-reference-not-a-credential"},"content":[{"_meta":{"source":"linear"},"annotations":{"audience":["user"],"lastModified":"2026-08-29T00:00:00Z","priority":1},"text":"sk-like tool output is data","type":"text"},{"data":"base64","mimeType":"image/png","type":"image"},{"data":"base64","mimeType":"audio/wav","type":"audio"},{"icons":[{"src":"https://linear.app/icon.svg"}],"name":"issue","type":"resource_link","uri":"linear://issue/1"},{"resource":{"text":"issue","uri":"linear://issue/1"},"type":"resource"}],"isError":false,"structuredContent":{"issue":"BST-1502"}}';
 type ListResult = Extract<McpHostOperationResult, { type: 'tools/list' }>['result'];
 type CallResult = Extract<McpHostOperationResult, { type: 'tools/call' }>['result'];
+
+const CORE_FEATURE_RESULTS = {
+  'completion/complete': {
+    completion: { hasMore: true, total: 3, values: ['formal', 'friendly'] },
+  },
+  'prompts/get': {
+    description: 'A mixed-content prompt',
+    messages: [
+      { content: { text: 'Summarize BST-1471', type: 'text' }, role: 'user' },
+      { content: { data: 'aW1hZ2U=', mimeType: 'image/png', type: 'image' }, role: 'assistant' },
+      { content: { data: 'YXVkaW8=', mimeType: 'audio/wav', type: 'audio' }, role: 'assistant' },
+      {
+        content: {
+          name: 'BST-1471',
+          type: 'resource_link',
+          uri: 'linear://issue/BST-1471',
+        },
+        role: 'assistant',
+      },
+      {
+        content: {
+          resource: {
+            mimeType: 'text/markdown',
+            text: '# BST-1471',
+            uri: 'linear://issue/BST-1471',
+          },
+          type: 'resource',
+        },
+        role: 'assistant',
+      },
+    ],
+  },
+  'prompts/list': {
+    cacheScope: 'private',
+    nextCursor: 'prompt-page-2',
+    prompts: [
+      {
+        arguments: [{ description: 'Desired tone', name: 'tone', required: false }],
+        description: 'Summarize one issue',
+        icons: [{ mimeType: 'image/png', src: 'data:image/png;base64,aWNvbg==' }],
+        name: 'summarize-issue',
+        title: 'Summarize issue',
+      },
+    ],
+    ttlMs: 5000,
+  },
+  'resources/list': {
+    cacheScope: 'private',
+    nextCursor: 'resource-page-2',
+    resources: [
+      {
+        annotations: { audience: ['user'], priority: 0.9 },
+        description: 'Issue body',
+        icons: [{ mimeType: 'image/svg+xml', src: 'https://example.test/issue.svg' }],
+        mimeType: 'text/markdown',
+        name: 'BST-1471',
+        size: 1471,
+        title: 'MCP core server features',
+        uri: 'linear://issue/BST-1471',
+      },
+    ],
+    ttlMs: 2500,
+  },
+  'resources/read': {
+    cacheScope: 'private',
+    contents: [
+      {
+        mimeType: 'text/markdown',
+        text: '# BST-1471',
+        uri: 'linear://issue/BST-1471',
+      },
+      {
+        blob: 'AAEC',
+        mimeType: 'application/octet-stream',
+        uri: 'linear://issue/BST-1471/attachment',
+      },
+    ],
+    ttlMs: 1000,
+  },
+  'resources/subscribe': {},
+  'resources/templates/list': {
+    cacheScope: 'public',
+    nextCursor: 'template-page-2',
+    resourceTemplates: [
+      {
+        description: 'Issue by identifier',
+        mimeType: 'text/markdown',
+        name: 'issue',
+        title: 'Issue',
+        uriTemplate: 'linear://issue/{identifier}',
+      },
+    ],
+    ttlMs: 7500,
+  },
+  'resources/unsubscribe': {},
+} as const;
 
 describe('MCP host contract', () => {
   it('bounds configured server ids with specific diagnostics', () => {
@@ -179,6 +288,166 @@ describe('MCP host contract', () => {
         .content.map(({ type }) => type)
         .join()
     ).toBe('text,image,audio,resource_link,resource');
+  });
+
+  it('strictly parses the complete closed core-server operation projection', () => {
+    const operations = [
+      { configuredServerId: id, cursor: 'resources-page-2', type: 'resources/list' },
+      {
+        configuredServerId: id,
+        cursor: 'templates-page-2',
+        type: 'resources/templates/list',
+      },
+      { configuredServerId: id, type: 'resources/read', uri: 'linear://issue/BST-1471' },
+      { configuredServerId: id, cursor: 'prompts-page-2', type: 'prompts/list' },
+      {
+        arguments: { identifier: 'BST-1471', tone: 'terse' },
+        configuredServerId: id,
+        name: 'summarize-issue',
+        type: 'prompts/get',
+      },
+      {
+        argument: { name: 'tone', value: 'f' },
+        configuredServerId: id,
+        ref: { name: 'summarize-issue', type: 'ref/prompt' },
+        type: 'completion/complete',
+      },
+      { configuredServerId: id, type: 'resources/subscribe', uri: 'linear://issue/BST-1471' },
+      {
+        configuredServerId: id,
+        type: 'resources/unsubscribe',
+        uri: 'linear://issue/BST-1471',
+      },
+    ] as const;
+
+    expect(operations.map((operation) => parseMcpHostOperation(operation))).toEqual(operations);
+    for (const operation of operations) {
+      expect(() => parseMcpHostOperation({ ...operation, unsupported: true })).toThrow();
+    }
+  });
+
+  it('rejects blank or whitespace-padded resource URIs at every host boundary', () => {
+    const resourceOperations: readonly ((uri: string) => unknown)[] = [
+      (uri) => ({ configuredServerId: id, type: 'resources/read', uri }),
+      (uri) => ({
+        argument: { name: 'identifier', value: 'BST-1471' },
+        configuredServerId: id,
+        ref: { type: 'ref/resource', uri },
+        type: 'completion/complete',
+      }),
+      (uri) => ({ configuredServerId: id, type: 'resources/subscribe', uri }),
+      (uri) => ({ configuredServerId: id, type: 'resources/unsubscribe', uri }),
+    ];
+
+    for (const uri of ['', ' ', ' linear://issue/BST-1471', 'linear://issue/BST-1471 ']) {
+      for (const operation of resourceOperations) {
+        expect(() => parseMcpHostOperation(operation(uri))).toThrow();
+      }
+      expect(() =>
+        parseMcpHostCatalog({
+          errors: {},
+          features: {
+            completion: false,
+            promptListChanged: false,
+            prompts: false,
+            resourceListChanged: false,
+            resourceSubscriptions: true,
+            resources: true,
+            toolListChanged: false,
+            tools: false,
+          },
+          subscription: {
+            honoredFilter: { resourceSubscriptions: [uri] },
+            mode: 'modern-listen',
+            state: 'listening',
+          },
+        })
+      ).toThrow();
+    }
+  });
+
+  it('preserves exact resources, templates, prompts, completion, media, and cache fields', () => {
+    const schemas = {
+      'completion/complete': CompleteResultSchema,
+      'prompts/get': GetPromptResultSchema,
+      'prompts/list': ListPromptsResultSchema,
+      'resources/list': ListResourcesResultSchema,
+      'resources/read': ReadResourceResultSchema,
+      'resources/subscribe': EmptyResultSchema,
+      'resources/templates/list': ListResourceTemplatesResultSchema,
+      'resources/unsubscribe': EmptyResultSchema,
+    } as const;
+
+    for (const [type, fixture] of Object.entries(CORE_FEATURE_RESULTS)) {
+      const schema = schemas[type as keyof typeof schemas];
+      const parsed = schema.parse(structuredClone(fixture));
+      expect(parseMcpHostOperationResult({ result: parsed, type })).toEqual({
+        result: fixture,
+        type,
+      });
+    }
+  });
+
+  it('projects catalog support, independent list errors, and modern listen state without content injection', () => {
+    const catalogError = {
+      category: 'operation',
+      code: 'mcp-request-timeout',
+      message: 'Catalog failed',
+    } as const;
+    const catalog = {
+      errors: Object.fromEntries(
+        MCP_HOST_CATALOG_SECTIONS.map((section) => [section, catalogError])
+      ),
+      features: {
+        completion: true,
+        promptListChanged: true,
+        prompts: true,
+        resourceListChanged: true,
+        resourceSubscriptions: true,
+        resources: true,
+        toolListChanged: true,
+        tools: true,
+      },
+      resources: CORE_FEATURE_RESULTS['resources/list'],
+      resourceTemplates: CORE_FEATURE_RESULTS['resources/templates/list'],
+      subscription: {
+        honoredFilter: {
+          promptsListChanged: true,
+          resourceSubscriptions: ['linear://issue/BST-1471'],
+          resourcesListChanged: true,
+          toolsListChanged: true,
+        },
+        mode: 'modern-listen',
+        state: 'listening',
+      },
+      tools: JSON.parse(LIST_ENVELOPE),
+    } as const;
+
+    expect(parseMcpHostCatalog(structuredClone(catalog))).toEqual(catalog);
+    expect(Object.keys(catalog.errors).sort()).toEqual([...MCP_HOST_CATALOG_SECTIONS].sort());
+    expect(MCP_CORE_SERVER_PROJECTION).toEqual({
+      completion: {
+        operations: ['completion/complete'],
+        visibility: 'user-or-authorized-assistant',
+      },
+      eagerModelContext: false,
+      prompts: {
+        control: 'user',
+        operations: ['prompts/list', 'prompts/get'],
+        visibility: 'user-or-authorized-assistant',
+      },
+      resources: {
+        control: 'application',
+        operations: ['resources/list', 'resources/templates/list', 'resources/read'],
+        visibility: 'user-or-authorized-assistant',
+      },
+    });
+    expect(() =>
+      parseMcpHostCatalog({
+        ...catalog,
+        subscription: { ...catalog.subscription, state: 'silently-degraded' },
+      })
+    ).toThrow();
   });
 
   it('rejects SDK-accepted non-JSON operation results', () => {

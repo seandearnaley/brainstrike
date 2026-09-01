@@ -1,4 +1,14 @@
-import type { CallToolResultSchema, ListToolsResultSchema } from '@modelcontextprotocol/core';
+import type {
+  CallToolResultSchema,
+  CompleteResultSchema,
+  EmptyResultSchema,
+  GetPromptResultSchema,
+  ListPromptsResultSchema,
+  ListResourcesResultSchema,
+  ListResourceTemplatesResultSchema,
+  ListToolsResultSchema,
+  ReadResourceResultSchema,
+} from '@modelcontextprotocol/core';
 import { z } from 'zod';
 import type {
   McpConfiguredProtocol,
@@ -84,6 +94,28 @@ export const McpHostErrorSchema: z.ZodType<McpHostError> = z.strictObject({
   message: z.string(),
 });
 
+export const MCP_CORE_SERVER_PROJECTION = Object.freeze({
+  completion: Object.freeze({
+    operations: Object.freeze(['completion/complete'] as const),
+    visibility: 'user-or-authorized-assistant' as const,
+  }),
+  eagerModelContext: false,
+  prompts: Object.freeze({
+    control: 'user' as const,
+    operations: Object.freeze(['prompts/list', 'prompts/get'] as const),
+    visibility: 'user-or-authorized-assistant' as const,
+  }),
+  resources: Object.freeze({
+    control: 'application' as const,
+    operations: Object.freeze([
+      'resources/list',
+      'resources/templates/list',
+      'resources/read',
+    ] as const),
+    visibility: 'user-or-authorized-assistant' as const,
+  }),
+});
+
 interface McpHostServerSnapshotBase {
   auth?: McpHostAuthSnapshot;
   configuredProtocol: McpConfiguredProtocol;
@@ -99,12 +131,68 @@ export interface McpHostDiagnostic {
   truncated: boolean;
 }
 export const MCP_HOST_DIAGNOSTIC_MAX_ENTRIES = 20;
+export const MCP_HOST_CATALOG_SECTIONS = [
+  'prompts',
+  'resources',
+  'resourceTemplates',
+  'subscription',
+  'tools',
+] as const;
+export type McpHostCatalogSection = (typeof MCP_HOST_CATALOG_SECTIONS)[number];
+export type McpHostCatalogErrors = {
+  readonly [Section in McpHostCatalogSection]?: McpHostError | undefined;
+};
+export interface McpHostServerFeatures {
+  completion: boolean;
+  promptListChanged: boolean;
+  prompts: boolean;
+  resourceListChanged: boolean;
+  resourceSubscriptions: boolean;
+  resources: boolean;
+  toolListChanged: boolean;
+  tools: boolean;
+}
+export interface McpHostSubscriptionFilter {
+  promptsListChanged?: boolean | undefined;
+  resourceSubscriptions?: readonly string[] | undefined;
+  resourcesListChanged?: boolean | undefined;
+  toolsListChanged?: boolean | undefined;
+}
+export interface McpHostSubscriptionStatus {
+  honoredFilter?: McpHostSubscriptionFilter | undefined;
+  mode: 'legacy-unsolicited' | 'modern-listen' | 'none';
+  state: 'closed' | 'listening' | 'retrying' | 'unsupported';
+}
+
+type SdkListToolsResult = z.output<typeof ListToolsResultSchema>;
+type SdkCallToolResult = z.output<typeof CallToolResultSchema>;
+type SdkListResourcesResult = z.output<typeof ListResourcesResultSchema>;
+type SdkListResourceTemplatesResult = z.output<typeof ListResourceTemplatesResultSchema>;
+type SdkReadResourceResult = z.output<typeof ReadResourceResultSchema>;
+type SdkListPromptsResult = z.output<typeof ListPromptsResultSchema>;
+type SdkGetPromptResult = z.output<typeof GetPromptResultSchema>;
+type SdkCompleteResult = z.output<typeof CompleteResultSchema>;
+type SdkEmptyResult = z.output<typeof EmptyResultSchema>;
+
+export interface McpHostCatalog {
+  errors: McpHostCatalogErrors;
+  features: McpHostServerFeatures;
+  prompts?: BrowserSafe<SdkListPromptsResult> | undefined;
+  resources?: BrowserSafe<SdkListResourcesResult> | undefined;
+  resourceTemplates?: BrowserSafe<SdkListResourceTemplatesResult> | undefined;
+  subscription: McpHostSubscriptionStatus;
+  tools?: BrowserSafe<SdkListToolsResult> | undefined;
+}
 type PendingMcpConnectionState = Exclude<McpConnectionState, 'connected' | 'error'>;
 export type McpHostServerSnapshot = McpHostServerSnapshotBase &
   (
     | { state: PendingMcpConnectionState }
     | { error: McpHostError; state: Extract<McpConnectionState, 'error'> }
-    | { negotiated: McpNegotiatedStatus; state: Extract<McpConnectionState, 'connected'> }
+    | {
+        catalog?: McpHostCatalog | undefined;
+        negotiated: McpNegotiatedStatus;
+        state: Extract<McpConnectionState, 'connected'>;
+      }
   );
 export interface McpHostSnapshot {
   revision: number;
@@ -164,20 +252,73 @@ export function resolveMcpHostControlActions(
 
 const JsonObjectSchema = z.record(z.string(), z.json());
 const RequestMetaSchema = JsonObjectSchema.optional();
+const CursorSchema = z.string().optional();
+const ServerOperationBase = {
+  _meta: RequestMetaSchema,
+  configuredServerId: ConfiguredMcpServerIdSchema,
+};
+export const McpResourceUriSchema = z
+  .string()
+  .min(1)
+  .refine((value) => value.trim() === value, 'invalid surrounding whitespace');
 const McpHostOperationSchema = z.discriminatedUnion('type', [
   z.strictObject({
-    _meta: RequestMetaSchema,
-    configuredServerId: ConfiguredMcpServerIdSchema,
-    cursor: z.string().optional(),
+    ...ServerOperationBase,
+    cursor: CursorSchema,
     type: z.literal('tools/list'),
   }),
   z.strictObject({
-    _meta: RequestMetaSchema,
+    ...ServerOperationBase,
     arguments: JsonObjectSchema.optional(),
-    configuredServerId: ConfiguredMcpServerIdSchema,
     task: z.strictObject({ ttl: z.number().optional() }).optional(),
     toolName: z.string().min(1),
     type: z.literal('tools/call'),
+  }),
+  z.strictObject({
+    ...ServerOperationBase,
+    cursor: CursorSchema,
+    type: z.literal('resources/list'),
+  }),
+  z.strictObject({
+    ...ServerOperationBase,
+    cursor: CursorSchema,
+    type: z.literal('resources/templates/list'),
+  }),
+  z.strictObject({
+    ...ServerOperationBase,
+    type: z.literal('resources/read'),
+    uri: McpResourceUriSchema,
+  }),
+  z.strictObject({
+    ...ServerOperationBase,
+    cursor: CursorSchema,
+    type: z.literal('prompts/list'),
+  }),
+  z.strictObject({
+    ...ServerOperationBase,
+    arguments: z.record(z.string(), z.string()).optional(),
+    name: z.string().min(1),
+    type: z.literal('prompts/get'),
+  }),
+  z.strictObject({
+    ...ServerOperationBase,
+    argument: z.strictObject({ name: z.string().min(1), value: z.string() }),
+    context: z.strictObject({ arguments: z.record(z.string(), z.string()) }).optional(),
+    ref: z.discriminatedUnion('type', [
+      z.strictObject({ name: z.string().min(1), type: z.literal('ref/prompt') }),
+      z.strictObject({ type: z.literal('ref/resource'), uri: McpResourceUriSchema }),
+    ]),
+    type: z.literal('completion/complete'),
+  }),
+  z.strictObject({
+    ...ServerOperationBase,
+    type: z.literal('resources/subscribe'),
+    uri: McpResourceUriSchema,
+  }),
+  z.strictObject({
+    ...ServerOperationBase,
+    type: z.literal('resources/unsubscribe'),
+    uri: McpResourceUriSchema,
   }),
 ]);
 export type McpHostOperation = z.output<typeof McpHostOperationSchema>;
@@ -277,11 +418,20 @@ type BrowserSafe<T> = unknown extends T
         : T extends object
           ? { readonly [Key in keyof T]: BrowserSafe<T[Key]> }
           : never;
-type SdkListToolsResult = z.output<typeof ListToolsResultSchema>;
-type SdkCallToolResult = z.output<typeof CallToolResultSchema>;
 export type McpHostOperationResult =
   | { readonly result: BrowserSafe<SdkListToolsResult>; readonly type: 'tools/list' }
-  | { readonly result: BrowserSafe<SdkCallToolResult>; readonly type: 'tools/call' };
+  | { readonly result: BrowserSafe<SdkCallToolResult>; readonly type: 'tools/call' }
+  | { readonly result: BrowserSafe<SdkListResourcesResult>; readonly type: 'resources/list' }
+  | {
+      readonly result: BrowserSafe<SdkListResourceTemplatesResult>;
+      readonly type: 'resources/templates/list';
+    }
+  | { readonly result: BrowserSafe<SdkReadResourceResult>; readonly type: 'resources/read' }
+  | { readonly result: BrowserSafe<SdkListPromptsResult>; readonly type: 'prompts/list' }
+  | { readonly result: BrowserSafe<SdkGetPromptResult>; readonly type: 'prompts/get' }
+  | { readonly result: BrowserSafe<SdkCompleteResult>; readonly type: 'completion/complete' }
+  | { readonly result: BrowserSafe<SdkEmptyResult>; readonly type: 'resources/subscribe' }
+  | { readonly result: BrowserSafe<SdkEmptyResult>; readonly type: 'resources/unsubscribe' };
 
 export interface McpHostWatchFilter {
   configuredServerIds?: readonly ConfiguredMcpServerId[];

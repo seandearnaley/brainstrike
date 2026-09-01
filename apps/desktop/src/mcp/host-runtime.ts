@@ -206,6 +206,9 @@ async function connectClient(
         if (operation.type === 'tools/list') {
           return await client.listTools({ signal: options.signal }, listToolsParams(operation));
         }
+        if (operation.type !== 'tools/call') {
+          throw new Error(`MCP operation ${operation.type} is not implemented by this host layer`);
+        }
         return await client.callTool(
           {
             ...(operation._meta ? { _meta: operation._meta } : {}),
