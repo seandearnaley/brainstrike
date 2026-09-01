@@ -64,6 +64,15 @@ function isExecutableTool(tool: unknown): tool is ExecutableTool {
   return typeof (tool as { execute?: unknown } | undefined)?.execute === 'function';
 }
 
+function isMcpCallToolErrorResult(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (value as { isError?: unknown }).isError === true
+  );
+}
+
 function readMcpServerName(tool: ExecutableTool): string | undefined {
   const metadata = tool.mcpMetadata;
   if (metadata === undefined) {
@@ -188,12 +197,13 @@ export function createMcpAppOrdinaryToolCallPreparer(
         try {
           const output = await admission.execute({ signal });
           const domainOutput = readHookResultEnvelope(output)?.result ?? output;
+          const guardedFailure = isGuardedToolError(domainOutput);
           outcome = signal.aborted
             ? 'cancelled'
-            : isGuardedToolError(domainOutput)
+            : guardedFailure || isMcpCallToolErrorResult(domainOutput)
               ? 'failed'
               : 'completed';
-          if (isGuardedToolError(domainOutput)) {
+          if (guardedFailure) {
             return Object.freeze({
               content: Object.freeze([
                 Object.freeze({ text: domainOutput.error.message, type: 'text' as const }),

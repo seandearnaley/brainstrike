@@ -388,11 +388,11 @@ async function executeMcpTool(
   }
   await finishProgressDelivery();
 
-  if (result.isError) {
-    throw new Error(extractMcpToolError(result));
-  }
   if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
     return result;
+  }
+  if (result.isError) {
+    throw new Error(extractMcpToolError(result));
   }
   if (result.structuredContent === undefined) {
     return result;

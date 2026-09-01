@@ -2193,8 +2193,11 @@ recreate or bypass ordinary admission or pair one decision with another
 server/action executor. Admission returns an opaque one-use executor bound to
 the exact post-gate tool entry and exact server/tool identity. The executor is
 captured before artifact/model projection; a private in-memory marker on the
-authority-owned abort signal preserves the complete successful App-facing
-`CallToolResult` through the transport and temporary preview wrappers. Calls
+authority-owned abort signal preserves the complete App-facing
+`CallToolResult` through the transport and temporary preview wrappers,
+including canonical server-domain errors with `isError: true`, their content,
+and `_meta`. Only transport/execution failures enter the ordinary guard's
+sanitized error wrapper. Calls
 absent from the ordinary map fail visibly; admitted calls use the already-bound
 guard, Pre/PostToolUse hooks, and execution-duration telemetry exactly once,
 and replay fails before a second execution. Apps telemetry contains only tool

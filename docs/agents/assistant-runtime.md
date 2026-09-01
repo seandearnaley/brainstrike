@@ -352,8 +352,10 @@ hook injection seam. It receives no separate policy, plan, enabled-tool, or
 storage decision: a tool omitted by any ordinary gate is absent and fails
 visibly. The authority-owned per-call abort signal marks that bound execution
 for raw MCP result retention, so the transport adapter and temporary preview
-wrapper preserve the complete successful `CallToolResult` before artifact and
-model projection. An admitted App call therefore uses the ordinary guard,
+wrapper preserve the complete `CallToolResult` before artifact and model
+projection. Canonical `isError: true` server results remain successful JSON-RPC
+results with exact content and metadata; thrown transport/execution failures
+alone become ordinary guarded errors. An admitted App call therefore uses the ordinary guard,
 hooks, and execution-duration telemetry exactly once. Replaying the bound
 executor fails visibly before another tool execution can start.
 

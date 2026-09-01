@@ -304,6 +304,27 @@ describe('MCP Apps ordinary runtime adapter', () => {
     ).resolves.toEqual(rawResult);
   });
 
+  it('preserves an exact canonical MCP error result for app-originated execution', async () => {
+    const rawResult = {
+      _meta: { serverCode: 'E_DENIED' },
+      content: [{ text: 'SERVER-DOMAIN-ERROR', type: 'text' }],
+      isError: true,
+    } as const;
+    const runtime = await compose({
+      decision: 'allow',
+      includeTool: false,
+      mcpHost: createRemoteToolHost(rawResult),
+    });
+    const { authority, telemetry } = setup(runtime.mcpAppToolAdmission);
+
+    await expect(
+      authority.call({ arguments: { title: 'x' }, id: 'raw-error', name: 'create_issue' })
+    ).resolves.toEqual(rawResult);
+    expect(telemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'failed', toolName: ORIGINAL_TOOL_ID })
+    );
+  });
+
   it.each([
     {
       decision: 'allow' as const,
