@@ -158,6 +158,9 @@ export class McpHostService implements McpHostPort {
   snapshot(): McpHostSnapshot {
     return this.options.publisher.snapshot();
   }
+  retiredCleanupReport(): McpHostCloseReport {
+    return freezeReport([this.retiredReport]);
+  }
   invoke(
     operation: McpHostOperation,
     options?: McpHostInvokeOptions

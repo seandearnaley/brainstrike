@@ -1,5 +1,5 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, isAbsolute } from 'node:path';
 import { DEFAULT_INHERITED_ENV_VARS } from '@modelcontextprotocol/client/stdio';
 import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
@@ -10,7 +10,7 @@ function createReferenceServer() {
     name: 'brainstrike-sdk-v2-reference',
     version: '2.0.0',
   });
-  const echoSchema = z.object({ text: z.string() });
+  const echoSchema = z.strictObject({ text: z.string() });
   server.registerTool(
     'echo',
     {
@@ -30,6 +30,33 @@ function faultConfigurationPath() {
   const prefix = '--brainstrike-fault-control=';
   const argument = process.argv.slice(2).find((value) => value.startsWith(prefix));
   return argument?.slice(prefix.length);
+}
+
+function pidFilePath() {
+  const prefix = '--brainstrike-pid-file=';
+  const argument = process.argv.slice(2).find((value) => value.startsWith(prefix));
+  const candidate = argument?.slice(prefix.length);
+  if (candidate !== undefined && !isAbsolute(candidate)) {
+    throw new Error('MCP lab stdio PID file must be an absolute path');
+  }
+  return candidate;
+}
+
+function expectedInheritedEnvironmentKeys() {
+  const prefix = '--brainstrike-expected-inherited-env=';
+  const argumentsForExpectation = process.argv.slice(2).filter((value) => value.startsWith(prefix));
+  if (argumentsForExpectation.length > 1) {
+    throw new Error('MCP lab stdio inherited environment expectation was provided more than once');
+  }
+  const encoded = argumentsForExpectation[0]?.slice(prefix.length) ?? '';
+  const keys = encoded.length === 0 ? [] : encoded.split(',');
+  if (
+    new Set(keys).size !== keys.length ||
+    keys.some((key) => !DEFAULT_INHERITED_ENV_VARS.includes(key))
+  ) {
+    throw new Error('MCP lab stdio inherited environment expectation is invalid');
+  }
+  return keys.sort();
 }
 
 async function readFaultConfiguration(path) {
@@ -129,11 +156,19 @@ function startFaultControl(configuration) {
 
 const inheritedEnvironmentKeys = DEFAULT_INHERITED_ENV_VARS.filter(
   (key) => process.env[key] !== undefined
-);
-if (inheritedEnvironmentKeys.length > 0) {
+).sort();
+const expectedEnvironmentKeys = expectedInheritedEnvironmentKeys();
+if (
+  inheritedEnvironmentKeys.length !== expectedEnvironmentKeys.length ||
+  inheritedEnvironmentKeys.some((key, index) => key !== expectedEnvironmentKeys[index])
+) {
   throw new Error(
-    `MCP lab stdio fixture inherited ambient environment keys: ${inheritedEnvironmentKeys.join(', ')}`
+    `MCP lab stdio fixture inherited ambient environment mismatch: expected [${expectedEnvironmentKeys.join(', ')}], received [${inheritedEnvironmentKeys.join(', ')}]`
   );
+}
+const pidFile = pidFilePath();
+if (pidFile) {
+  await writeFile(pidFile, `${process.pid}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 process.stderr.write('mcp-lab-stdio-ready\n');
 setImmediate(() => process.stderr.write('mcp-lab-stdio-ready-second-chunk\n'));

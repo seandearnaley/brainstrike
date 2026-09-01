@@ -154,6 +154,21 @@ and passes that same zip to electron-builder through
 `config.electronDist`. This keeps one bounded, observable download boundary and
 does not restore the obsolete `~/.cache/electron` Actions cache.
 
+That job also owns the packaged MCP core lifecycle proof. The spec carries both
+`@packaged` and `@destructive`, and desktop's generic full-regression lane
+grep-inverts `@packaged`; an unpackaged regression run must never discover it.
+The dependency build includes `@brainstrike/mcp-test-lab`, then the job packages
+the desktop once, runs the packaged native-addon checks, and invokes
+`test:e2e:lane:packaged-mcp-core` against that existing artifact. The canonical
+lane does not build or package. `test:e2e:mcp-packaged` remains the local
+developer convenience that builds the lab, packages the app, and delegates to
+the same lane. `scripts/__tests__/e2e-lane-coverage.test.mjs` pins the tags,
+broad-lane exclusion, canonical delegation, and workflow reachability/order.
+The packaged launcher copies only an explicit cross-platform process-environment
+allowlist plus test-owned overrides; it never forwards the ambient CI environment.
+Its stdio fixtures enforce the exact SDK-default key set expected from that
+allowlist, so the packaged proof has no production-environment bypass.
+
 Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
 each `webContents.getOSProcessId()`. Electron 43 does not expose the older
 `webContents.getProcessMemoryInfo()` API on the CI runner; treating that

@@ -88,6 +88,10 @@ const PROVISIONING_STEPS = new Set([
   'desktop-e2e › Require successful admission',
   'desktop-e2e › Install Chromium system dependencies',
   'desktop-e2e › Provision Electron binary',
+  // Runner plumbing for the packaged OAuth proof: installs the freedesktop
+  // Secret Service and URL-opening utilities required by the packaged app on
+  // headless Linux. The packaged-lane contract pins the daemon wiring.
+  'native-electron › Provision Linux desktop services',
   'notify-main-failure › Ensure tracking label exists',
   'notify-main-failure › Open or update tracking issue',
   'notify-main-recovery › Close the tracking issue once main is green',

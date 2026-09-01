@@ -202,6 +202,35 @@ describe('MCP OAuth credential boundary', () => {
     }
   });
 
+  it('normalizes persisted dynamic-registration redirect URLs before reuse', async () => {
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    try {
+      const issuer = 'https://auth.example.test';
+      const equivalentRedirect = provider.redirectUrl.replace('http://', 'HTTP://');
+      if (!provider.saveClientInformation) {
+        throw new Error('OAuth provider did not expose client-information persistence.');
+      }
+      await provider.saveClientInformation(
+        {
+          client_id: 'normalized-client',
+          redirect_uris: [equivalentRedirect],
+        },
+        { issuer }
+      );
+
+      await expect(provider.clientInformation({ issuer })).resolves.toMatchObject({
+        client_id: 'normalized-client',
+      });
+    } finally {
+      await provider.close();
+    }
+  });
+
   it('hands each pending authorization callback to the transport exactly once', async () => {
     const provider = await createMcpOAuthClientProvider({
       openExternal: async () => undefined,

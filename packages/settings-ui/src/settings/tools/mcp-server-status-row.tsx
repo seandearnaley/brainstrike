@@ -112,30 +112,43 @@ export function McpServerStatusRow({
   readonly server: McpServerInfo;
 }) {
   const actions = controlAvailable ? resolveMcpHostControlActions(server) : [];
-  const pendingActionRef = useRef<McpHostControlRequest['action'] | null>(null);
+  const pendingActionRef = useRef<{
+    readonly action: McpHostControlRequest['action'];
+  } | null>(null);
   const [pendingAction, setPendingAction] = useState<McpHostControlRequest['action'] | null>(null);
   const [confirmationAction, setConfirmationAction] = useState<CredentialDestructiveAction | null>(
     null
   );
   const [controlError, setControlError] = useState<string | null>(null);
   const runControl = async (action: McpHostControlRequest['action']): Promise<void> => {
-    if (pendingActionRef.current !== null) {
+    if (
+      pendingActionRef.current !== null &&
+      !(action === 'cancel' && pendingActionRef.current.action !== 'cancel')
+    ) {
       return;
     }
-    pendingActionRef.current = action;
+    const invocation = Object.freeze({ action });
+    pendingActionRef.current = invocation;
     setPendingAction(action);
     setControlError(null);
     try {
       await onControl({ action, configuredServerId: server.configuredServerId });
     } catch (cause) {
-      setControlError(cause instanceof Error ? cause.message : 'MCP lifecycle control failed');
+      if (pendingActionRef.current === invocation) {
+        setControlError(cause instanceof Error ? cause.message : 'MCP lifecycle control failed');
+      }
     } finally {
-      pendingActionRef.current = null;
-      setPendingAction(null);
+      if (pendingActionRef.current === invocation) {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+      }
     }
   };
   return (
-    <div className="rounded-md border px-3 py-2 text-sm">
+    <div
+      className="rounded-md border px-3 py-2 text-sm"
+      data-testid={`mcp-server-row-${server.configuredServerId}`}
+    >
       <div className="flex flex-wrap items-center gap-x-2">
         <span className="font-medium">{server.configuredServerId}</span>
         <span className="text-muted-foreground">{server.state}</span>
@@ -144,7 +157,9 @@ export function McpServerStatusRow({
             aria-busy={pendingAction === action}
             aria-label={`${MCP_CONTROL_LABELS[action]} ${server.configuredServerId}`}
             data-testid={`mcp-${action}-${server.configuredServerId}`}
-            disabled={pendingAction !== null}
+            disabled={
+              pendingAction !== null && !(action === 'cancel' && pendingAction !== 'cancel')
+            }
             key={action}
             onClick={() => {
               if (isCredentialDestructiveAction(action)) {

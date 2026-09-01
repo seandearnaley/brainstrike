@@ -2522,7 +2522,7 @@ and must never cross renderer IPC or bypass the platform redaction path.
   authentication, retry a failed generation, cancel one, or clear and replace
   one selected OAuth authority; each action returns the resulting token-free
   server snapshot and retains failed servers even when discovery found zero
-  tools.
+  tools; cancel stays actionable during connect and bypasses that operation's config barrier.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 
@@ -2614,7 +2614,7 @@ as an ordering failure, but terminal MCP cleanup is still attempted. Host
 close-report failures remain visible in the shutdown `AggregateError`; a
 zero-failure host proof therefore covers its
 clients, accepted requests, subscriptions, callbacks, loopback ports, probes,
-and stdio children. Factory reset uses the
+and stdio children; shutdown/reset log this at INFO, including empty reset authority. Factory reset uses the
 same lifecycle fence but does not close the singleton: after prior config work
 settles it installs explicit empty authority, purges projections, and keeps
 admission closed through the enclosing database/user-data

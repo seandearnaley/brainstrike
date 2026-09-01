@@ -67,6 +67,28 @@ describe('MCP lab fault runtime', () => {
     expect(runtime.requiresProtocolBodyCoordinate()).toBe(false);
   });
 
+  it('records active delay execution and request-driven abort without a wall clock', async () => {
+    const plan = createMcpLabFaultPlan([
+      {
+        fault: { delayMs: 60_000, kind: 'delay' },
+        id: 'abortable-delay',
+        match: { method: 'tools/list', occurrence: 1, phase: 'operation' },
+      },
+    ]);
+    const runtime = createMcpLabFaultRuntime(claimMcpLabFaultPlan(plan), 'modern-reference');
+    const applied = runtime.consume('operation', 'tools/list', 'correlation-tools');
+    if (!applied) {
+      throw new Error('Expected configured delay fault');
+    }
+    expect(plan.executionState(applied.id)).toBe('observed');
+    const controller = new AbortController();
+    const execution = runtime.applyHttpFault(applied, controller.signal);
+    expect(plan.executionState(applied.id)).toBe('active');
+    controller.abort();
+    await expect(execution).rejects.toMatchObject({ name: 'AbortError' });
+    expect(plan.executionState(applied.id)).toBe('aborted');
+  });
+
   it('applies every HTTP-compatible fault without degrading unsupported kinds', async () => {
     vi.useFakeTimers();
     try {

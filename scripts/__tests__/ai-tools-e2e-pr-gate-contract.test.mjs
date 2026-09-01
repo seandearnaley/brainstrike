@@ -64,7 +64,7 @@ const DESKTOP_FULL_REGRESSION_COMMAND = [
   '--retries=0',
   '--max-failures=1',
   '--global-timeout=1800000',
-  '--grep-invert="@desktop-embedding-"',
+  '--grep-invert="@desktop-embedding-|@packaged"',
   '&& pnpm run test:e2e:lane:tools-settings-nightly',
 ].join(' ');
 const REQUIRED_PR_E2E_JOB_CONDITION = [

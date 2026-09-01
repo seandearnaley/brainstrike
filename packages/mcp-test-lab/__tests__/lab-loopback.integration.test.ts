@@ -107,6 +107,12 @@ describe('MCP lab loopback HTTP references', () => {
           expect(
             await client.callTool({ arguments: { text: scenarioId }, name: expectedTool })
           ).toMatchObject({ structuredContent: { text: scenarioId } });
+          expect(
+            await client.callTool({
+              arguments: { extra: true, text: scenarioId },
+              name: expectedTool,
+            })
+          ).toMatchObject({ isError: true });
         }
       } finally {
         try {

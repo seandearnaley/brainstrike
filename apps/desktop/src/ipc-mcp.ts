@@ -463,13 +463,20 @@ export async function cleanupMcpRuntimeForShutdown(
   await mcpLifecycleBarrier;
   pendingFactoryResetSnapshot = null;
   purgeMcpRuntimeProjection();
-  try {
-    const hostClose = await runtime.host.close();
-    failures.push(...hostClose.failures);
-  } catch (error) {
-    failures.push(error);
+  const [hostClose] = await Promise.allSettled([runtime.host.close()] as const);
+  if (hostClose.status === 'rejected') {
+    failures.push(hostClose.reason);
+  } else {
+    failures.push(...hostClose.value.failures);
   }
   throwMcpCleanupFailures('shutdown', failures);
+  if (hostClose.status !== 'fulfilled') {
+    throw new Error('MCP shutdown cleanup report is unavailable after successful cleanup');
+  }
+  logger.info('MCP runtime shutdown cleanup completed', {
+    hostCloseReport: hostClose.value,
+    legacyClientsClosed: true,
+  });
 }
 
 export async function resetMcpRuntimeForFactoryReset(
@@ -576,7 +583,6 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
     async (_event, request: unknown) => {
       const parsed = parseMcpHostControlRequest(request);
       if (parsed.action === 'cancel') {
-        await mcpLifecycleBarrier;
         return structuredClone(await runtime.host.control(parsed));
       }
       return await trackConfigOperation(async (lifecycleEpoch) => {

@@ -13,13 +13,16 @@ import {
   type StoredOAuthTokens,
   validateClientMetadataUrl,
 } from '@modelcontextprotocol/client';
+import {
+  persistedClientSupportsRedirect,
+  reportStaleDynamicClientRegistration,
+} from './oauth-client-registration';
 
 const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
 const MAX_CALLBACK_URL_BYTES = 16 * 1024;
 const AUTHORIZATION_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 const LOOPBACK_HOST = '127.0.0.1';
 const MAX_DATE_EPOCH_MS = 8_640_000_000_000_000;
-
 export interface McpOAuthPersistedState {
   clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
@@ -29,7 +32,6 @@ export interface McpOAuthPersistedState {
   tokens?: StoredOAuthTokens;
   updatedAt: number;
 }
-
 export interface McpOAuthStoreIdentity {
   readonly resourceUrl: string;
   readonly scopeKey: string;
@@ -775,8 +777,14 @@ export async function createMcpOAuthClientProvider(
         return options.preRegisteredClient;
       }
       const stored = records.get(currentIssuer)?.clientInformation;
-      if (stored) {
+      if (stored && persistedClientSupportsRedirect(stored, callback.redirectUrl)) {
         return stored;
+      }
+      if (stored) {
+        // A DCR for an earlier ephemeral loopback port cannot redirect here and must be replaced.
+        reportStaleDynamicClientRegistration(currentIssuer);
+        clearCurrentRecordField('clientInformation');
+        await persistCurrentRecord();
       }
       if (
         options.preRegisteredClient &&
@@ -817,6 +825,9 @@ export async function createMcpOAuthClientProvider(
         staleDiscoveryByIssuer.get(issuer) === discoveryState
       ) {
         return;
+      }
+      if (issuer !== undefined && discoveryState !== undefined) {
+        currentIssuer = issuer;
       }
       return discoveryState;
     },
@@ -982,7 +993,6 @@ export async function createMcpOAuthClientProvider(
   liveProviders.add(provider);
   return provider;
 }
-
 /** Clears every live MCP OAuth provider and encrypted MCP OAuth store. */
 export async function purgeMcpOAuthRuntimeState(): Promise<void> {
   await Promise.all([...liveProviders].map(async (provider) => await provider.disconnect()));

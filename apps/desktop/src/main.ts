@@ -249,6 +249,10 @@ function applyExplicitPathIsolation(): void {
   const sessionDataDir = path.join(userDataDir, 'session-data');
   fs.mkdirSync(sessionDataDir, { recursive: true });
   app.setPath('sessionData', sessionDataDir);
+
+  const logsDir = path.join(userDataDir, 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+  app.setPath('logs', logsDir);
 }
 
 applyExplicitPathIsolation();
@@ -1250,7 +1254,15 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   runtimes: [
     {
       name: 'mcp-runtime',
-      stop: () => resetMcpRuntimeForFactoryReset(getDesktopMcpHostRuntime()),
+      stop: async () => {
+        const runtime = getDesktopMcpHostRuntime();
+        await resetMcpRuntimeForFactoryReset(runtime);
+        logger.info('MCP runtime reset cleanup completed', {
+          hostCloseReport: runtime.retiredCleanupReport(),
+          legacyClientsClosed: true,
+          snapshot: runtime.host.snapshot(),
+        });
+      },
     },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
     { name: 'chunking-host', stop: () => chunkingHostManager.stop() },

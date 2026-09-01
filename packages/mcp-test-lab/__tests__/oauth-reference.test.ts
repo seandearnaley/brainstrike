@@ -105,6 +105,33 @@ async function authorize(
 }
 
 describe('MCP OAuth reference core', () => {
+  it('downscopes the SDK v2 interactive registration request to its supported grant', async () => {
+    const { handler } = createFixture();
+    try {
+      const response = await handler.fetch(
+        new Request(handler.endpoint.registrationUrl, {
+          body: JSON.stringify({
+            application_type: 'native',
+            client_name: 'Brainstrike MCP Client',
+            grant_types: ['authorization_code', 'refresh_token'],
+            redirect_uris: [REDIRECT_URI],
+            response_types: ['code'],
+            scope: 'mcp',
+            token_endpoint_auth_method: 'none',
+          }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        })
+      );
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toMatchObject({
+        grant_types: ['authorization_code'],
+      });
+    } finally {
+      await handler.close();
+    }
+  });
+
   it('binds a bounded native authorization-code flow to state, PKCE, resource, and expiry', async () => {
     let now = 1_700_000_000_000;
     const { handler } = createFixture({

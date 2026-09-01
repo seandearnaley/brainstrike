@@ -93,14 +93,16 @@ describe('MCP stdio durable diagnostics', () => {
       });
       const runtime = createDesktopMcpHostRuntime({
         createStdioTransportClient: (options) => {
-          options.onStderr?.(
-            'Authorization: Bearer bst-test-bearer-value\n' +
-              'Authorize at https://auth.example/callback?code=bst-test-code-value&' +
-              'code_verifier=bst-test-verifier-value&state=bst-test-state-value&' +
-              'redirect_uri=https%3A%2F%2Flocalhost%2Fcallback\n' +
-              'code=bst-test-code-value&code_verifier=bst-test-verifier-value&' +
-              'verifier=bst-test-standalone-verifier-value&state=bst-test-state-value\n'
-          );
+          transportClient.close.mockImplementationOnce(async () => {
+            options.onStderr?.(
+              'Authorization: Bearer bst-test-bearer-value\n' +
+                'Authorize at https://auth.example/callback?code=bst-test-code-value&' +
+                'code_verifier=bst-test-verifier-value&state=bst-test-state-value&' +
+                'redirect_uri=https%3A%2F%2Flocalhost%2Fcallback\n' +
+                'code=bst-test-code-value&code_verifier=bst-test-verifier-value&' +
+                'verifier=bst-test-standalone-verifier-value&state=bst-test-state-value\n'
+            );
+          });
           return transportClient;
         },
       });

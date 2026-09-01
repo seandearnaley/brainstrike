@@ -757,6 +757,11 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
+      - name: Provision Linux desktop services
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes dbus-x11 gnome-keyring xdg-utils
+
       # Both the native smoke (`electron`) and electron-builder need the same
       # Electron release archive. Provision it once with bounded transfers and
       # retries, extract it for the smoke, then pass the verified zip to
@@ -780,7 +785,7 @@ jobs:
           echo "ELECTRON_DIST=$ELECTRON_ZIP" >> "$GITHUB_ENV"
 
       - name: Build desktop dependency graph
-        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --filter=@brainstrike/mcp-test-lab --concurrency=4
 
       - name: Load the native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
@@ -796,6 +801,25 @@ jobs:
 
       - name: Load the packaged @parcel/watcher binding in Electron (BST-568)
         run: pnpm --filter @brainstrike/file-system test:packaged
+
+      - name: Verify packaged MCP core lifecycle
+        run: |
+          set -euo pipefail
+          dbus-run-session -- bash -euo pipefail -c '
+            export XDG_CONFIG_HOME="$(mktemp -d)"
+            export XDG_DATA_HOME="$(mktemp -d)"
+            export XDG_CURRENT_DESKTOP=GNOME
+            eval "$(gnome-keyring-daemon --unlock --components=secrets <<< "")"
+            pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-core
+          '
+
+      - name: Upload packaged MCP test diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-packaged-core-${{ github.sha }}
+          path: apps/desktop/blob-report
+          if-no-files-found: warn
 
   browser-tests:
     name: Browser tests

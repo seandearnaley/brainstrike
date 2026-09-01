@@ -121,6 +121,35 @@ describe('MCP lifecycle IPC', () => {
     expect(control).not.toHaveBeenCalled();
   });
 
+  it('dispatches cancellation without waiting for the connect lifecycle barrier', async () => {
+    const handler = handlers.get('mcp:lifecycle:control');
+    if (!handler) {
+      throw new Error('lifecycle control handler not registered');
+    }
+    const connect = Promise.withResolvers<never>();
+    const control = vi.spyOn(authority.runtime.host, 'control').mockImplementation((request) => {
+      if (request.action === 'connect') {
+        return connect.promise;
+      }
+      return Promise.resolve({
+        configuredProtocol: '2026-07-28',
+        configuredServerId: parseConfiguredMcpServerId('linear'),
+        generation: 1,
+        state: 'authentication-required',
+        transport: 'streamable-http',
+      });
+    });
+
+    const connecting = handler({}, { action: 'connect', configuredServerId: 'linear' });
+    await vi.waitFor(() => expect(control).toHaveBeenCalledOnce());
+    const cancelling = handler({}, { action: 'cancel', configuredServerId: 'linear' });
+    await vi.waitFor(() => expect(control).toHaveBeenCalledTimes(2));
+    await expect(cancelling).resolves.toMatchObject({ state: 'authentication-required' });
+
+    connect.reject(new Error('cancelled'));
+    await expect(connecting).rejects.toThrow('cancelled');
+  });
+
   it('reloads config after a failed destructive OAuth control', async () => {
     const handler = handlers.get('mcp:lifecycle:control');
     if (!handler) {

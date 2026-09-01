@@ -222,6 +222,36 @@ async function closeAfterFailure(
   throw cause;
 }
 
+async function closeAfterConnectFailure(
+  client: ExplicitClient,
+  cause: unknown,
+  server: ResolvedMcpServer,
+  generation: number,
+  diagnostics?: McpStdioDiagnosticCollector,
+  provider?: McpOAuthClientProvider
+): Promise<never> {
+  const cleanupFailures: unknown[] = [];
+  try {
+    await closeClientResources(client, provider);
+  } catch (cleanupCause) {
+    cleanupFailures.push(cleanupCause);
+  } finally {
+    // A child can close the protocol stream before Node drains its final
+    // stderr chunks. Flush after transport cleanup so both the user-facing
+    // classification and durable report use the same complete diagnostics.
+    diagnostics?.flush();
+    reportStdioFailureDiagnostics(server, generation, diagnostics);
+  }
+  const failure = classifyMcpLifecycleFailure(cause, diagnostics?.snapshot());
+  if (cleanupFailures.length > 0) {
+    throw new McpServerActorClientCleanupError(
+      [failure, ...cleanupFailures],
+      'MCP client operation failed and cleanup also failed'
+    );
+  }
+  throw failure;
+}
+
 async function connectClient(
   client: ExplicitClient,
   server: ResolvedMcpServer,
@@ -238,11 +268,12 @@ async function connectClient(
     });
     await onConnected?.();
   } catch (cause) {
-    diagnostics?.flush();
-    reportStdioFailureDiagnostics(server, context.generation, diagnostics);
-    return await closeAfterFailure(
+    return await closeAfterConnectFailure(
       client,
-      classifyMcpLifecycleFailure(cause, diagnostics?.snapshot()),
+      cause,
+      server,
+      context.generation,
+      diagnostics,
       provider
     );
   }
@@ -373,7 +404,7 @@ export class DesktopMcpHostRuntime {
   private readonly resolveClientCapabilities: NonNullable<
     DesktopMcpHostRuntimeDependencies['resolveClientCapabilities']
   >;
-  private readonly service: McpHostPort;
+  private readonly service: McpHostService;
   private readonly createStdioTransportClient: NonNullable<
     DesktopMcpHostRuntimeDependencies['createStdioTransportClient']
   >;
@@ -486,6 +517,10 @@ export class DesktopMcpHostRuntime {
     if (current) {
       this.elicitationPresenter.retireServer(configuredServerId, current.generation);
     }
+  }
+
+  retiredCleanupReport(): McpHostCloseReport {
+    return this.service.retiredCleanupReport();
   }
 
   private enqueueReplacement<T>(operation: () => Promise<T>): Promise<T> {
