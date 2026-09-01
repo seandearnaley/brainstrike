@@ -2565,18 +2565,18 @@ requires an explicit contract/schema revision rather than an invented payload.
 Desktop lifecycle composition lives in `ipc-mcp.ts`. Shutdown first stops and
 drains the assistant HTTP server, then closes MCP configuration admission,
 stops the file watcher, awaits every tracked load/replacement/discovery, clears
-the renderer projection, and terminally closes the singleton host plus the
-legacy status-boundary clients. Process, terminal, command-session, and LSP
+the renderer projection, and terminally closes the singleton host. Process,
+terminal, command-session, and LSP
 reapers start in the same settlement batch as assistant-server stop, so a hung
 or rejected drain cannot prevent those attempts. A rejected drain is recorded
 as an ordering failure, but terminal MCP cleanup is still attempted. Host
-close-report failures and legacy cleanup failures are preserved together in one
-visible `AggregateError`; a zero-failure host proof therefore covers its
+close-report failures remain visible in the shutdown `AggregateError`; a
+zero-failure host proof therefore covers its
 clients, accepted requests, subscriptions, callbacks, loopback ports, probes,
 and stdio children. Factory reset uses the
 same lifecycle fence but does not close the singleton: after prior config work
-settles it installs explicit empty authority, purges projections and legacy
-clients, and keeps admission closed through the enclosing database/user-data
+settles it installs explicit empty authority, purges projections, and keeps
+admission closed through the enclosing database/user-data
 purge and visible-renderer replacement. Main waits for the replacement React
 tree's explicit renderer-ready ping before it restores the permanent watcher
 and reopens empty authority; load completion alone is insufficient. A failed
