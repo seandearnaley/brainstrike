@@ -2217,13 +2217,20 @@ The BST-1571 packaged verifier launches the exact electron-builder output,
 queries the live main process for `app.isPackaged === true`, and drives its
 dedicated verifier window over Chromium CDP. That window composes the production
 provenance authority, object-URL sandbox owner, opaque frame bridge, tool-call
-authority, and accessible host surface. App-originated `tools/call` traffic
+authority, and accessible host surface. The sandboxed fixture uses the pinned
+SDK's `App` and `PostMessageTransport` and validates the canonical initialize
+result. A sibling dedicated sandbox WebContents proves the packaged Electron
+policy denies popup escape and that lease teardown destroys that WebContents;
+the policy is deliberately not attached to the host renderer, where it would
+block the host-owned object-URL frame. App-originated `tools/call` traffic
 crosses the real frame listener and reaches a loopback HTTP request/response;
 host RPC responses return to the app. Completion, replacement, disconnect,
 shutdown, denial, server failure, protocol failure, and timeout must release all
 frames, object URLs, RPC callbacks/timers, consent listeners, calls, HTTP
 requests, sockets, and the packaged child process. This remains verifier-only:
 MCP Apps is neither mounted nor advertised in the production desktop renderer.
+The `Native Electron Package` job runs this proof through
+`test:e2e:lane:packaged-mcp-apps` against the artifact it just built.
 
 BST-1567 owns the disabled Apps wire-contract projection from the immutable
 `@modelcontextprotocol/ext-apps@1.7.5` schema and stable `2026-01-26` spec. It

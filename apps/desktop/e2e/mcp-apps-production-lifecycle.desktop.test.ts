@@ -18,6 +18,7 @@ const appSurfaceModulePath = path.resolve(
   '../../packages/mcp-app-host-ui/dist/index.js'
 );
 const requireFromTest = createRequire(import.meta.url);
+const mcpAppsModulePath = requireFromTest.resolve('@modelcontextprotocol/ext-apps');
 const reactModulePath = requireFromTest.resolve('react');
 const reactDomClientModulePath = requireFromTest.resolve('react-dom/client');
 
@@ -69,8 +70,10 @@ interface LoopbackToolServer {
 interface PackagedHarnessApplication {
   readonly browser: Browser;
   readonly child: ChildProcessWithoutNullStreams;
+  readonly closeSandbox: () => Promise<boolean>;
   readonly isPackaged: boolean;
   readonly page: Page;
+  readonly sandboxPopupDenied: boolean;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -170,54 +173,47 @@ async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
   };
 }
 
-function sandboxedAppDocument(): string {
-  const scriptClose = '</script>';
-  return `<!doctype html><script>
+function sandboxedAppSource(): string {
+  return `
+    import {App,PostMessageTransport} from ${JSON.stringify(mcpAppsModulePath)};
     const pending=new Set();
-    const send=message=>top.postMessage(message,'*');
-    let started=false;
-    addEventListener('message',event=>{
-      if(event.source!==top)return;
-      const message=event.data;
-      if(message?.type==='bst-start'&&!started){
-        started=true;
-        send({
-          id:'initialize',
-          jsonrpc:'2.0',
-          method:'ui/initialize',
-          params:{appCapabilities:{},appInfo:{name:'BST-1571 verifier',version:'1.0.0'},protocolVersion:'2026-01-26'}
-        });
-        return;
+    const app=new App(
+      {name:'BST-1571 verifier',version:'1.0.0'},
+      {},
+      {autoResize:false,strict:true}
+    );
+    app.ontoolinput=({arguments:argumentsValue={}})=>{
+      const label=argumentsValue.label;
+      pending.add(label);
+      void app.callServerTool({arguments:argumentsValue,name:'create_issue'}).then(
+        async()=>{
+          pending.delete(label);
+          await app.sendLog({data:{callId:label,outcome:'resolved'},level:'info'});
+        },
+        async()=>{
+          pending.delete(label);
+          await app.sendLog({data:{callId:label,outcome:'rejected'},level:'info'});
+        }
+      );
+    };
+    app.onhostcontextchanged=()=>{
+      top.postMessage({id:'protocol-failure',jsonrpc:'2.0',method:'tools/list',params:{}},'*');
+    };
+    app.onteardown=async(_params,extra)=>{
+      if(String(extra.requestId).startsWith('pending-')){
+        return await new Promise(()=>{});
       }
-      if(message?.id==='initialize'&&message?.result){
-        send({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}});
-        return;
-      }
-      if(message?.method==='ui/notifications/tool-input'){
-        const argumentsValue=message.params?.arguments??{};
-        const id=argumentsValue.label;
-        pending.add(id);
-        send({id,jsonrpc:'2.0',method:'tools/call',params:{arguments:argumentsValue,name:'create_issue'}});
-        return;
-      }
-      if(message?.method==='ui/notifications/host-context-changed'){
-        send({id:'protocol-failure',jsonrpc:'2.0',method:'tools/list',params:{}});
-        return;
-      }
-      if(message?.method==='ui/resource-teardown'&&!String(message.id).startsWith('pending-')){
-        send({id:message.id,jsonrpc:'2.0',result:{released:true}});
-        return;
-      }
-      if(pending.has(message?.id)&&(message?.result||message?.error)){
-        pending.delete(message.id);
-        send({
-          jsonrpc:'2.0',
-          method:'notifications/message',
-          params:{data:{callId:message.id,outcome:message.result?'resolved':'rejected'},level:'info'}
-        });
-      }
+      return {released:true};
+    };
+    void app.connect(new PostMessageTransport(top,top)).catch(error=>{
+      console.error('MCP Apps verifier connect failed',error);
     });
-  ${scriptClose}`;
+  `;
+}
+
+function sandboxedAppDocument(appBundle: string): string {
+  const scriptClose = '</script>';
+  return `<!doctype html><script>${appBundle.replaceAll(scriptClose, '<\\/script>')}${scriptClose}`;
 }
 
 function packagedExecutablePath(): string {
@@ -285,7 +281,14 @@ async function evaluateElectronMain(endpoint: string, expression: string): Promi
         const result = message['result'];
         const remote = isRecord(result) ? result['result'] : undefined;
         if (!isRecord(remote) || Object.hasOwn(result ?? {}, 'exceptionDetails')) {
-          reject(new Error(`Electron inspector evaluation failed: ${String(message['error'])}`));
+          reject(
+            new Error(
+              `Electron inspector evaluation failed: ${JSON.stringify({
+                error: message['error'],
+                exceptionDetails: isRecord(result) ? result['exceptionDetails'] : undefined,
+              })}`
+            )
+          );
           return;
         }
         resolve(remote['value']);
@@ -386,10 +389,24 @@ async function launchPackagedHarness(
       stderr.on('line', onLine);
       child.once('exit', onExit);
     });
-    const isPackaged = await evaluateElectronMain(
+    const launchResult = await evaluateElectronMain(
       endpoints.main,
-      `(async()=>{const{app,BrowserWindow}=require('electron');await app.whenReady();const window=new BrowserWindow({show:true,webPreferences:{contextIsolation:true,nodeIntegration:false,partition:'bst-1571-packaged-host',sandbox:true,webSecurity:true}});globalThis.__bst1571PackagedWindow=window;await window.loadFile(${JSON.stringify(harnessPath)});return app.isPackaged})()`
+      `(async()=>{const requireFromMain=process.getBuiltinModule('node:module').createRequire(process.execPath);const{app,BrowserWindow}=requireFromMain('electron');await app.whenReady();const window=new BrowserWindow({show:true,webPreferences:{contextIsolation:true,nodeIntegration:false,partition:'bst-1571-packaged-host',sandbox:true,webSecurity:true}});globalThis.__bst1571PackagedWindow=window;await window.loadFile(${JSON.stringify(harnessPath)});const sandboxWindow=new BrowserWindow({show:false,webPreferences:{contextIsolation:true,nodeIntegration:false,partition:'bst-1571-packaged-sandbox',sandbox:true,webSecurity:true}});globalThis.__bst1571SandboxWindow=sandboxWindow;const host=requireFromMain(${JSON.stringify(appHostModulePath)});globalThis.__bst1571SandboxLease=host.installMcpAppElectronSandboxPolicy({session:sandboxWindow.webContents.session,webContents:sandboxWindow.webContents});await sandboxWindow.loadURL('data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Ctitle%3EBST-1571%20sandbox%3C%2Ftitle%3E');const sandboxPopupDenied=await sandboxWindow.webContents.executeJavaScript("window.open('https://escape.invalid/')===null");return{isPackaged:app.isPackaged,sandboxPopupDenied}})()`
     );
+    if (
+      !isRecord(launchResult) ||
+      typeof launchResult['isPackaged'] !== 'boolean' ||
+      typeof launchResult['sandboxPopupDenied'] !== 'boolean'
+    ) {
+      throw new Error('BST-1571 packaged launch result is malformed');
+    }
+    const closeSandbox = async (): Promise<boolean> => {
+      const destroyed = await evaluateElectronMain(
+        endpoints.main,
+        `(async()=>{const lease=globalThis.__bst1571SandboxLease;if(!lease)throw new Error('BST-1571 sandbox lease is unavailable');await lease.close();globalThis.__bst1571SandboxLease=undefined;const window=globalThis.__bst1571SandboxWindow;globalThis.__bst1571SandboxWindow=undefined;return !window||window.isDestroyed()})()`
+      );
+      return destroyed === true;
+    };
     const browser = await chromium.connectOverCDP(endpoints.browser);
     const expectedUrl = pathToFileURL(harnessPath).href;
     let page: Page | undefined;
@@ -405,7 +422,14 @@ async function launchPackagedHarness(
     if (!page) {
       throw new Error('BST-1571 packaged harness page is unavailable');
     }
-    return { browser, child, isPackaged: isPackaged === true, page };
+    return {
+      browser,
+      child,
+      closeSandbox,
+      isPackaged: launchResult['isPackaged'],
+      page,
+      sandboxPopupDenied: launchResult['sandboxPopupDenied'],
+    };
   } catch (error: unknown) {
     child.kill('SIGTERM');
     await waitForProcessExit(child).catch(() => child.kill('SIGKILL'));
@@ -429,8 +453,9 @@ async function waitForProcessExit(child: ChildProcessWithoutNullStreams): Promis
   });
 }
 
-function harnessSource(serverOrigin: string): string {
+function harnessSource(serverOrigin: string, appDocument: string): string {
   return `
+    import {McpUiInitializeResultSchema} from ${JSON.stringify(mcpAppsModulePath)};
     import React, {createRef} from ${JSON.stringify(reactModulePath)};
     import {createRoot} from ${JSON.stringify(reactDomClientModulePath)};
     import {McpAppHostSurface} from ${JSON.stringify(appSurfaceModulePath)};
@@ -442,8 +467,18 @@ function harnessSource(serverOrigin: string): string {
     } from ${JSON.stringify(appHostModulePath)};
 
     const APP_NAME='Linear issue editor';
-    const APP_DOCUMENT=${JSON.stringify(sandboxedAppDocument())};
+    const APP_DOCUMENT=${JSON.stringify(appDocument)};
     const SERVER_ORIGIN=${JSON.stringify(serverOrigin)};
+    const initializeResult=McpUiInitializeResultSchema.safeParse({
+      hostCapabilities:{logging:{},sandbox:{},serverResources:{},serverTools:{}},
+      hostContext:{platform:'desktop'},
+      hostInfo:{name:'Brainstrike',version:'1.0.0'},
+      protocolVersion:'2026-01-26',
+    });
+    if(!initializeResult.success){
+      throw new Error('BST-1571 canonical MCP Apps initialization result is invalid');
+    }
+    const INITIALIZE_RESULT=Object.freeze(initializeResult.data);
     const activeUrls=new Set();
     const appReceipts=new Map();
     const outcomes=new Map();
@@ -594,7 +629,7 @@ function harnessSource(serverOrigin: string): string {
           }
         },
         onRequest:async(message,context)=>{
-          if(message.method==='ui/initialize')return {};
+          if(message.method==='ui/initialize')return INITIALIZE_RESULT;
           if(message.method!=='tools/call')return {};
           const argumentsValue=message.params?.arguments??{};
           const label=argumentsValue.label;
@@ -620,7 +655,6 @@ function harnessSource(serverOrigin: string): string {
         if(performance.now()>bootstrapDeadline){
           throw new Error('MCP Apps bootstrap timeout: '+JSON.stringify(bridge.snapshot));
         }
-        appWindow.postMessage({type:'bst-start'},'*');
         await delay(10);
       }
       await waitFor('MCP Apps handshake',()=>bridge.snapshot.phase==='ready');
@@ -700,6 +734,10 @@ function harnessSource(serverOrigin: string): string {
         const next=await createSession();
         return {current:next,previous};
       },
+      restart:async()=>{
+        if(current)await teardown({phase:'loading'});
+        return await createSession();
+      },
       roundTrip:async()=>{
         const session=current;
         if(!session)throw new Error('MCP Apps verifier session is unavailable');
@@ -721,10 +759,25 @@ function harnessSource(serverOrigin: string): string {
 }
 
 async function buildHarness(directory: string, serverOrigin: string): Promise<string> {
+  const appEntryPath = path.join(directory, 'app-entry.js');
   const entryPath = path.join(directory, 'harness-entry.jsx');
   const bundlePath = path.join(directory, 'harness-bundle.js');
   const htmlPath = path.join(directory, 'harness.html');
-  await writeFile(entryPath, harnessSource(serverOrigin), 'utf8');
+  await writeFile(appEntryPath, sandboxedAppSource(), 'utf8');
+  const appBuild = await build({
+    bundle: true,
+    entryPoints: [appEntryPath],
+    format: 'iife',
+    logLevel: 'silent',
+    platform: 'browser',
+    target: 'chrome136',
+    write: false,
+  });
+  const appBundle = appBuild.outputFiles[0]?.text;
+  if (appBundle === undefined) {
+    throw new Error('BST-1571 official MCP App bundle is unavailable');
+  }
+  await writeFile(entryPath, harnessSource(serverOrigin, sandboxedAppDocument(appBundle)), 'utf8');
   await build({
     bundle: true,
     entryPoints: [entryPath],
@@ -880,7 +933,9 @@ async function expectServerIdle(server: LoopbackToolServer): Promise<void> {
     .toEqual({ activeRequests: 0, openSockets: 0 });
 }
 
-test('MCP Apps production host lifecycle is accessible and quiescent in packaged Electron', async () => {
+test('MCP Apps production host lifecycle is accessible and quiescent in packaged Electron', {
+  tag: ['@destructive', '@packaged'],
+}, async () => {
   test.setTimeout(360_000);
   const executablePath = packagedExecutablePath();
   await access(executablePath, constants.X_OK);
@@ -895,6 +950,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
     packagedApplication = await launchPackagedHarness(executablePath, harnessPath, userDataDir);
     const { page } = packagedApplication;
     expect(packagedApplication.isPackaged).toBe(true);
+    expect(packagedApplication.sandboxPopupDenied).toBe(true);
     await waitForHarness(page);
     const initial = await harnessCall<LifecycleSnapshot>(page, 'initialReady');
     expect(initial.authority).toMatchObject({ listenerCount: 1, phase: 'open' });
@@ -926,9 +982,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
     await expect(page.getByRole('status')).toHaveText('Linear issue editor completed.');
     await expect(page.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
 
-    await page.reload();
-    await waitForHarness(page);
-    await harnessCall(page, 'initialReady');
+    await harnessCall(page, 'restart');
     const denialBefore = toolServer.snapshot();
     await beginCall(page, 'denial');
     await page.getByRole('button', { name: 'Deny create_issue' }).click();
@@ -939,9 +993,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
     await expectServerIdle(toolServer);
     expect(toolServer.snapshot().totalRequests).toBe(denialBefore.totalRequests);
 
-    await page.reload();
-    await waitForHarness(page);
-    await harnessCall(page, 'initialReady');
+    await harnessCall(page, 'restart');
     const failureBefore = toolServer.snapshot();
     await beginCall(page, 'failure', 'failure');
     await page.getByRole('button', { name: 'Allow create_issue once' }).click();
@@ -956,9 +1008,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
     await expect(page.getByRole('alert')).toContainText('The app could not start safely.');
     await expect(page.getByRole('button', { name: 'Retry Linear issue editor' })).toBeFocused();
 
-    await page.reload();
-    await waitForHarness(page);
-    await harnessCall(page, 'initialReady');
+    await harnessCall(page, 'restart');
     const replacementBefore = toolServer.snapshot();
     await beginCall(page, 'replacement', 'hold');
     await page.getByRole('button', { name: 'Allow create_issue once' }).click();
@@ -985,9 +1035,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
       totalRequests: replacementBefore.totalRequests + 1,
     });
 
-    await page.reload();
-    await waitForHarness(page);
-    await harnessCall(page, 'initialReady');
+    await harnessCall(page, 'restart');
     const disconnectBefore = toolServer.snapshot();
     await beginCall(page, 'disconnect', 'hold');
     await page.getByRole('button', { name: 'Allow create_issue once' }).click();
@@ -1000,9 +1048,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
       totalRequests: disconnectBefore.totalRequests + 1,
     });
 
-    await page.reload();
-    await waitForHarness(page);
-    await harnessCall(page, 'initialReady');
+    await harnessCall(page, 'restart');
     const timeoutBefore = toolServer.snapshot();
     await beginCall(page, 'timeout', 'hold');
     await page.getByRole('button', { name: 'Allow create_issue once' }).click();
@@ -1026,9 +1072,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
       totalRequests: timeoutBefore.totalRequests + 1,
     });
 
-    await page.reload();
-    await waitForHarness(page);
-    await harnessCall(page, 'initialReady');
+    await harnessCall(page, 'restart');
     const protocolBefore = toolServer.snapshot();
     await beginCall(page, 'protocol', 'hold');
     await page.getByRole('button', { name: 'Allow create_issue once' }).click();
@@ -1042,9 +1086,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
       totalRequests: protocolBefore.totalRequests + 1,
     });
 
-    await page.reload();
-    await waitForHarness(page);
-    await harnessCall(page, 'initialReady');
+    await harnessCall(page, 'restart');
     const shutdownBefore = toolServer.snapshot();
     await beginCall(page, 'shutdown', 'hold');
     await page.getByRole('button', { name: 'Allow create_issue once' }).click();
@@ -1057,6 +1099,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
       totalRequests: shutdownBefore.totalRequests + 1,
     });
 
+    expect(await packagedApplication.closeSandbox()).toBe(true);
     await page.close();
 
     const launchedBrowser = packagedApplication.browser;
@@ -1073,6 +1116,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
     });
   } finally {
     if (packagedApplication) {
+      await packagedApplication.closeSandbox().catch(() => false);
       packagedApplication.child.kill('SIGTERM');
       await waitForProcessExit(packagedApplication.child).catch(() => {
         packagedApplication?.child.kill('SIGKILL');
