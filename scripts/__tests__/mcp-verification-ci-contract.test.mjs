@@ -15,6 +15,7 @@ const representativeCommand =
 const exhaustiveCommand =
   'pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json';
 const officialBaselineCommand = 'pnpm run verify:mcp:official';
+const officialCoreCommand = 'pnpm run verify:mcp:official -- --profile core';
 const officialModernCommand = 'pnpm run verify:mcp:official -- --profile modern-closeout';
 
 function findStep(workflow, jobName, stepName) {
@@ -145,6 +146,33 @@ test('modern-only auth closeout is an independent bounded advisory job', () => {
   assert.equal(uploadStep.with['retention-days'], 14);
 });
 
+test('official core conformance is an independent bounded advisory job', () => {
+  const descriptor = OFFICIAL_AUTH_CONFORMANCE_PROFILES.core;
+  const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
+  const job = workflow.jobs.official_core;
+  assert.ok(job);
+  assert.equal(job['continue-on-error'], true);
+  assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
+
+  const provisionStep = findStep(workflow, 'official_core', 'Provision Electron binary');
+  assert.equal(provisionStep['timeout-minutes'], descriptor.provisionTimeoutMinutes);
+  assert.equal(provisionStep['working-directory'], 'apps/desktop');
+
+  const verifyStep = findStep(workflow, 'official_core', 'Run official MCP core conformance');
+  assert.equal(verifyStep.run, officialCoreCommand);
+  assert.equal(
+    verifyStep['timeout-minutes'],
+    descriptor.buildTimeoutMinutes + descriptor.stepTimeoutMinutes
+  );
+
+  const uploadStep = findStep(workflow, 'official_core', 'Upload official MCP core evidence');
+  assert.equal(uploadStep.if, `${'$'}{{ always() }}`);
+  assert.equal(uploadStep.with.name, `mcp-official-core-${'$'}{{ github.sha }}`);
+  assert.equal(uploadStep.with.path, descriptor.evidencePath);
+  assert.equal(uploadStep.with['if-no-files-found'], 'error');
+  assert.equal(uploadStep.with['retention-days'], 14);
+});
+
 test('PR and exhaustive lanes use the same command apart from profile and output', () => {
   const normalize = (command) =>
     command
@@ -168,7 +196,7 @@ test('living contracts publish the exact local and CI commands', () => {
     assert.match(providerContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(ciContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
-  for (const command of [officialBaselineCommand, officialModernCommand]) {
+  for (const command of [officialBaselineCommand, officialCoreCommand, officialModernCommand]) {
     const exactLine = new RegExp(`^${command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'mu');
     assert.match(providerContract, exactLine);
     assert.match(ciContract, exactLine);

@@ -99,8 +99,8 @@ test('every provisioning step uses the container-safe runner temp fallback', () 
 
   assert.equal(
     provisioningSteps.length,
-    6,
-    'expected native packaging, smoke, two regression, and two official-conformance provisioning sites'
+    7,
+    'expected native packaging, smoke, two regression, and three official-conformance provisioning sites'
   );
   for (const { relativePath, run } of provisioningSteps) {
     assert.equal(typeof run, 'string', `${relativePath} provisioning must remain a shell step`);

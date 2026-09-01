@@ -23,6 +23,7 @@ import {
 const CONFORMANCE_VERSION = '0.2.0-alpha.10';
 const CLIENT_COMMAND = 'node apps/desktop/dist/official-conformance-client-entry.js';
 const BASELINE_PROFILE = 'baseline';
+const CORE_PROFILE = 'core';
 const MODERN_CLOSEOUT_PROFILE = 'modern-closeout';
 export const OFFICIAL_AUTH_SCENARIOS = OFFICIAL_AUTH_BASELINE_SCENARIOS;
 export const OFFICIAL_MODERN_AUTH_SCENARIOS = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS;
@@ -67,6 +68,10 @@ export const OFFICIAL_EVIDENCE_PATH = path.join(
 export const OFFICIAL_MODERN_AUTH_EVIDENCE_PATH = path.join(
   REPO_ROOT,
   OFFICIAL_AUTH_CONFORMANCE_PROFILES[MODERN_CLOSEOUT_PROFILE].evidencePath
+);
+export const OFFICIAL_CORE_EVIDENCE_PATH = path.join(
+  REPO_ROOT,
+  OFFICIAL_AUTH_CONFORMANCE_PROFILES[CORE_PROFILE].evidencePath
 );
 const SAFE_ENVIRONMENT_NAMES = [
   'CI',
@@ -252,7 +257,7 @@ export function buildOfficialClientInvocations({
 
 export function officialAuthProfileDescriptor(profile) {
   if (!Object.hasOwn(OFFICIAL_AUTH_CONFORMANCE_PROFILES, profile)) {
-    throw new Error('Official MCP auth conformance profile is invalid');
+    throw new Error('Official MCP client conformance profile is invalid');
   }
   return OFFICIAL_AUTH_CONFORMANCE_PROFILES[profile];
 }
@@ -262,10 +267,15 @@ export function parseOfficialAuthProfile(argv) {
   if (args.length === 0) {
     return BASELINE_PROFILE;
   }
-  if (args.length === 2 && args[0] === '--profile' && args[1] === MODERN_CLOSEOUT_PROFILE) {
-    return MODERN_CLOSEOUT_PROFILE;
+  if (args.length === 2 && args[0] === '--profile') {
+    if (args[1] === CORE_PROFILE) {
+      return CORE_PROFILE;
+    }
+    if (args[1] === MODERN_CLOSEOUT_PROFILE) {
+      return MODERN_CLOSEOUT_PROFILE;
+    }
   }
-  throw new Error('Official MCP auth conformance profile arguments are invalid');
+  throw new Error('Official MCP client conformance profile arguments are invalid');
 }
 
 function evidencePathForProfile(profile) {
@@ -683,7 +693,7 @@ export async function runOfficialClientInvocations(
   ) {
     const executionCount = canonicalInvocations.length;
     throw new Error(
-      `Official MCP auth conformance requires the exact canonical ${executionCount}-scenario matrix`
+      `Official MCP ${descriptor.displayName} conformance requires the exact canonical ${executionCount}-scenario matrix`
     );
   }
   const windowsJob = initializeWindowsJobOwnership(platform, loadWindowsJob);
@@ -740,7 +750,7 @@ export async function runOfficialClientInvocations(
       try {
         await terminateWindowsJobChildren(windowsJob);
       } catch {
-        failures.push(new Error(`${protocolVersion}/auth/cleanup`));
+        failures.push(new Error(`${protocolVersion}/${descriptor.cleanupScope}/cleanup`));
       }
     }
     waves.push({
@@ -753,7 +763,7 @@ export async function runOfficialClientInvocations(
   if (failures.length > 0) {
     const failure = new AggregateError(
       failures,
-      `Official MCP auth conformance failed: ${failures.map(({ message }) => message).join(', ')}`
+      `Official MCP ${descriptor.displayName} conformance failed: ${failures.map(({ message }) => message).join(', ')}`
     );
     Object.defineProperty(failure, 'report', { enumerable: false, value: report });
     throw failure;
@@ -823,7 +833,7 @@ export function finalizeOfficialAuthEvidence(
     if (failure && evidenceFailure !== failure) {
       throw new AggregateError(
         [failure, evidenceFailure],
-        'Official MCP auth conformance failed and sanitized evidence persistence failed'
+        `Official MCP ${officialAuthProfileDescriptor(profile).displayName} conformance failed and sanitized evidence persistence failed`
       );
     }
     throw evidenceFailure;
@@ -871,7 +881,7 @@ export async function main(argv = process.argv.slice(2)) {
     startedAt,
   });
   process.stdout.write(
-    `Official MCP auth conformance passed ${evidence.summary.passed}/${evidence.summary.executions} executions\n`
+    `Official MCP ${officialAuthProfileDescriptor(profile).displayName} conformance passed ${evidence.summary.passed}/${evidence.summary.executions} executions\n`
   );
 }
 
