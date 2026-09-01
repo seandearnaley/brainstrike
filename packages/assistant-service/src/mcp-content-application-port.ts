@@ -49,52 +49,37 @@ export const MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES = 256 * 1024;
 export const MCP_CONTENT_APPLICATION_MAX_RESULT_BYTES = 4 * 1024 * 1024;
 
 const ERROR_DESCRIPTOR_VALUES = {
-  cancelled: ['cancelled', 'mcp_content_cancelled', 'MCP content request was cancelled'],
-  hostFailed: ['host', 'mcp_content_host_operation_failed', 'MCP content host operation failed'],
-  invalidRequest: [
-    'configuration',
-    'mcp_content_request_invalid',
-    'MCP content request is invalid',
-  ],
-  invalidResult: ['protocol', 'mcp_content_result_invalid', 'MCP content result is invalid'],
-  largeRequest: [
-    'request-too-large',
-    'mcp_content_request_too_large',
-    'MCP content request too large',
-  ],
-  largeResult: ['result-too-large', 'mcp_content_result_too_large', 'MCP content result too large'],
-  mismatchedResult: [
-    'protocol',
-    'mcp_content_result_type_mismatch',
-    'MCP content result type mismatch',
-  ],
-  notConnected: [
-    'not-connected',
-    'mcp_content_server_not_connected',
-    'MCP content server not connected',
-  ],
-  retired: [
-    'generation-retired',
-    'mcp_content_generation_retired',
-    'MCP content generation retired',
-  ],
-  unknownServer: [
-    'configuration',
-    'mcp_content_server_unknown',
-    'MCP content server is not configured',
-  ],
-  unsupported: [
-    'unsupported',
-    'mcp_content_operation_unsupported',
-    'MCP content operation unsupported',
-  ],
+  cancelled: ['cancelled', 'mcp_content_cancelled'],
+  hostFailed: ['host', 'mcp_content_host_operation_failed'],
+  invalidRequest: ['configuration', 'mcp_content_request_invalid'],
+  invalidResult: ['protocol', 'mcp_content_result_invalid'],
+  largeRequest: ['request-too-large', 'mcp_content_request_too_large'],
+  largeResult: ['result-too-large', 'mcp_content_result_too_large'],
+  mismatchedResult: ['protocol', 'mcp_content_result_type_mismatch'],
+  notConnected: ['not-connected', 'mcp_content_server_not_connected'],
+  retired: ['generation-retired', 'mcp_content_generation_retired'],
+  unknownServer: ['configuration', 'mcp_content_server_unknown'],
+  unsupported: ['unsupported', 'mcp_content_operation_unsupported'],
+} as const;
+const ERROR_MESSAGES = {
+  cancelled: 'MCP content request was cancelled',
+  hostFailed: 'MCP content host operation failed',
+  invalidRequest: 'MCP content request is invalid',
+  invalidResult: 'MCP content result is invalid',
+  largeRequest: 'MCP content request too large',
+  largeResult: 'MCP content result too large',
+  mismatchedResult: 'MCP content result type mismatch',
+  notConnected: 'MCP content server not connected',
+  retired: 'MCP content generation retired',
+  unknownServer: 'MCP content server is not configured',
+  unsupported: 'MCP content operation unsupported',
 } as const;
 type McpContentApplicationErrorKind = keyof typeof ERROR_DESCRIPTOR_VALUES;
 export type McpContentApplicationErrorDescriptor = {
   [Kind in McpContentApplicationErrorKind]: {
     readonly category: (typeof ERROR_DESCRIPTOR_VALUES)[Kind][0];
     readonly code: (typeof ERROR_DESCRIPTOR_VALUES)[Kind][1];
-    readonly message: (typeof ERROR_DESCRIPTOR_VALUES)[Kind][2];
+    readonly message: (typeof ERROR_MESSAGES)[Kind];
   };
 }[McpContentApplicationErrorKind];
 export type McpContentApplicationErrorCategory = McpContentApplicationErrorDescriptor['category'];
@@ -106,8 +91,8 @@ export class McpContentApplicationError extends Error {
   readonly hostError?: McpHostError;
 
   constructor(kind: McpContentApplicationErrorKind, hostError?: McpHostError) {
-    const [category, code, message] = ERROR_DESCRIPTOR_VALUES[kind];
-    super(message);
+    const [category, code] = ERROR_DESCRIPTOR_VALUES[kind];
+    super(ERROR_MESSAGES[kind]);
     this.name = 'McpContentApplicationError';
     this.category = category;
     this.code = code;
@@ -126,9 +111,46 @@ function applicationError(
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+function isJsonValue(value: unknown, ancestors = new Set<object>()): boolean {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return true;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && !Object.is(value, -0);
+  }
+  if (typeof value !== 'object' || ancestors.has(value)) {
+    return false;
+  }
+  const array = Array.isArray(value);
+  const expectedPrototype = array ? Array.prototype : Object.prototype;
+  const prototype = Object.getPrototypeOf(value) as object | null;
+  if (prototype !== expectedPrototype && !(prototype === null && !array)) {
+    return false;
+  }
+  const keys = Reflect.ownKeys(value);
+  if (array && (keys.length !== value.length + 1 || keys.at(-1) !== 'length')) {
+    return false;
+  }
+  ancestors.add(value);
+  const properties = array ? keys.slice(0, -1) : keys;
+  const valid = properties.every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return (
+      typeof key === 'string' &&
+      descriptor?.enumerable === true &&
+      'value' in descriptor &&
+      isJsonValue(descriptor.value, ancestors)
+    );
+  });
+  ancestors.delete(value);
+  return valid;
+}
 function parseSerializedRequest(request: unknown): unknown {
   let serialized: string | undefined;
   try {
+    if (!isJsonValue(request)) {
+      throw new TypeError('MCP content request is not strict JSON');
+    }
     serialized = JSON.stringify(request);
   } catch {
     throw applicationError('invalidRequest');
@@ -139,11 +161,7 @@ function parseSerializedRequest(request: unknown): unknown {
   if (TEXT_ENCODER.encode(serialized).byteLength > MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES) {
     throw applicationError('largeRequest');
   }
-  try {
-    return JSON.parse(serialized) as unknown;
-  } catch {
-    throw applicationError('invalidRequest');
-  }
+  return request;
 }
 function parseAuthority(request: unknown): McpContentAuthority {
   try {

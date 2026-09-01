@@ -22,6 +22,20 @@ import {
 const SERVER_ID = parseConfiguredMcpServerId('linear');
 const ISSUE_URI = 'linear://issue/BST-1578';
 const AUTHORITY = { configuredServerId: SERVER_ID, generation: 7 } as const;
+const CIRCULAR: Record<string, unknown> = {};
+CIRCULAR['self'] = CIRCULAR;
+const LOSSY_JSON_VALUES = [
+  undefined,
+  Number.NaN,
+  Number.POSITIVE_INFINITY,
+  new Date('2026-09-01T00:00:00Z'),
+  new (class NonJsonValue {})(),
+  (): void => undefined,
+  Symbol('not-json'),
+  1n,
+  CIRCULAR,
+  new Map(),
+] as const;
 const HUGE = '😀'.repeat(65_536);
 const ANNOTATIONS = {
   audience: ['user'],
@@ -91,12 +105,10 @@ class FakeContentHost {
   );
   onSnapshot: (() => void) | undefined;
   onWatchRegistered: (() => void) | undefined;
-
   snapshot(): McpHostSnapshot {
     this.onSnapshot?.();
     return structuredClone(this.state);
   }
-
   watch(filter: McpHostWatchFilter, listener: (event: McpHostWatchEvent) => void): () => void {
     expect(filter).toEqual({ configuredServerIds: [SERVER_ID] });
     this.listeners.add(listener);
@@ -105,7 +117,6 @@ class FakeContentHost {
       this.listeners.delete(listener);
     };
   }
-
   replaceGeneration(generation: number): void {
     this.state = { revision: this.state.revision + 1, servers: [server(generation)] };
     const event = structuredClone(this.state);
@@ -113,15 +124,12 @@ class FakeContentHost {
       listener(event);
     }
   }
-
   replaceGenerationSilently(generation: number): void {
     this.state = { revision: this.state.revision + 1, servers: [server(generation)] };
   }
-
   setServer(snapshot: McpHostServerSnapshot): void {
     this.state = { revision: this.state.revision + 1, servers: [snapshot] };
   }
-
   removeServer(): void {
     this.state = { revision: this.state.revision + 1, servers: [] };
     const event = structuredClone(this.state);
@@ -129,14 +137,12 @@ class FakeContentHost {
       listener(event);
     }
   }
-
   listenerCount(): number {
     return this.listeners.size;
   }
 }
 class PendingAbortContentHost extends FakeContentHost {
   private invocationSignal: AbortSignal | undefined;
-
   constructor() {
     super();
     this.invoke.mockImplementation(async (_operation, options) => {
@@ -150,7 +156,6 @@ class PendingAbortContentHost extends FakeContentHost {
       throw this.invocationSignal.reason;
     });
   }
-
   async waitForInvocation(): Promise<AbortSignal> {
     await vi.waitFor(() => expect(this.invocationSignal).toBeDefined());
     if (this.invocationSignal === undefined) {
@@ -159,7 +164,6 @@ class PendingAbortContentHost extends FakeContentHost {
     return this.invocationSignal;
   }
 }
-
 function connectedServerWithFeature(
   feature: 'completion' | 'prompts' | 'resources',
   supported: boolean
@@ -168,15 +172,9 @@ function connectedServerWithFeature(
   if (snapshot.state !== 'connected' || snapshot.catalog === undefined) {
     throw new Error('Expected connected MCP content test authority');
   }
-  return {
-    ...snapshot,
-    catalog: {
-      ...snapshot.catalog,
-      features: { ...snapshot.catalog.features, [feature]: supported },
-    },
-  };
+  const features = { ...snapshot.catalog.features, [feature]: supported };
+  return { ...snapshot, catalog: { ...snapshot.catalog, features } };
 }
-
 function unavailableServer(state: 'connecting' | 'disconnected' | 'error'): McpHostServerSnapshot {
   const base = {
     configuredProtocol: '2026-07-28' as const,
@@ -188,7 +186,6 @@ function unavailableServer(state: 'connecting' | 'disconnected' | 'error'): McpH
     ? { ...base, error: { category: 'connection', code: 'offline', message: 'Offline' }, state }
     : { ...base, state };
 }
-
 function resultFor(operation: McpHostOperation): McpHostOperationResult {
   switch (operation.type) {
     case 'resources/read':
@@ -210,7 +207,6 @@ function resultFor(operation: McpHostOperation): McpHostOperationResult {
       throw new Error(`Unexpected operation: ${operation.type}`);
   }
 }
-
 const requests = [
   {
     _meta: { trace: 'resource-read' },
@@ -234,7 +230,6 @@ const requests = [
     type: 'completion/complete',
   },
 ] as const satisfies readonly McpContentApplicationRequest[];
-
 function requestWithSerializedBytes(
   byteLength: number,
   includeMultibyte: boolean
@@ -254,7 +249,6 @@ function requestWithSerializedBytes(
   const padding = `${'😀'.repeat(emojiCount)}${'a'.repeat(remaining - emojiCount * 4)}`;
   return { ...base, _meta: { padding } };
 }
-
 async function expectContentError(
   work: Promise<unknown>,
   category: McpContentApplicationErrorCategory,
@@ -262,7 +256,6 @@ async function expectContentError(
 ): Promise<void> {
   await expect(work).rejects.toMatchObject({ category, code });
 }
-
 describe('MCP content application port (BST-1578)', () => {
   it.each([false, true])(
     'accepts a request at the exact UTF-8 byte limit %#',
@@ -329,20 +322,11 @@ describe('MCP content application port (BST-1578)', () => {
   );
   it.each([
     null,
+    undefined,
     {},
     { authority: null, type: 'resources/read', uri: ISSUE_URI },
-    {
-      arguments: { identifier: 1578 },
-      authority: AUTHORITY,
-      name: 'summarize',
-      type: 'prompts/get',
-    },
-    {
-      argument: { name: 'identifier', value: 'BST' },
-      authority: AUTHORITY,
-      ref: { type: 'ref/resource' },
-      type: 'completion/complete',
-    },
+    { ...requests[1], arguments: { identifier: 1578 } },
+    ...LOSSY_JSON_VALUES.map((invalid) => ({ ...requests[0], _meta: { invalid } })),
   ])('maps malformed runtime request %# to the stable invalid-request error', async (request) => {
     const port = createMcpContentApplicationPort(new FakeContentHost());
     await expectContentError(

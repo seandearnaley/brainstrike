@@ -10,7 +10,7 @@ import {
 } from '@brainstrike/assistant-service/mcp-content-application-port';
 import { describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import type { ResolvedMcpConfig, ResolvedMcpServer } from '../../mcp-loader';
+import type { ResolvedMcpConfig } from '../../mcp-loader';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
 const CLEAN: McpHostCloseReport = {
@@ -44,18 +44,19 @@ type Invoke = (
   generation: number
 ) => Promise<unknown>;
 function config(url?: string): ResolvedMcpConfig {
-  const servers: ResolvedMcpServer[] = url
-    ? [
-        {
-          name: SERVER_ID,
-          protocol: 'auto',
-          startup: 'automatic',
-          transport: 'streamable-http',
-          url,
-        },
-      ]
-    : [];
-  return { servers };
+  return {
+    servers: url
+      ? [
+          {
+            name: SERVER_ID,
+            protocol: 'auto',
+            startup: 'automatic',
+            transport: 'streamable-http',
+            url,
+          },
+        ]
+      : [],
+  };
 }
 function result(operation: McpHostOperation): unknown {
   if (operation.type !== 'resources/read') {
@@ -104,10 +105,9 @@ describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', (
   it('maps terminal close and leaves no application watch registered', async () => {
     const target = runtime();
     const request = await ready(target);
+    const port = createMcpContentApplicationPort(target.host);
     const close = await target.host.close();
-    await expect(
-      createMcpContentApplicationPort(target.host).execute(request)
-    ).rejects.toMatchObject({
+    await expect(port.execute(request)).rejects.toMatchObject({
       code: 'mcp_content_host_operation_failed',
       hostError: { category: 'host-closed', code: 'mcp-host-closed' },
     });
@@ -136,10 +136,9 @@ describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', (
   it('rejects pre-reset authority after empty config', async () => {
     const target = runtime();
     const request = await ready(target);
+    const port = createMcpContentApplicationPort(target.host);
     await target.replaceResolvedConfig(config());
-    await expect(
-      createMcpContentApplicationPort(target.host).execute(request)
-    ).rejects.toMatchObject({
+    await expect(port.execute(request)).rejects.toMatchObject({
       code: 'mcp_content_server_unknown',
     });
     await target.host.close();
@@ -158,9 +157,8 @@ describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', (
       return result(operation);
     });
     const request = await ready(target);
-    await expect(
-      createMcpContentApplicationPort(target.host).execute(request)
-    ).resolves.toMatchObject({
+    const pending = createMcpContentApplicationPort(target.host).execute(request);
+    await expect(pending).resolves.toMatchObject({
       type: 'resources/read',
     });
     await replaced.promise;
