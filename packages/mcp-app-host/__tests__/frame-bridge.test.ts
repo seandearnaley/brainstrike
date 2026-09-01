@@ -171,6 +171,26 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
     await expect(textual).resolves.toEqual({ kind: 'text' });
     await expect(numeric).resolves.toEqual({ kind: 'number' });
 
+    let reuseError: unknown;
+    let reused: Promise<Readonly<Record<string, unknown>>> | undefined;
+    try {
+      reused = bridge.sendRequest({
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'ui/resource-teardown',
+        params: {},
+      });
+    } catch (error: unknown) {
+      reuseError = error;
+    }
+    if (reused !== undefined) {
+      bridge.close();
+      await expect(reused).rejects.toThrow(/closed/);
+    }
+    expect(reuseError).toEqual(
+      expect.objectContaining({ message: expect.stringMatching(/already used/) })
+    );
+
     target.dispatch(frame, {
       id: 'denied',
       jsonrpc: '2.0',

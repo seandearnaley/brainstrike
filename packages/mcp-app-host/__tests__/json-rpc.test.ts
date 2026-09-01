@@ -69,6 +69,7 @@ describe('MCP Apps request correlation', () => {
       /not pending/
     );
     correlation.settle({ id: 'one', jsonrpc: '2.0', result: {} });
+    expect(() => correlation.register('one')).toThrow(/already used/);
     expect(() => correlation.settle({ id: 'one', jsonrpc: '2.0', result: {} })).toThrow(
       /not pending/
     );

@@ -70,6 +70,7 @@ export function parseMcpAppResponse(value: unknown): McpAppResponse {
 }
 
 const MAX_PENDING_REQUESTS = 256;
+const MAX_REQUEST_IDS_PER_CORRELATOR = 4096;
 
 function correlationKey(id: number | string): string {
   return `${typeof id}:${id}`;
@@ -77,6 +78,7 @@ function correlationKey(id: number | string): string {
 
 export class McpAppRequestCorrelator {
   readonly #pending = new Set<string>();
+  readonly #seen = new Set<string>();
 
   get pendingCount(): number {
     return this.#pending.size;
@@ -88,9 +90,18 @@ export class McpAppRequestCorrelator {
     if (this.#pending.has(key)) {
       throw new TypeError(`MCP Apps request id ${JSON.stringify(id)} is already pending`);
     }
+    if (this.#seen.has(key)) {
+      throw new TypeError(`MCP Apps request id ${JSON.stringify(id)} was already used`);
+    }
     if (this.#pending.size >= MAX_PENDING_REQUESTS) {
       throw new TypeError(`MCP Apps request correlation exceeds ${MAX_PENDING_REQUESTS} entries`);
     }
+    if (this.#seen.size >= MAX_REQUEST_IDS_PER_CORRELATOR) {
+      throw new TypeError(
+        `MCP Apps request correlation exceeds ${MAX_REQUEST_IDS_PER_CORRELATOR} one-shot ids`
+      );
+    }
+    this.#seen.add(key);
     this.#pending.add(key);
     return id;
   }

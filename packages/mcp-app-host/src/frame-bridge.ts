@@ -176,6 +176,7 @@ export class McpAppFrameBridge {
   readonly #onRequest: McpAppFrameBridgeOptions['onRequest'];
   readonly #outbound = new Map<string, OutboundOperation>();
   readonly #seenInboundIds = new Set<string>();
+  readonly #seenOutboundIds = new Set<string>();
   readonly #session: McpAppFrameSession;
   readonly #timeoutMs: number;
 
@@ -251,6 +252,15 @@ export class McpAppFrameBridge {
     if (this.#outbound.has(key)) {
       throw new TypeError(`MCP Apps request id ${JSON.stringify(message.id)} is already pending`);
     }
+    if (this.#seenOutboundIds.has(key)) {
+      throw new TypeError(`MCP Apps request id ${JSON.stringify(message.id)} was already used`);
+    }
+    if (this.#seenOutboundIds.size >= MAX_REQUEST_IDS_PER_FRAME) {
+      throw new TypeError(
+        `MCP Apps frame exceeds ${MAX_REQUEST_IDS_PER_FRAME} one-shot outbound request ids`
+      );
+    }
+    this.#seenOutboundIds.add(key);
 
     return new Promise((resolve, reject) => {
       const finish = (reason?: Error): void => {
@@ -544,5 +554,6 @@ export class McpAppFrameBridge {
     }
     this.#outbound.clear();
     this.#seenInboundIds.clear();
+    this.#seenOutboundIds.clear();
   }
 }
