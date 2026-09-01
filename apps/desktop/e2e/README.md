@@ -197,6 +197,18 @@ same production-chain helpers as `git-panel.desktop.test.ts` and
 `workspace-bar.desktop.test.ts`. The managed directory is redirected to a
 tracked temp directory through the E2E-only `BRAINSTRIKE_E2E_WORKTREE_DIR` hook.
 
+### Packaged MCP Tasks restart (`mcp-task-restart.packaged.desktop.test.ts`)
+
+This focused verifier requires an `electron-builder --dir` artifact. It launches
+that executable twice against one isolated user-data directory and asserts
+`app.isPackaged === true` on both processes. A test-only lazy renderer mode
+composes migration-114 PGlite persistence, the Tasks lifecycle and interaction
+authorities, the bounded presentation controller, and the accessible task card.
+The test covers durable restart recovery, principal/generation fencing,
+remote-observed cancellation, focus restoration, and explicit quiescent close.
+The mode is unavailable outside Desktop test mode and never enables production
+Tasks registration.
+
 ## 🛠 Key Features
 
 ### Dialog Mocking

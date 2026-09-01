@@ -2070,6 +2070,18 @@ for atomic repository/lifecycle/interaction fencing; the presentation module
 cannot create a task, turn a task handle into synchronous tool completion, or
 enable support advertisement.
 
+The final BST-1565 verifier is a test-only lazy renderer mode guarded by both
+`mode=mcp-task-harness` and Desktop test mode; a production launch cannot enter
+it. In a genuinely packaged Electron binary it uses a persistent IndexedDB
+PGlite store with migration 114 and the real repository. The first process
+persists a lifecycle-owned handle and closes cleanly; a second process over the
+same isolated user-data directory rebuilds `restart_required`, recovers through
+`McpTaskLifecycle`, and cancels only after `McpTaskInteraction` observes remote
+`cancelled`. The packaged proof also exercises lost-principal and stale-
+generation refusal, focus behavior, and zero lifecycle polls/tasks/timers,
+interaction operations/listeners, and database ownership after explicit close.
+This verifier is not a production host adapter and does not advertise Tasks.
+
 ### MCP client input and deprecated compatibility (BST-1470)
 
 Core client capabilities are installed through the one `McpClientCapabilityRuntime`

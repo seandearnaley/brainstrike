@@ -21,7 +21,7 @@ import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { DbSchemaVerifier } from '@brainstrike/settings-ui/components/db-schema-verifier';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
-import { StrictMode, useEffect } from 'react';
+import { lazy, StrictMode, Suspense, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import {
@@ -29,6 +29,7 @@ import {
   isElectronRendererUserAgent,
   validateDesktopBridgeContract,
 } from './desktop-bridge-contract';
+import { resolveDesktopRendererRole } from './desktop-renderer-role';
 import './log-buffer';
 import './styles.css';
 import { ChunkingHostApp } from './components/chunking-host-app';
@@ -64,23 +65,12 @@ const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
 
-type DesktopRendererRole = 'chunking-host' | 'embedding-host' | 'llm-host' | 'visible-ui';
+const McpTaskStatusE2eHarness = lazy(() => import('./components/mcp-task-status-e2e-harness'));
 
-function getDesktopRendererRole(): DesktopRendererRole {
-  const mode = new URLSearchParams(window.location.search).get('mode');
-  if (mode === 'embedding-host') {
-    return 'embedding-host';
-  }
-  if (mode === 'chunking-host') {
-    return 'chunking-host';
-  }
-  if (mode === 'llm-host') {
-    return 'llm-host';
-  }
-  return 'visible-ui';
-}
-
-const desktopRendererRole = getDesktopRendererRole();
+const desktopRendererRole = resolveDesktopRendererRole(
+  window.location.search,
+  window.desktopLifecycle?.isTestMode === true
+);
 const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
 const rendererRuntimeKind =
   desktopRendererRole === 'embedding-host' ||
@@ -522,6 +512,10 @@ root.render(
       <ChunkingHostApp />
     ) : isLlmHostMode() ? (
       <LlmHostApp />
+    ) : desktopRendererRole === 'mcp-task-harness' ? (
+      <Suspense fallback={<div role="status">Loading MCP Tasks verifier…</div>}>
+        <McpTaskStatusE2eHarness />
+      </Suspense>
     ) : (
       <StrictMode>
         <App />
