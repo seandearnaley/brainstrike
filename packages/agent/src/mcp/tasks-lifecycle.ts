@@ -1,8 +1,8 @@
 import type {
-  McpTaskIdentity,
+  McpTaskLegacyIdentity,
+  McpTaskLegacyScope,
   McpTaskRecord,
   McpTaskRepository,
-  McpTaskScope,
 } from '@brainstrike/db';
 import type { CreateTaskResult, GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { JSONObject } from '@modelcontextprotocol/client';
@@ -94,7 +94,7 @@ export interface McpTaskLifecycleOptions {
   readonly limits?: McpTaskLifecycleLimits;
   readonly onUpdate: (record: McpTaskRecord) => Promise<void> | void;
   readonly repository: McpTaskRepository;
-  readonly scope: McpTaskScope;
+  readonly scope: McpTaskLegacyScope;
 }
 
 interface ActiveTask {
@@ -191,7 +191,7 @@ export class McpTaskLifecycle {
   private readonly onUpdate: McpTaskLifecycleOptions['onUpdate'];
   private readonly pollWaiters: PollWaiter[] = [];
   private readonly repository: McpTaskRepository;
-  private readonly scope: McpTaskScope;
+  private readonly scope: McpTaskLegacyScope;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private activePolls = 0;
   private stopPromise: Promise<void> | undefined;
@@ -433,7 +433,7 @@ export class McpTaskLifecycle {
     }
   }
 
-  private identity(taskId: string): McpTaskIdentity {
+  private identity(taskId: string): McpTaskLegacyIdentity {
     return { ...this.scope, taskId };
   }
 

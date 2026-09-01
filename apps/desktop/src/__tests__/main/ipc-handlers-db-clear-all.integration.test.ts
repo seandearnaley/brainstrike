@@ -68,8 +68,9 @@ const PRESENT_RELATIONS = [
   // Managed-worktree ledger (migration 109, BST-1390).
   'brainstrike_worktrees',
   'brainstrike_mind_ops',
-  // Principal-bound MCP Tasks handles (migration 114, BST-1562).
+  // Principal-bound MCP Tasks handles and durable authority epochs (migration 114, BST-1562).
   'brainstrike_mcp_tasks',
+  'brainstrike_mcp_task_authorities',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
   'brainstrike_workspace_snapshots',

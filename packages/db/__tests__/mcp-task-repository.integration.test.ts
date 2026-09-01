@@ -2,18 +2,31 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { McpTaskRepository } from '../src/repositories/mcp-task-repository.js';
+import {
+  type McpTaskAuthorityLease,
+  McpTaskMetadataTooLargeError,
+  McpTaskRepository,
+} from '../src/repositories/mcp-task-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
-const identity = {
-  generation: 7,
+const authorityInput = {
+  connectionGeneration: 7,
   principalId: 'linear:user-42',
   resource: 'https://mcp.linear.app/mcp',
+  runtimeId: 'desktop-runtime-a',
   serverId: 'linear',
-  taskId: 'task-1',
 } as const;
-const currentGeneration = { currentGeneration: identity.generation } as const;
+
+function identity(authority: McpTaskAuthorityLease, taskId = 'task-1') {
+  return {
+    authorityEpoch: authority.authorityEpoch,
+    principalId: authority.principalId,
+    resource: authority.resource,
+    serverId: authority.serverId,
+    taskId,
+  } as const;
+}
 
 describe('McpTaskRepository', () => {
   let db: PGlite | undefined;
@@ -33,29 +46,111 @@ describe('McpTaskRepository', () => {
   it('persists a principal-bound task across a real PGlite restart', async () => {
     const dataDir = createPGliteTestDataDir('pglite-mcp-tasks');
     await openNumbered(dataDir);
-
-    const created = await new McpTaskRepository(db).create(
+    const firstRepository = new McpTaskRepository(db);
+    const authority = await firstRepository.openAuthority(authorityInput);
+    const taskIdentity = identity(authority);
+    const created = await firstRepository.create(
       {
-        ...identity,
+        ...taskIdentity,
         inputMetadata: { prompt: 'choose' },
         status: 'input_required',
       },
-      currentGeneration
+      authority
     );
-    expect(created).toMatchObject({ ...identity, status: 'input_required' });
+    expect(created).toMatchObject({ ...taskIdentity, status: 'input_required' });
     await db.close();
 
     db = await wasmLoader.createPGlite(dataDir);
-    await expect(new McpTaskRepository(db).get(identity)).resolves.toEqual(created);
+    await expect(new McpTaskRepository(db).get(taskIdentity)).resolves.toEqual(created);
+  });
+
+  it('rebinds the live durable authority across restart without resurrecting a retired epoch', async () => {
+    const dataDir = createPGliteTestDataDir('pglite-mcp-task-authority-restart');
+    await openNumbered(dataDir);
+    const firstRepository = new McpTaskRepository(db);
+    const first = await firstRepository.openAuthority({
+      connectionGeneration: 7,
+      principalId: authorityInput.principalId,
+      resource: authorityInput.resource,
+      runtimeId: 'desktop-runtime-a',
+      serverId: authorityInput.serverId,
+    });
+    await firstRepository.create({ ...first, status: 'working', taskId: 'before-restart' }, first);
+    await db.close();
+
+    db = await wasmLoader.createPGlite(dataDir);
+    const restartedRepository = new McpTaskRepository(db);
+    const rebound = await restartedRepository.openAuthority({
+      connectionGeneration: 1,
+      principalId: authorityInput.principalId,
+      resource: authorityInput.resource,
+      runtimeId: 'desktop-runtime-b',
+      serverId: authorityInput.serverId,
+    });
+    expect(rebound.authorityEpoch).toBe(first.authorityEpoch);
+    await expect(restartedRepository.listActive(first)).resolves.toEqual([]);
+    await expect(restartedRepository.listActive(rebound)).resolves.toMatchObject([
+      { authorityEpoch: first.authorityEpoch, taskId: 'before-restart' },
+    ]);
+
+    const replacement = await restartedRepository.openAuthority({
+      connectionGeneration: 2,
+      principalId: authorityInput.principalId,
+      resource: authorityInput.resource,
+      runtimeId: 'desktop-runtime-b',
+      serverId: authorityInput.serverId,
+    });
+    expect(replacement.authorityEpoch).not.toBe(first.authorityEpoch);
+    await expect(
+      restartedRepository.openAuthority({
+        connectionGeneration: 1,
+        principalId: authorityInput.principalId,
+        resource: authorityInput.resource,
+        runtimeId: 'desktop-runtime-b',
+        serverId: authorityInput.serverId,
+      })
+    ).rejects.toThrow(/acquisition is stale/u);
+    await expect(restartedRepository.listActive(replacement)).resolves.toEqual([]);
+    await restartedRepository.create(
+      { ...replacement, status: 'working', taskId: 'after-replacement' },
+      replacement
+    );
+    await db.close();
+
+    db = await wasmLoader.createPGlite(dataDir);
+    const secondRestartRepository = new McpTaskRepository(db);
+    const secondRebound = await secondRestartRepository.openAuthority({
+      connectionGeneration: 1,
+      principalId: authorityInput.principalId,
+      resource: authorityInput.resource,
+      runtimeId: 'desktop-runtime-c',
+      serverId: authorityInput.serverId,
+    });
+    expect(secondRebound.authorityEpoch).toBe(replacement.authorityEpoch);
+    await expect(secondRestartRepository.listActive(secondRebound)).resolves.toMatchObject([
+      { authorityEpoch: replacement.authorityEpoch, taskId: 'after-replacement' },
+    ]);
+    await expect(
+      secondRestartRepository.update(
+        { ...first, taskId: 'before-restart' },
+        { status: 'working' },
+        first
+      )
+    ).rejects.toThrow(/missing or stale/u);
   });
 
   it('is discovered by the production Drizzle migration ledger', async () => {
     db = await wasmLoader.createPGlite('memory://');
     await expect(runMigrations(db)).resolves.toMatchObject({ success: true });
     const tables = await db.query<{ table_name: string }>(
-      "SELECT table_name FROM information_schema.tables WHERE table_name = 'brainstrike_mcp_tasks'"
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_name IN ('brainstrike_mcp_task_authorities', 'brainstrike_mcp_tasks')
+       ORDER BY table_name`
     );
-    expect(tables.rows).toEqual([{ table_name: 'brainstrike_mcp_tasks' }]);
+    expect(tables.rows).toEqual([
+      { table_name: 'brainstrike_mcp_task_authorities' },
+      { table_name: 'brainstrike_mcp_tasks' },
+    ]);
   });
 
   it('updates metadata, bounds history, and makes terminal state immutable', async () => {
@@ -65,88 +160,92 @@ describe('McpTaskRepository', () => {
       db,
       () => new Date(Date.UTC(2026, 7, 31, 20, 0, tick++))
     );
-    await repository.create({ ...identity, status: 'working' }, currentGeneration);
+    const authority = await repository.openAuthority(authorityInput);
+    const taskIdentity = identity(authority);
+    await repository.create({ ...taskIdentity, status: 'working' }, authority);
     for (let index = 0; index < 35; index += 1) {
       await repository.update(
-        identity,
+        taskIdentity,
         {
           inputMetadata: { index },
           status: index % 2 === 0 ? 'input_required' : 'working',
         },
-        currentGeneration
+        authority
       );
     }
     const terminal = await repository.update(
-      identity,
+      taskIdentity,
       {
         resultMetadata: { answer: 42 },
         status: 'completed',
       },
-      currentGeneration
+      authority
     );
     expect(terminal.history).toHaveLength(32);
     expect(terminal.inputMetadata).toEqual({ index: 34 });
     expect(terminal.resultMetadata).toEqual({ answer: 42 });
     expect(terminal.terminalAt).toEqual(terminal.updatedAt);
     await expect(
-      repository.update(identity, { status: 'cancelled' }, currentGeneration)
+      repository.update(taskIdentity, { status: 'cancelled' }, authority)
     ).rejects.toThrow(/immutable/u);
   });
 
-  it('rejects stale writes and isolates server, principal, resource, and generation', async () => {
+  it('rejects stale writes and isolates server, principal, resource, and authority epoch', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);
-    await repository.create({ ...identity, status: 'working' }, currentGeneration);
+    const authority = await repository.openAuthority(authorityInput);
+    const taskIdentity = identity(authority);
+    await repository.create({ ...taskIdentity, status: 'working' }, authority);
     for (const changed of [
       { serverId: 'other' },
       { principalId: 'other' },
       { resource: 'https://example.com/mcp' },
-      { generation: 8 },
+      { authorityEpoch: '00000000-0000-7000-8000-000000000000' },
     ]) {
-      await expect(repository.get({ ...identity, ...changed })).resolves.toBeNull();
+      await expect(repository.get({ ...taskIdentity, ...changed })).resolves.toBeNull();
     }
+    const replacement = await repository.openAuthority({
+      ...authorityInput,
+      connectionGeneration: 8,
+    });
+    await expect(repository.update(taskIdentity, { status: 'working' }, authority)).rejects.toThrow(
+      /missing or stale/u
+    );
     await expect(
-      repository.update(identity, { status: 'working' }, { currentGeneration: 8 })
+      repository.create({ ...taskIdentity, status: 'working', taskId: 'stale-task' }, authority)
     ).rejects.toThrow(/missing or stale/u);
+    await expect(repository.get({ ...taskIdentity, taskId: 'stale-task' })).resolves.toBeNull();
     await expect(
       repository.create(
-        { ...identity, generation: 6, status: 'working', taskId: 'stale-task' },
-        { currentGeneration: 8 }
+        { ...identity(replacement, 'replacement-task'), status: 'working' },
+        replacement
       )
-    ).rejects.toThrow(/missing or stale/u);
+    ).resolves.toMatchObject({
+      authorityEpoch: replacement.authorityEpoch,
+      taskId: 'replacement-task',
+    });
     await expect(
-      repository.get({ ...identity, generation: 6, taskId: 'stale-task' })
-    ).resolves.toBeNull();
-    await expect(
-      repository.create(
-        { ...identity, generation: 8, status: 'working', taskId: 'replacement-task' },
-        { currentGeneration: 8 }
-      )
-    ).resolves.toMatchObject({ generation: 8, taskId: 'replacement-task' });
-    await expect(
-      repository.update(
-        { ...identity, generation: 6 },
-        { status: 'working' },
-        { currentGeneration: 8 }
-      )
-    ).rejects.toThrow(/missing or stale/u);
+      repository.update(taskIdentity, { status: 'working' }, replacement)
+    ).rejects.toThrow(/does not match/u);
   });
 
   it('enforces merged input metadata before entering input_required', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);
-    await repository.create({ ...identity, status: 'working' }, currentGeneration);
+    const authority = await repository.openAuthority(authorityInput);
+    const taskIdentity = identity(authority);
+    await repository.create({ ...taskIdentity, status: 'working' }, authority);
 
     await expect(
-      repository.update(identity, { status: 'input_required' }, currentGeneration)
+      repository.update(taskIdentity, { status: 'input_required' }, authority)
     ).rejects.toThrow(TypeError);
     await repository.update(
-      identity,
+      taskIdentity,
       { inputMetadata: { prompt: 'choose' }, status: 'working' },
-      currentGeneration
+      authority
     );
     await expect(
-      repository.update(identity, { status: 'input_required' }, currentGeneration)
+      repository.update(taskIdentity, { status: 'input_required' }, authority)
     ).resolves.toMatchObject({
       inputMetadata: { prompt: 'choose' },
       status: 'input_required',
@@ -158,18 +257,20 @@ describe('McpTaskRepository', () => {
     // arrive in the same call, so a stashed result made `completed` throw.
     await openNumbered();
     const repository = new McpTaskRepository(db);
-    await repository.create({ ...identity, status: 'working' }, currentGeneration);
+    const authority = await repository.openAuthority(authorityInput);
+    const taskIdentity = identity(authority);
+    await repository.create({ ...taskIdentity, status: 'working' }, authority);
 
     await expect(
-      repository.update(identity, { status: 'completed' }, currentGeneration)
+      repository.update(taskIdentity, { status: 'completed' }, authority)
     ).rejects.toThrow(TypeError);
     await repository.update(
-      identity,
+      taskIdentity,
       { resultMetadata: { answer: 42 }, status: 'working' },
-      currentGeneration
+      authority
     );
     await expect(
-      repository.update(identity, { status: 'completed' }, currentGeneration)
+      repository.update(taskIdentity, { status: 'completed' }, authority)
     ).resolves.toMatchObject({ resultMetadata: { answer: 42 }, status: 'completed' });
   });
 
@@ -178,10 +279,12 @@ describe('McpTaskRepository', () => {
     // let a second row for the same endpoint through.
     await openNumbered();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const taskIdentity = identity(authority);
     await expect(
       repository.create(
-        { ...identity, resource: 'https://mcp.linear.app/mcp#', status: 'working' },
-        currentGeneration
+        { ...taskIdentity, resource: 'https://mcp.linear.app/mcp#', status: 'working' },
+        authority
       )
     ).rejects.toThrow(/without a fragment/u);
   });
@@ -211,92 +314,113 @@ describe('McpTaskRepository', () => {
   it('accepts empty status messages from the protocol contract', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     await expect(
-      repository.create({ ...identity, status: 'working', statusMessage: '' }, currentGeneration)
+      repository.create({ ...identity(authority), status: 'working', statusMessage: '' }, authority)
     ).resolves.toMatchObject({ statusMessage: '' });
   });
 
   it('rejects DB-normalized oversized metadata with a typed contract error', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);
-    await repository.create({ ...identity, status: 'working' }, currentGeneration);
+    const authority = await repository.openAuthority(authorityInput);
+    const taskIdentity = identity(authority);
+    await repository.create({ ...taskIdentity, status: 'working' }, authority);
     const metadata = Object.fromEntries(
       Array.from({ length: 5000 }, (_, index) => [`k${index}`, index])
     );
     expect(new TextEncoder().encode(JSON.stringify(metadata)).length).toBeLessThan(65_536);
-    await expect(
-      repository.update(identity, { inputMetadata: metadata, status: 'working' }, currentGeneration)
-    ).rejects.toThrow(TypeError);
+    const failure = repository.update(
+      taskIdentity,
+      { inputMetadata: metadata, status: 'working' },
+      authority
+    );
+    await expect(failure).rejects.toBeInstanceOf(McpTaskMetadataTooLargeError);
+    await expect(failure).rejects.toMatchObject({
+      actualBytes: expect.any(Number),
+      field: 'inputMetadata',
+      maxBytes: 65_536,
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+    });
   });
 
   it('lists only resumable tasks for one exact live identity scope', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);
-    await repository.create(
-      { ...identity, status: 'working', taskId: 'working' },
-      currentGeneration
-    );
+    const authority = await repository.openAuthority(authorityInput);
+    await repository.create({ ...identity(authority, 'working'), status: 'working' }, authority);
     await repository.create(
       {
-        ...identity,
+        ...identity(authority, 'input'),
         inputMetadata: { prompt: 'choose' },
         status: 'input_required',
-        taskId: 'input',
       },
-      currentGeneration
+      authority
     );
     await repository.create(
       {
-        ...identity,
+        ...identity(authority, 'completed'),
         resultMetadata: { answer: 42 },
         status: 'completed',
-        taskId: 'completed',
       },
-      currentGeneration
+      authority
     );
+    const active = await repository.listActive(authority);
+    expect(active).toHaveLength(2);
+    expect(active).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ...identity(authority, 'input'), status: 'input_required' }),
+        expect.objectContaining({ ...identity(authority, 'working'), status: 'working' }),
+      ])
+    );
+    const replacement = await repository.openAuthority({
+      ...authorityInput,
+      connectionGeneration: 8,
+    });
     await repository.create(
       {
-        ...identity,
-        generation: 8,
+        ...identity(replacement, 'replacement'),
         status: 'working',
-        taskId: 'replacement',
       },
-      { currentGeneration: 8 }
+      replacement
     );
+    const otherPrincipal = await repository.openAuthority({
+      ...authorityInput,
+      principalId: 'other',
+    });
     await repository.create(
       {
-        ...identity,
-        principalId: 'other',
+        ...identity(otherPrincipal, 'other-principal'),
         status: 'working',
-        taskId: 'other-principal',
       },
-      currentGeneration
+      otherPrincipal
     );
 
-    await expect(repository.listActive(identity)).resolves.toMatchObject([
-      { ...identity, status: 'working', taskId: 'working' },
-      { ...identity, status: 'input_required', taskId: 'input' },
+    await expect(repository.listActive(replacement)).resolves.toMatchObject([
+      { ...identity(replacement, 'replacement'), status: 'working' },
     ]);
   });
 
   it('rejects malformed inputs and corrupted persisted rows', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const taskIdentity = identity(authority);
     await expect(
       repository.create(
         {
-          ...identity,
+          ...taskIdentity,
           resource: 'https://mcp.linear.app/./mcp',
           status: 'working',
         },
-        currentGeneration
+        authority
       )
     ).rejects.toThrow(/canonical/u);
-    await repository.create({ ...identity, status: 'working' }, currentGeneration);
+    await repository.create({ ...taskIdentity, status: 'working' }, authority);
     await db.query(
       `UPDATE brainstrike_mcp_tasks
        SET history = '[{"at":"not-a-date","status":"working"}]'::jsonb`
     );
-    await expect(repository.get(identity)).rejects.toThrow(/timestamp/u);
+    await expect(repository.get(taskIdentity)).rejects.toThrow(/timestamp/u);
   });
 });

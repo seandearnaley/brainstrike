@@ -80,10 +80,17 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_run_usage
      (id, thread_id, run_id, resource_id, model, provider)
      VALUES ('sentinel-usage', 'sentinel-thread', 'sentinel-run', 'sentinel-resource', 'm', 'p')`,
+  `INSERT INTO brainstrike_mcp_task_authorities
+     (authority_epoch, server_id, resource, principal_id, runtime_id, connection_generation,
+      created_at, updated_at)
+     VALUES ('0199a77b-f000-7000-8000-000000000001', 'sentinel-server',
+      'https://example.com/mcp', 'sentinel-principal', 'sentinel-runtime', 1, NOW(), NOW())`,
   `INSERT INTO brainstrike_mcp_tasks
-     (server_id, resource, principal_id, generation, task_id, status, history, created_at, updated_at)
-     VALUES ('sentinel-server', 'https://example.com/mcp', 'sentinel-principal', 1,
-      'sentinel-task', 'working', '[{"at":"2026-08-31T00:00:00.000Z","status":"working"}]', NOW(), NOW())`,
+     (authority_epoch, server_id, resource, principal_id, task_id, status, history,
+      created_at, updated_at)
+     VALUES ('0199a77b-f000-7000-8000-000000000001', 'sentinel-server',
+      'https://example.com/mcp', 'sentinel-principal', 'sentinel-task', 'working',
+      jsonb_build_array(jsonb_build_object('at', NOW(), 'status', 'working')), NOW(), NOW())`,
   `INSERT INTO brainstrike_assistant_task_lists (thread_id, resource_id)
      VALUES ('sentinel-thread', 'sentinel-resource')`,
   `INSERT INTO brainstrike_assistant_edit_checkpoints
@@ -179,6 +186,7 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
     expect(await countRows('brainstrike_assistant_run_usage')).toBe(0);
     expect(await countRows('brainstrike_mcp_tasks')).toBe(0);
+    expect(await countRows('brainstrike_mcp_task_authorities')).toBe(0);
     expect(await countRows('brainstrike_assistant_task_lists')).toBe(0);
     expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
