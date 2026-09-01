@@ -2186,7 +2186,11 @@ BST-1571 adds the still-unregistered app-originated `tools/call` authority.
 `McpAppToolCallAuthority` accepts only app-visible tools owned by the exact
 server generation, holds every `ask` decision until its opaque host consent id
 is approved, and releases provenance on denial, cancellation, failure, or
-close. The `@brainstrike/agent` runtime captures an Apps admission capability
+close. Each call also receives an authority-generated, generation-bound
+preparation id and a required release callback before preparation starts. The
+authority awaits that one-use release before settling denial or cancellation,
+including cancellation after a broker prepared the ordinary executor but before
+its response arrived. The `@brainstrike/agent` runtime captures an Apps admission capability
 from its post-plan/post-permission/post-storage tool map. The preparer accepts
 that admission capability instead of policy or invocation inputs, so it cannot
 recreate or bypass ordinary admission or pair one decision with another
@@ -2234,7 +2238,11 @@ crosses the real frame listener and reaches a loopback HTTP request/response;
 host RPC responses return to the app. Completion, replacement, disconnect,
 shutdown, denial, server failure, protocol failure, and timeout must release all
 frames, object URLs, RPC callbacks/timers, consent listeners, calls, HTTP
-requests, sockets, and the packaged child process. This remains verifier-only:
+requests, sockets, and the packaged child process. The loopback admission broker
+keys each prepared executor by the authority preparation id; execute or explicit
+release consumes exactly that entry. Repeated denial and prepare-response
+cancellation assert zero pending entries before generation teardown, so the
+generation-wide release remains only a final shutdown assertion. This remains verifier-only:
 MCP Apps is neither mounted nor advertised in the production desktop renderer.
 The `Native Electron Package` job runs this proof through
 `test:e2e:lane:packaged-mcp-apps` against the artifact it just built.

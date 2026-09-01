@@ -81,5 +81,6 @@ export {
   McpAppToolCallAuthority,
   type McpAppToolCallAuthorityOptions,
   type McpAppToolCallAuthoritySnapshot,
+  type McpAppToolCallPreparationContext,
   type McpAppToolRiskCategory,
 } from './tool-call-authority.js';

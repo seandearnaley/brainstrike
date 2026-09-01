@@ -30,6 +30,11 @@ export interface McpAppToolCallAuthoritySnapshot {
   readonly phase: 'closed' | 'open';
 }
 
+export interface McpAppToolCallPreparationContext {
+  readonly id: string;
+  readonly signal: AbortSignal;
+}
+
 interface OwnedCall {
   readonly call: McpAppToolCall;
   readonly controller: AbortController;
@@ -45,8 +50,15 @@ interface ApprovalWaiter {
 export interface McpAppToolCallAuthorityOptions {
   readonly generation: McpAppGeneration;
   readonly onDiagnostic?: (error: Error) => void;
-  readonly prepare: (call: McpAppToolCall) => Promise<McpAppPreparedToolCall>;
+  readonly prepare: (
+    call: McpAppToolCall,
+    context: McpAppToolCallPreparationContext
+  ) => Promise<McpAppPreparedToolCall>;
   readonly provenance: McpAppProvenanceAuthority;
+  readonly release: (
+    call: McpAppToolCall,
+    context: McpAppToolCallPreparationContext
+  ) => Promise<void>;
 }
 
 function toError(value: unknown, message: string): Error {
@@ -113,7 +125,9 @@ export class McpAppToolCallAuthority {
   readonly #onDiagnostic: (error: Error) => void;
   readonly #ownedCalls = new Set<OwnedCall>();
   readonly #prepare: McpAppToolCallAuthorityOptions['prepare'];
+  #preparationSequence = 0;
   readonly #provenance: McpAppProvenanceAuthority;
+  readonly #release: McpAppToolCallAuthorityOptions['release'];
   #snapshot: McpAppToolCallAuthoritySnapshot;
   readonly #toolsByName: ReadonlyMap<string, McpAppOwnedTool>;
 
@@ -122,6 +136,7 @@ export class McpAppToolCallAuthority {
     this.#onDiagnostic = options.onDiagnostic ?? (() => undefined);
     this.#prepare = options.prepare;
     this.#provenance = options.provenance;
+    this.#release = options.release;
     this.#toolsByName = new Map(
       options.provenance.toolsFor(options.generation, 'app').map((tool) => [tool.name, tool])
     );
@@ -200,21 +215,36 @@ export class McpAppToolCallAuthority {
     };
     this.#ownedCalls.add(owned);
     this.#publish();
+    this.#preparationSequence += 1;
+    const preparation = Object.freeze({
+      id: `mcp-app-preparation-${this.#generation.generation}-${this.#preparationSequence}`,
+      signal: controller.signal,
+    });
     let completed = false;
     try {
-      const prepared = await raceWithAbort(
-        Promise.resolve().then(() => this.#prepare(call)),
-        controller.signal
-      );
-      if (prepared.decision === 'deny') {
-        throw new McpAppFrameRpcError(-32_001, 'MCP Apps tool call denied by policy');
-      }
-      if (prepared.decision === 'ask') {
-        await this.#waitForApproval(call, prepared, controller.signal);
-      }
-      const result = await raceWithAbort(
-        Promise.resolve().then(() => prepared.execute({ signal: controller.signal })),
-        controller.signal
+      let executionSettled = false;
+      const result = await this.#runWithPreparationRelease(
+        call,
+        preparation,
+        () => !executionSettled,
+        async () => {
+          const prepared = await raceWithAbort(
+            Promise.resolve().then(() => this.#prepare(call, preparation)),
+            controller.signal
+          );
+          if (prepared.decision === 'deny') {
+            throw new McpAppFrameRpcError(-32_001, 'MCP Apps tool call denied by policy');
+          }
+          if (prepared.decision === 'ask') {
+            await this.#waitForApproval(call, prepared, controller.signal);
+          }
+          const execution = await raceWithAbort(
+            Promise.resolve().then(() => prepared.execute({ signal: controller.signal })),
+            controller.signal
+          );
+          executionSettled = true;
+          return execution;
+        }
       );
       const ownedResult = this.#provenance.completeToolCall(this.#generation, call, result);
       completed = true;
@@ -234,6 +264,35 @@ export class McpAppToolCallAuthority {
         externalSignal.removeEventListener('abort', externalAbort);
       }
     }
+  }
+
+  async #runWithPreparationRelease<T>(
+    call: McpAppToolCall,
+    context: McpAppToolCallPreparationContext,
+    shouldRelease: () => boolean,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    let result: T;
+    try {
+      result = await operation();
+    } catch (error: unknown) {
+      if (!shouldRelease()) {
+        throw error;
+      }
+      try {
+        await this.#release(call, context);
+      } catch (releaseError: unknown) {
+        throw new AggregateError(
+          [error, releaseError],
+          'MCP Apps tool call and prepared-call release both failed'
+        );
+      }
+      throw error;
+    }
+    if (shouldRelease()) {
+      await this.#release(call, context);
+    }
+    return result;
   }
 
   close(): Promise<McpAppToolCallAuthoritySnapshot> {

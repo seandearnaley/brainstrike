@@ -19,6 +19,7 @@ function createAuthority() {
     generation,
     prepare: async () => ({ decision: 'ask', execute, riskCategory: 'execute' }),
     provenance,
+    release: async () => undefined,
   });
   return { authority, execute };
 }

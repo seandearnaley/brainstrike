@@ -28,6 +28,10 @@ function prepared(
   });
 }
 
+async function releasePreparation(): Promise<void> {
+  await Promise.resolve();
+}
+
 describe('MCP Apps ordinary tool-call authority', () => {
   it('executes an allowed app-visible call through the injected ordinary authority', async () => {
     const { generation, provenance } = setup();
@@ -40,6 +44,7 @@ describe('MCP Apps ordinary tool-call authority', () => {
       generation,
       prepare,
       provenance,
+      release: releasePreparation,
     });
 
     await expect(
@@ -53,6 +58,10 @@ describe('MCP Apps ordinary tool-call authority', () => {
         input: { title: 'Grounded' },
         serverId: 'linear',
         toolName: 'create_issue',
+      }),
+      expect.objectContaining({
+        id: 'mcp-app-preparation-1-1',
+        signal: expect.any(AbortSignal),
       })
     );
     expect(execute).toHaveBeenCalledTimes(1);
@@ -78,6 +87,7 @@ describe('MCP Apps ordinary tool-call authority', () => {
         return next;
       },
       provenance,
+      release: releasePreparation,
     });
 
     const pending = authority.call({ arguments: {}, id: 'ask-1', name: 'create_issue' });
@@ -106,6 +116,7 @@ describe('MCP Apps ordinary tool-call authority', () => {
       generation,
       prepare: async () => prepared('ask', execute),
       provenance,
+      release: releasePreparation,
     });
 
     const first = authority.call({ arguments: {}, id: 7, name: 'create_issue' });
@@ -127,6 +138,46 @@ describe('MCP Apps ordinary tool-call authority', () => {
     await expect(retry).rejects.toMatchObject({ code: -32_001 });
   });
 
+  it('releases each denied or cancelled preparation before the authority call settles', async () => {
+    const { generation, provenance } = setup();
+    const release = vi.fn(async () => undefined);
+    let resolvePrepare: ((value: McpAppPreparedToolCall) => void) | undefined;
+    const prepare = vi
+      .fn<() => Promise<McpAppPreparedToolCall>>()
+      .mockResolvedValueOnce(prepared('deny'))
+      .mockResolvedValueOnce(prepared('deny'))
+      .mockImplementationOnce(
+        async () =>
+          await new Promise<McpAppPreparedToolCall>((resolve) => {
+            resolvePrepare = resolve;
+          })
+      );
+    const authority = new McpAppToolCallAuthority({
+      generation,
+      prepare,
+      provenance,
+      release,
+    });
+
+    await expect(
+      authority.call({ arguments: {}, id: 'deny-1', name: 'create_issue' })
+    ).rejects.toMatchObject({ code: -32_001 });
+    await expect(
+      authority.call({ arguments: {}, id: 'deny-2', name: 'create_issue' })
+    ).rejects.toMatchObject({ code: -32_001 });
+    expect(release).toHaveBeenCalledTimes(2);
+
+    const controller = new AbortController();
+    const cancelled = authority.call(
+      { arguments: {}, id: 'cancelled-prepare', name: 'create_issue' },
+      { signal: controller.signal }
+    );
+    await vi.waitFor(() => expect(resolvePrepare).toBeTypeOf('function'));
+    controller.abort(new Error('cancel prepare response'));
+    await expect(cancelled).rejects.toThrow('cancel prepare response');
+    expect(release).toHaveBeenCalledTimes(3);
+  });
+
   it('forwards caller cancellation and becomes quiescent after close or failure', async () => {
     const { generation, provenance } = setup();
     const observed: AbortSignal[] = [];
@@ -141,6 +192,7 @@ describe('MCP Apps ordinary tool-call authority', () => {
           });
         }),
       provenance,
+      release: releasePreparation,
     });
     const controller = new AbortController();
     const call = authority.call(
@@ -177,6 +229,7 @@ describe('MCP Apps ordinary tool-call authority', () => {
       generation,
       prepare,
       provenance,
+      release: releasePreparation,
     });
 
     await expect(
@@ -194,6 +247,7 @@ describe('MCP Apps ordinary tool-call authority', () => {
       generation,
       prepare: async () => prepared('allow'),
       provenance,
+      release: releasePreparation,
     });
     const listener = vi.fn();
 

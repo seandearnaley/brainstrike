@@ -125,7 +125,6 @@ async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
   let abortedRequests = 0;
   let activeRequests = 0;
   let completedRequests = 0;
-  let preparedSequence = 0;
   let totalRequests = 0;
   const server: Server = createServer(async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
@@ -159,17 +158,32 @@ async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
         if (!admissionPreparer) {
           throw new Error('BST-1571 ordinary admission is unavailable');
         }
-        const call = parseAdmissionCall(payload);
+        if (Reflect.ownKeys(payload).length !== 2) {
+          throw new TypeError('BST-1571 preparation request must be an exact record');
+        }
+        const call = parseAdmissionCall(payload['call']);
+        const preparationId = payload['preparationId'];
+        if (
+          typeof preparationId !== 'string' ||
+          preparationId.length > 128 ||
+          !preparationId.startsWith(`mcp-app-preparation-${call.generation}-`)
+        ) {
+          throw new TypeError('BST-1571 preparation id is invalid');
+        }
+        if (preparedCalls.has(preparationId)) {
+          throw new TypeError('BST-1571 preparation id was reused');
+        }
         const prepared = await admissionPreparer(call);
-        preparedSequence += 1;
-        const token = `ordinary-${preparedSequence}`;
-        preparedCalls.set(token, Object.freeze({ generation: call.generation, prepared }));
+        preparedCalls.set(preparationId, Object.freeze({ generation: call.generation, prepared }));
+        if (call.input['mode'] === 'hold-prepare-response') {
+          return;
+        }
         response.writeHead(200);
         response.end(
           JSON.stringify({
             decision: prepared.decision,
             riskCategory: prepared.riskCategory,
-            token,
+            token: preparationId,
           })
         );
       } catch {
@@ -219,10 +233,17 @@ async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
       return;
     }
     if (request.url === '/release') {
+      const preparationId = payload['preparationId'];
+      if (typeof preparationId === 'string' && Reflect.ownKeys(payload).length === 1) {
+        const released = preparedCalls.delete(preparationId);
+        response.writeHead(200);
+        response.end(JSON.stringify({ released }));
+        return;
+      }
       const generation = payload['generation'];
       if (!Number.isSafeInteger(generation) || Reflect.ownKeys(payload).length !== 1) {
         response.writeHead(400);
-        response.end(JSON.stringify({ code: 'invalid_generation' }));
+        response.end(JSON.stringify({ code: 'invalid_release' }));
         return;
       }
       let released = 0;
@@ -632,6 +653,7 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
     const appReceipts=new Map();
     const outcomes=new Map();
     const pendingRpcOutcomes=new Map();
+    const prepareCancellations=new Map();
     const provenance=new McpAppProvenanceAuthority();
     const recoveryFocusRef=createRef();
     const sandboxFrameRef=createRef();
@@ -732,19 +754,27 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
       }
     }
 
-    async function prepareOrdinaryCall(call){
-      const prepared=await requestAdmission('/prepare',call);
+    async function prepareOrdinaryCall(call,context){
+      const prepared=await requestAdmission(
+        '/prepare',
+        {call,preparationId:context.id},
+        context.signal
+      );
       if(
         !prepared||typeof prepared!=='object'||
         (prepared.decision!=='allow'&&prepared.decision!=='ask')||
         typeof prepared.riskCategory!=='string'||
-        typeof prepared.token!=='string'
+        prepared.token!==context.id
       )throw new Error('MCP Apps ordinary admission response is invalid');
       return {
         decision:prepared.decision,
         execute:async({signal})=>await requestAdmission('/execute',{token:prepared.token},signal),
         riskCategory:prepared.riskCategory,
       };
+    }
+
+    async function releaseOrdinaryCall(_call,context){
+      await requestAdmission('/release',{preparationId:context.id});
     }
 
     async function createSession(){
@@ -764,6 +794,7 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
         generation,
         prepare:prepareOrdinaryCall,
         provenance,
+        release:releaseOrdinaryCall,
       });
       lastAuthority=authority;
       render({phase:'ready'},authority,mount.shellUrl);
@@ -868,10 +899,35 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
       );
     }
 
+    function beginPrepareCancellation(label){
+      const session=current;
+      if(!session)throw new Error('MCP Apps verifier session is unavailable');
+      if(prepareCancellations.has(label))throw new Error('MCP Apps verifier cancellation label is duplicated');
+      const controller=new AbortController();
+      prepareCancellations.set(label,controller);
+      outcomes.set(label,'pending');
+      void session.authority.call({
+        arguments:{label,mode:'hold-prepare-response'},
+        id:'prepare-cancel-'+label,
+        name:'create_issue',
+      },{signal:controller.signal}).then(
+        ()=>outcomes.set(label,'resolved'),
+        ()=>outcomes.set(label,'rejected')
+      ).finally(()=>prepareCancellations.delete(label));
+    }
+
+    function cancelPrepare(label){
+      const controller=prepareCancellations.get(label);
+      if(!controller)throw new Error('MCP Apps verifier prepare cancellation is unavailable');
+      controller.abort(new Error('BST-1571 prepare response cancelled'));
+    }
+
     const initialReady=createSession();
     globalThis.__bst1571={
       begin,
+      beginPrepareCancellation,
       beginPendingRpc,
+      cancelPrepare,
       complete:()=>teardown({phase:'completed'}),
       disconnect:()=>teardown({phase:'cancelled'},'disconnect'),
       fail:()=>teardown({code:'protocol-failed',phase:'error'}),
@@ -1147,14 +1203,26 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
 
     await harnessCall(page, 'restart');
     const denialBefore = toolServer.snapshot();
-    await beginCall(page, 'denial');
-    await page.getByRole('button', { name: 'Deny create_issue' }).click();
-    await expectOutcome(page, 'denial', 'rejected');
-    await expectHarnessValue(page, 'receipt', 'denial', 'rejected');
-    await expect(page.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
+    for (const label of ['denial-1', 'denial-2', 'denial-3']) {
+      await beginCall(page, label);
+      await page.getByRole('button', { name: 'Deny create_issue' }).click();
+      await expectOutcome(page, label, 'rejected');
+      await expectHarnessValue(page, 'receipt', label, 'rejected');
+      await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(0);
+      await expect(page.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
+    }
     expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
     await expectServerIdle(toolServer);
     expect(toolServer.snapshot().totalRequests).toBe(denialBefore.totalRequests);
+
+    await harnessCall(page, 'restart');
+    await harnessCallWithArgs(page, 'beginPrepareCancellation', ['prepare-response']);
+    await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(1);
+    await harnessCallWithArgs(page, 'cancelPrepare', ['prepare-response']);
+    await expectOutcome(page, 'prepare-response', 'rejected');
+    await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(0);
+    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+    await expectServerIdle(toolServer);
 
     await harnessCall(page, 'restart');
     const failureBefore = toolServer.snapshot();

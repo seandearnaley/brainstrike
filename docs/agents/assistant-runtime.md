@@ -348,7 +348,10 @@ Agent`. The still-unregistered MCP Apps path captures its admission capability
 immediately after the plan/permission/suspend gates. Admission returns an
 opaque one-use executor bound to the exact post-gate tool entry and exact
 server/tool identity; the Apps preparer has no separate invocation, guard, or
-hook injection seam. It receives no separate policy, plan, enabled-tool, or
+hook injection seam. The host authority creates a generation-bound preparation
+id before invoking the preparer and requires its paired release callback to
+settle before a denied or cancelled call completes, including a cancelled
+preparation response. It receives no separate policy, plan, enabled-tool, or
 storage decision: a tool omitted by any ordinary gate is absent and fails
 visibly. The authority-owned per-call abort signal marks that bound execution
 for raw MCP result retention, so the transport adapter and temporary preview

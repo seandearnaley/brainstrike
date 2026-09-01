@@ -159,6 +159,7 @@ function setup(
     generation,
     prepare: createMcpAppOrdinaryToolCallPreparer(preparerOptions),
     provenance,
+    release: async () => undefined,
   });
   return { authority, telemetry };
 }
