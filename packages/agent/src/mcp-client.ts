@@ -80,6 +80,15 @@ export type {
   McpServerFeatureEventKind,
 } from './mcp/server-feature-events';
 export {
+  MCP_TASK_CONTEXT_MAX_BYTES,
+  type McpTaskContextProjection,
+  type McpTaskControlEnvironment,
+  McpTaskPresentationController,
+  type McpTaskPresentationControllerOptions,
+  projectMcpTaskForContext,
+  projectMcpTaskRecord,
+} from './mcp/task-presentation';
+export {
   MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
   MCP_TASKS_CANCEL_REQUEST_CONTRACT,
   MCP_TASKS_GET_REQUEST_CONTRACT,

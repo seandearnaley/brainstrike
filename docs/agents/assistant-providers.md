@@ -2055,6 +2055,21 @@ can be sent. Task responses keep the merged BST-1561 discriminator ruling (an ab
 release resources. Sampling/roots input, renderer UX, host registration, and support advertisement
 remain disabled.
 
+BST-1565's first layer adds an opt-in presentation and control fence; it does
+not register Tasks. The browser-safe contract carries one opaque exact handle
+(server, resource, principal, generation, and task), status copy, and only the
+newest eight of the repository's 32 transition entries. Input/result metadata
+never crosses that seam. The separate model projection omits the complete
+control identity and is capped at 2,048 serialized UTF-8 bytes, with explicit
+truncation. Every recovery or cancellation click revalidates protocol
+`2026-07-28`, capability presence, principal, server/resource, and generation
+both before and after the owning authority runs. Failures use stable
+`stale_handle`, `lost_principal`, `unsupported_version`, and
+`capability_removed` diagnostics. The injected authority remains responsible
+for atomic repository/lifecycle/interaction fencing; the presentation module
+cannot create a task, turn a task handle into synchronous tool completion, or
+enable support advertisement.
+
 ### MCP client input and deprecated compatibility (BST-1470)
 
 Core client capabilities are installed through the one `McpClientCapabilityRuntime`
