@@ -14,7 +14,7 @@ export const McpTaskStatusSchema = z.enum([
 export type McpTaskStatus = z.infer<typeof McpTaskStatusSchema>;
 
 export const McpTaskHandleSchema = z.strictObject({
-  generation: z.number().int().nonnegative().safe(),
+  authorityEpoch: z.uuid(),
   principalId: z.string().min(1).max(512),
   resource: z.string().min(1).max(2048),
   serverId: z.string().min(1).max(512),

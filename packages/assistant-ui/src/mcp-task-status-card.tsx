@@ -63,14 +63,13 @@ function formatTimestamp(value: string): string {
   return value.replace('T', ' ').replace('.000Z', ' UTC');
 }
 
-function taskSnapshotKey(task: McpTaskPresentation): string {
+function taskHandleKey(task: McpTaskPresentation): string {
   return JSON.stringify([
-    task.handle.generation,
+    task.handle.authorityEpoch,
     task.handle.principalId,
     task.handle.resource,
     task.handle.serverId,
     task.handle.taskId,
-    task.updatedAt,
   ]);
 }
 
@@ -218,7 +217,7 @@ export function McpTaskStatusCard({
   const inFlightRef = useRef<PendingAction | null>(null);
   const revisionRef = useRef(0);
   const summaryRef = useRef<HTMLDivElement>(null);
-  const taskKey = taskSnapshotKey(task);
+  const taskKey = taskHandleKey(task);
   const taskKeyRef = useRef(taskKey);
   const [actionState, setActionState] = useState(INITIAL_ACTION_STATE);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
@@ -256,7 +255,7 @@ export function McpTaskStatusCard({
         diagnostic: outcome.diagnostic,
         focus: outcome.focus,
         revision: revisionRef.current,
-        taskKey: outcome.task ? taskSnapshotKey(outcome.task) : pending.taskKey,
+        taskKey: outcome.task ? taskHandleKey(outcome.task) : pending.taskKey,
       });
       if (inFlightRef.current?.token === pending.token) {
         setPendingAction(null);

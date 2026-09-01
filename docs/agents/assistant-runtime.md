@@ -703,12 +703,15 @@ result card. It receives the bounded `McpTaskPresentation` contract and one
 injected controller port; it neither imports the agent runtime nor reconstructs
 Tasks authority in the renderer. Recover and Cancel submit the complete opaque
 handle unchanged. The agent-owned controller revalidates protocol, capability,
-server/resource, principal, and generation before and after the existing
+server/resource, principal, and authority epoch before and after the existing
 repository/lifecycle/interaction authority runs.
 
 The card remains truthful while actions are pending: recovery does not switch
 to live and cancellation does not show `cancelled` until the controller returns
-an observed state. Actions are single-flight. Stable diagnostics render as a
+an observed state. Actions are single-flight by complete opaque authority
+handle, so newer observations for the same handle stay pending while an
+authority-epoch or other handle replacement fences the stale outcome. Stable
+diagnostics render as a
 focused alert; successful actions move focus to the live status summary, which
 is a polite status region. The identity is never rendered, the transition list
 is already bounded by the contract, and unexpected authority errors use fixed

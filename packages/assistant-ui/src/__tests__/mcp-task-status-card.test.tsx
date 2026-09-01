@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { McpTaskStatusCard } from '../mcp-task-status-card';
 
 const HANDLE = {
-  generation: 7,
+  authorityEpoch: '00000000-0000-7000-8000-000000000000',
   principalId: 'principal-secret',
   resource: 'https://tasks.example.test/private',
   serverId: 'server-secret',
@@ -167,6 +167,47 @@ describe('McpTaskStatusCard', () => {
     await waitFor(() => expect(screen.queryByText('Recovering…')).not.toBeInTheDocument());
   });
 
+  it('keeps the same authority handle single-flight across newer live updates', async () => {
+    const pending = Promise.withResolvers<McpTaskActionResult>();
+    const control = controller(pending.promise);
+    const onTaskChange = vi.fn<(nextTask: McpTaskPresentation) => void>();
+    const user = userEvent.setup();
+    const original = task({ recovery: 'live' });
+    const newerObservation = task({
+      recovery: 'live',
+      statusMessage: 'Still working after a newer poll',
+      updatedAt: '2026-09-01T05:00:03.000Z',
+    });
+    const view = render(
+      <McpTaskStatusCard controller={control.port} onTaskChange={onTaskChange} task={original} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Cancel task' }));
+    view.rerender(
+      <McpTaskStatusCard
+        controller={control.port}
+        onTaskChange={onTaskChange}
+        task={newerObservation}
+      />
+    );
+
+    expect(screen.getByText('Still working after a newer poll')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Cancelling…' }));
+    expect(control.act).toHaveBeenCalledTimes(1);
+
+    const cancelled = task({
+      canCancel: false,
+      recovery: 'terminal',
+      status: 'cancelled',
+      statusMessage: 'Cancelled by user',
+      updatedAt: '2026-09-01T05:00:04.000Z',
+    });
+    pending.resolve({ ok: true, task: cancelled });
+
+    await waitFor(() => expect(onTaskChange).toHaveBeenCalledWith(cancelled));
+  });
+
   it('does not let an action for a replaced task overwrite the new card task', async () => {
     const pending = Promise.withResolvers<McpTaskActionResult>();
     const control = controller(pending.promise);
@@ -174,7 +215,10 @@ describe('McpTaskStatusCard', () => {
     const user = userEvent.setup();
     const original = task();
     const replacement = task({
-      handle: { ...HANDLE, generation: 8, taskId: 'replacement-task' },
+      handle: {
+        ...HANDLE,
+        authorityEpoch: '00000000-0000-7000-8000-000000000001',
+      },
       recovery: 'live',
       statusMessage: 'Replacement task is live',
       updatedAt: '2026-09-01T05:00:05.000Z',

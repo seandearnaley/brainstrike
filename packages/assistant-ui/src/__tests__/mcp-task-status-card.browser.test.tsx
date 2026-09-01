@@ -13,7 +13,7 @@ const task: McpTaskPresentation = {
   canCancel: true,
   createdAt: '2026-09-01T05:00:00.000Z',
   handle: {
-    generation: 7,
+    authorityEpoch: '00000000-0000-7000-8000-000000000000',
     principalId: 'principal-a',
     resource: 'https://tasks.example.test',
     serverId: 'server-a',

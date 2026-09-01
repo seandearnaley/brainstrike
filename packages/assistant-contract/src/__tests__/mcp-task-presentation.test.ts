@@ -6,7 +6,7 @@ import {
 } from '../mcp-task-presentation.js';
 
 const HANDLE = {
-  generation: 7,
+  authorityEpoch: '00000000-0000-7000-8000-000000000000',
   principalId: 'principal-a',
   resource: 'https://tasks.example.test',
   serverId: 'server-a',
@@ -57,6 +57,24 @@ describe('MCP task presentation contract', () => {
         canCancel: true,
         createdAt: '2026-09-01T05:00:00.000Z',
         handle: { ...HANDLE, principalId: '' },
+        history: [],
+        omittedHistoryEntries: 0,
+        recovery: 'live',
+        status: 'working',
+        statusMessage: null,
+        updatedAt: '2026-09-01T05:00:01.000Z',
+      })
+    ).toThrow();
+  });
+
+  it('rejects the retired connection-generation handle shape', () => {
+    const { authorityEpoch: _authorityEpoch, ...identity } = HANDLE;
+
+    expect(() =>
+      parseMcpTaskPresentation({
+        canCancel: true,
+        createdAt: '2026-09-01T05:00:00.000Z',
+        handle: { ...identity, generation: 7 },
         history: [],
         omittedHistoryEntries: 0,
         recovery: 'live',

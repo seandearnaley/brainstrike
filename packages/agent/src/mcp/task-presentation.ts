@@ -42,7 +42,7 @@ function diagnostic(code: McpTaskDiagnostic['code'], message: string): McpTaskAc
 
 function equalScope(left: McpTaskHandle, right: McpTaskScope): boolean {
   return (
-    left.generation === right.generation &&
+    left.authorityEpoch === right.authorityEpoch &&
     left.principalId === right.principalId &&
     left.resource === right.resource &&
     left.serverId === right.serverId
@@ -108,7 +108,7 @@ export function projectMcpTaskRecord(
     canCancel: !terminal,
     createdAt: record.createdAt.toISOString(),
     handle: {
-      generation: record.generation,
+      authorityEpoch: record.authorityEpoch,
       principalId: record.principalId,
       resource: record.resource,
       serverId: record.serverId,

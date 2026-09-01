@@ -8,7 +8,7 @@ import {
 } from '../mcp/task-presentation';
 
 const SCOPE = {
-  generation: 7,
+  authorityEpoch: '00000000-0000-7000-8000-000000000000',
   principalId: 'principal-a',
   resource: 'https://tasks.example.test',
   serverId: 'server-a',
@@ -71,7 +71,7 @@ describe('MCP task presentation', () => {
       environment: {
         capabilityAvailable: true,
         protocolVersion: '2026-07-28',
-        scope: { ...SCOPE, generation: 8 },
+        scope: { ...SCOPE, authorityEpoch: '00000000-0000-7000-8000-000000000001' },
       },
     },
     {
@@ -136,7 +136,7 @@ describe('MCP task presentation', () => {
     expect(execute).toHaveBeenNthCalledWith(2, { action: 'cancel', handle });
   });
 
-  it('rejects an action whose connection generation changes while the authority is running', async () => {
+  it('rejects an action whose authority epoch changes while the authority is running', async () => {
     const execute = vi.fn().mockResolvedValue(record());
     const readEnvironment = vi
       .fn()
@@ -148,7 +148,7 @@ describe('MCP task presentation', () => {
       .mockReturnValueOnce({
         capabilityAvailable: true,
         protocolVersion: '2026-07-28',
-        scope: { ...SCOPE, generation: 8 },
+        scope: { ...SCOPE, authorityEpoch: '00000000-0000-7000-8000-000000000001' },
       });
     const controller = new McpTaskPresentationController({ execute, readEnvironment });
 
