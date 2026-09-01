@@ -2236,6 +2236,11 @@ S256 PKCE and the RFC 8707 resource, emits and verifies the RFC 9207 issuer, and
 protects the real SDK v2 MCP handler with bearer authentication. Callback state
 and issuer verification is one-shot, route state is bounded, and close reports
 token-free zero counts for clients, states, codes, and tokens after clearing them.
+`startPackagedCoreFixture` is the sole packaged-Electron fixture projection: it
+starts only the owned modern, legacy, or OAuth loopback scenarios and returns a
+closed token-free manifest plus an exact cleanup report. Desktop tests consume
+that public verifier API; they do not copy its handlers or import it into a
+production application dependency graph.
 
 The private artifact-integrity core reads each unique reference once and in
 order, passes an explicit positive byte limit to the reader, rejects an
