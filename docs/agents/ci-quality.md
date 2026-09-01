@@ -14,6 +14,9 @@ Rules:
   for an ADVISORY job, not routing, and it can only ever ADD work, never skip
   a required check.
 - Do not commit generated CI proof artifacts.
+- A pull request touching official MCP conformance must link its workflow-dispatch run URL
+  in the pull request body. The URL is the reviewable evidence; a self-reported pass count
+  is not a substitute.
 - Do not reintroduce the removed custom proof/planner commands or any custom
   planner script.
 - Required PR checks should be the always-present checks from `.github/workflows/test.yml`.

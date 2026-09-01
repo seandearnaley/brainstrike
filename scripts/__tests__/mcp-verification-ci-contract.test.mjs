@@ -17,6 +17,11 @@ const exhaustiveCommand =
 const officialBaselineCommand = 'pnpm run verify:mcp:official';
 const officialCoreCommand = 'pnpm run verify:mcp:official -- --profile core';
 const officialModernCommand = 'pnpm run verify:mcp:official -- --profile modern-closeout';
+const officialGreenRunUrls = [
+  'https://github.com/seandearnaley/brainstrike/actions/runs/33541373505',
+  'https://github.com/seandearnaley/brainstrike/actions/runs/33545728828',
+  'https://github.com/seandearnaley/brainstrike/actions/runs/33545945643',
+];
 
 function findStep(workflow, jobName, stepName) {
   const step = workflow.jobs[jobName].steps.find((candidate) => candidate.name === stepName);
@@ -206,4 +211,19 @@ test('living contracts publish the exact local and CI commands', () => {
   for (const contract of [providerContract, ciContract]) {
     assert.match(contract, /protocol-lab-only/u);
   }
+});
+
+test('living contracts link official conformance evidence and require dispatch URLs in PRs', () => {
+  const providerContract = readRepoFile('docs/agents/assistant-providers.md');
+  const ciContract = readRepoFile('docs/agents/ci-quality.md');
+
+  for (const runUrl of officialGreenRunUrls) {
+    assert.match(providerContract, new RegExp(runUrl.replaceAll('/', '\\/')));
+  }
+  assert.match(providerContract, /28\/28 baseline auth/u);
+  assert.match(providerContract, /11\/11 modern auth closeout/u);
+  assert.match(
+    ciContract,
+    /pull request touching official MCP conformance must link its workflow-dispatch run URL/u
+  );
 });

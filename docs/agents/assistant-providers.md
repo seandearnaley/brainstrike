@@ -2361,10 +2361,13 @@ The bounded official-runner driver is
 `@modelcontextprotocol/conformance@0.2.0-alpha.10` manifest and both exact empty
 `{ "client": [] }` ledgers, then invokes the package's declared `dist/index.js`
 through `process.execPath` and argv arrays rather than platform-specific
-package-manager shims. The exact upstream alpha.10 CLI manifests have fourteen
-auth scenarios at `2025-11-25` and 25 at `2026-07-28`. BST-1560 runs its reviewed
-fourteen-scenario production-auth profile once at each declared revision in
-exactly two parallel revision waves. BST-1583 runs the complete applicable core
+package-manager shims. The exact upstream alpha.10 CLI manifests expose fourteen
+auth scenarios at `2025-11-25` and 25 at `2026-07-28`; that is upstream
+availability, not the baseline execution count. BST-1560 runs its reviewed
+fourteen-scenario production-auth profile once at each declared revision
+(14 + 14 = 28) in exactly two parallel revision waves. The modern-closeout
+profile owns the remaining eleven scenarios that apply only at `2026-07-28`.
+BST-1583 runs the complete applicable core
 profile in two parallel revision waves: `initialize`, `tools_call`,
 `elicitation-sep1034-client-defaults`, and `sse-retry` at `2025-11-25`; then
 `tools_call`, `request-metadata`, `sep-2322-client-request-state`,
@@ -2384,6 +2387,20 @@ runtime once in the parent process and verifies the resulting absolute binary
 path exists. This serial preflight owns Electron's lazy installation; scenario
 children never race to extract into the shared package directory. A failed or
 invalid provision aborts the command before any scenario is reported.
+
+### Official conformance evidence (BST-1589)
+
+The first complete green official auth dispatch was
+[run 33541373505](https://github.com/seandearnaley/brainstrike/actions/runs/33541373505):
+28/28 baseline auth and 11/11 modern auth closeout, with zero expected failures.
+The same matrices then passed twice at merged-main commit
+`f76ec5149fa435a541eca2c56e42be02da6d7e32` in
+[run 33545728828](https://github.com/seandearnaley/brainstrike/actions/runs/33545728828)
+and
+[run 33545945643](https://github.com/seandearnaley/brainstrike/actions/runs/33545945643).
+These links are the durable run evidence; counts copied into prose do not replace
+the exact-head workflow and its sanitized artifacts. This is protocol-lab proof,
+not packaged Electron or live-provider acceptance evidence.
 
 ```bash
 pnpm run verify:mcp:official
