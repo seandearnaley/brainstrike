@@ -5,6 +5,7 @@ import {
   type ExplicitHttpMcpClientOptions,
   ExplicitStdioMcpClient,
   type ExplicitStdioMcpClientOptions,
+  type McpClientCapabilityOptions,
   type NegotiatedProtocolFacts,
 } from '@brainstrike/agent/mcp-client';
 import {
@@ -62,6 +63,7 @@ interface RuntimeDependencies {
   oauthStore?: McpOAuthStore;
   onInternalError?: (code: string, cause: unknown) => Promise<void> | void;
   openExternal?: (url: string) => Promise<void>;
+  resolveClientCapabilities?: (server: ResolvedMcpServer) => McpClientCapabilityOptions | undefined;
 }
 interface PrivateConfigEntry {
   auth: McpHostAuthSnapshot;
@@ -244,6 +246,9 @@ export class DesktopMcpHostRuntime {
   private readonly onInternalError: NonNullable<RuntimeDependencies['onInternalError']>;
   private readonly oauthStore: McpOAuthStore;
   private readonly openExternal: NonNullable<RuntimeDependencies['openExternal']>;
+  private readonly resolveClientCapabilities: NonNullable<
+    RuntimeDependencies['resolveClientCapabilities']
+  >;
   private readonly service: McpHostPort;
   private readonly createStdioTransportClient: NonNullable<
     RuntimeDependencies['createStdioTransportClient']
@@ -259,6 +264,7 @@ export class DesktopMcpHostRuntime {
     this.createActorClient =
       dependencies.createActorClient ??
       ((server, context) => this.createExplicitActorClient(server, context));
+    this.resolveClientCapabilities = dependencies.resolveClientCapabilities ?? (() => undefined);
     this.onInternalError =
       dependencies.onInternalError ??
       ((code, cause) => logger.error('MCP host runtime failure', { cause, code }));
@@ -467,8 +473,10 @@ export class DesktopMcpHostRuntime {
     context: ActorContext,
     updateAuth: (auth: McpHostAuthSnapshot) => void = () => undefined
   ): Promise<McpServerActorClient> {
+    const clientCapabilities = this.resolveClientCapabilities(server);
     const common = {
       clientInfo: { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
+      ...(clientCapabilities ? { clientCapabilities } : {}),
       name: server.name,
       protocol: server.protocol,
     };

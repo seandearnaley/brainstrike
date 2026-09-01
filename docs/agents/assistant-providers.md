@@ -1972,6 +1972,52 @@ registry never advertises a partial implementation or silently drops one.
 BST-1509 owns the Settings/diagnostics rendering of this matrix and modern
 per-request wire proof; the registry remains its host-owned source of truth.
 
+### MCP client input and deprecated compatibility (BST-1470)
+
+Core client capabilities are installed through the one `McpClientCapabilityRuntime`
+used by both explicit HTTP and stdio clients. The runtime projects a capability
+only when its complete handler is present; no handler means no declaration and
+an inbound request fails through the SDK's missing-capability path. Modern
+`input_required` and legacy pushed requests dispatch through those same SDK
+`setRequestHandler` registrations. Automatic fulfillment is enabled with a
+Brainstrike cap of eight rounds (below the SDK's ten-round ceiling), so the SDK
+keeps opaque `requestState`, cancellation, request metadata, progress, and the
+originating tool call/approval context on one invocation. Round exhaustion and
+malformed requests stay visible SDK errors.
+
+The desktop host currently injects no client-capability resolver in production.
+Its HTTP and stdio constructor option objects therefore omit
+`clientCapabilities` entirely; the runtime above is disabled plumbing for an
+explicit future presenter or compatibility adapter, not an advertised desktop
+feature. The only active input-required policy is the capability-free SDK
+automation policy `{ autoFulfill: true, maxRounds: 8 }`.
+
+Elicitation has independently declared form and URL modes. The host presenter
+must render the SDK-validated restricted form schema and return exactly
+`accept`, `decline`, or `cancel`; the SDK validates accepted content against the
+requested schema before retry. URL requests are bounded, restricted to HTTP(S)
+without embedded credentials, shown to the presenter in full, and opened only
+after its explicit `accept`. Decline/cancel never call the external opener.
+
+Roots, sampling, and protocol logging are compatibility-only and independently
+disabled by omission for every server. Enabling roots requires a snapshotted
+list of explicit `file:` URIs from the mounted-workspace/server configuration
+authority. Roots are advisory hints, never filesystem grants, and
+`listChanged` is advertised only when the caller also owns change emission.
+Sampling requires an explicit per-server handler; no handler means the
+capability is structurally absent. The handler receives only the server's
+validated sampling request and the outer abort signal, so a product adapter
+must use the already-selected Brainstrike provider/model and limits and must not
+append conversation history. Protocol logging requires an explicit minimum
+level and sink; entries are capped at 32 KiB, sensitive-key values are redacted,
+and remote `logger`/data fields remain payload under the fixed local server
+scope rather than becoming Brainstrike logger scopes.
+
+These three surfaces were deprecated in MCP `2026-07-28`. Review them for
+removal on 2027-07-28 (the specification's earliest-removal boundary); each can
+be removed or disabled without changing elicitation or the other compatibility
+surfaces.
+
 MCP Apps may register only after one reviewed implementation proves every
 graduation gate together: supported MIME declaration, `ui://` resource loading,
 tool/result association, isolated sandbox and enforced CSP, validated

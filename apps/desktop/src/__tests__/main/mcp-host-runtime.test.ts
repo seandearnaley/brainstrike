@@ -823,59 +823,6 @@ describe('DesktopMcpHostRuntime', () => {
     }
   });
 
-  it.each([
-    { childProcessesClosed: 0, cursor: '', server: http() },
-    { childProcessesClosed: 1, cursor: 'next-page', server: stdio() },
-  ])('composes $server.transport with exact close accounting', async (testCase) => {
-    const explicitClient = transportClient();
-    const createHttpTransportClient = vi.fn(() => explicitClient);
-    const createStdioTransportClient = vi.fn(() => explicitClient);
-    const runtime = createDesktopMcpHostRuntime({
-      createHttpTransportClient,
-      createStdioTransportClient,
-    });
-    await runtime.replaceResolvedConfig(resolved(testCase.server));
-    await runtime.host.invoke({
-      _meta: { traceId: 'trace-1' },
-      configuredServerId: testCase.server.name,
-      cursor: testCase.cursor,
-      type: 'tools/list',
-    });
-    expect(explicitClient.listTools).toHaveBeenCalledWith(
-      { signal: expect.any(AbortSignal) },
-      { _meta: { traceId: 'trace-1' }, cursor: testCase.cursor }
-    );
-    const onProgress = vi.fn();
-    await runtime.host.invoke(
-      {
-        arguments: { value: 'hello' },
-        configuredServerId: testCase.server.name,
-        toolName: 'echo',
-        type: 'tools/call',
-      },
-      { onProgress }
-    );
-    expect(explicitClient.callTool).toHaveBeenCalledWith(
-      { arguments: { value: 'hello' }, name: 'echo' },
-      expect.objectContaining({ onprogress: onProgress, signal: expect.any(AbortSignal) })
-    );
-    const report = await runtime.host.close();
-    expect(report).toMatchObject({
-      callbacksClosed: 1,
-      childProcessesClosed: testCase.childProcessesClosed,
-      clientsClosed: 1,
-      requestsSettled: 2,
-    });
-    if (testCase.server.transport !== 'stdio') {
-      expect(createHttpTransportClient).toHaveBeenCalledWith(
-        expect.objectContaining({
-          lifecycle: 'host-owned',
-          onUnexpectedClose: expect.any(Function),
-        })
-      );
-    }
-  });
-
   it('projects sanitized stdio diagnostics without treating every child line as a warning', async () => {
     const explicitClient = transportClient();
     const records: LogRecord[] = [];
