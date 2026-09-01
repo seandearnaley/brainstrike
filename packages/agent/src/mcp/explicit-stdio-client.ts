@@ -48,6 +48,12 @@ import {
   McpServerFeatureEventRegistry,
   resolveMcpServerFeatureEventDiagnosticSink,
 } from './server-feature-events';
+import {
+  listenForMcpTasks,
+  type McpTasksNotificationHandler,
+  type McpTasksNotificationLease,
+  requireMcpTasksRegistry,
+} from './tasks-extension';
 import { notifyUnexpectedClose } from './unexpected-close-observer';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
@@ -413,6 +419,17 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       prepared.resultSchema,
       requestOptions
     );
+  }
+
+  async listenTasks(
+    taskIds: readonly string[],
+    handler: McpTasksNotificationHandler,
+    options?: ExplicitStdioMcpRequestOptions
+  ): Promise<McpTasksNotificationLease> {
+    const registry = requireMcpTasksRegistry(this.options.extensionRegistry, 'notifications');
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connection = await this.getConnection(requestOptions);
+    return listenForMcpTasks(connection.client, registry, taskIds, handler, requestOptions);
   }
 
   watchServerFeatures(handlers: McpServerFeatureEventHandlers): () => void {

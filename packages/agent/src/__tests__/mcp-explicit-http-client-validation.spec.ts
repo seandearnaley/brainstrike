@@ -1,5 +1,6 @@
-import { InMemoryResponseCacheStore } from '@modelcontextprotocol/client';
+import { type Client, InMemoryResponseCacheStore } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
+import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import {
   DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
   MAX_MCP_MAX_TOTAL_TIMEOUT_MS,
@@ -7,6 +8,10 @@ import {
 } from '../mcp/client-policy';
 import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
+import {
+  MCP_TASKS_STATUS_NOTIFICATION_CONTRACT,
+  registerMcpTasksWireContracts,
+} from '../mcp/tasks-extension';
 
 describe('ExplicitHttpMcpClient validation', () => {
   it.each(['file:///tmp/mcp.sock', 'ftp://example.test/mcp'])(
@@ -353,6 +358,44 @@ describe('ExplicitHttpMcpClient validation', () => {
       id: 'subscription-1',
     });
     expect(runRequest).toHaveBeenCalledOnce();
+  });
+
+  it('routes Tasks notification leases through the Streamable HTTP recovery seam', async () => {
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    const client = new ExplicitHttpMcpClient({
+      extensionRegistry: registry,
+      name: 'tasks-listen-recovery-canary',
+      protocol: '2026-07-28',
+      transport: 'streamable-http',
+      url: 'https://example.test/mcp',
+    });
+    const subscription = {
+      close: vi.fn(async () => undefined),
+      closed: Promise.resolve('local' as const),
+    };
+    const sdkClient = {
+      getNegotiatedProtocolVersion: () => '2026-07-28',
+      getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
+      listen: vi.fn(async () => subscription),
+      removeNotificationHandler: vi.fn(),
+      setNotificationHandler: vi.fn(),
+    } as unknown as Client;
+    const runRequest = vi.fn(
+      async (request: (target: Client) => Promise<unknown>) => await request(sdkClient)
+    );
+    Reflect.set(client, 'runRequest', runRequest);
+
+    const lease = await client.listenTasks(['task-http-1'], vi.fn());
+
+    expect(runRequest).toHaveBeenCalledOnce();
+    expect(sdkClient.setNotificationHandler).toHaveBeenCalledWith(
+      MCP_TASKS_STATUS_NOTIFICATION_CONTRACT.method,
+      { params: MCP_TASKS_STATUS_NOTIFICATION_CONTRACT.paramsSchema },
+      expect.any(Function)
+    );
+    expect(sdkClient.listen).toHaveBeenCalledWith({ taskIds: ['task-http-1'] }, expect.any(Object));
+    await lease.close();
   });
 
   it('advances the observable generation as soon as an active connection is invalidated', () => {

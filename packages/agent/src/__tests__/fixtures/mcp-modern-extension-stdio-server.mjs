@@ -6,9 +6,16 @@ if (!requestsFile) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_REQUESTS_FILE is required');
 }
 
-const extensionId = 'com.example/integration-host';
-const extensionSettings = { mode: 'strict' };
+const extensionId = 'io.modelcontextprotocol/tasks';
+const extensionSettings = {};
 const serverInfo = { name: 'brainstrike-modern-extension-fixture', version: '1.0.0' };
+const task = {
+  createdAt: '2026-08-31T20:00:00Z',
+  lastUpdatedAt: '2026-08-31T20:00:01Z',
+  status: 'working',
+  taskId: 'task-stdio-123',
+  ttlMs: null,
+};
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -27,7 +34,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       result: {
         _meta: { 'io.modelcontextprotocol/serverInfo': serverInfo },
         cacheScope: 'private',
-        capabilities: { extensions: { [extensionId]: extensionSettings } },
+        capabilities: { extensions: { [extensionId]: extensionSettings }, tools: {} },
         resultType: 'complete',
         supportedVersions: ['2026-07-28'],
         ttlMs: 0,
@@ -42,8 +49,46 @@ for await (const line of createInterface({ input: process.stdin })) {
       result: {
         _meta: { 'io.modelcontextprotocol/serverInfo': serverInfo },
         resultType: 'complete',
-        status: 'working',
+        ...task,
         taskId: request.params?.taskId,
+      },
+    });
+    continue;
+  }
+  if (request.method === 'tasks/update' || request.method === 'tasks/cancel') {
+    send({ id: request.id, jsonrpc: '2.0', result: { resultType: 'complete' } });
+    continue;
+  }
+  if (request.method === 'tools/call') {
+    send({
+      id: request.id,
+      jsonrpc: '2.0',
+      result:
+        request.params?.name === 'sync-tool'
+          ? { content: [], resultType: 'complete' }
+          : { ...task, resultType: 'task' },
+    });
+    continue;
+  }
+  if (request.method === 'subscriptions/listen') {
+    const subscriptionId = request.id;
+    send({
+      jsonrpc: '2.0',
+      method: 'notifications/subscriptions/acknowledged',
+      params: {
+        _meta: { 'io.modelcontextprotocol/subscriptionId': subscriptionId },
+        notifications: { taskIds: request.params?.notifications?.taskIds },
+      },
+    });
+    send({
+      jsonrpc: '2.0',
+      method: 'notifications/tasks',
+      params: {
+        _meta: { 'io.modelcontextprotocol/subscriptionId': subscriptionId },
+        ...task,
+        lastUpdatedAt: '2026-08-31T20:00:02Z',
+        result: { content: [], isError: false },
+        status: 'completed',
       },
     });
     continue;

@@ -12,16 +12,35 @@ const EXTENSION_METHOD_PATTERN = /^(?!rpc\.)(?:[A-Za-z0-9._-]+\/)+[A-Za-z0-9._-]
 const INTERNAL_EXTENSION_METHOD_PREFIX = 'io.brainstrike/registered-extension/';
 const RESERVED_METHOD_NAMESPACE =
   /^(?:completion|elicitation|logging|notifications|prompts|resources|roots|sampling|server|subscriptions|tools)\//u;
+const RESERVED_NOTIFICATION_METHODS = new Set([
+  'notifications/cancelled',
+  'notifications/elicitation/complete',
+  'notifications/initialized',
+  'notifications/message',
+  'notifications/progress',
+  'notifications/prompts/list_changed',
+  'notifications/resources/list_changed',
+  'notifications/resources/updated',
+  'notifications/roots/list_changed',
+  'notifications/tools/list_changed',
+]);
 
 export interface McpClientExtensionRequestContract<
   Params extends JSONObject = JSONObject,
   Result = unknown,
 > {
+  readonly extensionResultType?: string;
   readonly mcpNameParam?: keyof Params & string;
   readonly method: string;
   readonly paramsSchema: StandardSchemaV1<unknown, Params>;
   readonly protocol: '2026-07-28';
   readonly resultSchema: StandardSchemaV1<unknown, Result>;
+}
+
+export interface McpClientExtensionNotificationContract<Params extends JSONObject = JSONObject> {
+  readonly method: string;
+  readonly paramsSchema: StandardSchemaV1<unknown, Params>;
+  readonly protocol: '2026-07-28';
 }
 
 export interface McpClientExtensionContract<
@@ -32,11 +51,14 @@ export interface McpClientExtensionContract<
   readonly id: string;
   readonly isCompleteImplementation: (value: unknown) => value is Implementation;
   readonly isServerSettingsCompatible?: (client: Settings, server: Settings) => boolean;
+  readonly notifications?: readonly McpClientExtensionNotificationContract[];
   readonly parseServerSettings?: (value: unknown) => Settings;
   readonly parseSettings: (value: unknown) => Settings;
   readonly requests?: readonly McpClientExtensionRequestContract[];
   readonly version: Version;
 }
+
+export const REGISTERED_EXTENSION_RESULT_KEY = 'io.brainstrike/registeredExtensionResult' as const;
 
 export interface McpClientExtensionRegistration<
   Version extends string,
@@ -57,6 +79,7 @@ interface RegisteredExtensionRequest<Params extends JSONObject = JSONObject, Res
   ) => void;
   readonly contractIdentity: object;
   readonly extensionId: string;
+  readonly extensionResultType?: string;
   readonly internalMethod: string;
   readonly mcpNameParam?: keyof Params & string;
   readonly paramsSchema: StandardSchemaV1<unknown, Params>;
@@ -65,10 +88,27 @@ interface RegisteredExtensionRequest<Params extends JSONObject = JSONObject, Res
   readonly wireMethod: string;
 }
 
+interface RegisteredExtensionNotification<Params extends JSONObject = JSONObject> {
+  readonly assertServerSettingsCompatible: (
+    clientSettings: JSONObject,
+    serverSettings: unknown
+  ) => void;
+  readonly contractIdentity: object;
+  readonly extensionId: string;
+  readonly paramsSchema: StandardSchemaV1<unknown, Params>;
+  readonly protocol: '2026-07-28';
+  readonly wireMethod: string;
+}
+
 export interface PreparedMcpClientExtensionRequest<Result> {
   readonly internalMethod: string;
   readonly params: JSONObject;
   readonly resultSchema: StandardSchemaV1<unknown, Result>;
+}
+
+export interface PreparedMcpClientExtensionNotification<Params extends JSONObject> {
+  readonly method: string;
+  readonly paramsSchema: StandardSchemaV1<unknown, Params>;
 }
 
 function assertMcpClientExtensionProtocol(
@@ -116,7 +156,12 @@ function internalMethod(extensionId: string, method: string): string {
   return `${INTERNAL_EXTENSION_METHOD_PREFIX}${extensionId}/${method}`;
 }
 
-function assertRequestMethod(method: string, protocol: unknown, extensionId: string): void {
+function assertRequestMethod(
+  method: string,
+  protocol: unknown,
+  extensionId: string,
+  extensionResultType?: string
+): void {
   if (protocol !== '2026-07-28') {
     throw new Error(
       `MCP extension request "${method}" requires unsupported protocol "${String(protocol)}"`
@@ -125,9 +170,16 @@ function assertRequestMethod(method: string, protocol: unknown, extensionId: str
   if (!EXTENSION_METHOD_PATTERN.test(method)) {
     throw new Error(`Invalid MCP extension request method "${method}" for "${extensionId}"`);
   }
+  const augmentsToolResult =
+    method === 'tools/call' &&
+    extensionResultType !== undefined &&
+    /^[A-Za-z][A-Za-z0-9._-]*$/u.test(extensionResultType);
+  if (extensionResultType !== undefined && !augmentsToolResult) {
+    throw new Error('MCP extension result augmentation may only target tools/call');
+  }
   if (
     method.startsWith(INTERNAL_EXTENSION_METHOD_PREFIX) ||
-    RESERVED_METHOD_NAMESPACE.test(method)
+    (RESERVED_METHOD_NAMESPACE.test(method) && !augmentsToolResult)
   ) {
     throw new Error(
       `MCP extension request method "${method}" uses a reserved MCP method namespace`
@@ -184,9 +236,39 @@ function freezeJsonObject(value: JSONObject, extensionId: string): JSONObject {
   return cloned as JSONObject;
 }
 
+function assertNotificationContracts(
+  notifications: readonly McpClientExtensionNotificationContract[],
+  extensionId: string
+): void {
+  const methods = new Set<string>();
+  for (const notification of notifications) {
+    if (
+      notification.protocol !== '2026-07-28' ||
+      !/^notifications\/[A-Za-z0-9._/-]+$/u.test(notification.method) ||
+      RESERVED_NOTIFICATION_METHODS.has(notification.method)
+    ) {
+      throw new Error(
+        `Invalid MCP extension notification contract "${notification.method}" for "${extensionId}"`
+      );
+    }
+    if (methods.has(notification.method)) {
+      throw new Error(
+        `MCP extension notification method "${notification.method}" is duplicated in "${extensionId}"`
+      );
+    }
+    assertStandardSchema(
+      notification.paramsSchema,
+      `MCP extension notification "${notification.method}" params schema`
+    );
+    methods.add(notification.method);
+  }
+}
+
 /** Host-owned registry for extensions whose complete implementation is installed. */
 export class McpClientExtensionRegistry {
   private readonly extensions = new Map<string, () => JSONObject>();
+  private readonly notificationsByContract = new Map<object, RegisteredExtensionNotification>();
+  private readonly notificationsByWireMethod = new Map<string, RegisteredExtensionNotification>();
   private readonly requestsByContract = new Map<object, RegisteredExtensionRequest>();
   private readonly requestsByInternalMethod = new Map<string, RegisteredExtensionRequest>();
   private readonly requestsByWireMethod = new Map<string, RegisteredExtensionRequest>();
@@ -224,16 +306,21 @@ export class McpClientExtensionRegistry {
     project();
 
     const requests = contract.requests ?? [];
+    const notifications = contract.notifications ?? [];
+    assertNotificationContracts(notifications, contract.id);
     const parseServerSettings = contract.parseServerSettings;
     const isServerSettingsCompatible = contract.isServerSettingsCompatible;
-    if (requests.length > 0 && parseServerSettings === undefined) {
+    if ((requests.length > 0 || notifications.length > 0) && parseServerSettings === undefined) {
       throw new Error(
-        `MCP client extension "${contract.id}" must validate server settings before registering requests`
+        `MCP client extension "${contract.id}" must validate server settings before registering wire contracts`
       );
     }
-    if (requests.length > 0 && isServerSettingsCompatible === undefined) {
+    if (
+      (requests.length > 0 || notifications.length > 0) &&
+      isServerSettingsCompatible === undefined
+    ) {
       throw new Error(
-        `MCP client extension "${contract.id}" must define server settings compatibility before registering requests`
+        `MCP client extension "${contract.id}" must define server settings compatibility before registering wire contracts`
       );
     }
     const assertServerSettingsCompatible =
@@ -254,11 +341,12 @@ export class McpClientExtensionRegistry {
       }
       pendingContractIdentities.add(request);
       const wireMethod = request.method;
+      const extensionResultType = request.extensionResultType;
       const mcpNameParam = request.mcpNameParam;
       const paramsSchema = request.paramsSchema;
       const protocol = request.protocol;
       const resultSchema = request.resultSchema;
-      assertRequestMethod(wireMethod, protocol, contract.id);
+      assertRequestMethod(wireMethod, protocol, contract.id, extensionResultType);
       assertStandardSchema(paramsSchema, `MCP extension request "${wireMethod}" params schema`);
       assertStandardSchema(resultSchema, `MCP extension request "${wireMethod}" result schema`);
       if (mcpNameParam !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(mcpNameParam)) {
@@ -274,6 +362,7 @@ export class McpClientExtensionRegistry {
       return {
         contractIdentity: request,
         extensionId: contract.id,
+        ...(extensionResultType === undefined ? {} : { extensionResultType }),
         internalMethod: sdkMethod,
         ...(mcpNameParam === undefined ? {} : { mcpNameParam }),
         paramsSchema,
@@ -283,6 +372,11 @@ export class McpClientExtensionRegistry {
         wireMethod,
       };
     });
+    const pendingNotifications = this.stageNotifications(
+      contract.id,
+      notifications,
+      assertServerSettingsCompatible
+    );
     const pendingWireMethods = new Set<string>();
     for (const request of pendingRequests) {
       if (pendingWireMethods.has(request.wireMethod)) {
@@ -292,13 +386,48 @@ export class McpClientExtensionRegistry {
       }
       pendingWireMethods.add(request.wireMethod);
     }
-
     this.extensions.set(contract.id, project);
     for (const request of pendingRequests) {
       this.requestsByContract.set(request.contractIdentity, request);
       this.requestsByInternalMethod.set(request.internalMethod, request);
       this.requestsByWireMethod.set(request.wireMethod, request);
     }
+    for (const notification of pendingNotifications) {
+      this.notificationsByContract.set(notification.contractIdentity, notification);
+      this.notificationsByWireMethod.set(notification.wireMethod, notification);
+    }
+  }
+
+  prepareNotification<Params extends JSONObject>(
+    contract: McpClientExtensionNotificationContract<Params>,
+    serverExtensions: Readonly<Record<string, JSONObject>> | undefined,
+    negotiatedProtocol: string | undefined
+  ): PreparedMcpClientExtensionNotification<Params> {
+    const registered = this.notificationsByContract.get(contract) as
+      | RegisteredExtensionNotification<Params>
+      | undefined;
+    if (registered === undefined) {
+      throw new Error(`MCP extension notification "${contract.method}" is not registered`);
+    }
+    assertMcpClientExtensionProtocol(
+      { method: registered.wireMethod, protocol: registered.protocol },
+      negotiatedProtocol
+    );
+    this.ensureSealed();
+    const clientSettings = this.sealedSettings.get(registered.extensionId);
+    if (clientSettings === undefined) {
+      throw new Error(
+        `MCP extension registry lost sealed settings for "${registered.extensionId}"`
+      );
+    }
+    const serverSettings = serverExtensions?.[registered.extensionId];
+    if (serverSettings === undefined) {
+      throw new Error(
+        `MCP server does not advertise extension "${registered.extensionId}" required by "${registered.wireMethod}"`
+      );
+    }
+    registered.assertServerSettingsCompatible(clientSettings, serverSettings);
+    return { method: registered.wireMethod, paramsSchema: registered.paramsSchema };
   }
 
   async prepareRequest<Params extends JSONObject, Result>(
@@ -360,6 +489,36 @@ export class McpClientExtensionRegistry {
     return { ...message, method: registered.wireMethod };
   }
 
+  resolveOutgoingResultType(message: JSONRPCMessage): string | undefined {
+    if (!isJsonRpcRequest(message)) {
+      return;
+    }
+    return this.requestsByInternalMethod.get(message.method)?.extensionResultType;
+  }
+
+  rewriteIncomingMessage(message: JSONRPCMessage, extensionResultType?: string): JSONRPCMessage {
+    this.ensureSealed();
+    if (!('result' in message) || extensionResultType === undefined) {
+      return message;
+    }
+    const result = message.result;
+    if (typeof result !== 'object' || result === null || Array.isArray(result)) {
+      return message;
+    }
+    const resultType = Reflect.get(result, 'resultType');
+    if (resultType !== extensionResultType) {
+      return message;
+    }
+    return {
+      ...message,
+      result: {
+        [REGISTERED_EXTENSION_RESULT_KEY]: result,
+        content: [],
+        resultType: 'complete',
+      },
+    };
+  }
+
   resolveMcpName(method: string, params: unknown): string | undefined {
     this.ensureSealed();
     const registered = this.requestsByWireMethod.get(method);
@@ -387,6 +546,48 @@ export class McpClientExtensionRegistry {
   toClientExtensionCapabilities(): McpClientExtensionCapabilities | undefined {
     this.ensureSealed();
     return this.sealedCapabilities;
+  }
+
+  private stageNotifications(
+    extensionId: string,
+    notifications: readonly McpClientExtensionNotificationContract[],
+    assertServerSettingsCompatible:
+      | ((clientSettings: JSONObject, serverSettings: unknown) => void)
+      | undefined
+  ): RegisteredExtensionNotification[] {
+    if (notifications.length === 0) {
+      return [];
+    }
+    if (assertServerSettingsCompatible === undefined) {
+      throw new Error(
+        `MCP client extension "${extensionId}" has no server settings compatibility check`
+      );
+    }
+    const identities = new Set<object>();
+    const methods = new Set<string>();
+    return notifications.map((notification) => {
+      if (this.notificationsByContract.has(notification) || identities.has(notification)) {
+        throw new Error('MCP extension notification contract is already registered');
+      }
+      if (
+        this.notificationsByWireMethod.has(notification.method) ||
+        methods.has(notification.method)
+      ) {
+        throw new Error(
+          `MCP extension notification method "${notification.method}" is already registered`
+        );
+      }
+      identities.add(notification);
+      methods.add(notification.method);
+      return {
+        assertServerSettingsCompatible,
+        contractIdentity: notification,
+        extensionId,
+        paramsSchema: notification.paramsSchema,
+        protocol: notification.protocol,
+        wireMethod: notification.method,
+      };
+    });
   }
 
   private ensureSealed(): void {

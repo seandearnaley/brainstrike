@@ -49,6 +49,12 @@ import {
   resolveMcpServerFeatureEventDiagnosticSink,
 } from './server-feature-events';
 import {
+  listenForMcpTasks,
+  type McpTasksNotificationHandler,
+  type McpTasksNotificationLease,
+  requireMcpTasksRegistry,
+} from './tasks-extension';
+import {
   diagnoseInvalidatedCloseFailure,
   notifyUnexpectedClose,
 } from './unexpected-close-observer';
@@ -483,6 +489,22 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
         requestOptions
       );
     }, requestOptions);
+  }
+
+  async listenTasks(
+    taskIds: readonly string[],
+    handler: McpTasksNotificationHandler,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<McpTasksNotificationLease> {
+    if (this.options.transport !== 'streamable-http') {
+      throw new Error('MCP Tasks notifications require the streamable-http transport');
+    }
+    const registry = requireMcpTasksRegistry(this.options.extensionRegistry, 'notifications');
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest(
+      (client) => listenForMcpTasks(client, registry, taskIds, handler, requestOptions),
+      requestOptions
+    );
   }
 
   watchServerFeatures(handlers: McpServerFeatureEventHandlers): () => void {

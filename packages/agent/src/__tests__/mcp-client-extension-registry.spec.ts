@@ -48,6 +48,11 @@ const EXAMPLE_REQUEST = {
     taskId: z.string().min(1),
   }),
 } as const;
+const EXAMPLE_NOTIFICATION = {
+  method: 'notifications/example-task',
+  paramsSchema: z.strictObject({ taskId: z.string().min(1) }),
+  protocol: '2026-07-28',
+} as const;
 const REQUEST_EXTENSION_CONTRACT = {
   ...EXAMPLE_CONTRACT,
   isServerSettingsCompatible: (client: { mode: 'strict' }, server: { mode: 'strict' }) =>
@@ -135,6 +140,58 @@ describe('McpClientExtensionRegistry', () => {
     ).toMatchObject({ method: 'tasks/get', params: { taskId: 'task-123' } });
     expect(registry.resolveMcpName('tasks/get', prepared.params)).toBe('task-123');
   });
+
+  it('prepares only a registered notification with compatible peer settings', () => {
+    const registry = new McpClientExtensionRegistry();
+    registry.register(
+      { ...REQUEST_EXTENSION_CONTRACT, notifications: [EXAMPLE_NOTIFICATION] },
+      {
+        implementation: COMPLETE_IMPLEMENTATION,
+        settings: { mode: 'strict' },
+        version: '2026-08-29',
+      }
+    );
+
+    expect(
+      registry.prepareNotification(
+        EXAMPLE_NOTIFICATION,
+        { [EXAMPLE_CONTRACT.id]: { mode: 'strict' } },
+        '2026-07-28'
+      )
+    ).toEqual({
+      method: EXAMPLE_NOTIFICATION.method,
+      paramsSchema: EXAMPLE_NOTIFICATION.paramsSchema,
+    });
+    expect(() => registry.prepareNotification(EXAMPLE_NOTIFICATION, {}, '2026-07-28')).toThrow(
+      'does not advertise extension'
+    );
+    expect(() =>
+      new McpClientExtensionRegistry().prepareNotification(
+        EXAMPLE_NOTIFICATION,
+        { [EXAMPLE_CONTRACT.id]: { mode: 'strict' } },
+        '2026-07-28'
+      )
+    ).toThrow('is not registered');
+  });
+
+  it.each(['notifications/initialized', 'notifications/cancelled', 'notifications/progress'])(
+    'rejects reserved core notification method %s',
+    (method) => {
+      expect(() =>
+        new McpClientExtensionRegistry().register(
+          {
+            ...REQUEST_EXTENSION_CONTRACT,
+            notifications: [{ ...EXAMPLE_NOTIFICATION, method }],
+          },
+          {
+            implementation: COMPLETE_IMPLEMENTATION,
+            settings: { mode: 'strict' },
+            version: '2026-08-29',
+          }
+        )
+      ).toThrow('Invalid MCP extension notification contract');
+    }
+  );
 
   it('snapshots a request contract before untrusted callers can mutate it', async () => {
     const registry = new McpClientExtensionRegistry();
@@ -423,6 +480,12 @@ describe('McpClientExtensionRegistry', () => {
         undefined
       )
     ).rejects.toThrow('requires protocol 2026-07-28; negotiated undefined');
+  });
+
+  it('does not reinterpret extension result discriminators without an augmented request', () => {
+    const registry = new McpClientExtensionRegistry();
+    const response = { id: 1, jsonrpc: '2.0' as const, result: { resultType: 'task' } };
+    expect(registry.rewriteIncomingMessage(response)).toBe(response);
   });
 
   it('rejects an extension request contract for an unsupported runtime protocol', () => {
