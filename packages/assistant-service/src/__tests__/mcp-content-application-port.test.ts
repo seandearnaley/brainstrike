@@ -11,15 +11,70 @@ import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createMcpContentApplicationPort,
+  MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES,
   MCP_CONTENT_APPLICATION_MAX_RESULT_BYTES,
   McpContentApplicationError,
+  type McpContentApplicationErrorCategory,
+  type McpContentApplicationErrorCode,
   type McpContentApplicationRequest,
 } from '../mcp-content-application-port.js';
 
 const SERVER_ID = parseConfiguredMcpServerId('linear');
-
+const ISSUE_URI = 'linear://issue/BST-1578';
+const AUTHORITY = { configuredServerId: SERVER_ID, generation: 7 } as const;
+const HUGE = '😀'.repeat(65_536);
+const ANNOTATIONS = {
+  audience: ['user'],
+  lastModified: '2026-09-01T00:00:00Z',
+  priority: 0.8,
+} as const;
+const FEATURES = {
+  completion: true,
+  promptListChanged: false,
+  prompts: true,
+  resourceListChanged: false,
+  resourceSubscriptions: false,
+  resources: true,
+  toolListChanged: false,
+  tools: true,
+} as const;
+const RICH_RESOURCE_RESULT = {
+  cacheScope: 'private',
+  contents: [
+    { mimeType: 'text/markdown', text: '# BST-1578', uri: ISSUE_URI },
+    { blob: 'AAEC', mimeType: 'application/octet-stream', uri: `${ISSUE_URI}/attachment` },
+  ],
+  ttlMs: 1000,
+} as const satisfies Extract<McpHostOperationResult, { type: 'resources/read' }>['result'];
+type PromptResult = Extract<McpHostOperationResult, { type: 'prompts/get' }>['result'];
+type PromptMessage = PromptResult['messages'][number];
+function promptMessage(
+  content: PromptMessage['content'],
+  role: PromptMessage['role'] = 'assistant'
+): PromptMessage {
+  return { content, role };
+}
+const RICH_PROMPT_RESULT = {
+  cacheScope: 'private',
+  description: 'A mixed-content prompt',
+  messages: [
+    promptMessage({ annotations: ANNOTATIONS, text: 'Summarize it', type: 'text' }, 'user'),
+    promptMessage({ data: 'aW1hZ2U=', mimeType: 'image/png', type: 'image' }),
+    promptMessage({ data: 'YXVkaW8=', mimeType: 'audio/wav', type: 'audio' }),
+    promptMessage({
+      resource: { mimeType: 'text/markdown', text: '# BST-1578', uri: ISSUE_URI },
+      type: 'resource',
+    }),
+  ],
+  ttlMs: 2000,
+} as const satisfies PromptResult;
 function server(generation: number): McpHostServerSnapshot {
   return {
+    catalog: {
+      errors: {},
+      features: FEATURES,
+      subscription: { mode: 'none', state: 'unsupported' },
+    },
     configuredProtocol: '2026-07-28',
     configuredServerId: SERVER_ID,
     generation,
@@ -28,7 +83,6 @@ function server(generation: number): McpHostServerSnapshot {
     transport: 'streamable-http',
   };
 }
-
 class FakeContentHost {
   private readonly listeners = new Set<(event: McpHostWatchEvent) => void>();
   private state: McpHostSnapshot = { revision: 1, servers: [server(7)] };
@@ -64,6 +118,10 @@ class FakeContentHost {
     this.state = { revision: this.state.revision + 1, servers: [server(generation)] };
   }
 
+  setServer(snapshot: McpHostServerSnapshot): void {
+    this.state = { revision: this.state.revision + 1, servers: [snapshot] };
+  }
+
   removeServer(): void {
     this.state = { revision: this.state.revision + 1, servers: [] };
     const event = structuredClone(this.state);
@@ -76,17 +134,71 @@ class FakeContentHost {
     return this.listeners.size;
   }
 }
+class PendingAbortContentHost extends FakeContentHost {
+  private invocationSignal: AbortSignal | undefined;
+
+  constructor() {
+    super();
+    this.invoke.mockImplementation(async (_operation, options) => {
+      this.invocationSignal = options?.signal;
+      if (this.invocationSignal === undefined) {
+        throw new Error('Expected MCP content invocation signal');
+      }
+      await new Promise<void>((resolve) =>
+        this.invocationSignal?.addEventListener('abort', () => resolve(), { once: true })
+      );
+      throw this.invocationSignal.reason;
+    });
+  }
+
+  async waitForInvocation(): Promise<AbortSignal> {
+    await vi.waitFor(() => expect(this.invocationSignal).toBeDefined());
+    if (this.invocationSignal === undefined) {
+      throw new Error('Expected pending MCP content invocation');
+    }
+    return this.invocationSignal;
+  }
+}
+
+function connectedServerWithFeature(
+  feature: 'completion' | 'prompts' | 'resources',
+  supported: boolean
+): McpHostServerSnapshot {
+  const snapshot = server(7);
+  if (snapshot.state !== 'connected' || snapshot.catalog === undefined) {
+    throw new Error('Expected connected MCP content test authority');
+  }
+  return {
+    ...snapshot,
+    catalog: {
+      ...snapshot.catalog,
+      features: { ...snapshot.catalog.features, [feature]: supported },
+    },
+  };
+}
+
+function unavailableServer(state: 'connecting' | 'disconnected' | 'error'): McpHostServerSnapshot {
+  const base = {
+    configuredProtocol: '2026-07-28' as const,
+    configuredServerId: SERVER_ID,
+    generation: 7,
+    transport: 'streamable-http' as const,
+  };
+  return state === 'error'
+    ? { ...base, error: { category: 'connection', code: 'offline', message: 'Offline' }, state }
+    : { ...base, state };
+}
 
 function resultFor(operation: McpHostOperation): McpHostOperationResult {
   switch (operation.type) {
     case 'resources/read':
       return {
-        result: { contents: [{ text: '# BST-1578', uri: operation.uri }] },
+        result: structuredClone(RICH_RESOURCE_RESULT),
         type: operation.type,
       };
     case 'prompts/get':
       return {
-        result: { messages: [{ content: { text: 'Summarize it', type: 'text' }, role: 'user' }] },
+        result: structuredClone(RICH_PROMPT_RESULT),
         type: operation.type,
       };
     case 'completion/complete':
@@ -102,36 +214,149 @@ function resultFor(operation: McpHostOperation): McpHostOperationResult {
 const requests = [
   {
     _meta: { trace: 'resource-read' },
-    authority: { configuredServerId: SERVER_ID, generation: 7 },
+    authority: AUTHORITY,
     type: 'resources/read',
-    uri: 'linear://issue/BST-1578',
+    uri: ISSUE_URI,
   },
   {
     _meta: { trace: 'prompt-get' },
     arguments: { identifier: 'BST-1578' },
-    authority: { configuredServerId: SERVER_ID, generation: 7 },
+    authority: AUTHORITY,
     name: 'summarize',
     type: 'prompts/get',
   },
   {
     _meta: { trace: 'completion' },
     argument: { name: 'identifier', value: 'BST' },
-    authority: { configuredServerId: SERVER_ID, generation: 7 },
+    authority: AUTHORITY,
     context: { arguments: { project: 'Brainstrike' } },
     ref: { name: 'summarize', type: 'ref/prompt' },
     type: 'completion/complete',
   },
 ] as const satisfies readonly McpContentApplicationRequest[];
 
+function requestWithSerializedBytes(
+  byteLength: number,
+  includeMultibyte: boolean
+): McpContentApplicationRequest {
+  const base = {
+    _meta: { padding: '' },
+    authority: AUTHORITY,
+    type: 'resources/read' as const,
+    uri: ISSUE_URI,
+  };
+  const baseBytes = new TextEncoder().encode(JSON.stringify(base)).byteLength;
+  const remaining = byteLength - baseBytes;
+  if (remaining < 0) {
+    throw new Error('Requested MCP content test payload is smaller than its fixed fields');
+  }
+  const emojiCount = includeMultibyte ? Math.floor(remaining / 4) : 0;
+  const padding = `${'😀'.repeat(emojiCount)}${'a'.repeat(remaining - emojiCount * 4)}`;
+  return { ...base, _meta: { padding } };
+}
+
+async function expectContentError(
+  work: Promise<unknown>,
+  category: McpContentApplicationErrorCategory,
+  code: McpContentApplicationErrorCode
+): Promise<void> {
+  await expect(work).rejects.toMatchObject({ category, code });
+}
+
 describe('MCP content application port (BST-1578)', () => {
+  it.each([false, true])(
+    'accepts a request at the exact UTF-8 byte limit %#',
+    async (multibyte) => {
+      const host = new FakeContentHost();
+      const request = requestWithSerializedBytes(
+        MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES,
+        multibyte
+      );
+      expect(new TextEncoder().encode(JSON.stringify(request))).toHaveLength(
+        MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES
+      );
+      await expect(createMcpContentApplicationPort(host).execute(request)).resolves.toMatchObject({
+        type: 'resources/read',
+      });
+      expect(host.invoke).toHaveBeenCalledOnce();
+    }
+  );
+  it('rejects a multibyte request one serialized UTF-8 byte over the limit', async () => {
+    const host = new FakeContentHost();
+    const request = requestWithSerializedBytes(MCP_CONTENT_APPLICATION_MAX_REQUEST_BYTES + 1, true);
+    await expectContentError(
+      createMcpContentApplicationPort(host).execute(request),
+      'request-too-large',
+      'mcp_content_request_too_large'
+    );
+    expect(host.invoke).not.toHaveBeenCalled();
+  });
+  it.each([
+    {
+      fields: 'resource _meta and URI',
+      request: { ...requests[0], _meta: { huge: HUGE }, uri: HUGE },
+    },
+    {
+      fields: 'prompt _meta, name, and arguments',
+      request: {
+        ...requests[1],
+        _meta: { huge: HUGE },
+        arguments: { huge: HUGE },
+        name: HUGE,
+      },
+    },
+    {
+      fields: 'completion _meta, argument, context, and ref',
+      request: {
+        ...requests[2],
+        _meta: { huge: HUGE },
+        argument: { name: 'huge', value: HUGE },
+        context: { arguments: { huge: HUGE } },
+        ref: { name: HUGE, type: 'ref/prompt' },
+      },
+    },
+  ] satisfies readonly { fields: string; request: McpContentApplicationRequest }[])(
+    'counts $fields in the request limit',
+    async ({ request }) => {
+      const host = new FakeContentHost();
+      await expectContentError(
+        createMcpContentApplicationPort(host).execute(request),
+        'request-too-large',
+        'mcp_content_request_too_large'
+      );
+      expect(host.invoke).not.toHaveBeenCalled();
+    }
+  );
+  it.each([
+    null,
+    {},
+    { authority: null, type: 'resources/read', uri: ISSUE_URI },
+    {
+      arguments: { identifier: 1578 },
+      authority: AUTHORITY,
+      name: 'summarize',
+      type: 'prompts/get',
+    },
+    {
+      argument: { name: 'identifier', value: 'BST' },
+      authority: AUTHORITY,
+      ref: { type: 'ref/resource' },
+      type: 'completion/complete',
+    },
+  ])('maps malformed runtime request %# to the stable invalid-request error', async (request) => {
+    const port = createMcpContentApplicationPort(new FakeContentHost());
+    await expectContentError(
+      port.execute(request as McpContentApplicationRequest),
+      'configuration',
+      'mcp_content_request_invalid'
+    );
+  });
   it.each(requests)(
     'routes only the closed $type operation through the existing host',
     async (request) => {
       const host = new FakeContentHost();
       const port = createMcpContentApplicationPort(host);
-
       const response = await port.execute(request);
-
       expect(response.type).toBe(request.type);
       expect(structuredClone(request)).toEqual(request);
       expect(structuredClone(response)).toEqual(response);
@@ -144,42 +369,92 @@ describe('MCP content application port (BST-1578)', () => {
       expect(host.listenerCount()).toBe(0);
     }
   );
-
+  it('preserves exact resource and prompt MIME, media, annotations, and cache metadata', async () => {
+    const port = createMcpContentApplicationPort(new FakeContentHost());
+    await expect(port.execute(requests[0])).resolves.toEqual({
+      result: RICH_RESOURCE_RESULT,
+      type: 'resources/read',
+    });
+    await expect(port.execute(requests[1])).resolves.toEqual({
+      result: RICH_PROMPT_RESULT,
+      type: 'prompts/get',
+    });
+  });
   it('rejects stale and unknown authority before invoking the host', async () => {
     const host = new FakeContentHost();
     const port = createMcpContentApplicationPort(host);
-
-    await expect(
+    await expectContentError(
       port.execute({
         authority: { configuredServerId: SERVER_ID, generation: 6 },
         type: 'resources/read',
-        uri: 'linear://issue/BST-1578',
-      })
-    ).rejects.toMatchObject({
-      category: 'generation-retired',
-      code: 'mcp_content_generation_retired',
-    });
-
+        uri: ISSUE_URI,
+      }),
+      'generation-retired',
+      'mcp_content_generation_retired'
+    );
     host.removeServer();
-    await expect(port.execute(requests[0])).rejects.toMatchObject({
-      category: 'configuration',
-      code: 'mcp_content_server_unknown',
-    });
+    await expectContentError(
+      port.execute(requests[0]),
+      'configuration',
+      'mcp_content_server_unknown'
+    );
     expect(host.invoke).not.toHaveBeenCalled();
   });
-
+  it.each([
+    {
+      request: requests[0],
+      snapshot: connectedServerWithFeature('resources', false),
+      state: 'resources unsupported',
+    },
+    {
+      request: requests[1],
+      snapshot: connectedServerWithFeature('prompts', false),
+      state: 'prompts unsupported',
+    },
+    {
+      request: requests[2],
+      snapshot: connectedServerWithFeature('completion', false),
+      state: 'completion unsupported',
+    },
+    {
+      request: requests[0],
+      snapshot: { ...server(7), catalog: undefined },
+      state: 'catalog missing',
+    },
+  ])('rejects $state authority before invocation', async ({ request, snapshot }) => {
+    const host = new FakeContentHost();
+    host.setServer(snapshot);
+    await expectContentError(
+      createMcpContentApplicationPort(host).execute(request),
+      'unsupported',
+      'mcp_content_operation_unsupported'
+    );
+    expect(host.invoke).not.toHaveBeenCalled();
+  });
+  it.each(['disconnected', 'connecting', 'error'] as const)(
+    'rejects $state authority before invocation',
+    async (state) => {
+      const host = new FakeContentHost();
+      host.setServer(unavailableServer(state));
+      await expectContentError(
+        createMcpContentApplicationPort(host).execute(requests[0]),
+        'not-connected',
+        'mcp_content_server_not_connected'
+      );
+      expect(host.invoke).not.toHaveBeenCalled();
+    }
+  );
   it('closes the snapshot-to-watch race before invoking', async () => {
     const host = new FakeContentHost();
     host.onWatchRegistered = () => host.replaceGeneration(8);
-
-    await expect(createMcpContentApplicationPort(host).execute(requests[0])).rejects.toMatchObject({
-      category: 'generation-retired',
-      code: 'mcp_content_generation_retired',
-    });
+    await expectContentError(
+      createMcpContentApplicationPort(host).execute(requests[0]),
+      'generation-retired',
+      'mcp_content_generation_retired'
+    );
     expect(host.invoke).not.toHaveBeenCalled();
     expect(host.listenerCount()).toBe(0);
   });
-
   it('closes the caller-abort-to-listener race before invoking', async () => {
     const host = new FakeContentHost();
     const caller = new AbortController();
@@ -187,90 +462,57 @@ describe('MCP content application port (BST-1578)', () => {
       host.onSnapshot = undefined;
       caller.abort();
     };
-
-    await expect(
-      createMcpContentApplicationPort(host).execute(requests[0], { signal: caller.signal })
-    ).rejects.toMatchObject({
-      category: 'cancelled',
-      code: 'mcp_content_cancelled',
-    });
+    await expectContentError(
+      createMcpContentApplicationPort(host).execute(requests[0], { signal: caller.signal }),
+      'cancelled',
+      'mcp_content_cancelled'
+    );
     expect(host.invoke).not.toHaveBeenCalled();
     expect(host.listenerCount()).toBe(0);
   });
-
   it('cancels in-flight host work and rejects a replacement race', async () => {
-    const host = new FakeContentHost();
-    let invocationSignal: AbortSignal | undefined;
-    host.invoke.mockImplementation(async (_operation, options) => {
-      invocationSignal = options?.signal;
-      await new Promise<void>((resolve) =>
-        invocationSignal?.addEventListener('abort', () => resolve())
-      );
-      throw invocationSignal?.reason;
-    });
+    const host = new PendingAbortContentHost();
     const pending = createMcpContentApplicationPort(host).execute(requests[0]);
-    await vi.waitFor(() => expect(invocationSignal).toBeDefined());
-
+    const invocationSignal = await host.waitForInvocation();
     host.replaceGeneration(8);
-
-    await expect(pending).rejects.toMatchObject({
-      category: 'generation-retired',
-      code: 'mcp_content_generation_retired',
-    });
-    expect(invocationSignal?.aborted).toBe(true);
+    await expectContentError(pending, 'generation-retired', 'mcp_content_generation_retired');
+    expect(invocationSignal.aborted).toBe(true);
     expect(host.listenerCount()).toBe(0);
   });
-
   it('rejects a replacement observed after the host operation resolves', async () => {
     const host = new FakeContentHost();
     host.invoke.mockImplementationOnce(async (operation) => {
       host.replaceGenerationSilently(8);
       return resultFor(operation);
     });
-
-    await expect(createMcpContentApplicationPort(host).execute(requests[0])).rejects.toMatchObject({
-      category: 'generation-retired',
-      code: 'mcp_content_generation_retired',
-    });
+    await expectContentError(
+      createMcpContentApplicationPort(host).execute(requests[0]),
+      'generation-retired',
+      'mcp_content_generation_retired'
+    );
     expect(host.listenerCount()).toBe(0);
   });
-
   it('keeps caller cancellation distinct and releases its watcher', async () => {
-    const host = new FakeContentHost();
+    const host = new PendingAbortContentHost();
     const caller = new AbortController();
-    let invocationSignal: AbortSignal | undefined;
-    host.invoke.mockImplementation(async (_operation, options) => {
-      invocationSignal = options?.signal;
-      await new Promise<void>((resolve) =>
-        invocationSignal?.addEventListener('abort', () => resolve())
-      );
-      throw invocationSignal?.reason;
-    });
     const pending = createMcpContentApplicationPort(host).execute(requests[0], {
       signal: caller.signal,
     });
-    await vi.waitFor(() => expect(invocationSignal).toBeDefined());
-
+    const invocationSignal = await host.waitForInvocation();
     caller.abort();
-
-    await expect(pending).rejects.toMatchObject({
-      category: 'cancelled',
-      code: 'mcp_content_cancelled',
-    });
-    expect(invocationSignal?.aborted).toBe(true);
+    await expectContentError(pending, 'cancelled', 'mcp_content_cancelled');
+    expect(invocationSignal.aborted).toBe(true);
     expect(host.listenerCount()).toBe(0);
   });
-
   it('rejects malformed, mismatched, and oversized results with stable typed errors', async () => {
     const host = new FakeContentHost();
     const port = createMcpContentApplicationPort(host);
-
     host.invoke.mockResolvedValueOnce({ result: { messages: [] }, type: 'prompts/get' });
-    await expect(port.execute(requests[0])).rejects.toMatchObject({
-      category: 'protocol',
-      code: 'mcp_content_result_type_mismatch',
-    });
-
+    await expectContentError(
+      port.execute(requests[0]),
+      'protocol',
+      'mcp_content_result_type_mismatch'
+    );
     const malformedResult: Extract<McpHostOperationResult, { type: 'resources/read' }> = {
       result: {
         _meta: { invalidOpenField: Number.NaN },
@@ -279,11 +521,7 @@ describe('MCP content application port (BST-1578)', () => {
       type: 'resources/read',
     };
     host.invoke.mockResolvedValueOnce(malformedResult);
-    await expect(port.execute(requests[0])).rejects.toMatchObject({
-      category: 'protocol',
-      code: 'mcp_content_result_invalid',
-    });
-
+    await expectContentError(port.execute(requests[0]), 'protocol', 'mcp_content_result_invalid');
     host.invoke.mockResolvedValueOnce({
       result: {
         contents: [
@@ -295,12 +533,12 @@ describe('MCP content application port (BST-1578)', () => {
       },
       type: 'resources/read',
     });
-    await expect(port.execute(requests[0])).rejects.toMatchObject({
-      category: 'result-too-large',
-      code: 'mcp_content_result_too_large',
-    });
+    await expectContentError(
+      port.execute(requests[0]),
+      'result-too-large',
+      'mcp_content_result_too_large'
+    );
   });
-
   it('maps host failures without leaking untyped causes', async () => {
     const host = new FakeContentHost();
     host.invoke.mockRejectedValueOnce({
@@ -308,7 +546,6 @@ describe('MCP content application port (BST-1578)', () => {
       code: 'mcp-authorization-denied',
       message: 'Authorization denied',
     });
-
     let thrown: unknown;
     try {
       await createMcpContentApplicationPort(host).execute(requests[0]);
