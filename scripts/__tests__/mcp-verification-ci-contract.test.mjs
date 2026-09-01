@@ -64,6 +64,42 @@ test('exhaustive verification is schedule and manual only with bounded artifact 
   assert.equal(uploadStep.with['retention-days'], 14);
 });
 
+test('official prerelease auth conformance is a bounded advisory job with sanitized evidence', () => {
+  const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
+  const job = workflow.jobs.official_auth;
+  assert.ok(job);
+  assert.equal(job['continue-on-error'], true);
+  assert.equal(job['timeout-minutes'], 8);
+
+  const buildStep = findStep(
+    workflow,
+    'official_auth',
+    'Build official MCP client dependencies and entry'
+  );
+  assert.equal(
+    buildStep.run,
+    'pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main'
+  );
+  assert.equal(buildStep['timeout-minutes'], 4);
+
+  const verifyStep = findStep(workflow, 'official_auth', 'Run official MCP auth conformance');
+  assert.equal(verifyStep.run, 'node scripts/run-official-mcp-client-conformance.mjs');
+  assert.equal(verifyStep['timeout-minutes'], 3);
+  assert.equal(verifyStep['continue-on-error'], undefined);
+
+  const uploadStep = findStep(workflow, 'official_auth', 'Upload official MCP auth evidence');
+  assert.equal(uploadStep.if, `${'$'}{{ always() }}`);
+  assert.equal(uploadStep.uses, 'actions/upload-artifact@v7');
+  assert.equal(uploadStep.with.name, `mcp-official-auth-${'$'}{{ github.sha }}`);
+  assert.equal(uploadStep.with.path, 'packages/mcp-test-lab/artifacts/official-auth-evidence.json');
+  assert.equal(uploadStep.with['if-no-files-found'], 'error');
+  assert.equal(uploadStep.with['retention-days'], 14);
+
+  const source = readRepoFile('scripts/run-official-mcp-client-conformance.mjs');
+  assert.doesNotMatch(source, /'--expected-failures'/u);
+  assert.doesNotMatch(source, /'--output-dir'/u);
+});
+
 test('PR and exhaustive lanes use the same command apart from profile and output', () => {
   const normalize = (command) =>
     command

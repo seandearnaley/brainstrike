@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -9,19 +9,49 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const CONFORMANCE_VERSION = '0.2.0-alpha.10';
 const CLIENT_COMMAND = 'node apps/desktop/dist/official-conformance-client-entry.js';
 const PROTOCOL_VERSIONS = ['2025-11-25', '2026-07-28'];
-// C2a defines and executes the final suite topology as a fail-closed tripwire.
-// With zero accepted failures, these invocations cannot pass until C2b adds
-// elicitation-defaults, sse-retry, and the complete auth scenario adapter.
-const SUITES = ['core', 'auth'];
-const SUITE_DEADLINE_MS = 600_000;
+export const OFFICIAL_AUTH_SCENARIOS = [
+  'auth/metadata-default',
+  'auth/metadata-var1',
+  'auth/metadata-var2',
+  'auth/metadata-var3',
+  'auth/basic-cimd',
+  'auth/scope-from-www-authenticate',
+  'auth/scope-from-scopes-supported',
+  'auth/scope-omitted-when-undefined',
+  'auth/scope-step-up',
+  'auth/scope-retry-limit',
+  'auth/token-endpoint-auth-basic',
+  'auth/token-endpoint-auth-post',
+  'auth/token-endpoint-auth-none',
+  'auth/pre-registration',
+];
+export const OFFICIAL_ALPHA10_AUTH_SCENARIOS = [
+  ...OFFICIAL_AUTH_SCENARIOS,
+  'auth/resource-mismatch',
+  'auth/offline-access-scope',
+  'auth/offline-access-not-supported',
+  'auth/authorization-server-migration',
+  'auth/iss-supported',
+  'auth/iss-not-advertised',
+  'auth/iss-supported-missing',
+  'auth/iss-wrong-issuer',
+  'auth/iss-unexpected',
+  'auth/iss-normalized',
+  'auth/metadata-issuer-mismatch',
+];
+export const OFFICIAL_ALPHA10_AUTH_SCENARIOS_BY_PROTOCOL = Object.freeze({
+  '2025-11-25': OFFICIAL_AUTH_SCENARIOS,
+  '2026-07-28': OFFICIAL_ALPHA10_AUTH_SCENARIOS,
+});
+const SCENARIO_DEADLINE_MS = 45_000;
 const WINDOWS_JOB_CLEANUP_TIMEOUT_MS = 2000;
 const WINDOWS_JOB_POLL_INTERVAL_MS = 10;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireDesktopDependency = createRequire(path.join(REPO_ROOT, 'apps/desktop/package.json'));
 const initializedWindowsJobs = new WeakSet();
-export const OFFICIAL_OUTPUT_ROOT = path.join(
+export const OFFICIAL_EVIDENCE_PATH = path.join(
   REPO_ROOT,
-  'packages/mcp-test-lab/artifacts/official-client-conformance'
+  'packages/mcp-test-lab/artifacts/official-auth-evidence.json'
 );
 const SAFE_ENVIRONMENT_NAMES = [
   'CI',
@@ -48,35 +78,112 @@ export function buildControlledEnvironment(source = process.env) {
 export function buildOfficialClientInvocations({
   conformanceEntryPath,
   nodePath = process.execPath,
-  outputRoot,
-  repoRoot,
 }) {
   return PROTOCOL_VERSIONS.flatMap((protocolVersion) =>
-    SUITES.map((suite) => ({
+    OFFICIAL_AUTH_SCENARIOS.map((scenario) => ({
       argv: [
         conformanceEntryPath,
         'client',
         '--command',
         CLIENT_COMMAND,
-        '--suite',
-        suite,
+        '--scenario',
+        scenario,
         '--spec-version',
         protocolVersion,
-        '--expected-failures',
-        path.join(
-          repoRoot,
-          'packages/mcp-test-lab/conformance/expected-failures',
-          `${protocolVersion}.json`
-        ),
         '--timeout',
         '30000',
-        '--output-dir',
-        path.join(outputRoot, protocolVersion, suite),
       ],
       command: nodePath,
-      id: `${protocolVersion}/${suite}`,
+      id: `${protocolVersion}/${scenario}`,
+      protocolVersion,
     }))
   );
+}
+
+export function validateExpectedFailureLedgers(
+  repoRoot,
+  { readDirectory = readdirSync, readFile = readFileSync } = {}
+) {
+  const ledgerRoot = path.join(repoRoot, 'packages/mcp-test-lab/conformance/expected-failures');
+  const expectedFiles = PROTOCOL_VERSIONS.map((protocolVersion) => `${protocolVersion}.json`);
+  const actualFiles = [...readDirectory(ledgerRoot)].sort();
+  if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
+    throw new Error('Official MCP expected-failure ledger files are invalid');
+  }
+  return Object.fromEntries(
+    PROTOCOL_VERSIONS.map((protocolVersion) => {
+      let ledger;
+      try {
+        ledger = JSON.parse(readFile(path.join(ledgerRoot, `${protocolVersion}.json`), 'utf8'));
+      } catch (cause) {
+        throw new Error(
+          `Official MCP expected-failure ledger ${protocolVersion}.json is unreadable or malformed`,
+          { cause }
+        );
+      }
+      if (
+        typeof ledger !== 'object' ||
+        ledger === null ||
+        Array.isArray(ledger) ||
+        Object.keys(ledger).length !== 1 ||
+        !Array.isArray(ledger.client) ||
+        ledger.client.length !== 0
+      ) {
+        throw new Error('Official MCP expected-failure ledgers must remain exactly empty');
+      }
+      return [protocolVersion, { client: [] }];
+    })
+  );
+}
+
+export function buildOfficialAuthEvidence({ completedAt, git, ledgers, report, startedAt }) {
+  const results = report.waves.flatMap((wave) => wave.results);
+  const passed = results.filter((result) => result.status === 'passed').length;
+  const failed = results.length - passed;
+  return {
+    completedAt,
+    conformance: {
+      package: '@modelcontextprotocol/conformance',
+      prerelease: true,
+      required: false,
+      version: CONFORMANCE_VERSION,
+    },
+    expectedFailures: ledgers,
+    git,
+    schemaVersion: '1.0.0',
+    startedAt,
+    summary: {
+      cleanup: report.failureIds.some((id) => id.endsWith('/cleanup')) ? 'failed' : 'confirmed',
+      executions: results.length,
+      failed,
+      passed,
+    },
+    ticket: 'BST-1560',
+    waves: report.waves,
+  };
+}
+
+export function writeOfficialAuthEvidence(outputPath, evidence) {
+  mkdirSync(path.dirname(outputPath), { recursive: true });
+  const temporaryPath = `${outputPath}.tmp-${process.pid}`;
+  writeFileSync(temporaryPath, `${JSON.stringify(evidence, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  renameSync(temporaryPath, outputPath);
+}
+
+export function resolveGitEvidence(repoRoot) {
+  const runGit = (args) =>
+    execFileSync('git', args, {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  return {
+    clean: runGit(['status', '--porcelain']) === '',
+    head: runGit(['rev-parse', 'HEAD']),
+  };
 }
 
 function hasErrorCode(error, code) {
@@ -200,6 +307,7 @@ export function runOfficialClientInvocation(
   {
     cwd,
     deadlineMs = 120_000,
+    deferWindowsCleanup = false,
     env = buildControlledEnvironment(),
     killGraceMs = 2000,
     killGroup = killPosixProcessGroup,
@@ -251,7 +359,10 @@ export function runOfficialClientInvocation(
       clearTimeout(deadlineTimer);
       clearTimeout(graceTimer);
       clearImmediate(startFailureImmediate);
-      if (killOwnedGroup && (ownsWindowsJob || processGroupId !== undefined)) {
+      const shouldCleanOwnedProcesses = ownsWindowsJob
+        ? !deferWindowsCleanup
+        : processGroupId !== undefined;
+      if (killOwnedGroup && shouldCleanOwnedProcesses) {
         try {
           if (ownsWindowsJob) {
             await terminateWindowsJobChildren(windowsJob, killGraceMs);
@@ -333,32 +444,106 @@ export async function runOfficialClientInvocations(
   invocations,
   {
     cwd,
-    deadlineMs = SUITE_DEADLINE_MS,
+    deadlineMs = SCENARIO_DEADLINE_MS,
     env = buildControlledEnvironment(),
     loadWindowsJob = loadWindowsJobNative,
+    now = Date.now,
     platform = process.platform,
     runInvocation = runOfficialClientInvocation,
   } = {}
 ) {
-  const windowsJob = initializeWindowsJobOwnership(platform, loadWindowsJob);
-  const failures = [];
-  for (const invocation of invocations) {
-    try {
-      await runInvocation(invocation, { cwd, deadlineMs, env, platform, windowsJob });
-    } catch (error) {
-      failures.push(
-        new Error(`Official MCP conformance ${invocation.id} failed`, {
-          cause: error,
-        })
-      );
-    }
-  }
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures,
-      `Official MCP conformance suites failed: ${invocations.map(({ id }) => id).join(', ')}`
+  const canonicalIds = PROTOCOL_VERSIONS.flatMap((protocolVersion) =>
+    OFFICIAL_AUTH_SCENARIOS.map((scenario) => `${protocolVersion}/${scenario}`)
+  );
+  if (
+    invocations.length !== canonicalIds.length ||
+    invocations.some(
+      (invocation, index) =>
+        invocation.id !== canonicalIds[index] ||
+        invocation.protocolVersion !==
+          PROTOCOL_VERSIONS[Math.floor(index / OFFICIAL_AUTH_SCENARIOS.length)]
+    )
+  ) {
+    throw new Error(
+      'Official MCP auth conformance requires the exact canonical 28-scenario matrix'
     );
   }
+  const windowsJob = initializeWindowsJobOwnership(platform, loadWindowsJob);
+  const failures = [];
+  const waves = [];
+  for (const protocolVersion of PROTOCOL_VERSIONS) {
+    const waveStartedAt = now();
+    const wave = invocations.filter((invocation) => invocation.protocolVersion === protocolVersion);
+    const results = await Promise.all(
+      wave.map(async (invocation) => {
+        const startedAt = now();
+        try {
+          await runInvocation(invocation, {
+            cwd,
+            deadlineMs,
+            deferWindowsCleanup: platform === 'win32',
+            env,
+            platform,
+            windowsJob,
+          });
+          return { durationMs: now() - startedAt, id: invocation.id, status: 'passed' };
+        } catch (error) {
+          return {
+            durationMs: now() - startedAt,
+            failureType: classifyInvocationFailure(error),
+            id: invocation.id,
+            status: 'failed',
+          };
+        }
+      })
+    );
+    for (const result of results) {
+      if (result.status === 'failed') {
+        failures.push(new Error(result.id));
+      }
+    }
+    if (windowsJob) {
+      try {
+        await terminateWindowsJobChildren(windowsJob);
+      } catch {
+        failures.push(new Error(`${protocolVersion}/auth/cleanup`));
+      }
+    }
+    waves.push({
+      durationMs: now() - waveStartedAt,
+      protocolVersion,
+      results,
+    });
+  }
+  const report = { failureIds: failures.map(({ message }) => message), waves };
+  if (failures.length > 0) {
+    const failure = new AggregateError(
+      failures,
+      `Official MCP auth conformance failed: ${failures.map(({ message }) => message).join(', ')}`
+    );
+    Object.defineProperty(failure, 'report', { enumerable: false, value: report });
+    throw failure;
+  }
+  return report;
+}
+
+function classifyInvocationFailure(error) {
+  if (!(error instanceof Error)) {
+    return 'runner';
+  }
+  if (error.message.includes('failed to start')) {
+    return 'start';
+  }
+  if (error.message.includes('process deadline')) {
+    return 'timeout';
+  }
+  if (error.message.includes('cleanup failed')) {
+    return 'cleanup';
+  }
+  if (error.message.includes('failed (')) {
+    return 'exit';
+  }
+  return 'runner';
 }
 
 export function resolvePinnedConformanceEntry(repoRoot) {
@@ -373,16 +558,72 @@ export function resolvePinnedConformanceEntry(repoRoot) {
   return path.join(packageRoot, manifest.bin.conformance);
 }
 
+export function finalizeOfficialAuthEvidence(
+  { completedAt, failure, ledgers, outputPath, report, repoRoot, startedAt },
+  { readGitEvidence = resolveGitEvidence, writeEvidence = writeOfficialAuthEvidence } = {}
+) {
+  try {
+    const evidence = buildOfficialAuthEvidence({
+      completedAt,
+      git: readGitEvidence(repoRoot),
+      ledgers,
+      report,
+      startedAt,
+    });
+    writeEvidence(outputPath, evidence);
+    if (failure) {
+      throw failure;
+    }
+    return evidence;
+  } catch (evidenceFailure) {
+    if (failure && evidenceFailure !== failure) {
+      throw new AggregateError(
+        [failure, evidenceFailure],
+        'Official MCP auth conformance failed and sanitized evidence persistence failed'
+      );
+    }
+    throw evidenceFailure;
+  }
+}
+
 export async function main() {
+  const startedAt = new Date().toISOString();
+  const ledgers = validateExpectedFailureLedgers(REPO_ROOT);
   const invocations = buildOfficialClientInvocations({
     conformanceEntryPath: resolvePinnedConformanceEntry(REPO_ROOT),
-    outputRoot: OFFICIAL_OUTPUT_ROOT,
+  });
+  let failure;
+  let report;
+  try {
+    report = await runOfficialClientInvocations(invocations, {
+      cwd: REPO_ROOT,
+      env: buildControlledEnvironment(),
+    });
+  } catch (error) {
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('report' in error) ||
+      typeof error.report !== 'object' ||
+      error.report === null
+    ) {
+      throw error;
+    }
+    failure = error;
+    report = error.report;
+  }
+  const evidence = finalizeOfficialAuthEvidence({
+    completedAt: new Date().toISOString(),
+    failure,
+    ledgers,
+    outputPath: OFFICIAL_EVIDENCE_PATH,
     repoRoot: REPO_ROOT,
+    report,
+    startedAt,
   });
-  await runOfficialClientInvocations(invocations, {
-    cwd: REPO_ROOT,
-    env: buildControlledEnvironment(),
-  });
+  process.stdout.write(
+    `Official MCP auth conformance passed ${evidence.summary.passed}/${evidence.summary.executions} executions\n`
+  );
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

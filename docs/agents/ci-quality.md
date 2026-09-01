@@ -57,6 +57,24 @@ explicitly set to `protocol-lab-only`; they do not fabricate Electron or CDT
 proof. Desktop-required bundles remain the bounded implementation-ticket gate
 described in `assistant-providers.md`, outside the scheduled verifier loop.
 
+The same schedule/manual workflow has a separate
+`Official MCP auth conformance (advisory prerelease)` job. It builds the
+Desktop main-process runtime dependencies and bundle, then runs
+`node scripts/run-official-mcp-client-conformance.mjs` under a three-minute step
+and eight-minute job bound. The job is explicitly `continue-on-error`: pinned
+`@modelcontextprotocol/conformance@0.2.0-alpha.10` remains prerelease evidence,
+not a required gate. Its runner executes the closed 28-case auth matrix without
+`--expected-failures` or `--output-dir`, suppresses credential-bearing child
+output, and atomically emits only sanitized fixed-id/timing evidence at
+`packages/mcp-test-lab/artifacts/official-auth-evidence.json`. The workflow
+uploads that file on both green and red scenario outcomes for 14 days under an
+exact-SHA artifact name. Missing evidence remains a visible advisory-job
+failure; raw official auth request/response artifacts are never uploaded.
+Scenario pass/fail counts always sum to the execution count; Job cleanup has its
+own status and never inflates scenario failures. If evidence collection or its
+atomic write fails after conformance has already failed, the job preserves both
+causes rather than replacing the primary conformance failure.
+
 ### Open PR to Linear conformance (BST-521)
 
 Every human-authored pull request description must contain a Brainstrike issue
