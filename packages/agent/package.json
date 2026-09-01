@@ -73,6 +73,12 @@
       "import": "./dist/mcp-client.mjs",
       "require": "./dist/mcp-client.js"
     },
+    "./test-fixtures/mcp-host-lifecycle": {
+      "types": "./dist/test-fixtures/mcp-host-lifecycle.d.ts",
+      "import": "./dist/test-fixtures/mcp-host-lifecycle.mjs",
+      "require": "./dist/test-fixtures/mcp-host-lifecycle.js"
+    },
+    "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs": "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs",
     "./local-llm": {
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.mjs",
@@ -130,7 +136,8 @@
     }
   },
   "files": [
-    "dist/**"
+    "dist/**",
+    "test-fixtures/**"
   ],
   "license": "MIT",
   "main": "./dist/index.js",

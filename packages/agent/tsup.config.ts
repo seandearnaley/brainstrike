@@ -12,6 +12,7 @@ const broadEntries = [
   'src/code-execution.ts',
   'src/fence-executor.ts',
   'src/mcp-client.ts',
+  'src/test-fixtures/mcp-host-lifecycle.ts',
   'src/local-llm.ts',
   'src/browser-safe.ts',
   'src/tool-metadata.ts',

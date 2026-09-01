@@ -1,18 +1,18 @@
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { describe, expect, test } from 'vitest';
+import { fileURLToPath } from 'node:url';
 import {
   type ObservedMcpHostRequest,
   startStatefulMcpHostServer,
-} from '../../../../../packages/agent/src/__tests__/fixtures/mcp-streamable-http-host-lifecycle';
+} from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { describe, expect, test } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
 
-const stdioLifecycleServerEntrypoint = path.resolve(
-  import.meta.dirname,
-  '../../../../../packages/agent/src/__tests__/fixtures/mcp-stdio-host-lifecycle-server.mjs'
+const stdioLifecycleServerEntrypoint = fileURLToPath(
+  import.meta.resolve('@brainstrike/agent/test-fixtures/mcp-stdio-host-lifecycle-server.mjs')
 );
 
 interface StdioLifecycleFixture {
@@ -77,12 +77,46 @@ function requestMethod(body: unknown): string | undefined {
 
 function observedProtocolMethods(requests: readonly ObservedMcpHostRequest[]): string[] {
   return requests.flatMap(({ body }) => {
-    const method = requestMethod(body);
-    return method === undefined ? [] : [method];
+    const entries = Array.isArray(body) ? body : [body];
+    return entries.flatMap((entry) => {
+      const method = requestMethod(entry);
+      return method === undefined ? [] : [method];
+    });
   });
 }
 
 describe('surviving Desktop MCP host integration', () => {
+  test('observes methods inside JSON-RPC batch bodies', () => {
+    expect(
+      observedProtocolMethods([
+        {
+          body: [
+            { jsonrpc: '2.0', method: 'notifications/initialized' },
+            { id: 1, jsonrpc: '2.0', method: 'tools/call' },
+          ],
+          method: 'POST',
+          pathname: '/mcp',
+        },
+      ])
+    ).toEqual(['notifications/initialized', 'tools/call']);
+  });
+
+  test('returns a bounded client error for malformed fixture JSON', async () => {
+    const server = await startStatefulMcpHostServer();
+    try {
+      const response = await fetch(server.url, {
+        body: '{',
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.text()).resolves.toBe('MCP fixture request failed');
+    } finally {
+      await server.close();
+    }
+  });
+
   test('desktop host owns and closes the official stdio client graph', async () => {
     const fixture = await createStdioLifecycleFixture('desktop-mcp-graph-');
     const configuredServerId = parseConfiguredMcpServerId('stdio.graph');
@@ -222,6 +256,7 @@ describe('surviving Desktop MCP host integration', () => {
       });
 
       const connecting = runtime.host.control({ action: 'connect', configuredServerId });
+      const connectRejected = expect(connecting).rejects.toBeDefined();
       await expect
         .poll(() => fsp.readFile(fixture.pidFile, 'utf8'), { timeout: 5000 })
         .toMatch(/^[1-9]\d*$/u);
@@ -230,7 +265,7 @@ describe('surviving Desktop MCP host integration', () => {
       await expect(
         runtime.host.control({ action: 'cancel', configuredServerId })
       ).resolves.toMatchObject({ state: 'authentication-required' });
-      await expect(connecting).rejects.toBeDefined();
+      await connectRejected;
       await expect.poll(() => processIsGone(pid), { timeout: 10_000 }).toBe(true);
     } finally {
       await runtime.host.close();
@@ -292,7 +327,7 @@ describe('surviving Desktop MCP host integration', () => {
     await expect(
       runProductionMcpConformanceClient({
         protocolVersion: '2026-07-28',
-        scenario: 'auth/basic-cimd',
+        scenario: 'auth/not-canonical',
         serverUrl: 'https://mcp.example.test/mcp',
       })
     ).rejects.toThrow(/scenario/u);
