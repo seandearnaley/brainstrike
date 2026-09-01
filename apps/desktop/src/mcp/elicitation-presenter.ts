@@ -4,6 +4,10 @@ import type {
   McpClientHandlerContext,
   McpElicitationPresenter,
 } from '@brainstrike/agent/mcp-client';
+import {
+  validateMcpElicitationRequest,
+  validateMcpElicitationResult,
+} from '@brainstrike/agent/mcp-client';
 import type {
   ConfiguredMcpServerId,
   McpHostOperation,
@@ -11,8 +15,8 @@ import type {
   McpServerIdentity,
 } from '@brainstrike/assistant-contract';
 import type {
+  ElicitRequest,
   ElicitRequestFormParams,
-  ElicitRequestURLParams,
   ElicitResult,
 } from '@modelcontextprotocol/client';
 
@@ -29,6 +33,7 @@ export type McpElicitationPresenterErrorCode =
   | 'mcp-elicitation-origin-unbound'
   | 'mcp-elicitation-presenter-closed'
   | 'mcp-elicitation-presenter-unavailable'
+  | 'mcp-elicitation-request-invalid'
   | 'mcp-elicitation-settlement-invalid'
   | 'mcp-elicitation-stale-authority'
   | 'mcp-elicitation-url-not-authorized'
@@ -41,6 +46,7 @@ const ERROR_MESSAGES = {
   'mcp-elicitation-origin-unbound': 'MCP elicitation has no originating host operation',
   'mcp-elicitation-presenter-closed': 'MCP elicitation presenter is closed',
   'mcp-elicitation-presenter-unavailable': 'MCP elicitation presenter is unavailable',
+  'mcp-elicitation-request-invalid': 'MCP elicitation request is invalid',
   'mcp-elicitation-settlement-invalid': 'MCP elicitation settlement is invalid',
   'mcp-elicitation-stale-authority': 'MCP elicitation authority is stale',
   'mcp-elicitation-url-not-authorized': 'MCP elicitation URL was not authorized',
@@ -64,6 +70,7 @@ export interface McpElicitationProvenance {
   readonly configuredProtocol: McpHostServerSnapshot['configuredProtocol'];
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly generation: number;
+  readonly invocationId: string;
   readonly negotiatedRevision: string;
   readonly operation: McpElicitationOperationProjection;
   readonly requestId: number | string;
@@ -98,13 +105,20 @@ export type McpElicitationPresentation =
 
 interface PendingPresentation {
   readonly cleanup: () => void;
+  readonly invocation: InvocationAuthority;
   readonly presentation: McpElicitationPresentation;
   readonly reject: (cause: McpElicitationPresenterError) => void;
+  readonly request: ElicitRequest;
   readonly resolve: (result: ElicitResult) => void;
 }
 
-interface UrlGrant {
-  readonly url: string;
+interface InvocationAuthority {
+  binding?: {
+    readonly configuredServerId: ConfiguredMcpServerId;
+    readonly generation: number;
+  };
+  readonly id: string;
+  readonly operation: McpHostOperation;
 }
 
 export interface McpElicitationPresenterAuthorityOptions {
@@ -175,19 +189,21 @@ export class McpElicitationPresenterAuthority {
   private closed = false;
   private readonly createPresentationId: () => string;
   private readonly finalized = new Map<string, McpElicitationPresenterErrorCode>();
+  private invocationSequence = 0;
   private listener: PresentationListener | undefined;
-  private readonly operation = new AsyncLocalStorage<McpHostOperation>();
+  private readonly operation = new AsyncLocalStorage<InvocationAuthority>();
   private readonly pending = new Map<string, PendingPresentation>();
-  private readonly urlGrants = new Map<string, UrlGrant>();
+  private readonly processNonce = randomUUID();
+  private readonly urlGrants = new Map<InvocationAuthority, Map<number | string, string>>();
   readonly presenter: McpElicitationPresenter;
 
   constructor(private readonly options: McpElicitationPresenterAuthorityOptions) {
     this.createPresentationId = options.createPresentationId ?? randomUUID;
     this.presenter = {
-      confirmUrl: (request, context) => this.presentUrl(request.params, context),
+      confirmUrl: (request, context) => this.present(request, context),
       form: true,
       openExternal: (url, context) => this.openUrl(url, context),
-      presentForm: (request, context) => this.presentForm(request.params, context),
+      presentForm: (request, context) => this.present(request, context),
       url: true,
     };
   }
@@ -209,7 +225,11 @@ export class McpElicitationPresenterAuthority {
   }
 
   runWithOperation<T>(operation: McpHostOperation, run: () => T): T {
-    return this.operation.run(operation, run);
+    const authority = {
+      id: `${this.processNonce}:${++this.invocationSequence}`,
+      operation,
+    } satisfies InvocationAuthority;
+    return this.operation.run(authority, run);
   }
 
   settle(input: {
@@ -247,17 +267,22 @@ export class McpElicitationPresenterAuthority {
     ) {
       throw new McpElicitationPresenterError('mcp-elicitation-settlement-invalid');
     }
-    if (pending.presentation.mode === 'url' && input.action === 'accept') {
-      this.urlGrants.set(this.grantKey(pending.presentation.provenance), {
-        url: pending.presentation.url,
-      });
-    }
     const result = {
       action: input.action,
       ...(input.action === 'accept' && input.content !== undefined
         ? { content: structuredClone(input.content) }
         : {}),
     } satisfies ElicitResult;
+    try {
+      validateMcpElicitationResult(pending.request, result);
+    } catch {
+      throw new McpElicitationPresenterError('mcp-elicitation-settlement-invalid');
+    }
+    if (pending.presentation.mode === 'url' && input.action === 'accept') {
+      const grants = this.urlGrants.get(pending.invocation) ?? new Map();
+      grants.set(input.requestId, pending.presentation.url);
+      this.urlGrants.set(pending.invocation, grants);
+    }
     this.finish(input.id, 'mcp-elicitation-already-settled', () => pending.resolve(result));
   }
 
@@ -273,9 +298,12 @@ export class McpElicitationPresenterAuthority {
         );
       }
     }
-    for (const [key] of this.urlGrants) {
-      if (key.startsWith(`${configuredServerId}\u0000${generation}\u0000`)) {
-        this.urlGrants.delete(key);
+    for (const [invocation] of this.urlGrants) {
+      if (
+        invocation.binding?.configuredServerId === configuredServerId &&
+        invocation.binding.generation === generation
+      ) {
+        this.urlGrants.delete(invocation);
       }
     }
   }
@@ -290,10 +318,12 @@ export class McpElicitationPresenterAuthority {
     this.finishAll('mcp-elicitation-presenter-closed');
   }
 
-  private presentForm(
-    params: ElicitRequestFormParams,
-    context: McpClientHandlerContext
-  ): Promise<ElicitResult> {
+  private present(request: ElicitRequest, context: McpClientHandlerContext): Promise<ElicitResult> {
+    try {
+      validateMcpElicitationRequest(request);
+    } catch {
+      return Promise.reject(new McpElicitationPresenterError('mcp-elicitation-request-invalid'));
+    }
     const listener = this.listener;
     if (this.closed || !listener) {
       return Promise.reject(
@@ -302,50 +332,32 @@ export class McpElicitationPresenterAuthority {
         )
       );
     }
-    const provenance = this.resolveProvenance(context);
+    const { invocation, provenance } = this.resolveAuthority(context);
     const id = this.createPresentationId();
     const deferred = Promise.withResolvers<ElicitResult>();
-    const presentation = {
-      id,
-      message: params.message,
-      mode: 'form',
-      provenance,
-      requestedSchema: structuredClone(params.requestedSchema),
-    } satisfies McpFormElicitationPresentation;
-    this.publish(presentation, deferred, context.signal, listener);
-    return deferred.promise;
-  }
-
-  private presentUrl(
-    params: ElicitRequestURLParams,
-    context: McpClientHandlerContext
-  ): Promise<Pick<ElicitResult, 'action'>> {
-    const url = new URL(params.url);
-    const fragment = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash);
-    if (
-      [...url.searchParams.keys(), ...fragment.keys()].some((key) =>
-        SENSITIVE_URL_PARAMETER.test(key)
-      )
-    ) {
-      return Promise.reject(new McpElicitationPresenterError('mcp-elicitation-url-sensitive'));
-    }
-    const listener = this.listener;
-    if (this.closed || !listener) {
-      return Promise.reject(
-        new McpElicitationPresenterError(
-          this.closed ? 'mcp-elicitation-presenter-closed' : 'mcp-elicitation-presenter-unavailable'
+    const params = request.params;
+    let presentation: McpElicitationPresentation;
+    if (params.mode === 'url') {
+      const url = new URL(params.url);
+      const fragment = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash);
+      if (
+        [...url.searchParams.keys(), ...fragment.keys()].some((key) =>
+          SENSITIVE_URL_PARAMETER.test(key)
         )
-      );
+      ) {
+        return Promise.reject(new McpElicitationPresenterError('mcp-elicitation-url-sensitive'));
+      }
+      presentation = { id, message: params.message, mode: 'url', provenance, url: url.href };
+    } else {
+      presentation = {
+        id,
+        message: params.message,
+        mode: 'form',
+        provenance,
+        requestedSchema: structuredClone(params.requestedSchema),
+      };
     }
-    const deferred = Promise.withResolvers<ElicitResult>();
-    const presentation = {
-      id: this.createPresentationId(),
-      message: params.message,
-      mode: 'url',
-      provenance: this.resolveProvenance(context),
-      url: url.href,
-    } satisfies McpUrlElicitationPresentation;
-    this.publish(presentation, deferred, context.signal, listener);
+    this.publish(presentation, request, invocation, deferred, context.signal, listener);
     return deferred.promise;
   }
 
@@ -353,22 +365,26 @@ export class McpElicitationPresenterAuthority {
     if (this.closed) {
       throw new McpElicitationPresenterError('mcp-elicitation-presenter-closed');
     }
-    const provenance = this.resolveProvenance(context);
-    const key = this.grantKey(provenance);
+    const { invocation } = this.resolveAuthority(context);
+    const grants = this.urlGrants.get(invocation);
     if (context.signal.aborted) {
-      this.urlGrants.delete(key);
+      grants?.delete(context.requestId);
       throw new McpElicitationPresenterError('mcp-elicitation-caller-aborted');
     }
-    const grant = this.urlGrants.get(key);
-    if (grant?.url !== url.href) {
+    if (grants?.get(context.requestId) !== url.href) {
       throw new McpElicitationPresenterError('mcp-elicitation-url-not-authorized');
     }
-    this.urlGrants.delete(key);
+    grants.delete(context.requestId);
+    if (grants.size === 0) {
+      this.urlGrants.delete(invocation);
+    }
     await this.options.openExternal(url);
   }
 
   private publish(
     presentation: McpElicitationPresentation,
+    request: ElicitRequest,
+    invocation: InvocationAuthority,
     deferred: PromiseWithResolvers<ElicitResult>,
     signal: AbortSignal,
     listener: PresentationListener
@@ -396,8 +412,10 @@ export class McpElicitationPresenterAuthority {
     signal.addEventListener('abort', onAbort, { once: true });
     this.pending.set(presentation.id, {
       cleanup: () => signal.removeEventListener('abort', onAbort),
+      invocation,
       presentation,
       reject: deferred.reject,
+      request: structuredClone(request),
       resolve: deferred.resolve,
     });
     try {
@@ -409,34 +427,45 @@ export class McpElicitationPresenterAuthority {
     }
   }
 
-  private resolveProvenance(context: McpClientHandlerContext): McpElicitationProvenance {
-    const operation = this.operation.getStore();
-    if (!operation || operation.configuredServerId !== context.serverName) {
+  private resolveAuthority(context: McpClientHandlerContext): {
+    invocation: InvocationAuthority;
+    provenance: McpElicitationProvenance;
+  } {
+    const invocation = this.operation.getStore();
+    const operation = invocation?.operation;
+    if (!(invocation && operation) || operation.configuredServerId !== context.serverName) {
       throw new McpElicitationPresenterError('mcp-elicitation-origin-unbound');
     }
     validateRequestId(context.requestId);
     const server = this.options.resolveServer(operation.configuredServerId);
     if (
       server?.state !== 'connected' ||
-      server.configuredServerId !== operation.configuredServerId
+      server.configuredServerId !== operation.configuredServerId ||
+      (invocation.binding !== undefined &&
+        (invocation.binding.configuredServerId !== server.configuredServerId ||
+          invocation.binding.generation !== server.generation))
     ) {
       throw new McpElicitationPresenterError('mcp-elicitation-stale-authority');
     }
     const serverIdentity = projectServerIdentity(server.negotiated.serverIdentity);
-    return {
-      configuredProtocol: server.configuredProtocol,
+    invocation.binding ??= {
       configuredServerId: server.configuredServerId,
       generation: server.generation,
-      negotiatedRevision: server.negotiated.revision,
-      operation: projectOperation(operation),
-      requestId: context.requestId,
-      ...(serverIdentity ? { serverIdentity } : {}),
-      transport: server.transport,
     };
-  }
-
-  private grantKey(provenance: McpElicitationProvenance): string {
-    return `${provenance.configuredServerId}\u0000${provenance.generation}\u0000${typeof provenance.requestId}:${String(provenance.requestId)}`;
+    return {
+      invocation,
+      provenance: {
+        configuredProtocol: server.configuredProtocol,
+        configuredServerId: server.configuredServerId,
+        generation: server.generation,
+        invocationId: invocation.id,
+        negotiatedRevision: server.negotiated.revision,
+        operation: projectOperation(operation),
+        requestId: context.requestId,
+        ...(serverIdentity ? { serverIdentity } : {}),
+        transport: server.transport,
+      },
+    };
   }
 
   private finish(

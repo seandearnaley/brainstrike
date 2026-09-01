@@ -2009,7 +2009,7 @@ feature. The only active input-required policy is the capability-free SDK
 automation policy `{ autoFulfill: true, maxRounds: 8 }`.
 
 Desktop main owns one process-local elicitation presenter authority. It projects bounded
-server/generation/operation provenance, settles once, and retires on abort, disconnect,
+server/generation/invocation/operation provenance, settles once, and retires on abort, disconnect,
 replacement, reset, or close; it never persists MRTR `requestState`. Production capability
 resolution stays undefined until accessible UI is complete, so this advertises nothing alone.
 

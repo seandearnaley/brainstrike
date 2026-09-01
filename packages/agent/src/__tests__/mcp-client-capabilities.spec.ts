@@ -7,6 +7,8 @@ import {
   createMcpRootsCapability,
   DEFAULT_MCP_INPUT_REQUIRED_MAX_ROUNDS,
   sanitizeMcpServerLog,
+  validateMcpElicitationRequest,
+  validateMcpElicitationResult,
 } from '../mcp/client-capabilities';
 
 describe('MCP client capabilities', () => {
@@ -213,6 +215,40 @@ describe('MCP client capabilities', () => {
     expect(() => sanitizeMcpServerLog({ data: 'x'.repeat(32_769), level: 'info' })).toThrow(
       'exceeds 32768 bytes'
     );
+  });
+
+  it.each([
+    ['property', { password: { type: 'string' } }],
+    ['title', { value: { title: 'API key', type: 'string' } }],
+    ['description', { value: { description: 'Paste access token', type: 'string' } }],
+    ['format', { value: { format: 'credential', type: 'string' } }],
+    ['nested hint', { value: { oneOf: [{ const: 'x', title: 'Client secret' }] } }],
+  ])('rejects sensitive form schema %s through the shared validator', (_label, properties) => {
+    expect(() =>
+      validateMcpElicitationRequest({
+        method: 'elicitation/create',
+        params: {
+          message: 'Provide value',
+          requestedSchema: { properties, type: 'object' },
+        },
+      } as ElicitRequest)
+    ).toThrow('may not request sensitive');
+  });
+
+  it('bounds accepted form responses by serialized UTF-8 bytes', () => {
+    const request = {
+      method: 'elicitation/create',
+      params: {
+        message: 'Value?',
+        requestedSchema: { properties: { value: { type: 'string' } }, type: 'object' },
+      },
+    } satisfies ElicitRequest;
+    expect(() =>
+      validateMcpElicitationResult(request, {
+        action: 'accept',
+        content: { value: '😀'.repeat(9000) },
+      })
+    ).toThrow('response exceeds 32768 bytes');
   });
 
   it('opens a strict HTTPS URL only after an explicit accept decision', async () => {

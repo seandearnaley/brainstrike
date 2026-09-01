@@ -26,7 +26,7 @@ export const MCP_CLIENT_INPUT_MAX_BYTES = 32_768;
 
 const REDACTED = '[REDACTED]';
 const SENSITIVE_LOG_KEY = /authorization|cookie|credential|password|secret|token|api[-_]?key/iu;
-const SENSITIVE_FORM_FIELD = /api[-_]?key|credential|password|payment|secret|token/iu;
+const SENSITIVE_FORM_FIELD = /api[\s_-]?key|credential|password|payment|secret|token/iu;
 const LOG_LEVELS: readonly LoggingLevel[] = [
   'debug',
   'info',
@@ -217,12 +217,12 @@ function installHandlers(
           if ((mode === 'form' && !capability.form) || (mode === 'url' && !capability.url)) {
             throw new Error(`MCP elicitation mode "${mode}" is not enabled for "${serverName}"`);
           }
-          validateElicitationRequest(request, capability.urlPolicy ?? 'https-only');
+          validateMcpElicitationRequest(request, capability.urlPolicy ?? 'https-only');
           const result = await capability.handle(
             request,
             handlerContext(serverName, context, signal)
           );
-          validateElicitationResult(request, result);
+          validateMcpElicitationResult(request, result);
           return result;
         })
       );
@@ -319,9 +319,12 @@ export function createMcpElicitationCapability(
   return {
     form: presenter.form,
     async handle(request, context) {
+      validateMcpElicitationRequest(request, presenter.urlPolicy ?? 'https-only');
       const mode = resolveElicitationMode(request);
       if (mode === 'form') {
-        return await presenter.presentForm(request as McpFormElicitationRequest, context);
+        const result = await presenter.presentForm(request as McpFormElicitationRequest, context);
+        validateMcpElicitationResult(request, result);
+        return result;
       }
       const urlRequest = request as McpUrlElicitationRequest;
       const url = assertElicitationUrl(urlRequest.params.url, presenter.urlPolicy ?? 'https-only');
@@ -358,9 +361,9 @@ export function createMcpRootsCapability(options: {
   };
 }
 
-function validateElicitationRequest(
+export function validateMcpElicitationRequest(
   request: ElicitRequest,
-  urlPolicy: McpUrlElicitationPolicy
+  urlPolicy: McpUrlElicitationPolicy = 'https-only'
 ): void {
   assertBoundedJson(request, 'MCP elicitation request');
   if (request.params.message.length > 8192) {
@@ -369,16 +372,32 @@ function validateElicitationRequest(
   const mode = resolveElicitationMode(request);
   if (mode === 'form') {
     const formRequest = request as McpFormElicitationRequest;
-    for (const propertyName of Object.keys(formRequest.params.requestedSchema.properties)) {
-      if (SENSITIVE_FORM_FIELD.test(propertyName)) {
-        throw new Error(
-          `MCP form elicitation may not request sensitive field "${propertyName}"; use URL mode`
-        );
+    for (const [propertyName, definition] of Object.entries(
+      formRequest.params.requestedSchema.properties
+    )) {
+      if (SENSITIVE_FORM_FIELD.test(propertyName) || hasSensitiveFormHint(definition)) {
+        throw new Error('MCP form elicitation may not request sensitive information; use URL mode');
       }
     }
     return;
   }
   assertElicitationUrl((request as McpUrlElicitationRequest).params.url, urlPolicy);
+}
+
+function hasSensitiveFormHint(value: unknown): boolean {
+  if (typeof value === 'string') {
+    return SENSITIVE_FORM_FIELD.test(value);
+  }
+  if (Array.isArray(value)) {
+    return value.some(hasSensitiveFormHint);
+  }
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      Object.entries(value).some(
+        ([key, entry]) => SENSITIVE_FORM_FIELD.test(key) || hasSensitiveFormHint(entry)
+      )
+  );
 }
 
 function assertElicitationUrl(input: string, policy: McpUrlElicitationPolicy): URL {
@@ -412,7 +431,8 @@ function isLoopbackHostname(hostname: string): boolean {
   return match?.slice(1).every((part) => Number(part) <= 255) ?? false;
 }
 
-function validateElicitationResult(request: ElicitRequest, result: ElicitResult): void {
+export function validateMcpElicitationResult(request: ElicitRequest, result: ElicitResult): void {
+  assertBoundedJson(result, 'MCP elicitation response');
   if (result.action !== 'accept' || request.params.mode === 'url') {
     return;
   }

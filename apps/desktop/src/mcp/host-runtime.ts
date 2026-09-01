@@ -421,6 +421,11 @@ export class DesktopMcpHostRuntime {
               ? this.createActorClient(server, context)
               : this.createExplicitActorClient(server, context, updateAuth),
           generation: input.generation,
+          onAuthorityRetired: () =>
+            this.elicitationPresenter.retireServer(
+              input.config.configuredServerId,
+              input.generation
+            ),
           onInternalError: (code, cause) => this.reportInternalError(code, cause),
           onSnapshotChanged: input.onSnapshotChanged,
           startup: input.config.startup,

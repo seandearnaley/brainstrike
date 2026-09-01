@@ -49,6 +49,7 @@ interface McpServerActorOptions extends Pick<ClientContext, 'configuredServerId'
   configuredProtocol: '2026-07-28' | 'auto' | 'legacy';
   enabledTools?: readonly string[];
   factory: McpServerActorClientFactory;
+  onAuthorityRetired?(): void;
   /**
    * Main-process-only diagnostic sink. The cause is RAW and UNSANITIZED and may
    * contain auth headers, tokens in URLs, or stdio argv. Never forward it to a
@@ -376,6 +377,7 @@ export class McpServerActor {
   }
   private fail(error: ActorError): ActorError {
     if (!this.failure) {
+      this.options.onAuthorityRetired?.();
       this.failure = error;
       this.change({
         error: { category: error.category, code: error.code, message: error.message },
@@ -571,6 +573,7 @@ export class McpServerActor {
   }
   private retireGeneration(): void {
     if (!this.generationAbort.signal.aborted) {
+      this.options.onAuthorityRetired?.();
       this.generationAbort.abort(this.retiredError);
     }
   }
