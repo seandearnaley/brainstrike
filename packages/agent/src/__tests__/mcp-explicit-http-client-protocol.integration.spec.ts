@@ -98,6 +98,63 @@ function assertInputRequiredCallToolTypes(client: ExplicitHttpMcpClient): void {
 }
 
 describe('ExplicitHttpMcpClient protocol blockers', { timeout: 30_000 }, () => {
+  it('defaults an absent resultType after real auto negotiation selects modern', async () => {
+    const methods: string[] = [];
+    const client = trackClient({
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body = (await request.json()) as { id?: number; method?: string };
+        if (body.method) {
+          methods.push(body.method);
+        }
+        if (body.method === 'server/discover') {
+          return modernResponse(body.id, {
+            _meta: {
+              'io.modelcontextprotocol/serverInfo': {
+                name: 'auto-result-type-server',
+                version: '1',
+              },
+            },
+            capabilities: { tools: {} },
+            resultType: 'complete',
+            supportedVersions: ['2026-07-28'],
+          });
+        }
+        if (body.method === 'tools/list') {
+          return modernResponse(body.id, {
+            resultType: 'complete',
+            tools: [
+              {
+                inputSchema: { additionalProperties: false, type: 'object' },
+                name: 'missing-result-type',
+              },
+            ],
+          });
+        }
+        if (body.method === 'tools/call') {
+          return modernResponse(body.id, {
+            content: [{ text: 'complete by compatibility rule', type: 'text' }],
+          });
+        }
+        throw new Error(`Unexpected MCP method: ${String(body.method)}`);
+      },
+      name: 'auto-result-type-canary',
+      protocol: 'auto',
+      transport: 'streamable-http',
+      url: 'https://auto-result-type.invalid/mcp',
+    });
+
+    await client.connect();
+    await expect(
+      client.callTool({ arguments: {}, name: 'missing-result-type' })
+    ).resolves.toMatchObject({
+      content: [{ text: 'complete by compatibility rule', type: 'text' }],
+    });
+
+    expect(client.getProtocolEra()).toBe('modern');
+    expect(methods).toEqual(['server/discover', 'tools/call']);
+  });
+
   it('isolates private catalog cache entries by principal on a shared store', async () => {
     const backingStore = new InMemoryResponseCacheStore();
     await backingStore.set(

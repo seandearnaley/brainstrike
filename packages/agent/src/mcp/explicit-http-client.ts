@@ -42,6 +42,7 @@ import {
   createHeaderPreservingFetch,
   installRegisteredExtensionDispatch,
 } from './registered-extension-dispatch';
+import { installMcpResultTypeCompatibility } from './result-type-compatibility';
 import {
   type McpServerFeatureEventDiagnosticSink,
   type McpServerFeatureEventHandlers,
@@ -727,7 +728,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       client,
       disconnected: false,
       generation: this.connectionGeneration,
-      transport: this.createTransport(),
+      transport: this.createTransport(client),
     };
     client.onclose = () => this.invalidateConnection(connection);
     return connection;
@@ -933,7 +934,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     return true;
   }
 
-  private createTransport(): ExplicitHttpTransport {
+  private createTransport(client: Client): ExplicitHttpTransport {
     const authProvider = this.options.interactiveOAuth?.authProvider ?? this.options.authProvider;
     switch (this.options.transport) {
       case 'sse':
@@ -942,18 +943,22 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
           fetch: this.options.fetch,
         });
       case 'streamable-http':
-        return installRegisteredExtensionDispatch(
-          new StreamableHTTPClientTransport(this.options.url, {
-            ...(authProvider ? { authProvider } : {}),
-            fetch: this.options.fetch,
-            ...(this.options.maxStepUpRetries === undefined
-              ? {}
-              : { maxStepUpRetries: this.options.maxStepUpRetries }),
-            ...(this.options.onInsufficientScope === undefined
-              ? {}
-              : { onInsufficientScope: this.options.onInsufficientScope }),
-          }),
-          this.options.extensionRegistry
+        return installMcpResultTypeCompatibility(
+          installRegisteredExtensionDispatch(
+            new StreamableHTTPClientTransport(this.options.url, {
+              ...(authProvider ? { authProvider } : {}),
+              fetch: this.options.fetch,
+              ...(this.options.maxStepUpRetries === undefined
+                ? {}
+                : { maxStepUpRetries: this.options.maxStepUpRetries }),
+              ...(this.options.onInsufficientScope === undefined
+                ? {}
+                : { onInsufficientScope: this.options.onInsufficientScope }),
+            }),
+            this.options.extensionRegistry
+          ),
+          this.options.protocol,
+          () => client.getProtocolEra()
         );
       default:
         return unsupportedTransport(this.options.transport);

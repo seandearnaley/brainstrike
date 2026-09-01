@@ -42,6 +42,7 @@ import type {
   NegotiatedProtocolFacts,
 } from './explicit-http-client';
 import { installRegisteredExtensionDispatch } from './registered-extension-dispatch';
+import { installMcpResultTypeCompatibility } from './result-type-compatibility';
 import {
   type McpServerFeatureEventDiagnosticSink,
   type McpServerFeatureEventHandlers,
@@ -570,14 +571,18 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const client = new Client(this.options.clientInfo, clientOptions);
     const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
     this.featureEvents.install(client);
-    const transport = installRegisteredExtensionDispatch(
-      new StdioClientTransport({
-        command: this.options.command,
-        ...(this.options.args ? { args: this.options.args } : {}),
-        ...(this.options.env ? { env: this.options.env } : {}),
-        ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
-      }),
-      this.options.extensionRegistry
+    const transport = installMcpResultTypeCompatibility(
+      installRegisteredExtensionDispatch(
+        new StdioClientTransport({
+          command: this.options.command,
+          ...(this.options.args ? { args: this.options.args } : {}),
+          ...(this.options.env ? { env: this.options.env } : {}),
+          ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
+        }),
+        this.options.extensionRegistry
+      ),
+      this.options.protocol,
+      () => client.getProtocolEra()
     );
     const stderr = transport.stderr;
     const onStderrData = (chunk: unknown) => {
