@@ -1,9 +1,5 @@
 import type { McpHandlerRequestOptions, McpHttpHandler } from '@modelcontextprotocol/server';
-import {
-  applyMcpLabHttpFault,
-  type McpLabAppliedFault,
-  type McpLabFaultRuntime,
-} from './fault-runtime.js';
+import type { McpLabAppliedFault, McpLabFaultRuntime } from './fault-runtime.js';
 import type { McpLabProtocolEra, McpLabProtocolMethod } from './faults.js';
 import {
   type McpLabHttpProtocolCoordinate,
@@ -215,7 +211,7 @@ export class McpLabHttpFaultExecutor {
     if (!prepared || prepared.authorizationMethod !== method) {
       return;
     }
-    await this.#injectDeferredFault(prepared, 'authorization', method);
+    await this.#injectDeferredFault(prepared, 'authorization', method, request.signal);
   }
 
   async injectAuthenticatedProtocolFault(request: Request): Promise<void> {
@@ -223,7 +219,12 @@ export class McpLabHttpFaultExecutor {
     if (!prepared?.protocol) {
       return;
     }
-    await this.#injectDeferredFault(prepared, prepared.protocol.phase, prepared.protocol.method);
+    await this.#injectDeferredFault(
+      prepared,
+      prepared.protocol.phase,
+      prepared.protocol.method,
+      request.signal
+    );
   }
 
   parsedBodyFor(request: Request): unknown {
@@ -233,13 +234,14 @@ export class McpLabHttpFaultExecutor {
   async #injectDeferredFault(
     prepared: McpLabPreparedExchange,
     phase: Parameters<McpLabFaultRuntime['consume']>[0],
-    method: Parameters<McpLabFaultRuntime['consume']>[1]
+    method: Parameters<McpLabFaultRuntime['consume']>[1],
+    signal: AbortSignal
   ): Promise<void> {
     const fault = this.#runtime.consume(phase, method, prepared.correlationId);
     if (!fault) {
       return;
     }
-    const response = await applyMcpLabHttpFault(fault);
+    const response = await this.#runtime.applyHttpFault(fault, signal);
     if (response) {
       throw new McpLabTerminalFaultResponse(response);
     }
@@ -270,7 +272,7 @@ export class McpLabHttpFaultExecutor {
   ): Promise<Response> {
     try {
       for (const fault of prepared.faults) {
-        const response = await applyMcpLabHttpFault(fault);
+        const response = await this.#runtime.applyHttpFault(fault, request.signal);
         if (response) {
           return response;
         }
@@ -291,7 +293,8 @@ export class McpLabHttpFaultExecutor {
         prepared.correlationId
       );
       return responseFault
-        ? ((await applyMcpLabHttpFault(responseFault, response)) ?? response)
+        ? ((await this.#runtime.applyHttpFault(responseFault, request.signal, response)) ??
+            response)
         : response;
     } catch (error) {
       if (error instanceof McpLabTerminalFaultResponse) {

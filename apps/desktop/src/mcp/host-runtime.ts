@@ -222,6 +222,36 @@ async function closeAfterFailure(
   throw cause;
 }
 
+async function closeAfterConnectFailure(
+  client: ExplicitClient,
+  cause: unknown,
+  server: ResolvedMcpServer,
+  generation: number,
+  diagnostics?: McpStdioDiagnosticCollector,
+  provider?: McpOAuthClientProvider
+): Promise<never> {
+  const cleanupFailures: unknown[] = [];
+  try {
+    await closeClientResources(client, provider);
+  } catch (cleanupCause) {
+    cleanupFailures.push(cleanupCause);
+  } finally {
+    // A child can close the protocol stream before Node drains its final
+    // stderr chunks. Flush after transport cleanup so both the user-facing
+    // classification and durable report use the same complete diagnostics.
+    diagnostics?.flush();
+    reportStdioFailureDiagnostics(server, generation, diagnostics);
+  }
+  const failure = classifyMcpLifecycleFailure(cause, diagnostics?.snapshot());
+  if (cleanupFailures.length > 0) {
+    throw new McpServerActorClientCleanupError(
+      [failure, ...cleanupFailures],
+      'MCP client operation failed and cleanup also failed'
+    );
+  }
+  throw failure;
+}
+
 async function connectClient(
   client: ExplicitClient,
   server: ResolvedMcpServer,
@@ -238,17 +268,14 @@ async function connectClient(
     });
     await onConnected?.();
   } catch (cause) {
-    diagnostics?.flush();
-    const failure = classifyMcpLifecycleFailure(cause, diagnostics?.snapshot());
-    try {
-      return await closeAfterFailure(client, failure, provider);
-    } finally {
-      // A child can close the protocol stream before Node drains its final
-      // stderr chunks. Persist only after transport cleanup has completed so
-      // the durable report includes those sanitized late arrivals.
-      diagnostics?.flush();
-      reportStdioFailureDiagnostics(server, context.generation, diagnostics);
-    }
+    return await closeAfterConnectFailure(
+      client,
+      cause,
+      server,
+      context.generation,
+      diagnostics,
+      provider
+    );
   }
   diagnostics?.flush();
   const status = connectedStatus(client, {

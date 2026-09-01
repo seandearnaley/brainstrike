@@ -1,3 +1,4 @@
+import type { McpLabFaultExecution } from './fault-execution.js';
 import type {
   McpLabFault,
   McpLabFaultConsumption,
@@ -10,6 +11,7 @@ import type {
 export const MCP_LAB_CLAIMED_PLAN = Symbol('MCP_LAB_CLAIMED_PLAN');
 
 export interface McpLabClaimedFaultPlan {
+  beginExecution(faultId: string): McpLabFaultExecution;
   configuredFault(match: McpLabFaultMatch): McpLabFault | undefined;
   consume(consumption: McpLabFaultConsumption): McpLabFault;
   consumeIfConfigured(consumption: McpLabFaultConsumption): McpLabFault | undefined;

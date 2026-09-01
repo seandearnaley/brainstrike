@@ -1403,16 +1403,19 @@ describe('UnifiedToolsSettings', () => {
       const cancel = await screen.findByRole('button', { name: 'Cancel linear' });
       expect(cancel).toBeEnabled();
       fireEvent.click(cancel);
+      fireEvent.click(cancel);
       await waitFor(() =>
         expect(operations.controlMcpServer).toHaveBeenCalledWith({
           action: 'cancel',
           configuredServerId: serverId,
         })
       );
+      expect(operations.controlMcpServer).toHaveBeenCalledTimes(2);
       await act(async () => {
         connect.reject(new Error('cancelled'));
         await connect.promise.catch(() => undefined);
       });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('renders lifecycle-control rejections and re-enables controls', async () => {

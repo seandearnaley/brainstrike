@@ -2,6 +2,28 @@ import { once } from 'node:events';
 import path from 'node:path';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
+export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
+  'APPDATA',
+  'COMSPEC',
+  'DISPLAY',
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'LOCALAPPDATA',
+  'LOGNAME',
+  'PATH',
+  'PATHEXT',
+  'SHELL',
+  'SystemRoot',
+  'TEMP',
+  'TMP',
+  'TMPDIR',
+  'USER',
+  'USERPROFILE',
+  'WINDIR',
+  'XAUTHORITY',
+] as const);
 export function packagedDesktopExecutablePath(): string {
   const releaseRoot = path.resolve(process.cwd(), 'release');
   if (process.platform === 'darwin') {
@@ -24,8 +46,9 @@ export function packagedDesktopExecutablePath(): string {
 }
 function inheritedEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined) {
+  for (const key of PACKAGED_DESKTOP_INHERITED_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) {
       environment[key] = value;
     }
   }

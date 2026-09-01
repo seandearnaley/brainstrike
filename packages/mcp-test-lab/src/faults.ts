@@ -1,9 +1,11 @@
+import { createMcpLabFaultExecutionTracker } from './fault-execution.js';
 import {
   isRegisteredMcpLabFaultPlan,
   MCP_LAB_CLAIMED_PLAN,
   type McpLabClaimedFaultPlan,
   registerMcpLabFaultPlanClaim,
 } from './fault-plan-claim.js';
+import type { McpLabFaultPlan } from './fault-plan-types.js';
 import { getMcpLabScenario, type McpLabFixture, type McpLabScenario } from './scenario.js';
 
 const PROTOCOL_METHODS_BY_PHASE = {
@@ -245,23 +247,14 @@ export interface McpLabFaultObservation extends McpLabFaultConsumption {
   readonly faultKind: McpLabFault['kind'];
 }
 
+export type { McpLabFaultExecutionState } from './fault-execution.js';
+
 export type McpLabTransportKind = 'http-in-process' | 'http-loopback' | 'stdio';
 export type McpLabProtocolEra = 'legacy' | 'modern';
 export type McpLabAuthentication = 'none' | 'oauth';
 export type McpLabExecution = 'in-process' | 'loopback' | undefined;
 
-export interface McpLabFaultPlan {
-  assertCompatibleWithAuthentication(authentication: McpLabAuthentication): void;
-  assertCompatibleWithFixture(fixture: McpLabFixture): void;
-  assertCompatibleWithProtocolEra(era: McpLabProtocolEra): void;
-  assertCompatibleWithTransport(transport: McpLabTransportKind): void;
-  assertFullyConsumed(): void;
-  consume(consumption: McpLabFaultConsumption): McpLabFault;
-  consumeIfConfigured(consumption: McpLabFaultConsumption): McpLabFault | undefined;
-  hasRemainingPhase(phase: McpLabProtocolPhase): boolean;
-  observations(): readonly McpLabFaultObservation[];
-  untriggeredIds(): readonly string[];
-}
+export type { McpLabFaultPlan } from './fault-plan-types.js';
 
 const MAX_MCP_LAB_FAULT_DECLARATIONS = 1024;
 const MCP_LAB_CORRELATION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/u;
@@ -788,6 +781,9 @@ export function createMcpLabFaultPlan(
   );
   const consumed = new Map<string, McpLabFaultDeclaration>();
   const observations: McpLabFaultObservation[] = [];
+  const executionTracker = createMcpLabFaultExecutionTracker(
+    immutableDeclarations.map((declaration) => declaration.id)
+  );
   let ownership: 'claimed' | 'fresh' | 'preconsumed' = 'fresh';
 
   function consumeDeclaration(
@@ -807,6 +803,7 @@ export function createMcpLabFaultPlan(
         phase: consumption.phase,
       })
     );
+    executionTracker.observe(declaration.id);
     return declaration.fault;
   }
 
@@ -959,6 +956,7 @@ export function createMcpLabFaultPlan(
       }
       return fault;
     },
+    executionState: executionTracker.state,
     hasRemainingPhase,
     observations() {
       return Object.freeze(observations.slice());
@@ -967,6 +965,7 @@ export function createMcpLabFaultPlan(
   });
   const claimedPlan: McpLabClaimedFaultPlan = Object.freeze({
     [MCP_LAB_CLAIMED_PLAN]: true as const,
+    beginExecution: executionTracker.begin,
     configuredFault(match: McpLabFaultMatch) {
       return remaining.get(matchKey(match))?.fault;
     },

@@ -42,6 +42,23 @@ function pidFilePath() {
   return candidate;
 }
 
+function expectedInheritedEnvironmentKeys() {
+  const prefix = '--brainstrike-expected-inherited-env=';
+  const argumentsForExpectation = process.argv.slice(2).filter((value) => value.startsWith(prefix));
+  if (argumentsForExpectation.length > 1) {
+    throw new Error('MCP lab stdio inherited environment expectation was provided more than once');
+  }
+  const encoded = argumentsForExpectation[0]?.slice(prefix.length) ?? '';
+  const keys = encoded.length === 0 ? [] : encoded.split(',');
+  if (
+    new Set(keys).size !== keys.length ||
+    keys.some((key) => !DEFAULT_INHERITED_ENV_VARS.includes(key))
+  ) {
+    throw new Error('MCP lab stdio inherited environment expectation is invalid');
+  }
+  return keys.sort();
+}
+
 async function readFaultConfiguration(path) {
   if (!path) {
     return;
@@ -139,11 +156,14 @@ function startFaultControl(configuration) {
 
 const inheritedEnvironmentKeys = DEFAULT_INHERITED_ENV_VARS.filter(
   (key) => process.env[key] !== undefined
-);
-const acceptsProductionEnvironment = process.argv.includes('--brainstrike-production-env');
-if (inheritedEnvironmentKeys.length > 0 && !acceptsProductionEnvironment) {
+).sort();
+const expectedEnvironmentKeys = expectedInheritedEnvironmentKeys();
+if (
+  inheritedEnvironmentKeys.length !== expectedEnvironmentKeys.length ||
+  inheritedEnvironmentKeys.some((key, index) => key !== expectedEnvironmentKeys[index])
+) {
   throw new Error(
-    `MCP lab stdio fixture inherited ambient environment keys: ${inheritedEnvironmentKeys.join(', ')}`
+    `MCP lab stdio fixture inherited ambient environment mismatch: expected [${expectedEnvironmentKeys.join(', ')}], received [${inheritedEnvironmentKeys.join(', ')}]`
   );
 }
 const pidFile = pidFilePath();

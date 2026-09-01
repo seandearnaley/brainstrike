@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noExcessiveLinesPerFile: cohesive MCP lifecycle boundary; user-approved cap increase for BST-1577.
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -464,11 +463,11 @@ export async function cleanupMcpRuntimeForShutdown(
   await mcpLifecycleBarrier;
   pendingFactoryResetSnapshot = null;
   purgeMcpRuntimeProjection();
-  try {
-    const hostClose = await runtime.host.close();
-    failures.push(...hostClose.failures);
-  } catch (error) {
-    failures.push(error);
+  const [hostClose] = await Promise.allSettled([runtime.host.close()] as const);
+  if (hostClose.status === 'rejected') {
+    failures.push(hostClose.reason);
+  } else {
+    failures.push(...hostClose.value.failures);
   }
   throwMcpCleanupFailures('shutdown', failures);
   if (hostClose.status !== 'fulfilled') {

@@ -87,7 +87,6 @@ export async function startPackagedCoreFixture(
       : await startMcpLabScenario(id, { execution: 'loopback' });
   try {
     const endpoint = assertLoopbackEndpoint(session);
-    let authorizationDelayObservedAt: number | undefined;
     const manifest: PackagedCoreFixtureManifest = Object.freeze({
       authentication: session.scenario.authentication,
       ...(session.endpoint.kind === 'oauth-loopback-http'
@@ -98,16 +97,16 @@ export async function startPackagedCoreFixture(
       url: endpoint.href,
     });
     return Object.freeze({
-      authorizationDelayObserved: () => {
-        if (faultPlan?.untriggeredIds().includes('packaged-core-authorization-delay') !== false) {
+      authorizationDelayObserved: () =>
+        faultPlan !== undefined &&
+        faultPlan.executionState('packaged-core-authorization-delay') !== 'unobserved',
+      authorizationDelaySettled: () => {
+        if (!faultPlan) {
           return false;
         }
-        authorizationDelayObservedAt ??= Date.now();
-        return true;
+        const state = faultPlan.executionState('packaged-core-authorization-delay');
+        return state === 'aborted' || state === 'settled';
       },
-      authorizationDelaySettled: () =>
-        authorizationDelayObservedAt !== undefined &&
-        Date.now() - authorizationDelayObservedAt >= (options.authorizationDelayMs ?? 0),
       close: async () => toCleanupReport(await session.close()),
       manifest,
     });

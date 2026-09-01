@@ -780,7 +780,7 @@ jobs:
           echo "ELECTRON_DIST=$ELECTRON_ZIP" >> "$GITHUB_ENV"
 
       - name: Build desktop dependency graph
-        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --filter=@brainstrike/mcp-test-lab --concurrency=4
 
       - name: Load the native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
@@ -796,6 +796,9 @@ jobs:
 
       - name: Load the packaged @parcel/watcher binding in Electron (BST-568)
         run: pnpm --filter @brainstrike/file-system test:packaged
+
+      - name: Verify packaged MCP core lifecycle
+        run: pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-core
 
   browser-tests:
     name: Browser tests

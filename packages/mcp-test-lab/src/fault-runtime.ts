@@ -9,6 +9,11 @@ export interface McpLabAppliedFault {
 }
 
 export interface McpLabFaultRuntime {
+  applyHttpFault(
+    applied: McpLabAppliedFault,
+    signal?: AbortSignal,
+    displacedResponse?: Response
+  ): Promise<Response | undefined>;
   configuredFault(
     phase: McpLabProtocolPhase,
     method: McpLabProtocolMethod,
@@ -52,6 +57,27 @@ export function createMcpLabFaultRuntime(
   const reservedCorrelations = new Set<string>();
   let correlationSequence = 0;
   return Object.freeze({
+    async applyHttpFault(
+      applied: McpLabAppliedFault,
+      signal?: AbortSignal,
+      displacedResponse?: Response
+    ): Promise<Response | undefined> {
+      const execution = plan?.beginExecution(applied.id);
+      if (!execution) {
+        throw new Error(`MCP lab fault "${applied.id}" has no claimed execution plan`);
+      }
+      let outcome: 'aborted' | 'settled' = 'settled';
+      try {
+        return await applyMcpLabHttpFault(applied, displacedResponse, signal);
+      } catch (error) {
+        if (signal?.aborted === true && error instanceof Error && error.name === 'AbortError') {
+          outcome = 'aborted';
+        }
+        throw error;
+      } finally {
+        execution.finish(outcome);
+      }
+    },
     configuredFault(
       phase: McpLabProtocolPhase,
       method: McpLabProtocolMethod,
@@ -129,7 +155,8 @@ export function createMcpLabFaultRuntime(
 
 export async function applyMcpLabHttpFault(
   applied: McpLabAppliedFault,
-  displacedResponse?: Response
+  displacedResponse?: Response,
+  signal?: AbortSignal
 ): Promise<Response | undefined> {
   if (applied.fault.kind !== 'delay' && displacedResponse?.body) {
     await displacedResponse.body.cancel();
@@ -137,7 +164,26 @@ export async function applyMcpLabHttpFault(
   switch (applied.fault.kind) {
     case 'delay': {
       const { delayMs } = applied.fault;
-      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      await new Promise<void>((resolve, reject) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const abort = () => {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+          const error = new Error(`MCP lab fault "${applied.id}" delay was aborted`);
+          error.name = 'AbortError';
+          reject(error);
+        };
+        if (signal?.aborted === true) {
+          abort();
+          return;
+        }
+        timer = setTimeout(() => {
+          signal?.removeEventListener('abort', abort);
+          resolve();
+        }, delayMs);
+        signal?.addEventListener('abort', abort, { once: true });
+      });
       return;
     }
     case 'drop_response':

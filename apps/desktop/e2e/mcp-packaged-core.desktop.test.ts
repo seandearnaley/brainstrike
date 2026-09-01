@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { DEFAULT_INHERITED_ENV_VARS } from '@modelcontextprotocol/client/stdio';
 import type { TestInfo } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { Page } from 'playwright';
@@ -14,6 +15,7 @@ import { startModelProviderShim } from './utils/model-provider-shim';
 import {
   closePackagedDesktop,
   launchPackagedDesktop,
+  PACKAGED_DESKTOP_INHERITED_ENV_KEYS,
   packagedDesktopExecutablePath,
 } from './utils/packaged-electron';
 
@@ -46,6 +48,13 @@ function stdioFixturePath(): string {
     process.cwd(),
     '../../packages/mcp-test-lab/fixtures/stdio-reference-server.mjs'
   );
+}
+function inheritedStdioEnvironmentArgument(): string {
+  const launcherKeys = new Set<string>(PACKAGED_DESKTOP_INHERITED_ENV_KEYS);
+  const inheritedKeys = DEFAULT_INHERITED_ENV_VARS.filter(
+    (key) => launcherKeys.has(key) && process.env[key] !== undefined
+  ).sort();
+  return `--brainstrike-expected-inherited-env=${inheritedKeys.join(',')}`;
 }
 function oauthServer(url: string) {
   return {
@@ -82,7 +91,7 @@ function buildConfig(options: {
       {
         args: [
           stdioFixturePath(),
-          '--brainstrike-production-env',
+          inheritedStdioEnvironmentArgument(),
           `--brainstrike-pid-file=${options.stdioPidFile}`,
         ],
         command: process.execPath,
@@ -95,7 +104,7 @@ function buildConfig(options: {
       {
         args: [
           stdioFixturePath(),
-          '--brainstrike-production-env',
+          inheritedStdioEnvironmentArgument(),
           `--brainstrike-fault-control=${options.diagnosticControlPath}`,
           `--brainstrike-pid-file=${options.diagnosticPidFile}`,
         ],
@@ -123,11 +132,7 @@ async function configureThroughUi(page: Page, config: string): Promise<void> {
   await page.getByRole('tab', { name: 'Tools' }).click();
 }
 function serverRow(page: Page, id: string) {
-  return page
-    .getByTestId('mcp-server-status-list')
-    .getByText(id, { exact: true })
-    .locator('..')
-    .locator('..');
+  return page.getByTestId(`mcp-server-row-${id}`);
 }
 async function waitForServerState(page: Page, id: string, state: RegExp): Promise<void> {
   await expect(serverRow(page, id)).toContainText(state, { timeout: 60_000 });
@@ -263,7 +268,12 @@ async function executeAssistantTool(page: Page): Promise<void> {
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
 }
 function parseJsonLines(contents: string): Record<string, unknown>[] {
+  const completeEnd = contents.lastIndexOf('\n');
+  if (completeEnd < 0) {
+    return [];
+  }
   const values: unknown[] = contents
+    .slice(0, completeEnd)
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line));
@@ -279,15 +289,18 @@ async function findLogRecords(
 ): Promise<Record<string, unknown>[]> {
   let records: Record<string, unknown>[] = [];
   await expect
-    .poll(async () => {
-      const contents = await readFile(path.join(userDataDir, 'logs', fileName), 'utf8').catch(
-        () => ''
-      );
-      records = parseJsonLines(contents).filter(
-        (record) => record['message'] === message || record['msg'] === message
-      );
-      return records.length;
-    })
+    .poll(
+      async () => {
+        const contents = await readFile(path.join(userDataDir, 'logs', fileName), 'utf8').catch(
+          () => ''
+        );
+        records = parseJsonLines(contents).filter(
+          (record) => record['message'] === message || record['msg'] === message
+        );
+        return records.length;
+      },
+      { timeout: 30_000 }
+    )
     .toBeGreaterThan(0);
   return records;
 }
@@ -309,7 +322,7 @@ async function attachFailureDiagnostics(
     contentType: 'application/x-ndjson',
   });
 }
-test('renderer reaches production MCP and lifecycle paths @destructive', async ({}, testInfo) => {
+test('renderer reaches production MCP and lifecycle paths @packaged @destructive', async ({}, testInfo) => {
   test.setTimeout(420_000);
   const cleanup = new AsyncDisposableStack();
   let testFailed = false;

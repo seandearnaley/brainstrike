@@ -1,5 +1,5 @@
 import { request } from 'node:http';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { startPackagedCoreFixture } from '../src/packaged-core-fixture.js';
 
 function followAuthorization(url: URL): Promise<URL> {
@@ -64,6 +64,46 @@ it('accepts one bounded OAuth authorization delay and rejects it elsewhere', asy
   const oauth = await startPackagedCoreFixture('oauth-reference', {
     authorizationDelayMs: 100,
   });
-  cleanup.defer(async () => expect((await oauth.close()).clean).toBe(false));
+  cleanup.defer(async () => expect((await oauth.close()).clean).toBe(true));
   expect(oauth.authorizationDelayObserved()).toBe(false);
+  expect(oauth.authorizationDelaySettled()).toBe(false);
+  const redirectUri = 'http://127.0.0.1:49876/mcp/oauth/callback';
+  const registration = await fetch(new URL('/register', oauth.manifest.authorizationUrl), {
+    body: JSON.stringify({
+      application_type: 'native',
+      client_name: 'Packaged core fixture verifier',
+      grant_types: ['authorization_code'],
+      redirect_uris: [redirectUri],
+      response_types: ['code'],
+      scope: 'mcp',
+      token_endpoint_auth_method: 'none',
+    }),
+    headers: { 'content-type': 'application/json' },
+    method: 'POST',
+  });
+  expect(registration.status).toBe(201);
+  const registeredClient: unknown = await registration.json();
+  if (!(registeredClient && typeof registeredClient === 'object')) {
+    throw new Error('Packaged core registration response was not an object');
+  }
+  const clientId = Reflect.get(registeredClient, 'client_id');
+  if (typeof clientId !== 'string') {
+    throw new Error('Packaged core registration response omitted client_id');
+  }
+  const delayedAuthorize = new URL(oauth.manifest.authorizationUrl ?? '');
+  delayedAuthorize.search = new URLSearchParams({
+    client_id: clientId,
+    code_challenge: 'a'.repeat(43),
+    code_challenge_method: 'S256',
+    redirect_uri: redirectUri,
+    resource: oauth.manifest.url,
+    response_type: 'code',
+    scope: 'mcp',
+    state: 'packaged-core-delayed-state',
+  }).toString();
+  const delayedResponse = followAuthorization(delayedAuthorize);
+  await vi.waitFor(() => expect(oauth.authorizationDelayObserved()).toBe(true));
+  expect(oauth.authorizationDelaySettled()).toBe(false);
+  await expect(delayedResponse).resolves.toEqual(expect.any(URL));
+  expect(oauth.authorizationDelaySettled()).toBe(true);
 });
