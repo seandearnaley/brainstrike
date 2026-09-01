@@ -217,4 +217,10 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
     expect(JSON.stringify(runtime.host.snapshot())).not.toContain('Bearer private-token');
     await runtime.host.close();
   });
+
+  it('composes the process-local presenter without advertising it', async () => {
+    const runtime = createDesktopMcpHostRuntime();
+    expect(runtime.elicitationPresenter.presenter).toMatchObject({ form: true, url: true });
+    await runtime.host.close();
+  });
 });
