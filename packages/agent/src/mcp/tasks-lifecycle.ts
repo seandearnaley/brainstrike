@@ -23,6 +23,7 @@ import {
   resolveMcpTaskPollDelay,
   TERMINAL_TASK_STATUSES,
 } from './tasks-lifecycle-state';
+import { McpTaskObservationError, type McpTaskObservationPort } from './tasks-observation';
 
 export const DEFAULT_MCP_TASK_LIFECYCLE_LIMITS = Object.freeze({
   initialPollMs: 500,
@@ -30,6 +31,7 @@ export const DEFAULT_MCP_TASK_LIFECYCLE_LIMITS = Object.freeze({
   maxConcurrentPolls: 4,
   maxConsecutiveFailures: 3,
   maxLifetimeMs: 24 * 60 * 60 * 1000,
+  maxTransportFailures: 3,
   minimumPollMs: 100,
   pollRequestTimeoutMs: 30_000,
 });
@@ -40,6 +42,7 @@ export interface McpTaskLifecycleLimits {
   readonly maxConcurrentPolls: number;
   readonly maxConsecutiveFailures: number;
   readonly maxLifetimeMs: number;
+  readonly maxTransportFailures: number;
   readonly minimumPollMs: number;
   readonly pollRequestTimeoutMs: number;
 }
@@ -78,23 +81,11 @@ export class McpTaskLifecycleStoppedError extends Error {
   }
 }
 
-export class McpTaskObservationError extends Error {
-  constructor(
-    readonly taskId: string,
-    readonly failures: number,
-    cause: unknown
-  ) {
-    super(`MCP task "${taskId}" observation failed after ${failures} bounded attempts.`, {
-      cause,
-    });
-    this.name = 'McpTaskObservationError';
-  }
-}
-
 export interface McpTaskLifecycleOptions {
   readonly authority: McpTaskAuthorityLease;
   readonly client: McpTaskPollingClient;
   readonly limits?: McpTaskLifecycleLimits;
+  readonly observationPort?: McpTaskObservationPort;
   readonly onUpdate: (record: McpTaskRecord) => Promise<void> | void;
   readonly repository: McpTaskRepository;
 }
@@ -142,6 +133,10 @@ function normalizeLimits(input: McpTaskLifecycleLimits | undefined): McpTaskLife
       'maxConsecutiveFailures'
     ),
     maxLifetimeMs: requirePositiveInteger(limits.maxLifetimeMs, 'maxLifetimeMs'),
+    maxTransportFailures: requirePositiveInteger(
+      limits.maxTransportFailures,
+      'maxTransportFailures'
+    ),
     minimumPollMs: requirePositiveInteger(limits.minimumPollMs, 'minimumPollMs'),
     pollRequestTimeoutMs: requirePositiveInteger(
       limits.pollRequestTimeoutMs,
@@ -192,10 +187,12 @@ export class McpTaskLifecycle {
   private readonly limits: McpTaskLifecycleLimits;
   private readonly onUpdate: McpTaskLifecycleOptions['onUpdate'];
   private readonly pendingCreates = new Set<Promise<McpTrackedTask>>();
+  private readonly observationPort: McpTaskObservationPort | undefined;
   private readonly pollWaiters: PollWaiter[] = [];
   private readonly repository: McpTaskRepository;
   private readonly scope: McpTaskScope;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly releaseObservationAuthority: (() => void) | undefined;
   private activePolls = 0;
   private stopPromise: Promise<void> | undefined;
   private retirePromise: Promise<void> | undefined;
@@ -205,12 +202,16 @@ export class McpTaskLifecycle {
     this.client = options.client;
     this.limits = normalizeLimits(options.limits);
     this.onUpdate = options.onUpdate;
+    this.observationPort = options.observationPort;
     this.repository = options.repository;
     this.scope = Object.freeze({
       authorityEpoch: options.authority.authorityEpoch,
       principalId: options.authority.principalId,
       resource: options.authority.resource,
       serverId: options.authority.serverId,
+    });
+    this.releaseObservationAuthority = this.observationPort?.attachAuthority({
+      wake: (taskId) => this.wake(taskId),
     });
   }
 
@@ -299,6 +300,7 @@ export class McpTaskLifecycle {
     if (!this.stopPromise) {
       const failure = new McpTaskLifecycleStoppedError(reason);
       this.lifecycleController.abort(failure);
+      this.releaseObservationAuthority?.();
       for (const task of this.active.values()) {
         task.controller.abort(failure);
       }
@@ -350,9 +352,16 @@ export class McpTaskLifecycle {
       release: undefined,
       requested: hasPendingMcpTaskDetail(record),
     };
-    const settled = this.poll(record, initialTiming, signal, wake).finally(() => {
-      this.active.delete(record.taskId);
-    });
+    const settled = this.poll(record, initialTiming, signal, wake)
+      .catch((error: unknown) => {
+        if (!(signal.aborted || this.lifecycleController.signal.aborted)) {
+          this.observationPort?.publishFailure(record.taskId, error);
+        }
+        throw error;
+      })
+      .finally(() => {
+        this.active.delete(record.taskId);
+      });
     void settled.catch(() => undefined);
     this.active.set(record.taskId, { controller, settled, wake });
     return Object.freeze({ record, settled });
@@ -421,6 +430,9 @@ export class McpTaskLifecycle {
       if (signal.aborted) {
         throw abortReason(signal);
       }
+      if (this.observationPort) {
+        await raceAbort(this.observationPort.publish(result), signal);
+      }
       await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
       if (TERMINAL_TASK_STATUSES.has(persisted.status) || persisted.blockedDiagnostic !== null) {
         return persisted;
@@ -484,10 +496,11 @@ export class McpTaskLifecycle {
       return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const finish = (): void => {
         cleanup();
         resolve();
-      }, delayMs);
+      };
+      const timer = setTimeout(finish, delayMs);
       this.timers.add(timer);
       const onAbort = (): void => {
         cleanup();

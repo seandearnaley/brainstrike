@@ -1,6 +1,5 @@
 import type { McpTaskIdentity, McpTaskScope } from '@brainstrike/db';
 import {
-  type GetTaskResult,
   parseMcpCancelTaskParams,
   parseMcpUpdateTaskParams,
   type TaskStatus,
@@ -14,11 +13,11 @@ import {
 import type { McpClientExtensionRequestContract } from './client-extension-registry';
 import {
   MCP_TASKS_CANCEL_REQUEST_CONTRACT,
-  MCP_TASKS_GET_REQUEST_CONTRACT,
   MCP_TASKS_UPDATE_REQUEST_CONTRACT,
   type McpTasksNotificationHandler,
   type McpTasksNotificationLease,
 } from './tasks-extension';
+import type { McpTaskObservationPort } from './tasks-observation';
 
 export interface McpTaskInteractionElicitationContext
   extends McpClientHandlerContext,
@@ -51,6 +50,7 @@ export interface McpTaskInteractionClient {
 export interface McpTaskInteractionOptions {
   readonly client: McpTaskInteractionClient;
   readonly elicitation: McpTaskInteractionElicitationAuthority;
+  readonly observationPort: McpTaskObservationPort;
   readonly scope: McpTaskScope;
 }
 
@@ -65,16 +65,6 @@ export class McpTaskCancellationOutcomeError extends Error {
   ) {
     super(`MCP task "${taskId}" reached "${status}" instead of the permitted cancelled state.`);
     this.name = 'McpTaskCancellationOutcomeError';
-  }
-}
-
-export class McpTaskObservationError extends Error {
-  constructor(
-    readonly taskId: string,
-    cause: unknown
-  ) {
-    super(`MCP task "${taskId}" observation failed after bounded transport retries.`, { cause });
-    this.name = 'McpTaskObservationError';
   }
 }
 
@@ -95,11 +85,6 @@ interface CancellationOperation {
 }
 
 const TERMINAL_TASK_STATUSES = new Set<TaskStatus>(['cancelled', 'completed', 'failed']);
-const INITIAL_POLL_MS = 500;
-const MAX_POLL_BACKOFF_MS = 30_000;
-const MAX_TRANSPORT_FAILURES = 3;
-const MINIMUM_POLL_MS = 100;
-const POLL_REQUEST_TIMEOUT_MS = 30_000;
 
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('MCP task interaction was aborted.', 'AbortError');
@@ -146,20 +131,22 @@ export class McpTaskInteraction {
   private readonly elicitation: McpTaskInteractionElicitationAuthority;
   private readonly inputs = new Map<string, InputOperation>();
   private readonly notificationTaskIds = new Set<string>();
+  private readonly observationPort: McpTaskObservationPort;
   private readonly observationFailures = new Map<string, unknown>();
-  private readonly pollers = new Map<string, Promise<void>>();
   private readonly scope: McpTaskScope;
   private readonly statuses = new Map<string, TaskStatus>();
   private readonly taskControllers = new Map<string, AbortController>();
   private readonly taskIds = new Set<string>();
   private closePromise: Promise<void> | undefined;
   private notificationError: unknown;
+  private releaseObservationConsumer: (() => void) | undefined;
   private started = false;
   private subscription: McpTasksNotificationLease | undefined;
 
   constructor(options: McpTaskInteractionOptions) {
     this.client = options.client;
     this.elicitation = options.elicitation;
+    this.observationPort = options.observationPort;
     this.scope = Object.freeze({ ...options.scope });
   }
 
@@ -172,6 +159,10 @@ export class McpTaskInteraction {
     if (taskIds.length === 0 || uniqueTaskIds.size !== taskIds.length) {
       throw new Error('MCP task interaction requires non-empty unique task ids.');
     }
+    this.releaseObservationConsumer = this.observationPort.subscribe({
+      fail: (taskId, error) => this.recordObservationFailure(taskId, error),
+      observe: async (task) => await this.observe(task),
+    });
     this.started = true;
     for (const taskId of uniqueTaskIds) {
       this.admit(taskId);
@@ -186,7 +177,7 @@ export class McpTaskInteraction {
             if (!this.notificationTaskIds.has(task.taskId)) {
               throw new Error(`MCP task notification was not acknowledged: "${task.taskId}".`);
             }
-            await this.observe(task);
+            this.observationPort.requestPoll(task.taskId);
           },
           { signal: this.controller.signal }
         ),
@@ -206,13 +197,10 @@ export class McpTaskInteraction {
       }
       notificationReady.resolve();
       this.subscription = subscription;
-      void subscription.closed.then(() => {
-        if (this.subscription === subscription) {
-          this.subscription = undefined;
-          this.notificationTaskIds.clear();
-          this.notificationError = new Error('MCP task notification subscription closed.');
-        }
-      });
+      void subscription.closed.then(
+        () => this.recordSubscriptionClosure(subscription),
+        (error: unknown) => this.recordSubscriptionClosure(subscription, error)
+      );
     } catch (error) {
       notificationReady.resolve();
       if (this.controller.signal.aborted) {
@@ -230,29 +218,16 @@ export class McpTaskInteraction {
     if (this.taskIds.has(taskId)) {
       return;
     }
-    const controller = new AbortController();
     this.taskIds.add(taskId);
-    this.taskControllers.set(taskId, controller);
-    let poller: Promise<void>;
-    poller = this.pollTask(taskId, controller.signal)
-      .catch((error: unknown) => {
-        if (!(controller.signal.aborted || this.controller.signal.aborted)) {
-          this.observationFailures.set(taskId, error);
-          this.cancellations.get(taskId)?.terminal.reject(error);
-          controller.abort(error);
-          this.releaseTaskInputs(taskId);
-        }
-      })
-      .finally(() => {
-        if (this.pollers.get(taskId) === poller) {
-          this.pollers.delete(taskId);
-        }
-      });
-    this.pollers.set(taskId, poller);
+    this.taskControllers.set(taskId, new AbortController());
   }
 
   notificationFailure(): unknown {
     return this.notificationError;
+  }
+
+  observationFailure(taskId: string): unknown {
+    return this.observationFailures.get(taskId);
   }
 
   async observe(task: Parameters<McpTasksNotificationHandler>[0]): Promise<void> {
@@ -474,72 +449,8 @@ export class McpTaskInteraction {
     return this.cancellationResult(taskId);
   }
 
-  private async pollTask(taskId: string, signal: AbortSignal): Promise<void> {
-    let delayMs = INITIAL_POLL_MS;
-    let transportFailures = 0;
-    while (!(signal.aborted || this.controller.signal.aborted)) {
-      await this.wait(delayMs, signal);
-      let task: GetTaskResult;
-      try {
-        const requestSignal = AbortSignal.any([this.controller.signal, signal]);
-        task = await raceAbort(
-          this.client.requestExtension(
-            MCP_TASKS_GET_REQUEST_CONTRACT,
-            { taskId },
-            {
-              signal: requestSignal,
-              timeout: POLL_REQUEST_TIMEOUT_MS,
-            }
-          ),
-          requestSignal
-        );
-      } catch (error) {
-        transportFailures += 1;
-        this.assertPollRetry(taskId, error, signal, transportFailures);
-        delayMs = Math.min(delayMs * 2, MAX_POLL_BACKOFF_MS);
-        continue;
-      }
-      transportFailures = 0;
-      await this.observe(task);
-      if (TERMINAL_TASK_STATUSES.has(task.status)) {
-        return;
-      }
-      if (task.pollIntervalMs === undefined) {
-        delayMs = Math.min(delayMs * 2, MAX_POLL_BACKOFF_MS);
-      } else {
-        if (!(Number.isSafeInteger(task.pollIntervalMs) && task.pollIntervalMs >= 0)) {
-          throw new TypeError('MCP task pollIntervalMs must be a non-negative safe integer.');
-        }
-        delayMs = Math.max(task.pollIntervalMs, MINIMUM_POLL_MS);
-      }
-    }
-  }
-
-  private assertPollRetry(
-    taskId: string,
-    error: unknown,
-    signal: AbortSignal,
-    failures: number
-  ): void {
-    if (signal.aborted || this.controller.signal.aborted) {
-      throw abortReason(signal.aborted ? signal : this.controller.signal);
-    }
-    if (failures >= MAX_TRANSPORT_FAILURES) {
-      throw new McpTaskObservationError(taskId, error);
-    }
-  }
-
   private cancellationResult(taskId: string): McpTaskCancellationResult {
     return Object.freeze({ ...this.scope, status: 'cancelled', taskId });
-  }
-
-  private wait(delayMs: number, taskSignal: AbortSignal): Promise<void> {
-    const signal = AbortSignal.any([this.controller.signal, taskSignal]);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const delayed = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, delayMs);
-    });
-    return raceAbort(delayed, signal).finally(() => clearTimeout(timer));
   }
 
   private releaseTaskInputs(taskId: string): void {
@@ -570,9 +481,35 @@ export class McpTaskInteraction {
     }
   }
 
+  private recordObservationFailure(taskId: string, error: unknown): void {
+    if (!this.taskIds.has(taskId)) {
+      throw new Error(`MCP task observation failure is outside the owned task set: "${taskId}".`);
+    }
+    this.observationFailures.set(taskId, error);
+    this.cancellations.get(taskId)?.terminal.reject(error);
+    this.taskControllers.get(taskId)?.abort(error);
+    this.taskControllers.delete(taskId);
+    this.releaseTaskInputs(taskId);
+  }
+
+  private recordSubscriptionClosure(
+    subscription: McpTasksNotificationLease,
+    error?: unknown
+  ): void {
+    if (this.subscription !== subscription) {
+      return;
+    }
+    this.subscription = undefined;
+    this.notificationTaskIds.clear();
+    this.notificationError =
+      error ?? new Error('MCP task notification subscription closed unexpectedly.');
+  }
+
   private async finishClose(): Promise<void> {
     const subscription = this.subscription;
     this.subscription = undefined;
+    this.releaseObservationConsumer?.();
+    this.releaseObservationConsumer = undefined;
     const subscriptionResult = subscription ? await Promise.allSettled([subscription.close()]) : [];
     await Promise.allSettled([
       ...[...this.inputs.values()].flatMap((operation) => [
@@ -580,13 +517,11 @@ export class McpTaskInteraction {
         ...(operation.delivery ? [operation.delivery] : []),
       ]),
       ...[...this.cancellations.values()].map(({ promise }) => promise),
-      ...this.pollers.values(),
     ]);
     this.cancellations.clear();
     this.inputs.clear();
     this.notificationTaskIds.clear();
     this.observationFailures.clear();
-    this.pollers.clear();
     this.statuses.clear();
     this.taskControllers.clear();
     this.taskIds.clear();

@@ -6,7 +6,7 @@ import {
   MCP_TASKS_EXTENSION_ID as TEST_EXTENSION_ID,
   MCP_TASKS_EXTENSION_SETTINGS as TEST_EXTENSION_SETTINGS,
 } from '@brainstrike/mcp-tasks-extension';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
 import {
@@ -95,6 +95,14 @@ it('runs the exact Tasks extension contracts on a spawned modern stdio wire', as
   await notification.promise;
   await subscription.close();
   await expect(subscription.closed).resolves.toBe('local');
+
+  await vi.waitFor(async () => {
+    const methods = (await readFile(requestsFile, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => (JSON.parse(line) as Record<string, unknown>)['method']);
+    expect(methods.at(-1)).toBe('notifications/cancelled');
+  });
 
   const requests = (await readFile(requestsFile, 'utf8'))
     .trim()

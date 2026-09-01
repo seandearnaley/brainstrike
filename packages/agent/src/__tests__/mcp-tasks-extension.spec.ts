@@ -18,6 +18,36 @@ function tasksRegistry(): McpClientExtensionRegistry {
 }
 
 describe('MCP Tasks wire adapter', () => {
+  it('rolls back active ownership when notification handler registration throws', async () => {
+    const setNotificationHandler = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('handler registration failed');
+      })
+      .mockImplementationOnce(() => undefined);
+    const subscription = {
+      close: vi.fn(async () => undefined),
+      closed: new Promise<never>(() => undefined),
+      honoredFilter: { taskIds: ['task-1'] },
+    };
+    const client = {
+      getNegotiatedProtocolVersion: () => '2026-07-28',
+      getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
+      listen: vi.fn(async () => subscription),
+      removeNotificationHandler: vi.fn(),
+      setNotificationHandler,
+    } as unknown as Client;
+    const registry = tasksRegistry();
+
+    await expect(listenForMcpTasks(client, registry, ['task-1'], vi.fn())).rejects.toThrow(
+      /handler registration failed/u
+    );
+    const lease = await listenForMcpTasks(client, registry, ['task-1'], vi.fn());
+
+    expect(setNotificationHandler).toHaveBeenCalledTimes(2);
+    await lease.close();
+  });
+
   it('rejects task notification acknowledgements outside the requested subset', async () => {
     const close = vi.fn(async () => undefined);
     const client = {

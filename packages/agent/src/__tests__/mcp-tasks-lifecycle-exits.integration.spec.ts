@@ -12,9 +12,9 @@ import {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
   McpTaskLifecycle,
   type McpTaskLifecycleStopReason,
-  McpTaskObservationError,
   type McpTaskPollingClient,
 } from '../mcp/tasks-lifecycle.js';
+import { McpTaskObservationError, McpTaskObservationPort } from '../mcp/tasks-observation.js';
 
 const CREATED_AT = '2026-09-01T05:00:00.000Z';
 const authorityInput = {
@@ -194,6 +194,9 @@ describe('McpTaskLifecycle exit fencing', () => {
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const onUpdate = vi.fn();
+    const observe = vi.fn();
+    const observationPort = new McpTaskObservationPort();
+    observationPort.subscribe({ fail: vi.fn(), observe });
     const lifecycle = new McpTaskLifecycle({
       authority,
       client: {
@@ -209,6 +212,7 @@ describe('McpTaskLifecycle exit fencing', () => {
           })
         ),
       },
+      observationPort,
       onUpdate,
       repository,
     });
@@ -222,6 +226,46 @@ describe('McpTaskLifecycle exit fencing', () => {
       status: 'working',
     });
     expect(onUpdate).not.toHaveBeenCalled();
+    expect(observe).not.toHaveBeenCalled();
+    expectNoLifecycleLeaks(lifecycle);
+  });
+
+  it('settles and publishes bounded transport exhaustion after three lifecycle polls', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(CREATED_AT));
+    db = await openDatabase();
+    const failure = new Error('transport lost');
+    const publishFailure = vi.fn();
+    const observationPort = new McpTaskObservationPort();
+    observationPort.subscribe({ fail: publishFailure, observe: vi.fn() });
+    const requestExtension = vi.fn(() => Promise.reject(failure));
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: { requestExtension },
+      limits: {
+        ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
+        initialPollMs: 10,
+        maxBackoffMs: 40,
+        minimumPollMs: 10,
+      },
+      observationPort,
+      onUpdate: vi.fn(),
+      repository,
+    });
+    const tracked = await lifecycle.track(task('task-exhausted', { pollIntervalMs: 10 }));
+    const settlement = expect(tracked.settled).rejects.toBeInstanceOf(McpTaskObservationError);
+
+    await vi.advanceTimersByTimeAsync(70);
+
+    await settlement;
+    expect(requestExtension).toHaveBeenCalledTimes(3);
+    expect(publishFailure).toHaveBeenCalledOnce();
+    expect(publishFailure).toHaveBeenCalledWith(
+      'task-exhausted',
+      expect.objectContaining({ cause: failure })
+    );
     expectNoLifecycleLeaks(lifecycle);
   });
 

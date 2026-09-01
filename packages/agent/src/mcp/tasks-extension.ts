@@ -197,11 +197,16 @@ export async function listenForMcpTasks(
     client.getNegotiatedProtocolVersion()
   );
   activeTaskSubscriptions.add(client);
-  client.setNotificationHandler(
-    notificationContract.method,
-    { params: notificationContract.paramsSchema },
-    handler
-  );
+  try {
+    client.setNotificationHandler(
+      notificationContract.method,
+      { params: notificationContract.paramsSchema },
+      handler
+    );
+  } catch (error) {
+    activeTaskSubscriptions.delete(client);
+    throw error;
+  }
   let released = false;
   const release = (): void => {
     if (!released) {

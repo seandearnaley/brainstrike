@@ -2042,16 +2042,19 @@ enablement layers are complete.
 
 BST-1564 adds the opt-in interaction coordinator without enabling Tasks in production. It deduplicates
 task-scoped input keys and sends elicitation results through `tasks/update` only after shared MCP
-validation with exact server, resource, principal, generation, task, and input-key provenance. Polling
-is authoritative/default: it dynamically admits IDs, uses bounded cadence/backoff, and fails visibly
-after three bounded transport failures. Optional notifications feed the same observer only for the
-acknowledged ID subset; lease loss does not disable polling. A `tasks/cancel` acknowledgement is not
-success: only observed `cancelled` settles successfully; `completed` or `failed` is a non-cancellation
-outcome. Each observation treats `inputRequests` as the complete outstanding snapshot and retires
-omitted keys before stale responses can be sent. Exact 2026 task responses require canonical
-`resultType`; no compatibility repair runs on this path. Terminal state, generation replacement, and
-coordinator close abort pending input and release resources. Sampling/roots input, renderer UX, host
-registration, and support advertisement remain disabled.
+validation with exact server, resource, principal, generation, task, and input-key provenance.
+`McpTaskLifecycle` is the sole ordered polling authority: it validates exact task identity, persists the
+observation, and only then publishes it through the neutral task-observation port. The interaction
+coordinator consumes that published stream and never starts a poller. Optional notifications for the
+acknowledged ID subset only coalesce an immediate lifecycle poll; lease loss does not disable polling.
+Transport exhaustion rejects the public tracked-task settlement and is published to the interaction
+failure surface. A `tasks/cancel` acknowledgement is not success: only observed `cancelled` settles
+successfully; `completed` or `failed` is a non-cancellation outcome. Each observation treats
+`inputRequests` as the complete outstanding snapshot and retires omitted keys before stale responses
+can be sent. Exact 2026 task responses require canonical `resultType`; no compatibility repair runs on
+this path. Terminal state, generation replacement, and coordinator close abort pending input and
+release resources. Sampling/roots input, renderer UX, host registration, and support advertisement
+remain disabled.
 
 ### MCP client input and deprecated compatibility (BST-1470)
 
