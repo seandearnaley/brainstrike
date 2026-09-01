@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from '@brainstrike/ui';
 import { useRef, useState } from 'react';
-import { McpServerCatalog } from './mcp-support-status';
+import { McpServerCatalog, type McpServerCatalogContentActions } from './mcp-support-status';
 import type { McpServerInfo } from './types';
 
 const MCP_CONTROL_LABELS = {
@@ -104,11 +104,17 @@ function McpAuthStatus({ server }: { readonly server: McpServerInfo }) {
 
 export function McpServerStatusRow({
   controlAvailable,
+  onComplete,
   onControl,
+  onGetPrompt,
+  onReadResource,
   server,
 }: {
   readonly controlAvailable: boolean;
+  readonly onComplete?: McpServerCatalogContentActions['onComplete'];
   readonly onControl: (request: McpHostControlRequest) => Promise<void>;
+  readonly onGetPrompt?: McpServerCatalogContentActions['onGetPrompt'];
+  readonly onReadResource?: McpServerCatalogContentActions['onReadResource'];
   readonly server: McpServerInfo;
 }) {
   const actions = controlAvailable ? resolveMcpHostControlActions(server) : [];
@@ -194,7 +200,14 @@ export function McpServerStatusRow({
             }`}
           </div>
           {server.catalog && (
-            <McpServerCatalog catalog={server.catalog} serverId={server.configuredServerId} />
+            <McpServerCatalog
+              catalog={server.catalog}
+              generation={server.generation}
+              onComplete={onComplete}
+              onGetPrompt={onGetPrompt}
+              onReadResource={onReadResource}
+              serverId={server.configuredServerId}
+            />
           )}
         </>
       )}

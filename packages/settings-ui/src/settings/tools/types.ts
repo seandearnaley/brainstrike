@@ -3,7 +3,9 @@
  */
 
 import type {
+  ConfiguredMcpServerId,
   McpHostControlRequest,
+  McpHostOperationResult,
   McpHostServerSnapshot,
   McpHostSnapshot,
 } from '@brainstrike/assistant-contract';
@@ -92,10 +94,40 @@ export type ToolExecutionResult<T = unknown> =
 export type McpServerInfo = McpHostServerSnapshot;
 
 /**
+ * One connected server generation that user-initiated content browsing targets
+ * (BST-1585). Mirrors the assistant-service content application port's
+ * authority structurally; settings-ui depends only on assistant-contract.
+ */
+export interface McpContentAuthority {
+  configuredServerId: ConfiguredMcpServerId;
+  generation: number;
+}
+export interface McpReadResourceRequest {
+  authority: McpContentAuthority;
+  uri: string;
+}
+export interface McpGetPromptRequest {
+  arguments?: Record<string, string>;
+  authority: McpContentAuthority;
+  name: string;
+}
+export interface McpCompleteRequest {
+  argument: { name: string; value: string };
+  authority: McpContentAuthority;
+  context?: { arguments: Record<string, string> };
+  ref: { name: string; type: 'ref/prompt' } | { type: 'ref/resource'; uri: string };
+}
+export type McpReadResourceResult = Extract<McpHostOperationResult, { type: 'resources/read' }>;
+export type McpGetPromptResult = Extract<McpHostOperationResult, { type: 'prompts/get' }>;
+export type McpCompleteResult = Extract<McpHostOperationResult, { type: 'completion/complete' }>;
+
+/**
  * Operations for tool management.
  * Platform-specific implementations provide these callbacks.
  */
 export interface ToolsSettingsOperations {
+  /** Autocomplete one prompt or resource-template argument (desktop only, user-initiated). */
+  completeMcpContent?: (request: McpCompleteRequest) => Promise<McpCompleteResult>;
   /** Connect, cancel, or retry one MCP server when the host exposes lifecycle control. */
   controlMcpServer?: (request: McpHostControlRequest) => Promise<McpHostServerSnapshot>;
   /** Create a sample MCP config file */
@@ -114,6 +146,8 @@ export interface ToolsSettingsOperations {
   getMcpConfigInfo?: () => Promise<McpConfigInfo | null>;
   /** Get current MCP config path */
   getMcpConfigPath?: () => Promise<string>;
+  /** Fetch one prompt body for explicit user browsing (desktop only, never eager model context). */
+  getMcpPrompt?: (request: McpGetPromptRequest) => Promise<McpGetPromptResult>;
   /**
    * Get status of MCP servers (desktop only).
    * Optional: Only required when mcpAvailable=true.
@@ -127,6 +161,8 @@ export interface ToolsSettingsOperations {
   openMcpConfig?: () => Promise<void>;
   /** Read MCP config file text, optionally auto-creating it from a template */
   readMcpConfigText?: () => Promise<McpConfigTextDocument>;
+  /** Read one resource body for explicit user browsing (desktop only, never eager model context). */
+  readMcpResource?: (request: McpReadResourceRequest) => Promise<McpReadResourceResult>;
   /** Refresh MCP server connections */
   refreshMcpServers?: () => Promise<void>;
   /** Reset MCP config to default path */

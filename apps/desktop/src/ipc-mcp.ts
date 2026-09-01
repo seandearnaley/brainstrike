@@ -14,6 +14,7 @@ import {
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { registerMcpContentIpc } from './mcp/content-ipc';
 import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { controlDestructiveMcpLifecycle, notifyMcpStatusUpdated } from './mcp/lifecycle-control';
 import type { McpDiscoveredTool } from './mcp/types';
@@ -58,6 +59,7 @@ const logger = createLogger('DesktopMcpIpc');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
+const mcpContentLifecycle = { barrier: () => mcpLifecycleBarrier, isOpen: () => mcpLifecycleOpen };
 export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
 export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
 export const MCP_STATUS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated;
@@ -772,6 +774,8 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   registry.registerInvoke('mcp', DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsGetStats, async () =>
     mcpToolRegistry.getStats()
   );
+
+  registerMcpContentIpc(registry, runtime, mcpContentLifecycle);
 
   registry.registerInvoke(
     'mcp',

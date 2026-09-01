@@ -136,7 +136,11 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:reset', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:getStats', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:createSample', expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledTimes(18);
+      // Content handlers (BST-1585)
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:complete', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:getPrompt', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:readResource', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledTimes(21);
     });
 
     it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {

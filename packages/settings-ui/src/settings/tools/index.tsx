@@ -28,8 +28,11 @@ export type { ToolRowExpandedProps } from './tool-row-expanded';
 export { ToolRowExpanded } from './tool-row-expanded';
 export { ToolsFilterBar } from './tools-filter-bar';
 export type {
+  McpCompleteRequest,
   McpConfigInfo,
   McpConfigTextDocument,
+  McpGetPromptRequest,
+  McpReadResourceRequest,
   McpServerInfo,
   McpServerStatusProps,
   TokenBudgetSummaryProps,

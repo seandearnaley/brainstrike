@@ -1,17 +1,82 @@
-import { MCP_SUPPORT_MATRIX } from '@brainstrike/assistant-contract';
-import type { McpServerInfo } from './types';
+import { type ConfiguredMcpServerId, MCP_SUPPORT_MATRIX } from '@brainstrike/assistant-contract';
+import { Button, Input, Label } from '@brainstrike/ui';
+import { useRef, useState } from 'react';
+import type {
+  McpCompleteRequest,
+  McpCompleteResult,
+  McpContentAuthority,
+  McpGetPromptRequest,
+  McpGetPromptResult,
+  McpReadResourceRequest,
+  McpReadResourceResult,
+  McpServerInfo,
+} from './types';
 
 type ConnectedCatalog = NonNullable<Extract<McpServerInfo, { state: 'connected' }>['catalog']>;
+type CatalogPrompt = NonNullable<ConnectedCatalog['prompts']>['prompts'][number];
+type PromptMessageContent = McpGetPromptResult['result']['messages'][number]['content'];
 const CATALOG_PREVIEW_LIMIT = 5;
+/** Bound for any single text body rendered from user-initiated content browsing. */
+const CONTENT_TEXT_LIMIT = 2000;
+const CONTENT_FAILURE_FALLBACK = 'MCP content request failed';
 
+/**
+ * User-initiated content browsing (BST-1585). Each action is present only
+ * when the platform exposes it; web omits all three, so no affordance renders.
+ */
+export interface McpServerCatalogContentActions {
+  readonly onComplete?: ((request: McpCompleteRequest) => Promise<McpCompleteResult>) | undefined;
+  readonly onGetPrompt?:
+    | ((request: McpGetPromptRequest) => Promise<McpGetPromptResult>)
+    | undefined;
+  readonly onReadResource?:
+    | ((request: McpReadResourceRequest) => Promise<McpReadResourceResult>)
+    | undefined;
+}
+
+interface CatalogPreviewAction {
+  ariaLabel: string;
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+  pending: boolean;
+  testId: string;
+}
 interface CatalogPreviewItem {
+  action?: CatalogPreviewAction;
   key: string;
   text: string;
+}
+type ContentView =
+  | { kind: 'prompt'; name: string; result: McpGetPromptResult['result'] }
+  | { kind: 'resource'; result: McpReadResourceResult['result']; uri: string };
+interface PromptDraft {
+  prompt: CatalogPrompt;
+  values: Record<string, string>;
+}
+interface ArgumentSuggestions {
+  argument: string;
+  values: readonly string[];
 }
 
 function displayTitle(title: string | undefined, fallback: string): string {
   const normalized = title?.trim();
   return normalized ? normalized : fallback;
+}
+
+function truncateText(text: string): string {
+  if (text.length <= CONTENT_TEXT_LIMIT) {
+    return text;
+  }
+  return `${text.slice(0, CONTENT_TEXT_LIMIT)}… (truncated ${text.length - CONTENT_TEXT_LIMIT} characters)`;
+}
+
+function failureMessage(cause: unknown): string {
+  return cause instanceof Error && cause.message ? cause.message : CONTENT_FAILURE_FALLBACK;
+}
+
+function promptArguments(prompt: CatalogPrompt): NonNullable<CatalogPrompt['arguments']> {
+  return prompt.arguments ?? [];
 }
 
 function CatalogPreview({ items, label }: { items: readonly CatalogPreviewItem[]; label: string }) {
@@ -25,21 +90,246 @@ function CatalogPreview({ items, label }: { items: readonly CatalogPreviewItem[]
         {label} (showing {visible.length} of {items.length})
       </div>
       {visible.map((item) => (
-        <div className="break-all text-muted-foreground" key={item.key}>
-          {item.text}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5" key={item.key}>
+          <span className="break-all text-muted-foreground">{item.text}</span>
+          {item.action && (
+            <Button
+              aria-busy={item.action.pending}
+              aria-label={item.action.ariaLabel}
+              className="h-6 px-2 text-xs"
+              data-testid={item.action.testId}
+              disabled={item.action.disabled}
+              onClick={item.action.onClick}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {item.action.label}
+            </Button>
+          )}
         </div>
       ))}
     </div>
   );
 }
 
+/**
+ * Content items carry no identity beyond their position; derive stable keys
+ * from the item identity plus its occurrence count for duplicates.
+ */
+function withStableKeys<Item>(
+  items: readonly Item[],
+  identity: (item: Item) => string
+): readonly { item: Item; key: string }[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const id = identity(item);
+    const occurrence = seen.get(id) ?? 0;
+    seen.set(id, occurrence + 1);
+    return { item, key: occurrence === 0 ? id : `${id}#${occurrence}` };
+  });
+}
+
+function ResourceContents({ result }: { result: McpReadResourceResult['result'] }) {
+  return (
+    <>
+      {withStableKeys(result.contents, (content) => content.uri).map(({ item, key }) => (
+        <div className="space-y-0.5" key={key}>
+          <div className="break-all text-muted-foreground">
+            {item.uri}
+            {typeof item.mimeType === 'string' ? ` · ${item.mimeType}` : ''}
+          </div>
+          {'text' in item && typeof item.text === 'string' ? (
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2">
+              {truncateText(item.text)}
+            </pre>
+          ) : (
+            <div className="text-muted-foreground italic">
+              binary content omitted
+              {'blob' in item && typeof item.blob === 'string'
+                ? ` (${item.blob.length} base64 characters)`
+                : ''}
+            </div>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function PromptMessageBody({ content }: { content: PromptMessageContent }) {
+  if (content.type === 'text') {
+    return (
+      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2">
+        {truncateText(content.text)}
+      </pre>
+    );
+  }
+  return <div className="text-muted-foreground italic">{content.type} content omitted</div>;
+}
+
+function PromptContents({ name, result }: { name: string; result: McpGetPromptResult['result'] }) {
+  return (
+    <>
+      {typeof result.description === 'string' && result.description.trim() !== '' && (
+        <div className="text-muted-foreground">{result.description}</div>
+      )}
+      {withStableKeys(result.messages, (message) => `${name}:${message.role}`).map(
+        ({ item, key }) => (
+          <div className="space-y-0.5" key={key}>
+            <div className="font-medium">{item.role}</div>
+            <PromptMessageBody content={item.content} />
+          </div>
+        )
+      )}
+    </>
+  );
+}
+
+function ContentViewPanel({ content, serverId }: { content: ContentView; serverId: string }) {
+  return (
+    <div
+      className="space-y-1 rounded-md border px-2 py-1.5 text-xs"
+      data-testid={`mcp-catalog-content-${serverId}`}
+    >
+      <div className="break-all font-medium">
+        {content.kind === 'resource' ? `Resource ${content.uri}` : `Prompt ${content.name}`}
+      </div>
+      {content.kind === 'resource' ? (
+        <ResourceContents result={content.result} />
+      ) : (
+        <PromptContents name={content.name} result={content.result} />
+      )}
+    </div>
+  );
+}
+
 export function McpServerCatalog({
   catalog,
+  generation,
+  onComplete,
+  onGetPrompt,
+  onReadResource,
   serverId,
-}: {
+}: McpServerCatalogContentActions & {
   catalog: ConnectedCatalog;
-  serverId: string;
+  generation: number;
+  serverId: ConfiguredMcpServerId;
 }) {
+  const authority: McpContentAuthority = { configuredServerId: serverId, generation };
+  const pendingRef = useRef<object | null>(null);
+  const completionSequenceRef = useRef(0);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [content, setContent] = useState<ContentView | null>(null);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [promptDraft, setPromptDraft] = useState<PromptDraft | null>(null);
+  const [suggestions, setSuggestions] = useState<ArgumentSuggestions | null>(null);
+  const busy = pendingKey !== null;
+
+  const runContent = async (key: string, operation: () => Promise<ContentView>): Promise<void> => {
+    if (pendingRef.current !== null) {
+      return;
+    }
+    const invocation = {};
+    pendingRef.current = invocation;
+    setPendingKey(key);
+    setContentError(null);
+    try {
+      const view = await operation();
+      if (pendingRef.current === invocation) {
+        setContent(view);
+      }
+    } catch (cause) {
+      if (pendingRef.current === invocation) {
+        setContent(null);
+        setContentError(failureMessage(cause));
+      }
+    } finally {
+      if (pendingRef.current === invocation) {
+        pendingRef.current = null;
+        setPendingKey(null);
+      }
+    }
+  };
+  const readResource = (uri: string): void => {
+    if (!onReadResource) {
+      return;
+    }
+    void runContent(`resource:${uri}`, async () => ({
+      kind: 'resource',
+      result: (await onReadResource({ authority, uri })).result,
+      uri,
+    }));
+  };
+  const getPrompt = (name: string, values: Record<string, string> | undefined): void => {
+    if (!onGetPrompt) {
+      return;
+    }
+    void runContent(`prompt:${name}`, async () => ({
+      kind: 'prompt',
+      name,
+      result: (await onGetPrompt({ ...(values && { arguments: values }), authority, name })).result,
+    }));
+  };
+  const beginPromptDraft = (prompt: CatalogPrompt): void => {
+    if (promptArguments(prompt).length === 0) {
+      setPromptDraft(null);
+      getPrompt(prompt.name, undefined);
+      return;
+    }
+    completionSequenceRef.current += 1;
+    setSuggestions(null);
+    setCompletionError(null);
+    setPromptDraft({ prompt, values: {} });
+  };
+  const requestSuggestions = (
+    prompt: CatalogPrompt,
+    argumentName: string,
+    value: string,
+    values: Record<string, string>
+  ): void => {
+    if (!onComplete) {
+      return;
+    }
+    const sequence = ++completionSequenceRef.current;
+    const resolved = Object.fromEntries(
+      Object.entries(values).filter(([name, argument]) => name !== argumentName && argument !== '')
+    );
+    void onComplete({
+      argument: { name: argumentName, value },
+      authority,
+      ...(Object.keys(resolved).length > 0 && { context: { arguments: resolved } }),
+      ref: { name: prompt.name, type: 'ref/prompt' },
+    }).then(
+      (response) => {
+        if (sequence === completionSequenceRef.current) {
+          setCompletionError(null);
+          setSuggestions({ argument: argumentName, values: response.result.completion.values });
+        }
+      },
+      (cause: unknown) => {
+        if (sequence === completionSequenceRef.current) {
+          setSuggestions(null);
+          setCompletionError(failureMessage(cause));
+        }
+      }
+    );
+  };
+  const submitPromptDraft = (draft: PromptDraft): void => {
+    const missing = promptArguments(draft.prompt).find(
+      (argument) => argument.required === true && (draft.values[argument.name] ?? '') === ''
+    );
+    if (missing) {
+      setContentError(`Prompt argument ${missing.name} is required`);
+      return;
+    }
+    const values = Object.fromEntries(
+      Object.entries(draft.values).filter(([, argument]) => argument !== '')
+    );
+    getPrompt(draft.prompt.name, Object.keys(values).length > 0 ? values : undefined);
+  };
+
   const featureRows = [
     ['Resources', catalog.features.resources],
     ['Prompts', catalog.features.prompts],
@@ -49,18 +339,44 @@ export function McpServerCatalog({
     ['Prompt list changes', catalog.features.promptListChanged],
     ['Tool list changes', catalog.features.toolListChanged],
   ] as const;
-  const resources = (catalog.resources?.resources ?? []).map((resource) => ({
-    key: resource.uri,
-    text: `${displayTitle(resource.title, resource.name)} · ${resource.uri}`,
-  }));
+  const resources = (catalog.resources?.resources ?? []).map((resource, index) => {
+    const name = displayTitle(resource.title, resource.name);
+    return {
+      ...(onReadResource && {
+        action: {
+          ariaLabel: `Read ${name}`,
+          disabled: busy,
+          label: 'Read',
+          onClick: () => readResource(resource.uri),
+          pending: pendingKey === `resource:${resource.uri}`,
+          testId: `mcp-catalog-read-${serverId}-${index}`,
+        },
+      }),
+      key: resource.uri,
+      text: `${name} · ${resource.uri}`,
+    };
+  });
   const templates = (catalog.resourceTemplates?.resourceTemplates ?? []).map((template) => ({
     key: template.uriTemplate,
     text: `${displayTitle(template.title, template.name)} · ${template.uriTemplate}`,
   }));
-  const prompts = (catalog.prompts?.prompts ?? []).map((prompt) => ({
-    key: prompt.name,
-    text: displayTitle(prompt.title, prompt.name),
-  }));
+  const prompts = (catalog.prompts?.prompts ?? []).map((prompt, index) => {
+    const name = displayTitle(prompt.title, prompt.name);
+    return {
+      ...(onGetPrompt && {
+        action: {
+          ariaLabel: `Use prompt ${name}`,
+          disabled: busy,
+          label: 'Use prompt',
+          onClick: () => beginPromptDraft(prompt),
+          pending: pendingKey === `prompt:${prompt.name}`,
+          testId: `mcp-catalog-prompt-${serverId}-${index}`,
+        },
+      }),
+      key: prompt.name,
+      text: name,
+    };
+  });
   const tools = (catalog.tools?.tools ?? []).map((tool) => ({
     key: tool.name,
     text: displayTitle(tool.title, tool.name),
@@ -113,6 +429,94 @@ export function McpServerCatalog({
           </div>
         ) : null
       )}
+      {promptDraft && (
+        <form
+          aria-busy={pendingKey === `prompt:${promptDraft.prompt.name}`}
+          className="space-y-2 rounded-md border px-2 py-1.5 text-xs"
+          data-testid={`mcp-catalog-prompt-form-${serverId}`}
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitPromptDraft(promptDraft);
+          }}
+        >
+          <div className="font-medium">
+            Prompt {displayTitle(promptDraft.prompt.title, promptDraft.prompt.name)} arguments
+          </div>
+          {promptArguments(promptDraft.prompt).map((argument) => {
+            const inputId = `mcp-catalog-${serverId}-${promptDraft.prompt.name}-${argument.name}`;
+            const listId = `${inputId}-options`;
+            const hasSuggestions = suggestions?.argument === argument.name;
+            return (
+              <div className="space-y-1" key={argument.name}>
+                <Label className="text-xs" htmlFor={inputId}>
+                  {argument.name}
+                  {argument.required === true ? ' (required)' : ''}
+                </Label>
+                <Input
+                  autoComplete="off"
+                  className="h-8 text-xs"
+                  id={inputId}
+                  list={hasSuggestions ? listId : undefined}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    const values = { ...promptDraft.values, [argument.name]: value };
+                    setPromptDraft({ prompt: promptDraft.prompt, values });
+                    requestSuggestions(promptDraft.prompt, argument.name, value, values);
+                  }}
+                  required={argument.required === true}
+                  value={promptDraft.values[argument.name] ?? ''}
+                />
+                {hasSuggestions && (
+                  <datalist id={listId}>
+                    {suggestions.values.map((value) => (
+                      <option key={value} value={value} />
+                    ))}
+                  </datalist>
+                )}
+                {typeof argument.description === 'string' && argument.description.trim() !== '' && (
+                  <p className="text-muted-foreground">{argument.description}</p>
+                )}
+              </div>
+            );
+          })}
+          {completionError && (
+            <div className="text-destructive">Argument autocomplete failed: {completionError}</div>
+          )}
+          <div className="flex gap-2">
+            <Button
+              aria-label={`Get prompt ${displayTitle(promptDraft.prompt.title, promptDraft.prompt.name)}`}
+              className="h-7 px-2 text-xs"
+              disabled={busy}
+              size="sm"
+              type="submit"
+              variant="outline"
+            >
+              Get prompt
+            </Button>
+            <Button
+              className="h-7 px-2 text-xs"
+              disabled={busy}
+              onClick={() => {
+                completionSequenceRef.current += 1;
+                setPromptDraft(null);
+                setSuggestions(null);
+                setCompletionError(null);
+              }}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+      {contentError && (
+        <div className="text-destructive text-xs" role="alert">
+          MCP content request failed: {contentError}
+        </div>
+      )}
+      {content && <ContentViewPanel content={content} serverId={serverId} />}
     </div>
   );
 }

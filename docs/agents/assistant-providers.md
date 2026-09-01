@@ -2340,6 +2340,27 @@ safe. Schema-validated, operation-matched results are limited to 4 MiB serialize
 overflow. The seam exposes no raw `invoke`, SDK client, renderer IPC/UI/persistence, subscription,
 or automatic model-context injection.
 
+BST-1585 gives each of those three verbs one production caller: user-initiated catalog browsing in
+Settings (`packages/settings-ui/src/settings/tools/mcp-support-status.tsx`). `Read` on a listed
+resource issues `resources/read`; `Use prompt` opens an inline argument form whose inputs call
+`completion/complete` (`ref/prompt`) for suggestions and whose submit issues `prompts/get`. Bodies
+render bounded (text truncated at 2 KiB, blobs and non-text content shown as metadata only) and are
+never eager model context; slash-command prompt integration is deliberately deferred. Desktop main
+owns one `createMcpContentApplicationPort` per host runtime (`apps/desktop/src/mcp/content-port.ts`,
+memoized so factory reset keeps the singleton) with the main-process logger as the required
+internal-error sink. The `mcp:content:readResource` / `mcp:content:getPrompt` /
+`mcp:content:complete` channels (`apps/desktop/src/mcp/content-ipc.ts`) each force their own verb
+server-side, validate the renderer payload strictly, wait on the MCP lifecycle barrier and reject
+while admission is closed, but never enter the non-reentrant config-operation queue; only the port's
+fixed `{category, code, message}` taxonomy crosses IPC (raw causes stay in main). The renderer never
+sees `invoke`: the preload bridge exposes exactly `readResource`, `getPrompt`, and `complete`, and
+settings-ui receives them as optional `readMcpResource` / `getMcpPrompt` / `completeMcpContent`
+operations gated on bridge presence, so web omits the affordance entirely. Pinned by
+`apps/desktop/src/__tests__/main/ipc-mcp-content.test.ts`,
+`apps/desktop/src/__tests__/preload-runtime-contract.test.ts`,
+`apps/desktop/src/__tests__/renderer/components/settings/page-content-operations.test.tsx`, and
+`packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx`.
+
 Every promise-returning host operation reports malformed input and terminal
 closure as a rejected promise; `McpHostService` owns the typed `mcp-host-closed`
 error rather than leaking a publisher collaborator's error type. Terminal close

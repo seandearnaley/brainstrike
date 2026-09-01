@@ -276,6 +276,9 @@ const MCP_TOOLS_ENABLE_SERVER_CHANNEL = 'mcp:tools:enableServer' as const;
 const MCP_TOOLS_DISABLE_SERVER_CHANNEL = 'mcp:tools:disableServer' as const;
 const MCP_TOOLS_RESET_CHANNEL = 'mcp:tools:reset' as const;
 const MCP_TOOLS_GET_STATS_CHANNEL = 'mcp:tools:getStats' as const;
+const MCP_CONTENT_COMPLETE_CHANNEL = 'mcp:content:complete' as const;
+const MCP_CONTENT_GET_PROMPT_CHANNEL = 'mcp:content:getPrompt' as const;
+const MCP_CONTENT_READ_RESOURCE_CHANNEL = 'mcp:content:readResource' as const;
 const LLM_HOST_STATUS_EVENT = 'llm-host:status' as const;
 const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
 const LLM_HOST_PROGRESS_EVENT = 'llm-host:progress' as const;
@@ -831,6 +834,7 @@ contextBridge.exposeInMainWorld('agent', {
 
 // MCP Config API (desktop-only)
 contextBridge.exposeInMainWorld('mcp', {
+  complete: (request: unknown) => ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request),
   controlServer: (request: McpHostControlRequest) =>
     ipcRenderer.invoke(MCP_LIFECYCLE_CONTROL_CHANNEL, request),
   createSampleConfig: () => ipcRenderer.invoke(MCP_CONFIG_CREATE_SAMPLE_CHANNEL),
@@ -842,6 +846,7 @@ contextBridge.exposeInMainWorld('mcp', {
   enableTools: (toolIds: string[]) => ipcRenderer.invoke(MCP_TOOLS_ENABLE_CHANNEL, toolIds),
   getConfig: () => ipcRenderer.invoke(MCP_CONFIG_GET_CHANNEL),
   getPath: () => ipcRenderer.invoke(MCP_CONFIG_GET_PATH_CHANNEL),
+  getPrompt: (request: unknown) => ipcRenderer.invoke(MCP_CONTENT_GET_PROMPT_CHANNEL, request),
   getServerStatusSnapshot: (): Promise<McpHostSnapshot> =>
     ipcRenderer.invoke(MCP_STATUS_GET_CHANNEL),
   getToolStats: () => ipcRenderer.invoke(MCP_TOOLS_GET_STATS_CHANNEL),
@@ -896,6 +901,8 @@ contextBridge.exposeInMainWorld('mcp', {
     };
   },
   readConfigText: () => ipcRenderer.invoke(MCP_CONFIG_READ_TEXT_CHANNEL),
+  readResource: (request: unknown) =>
+    ipcRenderer.invoke(MCP_CONTENT_READ_RESOURCE_CHANNEL, request),
   resetTools: () => ipcRenderer.invoke(MCP_TOOLS_RESET_CHANNEL),
   selectPath: () => ipcRenderer.invoke(MCP_CONFIG_SELECT_PATH_CHANNEL),
   setPath: (configPath: string | null) =>
