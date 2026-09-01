@@ -6,6 +6,7 @@ import { OFFICIAL_CORE_SCENARIOS_BY_PROTOCOL } from '../../packages/assistant-co
 import {
   buildOfficialAuthEvidence,
   buildOfficialClientInvocations,
+  OFFICIAL_CORE_EVIDENCE_PATH,
   resolvePinnedConformanceEntry,
   runOfficialClientInvocations,
 } from '../run-official-mcp-client-conformance.mjs';
@@ -76,4 +77,8 @@ test('writes exact-head core evidence for all eleven applicable executions', asy
   assert.equal(evidence.profile, 'core');
   assert.equal(evidence.schemaVersion, '1.1.0');
   assert.equal(evidence.ticket, 'BST-1583');
+  assert.match(
+    OFFICIAL_CORE_EVIDENCE_PATH,
+    /packages\/mcp-test-lab\/artifacts\/official-core-evidence\.json$/u
+  );
 });
