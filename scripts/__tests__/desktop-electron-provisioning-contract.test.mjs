@@ -11,6 +11,8 @@ const workflowPaths = [
   '.github/workflows/desktop-e2e.yml',
   '.github/workflows/mcp-verification.yml',
 ];
+// mcp-verification.yml is deliberately included: its provisioning steps must
+// also never reintroduce the unused ~/.cache/electron cache location.
 const electronCacheConfigPaths = [...workflowPaths, '.github/actions/setup-workspace/action.yml'];
 const desktopSetupJobs = [
   { job: 'desktop-e2e', relativePath: '.github/workflows/test.yml', turboCache: 'false' },
@@ -88,7 +90,7 @@ test('desktop workflows and their shared action do not cache the unused Electron
   }
 });
 
-test('all four provisioning steps use the container-safe runner temp fallback', () => {
+test('every provisioning step uses the container-safe runner temp fallback', () => {
   const provisioningSteps = workflowPaths.flatMap((relativePath) =>
     allSteps(loadWorkflow(relativePath))
       .filter(({ name }) => name === 'Provision Electron binary')

@@ -72,10 +72,20 @@ jobs:
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
           ARCH=$(node -p "process.arch")
+          if node -e "const fs=require('fs');fs.accessSync(require('electron'),fs.constants.X_OK)" 2>/dev/null; then
+            echo "Electron binary already provisioned; skipping download"
+            exit 0
+          fi
           ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
-          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-${ARCH}.zip"
+          SHASUMS="${RUNNER_TEMP:-/tmp}/electron-SHASUMS256.txt"
+          ASSET="electron-v${VER}-linux-${ARCH}.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/${ASSET}"
           echo "Downloading Electron v${VER} from ${URL}"
           curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          curl -fsSL --connect-timeout 20 --max-time 60 --retry 3 --retry-delay 5 --retry-all-errors -o "$SHASUMS" "https://github.com/electron/electron/releases/download/v${VER}/SHASUMS256.txt"
+          EXPECTED=$(grep " \*${ASSET}$" "$SHASUMS" | awk '{print $1}')
+          test -n "$EXPECTED"
+          echo "${EXPECTED} *${ELECTRON_ZIP}" | sha256sum -c -
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
           unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
@@ -120,10 +130,20 @@ jobs:
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
           ARCH=$(node -p "process.arch")
+          if node -e "const fs=require('fs');fs.accessSync(require('electron'),fs.constants.X_OK)" 2>/dev/null; then
+            echo "Electron binary already provisioned; skipping download"
+            exit 0
+          fi
           ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
-          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-${ARCH}.zip"
+          SHASUMS="${RUNNER_TEMP:-/tmp}/electron-SHASUMS256.txt"
+          ASSET="electron-v${VER}-linux-${ARCH}.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/${ASSET}"
           echo "Downloading Electron v${VER} from ${URL}"
           curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          curl -fsSL --connect-timeout 20 --max-time 60 --retry 3 --retry-delay 5 --retry-all-errors -o "$SHASUMS" "https://github.com/electron/electron/releases/download/v${VER}/SHASUMS256.txt"
+          EXPECTED=$(grep " \*${ASSET}$" "$SHASUMS" | awk '{print $1}')
+          test -n "$EXPECTED"
+          echo "${EXPECTED} *${ELECTRON_ZIP}" | sha256sum -c -
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
           unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
