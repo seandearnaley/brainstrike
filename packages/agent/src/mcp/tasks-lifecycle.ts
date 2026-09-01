@@ -1,0 +1,407 @@
+import type {
+  McpTaskIdentity,
+  McpTaskRecord,
+  McpTaskRepository,
+  McpTaskScope,
+} from '@brainstrike/db';
+import type { CreateTaskResult, GetTaskResult } from '@brainstrike/mcp-tasks-extension';
+import type { JSONObject } from '@modelcontextprotocol/client';
+import type { McpClientExtensionRequestContract } from './client-extension-registry';
+import { MCP_TASKS_GET_REQUEST_CONTRACT } from './tasks-extension';
+import {
+  assertMcpTaskTimingProgress,
+  createMcpTaskUpdate,
+  type McpTaskTiming,
+  parseMcpTaskDuration,
+  readMcpTaskTiming,
+  readStoredMcpTaskTiming,
+  resolveMcpTaskDeadline,
+  TERMINAL_TASK_STATUSES,
+} from './tasks-lifecycle-state';
+
+export const DEFAULT_MCP_TASK_LIFECYCLE_LIMITS = Object.freeze({
+  initialPollMs: 500,
+  maxBackoffMs: 30_000,
+  maxConcurrentPolls: 4,
+  maxLifetimeMs: 24 * 60 * 60 * 1000,
+  minimumPollMs: 100,
+});
+
+export interface McpTaskLifecycleLimits {
+  readonly initialPollMs: number;
+  readonly maxBackoffMs: number;
+  readonly maxConcurrentPolls: number;
+  readonly maxLifetimeMs: number;
+  readonly minimumPollMs: number;
+}
+
+export interface McpTaskRequestOptions {
+  readonly signal?: AbortSignal;
+}
+
+export interface McpTaskPollingClient {
+  requestExtension<Params extends JSONObject, Result>(
+    contract: McpClientExtensionRequestContract<Params, Result>,
+    params: Params,
+    options?: McpTaskRequestOptions
+  ): Promise<Result>;
+}
+
+export interface McpTrackedTask {
+  readonly record: McpTaskRecord;
+  readonly settled: Promise<McpTaskRecord>;
+}
+
+export type McpTaskLifecycleStopReason =
+  | 'cancelled'
+  | 'closed'
+  | 'disconnect'
+  | 'reset'
+  | 'restart'
+  | 'server-removed'
+  | 'server-replaced';
+
+export class McpTaskLifecycleStoppedError extends Error {
+  constructor(readonly reason: McpTaskLifecycleStopReason) {
+    super(`MCP task lifecycle stopped: ${reason}`);
+    this.name = 'McpTaskLifecycleStoppedError';
+  }
+}
+
+export interface McpTaskLifecycleOptions {
+  readonly client: McpTaskPollingClient;
+  readonly currentGeneration: () => number;
+  readonly limits?: McpTaskLifecycleLimits;
+  readonly onUpdate: (record: McpTaskRecord) => Promise<void> | void;
+  readonly repository: McpTaskRepository;
+  readonly scope: McpTaskScope;
+}
+
+interface ActiveTask {
+  readonly controller: AbortController;
+  readonly settled: Promise<McpTaskRecord>;
+}
+
+interface PollWaiter {
+  readonly grant: () => void;
+  readonly reject: (reason: unknown) => void;
+  readonly signal: AbortSignal;
+}
+
+function requirePositiveInteger(value: number, field: string): number {
+  if (!(Number.isSafeInteger(value) && value > 0)) {
+    throw new TypeError(`MCP task lifecycle ${field} must be a positive safe integer.`);
+  }
+  return value;
+}
+
+function requireTaskIdentity(taskId: string, expectedTaskId: string): void {
+  if (taskId !== expectedTaskId) {
+    throw new Error(
+      `MCP task response identity mismatch: expected=${expectedTaskId}, actual=${taskId}`
+    );
+  }
+}
+
+function normalizeLimits(input: McpTaskLifecycleLimits | undefined): McpTaskLifecycleLimits {
+  const limits = input ?? DEFAULT_MCP_TASK_LIFECYCLE_LIMITS;
+  const normalized = {
+    initialPollMs: requirePositiveInteger(limits.initialPollMs, 'initialPollMs'),
+    maxBackoffMs: requirePositiveInteger(limits.maxBackoffMs, 'maxBackoffMs'),
+    maxConcurrentPolls: requirePositiveInteger(limits.maxConcurrentPolls, 'maxConcurrentPolls'),
+    maxLifetimeMs: requirePositiveInteger(limits.maxLifetimeMs, 'maxLifetimeMs'),
+    minimumPollMs: requirePositiveInteger(limits.minimumPollMs, 'minimumPollMs'),
+  };
+  if (normalized.maxBackoffMs < normalized.initialPollMs) {
+    throw new TypeError('MCP task lifecycle maxBackoffMs must be at least initialPollMs.');
+  }
+  return Object.freeze(normalized);
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The MCP task lifecycle was aborted.', 'AbortError');
+}
+
+function raceAbort<Value>(operation: Promise<Value>, signal: AbortSignal): Promise<Value> {
+  if (signal.aborted) {
+    return Promise.reject(abortReason(signal));
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      cleanup();
+      reject(abortReason(signal));
+    };
+    const cleanup = (): void => {
+      signal.removeEventListener('abort', onAbort);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+}
+
+export class McpTaskLifecycle {
+  private readonly active = new Map<string, ActiveTask>();
+  private readonly client: McpTaskPollingClient;
+  private readonly currentGeneration: () => number;
+  private readonly lifecycleController = new AbortController();
+  private readonly limits: McpTaskLifecycleLimits;
+  private readonly onUpdate: McpTaskLifecycleOptions['onUpdate'];
+  private readonly pollWaiters: PollWaiter[] = [];
+  private readonly repository: McpTaskRepository;
+  private readonly scope: McpTaskScope;
+  private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private activePolls = 0;
+  private stopPromise: Promise<void> | undefined;
+
+  constructor(options: McpTaskLifecycleOptions) {
+    this.client = options.client;
+    this.currentGeneration = options.currentGeneration;
+    this.limits = normalizeLimits(options.limits);
+    this.onUpdate = options.onUpdate;
+    this.repository = options.repository;
+    this.scope = Object.freeze({ ...options.scope });
+  }
+
+  async track(task: CreateTaskResult, signal?: AbortSignal): Promise<McpTrackedTask> {
+    this.requireOpen(signal);
+    const timing = readMcpTaskTiming(task);
+    const identity = this.identity(task.taskId);
+    const record = await this.repository.create(
+      { ...identity, ...createMcpTaskUpdate(task) },
+      this.writeFence()
+    );
+    this.requireOpen(signal);
+    return this.start(record, timing, signal);
+  }
+
+  async recover(signal?: AbortSignal): Promise<readonly McpTrackedTask[]> {
+    this.requireOpen(signal);
+    const records = await this.repository.listActive(this.scope);
+    this.requireOpen(signal);
+    const resumable = records.map((record) => ({
+      record,
+      timing: readStoredMcpTaskTiming(record),
+    }));
+    return resumable.map(({ record, timing }) => this.start(record, timing, signal));
+  }
+
+  async stop(reason: McpTaskLifecycleStopReason): Promise<void> {
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+    const failure = new McpTaskLifecycleStoppedError(reason);
+    this.lifecycleController.abort(failure);
+    for (const task of this.active.values()) {
+      task.controller.abort(failure);
+    }
+    this.stopPromise = Promise.allSettled(
+      [...this.active.values()].map(({ settled }) => settled)
+    ).then(() => undefined);
+    return this.stopPromise;
+  }
+
+  snapshot(): {
+    readonly activePolls: number;
+    readonly activeTasks: number;
+    readonly queuedPolls: number;
+    readonly timers: number;
+  } {
+    return Object.freeze({
+      activePolls: this.activePolls,
+      activeTasks: this.active.size,
+      queuedPolls: this.pollWaiters.length,
+      timers: this.timers.size,
+    });
+  }
+
+  private start(
+    record: McpTaskRecord,
+    initialTiming: McpTaskTiming,
+    callerSignal: AbortSignal | undefined
+  ): McpTrackedTask {
+    if (TERMINAL_TASK_STATUSES.has(record.status)) {
+      return Object.freeze({ record, settled: Promise.resolve(record) });
+    }
+    if (this.active.has(record.taskId)) {
+      throw new Error(`MCP task "${record.taskId}" is already tracked by this lifecycle.`);
+    }
+    const controller = new AbortController();
+    const signals = [this.lifecycleController.signal, controller.signal];
+    if (callerSignal) {
+      signals.push(callerSignal);
+    }
+    const signal = AbortSignal.any(signals);
+    const settled = this.poll(record, initialTiming, signal).finally(() => {
+      this.active.delete(record.taskId);
+    });
+    void settled.catch(() => undefined);
+    this.active.set(record.taskId, { controller, settled });
+    return Object.freeze({ record, settled });
+  }
+
+  private async poll(
+    initialRecord: McpTaskRecord,
+    initialTiming: McpTaskTiming,
+    signal: AbortSignal
+  ): Promise<McpTaskRecord> {
+    let backoffMs = this.limits.initialPollMs;
+    let latestTiming = initialTiming;
+    const localDeadline = Date.now() + this.limits.maxLifetimeMs;
+    while (true) {
+      const deadline = resolveMcpTaskDeadline(
+        latestTiming,
+        initialRecord,
+        localDeadline,
+        this.limits.maxLifetimeMs
+      );
+      const requestedDelay = this.resolvePollDelay(latestTiming, backoffMs);
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
+      }
+      await this.wait(Math.min(requestedDelay, remainingMs), signal);
+      if (Date.now() >= deadline) {
+        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
+      }
+      const release = await this.acquirePollPermit(signal);
+      let result: GetTaskResult;
+      try {
+        result = await raceAbort(
+          this.client.requestExtension(
+            MCP_TASKS_GET_REQUEST_CONTRACT,
+            { taskId: initialRecord.taskId },
+            { signal }
+          ),
+          signal
+        );
+      } finally {
+        release();
+      }
+      if (signal.aborted) {
+        throw abortReason(signal);
+      }
+      requireTaskIdentity(result.taskId, initialRecord.taskId);
+      const resultTiming = readMcpTaskTiming(result);
+      assertMcpTaskTimingProgress(latestTiming, resultTiming, initialRecord.taskId);
+      const persisted = await this.repository.update(
+        this.identity(initialRecord.taskId),
+        createMcpTaskUpdate(result),
+        this.writeFence()
+      );
+      if (signal.aborted) {
+        throw abortReason(signal);
+      }
+      await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
+      if (TERMINAL_TASK_STATUSES.has(persisted.status)) {
+        return persisted;
+      }
+      latestTiming = resultTiming;
+      if (result.pollIntervalMs === undefined) {
+        backoffMs = Math.min(backoffMs * 2, this.limits.maxBackoffMs);
+      }
+    }
+  }
+
+  private resolvePollDelay(timing: McpTaskTiming, backoffMs: number): number {
+    const requested = parseMcpTaskDuration(timing.pollIntervalMs, 'pollIntervalMs');
+    return requested === null ? backoffMs : Math.max(requested, this.limits.minimumPollMs);
+  }
+
+  private identity(taskId: string): McpTaskIdentity {
+    return { ...this.scope, taskId };
+  }
+
+  private writeFence(): { readonly currentGeneration: number } {
+    return { currentGeneration: this.currentGeneration() };
+  }
+
+  private requireOpen(callerSignal?: AbortSignal): void {
+    if (this.lifecycleController.signal.aborted) {
+      throw abortReason(this.lifecycleController.signal);
+    }
+    if (callerSignal?.aborted) {
+      throw abortReason(callerSignal);
+    }
+  }
+
+  private wait(delayMs: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(abortReason(signal));
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, delayMs);
+      this.timers.add(timer);
+      const onAbort = (): void => {
+        cleanup();
+        reject(abortReason(signal));
+      };
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        this.timers.delete(timer);
+        signal.removeEventListener('abort', onAbort);
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  private acquirePollPermit(signal: AbortSignal): Promise<() => void> {
+    if (signal.aborted) {
+      return Promise.reject(abortReason(signal));
+    }
+    if (this.activePolls < this.limits.maxConcurrentPolls) {
+      this.activePolls += 1;
+      return Promise.resolve(this.createPollRelease());
+    }
+    return new Promise((resolve, reject) => {
+      const waiter: PollWaiter = {
+        grant: () => {
+          signal.removeEventListener('abort', onAbort);
+          this.activePolls += 1;
+          resolve(this.createPollRelease());
+        },
+        reject,
+        signal,
+      };
+      const onAbort = (): void => {
+        const index = this.pollWaiters.indexOf(waiter);
+        if (index >= 0) {
+          this.pollWaiters.splice(index, 1);
+        }
+        reject(abortReason(signal));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.pollWaiters.push(waiter);
+    });
+  }
+
+  private createPollRelease(): () => void {
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      this.activePolls -= 1;
+      let waiter = this.pollWaiters.shift();
+      while (waiter?.signal.aborted) {
+        waiter.reject(abortReason(waiter.signal));
+        waiter = this.pollWaiters.shift();
+      }
+      if (waiter) {
+        waiter.grant();
+      }
+    };
+  }
+}

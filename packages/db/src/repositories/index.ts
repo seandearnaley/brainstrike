@@ -92,6 +92,7 @@ export {
   type McpTaskIdentity,
   type McpTaskRecord,
   McpTaskRepository,
+  type McpTaskScope,
   type McpTaskStatus,
   type McpTaskWriteFence,
   type UpdateMcpTaskInput,
