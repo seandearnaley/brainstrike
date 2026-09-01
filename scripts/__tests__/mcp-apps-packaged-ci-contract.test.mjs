@@ -45,6 +45,10 @@ test('the packaged-only spec has one explicit lane and is absent from unpackaged
   assert.match(verifier, /McpUiInitializeResultSchema/u);
   assert.match(verifier, /installMcpAppElectronSandboxPolicy/u);
   assert.match(verifier, /new App\(/u);
+  const admissionHelper = readRepoFile('apps/desktop/e2e/helpers/mcp-apps-ordinary-admission.ts');
+  assert.match(admissionHelper, /composeRuntimeToolMap/u);
+  assert.match(admissionHelper, /createMcpAppOrdinaryToolCallPreparer/u);
+  assert.doesNotMatch(verifier, /async function executeServerCall/u);
 });
 
 test('the living CI and provider contracts name the packaged Apps lane', () => {

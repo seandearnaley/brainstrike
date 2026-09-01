@@ -11,6 +11,12 @@ import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { type Browser, chromium, type Page } from 'playwright';
+// @boundaries-ignore packaged verification exercises the local Apps package before production registration exports it to Desktop.
+import type {
+  McpAppPreparedToolCall,
+  McpAppToolCall,
+} from '../../../packages/mcp-app-host/src/index';
+import { installOrdinaryRuntimeAdmission } from './helpers/mcp-apps-ordinary-admission';
 
 const appHostModulePath = path.resolve(process.cwd(), '../../packages/mcp-app-host/dist/index.js');
 const appSurfaceModulePath = path.resolve(
@@ -58,11 +64,15 @@ interface LoopbackServerSnapshot {
   readonly completedRequests: number;
   readonly listening: boolean;
   readonly openSockets: number;
+  readonly pendingPreparedCalls: number;
   readonly totalRequests: number;
 }
 
 interface LoopbackToolServer {
   readonly close: () => Promise<void>;
+  readonly installAdmission: (
+    prepare: (call: McpAppToolCall) => Promise<McpAppPreparedToolCall>
+  ) => void;
   readonly origin: string;
   readonly snapshot: () => LoopbackServerSnapshot;
 }
@@ -80,22 +90,155 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function parseAdmissionCall(value: unknown): McpAppToolCall {
+  if (!isRecord(value) || Reflect.ownKeys(value).length !== 6) {
+    throw new TypeError('BST-1571 admission call must be an exact record');
+  }
+  const id = value['id'];
+  if (
+    value['audience'] !== 'app' ||
+    value['serverId'] !== 'linear' ||
+    value['toolName'] !== 'create_issue' ||
+    !Number.isSafeInteger(value['generation']) ||
+    !(typeof id === 'string' || (typeof id === 'number' && Number.isSafeInteger(id))) ||
+    !isRecord(value['input'])
+  ) {
+    throw new TypeError('BST-1571 admission call fields are invalid');
+  }
+  return Object.freeze({
+    audience: 'app',
+    generation: value['generation'] as number,
+    id,
+    input: Object.freeze({ ...value['input'] }),
+    serverId: 'linear',
+    toolName: 'create_issue',
+  });
+}
+
 async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
   const sockets = new Set<Socket>();
+  const preparedCalls = new Map<
+    string,
+    Readonly<{ generation: number; prepared: McpAppPreparedToolCall }>
+  >();
+  let admissionPreparer: ((call: McpAppToolCall) => Promise<McpAppPreparedToolCall>) | undefined;
   let abortedRequests = 0;
   let activeRequests = 0;
   let completedRequests = 0;
+  let preparedSequence = 0;
   let totalRequests = 0;
   const server: Server = createServer(async (request, response) => {
+    response.setHeader('Access-Control-Allow-Origin', '*');
+    response.setHeader('Connection', 'close');
+    response.setHeader('Content-Type', 'application/json');
     let body = '';
     request.setEncoding('utf8');
-    for await (const chunk of request) {
-      body += chunk;
+    try {
+      for await (const chunk of request) {
+        body += chunk;
+      }
+    } catch {
+      response.destroy();
+      return;
     }
-    const payload: unknown = JSON.parse(body);
-    if (request.method !== 'POST' || request.url !== '/tool' || !isRecord(payload)) {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(body);
+    } catch {
       response.writeHead(400, { Connection: 'close' });
-      response.end();
+      response.end(JSON.stringify({ code: 'invalid_json' }));
+      return;
+    }
+    if (request.method !== 'POST' || !isRecord(payload)) {
+      response.writeHead(400);
+      response.end(JSON.stringify({ code: 'invalid_request' }));
+      return;
+    }
+    if (request.url === '/prepare') {
+      try {
+        if (!admissionPreparer) {
+          throw new Error('BST-1571 ordinary admission is unavailable');
+        }
+        const call = parseAdmissionCall(payload);
+        const prepared = await admissionPreparer(call);
+        preparedSequence += 1;
+        const token = `ordinary-${preparedSequence}`;
+        preparedCalls.set(token, Object.freeze({ generation: call.generation, prepared }));
+        response.writeHead(200);
+        response.end(
+          JSON.stringify({
+            decision: prepared.decision,
+            riskCategory: prepared.riskCategory,
+            token,
+          })
+        );
+      } catch {
+        response.writeHead(400);
+        response.end(JSON.stringify({ code: 'admission_rejected' }));
+      }
+      return;
+    }
+    if (request.url === '/execute') {
+      const token = payload['token'];
+      if (typeof token !== 'string' || Reflect.ownKeys(payload).length !== 1) {
+        response.writeHead(409);
+        response.end(JSON.stringify({ code: 'prepared_call_unavailable' }));
+        return;
+      }
+      const entry = preparedCalls.get(token);
+      if (!entry) {
+        response.writeHead(409);
+        response.end(JSON.stringify({ code: 'prepared_call_unavailable' }));
+        return;
+      }
+      preparedCalls.delete(token);
+      const controller = new AbortController();
+      const abort = (): void => {
+        if (!controller.signal.aborted) {
+          controller.abort(new Error('BST-1571 admission client disconnected'));
+        }
+      };
+      request.once('aborted', abort);
+      response.once('close', () => {
+        if (!response.writableEnded) {
+          abort();
+        }
+      });
+      try {
+        const result = await entry.prepared.execute({ signal: controller.signal });
+        if (!response.destroyed) {
+          response.writeHead(200);
+          response.end(JSON.stringify(result));
+        }
+      } catch {
+        if (!response.destroyed) {
+          response.writeHead(502);
+          response.end(JSON.stringify({ code: 'ordinary_execution_failed' }));
+        }
+      }
+      return;
+    }
+    if (request.url === '/release') {
+      const generation = payload['generation'];
+      if (!Number.isSafeInteger(generation) || Reflect.ownKeys(payload).length !== 1) {
+        response.writeHead(400);
+        response.end(JSON.stringify({ code: 'invalid_generation' }));
+        return;
+      }
+      let released = 0;
+      for (const [token, entry] of preparedCalls) {
+        if (entry.generation === generation) {
+          preparedCalls.delete(token);
+          released += 1;
+        }
+      }
+      response.writeHead(200);
+      response.end(JSON.stringify({ released }));
+      return;
+    }
+    if (request.url !== '/tool') {
+      response.writeHead(404);
+      response.end(JSON.stringify({ code: 'not_found' }));
       return;
     }
     totalRequests += 1;
@@ -119,9 +262,6 @@ async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
         settle('aborted');
       }
     });
-    response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Connection', 'close');
-    response.setHeader('Content-Type', 'application/json');
     if (payload['mode'] === 'hold') {
       return;
     }
@@ -156,10 +296,17 @@ async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
         return;
       }
       closed = true;
+      preparedCalls.clear();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error === undefined ? resolve() : reject(error)))
       );
+    },
+    installAdmission: (prepare) => {
+      if (admissionPreparer) {
+        throw new Error('BST-1571 ordinary admission is already installed');
+      }
+      admissionPreparer = prepare;
     },
     origin: `http://127.0.0.1:${address.port}`,
     snapshot: () => ({
@@ -168,6 +315,7 @@ async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
       completedRequests,
       listening: server.listening,
       openSockets: sockets.size,
+      pendingPreparedCalls: preparedCalls.size,
       totalRequests,
     }),
   };
@@ -186,9 +334,10 @@ function sandboxedAppSource(): string {
       const label=argumentsValue.label;
       pending.add(label);
       void app.callServerTool({arguments:argumentsValue,name:'create_issue'}).then(
-        async()=>{
+        async result=>{
           pending.delete(label);
-          await app.sendLog({data:{callId:label,outcome:'resolved'},level:'info'});
+          const outcome=result?.isError===true?'rejected':'resolved';
+          await app.sendLog({data:{callId:label,outcome},level:'info'});
         },
         async()=>{
           pending.delete(label);
@@ -568,19 +717,34 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
       ));
     }
 
-    async function executeServerCall(call,signal){
+    async function requestAdmission(path,payload,signal){
       activeFetches+=1;
       try{
-        const response=await fetch(SERVER_ORIGIN+'/tool',{
-          body:JSON.stringify(call.input),
+        const response=await fetch(SERVER_ORIGIN+path,{
+          body:JSON.stringify(payload),
           method:'POST',
           signal,
         });
-        if(!response.ok)throw new Error('MCP Apps verifier server request failed');
+        if(!response.ok)throw new Error('MCP Apps ordinary admission request failed');
         return await response.json();
       }finally{
         activeFetches-=1;
       }
+    }
+
+    async function prepareOrdinaryCall(call){
+      const prepared=await requestAdmission('/prepare',call);
+      if(
+        !prepared||typeof prepared!=='object'||
+        (prepared.decision!=='allow'&&prepared.decision!=='ask')||
+        typeof prepared.riskCategory!=='string'||
+        typeof prepared.token!=='string'
+      )throw new Error('MCP Apps ordinary admission response is invalid');
+      return {
+        decision:prepared.decision,
+        execute:async({signal})=>await requestAdmission('/execute',{token:prepared.token},signal),
+        riskCategory:prepared.riskCategory,
+      };
     }
 
     async function createSession(){
@@ -598,11 +762,7 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
       const mount=sandboxOwner.open(resource);
       const authority=new McpAppToolCallAuthority({
         generation,
-        prepare:async call=>({
-          decision:'ask',
-          execute:async({signal})=>await executeServerCall(call,signal),
-          riskCategory:'execute',
-        }),
+        prepare:prepareOrdinaryCall,
         provenance,
       });
       lastAuthority=authority;
@@ -639,7 +799,7 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
               id:message.id,
               name:message.params?.name,
             },{signal:context.signal});
-            outcomes.set(label,'resolved');
+            outcomes.set(label,result?.isError===true?'rejected':'resolved');
             return result;
           }catch(error){
             outcomes.set(label,'rejected');
@@ -669,6 +829,7 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
       if(mode==='disconnect')session.bridge.disconnect();
       else if(mode!=='failed')session.bridge.close();
       const authoritySnapshot=await session.authority.close();
+      await requestAdmission('/release',{generation:session.generation.generation});
       provenance.retireGeneration(session.generation);
       session.outerFrame.remove();
       await session.mount.close();
@@ -944,6 +1105,8 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'bst-1571-packaged-host-'));
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1571-packaged-user-data-'));
   const toolServer = await createLoopbackToolServer();
+  let disposeAdmission: (() => Promise<void>) | undefined =
+    await installOrdinaryRuntimeAdmission(toolServer);
   const harnessPath = await buildHarness(temporaryDirectory, toolServer.origin);
   let packagedApplication: PackagedHarnessApplication | undefined;
   try {
@@ -1108,6 +1271,9 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
     await expect.poll(() => launchedBrowser.isConnected()).toBe(false);
     packagedApplication = undefined;
     await expectServerIdle(toolServer);
+    expect(toolServer.snapshot().pendingPreparedCalls).toBe(0);
+    await disposeAdmission();
+    disposeAdmission = undefined;
     await toolServer.close();
     expect(toolServer.snapshot()).toMatchObject({
       activeRequests: 0,
@@ -1123,6 +1289,7 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
       });
       await packagedApplication.browser.close().catch(() => undefined);
     }
+    await disposeAdmission?.().catch(() => undefined);
     await toolServer.close();
     await rm(temporaryDirectory, { force: true, recursive: true });
     await rm(userDataDir, { force: true, recursive: true });
