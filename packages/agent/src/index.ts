@@ -218,6 +218,11 @@ export {
   MastraAgentError,
   type MastraAgentErrorCode,
 } from './mastra/mastra-agent-error';
+export type {
+  McpAppOrdinaryToolCallOptions,
+  McpAppToolCallTelemetry,
+} from './mastra/mcp-app-tool-call';
+export { createMcpAppOrdinaryToolCallPreparer } from './mastra/mcp-app-tool-call';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,

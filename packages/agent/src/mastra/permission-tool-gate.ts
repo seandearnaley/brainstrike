@@ -105,6 +105,19 @@ interface ResolvedToolGateDecision {
   riskCategory: ToolRiskCategory;
 }
 
+export function resolveToolPermissionDecision(
+  snapshot: PermissionToolGateSnapshot,
+  originalName: string,
+  sanitizedId = sanitizeToolName(originalName)
+): ResolvedToolGateDecision {
+  return resolveToolGateDecision(
+    sanitizedId,
+    snapshot,
+    new Map([[sanitizedId, originalName]]),
+    new Set<ToolRiskCategory>(snapshot.sessionGrants ?? [])
+  );
+}
+
 /**
  * Resolve a single tool's permission decision + risk metadata. Extracted from
  * {@link filterToolsByPermissionWithMetadata} so the main loop stays simple.

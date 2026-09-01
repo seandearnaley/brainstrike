@@ -355,6 +355,22 @@ export class McpAppProvenanceAuthority {
     });
   }
 
+  cancelToolCall(generation: McpAppGeneration, call: McpAppToolCall): void {
+    const state = this.#generations.get(generation);
+    if (state === undefined) {
+      throw new TypeError('MCP Apps server generation is not owned by this authority');
+    }
+    const callState = this.#calls.get(call);
+    if (callState?.generation !== state) {
+      throw new TypeError('MCP Apps tool call does not belong to server generation');
+    }
+    if (callState.settled) {
+      throw new TypeError('MCP Apps tool call is already settled');
+    }
+    callState.settled = true;
+    state.pendingCallIds.delete(requestIdKey(call.id));
+  }
+
   /**
    * Explicit teardown (server disconnect without a replacement). The latest
    * generation number is deliberately kept so a reconnect must still open a

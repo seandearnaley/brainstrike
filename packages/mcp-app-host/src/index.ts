@@ -72,3 +72,12 @@ export {
   MCP_APPS_STABLE_UI_METHODS,
   type McpAppStableMethod,
 } from './stable-contract.js';
+export {
+  type McpAppPendingApproval,
+  type McpAppPermissionDecision,
+  type McpAppPreparedToolCall,
+  McpAppToolCallAuthority,
+  type McpAppToolCallAuthorityOptions,
+  type McpAppToolCallAuthoritySnapshot,
+  type McpAppToolRiskCategory,
+} from './tool-call-authority.js';

@@ -2182,6 +2182,18 @@ tool/result association, isolated sandbox and enforced CSP, validated
 bidirectional messages, permission/consent, lifecycle cleanup, and renderer
 tests. A partial or text-only host never advertises the extension.
 
+BST-1571 adds the still-unregistered app-originated `tools/call` authority.
+`McpAppToolCallAuthority` accepts only app-visible tools owned by the exact
+server generation, holds every `ask` decision until its opaque host consent id
+is approved, and releases provenance on denial, cancellation, failure, or
+close. The `@brainstrike/agent` preparer uses the same permission resolver,
+timeout guard, Pre/PostToolUse hook seam, cancellation signal, and bounded
+guarded-error projection as ordinary assistant tools. Its telemetry contains
+only tool name, outcome, and duration—never input, output, or app context.
+This is infrastructure, not capability graduation: production Apps
+advertisement remains disabled until the host surface and packaged lifecycle
+layers are complete and reviewed together.
+
 BST-1567 owns the disabled Apps wire-contract projection from the immutable
 `@modelcontextprotocol/ext-apps@1.7.5` schema and stable `2026-01-26` spec. It
 accepts all 15 stable `ui/*` methods plus `tools/call`, `resources/read`,
