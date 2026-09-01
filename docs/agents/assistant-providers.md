@@ -2341,6 +2341,11 @@ owns scenario manifests and each profile's evidence path, ticket, schema, execut
 and timeout budget. The script test independently invokes alpha.10's `list`
 command at both revisions, so the installed CLI remains the manifest oracle.
 Both root commands build the contract and Desktop main bundle before running.
+Before either protocol wave starts, the driver resolves Desktop's Electron
+runtime once in the parent process and verifies the resulting absolute binary
+path exists. This serial preflight owns Electron's lazy installation; scenario
+children never race to extract into the shared package directory. A failed or
+invalid provision aborts the command before any scenario is reported.
 
 ```bash
 pnpm run verify:mcp:official

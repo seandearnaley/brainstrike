@@ -84,6 +84,9 @@ child output never enters the evidence file. The workflow
 uploads that file on both green and red scenario outcomes for 14 days under an
 exact-SHA artifact name. Missing evidence remains a visible advisory-job
 failure; raw official auth request/response artifacts are never uploaded.
+The parent driver provisions and validates Desktop's Electron runtime exactly
+once before it launches either parallel protocol wave; scenario processes must
+not lazily install the shared runtime concurrently.
 Scenario pass/fail counts always sum to the execution count; Job cleanup has its
 own status and never inflates scenario failures. If evidence collection or its
 atomic write fails after conformance has already failed, the job preserves both

@@ -305,6 +305,29 @@ test('runs exactly two parallel revision waves and aggregates fixed failure ids 
   );
 });
 
+test('provisions the shared Electron runtime once before parallel client scenarios', async () => {
+  const invocations = buildOfficialClientInvocations({
+    conformanceEntryPath: '/repo/conformance/dist/index.js',
+    nodePath: '/runtime/node',
+  });
+  let provisionCalls = 0;
+  let provisioned = false;
+
+  await assert.doesNotReject(
+    runOfficialClientInvocations(invocations, {
+      provisionClientRuntime: async () => {
+        provisionCalls += 1;
+        provisioned = true;
+      },
+      runInvocation: async () => {
+        assert.equal(provisioned, true);
+        assert.equal(provisionCalls, 1);
+      },
+    })
+  );
+  assert.equal(provisionCalls, 1);
+});
+
 test('rejects partial, duplicate, and reordered auth matrices before spawning', async () => {
   const invocations = buildOfficialClientInvocations({
     conformanceEntryPath: '/repo/conformance/dist/index.js',
