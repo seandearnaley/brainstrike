@@ -52,8 +52,9 @@ test('builds one exact modern-only eleven-execution profile', () => {
   );
 });
 
-test('accepts only the closed modern-closeout profile argument', () => {
+test('accepts only the closed official profile arguments', () => {
   assert.equal(parseOfficialAuthProfile([]), 'baseline');
+  assert.equal(parseOfficialAuthProfile(['--profile', 'core']), 'core');
   assert.equal(parseOfficialAuthProfile(['--profile', 'modern-closeout']), 'modern-closeout');
   assert.equal(parseOfficialAuthProfile(['--', '--profile', 'modern-closeout']), 'modern-closeout');
   for (const argv of [

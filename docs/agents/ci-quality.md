@@ -92,6 +92,21 @@ own status and never inflates scenario failures. If evidence collection or its
 atomic write fails after conformance has already failed, the job preserves both
 causes rather than replacing the primary conformance failure.
 
+BST-1583 adds the independent advisory `Official MCP core conformance
+(advisory prerelease)` job. It runs the exact alpha.10 non-auth scenarios
+applicable to each revision: four at `2025-11-25` and seven at `2026-07-28`.
+
+```bash
+pnpm run verify:mcp:official -- --profile core
+```
+
+The core job has the same bounded Electron provisioning, parallel-by-protocol
+execution, sanitized diagnostics, empty expected-failure ledgers, and 11-minute
+job budget as the baseline auth profile. It uploads only
+`packages/mcp-test-lab/artifacts/official-core-evidence.json` for 14 days under
+`mcp-official-core-${{ github.sha }}`. It remains advisory until BST-1582
+promotes the reviewed official jobs to required gates.
+
 BST-1576 adds a second independent advisory job,
 `Official MCP modern auth closeout (advisory prerelease)`. It runs:
 

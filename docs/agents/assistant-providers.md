@@ -2364,7 +2364,15 @@ through `process.execPath` and argv arrays rather than platform-specific
 package-manager shims. The exact upstream alpha.10 CLI manifests have fourteen
 auth scenarios at `2025-11-25` and 25 at `2026-07-28`. BST-1560 runs its reviewed
 fourteen-scenario production-auth profile once at each declared revision in
-exactly two parallel revision waves. The production adapter and runner consume
+exactly two parallel revision waves. BST-1583 runs the complete applicable core
+profile in two parallel revision waves: `initialize`, `tools_call`,
+`elicitation-sep1034-client-defaults`, and `sse-retry` at `2025-11-25`; then
+`tools_call`, `request-metadata`, `sep-2322-client-request-state`,
+`http-standard-headers`, `http-custom-headers`, `http-invalid-tool-headers`, and
+`json-schema-ref-no-deref` at `2026-07-28`. Its evidence is isolated at
+`packages/mcp-test-lab/artifacts/official-core-evidence.json`, with the same
+empty expected-failure ledgers and sanitized diagnostics as auth. The production
+adapter and runner consume
 one typed authority in `@brainstrike/assistant-contract`; Desktop consumes its
 built subpath while repository scripts load its runtime-independent source; it
 owns scenario manifests and each profile's evidence path, ticket, schema, execution strategy,
@@ -2379,6 +2387,7 @@ invalid provision aborts the command before any scenario is reported.
 
 ```bash
 pnpm run verify:mcp:official
+pnpm run verify:mcp:official -- --profile core
 pnpm run verify:mcp:official -- --profile modern-closeout
 ```
 
