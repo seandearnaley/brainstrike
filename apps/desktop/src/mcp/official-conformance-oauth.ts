@@ -5,6 +5,25 @@ import type { DesktopMcpHostRuntimeDependencies } from './host-runtime';
 import { createInMemoryMcpOAuthStore, createMcpOAuthClientProvider } from './oauth-client-provider';
 
 const NonEmpty = z.string().min(1);
+const CIMD_CLIENT_METADATA_URL = 'https://conformance-test.local/client-metadata.json';
+export const OFFICIAL_AUTH_SCENARIO_NAMES = [
+  'auth/metadata-default',
+  'auth/metadata-var1',
+  'auth/metadata-var2',
+  'auth/metadata-var3',
+  'auth/basic-cimd',
+  'auth/scope-from-www-authenticate',
+  'auth/scope-from-scopes-supported',
+  'auth/scope-omitted-when-undefined',
+  'auth/scope-step-up',
+  'auth/scope-retry-limit',
+  'auth/token-endpoint-auth-basic',
+  'auth/token-endpoint-auth-post',
+  'auth/token-endpoint-auth-none',
+  'auth/pre-registration',
+] as const;
+export type OfficialAuthScenarioName = (typeof OFFICIAL_AUTH_SCENARIO_NAMES)[number];
+export const OfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_SCENARIO_NAMES);
 const OfficialConformanceOAuthContextSchema = z.discriminatedUnion('name', [
   z.strictObject({
     client_id: NonEmpty,
@@ -66,6 +85,23 @@ export function parseOfficialConformanceOAuthContext(
   return result.data;
 }
 
+export function parseOfficialAuthScenarioContext(
+  scenario: OfficialAuthScenarioName,
+  raw: string | undefined
+): Extract<OfficialConformanceOAuthContext, { name: 'auth/pre-registration' }> | undefined {
+  const context = parseOfficialConformanceOAuthContext(raw);
+  if (scenario !== 'auth/pre-registration') {
+    if (context !== undefined) {
+      throw new Error('Official MCP conformance auth scenario context is invalid');
+    }
+    return;
+  }
+  if (context?.name !== 'auth/pre-registration') {
+    throw new Error('Official MCP conformance auth scenario context is invalid');
+  }
+  return context;
+}
+
 type OAuthRuntimeDependencies = Pick<
   DesktopMcpHostRuntimeDependencies,
   'createOAuthProvider' | 'oauthStore' | 'openExternal'
@@ -74,11 +110,9 @@ type OAuthRuntimeDependencies = Pick<
 export function createEphemeralOfficialConformanceOAuthRuntime(options: {
   readonly context?: string;
   readonly openAuthorization: (url: string) => Promise<void>;
+  readonly scenario: OfficialAuthScenarioName;
 }): Required<OAuthRuntimeDependencies> {
-  const context = parseOfficialConformanceOAuthContext(options.context);
-  if (context && context.name !== 'auth/pre-registration') {
-    throw new Error(`Official MCP conformance OAuth context "${context.name}" is not supported`);
-  }
+  const context = parseOfficialAuthScenarioContext(options.scenario, options.context);
   const preRegisteredClient: StoredOAuthClientInformation | undefined = context
     ? {
         client_id: context.client_id,
@@ -94,6 +128,9 @@ export function createEphemeralOfficialConformanceOAuthRuntime(options: {
     createOAuthProvider: async (providerOptions) =>
       await createMcpOAuthClientProvider({
         ...providerOptions,
+        ...(options.scenario === 'auth/basic-cimd'
+          ? { clientMetadataUrl: CIMD_CLIENT_METADATA_URL }
+          : {}),
         ...(preRegisteredClient ? { preRegisteredClient } : {}),
       }),
     oauthStore: createInMemoryMcpOAuthStore(),

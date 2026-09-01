@@ -522,11 +522,11 @@ describe('desktop explicit HTTP MCP client', () => {
     expect(methods).not.toContain('tools/call');
   });
 
-  test('rejects later-layer auth scenarios instead of substituting core behavior', async () => {
+  test('rejects unknown auth scenarios instead of substituting core behavior', async () => {
     await expect(
       runProductionMcpConformanceClient({
         protocolVersion: '2026-07-28',
-        scenario: 'auth/basic-cimd',
+        scenario: 'auth/not-canonical',
         serverUrl: 'https://mcp.example.test/mcp',
       })
     ).rejects.toThrow(/scenario/u);

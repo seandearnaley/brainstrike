@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { runProductionMcpConformanceClient } from './mcp/official-conformance-client';
+import {
+  OfficialAuthScenarioNameSchema,
+  parseOfficialAuthScenarioContext,
+} from './mcp/official-conformance-oauth';
 
 const ProcessInputSchema = z.strictObject({
+  context: z.string().optional(),
   protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
   scenario: z.string().min(1),
   serverUrl: z
@@ -23,14 +28,20 @@ export function parseOfficialConformanceProcessInput(
   if (argv.length !== 1) {
     throw new Error('Production MCP conformance client requires exactly one server URL');
   }
-  if (environment['MCP_CONFORMANCE_CONTEXT'] !== undefined) {
-    throw new Error('Production MCP conformance OAuth context is not implemented');
-  }
-  return ProcessInputSchema.parse({
+  const context = environment['MCP_CONFORMANCE_CONTEXT'];
+  const parsed = ProcessInputSchema.parse({
+    ...(context === undefined ? {} : { context }),
     protocolVersion: environment['MCP_CONFORMANCE_PROTOCOL_VERSION'],
     scenario: environment['MCP_CONFORMANCE_SCENARIO'],
     serverUrl: argv[0],
   });
+  const authScenario = OfficialAuthScenarioNameSchema.safeParse(parsed.scenario);
+  if (authScenario.success) {
+    parseOfficialAuthScenarioContext(authScenario.data, context);
+  } else if (context !== undefined) {
+    throw new Error('Production MCP conformance context is invalid');
+  }
+  return parsed;
 }
 
 export async function runOfficialConformanceProcess(

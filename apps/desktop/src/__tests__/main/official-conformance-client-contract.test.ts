@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { McpHostOperation, McpHostOperationResult } from '@brainstrike/assistant-contract';
+import {
+  type McpHostOperation,
+  type McpHostOperationResult,
+  type McpHostServerSnapshot,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import type { DesktopMcpHostRuntimeDependencies } from '../../mcp/host-runtime.js';
@@ -8,12 +13,39 @@ import {
   type ProductionConformanceClientRuntime,
   runProductionMcpConformanceClient,
 } from '../../mcp/official-conformance-client.js';
+import { OFFICIAL_AUTH_SCENARIO_NAMES } from '../../mcp/official-conformance-oauth.js';
 import {
   parseOfficialConformanceProcessInput,
   runOfficialConformanceProcess,
 } from '../../official-conformance-client-process.js';
 
 const SOURCE_PATH = path.resolve(import.meta.dirname, '../../mcp/official-conformance-client.ts');
+const SERVER_ID = parseConfiguredMcpServerId('official-conformance');
+
+function connectedSnapshot(): McpHostServerSnapshot {
+  return {
+    configuredProtocol: '2026-07-28',
+    configuredServerId: SERVER_ID,
+    generation: 1,
+    negotiated: {
+      advertisedCapabilityIds: ['tools'],
+      era: 'modern',
+      revision: '2026-07-28',
+    },
+    state: 'connected',
+    transport: 'streamable-http',
+  };
+}
+
+function authenticationRequiredSnapshot(): McpHostServerSnapshot {
+  return {
+    configuredProtocol: '2026-07-28',
+    configuredServerId: SERVER_ID,
+    generation: 1,
+    state: 'authentication-required',
+    transport: 'streamable-http',
+  };
+}
 
 function closeReport(
   failures: readonly { category: 'operation'; code: string; message: string }[] = []
@@ -35,15 +67,20 @@ function runtimeReturningToolCall(
   toolName = 'add_numbers'
 ): {
   close: ReturnType<typeof vi.fn>;
+  operations: McpHostOperation[];
   replaceResolvedConfig: ReturnType<typeof vi.fn>;
   runtime: ProductionConformanceClientRuntime;
 } {
   const close = vi.fn(async () => closeReport());
+  const control = vi.fn(async () => connectedSnapshot());
+  const operations: McpHostOperation[] = [];
   const replaceResolvedConfig = vi.fn(async () => ({ revision: 1, servers: [] }));
   const runtime = {
     host: {
       close,
+      control,
       invoke: vi.fn(async (operation: McpHostOperation): Promise<McpHostOperationResult> => {
+        operations.push(operation);
         if (operation.type === 'tools/list') {
           return {
             result: {
@@ -57,7 +94,7 @@ function runtimeReturningToolCall(
     },
     replaceResolvedConfig,
   } satisfies ProductionConformanceClientRuntime;
-  return { close, replaceResolvedConfig, runtime };
+  return { close, operations, replaceResolvedConfig, runtime };
 }
 
 const INVALID_TOOL_CALL_RESULTS: readonly {
@@ -78,6 +115,136 @@ const INVALID_TOOL_CALL_RESULTS: readonly {
 ];
 
 describe('production MCP conformance client contract', () => {
+  it('routes auth/basic-cimd through OAuth-user production host composition', async () => {
+    const { replaceResolvedConfig, runtime } = runtimeReturningToolCall(
+      { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
+      'test-tool'
+    );
+    let captured: DesktopMcpHostRuntimeDependencies | undefined;
+
+    await runProductionMcpConformanceClient(
+      {
+        protocolVersion: '2026-07-28',
+        scenario: 'auth/basic-cimd',
+        serverUrl: 'http://127.0.0.1:4000/mcp',
+      },
+      {
+        createRuntime: (dependencies) => {
+          captured = dependencies;
+          return runtime;
+        },
+        openAuthorization: vi.fn(),
+      }
+    );
+
+    expect(replaceResolvedConfig).toHaveBeenCalledWith({
+      servers: [
+        expect.objectContaining({
+          auth: { type: 'oauth-user' },
+          protocol: '2026-07-28',
+          startup: 'authentication-required',
+          transport: 'streamable-http',
+        }),
+      ],
+    });
+    expect(captured).toMatchObject({
+      createOAuthProvider: expect.any(Function),
+      oauthStore: expect.any(Object),
+      openExternal: expect.any(Function),
+    });
+    expect(runtime.host.control).toHaveBeenCalledWith({
+      action: 'connect',
+      configuredServerId: 'official-conformance',
+    });
+    expect(runtime.host.invoke).toHaveBeenLastCalledWith({
+      arguments: {},
+      configuredServerId: 'official-conformance',
+      toolName: 'test-tool',
+      type: 'tools/call',
+    });
+  });
+
+  it('fails closed before tools/list when OAuth connect is not connected', async () => {
+    const { close, runtime } = runtimeReturningToolCall(
+      { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
+      'test-tool'
+    );
+    vi.mocked(runtime.host.control).mockResolvedValueOnce(authenticationRequiredSnapshot());
+
+    await expect(
+      runProductionMcpConformanceClient(
+        {
+          protocolVersion: '2026-07-28',
+          scenario: 'auth/basic-cimd',
+          serverUrl: 'http://127.0.0.1:4000/mcp',
+        },
+        { createRuntime: () => runtime, openAuthorization: vi.fn() }
+      )
+    ).rejects.toThrow('OAuth connection did not reach connected state');
+    expect(runtime.host.invoke).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('preserves an empty auth context so strict scenario validation rejects it', async () => {
+    const createRuntime = vi.fn();
+
+    await expect(
+      runProductionMcpConformanceClient(
+        {
+          context: '',
+          protocolVersion: '2026-07-28',
+          scenario: 'auth/basic-cimd',
+          serverUrl: 'http://127.0.0.1:4000/mcp',
+        },
+        { createRuntime }
+      )
+    ).rejects.toThrow('Official MCP conformance OAuth context is invalid');
+    expect(createRuntime).not.toHaveBeenCalled();
+  });
+
+  it.each(
+    OFFICIAL_AUTH_SCENARIO_NAMES.flatMap((scenario) =>
+      (['2025-11-25', '2026-07-28'] as const).map((protocolVersion) => ({
+        protocolVersion,
+        scenario,
+      }))
+    )
+  )('maps canonical $scenario at $protocolVersion', async ({ protocolVersion, scenario }) => {
+    const { operations, replaceResolvedConfig, runtime } = runtimeReturningToolCall(
+      { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
+      'test-tool'
+    );
+
+    await runProductionMcpConformanceClient(
+      {
+        ...(scenario === 'auth/pre-registration'
+          ? {
+              context: JSON.stringify({
+                client_id: 'pre-registered-client',
+                client_secret: 'pre-registered-secret',
+                name: scenario,
+              }),
+            }
+          : {}),
+        protocolVersion,
+        scenario,
+        serverUrl: 'http://127.0.0.1:4000/mcp',
+      },
+      { createRuntime: () => runtime, openAuthorization: vi.fn() }
+    );
+
+    expect(replaceResolvedConfig.mock.calls[0]?.[0].servers[0]).toMatchObject({
+      auth: { type: 'oauth-user' },
+      protocol: protocolVersion === '2025-11-25' ? 'legacy' : '2026-07-28',
+      startup: 'authentication-required',
+    });
+    expect(runtime.host.control).toHaveBeenCalledOnce();
+    const calls = operations.map((operation) => operation.type);
+    expect(calls).toEqual(
+      scenario === 'auth/pre-registration' ? ['tools/list'] : ['tools/list', 'tools/call']
+    );
+  });
+
   it('wires exact elicitation defaults through the production runtime options', async () => {
     const { replaceResolvedConfig, runtime } = runtimeReturningToolCall(
       { result: { content: [{ text: 'accepted', type: 'text' }] }, type: 'tools/call' },
@@ -264,7 +431,37 @@ describe('production MCP conformance client contract', () => {
     ).toThrow(/credentials/);
   });
 
-  it('fails closed on auth context without exposing it and emits only a fixed error', async () => {
+  it('passes the exact pre-registration context without writing it', async () => {
+    const context = JSON.stringify({
+      client_id: 'pre-registered-client',
+      client_secret: 'super-secret-client-value',
+      name: 'auth/pre-registration',
+    });
+    const writeError = vi.fn();
+    const runClient = vi.fn(async () => undefined);
+
+    await expect(
+      runOfficialConformanceProcess(
+        ['https://mcp.example.test/mcp'],
+        {
+          MCP_CONFORMANCE_CONTEXT: context,
+          MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
+          MCP_CONFORMANCE_SCENARIO: 'auth/pre-registration',
+        },
+        { runClient, writeError }
+      )
+    ).resolves.toBe(0);
+
+    expect(runClient).toHaveBeenCalledWith({
+      context,
+      protocolVersion: '2025-11-25',
+      scenario: 'auth/pre-registration',
+      serverUrl: 'https://mcp.example.test/mcp',
+    });
+    expect(writeError).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed auth context without exposing it and emits only a fixed error', async () => {
     const secret = 'super-secret-client-value';
     const writeError = vi.fn();
     const runClient = vi.fn();
@@ -273,7 +470,7 @@ describe('production MCP conformance client contract', () => {
       runOfficialConformanceProcess(
         ['https://mcp.example.test/mcp'],
         {
-          MCP_CONFORMANCE_CONTEXT: JSON.stringify({ clientSecret: secret }),
+          MCP_CONFORMANCE_CONTEXT: JSON.stringify({ client_secret: secret }),
           MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
           MCP_CONFORMANCE_SCENARIO: 'auth/pre-registration',
         },
@@ -317,6 +514,7 @@ describe('production MCP conformance client contract', () => {
     const runtime = {
       host: {
         close,
+        control: vi.fn(async () => connectedSnapshot()),
         invoke: vi.fn(async () => {
           throw executionFailure;
         }),
