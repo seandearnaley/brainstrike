@@ -57,11 +57,12 @@ export function buildMcpAppSandboxPolicy(
   const csp = meta?.csp;
   const resources = csp?.resourceDomains ?? [];
   const resourceSources = resources.length === 0 ? '' : ` ${resources.join(' ')}`;
+  const fontSources = resources.length === 0 ? [] : [`font-src ${resources.join(' ')}`];
   const contentSecurityPolicy = [
     `base-uri ${sources(csp?.baseUriDomains, ["'none'"])}`,
     `connect-src ${sources(csp?.connectDomains, ["'none'"])}`,
     "default-src 'none'",
-    `font-src data:${resourceSources}`,
+    ...fontSources,
     "form-action 'none'",
     `frame-src ${sources(csp?.frameDomains, ["'none'"])}`,
     `img-src data:${resourceSources}`,

@@ -36,14 +36,14 @@ describe('dedicated MCP Apps sandbox shell', () => {
   it('constructs CSP and permission policy from validated metadata without granting capabilities', () => {
     const policy = buildMcpAppSandboxPolicy(createOwnedResource().meta);
 
-    expect(policy.contentSecurityPolicy).toContain("default-src 'none'");
-    expect(policy.contentSecurityPolicy).toContain('connect-src https://api.example.com');
-    expect(policy.contentSecurityPolicy).toContain('frame-src https://frame.example.com');
-    expect(policy.contentSecurityPolicy).toContain(
-      "script-src 'unsafe-inline' https://cdn.example.com"
+    expect(policy.contentSecurityPolicy).toBe(
+      "base-uri 'none'; connect-src https://api.example.com; default-src 'none'; " +
+        "font-src https://cdn.example.com; form-action 'none'; " +
+        'frame-src https://frame.example.com; img-src data: https://cdn.example.com; ' +
+        "media-src data: https://cdn.example.com; object-src 'none'; " +
+        "script-src 'unsafe-inline' https://cdn.example.com; " +
+        "style-src 'unsafe-inline' https://cdn.example.com; worker-src 'none'"
     );
-    expect(policy.contentSecurityPolicy).toContain("object-src 'none'");
-    expect(policy.contentSecurityPolicy).toContain("worker-src 'none'");
     expect(policy.contentSecurityPolicy).not.toContain('unsafe-eval');
     expect(policy.permissionsPolicy).toBe(
       'camera=(), clipboard-write=(), geolocation=(), microphone=()'
@@ -53,6 +53,17 @@ describe('dedicated MCP Apps sandbox shell', () => {
     );
     expect(policy.requestedPermissions).toEqual(['camera', 'geolocation']);
     expect(policy.sandbox).toBe('allow-scripts');
+  });
+
+  it('does not grant data fonts when resource domains are undeclared', () => {
+    const policy = buildMcpAppSandboxPolicy(undefined);
+
+    expect(policy.contentSecurityPolicy).toBe(
+      "base-uri 'none'; connect-src 'none'; default-src 'none'; form-action 'none'; " +
+        "frame-src 'none'; img-src data:; media-src data:; object-src 'none'; " +
+        "script-src 'unsafe-inline'; style-src 'unsafe-inline'; worker-src 'none'"
+    );
+    expect(policy.contentSecurityPolicy).not.toContain('font-src data:');
   });
 
   it('renders self-contained shell and resource documents with no escape sandbox tokens', () => {
