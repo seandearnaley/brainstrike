@@ -528,6 +528,16 @@ history adapter) and remain session-only.
 When changing message persistence or hydration, update this section and the
 paired tests in packages/agent and packages/app-shell.
 
+MCP Task status is deliberately outside assistant message persistence. A task
+handle is not a synchronous tool result, and the renderer must not serialize
+its live status, input requests, result metadata, or control identity into a
+message part to make restart recovery appear to work. Migration 114 and the
+exact principal/server/resource/generation scope remain authoritative. After a
+restart, an opt-in host adapter must rebuild the bounded presentation from that
+durable row and mark it `restart_required`; `McpTaskStatusCard` owns only the
+controlled display and action focus. This layer adds no renderer store and no
+fallback to stale message history.
+
 ---
 
 ## ASSISTANT RUN NOTIFICATIONS

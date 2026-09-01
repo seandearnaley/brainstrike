@@ -696,6 +696,26 @@ cannot be compacted away.
 > `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
 > clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
+## MCP TASK STATUS AND RESTART CONTROLS (BST-1565)
+
+`McpTaskStatusCard` is a controlled, browser-safe status surface, not a tool
+result card. It receives the bounded `McpTaskPresentation` contract and one
+injected controller port; it neither imports the agent runtime nor reconstructs
+Tasks authority in the renderer. Recover and Cancel submit the complete opaque
+handle unchanged. The agent-owned controller revalidates protocol, capability,
+server/resource, principal, and generation before and after the existing
+repository/lifecycle/interaction authority runs.
+
+The card remains truthful while actions are pending: recovery does not switch
+to live and cancellation does not show `cancelled` until the controller returns
+an observed state. Actions are single-flight. Stable diagnostics render as a
+focused alert; successful actions move focus to the live status summary, which
+is a polite status region. The identity is never rendered, the transition list
+is already bounded by the contract, and unexpected authority errors use fixed
+copy rather than exposing paths or credentials. The component is exported for
+opt-in composition only; production Tasks registration and advertisement remain
+disabled.
+
 ### ATTEMPTS VS TURNS (BST-1409)
 
 A turn may span several provider ATTEMPTS. `runTurnAttempts` (agent-streaming.ts)
