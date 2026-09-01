@@ -16,6 +16,9 @@ import {
   type McpHostPort,
   type McpHostSnapshot,
   parseConfiguredMcpServerId,
+  parseMcpHostConfig,
+  parseMcpHostControlRequest,
+  parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
@@ -24,6 +27,7 @@ import {
   type McpBearerCredentialAuthority,
 } from './bearer-credential';
 import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features';
+import { McpElicitationPresenterAuthority } from './elicitation-presenter';
 import { McpHostRevisionPublisher } from './host-revision-publisher';
 import { McpHostService } from './host-service';
 import { classifyMcpLifecycleFailure, McpLifecycleFailure } from './lifecycle-errors';
@@ -348,6 +352,7 @@ export class DesktopMcpHostRuntime {
     ReturnType<typeof createMcpOAuthStoreIdentity>
   >();
   readonly host: McpHostPort;
+  readonly elicitationPresenter: McpElicitationPresenterAuthority;
   private replacementTail: Promise<void> = Promise.resolve();
   private stagedByRef: Map<string, PrivateConfigEntry> | undefined;
   private readonly createActorClient: NonNullable<
@@ -425,12 +430,41 @@ export class DesktopMcpHostRuntime {
       onInternalError: (code, cause) => this.reportInternalError(code, cause),
       publisher,
     });
+    this.elicitationPresenter = new McpElicitationPresenterAuthority({
+      openExternal: async (url) => await this.openExternal(url.href),
+      resolveServer: (configuredServerId) =>
+        this.service
+          .snapshot()
+          .servers.find((server) => server.configuredServerId === configuredServerId),
+    });
     this.host = {
-      close: () => this.service.close(),
-      control: (request) => this.service.control(request),
-      invoke: (operation, options) => this.service.invoke(operation, options),
+      close: () => {
+        this.elicitationPresenter.close();
+        return this.service.close();
+      },
+      control: (request) =>
+        Promise.resolve().then(() => {
+          const parsed = parseMcpHostControlRequest(request);
+          if (parsed.action !== 'connect') {
+            this.retirePresentations(parsed.configuredServerId);
+          }
+          return this.service.control(parsed);
+        }),
+      invoke: (operation, options) =>
+        Promise.resolve().then(() => {
+          const parsed = parseMcpHostOperation(operation);
+          return this.elicitationPresenter.runWithOperation(parsed, () =>
+            this.service.invoke(parsed, options)
+          );
+        }),
       replaceConfig: (config) =>
-        this.enqueueReplacement(async () => await this.service.replaceConfig(config)),
+        this.enqueueReplacement(async () => {
+          const parsed = parseMcpHostConfig(config);
+          for (const server of this.service.snapshot().servers) {
+            this.elicitationPresenter.retireServer(server.configuredServerId, server.generation);
+          }
+          return await this.service.replaceConfig(parsed);
+        }),
       snapshot: () => this.service.snapshot(),
       watch: (filter, listener) => this.service.watch(filter, listener),
     };
@@ -438,7 +472,24 @@ export class DesktopMcpHostRuntime {
 
   replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
     const snapshot = structuredClone(config);
-    return this.enqueueReplacement(async () => await this.applyResolvedConfig(snapshot));
+    return this.enqueueReplacement(async () => {
+      for (const [configuredServerId, current] of this.currentById) {
+        const next = snapshot.servers.find(({ name }) => name === configuredServerId);
+        if (!(next && isDeepStrictEqual(current.server, next))) {
+          this.retirePresentations(configuredServerId);
+        }
+      }
+      return await this.applyResolvedConfig(snapshot);
+    });
+  }
+
+  private retirePresentations(configuredServerId: ConfiguredMcpServerId): void {
+    const current = this.service
+      .snapshot()
+      .servers.find((server) => server.configuredServerId === configuredServerId);
+    if (current) {
+      this.elicitationPresenter.retireServer(configuredServerId, current.generation);
+    }
   }
 
   private enqueueReplacement<T>(operation: () => Promise<T>): Promise<T> {
