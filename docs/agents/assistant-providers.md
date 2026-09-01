@@ -2255,8 +2255,12 @@ The production conformance client entry lives in
 `apps/desktop/src/mcp/official-conformance-client.ts`. It accepts only a
 validated server URL, exact `2025-11-25` or `2026-07-28` protocol revision, and
 the non-auth `initialize`, `tools_call`, `elicitation-sep1034-client-defaults`,
-or `sse-retry` scenario, plus the exact fourteen-name alpha.10 auth suite in
-upstream order. The last two non-auth scenarios are accepted only at
+or `sse-retry` scenario, plus the exact fourteen-name alpha.10 auth baseline in
+upstream order and the exact eleven-name modern auth closeout. The eleven
+resource, offline-access, authorization-server migration, authorization-response
+issuer, and metadata-issuer scenarios are accepted only at `2026-07-28`; the
+client schema rejects a fabricated `2025-11-25` pairing before runtime creation.
+The last two non-auth scenarios are accepted only at
 `2025-11-25`, matching their alpha.10 applicability window. It builds configuration
 through the production loader, creates a fresh `DesktopMcpHostRuntime`, and
 drives list/call through `McpHostPort`; it never constructs a parallel SDK
@@ -2290,9 +2294,12 @@ through `process.execPath` and argv arrays rather than platform-specific
 package-manager shims. The exact upstream alpha.10 CLI manifests have fourteen
 auth scenarios at `2025-11-25` and 25 at `2026-07-28`. BST-1560 runs its reviewed
 fourteen-scenario production-auth profile once at each declared revision in
-exactly two parallel revision waves; the eleven modern-only resource,
-offline-access, issuer, and migration scenarios are owned by BST-1576 and block
-any complete official-auth claim. Every invocation uses
+exactly two parallel revision waves. BST-1576 owns the separate closed
+`--profile modern-closeout`: exactly the remaining eleven scenarios, exactly one
+`2026-07-28` wave, and sequential scenario process ownership. Sequential ownership
+prevents one detached conformance process group's final reap from interfering with
+another scenario while retaining the same per-scenario and outer Job Object bounds.
+Every invocation uses
 official single-scenario mode, a 30-second upstream timeout and a 45-second
 outer deadline, so the official process's exit status is authoritative. The
 driver never passes `--expected-failures` or auth `--output-dir`: alpha.10's raw
@@ -2301,10 +2308,12 @@ Child stdio is not inherited. Results retain only fixed revision/scenario ids,
 pass/fail status, timings, and a closed start/timeout/cleanup/exit/runner failure
 discriminator; failures aggregate once without child diagnostics.
 
-The driver writes one atomic, mode-0600
-`packages/mcp-test-lab/artifacts/official-auth-evidence.json` file. It binds the
-exact Git head and clean/dirty state, verified empty ledgers, both wave timings,
-all 28 fixed result ids, cleanup status, and the explicit
+The baseline driver writes one atomic, mode-0600
+`packages/mcp-test-lab/artifacts/official-auth-evidence.json` file; the modern
+closeout writes only
+`packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json`.
+Each binds its closed profile, owning ticket, exact Git head and clean/dirty state,
+verified empty ledgers, wave timings, fixed result ids, cleanup status, and the explicit
 `{ prerelease: true, required: false }` conformance classification. No raw auth
 artifact directory exists. On Windows (BST-1557, a bounded child of the
 BST-1472 verifier project), the outer driver loads the existing
@@ -2627,6 +2636,24 @@ provider fetch must be passed to the SDK transport for refresh coalescing and
 disconnect fencing to apply. The later UX ticket owns the explicit
 Authenticate/Reauthorize action and the startup `authentication_required`
 projection; no background connection may open a browser implicitly.
+
+The `2026-07-28` authorization-server migration contract requires a challenged
+bearer request to rediscover protected-resource metadata before selecting the next
+authorization server. A context-free token read marks that bearer use; the next
+`discoveryState()` call returns no cached state exactly once, forcing the installed
+SDK to rediscover PRM and select the current issuer. Callback-leg discovery remains
+persisted until bearer use so RFC 9207 `iss` validation still compares against the
+issuer recorded before authorization. Client information, tokens, and discovery
+remain issuer-partitioned, so migration re-registers instead of replaying credentials
+from the previous authorization server.
+
+Canonical basis: the [MCP 2026-07-28 authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)
+requires strict authorization-response issuer validation and issuer-bound client
+credentials; RFC 9207 requires validation before code redemption; RFC 8707 and RFC
+9728 define resource binding and protected-resource metadata. The installed
+alpha.10 package resolves to npm `gitHead`
+`a9896553900a2ef61787b57adfcbbe936a8ab1f9`; its CLI is the applicability authority,
+not later upstream `main`.
 
 The package exports `./faults` only after every fault variant, declaration key,
 match key, occurrence, reachability rule, and coordinate shape is validated.

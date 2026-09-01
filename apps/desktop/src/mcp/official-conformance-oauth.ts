@@ -22,8 +22,28 @@ export const OFFICIAL_AUTH_SCENARIO_NAMES = [
   'auth/token-endpoint-auth-none',
   'auth/pre-registration',
 ] as const;
-export type OfficialAuthScenarioName = (typeof OFFICIAL_AUTH_SCENARIO_NAMES)[number];
-export const OfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_SCENARIO_NAMES);
+export const MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES = [
+  'auth/resource-mismatch',
+  'auth/offline-access-scope',
+  'auth/offline-access-not-supported',
+  'auth/authorization-server-migration',
+  'auth/iss-supported',
+  'auth/iss-not-advertised',
+  'auth/iss-supported-missing',
+  'auth/iss-wrong-issuer',
+  'auth/iss-unexpected',
+  'auth/iss-normalized',
+  'auth/metadata-issuer-mismatch',
+] as const;
+const ALL_OFFICIAL_AUTH_SCENARIO_NAMES = [
+  ...OFFICIAL_AUTH_SCENARIO_NAMES,
+  ...MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES,
+] as const;
+export type OfficialAuthScenarioName = (typeof ALL_OFFICIAL_AUTH_SCENARIO_NAMES)[number];
+export const OfficialAuthScenarioNameSchema = z.enum(ALL_OFFICIAL_AUTH_SCENARIO_NAMES);
+export const ModernOnlyOfficialAuthScenarioNameSchema = z.enum(
+  MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES
+);
 const OfficialConformanceOAuthContextSchema = z.discriminatedUnion('name', [
   z.strictObject({
     client_id: NonEmpty,

@@ -599,6 +599,7 @@ export async function createMcpOAuthClientProvider(
   const records = new Map<string, McpOAuthPersistedState>(Object.entries(persistedRecords));
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
+  let requireFreshDiscoveryAfterBearerUse = false;
   let authorizationCallback: Promise<URLSearchParams> | undefined;
   let closePromise: Promise<McpOAuthCloseProof> | undefined;
   let closed = false;
@@ -737,6 +738,7 @@ export async function createMcpOAuthClientProvider(
     records.clear();
     currentIssuer = undefined;
     currentState = undefined;
+    requireFreshDiscoveryAfterBearerUse = false;
     authorizationCallback = undefined;
     await options.store.clear(identity);
   };
@@ -805,6 +807,10 @@ export async function createMcpOAuthClientProvider(
       await closing;
     },
     async discoveryState() {
+      if (requireFreshDiscoveryAfterBearerUse) {
+        requireFreshDiscoveryAfterBearerUse = false;
+        return;
+      }
       if (currentIssuer !== undefined) {
         return records.get(currentIssuer)?.discoveryState;
       }
@@ -879,6 +885,7 @@ export async function createMcpOAuthClientProvider(
     },
     async saveDiscoveryState(state) {
       assertOpen();
+      requireFreshDiscoveryAfterBearerUse = false;
       currentIssuer = state.authorizationServerMetadata?.issuer ?? state.authorizationServerUrl;
       replaceCurrentRecord({ discoveryState: state });
       await persist();
@@ -948,10 +955,16 @@ export async function createMcpOAuthClientProvider(
       if (ctx) {
         currentIssuer = ctx.issuer;
       }
-      if (currentIssuer !== undefined) {
-        return records.get(currentIssuer)?.tokens;
+      const tokens =
+        currentIssuer === undefined
+          ? records.size === 1
+            ? records.values().next().value?.tokens
+            : undefined
+          : records.get(currentIssuer)?.tokens;
+      if (ctx === undefined && tokens !== undefined) {
+        requireFreshDiscoveryAfterBearerUse = true;
       }
-      return records.size === 1 ? records.values().next().value?.tokens : undefined;
+      return tokens;
     },
     async validateResourceURL(server, resource) {
       const expected = resourceUrlFromServerUrl(server);

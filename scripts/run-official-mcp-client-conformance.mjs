@@ -9,6 +9,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const CONFORMANCE_VERSION = '0.2.0-alpha.10';
 const CLIENT_COMMAND = 'node apps/desktop/dist/official-conformance-client-entry.js';
 const PROTOCOL_VERSIONS = ['2025-11-25', '2026-07-28'];
+const BASELINE_PROFILE = 'baseline';
+const MODERN_CLOSEOUT_PROFILE = 'modern-closeout';
 export const OFFICIAL_AUTH_SCENARIOS = [
   'auth/metadata-default',
   'auth/metadata-var1',
@@ -25,8 +27,7 @@ export const OFFICIAL_AUTH_SCENARIOS = [
   'auth/token-endpoint-auth-none',
   'auth/pre-registration',
 ];
-export const OFFICIAL_ALPHA10_AUTH_SCENARIOS = [
-  ...OFFICIAL_AUTH_SCENARIOS,
+export const OFFICIAL_MODERN_AUTH_SCENARIOS = [
   'auth/resource-mismatch',
   'auth/offline-access-scope',
   'auth/offline-access-not-supported',
@@ -39,9 +40,22 @@ export const OFFICIAL_ALPHA10_AUTH_SCENARIOS = [
   'auth/iss-normalized',
   'auth/metadata-issuer-mismatch',
 ];
+export const OFFICIAL_ALPHA10_AUTH_SCENARIOS = [
+  ...OFFICIAL_AUTH_SCENARIOS,
+  ...OFFICIAL_MODERN_AUTH_SCENARIOS,
+];
 export const OFFICIAL_ALPHA10_AUTH_SCENARIOS_BY_PROTOCOL = Object.freeze({
   '2025-11-25': OFFICIAL_AUTH_SCENARIOS,
   '2026-07-28': OFFICIAL_ALPHA10_AUTH_SCENARIOS,
+});
+const OFFICIAL_AUTH_PROFILE_SCENARIOS = Object.freeze({
+  [BASELINE_PROFILE]: Object.freeze({
+    '2025-11-25': OFFICIAL_AUTH_SCENARIOS,
+    '2026-07-28': OFFICIAL_AUTH_SCENARIOS,
+  }),
+  [MODERN_CLOSEOUT_PROFILE]: Object.freeze({
+    '2026-07-28': OFFICIAL_MODERN_AUTH_SCENARIOS,
+  }),
 });
 const SCENARIO_DEADLINE_MS = 45_000;
 const WINDOWS_JOB_CLEANUP_TIMEOUT_MS = 2000;
@@ -52,6 +66,10 @@ const initializedWindowsJobs = new WeakSet();
 export const OFFICIAL_EVIDENCE_PATH = path.join(
   REPO_ROOT,
   'packages/mcp-test-lab/artifacts/official-auth-evidence.json'
+);
+export const OFFICIAL_MODERN_AUTH_EVIDENCE_PATH = path.join(
+  REPO_ROOT,
+  'packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json'
 );
 const SAFE_ENVIRONMENT_NAMES = [
   'CI',
@@ -78,9 +96,11 @@ export function buildControlledEnvironment(source = process.env) {
 export function buildOfficialClientInvocations({
   conformanceEntryPath,
   nodePath = process.execPath,
+  profile = BASELINE_PROFILE,
 }) {
-  return PROTOCOL_VERSIONS.flatMap((protocolVersion) =>
-    OFFICIAL_AUTH_SCENARIOS.map((scenario) => ({
+  const scenariosByProtocol = officialAuthProfileScenarios(profile);
+  return Object.entries(scenariosByProtocol).flatMap(([protocolVersion, scenarios]) =>
+    scenarios.map((scenario) => ({
       argv: [
         conformanceEntryPath,
         'client',
@@ -98,6 +118,31 @@ export function buildOfficialClientInvocations({
       protocolVersion,
     }))
   );
+}
+
+function officialAuthProfileScenarios(profile) {
+  const scenarios = OFFICIAL_AUTH_PROFILE_SCENARIOS[profile];
+  if (scenarios === undefined) {
+    throw new Error('Official MCP auth conformance profile is invalid');
+  }
+  return scenarios;
+}
+
+export function parseOfficialAuthProfile(argv) {
+  if (argv.length === 0) {
+    return BASELINE_PROFILE;
+  }
+  if (argv.length === 2 && argv[0] === '--profile' && argv[1] === MODERN_CLOSEOUT_PROFILE) {
+    return MODERN_CLOSEOUT_PROFILE;
+  }
+  throw new Error('Official MCP auth conformance profile arguments are invalid');
+}
+
+function evidencePathForProfile(profile) {
+  officialAuthProfileScenarios(profile);
+  return profile === MODERN_CLOSEOUT_PROFILE
+    ? OFFICIAL_MODERN_AUTH_EVIDENCE_PATH
+    : OFFICIAL_EVIDENCE_PATH;
 }
 
 export function validateExpectedFailureLedgers(
@@ -136,7 +181,15 @@ export function validateExpectedFailureLedgers(
   );
 }
 
-export function buildOfficialAuthEvidence({ completedAt, git, ledgers, report, startedAt }) {
+export function buildOfficialAuthEvidence({
+  completedAt,
+  git,
+  ledgers,
+  profile = BASELINE_PROFILE,
+  report,
+  startedAt,
+}) {
+  officialAuthProfileScenarios(profile);
   const results = report.waves.flatMap((wave) => wave.results);
   const passed = results.filter((result) => result.status === 'passed').length;
   const failed = results.length - passed;
@@ -150,7 +203,8 @@ export function buildOfficialAuthEvidence({ completedAt, git, ledgers, report, s
     },
     expectedFailures: ledgers,
     git,
-    schemaVersion: '1.0.0',
+    profile,
+    schemaVersion: '1.1.0',
     startedAt,
     summary: {
       cleanup: report.failureIds.some((id) => id.endsWith('/cleanup')) ? 'failed' : 'confirmed',
@@ -158,7 +212,7 @@ export function buildOfficialAuthEvidence({ completedAt, git, ledgers, report, s
       failed,
       passed,
     },
-    ticket: 'BST-1560',
+    ticket: profile === MODERN_CLOSEOUT_PROFILE ? 'BST-1576' : 'BST-1560',
     waves: report.waves,
   };
 }
@@ -449,54 +503,66 @@ export async function runOfficialClientInvocations(
     loadWindowsJob = loadWindowsJobNative,
     now = Date.now,
     platform = process.platform,
+    profile = BASELINE_PROFILE,
     runInvocation = runOfficialClientInvocation,
   } = {}
 ) {
-  const canonicalIds = PROTOCOL_VERSIONS.flatMap((protocolVersion) =>
-    OFFICIAL_AUTH_SCENARIOS.map((scenario) => `${protocolVersion}/${scenario}`)
+  const scenariosByProtocol = officialAuthProfileScenarios(profile);
+  const profileProtocols = Object.keys(scenariosByProtocol);
+  const canonicalInvocations = profileProtocols.flatMap((protocolVersion) =>
+    scenariosByProtocol[protocolVersion].map((scenario) => ({
+      id: `${protocolVersion}/${scenario}`,
+      protocolVersion,
+    }))
   );
   if (
-    invocations.length !== canonicalIds.length ||
+    invocations.length !== canonicalInvocations.length ||
     invocations.some(
       (invocation, index) =>
-        invocation.id !== canonicalIds[index] ||
-        invocation.protocolVersion !==
-          PROTOCOL_VERSIONS[Math.floor(index / OFFICIAL_AUTH_SCENARIOS.length)]
+        invocation.id !== canonicalInvocations[index]?.id ||
+        invocation.protocolVersion !== canonicalInvocations[index]?.protocolVersion
     )
   ) {
+    const executionCount = canonicalInvocations.length;
     throw new Error(
-      'Official MCP auth conformance requires the exact canonical 28-scenario matrix'
+      `Official MCP auth conformance requires the exact canonical ${executionCount}-scenario matrix`
     );
   }
   const windowsJob = initializeWindowsJobOwnership(platform, loadWindowsJob);
   const failures = [];
   const waves = [];
-  for (const protocolVersion of PROTOCOL_VERSIONS) {
+  for (const protocolVersion of profileProtocols) {
     const waveStartedAt = now();
     const wave = invocations.filter((invocation) => invocation.protocolVersion === protocolVersion);
-    const results = await Promise.all(
-      wave.map(async (invocation) => {
-        const startedAt = now();
-        try {
-          await runInvocation(invocation, {
-            cwd,
-            deadlineMs,
-            deferWindowsCleanup: platform === 'win32',
-            env,
-            platform,
-            windowsJob,
-          });
-          return { durationMs: now() - startedAt, id: invocation.id, status: 'passed' };
-        } catch (error) {
-          return {
-            durationMs: now() - startedAt,
-            failureType: classifyInvocationFailure(error),
-            id: invocation.id,
-            status: 'failed',
-          };
-        }
-      })
-    );
+    const runScenario = async (invocation) => {
+      const startedAt = now();
+      try {
+        await runInvocation(invocation, {
+          cwd,
+          deadlineMs,
+          deferWindowsCleanup: platform === 'win32',
+          env,
+          platform,
+          windowsJob,
+        });
+        return { durationMs: now() - startedAt, id: invocation.id, status: 'passed' };
+      } catch (error) {
+        return {
+          durationMs: now() - startedAt,
+          failureType: classifyInvocationFailure(error),
+          id: invocation.id,
+          status: 'failed',
+        };
+      }
+    };
+    const results = [];
+    if (profile === MODERN_CLOSEOUT_PROFILE) {
+      for (const invocation of wave) {
+        results.push(await runScenario(invocation));
+      }
+    } else {
+      results.push(...(await Promise.all(wave.map(runScenario))));
+    }
     for (const result of results) {
       if (result.status === 'failed') {
         failures.push(new Error(result.id));
@@ -559,7 +625,16 @@ export function resolvePinnedConformanceEntry(repoRoot) {
 }
 
 export function finalizeOfficialAuthEvidence(
-  { completedAt, failure, ledgers, outputPath, report, repoRoot, startedAt },
+  {
+    completedAt,
+    failure,
+    ledgers,
+    outputPath,
+    profile = BASELINE_PROFILE,
+    report,
+    repoRoot,
+    startedAt,
+  },
   { readGitEvidence = resolveGitEvidence, writeEvidence = writeOfficialAuthEvidence } = {}
 ) {
   try {
@@ -567,6 +642,7 @@ export function finalizeOfficialAuthEvidence(
       completedAt,
       git: readGitEvidence(repoRoot),
       ledgers,
+      profile,
       report,
       startedAt,
     });
@@ -586,11 +662,13 @@ export function finalizeOfficialAuthEvidence(
   }
 }
 
-export async function main() {
+export async function main(argv = process.argv.slice(2)) {
+  const profile = parseOfficialAuthProfile(argv);
   const startedAt = new Date().toISOString();
   const ledgers = validateExpectedFailureLedgers(REPO_ROOT);
   const invocations = buildOfficialClientInvocations({
     conformanceEntryPath: resolvePinnedConformanceEntry(REPO_ROOT),
+    profile,
   });
   let failure;
   let report;
@@ -598,6 +676,7 @@ export async function main() {
     report = await runOfficialClientInvocations(invocations, {
       cwd: REPO_ROOT,
       env: buildControlledEnvironment(),
+      profile,
     });
   } catch (error) {
     if (
@@ -616,7 +695,8 @@ export async function main() {
     completedAt: new Date().toISOString(),
     failure,
     ledgers,
-    outputPath: OFFICIAL_EVIDENCE_PATH,
+    outputPath: evidencePathForProfile(profile),
+    profile,
     repoRoot: REPO_ROOT,
     report,
     startedAt,
@@ -627,7 +707,7 @@ export async function main() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  main().catch((error) => {
+  main(process.argv.slice(2)).catch((error) => {
     process.stderr.write(
       `Official MCP client conformance failed: ${error instanceof Error ? error.message : 'unknown error'}\n`
     );

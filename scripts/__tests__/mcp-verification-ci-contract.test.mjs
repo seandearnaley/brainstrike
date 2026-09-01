@@ -100,6 +100,52 @@ test('official prerelease auth conformance is a bounded advisory job with saniti
   assert.doesNotMatch(source, /'--output-dir'/u);
 });
 
+test('modern-only auth closeout is an independent bounded advisory job', () => {
+  const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
+  const job = workflow.jobs.official_modern_auth;
+  assert.ok(job);
+  assert.equal(job['continue-on-error'], true);
+  assert.equal(job['timeout-minutes'], 8);
+
+  const buildStep = findStep(
+    workflow,
+    'official_modern_auth',
+    'Build official MCP client dependencies and entry'
+  );
+  assert.equal(
+    buildStep.run,
+    'pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main'
+  );
+  assert.equal(buildStep['timeout-minutes'], 4);
+
+  const verifyStep = findStep(
+    workflow,
+    'official_modern_auth',
+    'Run official MCP modern auth closeout'
+  );
+  assert.equal(
+    verifyStep.run,
+    'node scripts/run-official-mcp-client-conformance.mjs --profile modern-closeout'
+  );
+  assert.equal(verifyStep['timeout-minutes'], 3);
+  assert.equal(verifyStep['continue-on-error'], undefined);
+
+  const uploadStep = findStep(
+    workflow,
+    'official_modern_auth',
+    'Upload official MCP modern auth evidence'
+  );
+  assert.equal(uploadStep.if, `${'$'}{{ always() }}`);
+  assert.equal(uploadStep.uses, 'actions/upload-artifact@v7');
+  assert.equal(uploadStep.with.name, `mcp-official-modern-auth-${'$'}{{ github.sha }}`);
+  assert.equal(
+    uploadStep.with.path,
+    'packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json'
+  );
+  assert.equal(uploadStep.with['if-no-files-found'], 'error');
+  assert.equal(uploadStep.with['retention-days'], 14);
+});
+
 test('PR and exhaustive lanes use the same command apart from profile and output', () => {
   const normalize = (command) =>
     command

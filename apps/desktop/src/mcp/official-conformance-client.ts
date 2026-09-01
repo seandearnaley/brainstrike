@@ -10,6 +10,8 @@ import {
 import { createOfficialConformanceAuthorizationOpener } from './official-conformance-authorization';
 import {
   createEphemeralOfficialConformanceOAuthRuntime,
+  ModernOnlyOfficialAuthScenarioNameSchema,
+  OFFICIAL_AUTH_SCENARIO_NAMES,
   type OfficialAuthScenarioName,
   OfficialAuthScenarioNameSchema,
 } from './official-conformance-oauth';
@@ -39,7 +41,13 @@ const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
   z.strictObject({
     context: z.string().optional(),
     protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
-    scenario: OfficialAuthScenarioNameSchema,
+    scenario: z.enum(OFFICIAL_AUTH_SCENARIO_NAMES),
+    serverUrl: z.string().min(1),
+  }),
+  z.strictObject({
+    context: z.string().optional(),
+    protocolVersion: z.literal('2026-07-28'),
+    scenario: ModernOnlyOfficialAuthScenarioNameSchema,
     serverUrl: z.string().min(1),
   }),
 ]);

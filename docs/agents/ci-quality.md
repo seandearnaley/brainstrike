@@ -75,6 +75,18 @@ own status and never inflates scenario failures. If evidence collection or its
 atomic write fails after conformance has already failed, the job preserves both
 causes rather than replacing the primary conformance failure.
 
+BST-1576 adds a second independent advisory job,
+`Official MCP modern auth closeout (advisory prerelease)`. It runs
+`node scripts/run-official-mcp-client-conformance.mjs --profile modern-closeout`
+under the same four-minute build, three-minute step, and eight-minute job bounds.
+The profile executes exactly the eleven alpha.10 scenarios that apply only at
+`2026-07-28`, sequentially inside one evidence wave, with zero expected failures.
+It uploads only
+`packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json`
+for 14 days under `mcp-official-modern-auth-${{ github.sha }}`. The baseline
+BST-1560 job remains its reviewed 28 executions; neither job passes
+`--expected-failures` or `--output-dir`, and neither uploads raw auth output.
+
 ### Open PR to Linear conformance (BST-521)
 
 Every human-authored pull request description must contain a Brainstrike issue
