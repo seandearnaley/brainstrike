@@ -202,6 +202,84 @@ describe('MCP OAuth credential boundary', () => {
     }
   });
 
+  it('hands each pending authorization callback to the transport exactly once', async () => {
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    try {
+      const state = await provider.state?.();
+      if (state === undefined) {
+        throw new Error('OAuth provider did not expose authorization state.');
+      }
+      await provider.redirectToAuthorization(
+        new URL(`https://auth.example.test/authorize?state=${encodeURIComponent(state)}`)
+      );
+      const controller = new AbortController();
+      const callback = provider.takePendingAuthorizationCallback(controller.signal);
+
+      expect(callback).toBeInstanceOf(Promise);
+      expect(provider.takePendingAuthorizationCallback(controller.signal)).toBeUndefined();
+      const callbackUrl = new URL(provider.redirectUrl);
+      callbackUrl.searchParams.set('code', 'one-shot-code');
+      callbackUrl.searchParams.set('state', state);
+      await fetch(callbackUrl);
+      await expect(callback).resolves.toEqual(
+        new URLSearchParams({ code: 'one-shot-code', state })
+      );
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('cancels an aborted callback take, detaches its listener, and permits an immediate retry', async () => {
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    try {
+      const state = await provider.state?.();
+      if (state === undefined) {
+        throw new Error('OAuth provider did not expose authorization state.');
+      }
+      await provider.redirectToAuthorization(
+        new URL(`https://auth.example.test/authorize?state=${encodeURIComponent(state)}`)
+      );
+      const controller = new AbortController();
+      const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
+      const callback = provider.takePendingAuthorizationCallback(controller.signal);
+      controller.abort();
+
+      await expect(callback).rejects.toThrow('authorization callback was cancelled');
+      expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
+      expect(
+        provider.takePendingAuthorizationCallback(new AbortController().signal)
+      ).toBeUndefined();
+
+      const retryState = await provider.state?.();
+      if (retryState === undefined) {
+        throw new Error('OAuth provider did not expose retry authorization state.');
+      }
+      await provider.redirectToAuthorization(
+        new URL(`https://auth.example.test/authorize?state=${encodeURIComponent(retryState)}`)
+      );
+      const retry = provider.takePendingAuthorizationCallback(new AbortController().signal);
+      const retryUrl = new URL(provider.redirectUrl);
+      retryUrl.searchParams.set('code', 'retry-code');
+      retryUrl.searchParams.set('state', retryState);
+      await fetch(retryUrl);
+      await expect(retry).resolves.toEqual(
+        new URLSearchParams({ code: 'retry-code', state: retryState })
+      );
+    } finally {
+      await provider.close();
+    }
+  });
+
   it('uses requested scopes when RFC 6749 permits the token response to omit scope', async () => {
     const store = createInMemoryMcpOAuthStore();
     await store.write(identity, {

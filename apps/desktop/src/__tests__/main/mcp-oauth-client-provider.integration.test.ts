@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import {
   Client,
   IssuerMismatchError,
@@ -8,15 +9,20 @@ import {
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
+  createMcpOAuthStoreIdentity,
 } from '../../mcp/oauth-client-provider';
+import type { ResolvedMcpServer } from '../../mcp-loader';
+
+type OAuthHttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
 
 interface FakeOAuthServerOptions {
   readonly callbackMode?: 'legitimate' | 'invalid-state-first' | 'issuer-mismatch';
   readonly clientRegistration: 'cimd' | 'dcr' | 'preregistered';
-  readonly insufficientScope?: boolean;
+  readonly insufficientScope?: boolean | number;
   readonly resourceMismatch?: boolean;
 }
 
@@ -71,7 +77,12 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
   let refreshCountValue = 0;
   let tokenCountValue = 0;
   let forceRefresh = false;
-  let forceInsufficientScope = options.insufficientScope ?? false;
+  let remainingInsufficientScope =
+    typeof options.insufficientScope === 'number'
+      ? options.insufficientScope
+      : options.insufficientScope
+        ? 1
+        : 0;
   let baseUrl: URL;
 
   const server = createServer(async (request, response) => {
@@ -207,8 +218,8 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
         response.end();
         return;
       }
-      if (forceInsufficientScope && body['method'] === 'tools/call') {
-        forceInsufficientScope = false;
+      if (remainingInsufficientScope > 0 && body['method'] === 'tools/call') {
+        remainingInsufficientScope -= 1;
         response.writeHead(403, {
           'www-authenticate': `Bearer error="insufficient_scope" resource_metadata="${new URL('/.well-known/oauth-protected-resource', baseUrl).href}" scope="read write"`,
         });
@@ -270,18 +281,240 @@ async function createClient(
   return { client, transport };
 }
 
+function resolvedOAuthServer(url: URL): OAuthHttpServer {
+  return {
+    auth: { type: 'oauth-user' },
+    name: parseConfiguredMcpServerId('fake.oauth.server'),
+    protocol: 'legacy',
+    startup: 'authentication-required',
+    transport: 'streamable-http',
+    url: url.href,
+  };
+}
+
+async function followAuthorizationRedirect(authorizationUrl: string): Promise<void> {
+  const authorization = await fetch(authorizationUrl, { redirect: 'manual' });
+  const location = authorization.headers.get('location');
+  if (!location) {
+    throw new Error('fake authorization server did not redirect');
+  }
+  await fetch(location);
+}
+
+function trackRuntime(
+  runtime: ReturnType<typeof createDesktopMcpHostRuntime>
+): ReturnType<typeof createDesktopMcpHostRuntime> {
+  cleanupTasks.push(async () => {
+    await runtime.host.close();
+  });
+  return runtime;
+}
+
+function takeAuthorizationCallback(
+  provider: Awaited<ReturnType<typeof createMcpOAuthClientProvider>>,
+  signal: AbortSignal = new AbortController().signal
+): Promise<URLSearchParams> {
+  const callback = provider.takePendingAuthorizationCallback(signal);
+  if (!callback) {
+    throw new Error('MCP OAuth authorization callback is not pending.');
+  }
+  return callback;
+}
+
 async function completeAuthorization(
   provider: Awaited<ReturnType<typeof createMcpOAuthClientProvider>>,
   client: Client,
   transport: StreamableHTTPClientTransport
 ): Promise<void> {
   await expect(client.connect(transport)).rejects.toBeInstanceOf(UnauthorizedError);
-  const callback = await provider.waitForAuthorizationCallback();
+  const callback = await takeAuthorizationCallback(provider);
   await transport.finishAuth(callback);
   await client.close();
 }
 
 describe('desktop-main MCP OAuthClientProvider', () => {
+  it('completes Connect through browser callback and token exchange in the production host', async () => {
+    const server = await startFakeOAuthServer({ clientRegistration: 'dcr' });
+    const configured = resolvedOAuthServer(server.url);
+    const runtime = trackRuntime(
+      createDesktopMcpHostRuntime({
+        oauthStore: createInMemoryMcpOAuthStore(),
+        openExternal: followAuthorizationRedirect,
+      })
+    );
+    await runtime.replaceResolvedConfig({ servers: [configured] });
+
+    await expect(
+      runtime.host.control({ action: 'connect', configuredServerId: configured.name })
+    ).resolves.toMatchObject({ state: 'connected' });
+    expect(server.authorizationRequests).toHaveLength(1);
+    expect(server.tokenCount()).toBe(1);
+    expect(runtime.host.snapshot().servers[0]).toMatchObject({
+      auth: { credentialState: 'stored', type: 'oauth-user' },
+      state: 'connected',
+    });
+    await expect(runtime.host.close()).resolves.toMatchObject({
+      callbacksClosed: 2,
+      failures: [],
+      loopbackPortsClosed: 1,
+    });
+  });
+
+  it('completes one request-time scope step-up through the production host', async () => {
+    const server = await startFakeOAuthServer({
+      clientRegistration: 'dcr',
+      insufficientScope: true,
+    });
+    const configured = resolvedOAuthServer(server.url);
+    const runtime = trackRuntime(
+      createDesktopMcpHostRuntime({
+        oauthStore: createInMemoryMcpOAuthStore(),
+        openExternal: followAuthorizationRedirect,
+      })
+    );
+    await runtime.replaceResolvedConfig({ servers: [configured] });
+    await runtime.host.control({ action: 'connect', configuredServerId: configured.name });
+
+    await expect(
+      runtime.host.invoke({
+        arguments: {},
+        configuredServerId: configured.name,
+        toolName: 'write',
+        type: 'tools/call',
+      })
+    ).resolves.toMatchObject({ result: { content: [{ text: 'ok', type: 'text' }] } });
+    expect(server.authorizationRequests).toHaveLength(2);
+    expect(server.authorizationRequests.at(-1)?.get('scope')).toContain('write');
+    await runtime.host.close();
+  });
+
+  it('fails after the active operation exhausts its authorization redirect budget', async () => {
+    const server = await startFakeOAuthServer({
+      clientRegistration: 'dcr',
+      insufficientScope: 10,
+    });
+    const configured = resolvedOAuthServer(server.url);
+    const runtime = trackRuntime(
+      createDesktopMcpHostRuntime({
+        oauthStore: createInMemoryMcpOAuthStore(),
+        openExternal: followAuthorizationRedirect,
+      })
+    );
+    await runtime.replaceResolvedConfig({ servers: [configured] });
+    await runtime.host.control({ action: 'connect', configuredServerId: configured.name });
+
+    await expect(
+      runtime.host.invoke({
+        arguments: {},
+        configuredServerId: configured.name,
+        toolName: 'write',
+        type: 'tools/call',
+      })
+    ).rejects.toThrow();
+    expect(server.authorizationRequests).toHaveLength(4);
+    await runtime.host.close();
+  });
+
+  it('cancels a production Connect waiting for its callback and closes the loopback listener', async () => {
+    const server = await startFakeOAuthServer({ clientRegistration: 'dcr' });
+    const configured = resolvedOAuthServer(server.url);
+    let provider: Awaited<ReturnType<typeof createMcpOAuthClientProvider>> | undefined;
+    const opened = Promise.withResolvers<void>();
+    const runtime = trackRuntime(
+      createDesktopMcpHostRuntime({
+        createOAuthProvider: async (options) => {
+          provider = await createMcpOAuthClientProvider(options);
+          return provider;
+        },
+        oauthStore: createInMemoryMcpOAuthStore(),
+        openExternal: async () => opened.resolve(),
+      })
+    );
+    await runtime.replaceResolvedConfig({ servers: [configured] });
+    const connecting = runtime.host.control({
+      action: 'connect',
+      configuredServerId: configured.name,
+    });
+    await opened.promise;
+    const callbackUrl = provider?.redirectUrl;
+    if (callbackUrl === undefined) {
+      throw new Error('production host did not create its OAuth provider');
+    }
+
+    await runtime.host.control({ action: 'cancel', configuredServerId: configured.name });
+    await expect(connecting).rejects.toThrow();
+    await expect(fetch(callbackUrl)).rejects.toThrow();
+    await expect(provider?.close()).resolves.toEqual({
+      callbacksClosed: 1,
+      loopbackPortsClosed: 1,
+    });
+    await runtime.host.close();
+  });
+
+  it('disconnects an authenticated host generation and rejects its stale callback authority', async () => {
+    const server = await startFakeOAuthServer({ clientRegistration: 'dcr' });
+    const configured = resolvedOAuthServer(server.url);
+    const store = createInMemoryMcpOAuthStore();
+    let provider: Awaited<ReturnType<typeof createMcpOAuthClientProvider>> | undefined;
+    const runtime = trackRuntime(
+      createDesktopMcpHostRuntime({
+        createOAuthProvider: async (options) => {
+          provider = await createMcpOAuthClientProvider(options);
+          return provider;
+        },
+        oauthStore: store,
+        openExternal: followAuthorizationRedirect,
+      })
+    );
+    await runtime.replaceResolvedConfig({ servers: [configured] });
+    await runtime.host.control({ action: 'connect', configuredServerId: configured.name });
+    const callbackUrl = provider?.redirectUrl;
+    if (callbackUrl === undefined) {
+      throw new Error('production host did not create its OAuth provider');
+    }
+
+    await expect(
+      runtime.host.control({ action: 'disconnect', configuredServerId: configured.name })
+    ).resolves.toMatchObject({ state: 'authentication-required' });
+    await expect(fetch(callbackUrl)).rejects.toThrow();
+    await expect(
+      store.read(createMcpOAuthStoreIdentity(configured.name, configured.url))
+    ).resolves.toEqual({});
+    await runtime.host.close();
+  });
+
+  it('retires callback authority and credentials when configuration replaces the OAuth generation', async () => {
+    const server = await startFakeOAuthServer({ clientRegistration: 'dcr' });
+    const configured = resolvedOAuthServer(server.url);
+    const store = createInMemoryMcpOAuthStore();
+    let provider: Awaited<ReturnType<typeof createMcpOAuthClientProvider>> | undefined;
+    const runtime = trackRuntime(
+      createDesktopMcpHostRuntime({
+        createOAuthProvider: async (options) => {
+          provider = await createMcpOAuthClientProvider(options);
+          return provider;
+        },
+        oauthStore: store,
+        openExternal: followAuthorizationRedirect,
+      })
+    );
+    await runtime.replaceResolvedConfig({ servers: [configured] });
+    await runtime.host.control({ action: 'connect', configuredServerId: configured.name });
+    const callbackUrl = provider?.redirectUrl;
+    if (callbackUrl === undefined) {
+      throw new Error('production host did not create its OAuth provider');
+    }
+
+    await expect(runtime.replaceResolvedConfig({ servers: [] })).resolves.toMatchObject({
+      servers: [],
+    });
+    await expect(fetch(callbackUrl)).rejects.toThrow();
+    await expect(
+      store.read(createMcpOAuthStoreIdentity(configured.name, configured.url))
+    ).resolves.toEqual({});
+    await runtime.host.close();
+  });
+
   it('keeps protocol invalidation recoverable while terminal disconnect remains separate', async () => {
     const identity = {
       resourceUrl: 'https://mcp.example.test/mcp',
@@ -389,7 +622,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       const authorization = new URL('https://auth.example.test/authorize');
       authorization.searchParams.set('state', await provider.state());
       await provider.redirectToAuthorization(authorization);
-      const callback = provider.waitForAuthorizationCallback();
+      const callback = takeAuthorizationCallback(provider);
 
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 
@@ -517,7 +750,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     });
     const { client, transport } = await createClient(provider, server.url);
     await expect(client.connect(transport)).rejects.toBeInstanceOf(UnauthorizedError);
-    const callback = await provider.waitForAuthorizationCallback();
+    const callback = await takeAuthorizationCallback(provider);
     await expect(transport.finishAuth(callback)).rejects.toBeInstanceOf(IssuerMismatchError);
     expect(server.tokenCount()).toBe(0);
     await client.close().catch(() => undefined);
@@ -651,7 +884,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     await expect(next.client.callTool({ arguments: {}, name: 'write' })).rejects.toBeInstanceOf(
       UnauthorizedError
     );
-    const stepUpCallback = await provider.waitForAuthorizationCallback();
+    const stepUpCallback = await takeAuthorizationCallback(provider);
     await next.transport.finishAuth(stepUpCallback);
     await expect(next.client.callTool({ arguments: {}, name: 'write' })).resolves.toMatchObject({
       content: [{ text: 'ok', type: 'text' }],

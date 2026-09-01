@@ -44,6 +44,7 @@ import { connectedStatus } from './types';
 
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type ConfiguredServer = McpHostConfig['servers'][number];
+const MCP_OAUTH_MAX_STEP_UP_RETRIES = 3;
 interface ExplicitClient extends NegotiatedProtocolFacts {
   callTool: McpCoreFeatureClient['callTool'];
   close: ExplicitHttpMcpClient['close'];
@@ -601,7 +602,14 @@ export class DesktopMcpHostRuntime {
     try {
       client = this.createHttpTransportClient({
         ...common,
-        ...(provider ? { authProvider: provider, fetch: provider.fetch } : {}),
+        ...(provider
+          ? {
+              authorizationCallbackSource: provider,
+              authProvider: provider,
+              fetch: provider.fetch,
+              maxStepUpRetries: MCP_OAUTH_MAX_STEP_UP_RETRIES,
+            }
+          : {}),
         ...(server.headers ? { headers: server.headers } : {}),
         lifecycle: 'host-owned',
         ...(provider ? { onInsufficientScope: 'reauthorize' as const } : {}),
