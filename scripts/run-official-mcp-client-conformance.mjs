@@ -2,6 +2,7 @@
 
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -13,7 +14,11 @@ const PROTOCOL_VERSIONS = ['2025-11-25', '2026-07-28'];
 // elicitation-defaults, sse-retry, and the complete auth scenario adapter.
 const SUITES = ['core', 'auth'];
 const SUITE_DEADLINE_MS = 600_000;
+const WINDOWS_JOB_CLEANUP_TIMEOUT_MS = 2000;
+const WINDOWS_JOB_POLL_INTERVAL_MS = 10;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const requireDesktopDependency = createRequire(path.join(REPO_ROOT, 'apps/desktop/package.json'));
+const initializedWindowsJobs = new WeakSet();
 export const OFFICIAL_OUTPUT_ROOT = path.join(
   REPO_ROOT,
   'packages/mcp-test-lab/artifacts/official-client-conformance'
@@ -40,10 +45,16 @@ export function buildControlledEnvironment(source = process.env) {
   return environment;
 }
 
-export function buildOfficialClientInvocations({ binaryPath, outputRoot, repoRoot }) {
+export function buildOfficialClientInvocations({
+  conformanceEntryPath,
+  nodePath = process.execPath,
+  outputRoot,
+  repoRoot,
+}) {
   return PROTOCOL_VERSIONS.flatMap((protocolVersion) =>
     SUITES.map((suite) => ({
       argv: [
+        conformanceEntryPath,
         'client',
         '--command',
         CLIENT_COMMAND,
@@ -62,7 +73,7 @@ export function buildOfficialClientInvocations({ binaryPath, outputRoot, repoRoo
         '--output-dir',
         path.join(outputRoot, protocolVersion, suite),
       ],
-      command: binaryPath,
+      command: nodePath,
       id: `${protocolVersion}/${suite}`,
     }))
   );
@@ -70,6 +81,90 @@ export function buildOfficialClientInvocations({ binaryPath, outputRoot, repoRoo
 
 function hasErrorCode(error, code) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
+
+function loadWindowsJobNative() {
+  return requireDesktopDependency('@brainstrike/windows-job-native');
+}
+
+function hasWindowsJobInterface(value) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof value.activeProcessCount === 'function' &&
+    typeof value.initialize === 'function' &&
+    typeof value.terminateOtherProcesses === 'function'
+  );
+}
+
+export function initializeWindowsJobOwnership(
+  platform = process.platform,
+  load = loadWindowsJobNative
+) {
+  if (platform !== 'win32') {
+    return;
+  }
+  let windowsJob;
+  try {
+    windowsJob = load();
+  } catch (cause) {
+    throw new Error(
+      'Official MCP conformance cannot start on Windows without Job Object ownership',
+      { cause }
+    );
+  }
+  if (!hasWindowsJobInterface(windowsJob)) {
+    throw new Error('Official MCP conformance Windows Job Object capability is invalid');
+  }
+  if (initializedWindowsJobs.has(windowsJob)) {
+    return windowsJob;
+  }
+  try {
+    windowsJob.initialize();
+  } catch (cause) {
+    throw new Error('Official MCP conformance Windows Job Object assignment failed', { cause });
+  }
+  initializedWindowsJobs.add(windowsJob);
+  return windowsJob;
+}
+
+function readWindowsJobActiveProcessCount(windowsJob) {
+  const count = windowsJob.activeProcessCount();
+  if (!Number.isSafeInteger(count) || count < 1) {
+    throw new Error(
+      'Official MCP conformance Windows Job Object returned an invalid process count'
+    );
+  }
+  return count;
+}
+
+async function terminateWindowsJobChildren(windowsJob, timeoutMs = WINDOWS_JOB_CLEANUP_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (readWindowsJobActiveProcessCount(windowsJob) > 1) {
+    const terminated = windowsJob.terminateOtherProcesses(1);
+    if (!Number.isSafeInteger(terminated) || terminated < 0) {
+      throw new Error(
+        'Official MCP conformance Windows Job Object returned an invalid termination count'
+      );
+    }
+    if (readWindowsJobActiveProcessCount(windowsJob) <= 1) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error('Official MCP conformance Windows Job Object cleanup could not be confirmed');
+    }
+    await new Promise((resolve) => setTimeout(resolve, WINDOWS_JOB_POLL_INTERVAL_MS));
+  }
+}
+
+function createCleanupFailure(invocationId, failure, cleanupCause) {
+  const cause = failure
+    ? new AggregateError(
+        [failure, cleanupCause],
+        `Official MCP conformance ${invocationId} invocation and cleanup failed`
+      )
+    : cleanupCause;
+  return new Error(`Official MCP conformance ${invocationId} cleanup failed`, { cause });
 }
 
 export async function killPosixProcessGroup(pid, signal) {
@@ -108,34 +203,46 @@ export function runOfficialClientInvocation(
     env = buildControlledEnvironment(),
     killGraceMs = 2000,
     killGroup = killPosixProcessGroup,
+    platform = process.platform,
     spawnProcess = spawn,
+    windowsJob,
   } = {}
 ) {
-  if (process.platform === 'win32' && killGroup === killPosixProcessGroup) {
+  const ownsWindowsJob = platform === 'win32';
+  if (ownsWindowsJob && !initializedWindowsJobs.has(windowsJob)) {
     return Promise.reject(
-      new Error('Official MCP conformance requires Windows Job Object ownership on Windows')
+      new Error('Official MCP conformance requires assigned Windows Job Object ownership')
     );
   }
-  return new Promise((resolve, reject) => {
-    let child;
-    try {
-      child = spawnProcess(invocation.command, [...invocation.argv], {
-        cwd,
-        detached: true,
-        env,
-        shell: false,
-        stdio: 'ignore',
-      });
-    } catch {
-      reject(new Error(`Official MCP conformance ${invocation.id} failed to start`));
-      return;
+  let child;
+  try {
+    child = spawnProcess(invocation.command, [...invocation.argv], {
+      cwd,
+      detached: !ownsWindowsJob,
+      env,
+      shell: false,
+      stdio: 'ignore',
+    });
+  } catch (cause) {
+    const failure = new Error(`Official MCP conformance ${invocation.id} failed to start`, {
+      cause,
+    });
+    if (!ownsWindowsJob) {
+      return Promise.reject(failure);
     }
+    return terminateWindowsJobChildren(windowsJob).then(
+      () => Promise.reject(failure),
+      (cleanupCause) => Promise.reject(createCleanupFailure(invocation.id, failure, cleanupCause))
+    );
+  }
 
+  return new Promise((resolve, reject) => {
     const processGroupId = child.pid;
     let settled = false;
     let timedOut = false;
     let graceTimer;
     let deadlineTimer;
+    let startFailureImmediate;
     const finish = async (failure, { killOwnedGroup = true } = {}) => {
       if (settled) {
         return;
@@ -143,17 +250,16 @@ export function runOfficialClientInvocation(
       settled = true;
       clearTimeout(deadlineTimer);
       clearTimeout(graceTimer);
-      if (killOwnedGroup && processGroupId !== undefined) {
+      clearImmediate(startFailureImmediate);
+      if (killOwnedGroup && (ownsWindowsJob || processGroupId !== undefined)) {
         try {
-          await killGroup(processGroupId, 'SIGKILL');
+          if (ownsWindowsJob) {
+            await terminateWindowsJobChildren(windowsJob, killGraceMs);
+          } else {
+            await killGroup(processGroupId, 'SIGKILL');
+          }
         } catch (cleanupCause) {
-          const cause = failure
-            ? new AggregateError(
-                [failure, cleanupCause],
-                `Official MCP conformance ${invocation.id} invocation and cleanup failed`
-              )
-            : cleanupCause;
-          reject(new Error(`Official MCP conformance ${invocation.id} cleanup failed`, { cause }));
+          reject(createCleanupFailure(invocation.id, failure, cleanupCause));
           return;
         }
       }
@@ -164,20 +270,33 @@ export function runOfficialClientInvocation(
       resolve();
     };
 
-    child.once('error', () => {
-      void finish(new Error(`Official MCP conformance ${invocation.id} failed to start`), {
-        killOwnedGroup: processGroupId !== undefined,
-      });
+    child.once('error', (cause) => {
+      void finish(
+        new Error(`Official MCP conformance ${invocation.id} failed to start`, { cause }),
+        {
+          killOwnedGroup: ownsWindowsJob || processGroupId !== undefined,
+        }
+      );
     });
     if (processGroupId === undefined) {
-      void finish(new Error(`Official MCP conformance ${invocation.id} failed to start`), {
-        killOwnedGroup: false,
+      startFailureImmediate = setImmediate(() => {
+        void finish(new Error(`Official MCP conformance ${invocation.id} failed to start`), {
+          killOwnedGroup: ownsWindowsJob,
+        });
       });
       return;
     }
 
     deadlineTimer = setTimeout(() => {
       timedOut = true;
+      if (ownsWindowsJob) {
+        void finish(
+          new Error(
+            `Official MCP conformance ${invocation.id} exceeded its ${deadlineMs}ms process deadline`
+          )
+        );
+        return;
+      }
       void killGroup(processGroupId, 'SIGTERM').then(
         () => {
           if (settled) {
@@ -216,13 +335,16 @@ export async function runOfficialClientInvocations(
     cwd,
     deadlineMs = SUITE_DEADLINE_MS,
     env = buildControlledEnvironment(),
+    loadWindowsJob = loadWindowsJobNative,
+    platform = process.platform,
     runInvocation = runOfficialClientInvocation,
   } = {}
 ) {
+  const windowsJob = initializeWindowsJobOwnership(platform, loadWindowsJob);
   const failures = [];
   for (const invocation of invocations) {
     try {
-      await runInvocation(invocation, { cwd, deadlineMs, env });
+      await runInvocation(invocation, { cwd, deadlineMs, env, platform, windowsJob });
     } catch (error) {
       failures.push(
         new Error(`Official MCP conformance ${invocation.id} failed`, {
@@ -239,7 +361,7 @@ export async function runOfficialClientInvocations(
   }
 }
 
-function resolvePinnedBinary(repoRoot) {
+export function resolvePinnedConformanceEntry(repoRoot) {
   const packageRoot = path.join(
     repoRoot,
     'packages/mcp-test-lab/node_modules/@modelcontextprotocol/conformance'
@@ -248,12 +370,12 @@ function resolvePinnedBinary(repoRoot) {
   if (manifest.version !== CONFORMANCE_VERSION || manifest.bin?.conformance !== 'dist/index.js') {
     throw new Error(`Official MCP conformance install is not ${CONFORMANCE_VERSION}`);
   }
-  return path.join(repoRoot, 'packages/mcp-test-lab/node_modules/.bin/conformance');
+  return path.join(packageRoot, manifest.bin.conformance);
 }
 
 export async function main() {
   const invocations = buildOfficialClientInvocations({
-    binaryPath: resolvePinnedBinary(REPO_ROOT),
+    conformanceEntryPath: resolvePinnedConformanceEntry(REPO_ROOT),
     outputRoot: OFFICIAL_OUTPUT_ROOT,
     repoRoot: REPO_ROOT,
   });
