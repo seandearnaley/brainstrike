@@ -1,3 +1,4 @@
+// Explicit @brainstrike/agent test-fixture export; never used by production entrypoints.
 import { readFile, writeFile } from 'node:fs/promises';
 import { Server } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
@@ -27,9 +28,14 @@ async function readState() {
   }
 }
 
-async function updateState(update) {
-  const next = update(await readState());
-  await writeFile(stateFile, JSON.stringify(next), 'utf8');
+let stateQueue = Promise.resolve();
+
+function updateState(update) {
+  stateQueue = stateQueue.then(async () => {
+    const next = update(await readState());
+    await writeFile(stateFile, JSON.stringify(next), 'utf8');
+  });
+  return stateQueue;
 }
 
 await updateState((state) => ({ ...state, starts: state.starts + 1 }));

@@ -2140,7 +2140,10 @@ Ownership and flow:
    capability boundary; it does not implement an extension itself. Only
    non-empty MCP config loads the dedicated subpath; keep split SDK packages out
    of root/browser-safe/Hosted Web bundles (the emitted-bundle verifier enforces
-   this).
+   this). Cross-package Desktop integration tests use only the explicit
+   `@brainstrike/agent/test-fixtures/mcp-host-lifecycle` and spawned-fixture
+   exports. They never traverse Agent's private `src/__tests__` tree, and the
+   fixture entrypoints remain unreachable from production Agent entrypoints.
 3. Desktop host composition — `apps/desktop/src/mcp/host-runtime.ts` constructs
    the shared explicit clients only behind `McpHostService` actors. The dormant
    pre-host global client registry, desktop `McpClient` wrapper, and HTTP/stdio/SSE

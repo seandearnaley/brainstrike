@@ -1,4 +1,5 @@
-import { createServer, type IncomingMessage, type Server } from 'node:http';
+/** Explicit Agent test fixture for cross-package Desktop host verification. */
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 
@@ -69,6 +70,14 @@ async function closeAll(disposers: ReadonlyArray<() => Promise<void>>): Promise<
   }
 }
 
+function respondWithFixtureFailure(response: ServerResponse, error: unknown): void {
+  if (!response.headersSent) {
+    response.writeHead(error instanceof SyntaxError ? 400 : 500).end('MCP fixture request failed');
+    return;
+  }
+  response.destroy(error instanceof Error ? error : undefined);
+}
+
 export async function startStatefulMcpHostServer(): Promise<RunningMcpHostServer> {
   const requests: ObservedMcpHostRequest[] = [];
   const pathname = '/mcp';
@@ -83,29 +92,25 @@ export async function startStatefulMcpHostServer(): Promise<RunningMcpHostServer
   await mcp.connect(transport);
 
   const server = createServer(async (request, response) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    const body = request.method === 'POST' ? await readJsonBody(request) : undefined;
-    requests.push({
-      ...(body === undefined ? {} : { body }),
-      method: request.method ?? 'UNKNOWN',
-      pathname: url.pathname,
-    });
-    if (url.pathname !== pathname) {
-      response.writeHead(404).end();
-      return;
-    }
-    if (request.method === 'GET') {
-      response.writeHead(405).end();
-      return;
-    }
     try {
-      await transport.handleRequest(request, response, body);
-    } catch (error) {
-      if (!response.headersSent) {
-        response.writeHead(500).end('MCP fixture request failed');
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      const body = request.method === 'POST' ? await readJsonBody(request) : undefined;
+      requests.push({
+        ...(body === undefined ? {} : { body }),
+        method: request.method ?? 'UNKNOWN',
+        pathname: url.pathname,
+      });
+      if (url.pathname !== pathname) {
+        response.writeHead(404).end();
         return;
       }
-      response.destroy(error instanceof Error ? error : undefined);
+      if (request.method === 'GET') {
+        response.writeHead(405).end();
+        return;
+      }
+      await transport.handleRequest(request, response, body);
+    } catch (error) {
+      respondWithFixtureFailure(response, error);
     }
   });
   const running = await listen(server);
