@@ -11,28 +11,36 @@ import { useAttachmentPreviewUrl } from './use-attachment-preview-url';
 
 const ComposerAttachmentChip = () => {
   const attachment = useAuiState((s) => s.attachment);
-  const previewUrl = useAttachmentPreviewUrl(attachment);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const preview = useAttachmentPreviewUrl(attachment);
+  // Load failures latch on the URL that failed, not a boolean: chips are
+  // index-keyed by ComposerPrimitive.Attachments, so after removing a sibling
+  // this instance can be reused for a DIFFERENT attachment — a sticky boolean
+  // would brand its perfectly loadable image "unavailable".
+  const [failedUrl, setFailedUrl] = useState<string | undefined>(undefined);
+  const previewUrl = preview.status === 'ready' ? preview.url : undefined;
+  const failed =
+    preview.status === 'error' || (previewUrl !== undefined && previewUrl === failedUrl);
   return (
     <AttachmentPrimitive.Root className="bs-composer-attachment relative inline-flex overflow-hidden rounded-lg border border-border">
-      {previewUrl && !loadFailed ? (
+      {previewUrl && !failed ? (
         // biome-ignore lint/a11y/noNoninteractiveElementInteractions: onError is a media-load event on img, not a user interaction
         <img
           alt={attachment.name}
           className="size-14 object-cover"
           data-testid="assistant-composer-attachment-preview"
           height={56}
-          onError={() => setLoadFailed(true)}
+          onError={() => setFailedUrl(previewUrl)}
           src={previewUrl}
           width={56}
         />
       ) : (
-        // No preview URL yet, or the image failed to load: a visible named
-        // fallback, never the browser's broken-image glyph (no-silent-fallbacks).
+        // Read still in flight, the read failed, or the image failed to load:
+        // a visible named fallback, never the browser's broken-image glyph
+        // (no-silent-fallbacks). Failure is distinguishable via the title.
         <span
           className="flex size-14 items-center justify-center overflow-hidden px-1 text-center text-[10px] text-muted-foreground"
           data-testid="assistant-composer-attachment-fallback"
-          title={loadFailed ? `Preview unavailable for ${attachment.name}` : attachment.name}
+          title={failed ? `Preview unavailable for ${attachment.name}` : attachment.name}
         >
           {attachment.name}
         </span>
@@ -108,14 +116,15 @@ export const ComposerAttachmentsBar = () => (
 
 const UserMessageAttachmentImage = () => {
   const attachment = useAuiState((s) => s.attachment);
-  const previewUrl = useAttachmentPreviewUrl(attachment);
-  const [loadFailed, setLoadFailed] = useState(false);
-  if (!previewUrl) {
+  const preview = useAttachmentPreviewUrl(attachment);
+  // URL-keyed for the same instance-reuse reason as the composer chip.
+  const [failedUrl, setFailedUrl] = useState<string | undefined>(undefined);
+  if (preview.status === 'loading') {
     return null;
   }
-  if (loadFailed) {
-    // Mirrors markdown-image.tsx: a load failure is promoted to an explicit
-    // named placeholder, never a silent broken-image glyph.
+  if (preview.status === 'error' || preview.url === failedUrl) {
+    // Mirrors markdown-image.tsx: a failed read or load is promoted to an
+    // explicit named placeholder, never a silent broken-image glyph.
     return (
       <span
         aria-label={`Image unavailable: ${attachment.name}`}
@@ -134,8 +143,8 @@ const UserMessageAttachmentImage = () => {
       alt={attachment.name}
       className="max-h-64 max-w-full rounded-lg object-contain"
       data-testid="assistant-user-message-attachment"
-      onError={() => setLoadFailed(true)}
-      src={previewUrl}
+      onError={() => setFailedUrl(preview.url)}
+      src={preview.url}
     />
   );
 };

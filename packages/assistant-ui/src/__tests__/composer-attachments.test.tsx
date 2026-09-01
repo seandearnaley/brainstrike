@@ -5,8 +5,10 @@
  * rendered URL (broken-image glyph) and leaked the double-render's first URL.
  * The fix previews via a FileReader data URL — the same encoding `send()`
  * performs — so there is NO blob-URL lifecycle at all. These tests mount under
- * StrictMode (as both renderers do) and pin that: a live data-URL preview,
- * zero object URLs minted, and a visible named fallback on image load failure.
+ * StrictMode (as both renderers do) and pin: a live data-URL preview, zero
+ * object URLs minted, an explicit error status for failed reads (never a
+ * forever-"loading" placeholder — no-silent-fallbacks), and a load-failure
+ * latch that resets when the previewed URL changes (index-keyed chip reuse).
  */
 
 import {
@@ -33,6 +35,7 @@ beforeEach(() => {
 
 afterEach(() => {
   createObjectUrlSpy.mockRestore();
+  vi.unstubAllGlobals();
 });
 
 function makePendingAttachment(file: File): Attachment {
@@ -49,15 +52,30 @@ function makePendingAttachment(file: File): Attachment {
 const pngFile = (name = 'icon.png', bytes: readonly number[] = [1, 2, 3, 4]) =>
   new File([new Uint8Array(bytes)], name, { type: 'image/png' });
 
+/** A FileReader whose every read fails — models an unreadable file. */
+class FailingFileReader {
+  error = new Error('read failed');
+  onerror: (() => void) | null = null;
+  onload: (() => void) | null = null;
+  result: string | null = null;
+  readAsDataURL(): void {
+    queueMicrotask(() => this.onerror?.());
+  }
+}
+
 describe('useAttachmentPreviewUrl', () => {
-  it('resolves a pending attachment to a data-URL preview under StrictMode', async () => {
+  it('resolves a pending attachment to a ready data-URL preview under StrictMode', async () => {
     const { result } = renderHook(({ attachment }) => useAttachmentPreviewUrl(attachment), {
       initialProps: { attachment: makePendingAttachment(pngFile()) },
       wrapper: StrictMode,
     });
 
     await waitFor(() => {
-      expect(result.current).toMatch(/^data:image\/png;base64,/);
+      expect(result.current.status).toBe('ready');
+    });
+    expect(result.current).toMatchObject({
+      status: 'ready',
+      url: expect.stringMatching(/^data:image\/png;base64,/),
     });
     expect(createObjectUrlSpy).not.toHaveBeenCalled();
   });
@@ -71,15 +89,18 @@ describe('useAttachmentPreviewUrl', () => {
       }
     );
     await waitFor(() => {
-      expect(result.current).toMatch(/^data:image\/png;base64,/);
+      expect(result.current.status).toBe('ready');
     });
-    const firstUrl = result.current as string;
+    const firstUrl = (result.current as { url: string }).url;
 
     rerender({ attachment: makePendingAttachment(pngFile('second.png', [2, 2, 2, 2])) });
 
     await waitFor(() => {
-      expect(result.current).toMatch(/^data:image\/png;base64,/);
-      expect(result.current).not.toBe(firstUrl);
+      expect(result.current).toMatchObject({
+        status: 'ready',
+        url: expect.stringMatching(/^data:image\/png;base64,/),
+      });
+      expect((result.current as { url: string }).url).not.toBe(firstUrl);
     });
   });
 
@@ -100,7 +121,20 @@ describe('useAttachmentPreviewUrl', () => {
     });
 
     // Synchronous: the content part already carries the encoded image.
-    expect(result.current).toBe(dataUrl);
+    expect(result.current).toEqual({ status: 'ready', url: dataUrl });
+  });
+
+  it('surfaces a failed file read as an explicit error status, not endless loading', async () => {
+    vi.stubGlobal('FileReader', FailingFileReader);
+
+    const { result } = renderHook(({ attachment }) => useAttachmentPreviewUrl(attachment), {
+      initialProps: { attachment: makePendingAttachment(pngFile('broken.png')) },
+      wrapper: StrictMode,
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('error');
+    });
   });
 });
 
@@ -143,7 +177,7 @@ function ComposerHarness({
   );
 }
 
-async function mountComposerWithAttachment() {
+async function mountComposer(files: readonly File[]) {
   let aui: AuiApi | undefined;
   render(
     <StrictMode>
@@ -159,14 +193,17 @@ async function mountComposerWithAttachment() {
   await waitFor(() => {
     expect(aui).toBeDefined();
   });
+  // Sequential on purpose: attachment order must be deterministic.
   await act(async () => {
-    await (aui as AuiApi).composer().addAttachment(pngFile());
+    for (const file of files) {
+      await (aui as AuiApi).composer().addAttachment(file);
+    }
   });
 }
 
 describe('ComposerAttachmentChip', () => {
   it('renders a data-URL thumbnail for a staged attachment under StrictMode', async () => {
-    await mountComposerWithAttachment();
+    await mountComposer([pngFile()]);
 
     const img = await screen.findByTestId<HTMLImageElement>(
       'assistant-composer-attachment-preview'
@@ -176,14 +213,51 @@ describe('ComposerAttachmentChip', () => {
   });
 
   it('promotes an image load failure to a visible fallback instead of a broken glyph', async () => {
-    await mountComposerWithAttachment();
+    await mountComposer([pngFile()]);
 
     const img = await screen.findByTestId('assistant-composer-attachment-preview');
     fireEvent.error(img);
 
-    expect(await screen.findByTestId('assistant-composer-attachment-fallback')).toHaveTextContent(
-      'icon.png'
-    );
+    const fallback = await screen.findByTestId('assistant-composer-attachment-fallback');
+    expect(fallback).toHaveTextContent('icon.png');
+    expect(fallback).toHaveAttribute('title', 'Preview unavailable for icon.png');
     expect(screen.queryByTestId('assistant-composer-attachment-preview')).toBeNull();
+  });
+
+  it('shows the explicit unavailable fallback when the file itself cannot be read', async () => {
+    vi.stubGlobal('FileReader', FailingFileReader);
+
+    await mountComposer([pngFile('broken.png')]);
+
+    const fallback = await screen.findByTestId('assistant-composer-attachment-fallback');
+    await waitFor(() => {
+      expect(fallback).toHaveAttribute('title', 'Preview unavailable for broken.png');
+    });
+    expect(screen.queryByTestId('assistant-composer-attachment-preview')).toBeNull();
+  });
+
+  it('clears a latched load failure when the chip is reused for another attachment', async () => {
+    // ComposerPrimitive.Attachments keys chips by INDEX: after removing the
+    // first attachment, the surviving one is rendered by the FIRST chip
+    // instance — whose load-failure latch must not stick to it (BST-1575
+    // review finding).
+    await mountComposer([pngFile('first.png', [1, 1, 1]), pngFile('second.png', [2, 2, 2, 2])]);
+
+    const images = await screen.findAllByTestId<HTMLImageElement>(
+      'assistant-composer-attachment-preview'
+    );
+    expect(images).toHaveLength(2);
+    fireEvent.error(images[0] as HTMLImageElement);
+    await screen.findByTestId('assistant-composer-attachment-fallback');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove attachment first.png' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('assistant-composer-attachment-fallback')).toBeNull();
+    });
+    const survivor = await screen.findByTestId<HTMLImageElement>(
+      'assistant-composer-attachment-preview'
+    );
+    expect(survivor.src).toMatch(/^data:image\/png;base64,/);
   });
 });

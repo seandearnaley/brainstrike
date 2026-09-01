@@ -35,10 +35,13 @@ export const UserMessage = () => {
   const approvalChipKey = useAuiState((state) =>
     toApprovalActionChipKey(readApprovalActionChipProps(state.message))
   );
-  // Attachment-only messages render no empty bubble: the muted pill exists
-  // for text, and attachments live OUTSIDE it (see below).
-  const hasTextContent = useAuiState((state) =>
-    state.message.content.some((part) => part.type === 'text' && part.text.trim() !== '')
+  // Attachment-only messages render no empty bubble — but the gate must not
+  // silently drop CONTENT parts: MessagePrimitive.Parts renders every part
+  // type, so any non-text part (image/file parts hydrated into content, as
+  // opposed to message.attachments) still earns the bubble. Only a message
+  // whose content is nothing but blank text goes bubble-less.
+  const hasBubbleContent = useAuiState((state) =>
+    state.message.content.some((part) => part.type !== 'text' || part.text.trim() !== '')
   );
   if (approvalChipKey) {
     const chipProps = fromApprovalActionChipKey(approvalChipKey);
@@ -58,7 +61,7 @@ export const UserMessage = () => {
           BST-1575). */}
       <div className="col-start-2 row-start-2 flex max-w-xl flex-col items-end gap-2">
         <UserMessageAttachments />
-        {hasTextContent ? (
+        {hasBubbleContent ? (
           <ExpandableMessageContent
             className="aui-user-message-content max-w-full break-words rounded-2xl bg-muted px-4 py-2"
             testId="assistant-user-message-content"

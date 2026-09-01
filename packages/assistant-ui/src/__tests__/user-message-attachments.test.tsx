@@ -13,7 +13,7 @@ import {
   ThreadPrimitive,
   useLocalRuntime,
 } from '@assistant-ui/react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -135,5 +135,45 @@ describe('UserMessage attachments layout', () => {
 
     await screen.findByTestId('assistant-user-message-attachment');
     expect(screen.queryByTestId('assistant-user-message-content')).toBeNull();
+  });
+
+  it('keeps the bubble for a message whose content holds only non-text parts', async () => {
+    // The bubble gate must not silently drop non-text CONTENT parts (image /
+    // file parts hydrated from persistence render via MessagePrimitive.Parts,
+    // not via message.attachments) — BST-1575 review finding.
+    render(
+      <Harness
+        messages={[
+          {
+            content: [{ image: PNG_DATA_URL, type: 'image' }],
+            role: 'user',
+          },
+        ]}
+      />
+    );
+
+    expect(await screen.findByTestId('assistant-user-message-content')).toBeInTheDocument();
+  });
+
+  it('promotes an in-thread image load failure to an explicit named placeholder', async () => {
+    render(
+      <Harness
+        messages={[
+          {
+            attachments: [imageAttachment],
+            content: [{ text: 'look at this', type: 'text' }],
+            role: 'user',
+          },
+        ]}
+      />
+    );
+
+    const img = await screen.findByTestId('assistant-user-message-attachment');
+    fireEvent.error(img);
+
+    expect(await screen.findByTestId('assistant-user-message-attachment-error')).toHaveTextContent(
+      'Image unavailable: icon.png'
+    );
+    expect(screen.queryByTestId('assistant-user-message-attachment')).toBeNull();
   });
 });
