@@ -337,6 +337,11 @@ export function buildOfficialAuthEvidence({
     conformance: {
       package: '@modelcontextprotocol/conformance',
       prerelease: true,
+      // `required` records the project's gate posture, not whether this run
+      // happened in CI: since BST-1582 the official jobs in
+      // .github/workflows/mcp-verification.yml carry no `continue-on-error`,
+      // and mcp-verification-ci-contract.test.mjs pins this value to that
+      // absence relationally. A local run therefore also writes `true`.
       required: true,
       version: CONFORMANCE_VERSION,
     },
