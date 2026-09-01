@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {
+  McpConfigValidationError,
   type McpProtocolMigration,
   parseMcpConfigValue,
   parseMcpServerValue,
@@ -175,6 +176,19 @@ function formatPropertyIssue(text: string, issue: PropertyIssue): string {
   return `${issue.kind} property ${JSON.stringify(issue.key)} at line ${line}, column ${column} (${issue.path.join('.')})`;
 }
 
+function withDesktopValidationMessage<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    if (!(error instanceof McpConfigValidationError)) {
+      throw error;
+    }
+    throw new Error(
+      `invalid_mcp_config: ${error.issues.map(({ message, path }) => `${path || '<root>'}: ${message}`).join('; ')}`
+    );
+  }
+}
+
 function parseMcpConfigDocument(text: string): {
   config: ResolvedMcpConfig;
   migrations: McpProtocolMigration[];
@@ -205,7 +219,7 @@ function parseMcpConfigDocument(text: string): {
     );
   }
 
-  return parseMcpConfigValue(getNodeValue(root));
+  return withDesktopValidationMessage(() => parseMcpConfigValue(getNodeValue(root)));
 }
 
 export function parseMcpConfig(text: string): ResolvedMcpConfig {
@@ -559,10 +573,10 @@ async function processHttpServer(
   const headers = await applyDecryptionToHeaders(s.headers, s.name);
   if (headers !== undefined) {
     assertNoForbiddenDecryptedProperty(headers, 'headers');
-    return parseMcpServerValue({ ...s, headers });
+    return withDesktopValidationMessage(() => parseMcpServerValue({ ...s, headers }));
   }
   const { headers: _, ...rest } = s;
-  return parseMcpServerValue(rest);
+  return withDesktopValidationMessage(() => parseMcpServerValue(rest));
 }
 
 function unsupportedTransport(server: unknown): never {
@@ -584,10 +598,10 @@ async function processStdioServer(
   const env = await applyDecryptionToEnv(s.env, s.name);
   if (env !== undefined) {
     assertNoForbiddenDecryptedProperty(env, 'env');
-    return parseMcpServerValue({ ...s, env });
+    return withDesktopValidationMessage(() => parseMcpServerValue({ ...s, env }));
   }
   const { env: _, ...rest } = s;
-  return parseMcpServerValue(rest);
+  return withDesktopValidationMessage(() => parseMcpServerValue(rest));
 }
 
 export async function withDecryptedSecrets(cfg: McpConfig): Promise<ResolvedMcpConfig> {
