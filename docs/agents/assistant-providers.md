@@ -2527,17 +2527,17 @@ typed authorized host operation reads them.
 BST-1578 adds the first explicit content application seam at
 `@brainstrike/assistant-service/mcp-content-application-port`. Its closed
 browser-safe request union contains only `resources/read`, `prompts/get`, and
-`completion/complete`; every request carries the configured server id and the
-exact generation the caller authorized. The adapter owns only one filtered
-watch and one cancellation lease over the existing `McpHostPort` singleton. It
-checks authority before watch registration, immediately after registration,
-and after invocation, so server removal or replacement cannot redirect delayed
-work to a new generation. Caller cancellation remains a distinct stable error.
-Results are revalidated through the host runtime schema, must match the invoked
-operation, and must fit the 4 MiB serialized UTF-8 application limit; they are
-rejected rather than truncated. The seam exposes neither raw `invoke` nor SDK
-clients, adds no renderer IPC or UI, persists nothing, creates no subscription,
-and never injects content into model context.
+`completion/complete`; each request carries its authorized server generation.
+Serialized `_meta`, URI, prompt, and completion inputs must fit the 256 KiB
+UTF-8 request limit before host invocation. The adapter owns one filtered watch
+and cancellation lease over the existing `McpHostPort` singleton, checking
+authority before/after watch registration and after invocation. The exact
+generation must be connected and advertise the operation's catalog feature;
+missing state/capability, cancellation, and retirement have dedicated errors.
+Results are schema-validated, operation-matched, and limited to 4 MiB serialized
+UTF-8; request and result overflow reject rather than truncate. The seam exposes
+neither raw `invoke` nor SDK clients, adds no renderer IPC/UI/persistence or
+subscriptions, and never injects content into model context.
 
 Every promise-returning host operation reports malformed input and terminal
 closure as a rejected promise; `McpHostService` owns the typed `mcp-host-closed`
