@@ -7,6 +7,12 @@ import {
   type DesktopMcpHostRuntime,
   type DesktopMcpHostRuntimeDependencies,
 } from './host-runtime';
+import { createOfficialConformanceAuthorizationOpener } from './official-conformance-authorization';
+import {
+  createEphemeralOfficialConformanceOAuthRuntime,
+  type OfficialAuthScenarioName,
+  OfficialAuthScenarioNameSchema,
+} from './official-conformance-oauth';
 
 const CONFORMANCE_SERVER_ID = parseConfiguredMcpServerId('official-conformance');
 const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
@@ -30,9 +36,19 @@ const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
     scenario: z.literal('sse-retry'),
     serverUrl: z.string().min(1),
   }),
+  z.strictObject({
+    context: z.string().optional(),
+    protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
+    scenario: OfficialAuthScenarioNameSchema,
+    serverUrl: z.string().min(1),
+  }),
 ]);
 type ProductionConformanceInput = z.output<typeof ProductionConformanceInputSchema>;
-type ToolScenario = Exclude<ProductionConformanceInput['scenario'], 'initialize'>;
+type ToolScenario = Exclude<
+  ProductionConformanceInput['scenario'],
+  'initialize' | OfficialAuthScenarioName
+>;
+const AUTH_SCENARIO_TOOL = Object.freeze({ arguments: {}, name: 'test-tool' });
 
 function scenarioTool(scenario: ToolScenario): {
   arguments: Record<string, number>;
@@ -49,7 +65,7 @@ function scenarioTool(scenario: ToolScenario): {
 }
 
 export interface ProductionConformanceClientRuntime {
-  readonly host: Pick<DesktopMcpHostRuntime['host'], 'close' | 'invoke'>;
+  readonly host: Pick<DesktopMcpHostRuntime['host'], 'close' | 'control' | 'invoke'>;
   replaceResolvedConfig(
     config: ResolvedMcpConfig
   ): ReturnType<DesktopMcpHostRuntime['replaceResolvedConfig']>;
@@ -59,6 +75,7 @@ interface ProductionConformanceClientDependencies {
   createRuntime?: (
     dependencies: DesktopMcpHostRuntimeDependencies
   ) => ProductionConformanceClientRuntime;
+  openAuthorization?: (url: string) => Promise<void>;
 }
 
 function cleanupError(
@@ -91,19 +108,68 @@ function clientCapabilitiesForScenario(
   };
 }
 
-export async function runProductionMcpConformanceClient(
-  input: unknown,
-  dependencies: ProductionConformanceClientDependencies = {}
+function isOfficialAuthScenario(value: string): value is OfficialAuthScenarioName {
+  return OfficialAuthScenarioNameSchema.safeParse(value).success;
+}
+
+function isToolScenario(value: ProductionConformanceInput['scenario']): value is ToolScenario {
+  return value !== 'initialize' && !isOfficialAuthScenario(value);
+}
+
+async function callScenarioTool(
+  runtime: ProductionConformanceClientRuntime,
+  listed: Awaited<ReturnType<ProductionConformanceClientRuntime['host']['invoke']>>,
+  name: string,
+  arguments_: Record<string, number>
 ): Promise<void> {
-  const parsed = ProductionConformanceInputSchema.parse(input);
+  if (listed.type !== 'tools/list') {
+    throw new Error('Production MCP conformance client received an invalid tools/list result');
+  }
+  if (!listed.result.tools.some((tool) => tool.name === name)) {
+    throw new Error(`Production MCP conformance server does not expose ${name}`);
+  }
+  const called = await runtime.host.invoke({
+    arguments: arguments_,
+    configuredServerId: CONFORMANCE_SERVER_ID,
+    toolName: name,
+    type: 'tools/call',
+  });
+  if (called.type !== 'tools/call') {
+    throw new Error('Production MCP conformance client received an invalid tools/call result');
+  }
+  if (called.result.isError === true) {
+    throw new Error('Production MCP conformance server reported a tools/call error', {
+      cause: called.result,
+    });
+  }
+}
+
+function composeProductionRuntime(
+  parsed: ProductionConformanceInput,
+  dependencies: ProductionConformanceClientDependencies
+): {
+  authScenario: OfficialAuthScenarioName | undefined;
+  config: ResolvedMcpConfig;
+  oauthDependencies: ReturnType<typeof createEphemeralOfficialConformanceOAuthRuntime> | undefined;
+  runtime: ProductionConformanceClientRuntime;
+} {
+  const authScenario = isOfficialAuthScenario(parsed.scenario) ? parsed.scenario : undefined;
+  const oauthDependencies = authScenario
+    ? createEphemeralOfficialConformanceOAuthRuntime({
+        ...('context' in parsed && parsed.context !== undefined ? { context: parsed.context } : {}),
+        openAuthorization:
+          dependencies.openAuthorization ?? createOfficialConformanceAuthorizationOpener(),
+        scenario: authScenario,
+      })
+    : undefined;
   const config = parseMcpConfig(
     JSON.stringify({
       servers: [
         {
-          auth: { type: 'none' },
+          auth: { type: authScenario ? 'oauth-user' : 'none' },
           name: CONFORMANCE_SERVER_ID,
           protocol: parsed.protocolVersion === '2025-11-25' ? 'legacy' : '2026-07-28',
-          startup: 'automatic',
+          startup: authScenario ? 'authentication-required' : 'automatic',
           transport: 'streamable-http',
           url: parsed.serverUrl,
         },
@@ -111,44 +177,56 @@ export async function runProductionMcpConformanceClient(
     })
   );
   const runtimeDependencies = {
+    ...oauthDependencies,
     resolveClientCapabilities: () => clientCapabilitiesForScenario(parsed.scenario),
   } satisfies DesktopMcpHostRuntimeDependencies;
   const runtime =
     dependencies.createRuntime?.(runtimeDependencies) ??
     createDesktopMcpHostRuntime(runtimeDependencies);
-  const failures: unknown[] = [];
-  try {
-    await runtime.replaceResolvedConfig(config);
-    const listed = await runtime.host.invoke({
+  return { authScenario, config, oauthDependencies, runtime };
+}
+
+async function executeProductionScenario(
+  parsed: ProductionConformanceInput,
+  runtime: ProductionConformanceClientRuntime,
+  config: ResolvedMcpConfig,
+  authScenario: OfficialAuthScenarioName | undefined
+): Promise<void> {
+  await runtime.replaceResolvedConfig(config);
+  if (authScenario) {
+    const connected = await runtime.host.control({
+      action: 'connect',
       configuredServerId: CONFORMANCE_SERVER_ID,
-      type: 'tools/list',
     });
-    if (listed.type !== 'tools/list') {
-      throw new Error('Production MCP conformance client received an invalid tools/list result');
+    if (connected.state !== 'connected') {
+      throw new Error('Production MCP conformance OAuth connection did not reach connected state');
     }
-    if (parsed.scenario !== 'initialize') {
-      const target = scenarioTool(parsed.scenario);
-      if (!listed.result.tools.some(({ name }) => name === target.name)) {
-        throw new Error(`Production MCP conformance server does not expose ${target.name}`);
-      }
-      const called = await runtime.host.invoke({
-        arguments: target.arguments,
-        configuredServerId: CONFORMANCE_SERVER_ID,
-        toolName: target.name,
-        type: 'tools/call',
-      });
-      if (called.type !== 'tools/call') {
-        throw new Error('Production MCP conformance client received an invalid tools/call result');
-      }
-      if (called.result.isError === true) {
-        throw new Error('Production MCP conformance server reported a tools/call error', {
-          cause: called.result,
-        });
-      }
-    }
-  } catch (error) {
-    failures.push(error);
   }
+  const listed = await runtime.host.invoke({
+    configuredServerId: CONFORMANCE_SERVER_ID,
+    type: 'tools/list',
+  });
+  if (listed.type !== 'tools/list') {
+    throw new Error('Production MCP conformance client received an invalid tools/list result');
+  }
+  if (authScenario && authScenario !== 'auth/pre-registration') {
+    // The alpha.10 auth fixtures expose one common tool after authorization.
+    await callScenarioTool(runtime, listed, AUTH_SCENARIO_TOOL.name, AUTH_SCENARIO_TOOL.arguments);
+    return;
+  }
+  // Pre-registration is proven by the authenticated connect and tools/list; its
+  // upstream fixture intentionally does not require the common auth tool call.
+  if (isToolScenario(parsed.scenario)) {
+    const target = scenarioTool(parsed.scenario);
+    await callScenarioTool(runtime, listed, target.name, target.arguments);
+  }
+}
+
+async function collectCleanupFailures(
+  runtime: ProductionConformanceClientRuntime,
+  oauthDependencies: ReturnType<typeof createEphemeralOfficialConformanceOAuthRuntime> | undefined,
+  failures: unknown[]
+): Promise<void> {
   try {
     const failure = cleanupError(await runtime.host.close());
     if (failure) {
@@ -157,6 +235,34 @@ export async function runProductionMcpConformanceClient(
   } catch (error) {
     failures.push(error);
   }
+  if (!oauthDependencies) {
+    return;
+  }
+  try {
+    await oauthDependencies.oauthStore.clearAll();
+  } catch (error) {
+    failures.push(
+      new Error('Production MCP conformance OAuth state cleanup failed', { cause: error })
+    );
+  }
+}
+
+export async function runProductionMcpConformanceClient(
+  input: unknown,
+  dependencies: ProductionConformanceClientDependencies = {}
+): Promise<void> {
+  const parsed = ProductionConformanceInputSchema.parse(input);
+  const { authScenario, config, oauthDependencies, runtime } = composeProductionRuntime(
+    parsed,
+    dependencies
+  );
+  const failures: unknown[] = [];
+  try {
+    await executeProductionScenario(parsed, runtime, config, authScenario);
+  } catch (error) {
+    failures.push(error);
+  }
+  await collectCleanupFailures(runtime, oauthDependencies, failures);
   if (failures.length === 1) {
     throw failures[0];
   }

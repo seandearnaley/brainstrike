@@ -2255,8 +2255,9 @@ The production conformance client entry lives in
 `apps/desktop/src/mcp/official-conformance-client.ts`. It accepts only a
 validated server URL, exact `2025-11-25` or `2026-07-28` protocol revision, and
 the non-auth `initialize`, `tools_call`, `elicitation-sep1034-client-defaults`,
-or `sse-retry` scenario. The last two are accepted only at `2025-11-25`, matching
-their alpha.10 applicability window. It builds configuration
+or `sse-retry` scenario, plus the exact fourteen-name alpha.10 auth suite in
+upstream order. The last two non-auth scenarios are accepted only at
+`2025-11-25`, matching their alpha.10 applicability window. It builds configuration
 through the production loader, creates a fresh `DesktopMcpHostRuntime`, and
 drives list/call through `McpHostPort`; it never constructs a parallel SDK
 client. Legacy runs select explicit `legacy`, modern runs pin `2026-07-28`, and
@@ -2264,9 +2265,22 @@ client. Legacy runs select explicit `legacy`, modern runs pin `2026-07-28`, and
 inapplicable scenarios fail rather than falling back. The elicitation adapter
 accepts with empty content and explicitly advertises SDK-owned primitive
 default application; SSE retry remains owned by the production HTTP transport.
-Every run closes the host and rejects a non-empty cleanup-failure report.
-Process/environment parsing, official-suite orchestration, auth scenarios,
-expected-failure consumption, and CI ownership remain separate later layers.
+Auth runs use `oauth-user` plus `authentication-required`, an ephemeral store,
+the canonical CIMD client URL only for `auth/basic-cimd`, and exact context
+rules: thirteen scenarios require no context while `auth/pre-registration`
+requires its strict client-id/client-secret context. The headless opener accepts
+only an HTTP `localhost` or `127.0.0.1` authorization endpoint and one exact
+`127.0.0.1` `/mcp/oauth/callback` redirect, disables automatic redirects,
+rejects malformed, foreign, missing, or duplicate callback data, and emits fixed
+diagnostics.
+The alpha.10 auth fixtures expose the common `test-tool` after authorization;
+all scenarios except `auth/pre-registration` must invoke it. Pre-registration
+instead proves the supplied client credentials through the authenticated
+connect and subsequent tools/list because its upstream scenario does not own a
+common-tool assertion.
+Every run closes the host, clears ephemeral OAuth state, and rejects a non-empty
+cleanup-failure report. Exhaustive per-scenario result accounting,
+expected-failure consumption, and CI ownership remain BST-1560.
 
 The bounded official-runner driver is
 `scripts/run-official-mcp-client-conformance.mjs`. It validates the exact pinned
@@ -2280,7 +2294,9 @@ then the driver throws one aggregate failure; the ten-minute outer deadline is
 headroom over alpha.10's parallel per-scenario 30-second timeouts. Runner output
 is not inherited because alpha.10 logs the credential-bearing conformance
 context; structured results go only below the ignored
-`packages/mcp-test-lab/artifacts/` directory. On Windows (BST-1557, a bounded
+`packages/mcp-test-lab/artifacts/` directory. This suite topology is still a
+fail-closed tripwire; BST-1560 owns honest per-scenario auth execution without
+credential-bearing output artifacts. On Windows (BST-1557, a bounded
 child of the BST-1472 verifier project), the outer driver loads the existing
 `@brainstrike/windows-job-native` capability from Desktop and assigns itself to
 its kill-on-close Job Object before the first suite spawn.
@@ -2288,11 +2304,11 @@ Every child inherits that owner; timeout, failed start, failed exit, and clean
 close all verify authoritative Job membership and terminate only remaining Job
 members. Load, assignment, and cleanup failures stay visible with their primary
 causes, and unexpected outer-process exit closes the Job handle. There is no
-process-enumeration fallback. The bundled desktop process entry rejects
-conformance auth context. C2b1 adds `elicitation-sep1034-client-defaults` and
-`sse-retry`; the complete auth scenario adapter remains required before either
-full suite is a release claim. The empty ledgers keep the suite driver
-fail-closed until that remaining layer lands.
+process-enumeration fallback. The bundled desktop process entry accepts only
+the exact auth context rules above and otherwise emits one fixed stderr line.
+C2b1 supplies `elicitation-sep1034-client-defaults` and `sse-retry`; BST-1559
+supplies the official auth adapter. Neither makes the full suite a release claim:
+the empty ledgers and missing BST-1560 result path keep it fail-closed.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
