@@ -2198,16 +2198,20 @@ This is infrastructure, not capability graduation: production Apps
 advertisement remains disabled until the host surface and packaged lifecycle
 layers are complete and reviewed together.
 
-The BST-1571 host surface lives in `@brainstrike/assistant-ui` as an explicitly
-composed capability, not a global or auto-mounted renderer. Its closed state
-union renders loading, ready, sanitized error-code, cancelled, and completed
-states without accepting raw error text. App-originated `ask` calls render one
-focus-trapped `alertdialog` at a time, expose only the owned tool name and risk
-category, and never render arguments or results. Allow and Deny act on the
-authority's opaque consent id; tab/shift-tab stay inside the dialog, Escape
-denies, and settlement restores focus to the host-provided recovery target.
-The sandbox slot is inert and hidden from assistive technology while consent is
-open. This surface still does not register or advertise MCP Apps in production.
+The BST-1571 host surface lives in the browser adapter package
+`@brainstrike/mcp-app-host-ui` inside assistant-experience, not in the shared
+foundation UI layer and not as a global or auto-mounted renderer. The
+`@brainstrike/mcp-app-host` core remains NodeNext-compatible and React-free, so
+agent-side Apps authority imports do not load renderer code. The surface's
+closed state union renders loading, ready, sanitized error-code, cancelled, and
+completed states without accepting raw error text. App-originated `ask` calls
+render one focus-trapped `alertdialog` at a time, expose only the owned tool
+name and risk category, and never render arguments or results. Allow and Deny
+act on the authority's opaque consent id; tab/shift-tab stay inside the dialog,
+Escape denies, and settlement restores focus to the host-provided recovery
+target. The sandbox slot is inert and hidden from assistive technology while
+consent is open. This surface still does not register or advertise MCP Apps in
+production.
 
 The BST-1571 packaged verifier launches the exact electron-builder output,
 queries the live main process for `app.isPackaged === true`, and drives its

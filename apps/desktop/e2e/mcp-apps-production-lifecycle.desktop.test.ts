@@ -15,7 +15,7 @@ import { type Browser, chromium, type Page } from 'playwright';
 const appHostModulePath = path.resolve(process.cwd(), '../../packages/mcp-app-host/dist/index.js');
 const appSurfaceModulePath = path.resolve(
   process.cwd(),
-  '../../packages/assistant-ui/dist/mcp-app-host-surface.js'
+  '../../packages/mcp-app-host-ui/dist/index.js'
 );
 const requireFromTest = createRequire(import.meta.url);
 const reactModulePath = requireFromTest.resolve('react');
