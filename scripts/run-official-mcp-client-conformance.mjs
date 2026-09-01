@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -81,6 +88,29 @@ export function buildControlledEnvironment(source = process.env) {
     }
   }
   return environment;
+}
+
+export function provisionElectronClientRuntime({
+  // Electron 43's CommonJS loader synchronously runs install.js when path.txt
+  // or the resolved binary is absent. Requiring it here therefore completes
+  // extraction before any scenario process can load the same package.
+  loadElectron = () => requireDesktopDependency('electron'),
+  runtimeExists = existsSync,
+} = {}) {
+  let electronPath;
+  try {
+    electronPath = loadElectron();
+  } catch (cause) {
+    throw new Error('Official MCP conformance Electron runtime provisioning failed', { cause });
+  }
+  if (
+    typeof electronPath !== 'string' ||
+    !path.isAbsolute(electronPath) ||
+    !runtimeExists(electronPath)
+  ) {
+    throw new Error('Official MCP conformance Electron runtime provisioning is invalid');
+  }
+  return electronPath;
 }
 
 export function sanitizeOfficialDiagnosticLine(raw) {
@@ -628,6 +658,7 @@ export async function runOfficialClientInvocations(
     now = Date.now,
     platform = process.platform,
     profile = BASELINE_PROFILE,
+    provisionClientRuntime = provisionElectronClientRuntime,
     runInvocation = runOfficialClientInvocation,
     writeDiagnostics = (text) => process.stderr.write(text),
   } = {}
@@ -656,6 +687,7 @@ export async function runOfficialClientInvocations(
     );
   }
   const windowsJob = initializeWindowsJobOwnership(platform, loadWindowsJob);
+  await provisionClientRuntime();
   const failures = [];
   const waves = [];
   for (const protocolVersion of profileProtocols) {
@@ -813,6 +845,7 @@ export async function main(argv = process.argv.slice(2)) {
       cwd: REPO_ROOT,
       env: buildControlledEnvironment(),
       profile,
+      provisionClientRuntime: provisionElectronClientRuntime,
     });
   } catch (error) {
     if (

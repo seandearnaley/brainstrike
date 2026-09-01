@@ -100,6 +100,16 @@ test('resolves the exact pinned JavaScript entry instead of a platform shim', ()
   );
 });
 
+test('pins Electron lazy installation as a synchronous parent-process preflight', () => {
+  const electronLoader = readFileSync(
+    new URL('../../apps/desktop/node_modules/electron/index.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(electronLoader, /spawnSync\(process\.execPath/u);
+  assert.match(electronLoader, /path\.join\(__dirname, 'install\.js'\)/u);
+  assert.match(electronLoader, /if \(!fs\.existsSync\(fullPath\)\) \{\s*downloadElectron\(\);/u);
+});
+
 test('pins the canonical auth manifest against the installed alpha.10 CLI', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
   const entry = resolvePinnedConformanceEntry(repoRoot);
@@ -276,6 +286,7 @@ test('runs exactly two parallel revision waves and aggregates fixed failure ids 
     runOfficialClientInvocations(invocations, {
       cwd: '/repo',
       env: { PATH: '/bin' },
+      provisionClientRuntime: async () => undefined,
       runInvocation: async (invocation, options) => {
         observed.push({ deadlineMs: options.deadlineMs, id: invocation.id });
         assert.equal(invocation.protocolVersion === '2025-11-25' || firstRevisionSettled, true);
@@ -303,6 +314,29 @@ test('runs exactly two parallel revision waves and aggregates fixed failure ids 
     observed,
     invocations.map(({ id }) => ({ deadlineMs: 45_000, id }))
   );
+});
+
+test('provisions the shared Electron runtime once before parallel client scenarios', async () => {
+  const invocations = buildOfficialClientInvocations({
+    conformanceEntryPath: '/repo/conformance/dist/index.js',
+    nodePath: '/runtime/node',
+  });
+  let provisionCalls = 0;
+  const events = [];
+
+  await assert.doesNotReject(
+    runOfficialClientInvocations(invocations, {
+      provisionClientRuntime: async () => {
+        provisionCalls += 1;
+        events.push('provision');
+      },
+      runInvocation: async () => {
+        events.push('invoke');
+      },
+    })
+  );
+  assert.equal(provisionCalls, 1);
+  assert.deepEqual(events, ['provision', ...Array.from({ length: 28 }, () => 'invoke')]);
 });
 
 test('rejects partial, duplicate, and reordered auth matrices before spawning', async () => {
@@ -337,6 +371,7 @@ test('returns a sanitized 28-result timing report with no child diagnostics', as
   let clock = 100;
   const report = await runOfficialClientInvocations(invocations, {
     now: () => clock,
+    provisionClientRuntime: async () => undefined,
     runInvocation: async () => {
       clock += 5;
     },
@@ -383,6 +418,7 @@ test('records only fixed failure discriminators for failed invocations', async (
   await assert.rejects(
     runOfficialClientInvocations(invocations, {
       now: () => 10,
+      provisionClientRuntime: async () => undefined,
       runInvocation: async (invocation) => {
         const index = invocations.indexOf(invocation);
         if (index < messages.length) {
@@ -411,6 +447,7 @@ test('writes exact-head prerelease advisory evidence with only fixed result data
   });
   const report = await runOfficialClientInvocations(invocations, {
     now: () => 10,
+    provisionClientRuntime: async () => undefined,
     runInvocation: async () => {},
   });
   const evidence = buildOfficialAuthEvidence({
@@ -551,6 +588,7 @@ test('assigns the outer Windows process to the native Job before any suite start
   await runOfficialClientInvocations(invocations, {
     loadWindowsJob: () => windowsJob,
     platform: 'win32',
+    provisionClientRuntime: async () => undefined,
     runInvocation: async (_invocation, options) => {
       order.push('spawn');
       assert.equal(options.platform, 'win32');
