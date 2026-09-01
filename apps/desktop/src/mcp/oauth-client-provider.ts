@@ -575,7 +575,7 @@ export interface McpOAuthClientProvider extends OAuthClientProvider {
   readonly fetch: FetchLike;
   recordSuccessfulConnection(): Promise<void>;
   readonly redirectUrl: string;
-  readonly waitForAuthorizationCallback: () => Promise<URLSearchParams>;
+  takePendingAuthorizationCallback(signal: AbortSignal): Promise<URLSearchParams> | undefined;
 }
 
 export interface McpOAuthCloseProof {
@@ -739,6 +739,12 @@ export async function createMcpOAuthClientProvider(
     currentState = undefined;
     authorizationCallback = undefined;
     await options.store.clear(identity);
+  };
+
+  const takeAuthorizationCallback = (): Promise<URLSearchParams> | undefined => {
+    const pending = authorizationCallback;
+    authorizationCallback = undefined;
+    return pending;
   };
 
   const provider: McpOAuthClientProvider = {
@@ -905,6 +911,39 @@ export async function createMcpOAuthClientProvider(
       currentState = randomBytes(32).toString('base64url');
       return currentState;
     },
+    takePendingAuthorizationCallback(signal) {
+      const pending = takeAuthorizationCallback();
+      if (pending === undefined) {
+        return;
+      }
+      const wrapped = new Promise<URLSearchParams>((resolve, reject) => {
+        let settled = false;
+        const settle = (action: () => void): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          signal.removeEventListener('abort', rejectCancellation);
+          action();
+        };
+        const rejectCancellation = (): void => {
+          settle(() => {
+            callback.cancel();
+            reject(new Error('MCP OAuth authorization callback was cancelled.'));
+          });
+        };
+        signal.addEventListener('abort', rejectCancellation, { once: true });
+        if (signal.aborted) {
+          rejectCancellation();
+        }
+        void pending.then(
+          (params) => settle(() => resolve(params)),
+          (error: unknown) => settle(() => reject(error))
+        );
+      });
+      void wrapped.catch(() => undefined);
+      return wrapped;
+    },
     async tokens(ctx) {
       if (ctx) {
         currentIssuer = ctx.issuer;
@@ -923,12 +962,6 @@ export async function createMcpOAuthClientProvider(
         throw new Error('MCP OAuth protected-resource metadata does not match the MCP server URL.');
       }
       return expected;
-    },
-    waitForAuthorizationCallback: () => {
-      if (authorizationCallback === undefined) {
-        throw new Error('MCP OAuth authorization callback is not pending.');
-      }
-      return authorizationCallback;
     },
   };
   liveProviders.add(provider);

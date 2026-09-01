@@ -199,6 +199,7 @@ describe('DesktopMcpHostRuntime', () => {
     );
     expect(createHttpTransportClient).toHaveBeenCalledWith(
       expect.objectContaining({
+        authorizationCallbackSource: provider,
         authProvider: provider,
         fetch: provider?.fetch,
         lifecycle: 'host-owned',

@@ -2555,9 +2555,17 @@ never converted into an unauthenticated fallback.
 
 Production host composition creates the OAuth provider only for an explicit
 Connect or Reauthorize action, passes both `provider.fetch` and `authProvider`
-to `ExplicitHttpMcpClient`, and closes the provider callback/listener whenever
-the owning actor closes. Ordinary close and app restart preserve encrypted
-credentials. Disconnect and Reauthorize close the selected actor first, then
+to `ExplicitHttpMcpClient`, and for OAuth-user Streamable HTTP also passes the
+provider's one-shot `takePendingAuthorizationCallback(signal)` source. The
+agent client alone consumes that source, calls the SDK transport's `finishAuth`,
+and retries the opening connection or challenged request. No callback params
+leave Electron main, and absence of a pending callback returns `undefined`
+instead of guessing that an authorization retry exists. The callback source
+consumes each pending flow once and follows caller cancellation; the owning
+actor closes the provider callback/listener on cancellation, disconnect,
+replacement, failed connection, and terminal close. Ordinary close and app
+restart preserve encrypted credentials. Disconnect and Reauthorize close the
+selected actor first, then
 clear only its canonical configured-server/protected-resource identity;
 Reauthorize alone immediately begins a fresh explicit connect. The browser-safe
 snapshot exposes only the protected resource, authorization-server identity,

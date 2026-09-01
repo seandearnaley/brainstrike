@@ -290,6 +290,11 @@ single configured HTTP MCP resource.
   exact loopback `Host`, rejects invalid state without settling the flow, and
   passes the complete `URLSearchParams` to `finishAuth`. Callback pages never
   echo authorization data and there is no HTTP cancellation route.
+- Electron main exposes each armed callback exactly once to the production
+  Streamable HTTP client through `takePendingAuthorizationCallback(signal)`.
+  The renderer receives no callback parameters. Missing callbacks are not
+  inferred as authorization retries; cancellation, disconnect, replacement,
+  and provider close settle the pending wait and close the loopback listener.
 - Tokens, client registrations, verifiers, discovery state, and resource
   identity are partitioned by configured server plus canonical resource and
   are encrypted in the dedicated `brainstrike-mcp-oauth` safeStorage store.
@@ -304,12 +309,12 @@ single configured HTTP MCP resource.
   `oauth-user` modes for HTTP transports. Stdio cannot select MCP HTTP OAuth,
   and an explicit auth mode cannot be combined with an `Authorization` header.
 
-The focused fake-authorization-server suite is
+The focused fake-authorization-server suite and production-host integration are
 `src/__tests__/main/mcp-oauth-client-provider.integration.test.ts`; the
 credential boundary and config contracts are covered by the adjacent unit
-tests. The remaining production integration seam is the later MCP OAuth UX
-ticket: startup must report an authentication-required state and only an
-explicit user action should pass the OAuth provider to a host connection.
+tests. Startup reports an authentication-required state, and only explicit
+Connect or Reauthorize passes the provider and its one-shot callback source to
+the production host connection.
 
 ## Development vs Production
 
