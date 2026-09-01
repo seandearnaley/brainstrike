@@ -66,6 +66,11 @@
       "import": "./dist/mcp-host-runtime.js",
       "require": "./dist/mcp-host-runtime.js"
     },
+    "./mcp-config": {
+      "types": "./dist/mcp-config.d.ts",
+      "import": "./dist/mcp-config.js",
+      "require": "./dist/mcp-config.js"
+    },
     "./official-auth-conformance": {
       "types": "./dist/official-auth-conformance.d.ts",
       "import": "./dist/official-auth-conformance.js",

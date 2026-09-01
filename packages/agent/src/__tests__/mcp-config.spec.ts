@@ -192,12 +192,20 @@ describe('MCP config parser', () => {
       })
     );
     expect(() => parseMcpConfig(JSON.stringify(config))).toThrow(
-      /"message":"duplicate server name","path":"servers\.1\.name"/u
+      'invalid_mcp_config: servers.1.name: duplicate server name'
     );
   });
 
-  it('throws on invalid config', () => {
-    const bad = JSON.stringify({ servers: [] });
-    expect(() => parseMcpConfig(bad)).toThrowError();
+  it('accepts the explicit empty authority and rejects unknown config fields', () => {
+    expect(parseMcpConfig(JSON.stringify({ servers: [] }))).toEqual({ servers: [] });
+    expect(() => parseMcpConfig(JSON.stringify({ ignored: true, servers: [] }))).toThrow(
+      'invalid_mcp_config'
+    );
+  });
+
+  it('reports malformed JSON without echoing configuration contents', () => {
+    expect(() => parseMcpConfig('{"servers":["secret-looking-value"')).toThrow(
+      'invalid_mcp_config: <root>: invalid JSON syntax'
+    );
   });
 });

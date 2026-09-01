@@ -2,15 +2,14 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {
-  isInteractiveMcpStdioServer,
-  McpProtocolEnum,
   type McpProtocolMigration,
-  resolveMcpStartupPolicy,
-} from '@brainstrike/agent';
-import {
-  ConfiguredMcpServerIdSchema,
-  McpConfiguredAuthSchema,
-} from '@brainstrike/assistant-contract';
+  parseMcpConfigValue,
+  parseMcpServerValue,
+  type ResolvedMcpConfig,
+  type ResolvedMcpServer,
+  type McpConfigInput as SharedMcpConfigInput,
+  type McpServerInput as SharedMcpServerInput,
+} from '@brainstrike/assistant-contract/mcp-config';
 import { createLogger } from '@brainstrike/logging';
 import { app, safeStorage } from 'electron';
 import {
@@ -22,198 +21,11 @@ import {
   parseTree,
   printParseErrorCode,
 } from 'jsonc-parser';
-import { z } from 'zod';
 
-const NonEmptyStringSchema = z
-  .string()
-  .min(1, 'must not be empty')
-  .refine((value) => value.trim().length > 0, 'must not be blank');
-const ServerNameSchema = ConfiguredMcpServerIdSchema;
-const SpawnStringSchema = z
-  .string()
-  .refine((value) => !value.includes('\0'), 'invalid spawn string');
-const NonEmptySpawnStringSchema = NonEmptyStringSchema.refine(
-  (value) => !value.includes('\0'),
-  'invalid spawn string'
-);
-const HttpUrlSchema = z.url({ protocol: /^https?$/u }).refine((value) => {
-  if (!URL.canParse(value)) {
-    return true;
-  }
-  const url = new URL(value);
-  return url.username.length === 0 && url.password.length === 0;
-}, 'must not include credentials');
-const StringRecordSchema = z.record(z.string(), z.string());
-const EnvironmentSchema = StringRecordSchema.superRefine((environment, context) => {
-  for (const [name, value] of Object.entries(environment)) {
-    if (name.length === 0 || name.includes('\0') || name.includes('=')) {
-      context.addIssue({
-        code: 'custom',
-        message: 'invalid environment variable name',
-        path: [name],
-      });
-    }
-    if (value.includes('\0')) {
-      context.addIssue({
-        code: 'custom',
-        message: 'invalid environment variable value',
-        path: [name],
-      });
-    }
-  }
-});
-const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
-  const normalizedNames = new Set<string>();
-  for (const [name, value] of Object.entries(headers)) {
-    try {
-      new Headers([[name, '']]);
-    } catch {
-      context.addIssue({
-        code: 'custom',
-        message: 'invalid HTTP header name',
-        path: [name],
-      });
-      continue;
-    }
+export type McpServer = SharedMcpServerInput;
+export type McpConfig = SharedMcpConfigInput;
+export type { ResolvedMcpConfig, ResolvedMcpServer };
 
-    const normalizedName = name.toLowerCase();
-    if (normalizedNames.has(normalizedName)) {
-      context.addIssue({
-        code: 'custom',
-        message: 'duplicate HTTP header name',
-        path: [name],
-      });
-    } else {
-      normalizedNames.add(normalizedName);
-    }
-
-    try {
-      new Headers([[name, value]]);
-    } catch {
-      context.addIssue({
-        code: 'custom',
-        message: 'invalid HTTP header value',
-        path: [name],
-      });
-    }
-  }
-});
-const ProtocolPolicySchema = {
-  protocol: McpProtocolEnum.optional(),
-};
-const StartupPolicySchema = z.enum(['automatic', 'authentication-required']).optional();
-
-const StdioServerSchema = z.strictObject({
-  args: z.array(SpawnStringSchema).optional(),
-  command: NonEmptySpawnStringSchema,
-  enabledTools: z.array(z.string()).optional(),
-  env: EnvironmentSchema.optional(),
-  name: ServerNameSchema,
-  ...ProtocolPolicySchema,
-  startup: StartupPolicySchema,
-  transport: z.literal('stdio'),
-});
-
-const HttpServerSchema = z.strictObject({
-  auth: McpConfiguredAuthSchema.optional(),
-  enabledTools: z.array(z.string()).optional(),
-  headers: HeadersSchema.optional(),
-  name: ServerNameSchema,
-  ...ProtocolPolicySchema,
-  startup: StartupPolicySchema,
-  url: HttpUrlSchema,
-});
-
-const StreamableHttpServerSchema = HttpServerSchema.extend({
-  transport: z.literal('streamable-http'),
-});
-
-const SseServerSchema = HttpServerSchema.extend({
-  transport: z.literal('sse'),
-});
-
-const McpServerInputSchema = z
-  .discriminatedUnion('transport', [StdioServerSchema, StreamableHttpServerSchema, SseServerSchema])
-  .superRefine((server, context) => {
-    if (server.transport === 'sse' && server.protocol && server.protocol !== 'legacy') {
-      context.addIssue({
-        code: 'custom',
-        message: 'legacy SSE transport requires protocol "legacy"',
-        path: ['protocol'],
-      });
-    }
-    if (
-      server.transport === 'stdio' &&
-      (server.startup === 'authentication-required' ||
-        (server.startup === undefined &&
-          isInteractiveMcpStdioServer(server.command, server.args))) &&
-      server.protocol === 'auto'
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'user-paced stdio authorization requires protocol "legacy"',
-        path: ['protocol'],
-      });
-    }
-    if (
-      server.transport !== 'stdio' &&
-      server.auth !== undefined &&
-      server.auth.type !== 'none' &&
-      Object.keys(server.headers ?? {}).some((name) => name.toLowerCase() === 'authorization')
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'auth mode must not be combined with an Authorization header',
-        path: ['auth'],
-      });
-    }
-    if (
-      server.transport !== 'stdio' &&
-      server.auth?.type === 'oauth-user' &&
-      server.startup === 'automatic'
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'OAuth user authentication requires startup "authentication-required"',
-        path: ['startup'],
-      });
-    }
-  });
-const McpServerSchema = McpServerInputSchema.transform((server) => ({
-  ...server,
-  protocol: server.protocol ?? ('legacy' as const),
-  startup: resolveMcpStartupPolicy(server),
-}));
-const McpConfigInputSchema = z
-  .strictObject({
-    servers: z.array(McpServerInputSchema),
-  })
-  .superRefine((config, context) => {
-    const serverNames = new Set<string>();
-    for (const [index, server] of config.servers.entries()) {
-      if (serverNames.has(server.name)) {
-        context.addIssue({
-          code: 'custom',
-          message: 'duplicate server name',
-          path: ['servers', index, 'name'],
-        });
-        continue;
-      }
-      serverNames.add(server.name);
-    }
-  });
-const McpConfigSchema = McpConfigInputSchema.transform((config) => ({
-  servers: config.servers.map((server) => ({
-    ...server,
-    protocol: server.protocol ?? ('legacy' as const),
-    startup: resolveMcpStartupPolicy(server),
-  })),
-}));
-
-export type McpServer = z.input<typeof McpServerSchema>;
-export type ResolvedMcpServer = z.output<typeof McpServerSchema>;
-export type McpConfig = z.input<typeof McpConfigSchema>;
-export type ResolvedMcpConfig = z.output<typeof McpConfigSchema>;
 const logger = createLogger('DesktopMcpLoader');
 
 const DEFAULT_MCP_CONFIG_TEMPLATE = `{
@@ -256,35 +68,25 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     //   "auth": { "type": "oauth-user" }
     // },
 
-    // Example: Remote Streamable HTTP server with an external bearer credential.
-    // The UUID references the encrypted desktop credential authority; the token
-    // itself never belongs in this JSONC file.
+    // Example: Remote Streamable HTTP server
     // {
     //   "transport": "streamable-http",
     //   "name": "remote-api",
     //   "protocol": "legacy",
     //   "url": "https://your-host.example.com/mcp",
-    //   "auth": {
-    //     "type": "bearer",
-    //     "credential": {
-    //       "store": "mcp-credentials",
-    //       "id": "00000000-0000-4000-8000-000000000000"
-    //     }
+    //   "headers": {
+    //     "Authorization": "Bearer YOUR_TOKEN"
     //   }
     // },
 
-    // Example: Legacy remote SSE server using the same secure reference form.
+    // Example: Legacy remote SSE server
     // {
     //   "transport": "sse",
     //   "name": "legacy-remote-api",
     //   "protocol": "legacy",
     //   "url": "https://your-host.example.com/mcp/sse",
-    //   "auth": {
-    //     "type": "bearer",
-    //     "credential": {
-    //       "store": "mcp-credentials",
-    //       "id": "00000000-0000-4000-8000-000000000000"
-    //     }
+    //   "headers": {
+    //     "Authorization": "Bearer YOUR_TOKEN"
     //   }
     // }
   ]
@@ -363,35 +165,6 @@ function formatPropertyIssue(text: string, issue: PropertyIssue): string {
   return `${issue.kind} property ${JSON.stringify(issue.key)} at line ${line}, column ${column} (${issue.path.join('.')})`;
 }
 
-function formatValidationIssue(issue: z.ZodIssue): string {
-  const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
-  return `${path}: ${issue.message}`;
-}
-
-function validateMcpConfig(value: unknown): {
-  config: ResolvedMcpConfig;
-  migrations: McpProtocolMigration[];
-} {
-  const parsed = McpConfigInputSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error(
-      `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
-    );
-  }
-  const migrations = parsed.data.servers.flatMap((server, serverIndex) =>
-    server.protocol === undefined
-      ? [
-          {
-            code: 'mcp_protocol_defaulted_to_legacy' as const,
-            serverIndex,
-            serverName: server.name,
-          },
-        ]
-      : []
-  );
-  return { config: McpConfigSchema.parse(parsed.data), migrations };
-}
-
 function parseMcpConfigDocument(text: string): {
   config: ResolvedMcpConfig;
   migrations: McpProtocolMigration[];
@@ -422,7 +195,7 @@ function parseMcpConfigDocument(text: string): {
     );
   }
 
-  return validateMcpConfig(getNodeValue(root));
+  return parseMcpConfigValue(getNodeValue(root));
 }
 
 export function parseMcpConfig(text: string): ResolvedMcpConfig {
@@ -776,16 +549,10 @@ async function processHttpServer(
   const headers = await applyDecryptionToHeaders(s.headers, s.name);
   if (headers !== undefined) {
     assertNoForbiddenDecryptedProperty(headers, 'headers');
-    const parsed = McpServerSchema.safeParse({ ...s, headers });
-    if (!parsed.success) {
-      throw new Error(
-        `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
-      );
-    }
-    return parsed.data;
+    return parseMcpServerValue({ ...s, headers });
   }
   const { headers: _, ...rest } = s;
-  return McpServerSchema.parse(rest);
+  return parseMcpServerValue(rest);
 }
 
 function unsupportedTransport(server: unknown): never {
@@ -807,16 +574,10 @@ async function processStdioServer(
   const env = await applyDecryptionToEnv(s.env, s.name);
   if (env !== undefined) {
     assertNoForbiddenDecryptedProperty(env, 'env');
-    const parsed = McpServerSchema.safeParse({ ...s, env });
-    if (!parsed.success) {
-      throw new Error(
-        `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
-      );
-    }
-    return parsed.data;
+    return parseMcpServerValue({ ...s, env });
   }
   const { env: _, ...rest } = s;
-  return McpServerSchema.parse(rest);
+  return parseMcpServerValue(rest);
 }
 
 export async function withDecryptedSecrets(cfg: McpConfig): Promise<ResolvedMcpConfig> {
