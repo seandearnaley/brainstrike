@@ -342,6 +342,20 @@ session termination before locally closing and still completes local cleanup if
 termination fails. An unexpected stdio child exit invalidates that connection
 without replaying its in-flight request; only a later operation may reconnect.
 
+Client input is fail-closed. The package provides one capability runtime for a
+later transport layer to install before connect; this layer does not install it
+into either explicit client or enable any desktop capability by default. Modern
+`input_required` and legacy pushed requests can share the same handlers, with
+automatic fulfillment bounded to eight rounds. Each install returns an owned
+lease that aborts active handler work, removes its request/notification
+handlers, awaits settlement, and reports exact close counts. Elicitation modes
+are advertised separately. URL elicitation requires HTTPS with no embedded
+credentials before consent; HTTP exists only behind the explicit loopback
+development policy. Accepted form content is host-validated, including the
+SDK's four string formats and enum-only multiselect arrays. Deprecated roots,
+sampling, and protocol logging remain absent unless a later owner supplies each
+complete handler. Review deprecated compatibility for removal on 2027-07-28.
+
 `createMastraAgentRuntime` uses those official-SDK clients for every configured
 transport and converts their discovered tools through one shared adapter before
 the unchanged namespace/sanitize, output-bound, guard, hook, and permission

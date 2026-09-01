@@ -1998,6 +1998,18 @@ Remote transport rules:
   rejections are diagnosed without replacing the transport failure. Explicit
   `close()` remains idempotent and owns all final local/session cleanup.
 
+The client-capability engine is available for a later transport layer to
+install before connect; this layer alone does not wire either explicit client
+and the desktop defaults remain capability-empty. Each install returns a
+per-connection lease that aborts active legacy pushed-handler work, removes its
+handlers, awaits settlement, and returns exact close accounting for the owning
+transport to aggregate. URL elicitation is validated by one host assertion
+before consent and before opening: HTTPS without credentials is the production
+rule, while HTTP requires the explicit loopback-development policy. Accepted
+form content is host-validated for the SDK's `email`, `uri`, `date`, and
+`date-time` formats. Arrays remain limited to the SDK's enum/multiselect schema;
+unconstrained arrays are rejected by the SDK ingress schema.
+
 Ownership and flow:
 1. Config — `apps/desktop/src/mcp-loader.ts` is the strict JSONC/Zod desktop
    boundary; `packages/agent/src/mcp/config.ts` is the serializable agent
