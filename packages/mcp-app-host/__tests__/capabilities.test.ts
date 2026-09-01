@@ -8,11 +8,15 @@ import {
   MCP_APPS_CONTRACT_SOURCE,
   MCP_APPS_EXTENSION_ID,
   MCP_APPS_MIME_TYPE,
+  MCP_APPS_PINNED_SCHEMA_UI_METHODS,
+  MCP_APPS_SCHEMA_EXCLUSIONS,
   MCP_APPS_SPEC_VERSION,
+  MCP_APPS_STABLE_UI_METHODS,
   parseMcpAppsClientCapability,
 } from '../src/index.js';
 
 async function readInstalledExtAppsMetadata(): Promise<{
+  readonly schemaMethods: readonly string[];
   readonly schemaSha256: string;
   readonly version: unknown;
 }> {
@@ -24,7 +28,27 @@ async function readInstalledExtAppsMetadata(): Promise<{
   }
   const metadata = Object.fromEntries(Object.entries(parsed));
   const schema = await readFile(join(packageRoot, 'dist/src/generated/schema.json'));
+  const schemaDocument: unknown = JSON.parse(schema.toString('utf8'));
+  if (typeof schemaDocument !== 'object' || schemaDocument === null) {
+    throw new Error('installed ext-apps schema must be an object');
+  }
+  const definitions = Reflect.get(schemaDocument, '$defs');
+  if (typeof definitions !== 'object' || definitions === null) {
+    throw new Error('installed ext-apps schema must contain definitions');
+  }
+  const schemaMethods = Object.values(definitions)
+    .map((definition) =>
+      typeof definition === 'object' && definition !== null
+        ? Reflect.get(Reflect.get(definition, 'properties') ?? {}, 'method')
+        : undefined
+    )
+    .map((method) =>
+      typeof method === 'object' && method !== null ? Reflect.get(method, 'const') : undefined
+    )
+    .filter((method): method is string => typeof method === 'string')
+    .sort();
   return {
+    schemaMethods,
     schemaSha256: createHash('sha256').update(schema).digest('hex'),
     version: metadata['version'],
   };
@@ -34,6 +58,7 @@ describe('stable MCP Apps client capability', () => {
   it('pins the reviewed stable extension and official schema provenance', async () => {
     const installedMetadata = await readInstalledExtAppsMetadata();
     expect(installedMetadata).toEqual({
+      schemaMethods: [...MCP_APPS_PINNED_SCHEMA_UI_METHODS].sort(),
       schemaSha256: '002db9178110e644499e781415ee1025e5fde1e54500d14986626ba4a7b5b331',
       version: '1.7.5',
     });
@@ -57,6 +82,12 @@ describe('stable MCP Apps client capability', () => {
       },
       specVersion: '2026-01-26',
     });
+  });
+
+  it('projects the stable specification from the complete pinned schema vocabulary', () => {
+    expect(
+      MCP_APPS_PINNED_SCHEMA_UI_METHODS.filter((method) => !(method in MCP_APPS_SCHEMA_EXCLUSIONS))
+    ).toEqual(MCP_APPS_STABLE_UI_METHODS);
   });
 
   it('accepts only the complete stable MIME declaration', () => {

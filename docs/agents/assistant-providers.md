@@ -2080,6 +2080,19 @@ tool/result association, isolated sandbox and enforced CSP, validated
 bidirectional messages, permission/consent, lifecycle cleanup, and renderer
 tests. A partial or text-only host never advertises the extension.
 
+BST-1567 owns the disabled Apps wire-contract projection from the immutable
+`@modelcontextprotocol/ext-apps@1.7.5` schema and stable `2026-01-26` spec. It
+accepts all 15 stable `ui/*` methods plus `tools/call`, `resources/read`,
+`notifications/message`, and `ping`; package-only `ui/download-file` and
+`ui/notifications/request-teardown` are rejected. The package schema defines
+empty `ui/resource-teardown` params while the prose example includes a reason.
+Brainstrike follows the machine schema and rejects the reason-bearing variant
+until upstream reconciles the conflict. JSON-RPC uses string or safe-integer
+IDs, exact envelopes, one-shot correlation, 256 pending entries, 256 KiB
+messages, depth/node caps, 2,048-character URIs, and 32-entry/64 KiB metadata.
+These inert parsers do not register Apps support or provide resource, sandbox,
+frame, or consent behavior.
+
 Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
 `McpHostSnapshot` through `mcp:status:get` and revisioned
 `mcp:status:updated` events. Renderer state accepts only strictly newer

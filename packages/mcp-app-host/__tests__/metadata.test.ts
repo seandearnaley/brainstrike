@@ -20,6 +20,16 @@ describe('stable MCP Apps resource identity', () => {
     }
   );
 
+  it('rejects oversized resource identifiers and metadata collections', () => {
+    expect(() => parseMcpAppResourceUri(`ui://app/${'x'.repeat(2049)}`)).toThrow(/length/);
+    expect(() =>
+      parseMcpAppResourceMeta({ csp: { connectDomains: new Array(33).fill('https://a.test') } })
+    ).toThrow(/at most 32/);
+    expect(() => parseMcpAppToolMeta({ visibility: new Array(33).fill('app') })).toThrow(
+      /at most 32/
+    );
+  });
+
   it.each(['text/html', 'text/html; profile=mcp-app', 'text/html;profile=MCP-app', '', null])(
     'rejects a noncanonical App MIME type: %j',
     (input) => {

@@ -1,5 +1,13 @@
 import { MCP_APPS_MIME_TYPE } from './capabilities.js';
-import { expectExactKeys, expectRecord } from './validation.js';
+import {
+  expectEncodedSize,
+  expectExactKeys,
+  expectRecord,
+  MCP_APP_MAX_METADATA_BYTES,
+} from './validation.js';
+
+const MAX_URI_LENGTH = 2048;
+const MAX_METADATA_COLLECTION_ENTRIES = 32;
 
 export type McpAppResourceUri = `ui://${string}`;
 export type McpAppToolVisibility = 'model' | 'app';
@@ -41,6 +49,9 @@ function parseResourceUri(value: unknown, label: string): McpAppResourceUri {
   if (!value.startsWith('ui://')) {
     throw new TypeError(`${label} must use the ui:// scheme`);
   }
+  if (value.length > MAX_URI_LENGTH) {
+    throw new TypeError(`${label} length must not exceed ${MAX_URI_LENGTH} characters`);
+  }
 
   let parsed: URL;
   try {
@@ -67,7 +78,7 @@ export function parseMcpAppMimeType(value: unknown): typeof MCP_APPS_MIME_TYPE {
 }
 
 function parseCspSource(value: string, label: string, allowWebSocket: boolean): string {
-  if (value.length === 0 || value.trim() !== value) {
+  if (value.length === 0 || value.length > MAX_URI_LENGTH || value.trim() !== value) {
     throw new TypeError(`${label} must be a non-empty CSP origin`);
   }
   const wildcardMarker = '://*.';
@@ -104,6 +115,9 @@ function parseCspSourceArray(
 ): readonly string[] {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
     throw new TypeError(`${label} must be an array of strings`);
+  }
+  if (value.length > MAX_METADATA_COLLECTION_ENTRIES) {
+    throw new TypeError(`${label} must contain at most ${MAX_METADATA_COLLECTION_ENTRIES} entries`);
   }
   return Object.freeze(
     value.map((entry, index) => parseCspSource(entry, `${label}[${index}]`, allowWebSocket))
@@ -173,7 +187,12 @@ export function parseMcpAppResourceMeta(value: unknown): McpAppResourceMeta {
   }
   if (record['domain'] !== undefined) {
     const domain = record['domain'];
-    if (typeof domain !== 'string' || domain.length === 0 || domain.trim() !== domain) {
+    if (
+      typeof domain !== 'string' ||
+      domain.length === 0 ||
+      domain.length > 253 ||
+      domain.trim() !== domain
+    ) {
       throw new TypeError(`${label}.domain must be a non-empty bare hostname`);
     }
     let parsedDomainUrl: URL;
@@ -199,7 +218,9 @@ export function parseMcpAppResourceMeta(value: unknown): McpAppResourceMeta {
     }
     parsed.prefersBorder = record['prefersBorder'];
   }
-  return Object.freeze(parsed);
+  const result = Object.freeze(parsed);
+  expectEncodedSize(result, MCP_APP_MAX_METADATA_BYTES, label);
+  return result;
 }
 
 export function parseMcpAppToolMeta(value: unknown): McpAppToolMeta {
@@ -219,8 +240,15 @@ export function parseMcpAppToolMeta(value: unknown): McpAppToolMeta {
     if (!(Array.isArray(visibility) && visibility.every(isToolVisibility))) {
       throw new TypeError(`${label}.visibility must contain only "model" or "app"`);
     }
+    if (visibility.length > MAX_METADATA_COLLECTION_ENTRIES) {
+      throw new TypeError(
+        `${label}.visibility must contain at most ${MAX_METADATA_COLLECTION_ENTRIES} entries`
+      );
+    }
     // The stable schema permits empty and duplicate visibility entries.
     parsed.visibility = Object.freeze([...visibility]);
   }
-  return Object.freeze(parsed);
+  const result = Object.freeze(parsed);
+  expectEncodedSize(result, MCP_APP_MAX_METADATA_BYTES, label);
+  return result;
 }

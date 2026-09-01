@@ -8,10 +8,13 @@ export {
   parseMcpAppsClientCapability,
 } from './capabilities.js';
 export {
-  MCP_APPS_STABLE_METHODS,
+  McpAppRequestCorrelator,
+  type McpAppResponse,
+  parseMcpAppResponse,
+} from './json-rpc.js';
+export {
   type McpAppMessage,
   type McpAppMessageDirection,
-  type McpAppStableMethod,
   parseMcpAppMessage,
 } from './messages.js';
 export {
@@ -26,3 +29,11 @@ export {
   parseMcpAppResourceUri,
   parseMcpAppToolMeta,
 } from './metadata.js';
+export {
+  MCP_APPS_PINNED_SCHEMA_UI_METHODS,
+  MCP_APPS_SCHEMA_EXCLUSIONS,
+  MCP_APPS_STABLE_METHODS,
+  MCP_APPS_STABLE_STANDARD_METHODS,
+  MCP_APPS_STABLE_UI_METHODS,
+  type McpAppStableMethod,
+} from './stable-contract.js';

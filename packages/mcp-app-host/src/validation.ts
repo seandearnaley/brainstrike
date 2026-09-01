@@ -1,5 +1,15 @@
 export type UnknownRecord = Record<string, unknown>;
 
+export const MCP_APP_MAX_MESSAGE_BYTES = 256 * 1024;
+export const MCP_APP_MAX_METADATA_BYTES = 64 * 1024;
+
+export function expectEncodedSize(value: unknown, maximumBytes: number, label: string): void {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined || new TextEncoder().encode(encoded).byteLength > maximumBytes) {
+    throw new TypeError(`${label} exceeds the maximum encoded size of ${maximumBytes} bytes`);
+  }
+}
+
 export function expectRecord(value: unknown, label: string): UnknownRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`${label} must be an object`);
