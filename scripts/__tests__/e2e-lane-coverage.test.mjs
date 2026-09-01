@@ -659,10 +659,14 @@ test('REAL REPO: packaged MCP core has one isolated packaged-artifact CI lane', 
   assert.match(packagedLauncher, /DBUS_SESSION_BUS_ADDRESS/u);
   assert.match(packagedLauncher, /GNOME_KEYRING_CONTROL/u);
   assert.match(packagedLauncher, /--password-store=gnome-libsecret/u);
+  assert.match(packagedLauncher, /XDG_CONFIG_HOME/u);
   assert.match(packagedLauncher, /XDG_CURRENT_DESKTOP/u);
   assert.match(packagedLauncher, /XDG_DATA_HOME/u);
   assert.match(readFileSync(packagedSpecPath, 'utf8'), /oauth-browser-client\.mjs/u);
   assert.match(readFileSync(packagedSpecPath, 'utf8'), /BRAINSTRIKE_MCP_OAUTH_BROWSER_STATE_FILE/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /xdg-mime/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /x-scheme-handler\/http/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /X-Generic/u);
   assert.match(oauthBrowserFixture, /redirect: 'manual'/u);
   assert.match(oauthBrowserFixture, /hostname !== '127\.0\.0\.1'/u);
   assert.doesNotMatch(stdioFixture, /--brainstrike-production-env/u);
@@ -702,6 +706,7 @@ test('REAL REPO: packaged MCP core has one isolated packaged-artifact CI lane', 
   );
   assert.match(String(steps[laneIndex]?.run), /dbus-run-session/u);
   assert.match(String(steps[laneIndex]?.run), /gnome-keyring-daemon --unlock/u);
+  assert.match(String(steps[laneIndex]?.run), /XDG_CONFIG_HOME=.*mktemp -d/u);
   assert.match(String(steps[laneIndex]?.run), /XDG_CURRENT_DESKTOP=GNOME/u);
   assert.match(String(steps[laneIndex]?.run), /XDG_DATA_HOME=.*mktemp -d/u);
   const uploadStep = steps[laneIndex + 1];

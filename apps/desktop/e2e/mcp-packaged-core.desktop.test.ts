@@ -1,5 +1,6 @@
+import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -38,6 +39,7 @@ interface PackagedFixtureModule {
 type PackagedContext = Awaited<ReturnType<typeof launchPackagedDesktop>>;
 type CloseReport = Record<string, number | readonly unknown[]>;
 const ASSISTANT_TOOL_PAYLOAD = 'packaged-assistant-payload';
+const OAUTH_BROWSER_DESKTOP_FILE = 'brainstrike-mcp-oauth-browser.desktop';
 async function loadFixtures(): Promise<PackagedFixtureModule> {
   return (await import(
     pathToFileURL(path.resolve(process.cwd(), '../../packages/mcp-test-lab/dist/index.js')).href
@@ -54,6 +56,60 @@ function oauthBrowserFixturePath(): string {
     process.cwd(),
     '../../packages/mcp-test-lab/fixtures/oauth-browser-client.mjs'
   );
+}
+async function runXdgMime(args: readonly string[]): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    execFile('xdg-mime', [...args], { encoding: 'utf8' }, (error, stdout) => {
+      if (error) {
+        reject(new Error('Packaged MCP OAuth browser registration failed', { cause: error }));
+        return;
+      }
+      resolve(String(stdout).trim());
+    });
+  });
+}
+async function configureLinuxOAuthBrowser(
+  fixtureStateDir: string
+): Promise<Readonly<Record<string, string>>> {
+  if (process.platform !== 'linux') {
+    return {};
+  }
+  const xdgConfigHome = process.env['XDG_CONFIG_HOME'];
+  const xdgDataHome = process.env['XDG_DATA_HOME'];
+  if (!(xdgConfigHome && path.isAbsolute(xdgConfigHome))) {
+    throw new Error('Packaged MCP OAuth proof requires an isolated XDG_CONFIG_HOME');
+  }
+  if (!(xdgDataHome && /^\/[A-Za-z0-9._/-]+$/u.test(xdgDataHome))) {
+    throw new Error('Packaged MCP OAuth proof requires a shell-safe isolated XDG_DATA_HOME');
+  }
+  const applicationsDirectory = path.join(xdgDataHome, 'applications');
+  const browserPath = path.join(xdgDataHome, 'brainstrike-mcp-oauth-browser');
+  await mkdir(applicationsDirectory, { recursive: true });
+  await copyFile(oauthBrowserFixturePath(), browserPath);
+  await chmod(browserPath, 0o700);
+  await writeFile(
+    path.join(applicationsDirectory, OAUTH_BROWSER_DESKTOP_FILE),
+    [
+      '[Desktop Entry]',
+      'Type=Application',
+      'Name=Brainstrike MCP OAuth Browser',
+      `Exec=${browserPath} %u`,
+      'MimeType=x-scheme-handler/http;',
+      'NoDisplay=true',
+      'Terminal=false',
+      '',
+    ].join('\n'),
+    { encoding: 'utf8', mode: 0o644 }
+  );
+  await runXdgMime(['default', OAUTH_BROWSER_DESKTOP_FILE, 'x-scheme-handler/http']);
+  const selectedBrowser = await runXdgMime(['query', 'default', 'x-scheme-handler/http']);
+  if (selectedBrowser !== OAUTH_BROWSER_DESKTOP_FILE) {
+    throw new Error('Packaged MCP OAuth browser registration did not become authoritative');
+  }
+  return {
+    BRAINSTRIKE_MCP_OAUTH_BROWSER_STATE_FILE: path.join(fixtureStateDir, 'oauth-browser-attempted'),
+    XDG_CURRENT_DESKTOP: 'X-Generic',
+  };
 }
 function inheritedStdioEnvironmentArgument(): string {
   const launcherKeys = new Set<string>(PACKAGED_DESKTOP_INHERITED_ENV_KEYS);
@@ -410,16 +466,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const environment = {
       BRAINSTRIKE_OPENROUTER_API_KEY: 'packaged-e2e-provider-key',
       OPENROUTER_BASE_URL: modelProvider.baseUrl,
-      ...(process.platform === 'linux'
-        ? {
-            BRAINSTRIKE_MCP_OAUTH_BROWSER_STATE_FILE: path.join(
-              fixtureStateDir,
-              'oauth-browser-attempted'
-            ),
-            BROWSER: oauthBrowserFixturePath(),
-            XDG_CURRENT_DESKTOP: '',
-          }
-        : {}),
+      ...(await configureLinuxOAuthBrowser(fixtureStateDir)),
     };
     first = await launchPackagedDesktop({ environment, userDataDir });
     deferCleanup(async () => {
