@@ -2366,7 +2366,7 @@ auth scenarios at `2025-11-25` and 25 at `2026-07-28`; that is upstream
 availability, not the baseline execution count. BST-1560 runs its reviewed
 fourteen-scenario production-auth profile once at each declared revision
 (14 + 14 = 28) in exactly two parallel revision waves. The modern-closeout
-profile owns the remaining eleven scenarios that apply only at `2026-07-28`.
+profile owns the eleven additional scenarios that apply only at `2026-07-28`.
 BST-1583 runs the complete applicable core
 profile in two parallel revision waves: `initialize`, `tools_call`,
 `elicitation-sep1034-client-defaults`, and `sse-retry` at `2025-11-25`; then

@@ -218,7 +218,7 @@ test('living contracts link official conformance evidence and require dispatch U
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
   for (const runUrl of officialGreenRunUrls) {
-    assert.match(providerContract, new RegExp(runUrl.replaceAll('/', '\\/')));
+    assert.ok(providerContract.includes(runUrl), `missing run URL: ${runUrl}`);
   }
   assert.match(providerContract, /28\/28 baseline auth/u);
   assert.match(providerContract, /11\/11 modern auth closeout/u);
