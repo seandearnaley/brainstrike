@@ -506,6 +506,42 @@ describe('production MCP conformance client contract', () => {
     }
   );
 
+  it('preserves both upstream custom-header tool calls and their arguments', async () => {
+    const toolCalls = [
+      {
+        arguments: { priority: 42, region: 'us-west1', verbose: false },
+        name: 'test_custom_headers',
+      },
+      {
+        arguments: { priority: 1, region: 'us-east1', verbose: null },
+        name: 'test_custom_headers_null',
+      },
+    ] as const;
+    const { operations, runtime } = runtimeReturningToolCall(
+      { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
+      toolCalls.map(({ name }) => name)
+    );
+
+    await runProductionMcpConformanceClient(
+      {
+        context: JSON.stringify({ name: 'http-custom-headers', toolCalls }),
+        protocolVersion: '2026-07-28',
+        scenario: 'http-custom-headers',
+        serverUrl: 'https://mcp.example.test/mcp',
+      },
+      { createRuntime: () => runtime }
+    );
+
+    expect(operations.filter(({ type }) => type === 'tools/call')).toEqual(
+      toolCalls.map((toolCall) => ({
+        arguments: toolCall.arguments,
+        configuredServerId: 'official-conformance',
+        toolName: toolCall.name,
+        type: 'tools/call',
+      }))
+    );
+  });
+
   it('wires MRTR elicitation through the production capability engine', async () => {
     const { replaceResolvedConfig, runtime } = runtimeReturningToolCall(
       { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
@@ -563,6 +599,25 @@ describe('production MCP conformance client contract', () => {
         }
       )
     ).resolves.toEqual({ action: 'accept', content: { confirmed: true } });
+    await expect(
+      elicitation.handle(
+        {
+          method: 'elicitation/create',
+          params: {
+            message: 'Unexpected shape',
+            requestedSchema: {
+              properties: { answer: { type: 'string' } },
+              type: 'object',
+            },
+          },
+        },
+        {
+          requestId: 'mrtr-elicitation-invalid',
+          serverName: 'official-conformance',
+          signal: controller.signal,
+        }
+      )
+    ).rejects.toThrow('MRTR elicitation schema is unsupported');
   });
 
   it.each([

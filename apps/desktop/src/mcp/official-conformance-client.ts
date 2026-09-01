@@ -30,6 +30,16 @@ const OfficialCustomHeaderContextSchema = z.strictObject({
     }),
   ]),
 });
+const OfficialMrtrRequestedSchema = z.strictObject({
+  properties: z.strictObject({
+    confirmed: z.strictObject({
+      description: z.string().optional(),
+      type: z.literal('boolean'),
+    }),
+  }),
+  required: z.tuple([z.literal('confirmed')]).optional(),
+  type: z.literal('object'),
+});
 const ProductionConformanceInputSchema = z.discriminatedUnion('scenario', [
   z.strictObject({
     protocolVersion: z.literal('2025-11-25'),
@@ -132,8 +142,16 @@ function clientCapabilitiesForScenario(
     return {
       elicitation: {
         form: true,
-        handle: async (_request, context) => {
+        handle: async (request, context) => {
           context.signal.throwIfAborted();
+          if (
+            !(
+              'requestedSchema' in request.params &&
+              OfficialMrtrRequestedSchema.safeParse(request.params.requestedSchema).success
+            )
+          ) {
+            throw new Error('Official MCP MRTR elicitation schema is unsupported');
+          }
           return { action: 'accept', content: { confirmed: true } };
         },
         url: false,
@@ -168,7 +186,9 @@ function isToolScenario(value: ProductionConformanceInput['scenario']): value is
   );
 }
 
-export function parseOfficialCustomHeaderContext(context: string | undefined) {
+export function parseOfficialCustomHeaderContext(
+  context: string | undefined
+): z.output<typeof OfficialCustomHeaderContextSchema> {
   if (context === undefined) {
     throw new Error('Official MCP custom-header context is required');
   }
@@ -261,33 +281,45 @@ async function runModernScenario(
     case 'json-schema-ref-no-deref':
       return true;
     case 'sep-2322-client-request-state':
-      for (const name of [
-        'test_mrtr_echo_state',
-        'test_mrtr_unrelated',
-        'test_mrtr_no_state',
-        'test_mrtr_no_result_type',
-      ]) {
-        await callScenarioTool(runtime, listed, name, {});
-      }
+      await Promise.all(
+        [
+          'test_mrtr_echo_state',
+          'test_mrtr_unrelated',
+          'test_mrtr_no_state',
+          'test_mrtr_no_result_type',
+        ].map((name) => callScenarioTool(runtime, listed, name, {}))
+      );
       return true;
     case 'http-standard-headers':
       await runHttpStandardHeadersScenario(runtime, listed);
       return true;
     case 'http-custom-headers': {
-      if (!('context' in parsed)) {
-        throw new Error('Official MCP custom-header context is required');
-      }
-      for (const toolCall of parseOfficialCustomHeaderContext(parsed.context).toolCalls) {
-        await callScenarioTool(runtime, listed, toolCall.name, toolCall.arguments);
-      }
+      await Promise.all(
+        parseOfficialCustomHeaderContext(parsed.context).toolCalls.map((toolCall) =>
+          callScenarioTool(runtime, listed, toolCall.name, toolCall.arguments)
+        )
+      );
       return true;
     }
     case 'http-invalid-tool-headers':
       await callScenarioTool(runtime, listed, 'valid_tool', { region: 'us-west1' });
       return true;
-    default:
+    case 'initialize':
+    case 'request-metadata':
+    case 'elicitation-sep1034-client-defaults':
+    case 'sse-retry':
+    case 'tools_call':
       return false;
+    default:
+      if (isOfficialAuthScenario(parsed.scenario)) {
+        return false;
+      }
+      return assertUnreachableScenario(parsed.scenario);
   }
+}
+
+function assertUnreachableScenario(scenario: never): never {
+  throw new Error(`Production MCP conformance scenario is unhandled: ${scenario}`);
 }
 
 function composeProductionRuntime(
