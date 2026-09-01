@@ -22,6 +22,34 @@ export const OFFICIAL_MODERN_AUTH_SCENARIOS = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCEN
 export const OFFICIAL_ALPHA10_AUTH_SCENARIOS_BY_PROTOCOL = OFFICIAL_AUTH_SCENARIOS_BY_PROTOCOL;
 const WINDOWS_JOB_CLEANUP_TIMEOUT_MS = 2000;
 const WINDOWS_JOB_POLL_INTERVAL_MS = 10;
+export const OFFICIAL_DIAGNOSTIC_MAX_LINES = 40;
+const OFFICIAL_DIAGNOSTIC_MAX_LINE_CHARS = 512;
+const OFFICIAL_DIAGNOSTIC_MAX_BUFFER_CHARS = 65_536;
+const OFFICIAL_DIAGNOSTIC_TRUNCATION_MARKER = '…[truncated]';
+const OFFICIAL_STDIO_FLUSH_GRACE_MS = 1000;
+const ANSI_ESCAPE_PATTERN = new RegExp(
+  `[${String.fromCharCode(0x1b)}${String.fromCharCode(0x9b)}]\\[[0-9;?]*[ -/]*[@-~]`,
+  'gu'
+);
+const LINE_UNSAFE_PATTERN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+const OFFICIAL_URL_PATTERN = /https?:\/\/[^\s?#]+(?:\?[^\s#]*)?(?:#[^\s]*)?/giu;
+// Keys whose values are always credentials: redact unconditionally.
+const OFFICIAL_OAUTH_PARAMETER_PATTERN =
+  /\b(?:authorization_code|access_token|refresh_token|id_token|client_assertion|assertion|dpop|code_verifier|verifier)=([^&\s]+)/giu;
+// `code=`/`state=` are ambiguous: they also carry ordinary error/status text
+// (`exit code=1`, `code=ECONNREFUSED`, `state=failed`). Keep small numbers,
+// ALL-CAPS identifiers, and plain lowercase words readable; redact anything
+// mixed (real authorization codes and state values are high-entropy).
+// Case-sensitive on purpose: the wire parameters are lowercase, and the
+// carve-out classes must distinguish letter case to tell an ALL-CAPS error
+// identifier or plain word from a mixed-case high-entropy credential.
+const OFFICIAL_AMBIGUOUS_PARAMETER_PATTERN =
+  /\b(?:code|state)=(?!(?:\d{1,4}|[A-Z][A-Z0-9_]*|[a-z_]+)(?![\w-]))[^&\s]+/gu;
+// Shape-based backstop for bare secrets with no key prefix.
+const OFFICIAL_JWT_PATTERN = /\beyJ[\w-]{8,}\.[\w-]+\.[\w-]*/gu;
+const OFFICIAL_BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/giu;
+const OFFICIAL_STRUCTURED_SECRET_PATTERN =
+  /(?<![A-Z0-9_-])((?:\\?["']?)(?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|client[_-]?assertion|assertion|dpop|code[_-]?verifier|verifier|token|secret|password|api[_-]?key|apikey|cookie|set-cookie)(?:\\?["']?\s*[:=]\s*))(?!\[redacted-)[^\r\n,}\]]+/giu;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireDesktopDependency = createRequire(path.join(REPO_ROOT, 'apps/desktop/package.json'));
 const initializedWindowsJobs = new WeakSet();
@@ -53,6 +81,116 @@ export function buildControlledEnvironment(source = process.env) {
     }
   }
   return environment;
+}
+
+export function sanitizeOfficialDiagnosticLine(raw) {
+  const lineSafe = raw.replace(ANSI_ESCAPE_PATTERN, '').replace(LINE_UNSAFE_PATTERN, '�').trim();
+  if (lineSafe.length === 0) {
+    return null;
+  }
+  const urlRedacted = lineSafe.replace(OFFICIAL_URL_PATTERN, (candidate) => {
+    try {
+      const url = new URL(candidate);
+      const safeUrl = `${url.origin}${url.pathname}`;
+      return url.search || url.hash ? `${safeUrl}?[redacted-query]` : safeUrl;
+    } catch {
+      return '[redacted-auth-url]';
+    }
+  });
+  const shapeRedacted = urlRedacted
+    .replace(OFFICIAL_JWT_PATTERN, '[redacted-jwt]')
+    .replace(OFFICIAL_BEARER_PATTERN, 'Bearer [redacted-bearer-token]');
+  const oauthRedacted = shapeRedacted
+    .replace(
+      OFFICIAL_OAUTH_PARAMETER_PATTERN,
+      (match) => `${match.slice(0, match.indexOf('=') + 1)}[redacted-oauth-parameter]`
+    )
+    .replace(
+      OFFICIAL_AMBIGUOUS_PARAMETER_PATTERN,
+      (match) => `${match.slice(0, match.indexOf('=') + 1)}[redacted-oauth-parameter]`
+    );
+  const redacted = oauthRedacted.replace(
+    OFFICIAL_STRUCTURED_SECRET_PATTERN,
+    (_match, prefix) => `${prefix}[redacted-structured-secret]`
+  );
+  if (redacted.length <= OFFICIAL_DIAGNOSTIC_MAX_LINE_CHARS) {
+    return redacted;
+  }
+  return `${redacted.slice(
+    0,
+    OFFICIAL_DIAGNOSTIC_MAX_LINE_CHARS - OFFICIAL_DIAGNOSTIC_TRUNCATION_MARKER.length
+  )}${OFFICIAL_DIAGNOSTIC_TRUNCATION_MARKER}`;
+}
+
+export function createOfficialDiagnosticCollector() {
+  let buffered = '';
+  let droppedChars = 0;
+  return {
+    collect(chunk) {
+      buffered += String(chunk);
+      if (buffered.length > OFFICIAL_DIAGNOSTIC_MAX_BUFFER_CHARS) {
+        // Cut only at a line boundary: keeping the raw tail of a truncated
+        // line could retain a secret value whose label was dropped, and an
+        // unlabeled value defeats the pattern-based sanitizer below.
+        const overflowCut = buffered.length - OFFICIAL_DIAGNOSTIC_MAX_BUFFER_CHARS;
+        const nextLineStart = buffered.indexOf('\n', overflowCut);
+        const cut = nextLineStart === -1 ? buffered.length : nextLineStart + 1;
+        droppedChars += cut;
+        buffered = buffered.slice(cut);
+      }
+    },
+    lines() {
+      const sanitized = buffered
+        .split(/\r?\n/u)
+        .map(sanitizeOfficialDiagnosticLine)
+        .filter((line) => line !== null);
+      const tail = sanitized.slice(-OFFICIAL_DIAGNOSTIC_MAX_LINES);
+      const omittedLines = sanitized.length - tail.length;
+      const prefix = [];
+      if (droppedChars > 0) {
+        prefix.push(`…[${droppedChars} earlier chars dropped]`);
+      }
+      if (omittedLines > 0) {
+        prefix.push(`…[${omittedLines} earlier lines omitted]`);
+      }
+      return [...prefix, ...tail];
+    },
+  };
+}
+
+function attachInvocationDiagnostics(failure, collector) {
+  if (!(failure instanceof Error) || collector === undefined) {
+    return failure;
+  }
+  if (!Object.hasOwn(failure, 'diagnostics')) {
+    Object.defineProperty(failure, 'diagnostics', {
+      enumerable: false,
+      value: collector.lines(),
+    });
+  }
+  return failure;
+}
+
+export function getInvocationDiagnostics(error) {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'diagnostics' in error &&
+    Array.isArray(error.diagnostics)
+  ) {
+    return error.diagnostics.filter((line) => typeof line === 'string');
+  }
+  return [];
+}
+
+export function formatOfficialInvocationDiagnostics(invocationId, failureType, lines) {
+  const body = lines.length > 0 ? lines : ['(no child output captured)'];
+  return [
+    `--- official conformance diagnostics ${invocationId} (${failureType}) ---`,
+    ...body,
+    `--- end diagnostics ${invocationId} ---`,
+    '',
+  ].join('\n');
 }
 
 export function buildOfficialClientInvocations({
@@ -328,6 +466,7 @@ export function runOfficialClientInvocation(
     killGroup = killPosixProcessGroup,
     platform = process.platform,
     spawnProcess = spawn,
+    stdioFlushGraceMs = OFFICIAL_STDIO_FLUSH_GRACE_MS,
     windowsJob,
   } = {}
 ) {
@@ -337,6 +476,7 @@ export function runOfficialClientInvocation(
       new Error('Official MCP conformance requires assigned Windows Job Object ownership')
     );
   }
+  const diagnostics = createOfficialDiagnosticCollector();
   let child;
   try {
     child = spawnProcess(invocation.command, [...invocation.argv], {
@@ -344,7 +484,7 @@ export function runOfficialClientInvocation(
       detached: !ownsWindowsJob,
       env,
       shell: false,
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (cause) {
     const failure = new Error(`Official MCP conformance ${invocation.id} failed to start`, {
@@ -359,13 +499,21 @@ export function runOfficialClientInvocation(
     );
   }
 
+  child.stdout?.setEncoding?.('utf8');
+  child.stderr?.setEncoding?.('utf8');
+  child.stdout?.on('data', (chunk) => diagnostics.collect(chunk));
+  child.stderr?.on('data', (chunk) => diagnostics.collect(chunk));
+
   return new Promise((resolve, reject) => {
     const processGroupId = child.pid;
     let settled = false;
     let timedOut = false;
     let graceTimer;
     let deadlineTimer;
+    let exitGraceTimer;
     let startFailureImmediate;
+    const rejectWithDiagnostics = (failure) =>
+      reject(attachInvocationDiagnostics(failure, diagnostics));
     const finish = async (failure, { killOwnedGroup = true } = {}) => {
       if (settled) {
         return;
@@ -373,6 +521,7 @@ export function runOfficialClientInvocation(
       settled = true;
       clearTimeout(deadlineTimer);
       clearTimeout(graceTimer);
+      clearTimeout(exitGraceTimer);
       clearImmediate(startFailureImmediate);
       const shouldCleanOwnedProcesses = ownsWindowsJob
         ? !deferWindowsCleanup
@@ -385,15 +534,27 @@ export function runOfficialClientInvocation(
             await killGroup(processGroupId, 'SIGKILL');
           }
         } catch (cleanupCause) {
-          reject(createCleanupFailure(invocation.id, failure, cleanupCause));
+          rejectWithDiagnostics(createCleanupFailure(invocation.id, failure, cleanupCause));
           return;
         }
       }
       if (failure) {
-        reject(failure);
+        rejectWithDiagnostics(failure);
         return;
       }
       resolve();
+    };
+    const completeInvocation = (code, signal) => {
+      const failure = timedOut
+        ? new Error(
+            `Official MCP conformance ${invocation.id} exceeded its ${deadlineMs}ms process deadline`
+          )
+        : code === 0
+          ? undefined
+          : new Error(
+              `Official MCP conformance ${invocation.id} failed (${signal ? 'signal' : 'exit'} ${signal ?? code ?? 'unknown'})`
+            );
+      void finish(failure);
     };
 
     child.once('error', (cause) => {
@@ -440,17 +601,19 @@ export function runOfficialClientInvocation(
           finish(new Error(`Official MCP conformance ${invocation.id} cleanup failed`, { cause }))
       );
     }, deadlineMs);
+    child.once('exit', (code, signal) => {
+      if (settled) {
+        return;
+      }
+      // The child is gone; the only remaining wait is the bounded stdio
+      // flush, so the process deadline must not fire and mislabel a clean
+      // exit inside the grace window as a timeout.
+      clearTimeout(deadlineTimer);
+      exitGraceTimer = setTimeout(() => completeInvocation(code, signal), stdioFlushGraceMs);
+    });
     child.once('close', (code, signal) => {
-      const failure = timedOut
-        ? new Error(
-            `Official MCP conformance ${invocation.id} exceeded its ${deadlineMs}ms process deadline`
-          )
-        : code === 0
-          ? undefined
-          : new Error(
-              `Official MCP conformance ${invocation.id} failed (${signal ? 'signal' : 'exit'} ${signal ?? code ?? 'unknown'})`
-            );
-      void finish(failure);
+      clearTimeout(exitGraceTimer);
+      completeInvocation(code, signal);
     });
   });
 }
@@ -466,6 +629,7 @@ export async function runOfficialClientInvocations(
     platform = process.platform,
     profile = BASELINE_PROFILE,
     runInvocation = runOfficialClientInvocation,
+    writeDiagnostics = (text) => process.stderr.write(text),
   } = {}
 ) {
   const descriptor = officialAuthProfileDescriptor(profile);
@@ -511,9 +675,17 @@ export async function runOfficialClientInvocations(
         });
         return { durationMs: now() - startedAt, id: invocation.id, status: 'passed' };
       } catch (error) {
+        const failureType = classifyInvocationFailure(error);
+        writeDiagnostics(
+          formatOfficialInvocationDiagnostics(
+            invocation.id,
+            failureType,
+            getInvocationDiagnostics(error)
+          )
+        );
         return {
           durationMs: now() - startedAt,
-          failureType: classifyInvocationFailure(error),
+          failureType,
           id: invocation.id,
           status: 'failed',
         };

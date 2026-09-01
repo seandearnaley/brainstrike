@@ -4,6 +4,11 @@ import {
   AllOfficialAuthScenarioNameSchema,
   parseOfficialAuthScenarioContext,
 } from './mcp/official-conformance-oauth';
+import { sanitizeStdioDiagnosticLine } from './mcp/stdio-diagnostics';
+
+const FAILURE_CAUSE_MAX_DEPTH = 4;
+const FAILURE_CAUSE_MAX_PARTS = 6;
+const FAILURE_CAUSE_MAX_AGGREGATED = 3;
 
 const ProcessInputSchema = z.strictObject({
   context: z.string().optional(),
@@ -44,18 +49,60 @@ export function parseOfficialConformanceProcessInput(
   return parsed;
 }
 
+function collectFailureCauseParts(error: unknown, parts: string[], depth: number): void {
+  if (
+    error === undefined ||
+    error === null ||
+    depth >= FAILURE_CAUSE_MAX_DEPTH ||
+    parts.length >= FAILURE_CAUSE_MAX_PARTS
+  ) {
+    return;
+  }
+  if (!(error instanceof Error)) {
+    try {
+      parts.push(String(error));
+    } catch {
+      parts.push('[unprintable cause]');
+    }
+    return;
+  }
+  parts.push(`${error.name}: ${error.message}`);
+  if (error instanceof AggregateError) {
+    for (const aggregated of error.errors.slice(0, FAILURE_CAUSE_MAX_AGGREGATED)) {
+      collectFailureCauseParts(aggregated, parts, depth + 1);
+    }
+  }
+  collectFailureCauseParts(error.cause, parts, depth + 1);
+}
+
+export function describeConformanceFailureCause(error: unknown): string {
+  const parts: string[] = [];
+  collectFailureCauseParts(error, parts, 0);
+  const flattened = parts.join(' <- ').replace(/\s+/gu, ' ');
+  return sanitizeStdioDiagnosticLine(flattened)?.message ?? 'unknown cause';
+}
+
 export async function runOfficialConformanceProcess(
   argv: readonly string[],
   environment: NodeJS.ProcessEnv,
   dependencies: ProcessDependencies = {}
 ): Promise<number> {
+  const writeError = dependencies.writeError ?? process.stderr.write.bind(process.stderr);
+  let input: z.output<typeof ProcessInputSchema>;
   try {
-    const input = parseOfficialConformanceProcessInput(argv, environment);
+    // Process input can carry credential-bearing auth context; never echo any
+    // parse detail for it.
+    input = parseOfficialConformanceProcessInput(argv, environment);
+  } catch {
+    writeError('Production MCP conformance client failed: invalid process input\n');
+    return 1;
+  }
+  try {
     await (dependencies.runClient ?? runProductionMcpConformanceClient)(input);
     return 0;
-  } catch {
-    (dependencies.writeError ?? process.stderr.write.bind(process.stderr))(
-      'Production MCP conformance client failed\n'
+  } catch (error) {
+    writeError(
+      `Production MCP conformance client failed: ${describeConformanceFailureCause(error)}\n`
     );
     return 1;
   }

@@ -69,9 +69,13 @@ Its combined build/run step has a seven-minute bound and its job an eight-minute
 bound. The job is explicitly `continue-on-error`: pinned
 `@modelcontextprotocol/conformance@0.2.0-alpha.10` remains prerelease evidence,
 not a required gate. Its runner executes the closed 28-case auth matrix without
-`--expected-failures` or `--output-dir`, suppresses credential-bearing child
-output, and atomically emits only sanitized fixed-id/timing evidence at
-`packages/mcp-test-lab/artifacts/official-auth-evidence.json`. The workflow
+`--expected-failures` or `--output-dir`, captures child output through a
+bounded line-boundary collector, sanitizes it (ANSI stripped; URL queries,
+OAuth parameters, and structured secret assignments redacted), prints a
+bounded per-scenario diagnostics block to job stderr for failed scenarios
+only, and atomically emits only sanitized fixed-id/timing evidence at
+`packages/mcp-test-lab/artifacts/official-auth-evidence.json` — captured
+child output never enters the evidence file. The workflow
 uploads that file on both green and red scenario outcomes for 14 days under an
 exact-SHA artifact name. Missing evidence remains a visible advisory-job
 failure; raw official auth request/response artifacts are never uploaded.
