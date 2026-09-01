@@ -74,6 +74,7 @@ function toError(value: unknown, message: string): Error {
 export class McpAppFrameSession {
   readonly #eventTarget: McpAppFrameEventTarget;
   #frame: McpAppFrameBinding | undefined;
+  #highestConnectedGeneration: number | undefined;
   readonly #isGenerationLive: (generation: number) => boolean;
   #listening = false;
   readonly #listener: McpAppFrameMessageListener;
@@ -81,6 +82,7 @@ export class McpAppFrameSession {
   readonly #onProtocolError: McpAppFrameSessionOptions['onProtocolError'];
   readonly #onTeardown: McpAppFrameSessionOptions['onTeardown'];
   #phase: McpAppFrameSessionPhase = 'disconnected';
+  readonly #usedSources = new WeakSet<McpAppFrameSource>();
 
   constructor(options: McpAppFrameSessionOptions) {
     this.#eventTarget = options.eventTarget;
@@ -110,11 +112,14 @@ export class McpAppFrameSession {
     if (!this.#isGenerationLive(parsed.generation)) {
       throw new TypeError('MCP Apps frame generation is not live');
     }
+    this.#assertFreshBinding(parsed);
     try {
       this.#eventTarget.addEventListener('message', this.#listener);
       this.#listening = true;
       this.#frame = parsed;
+      this.#highestConnectedGeneration = parsed.generation;
       this.#phase = 'awaiting-initialize';
+      this.#usedSources.add(parsed.source);
     } catch (error: unknown) {
       this.#frame = undefined;
       this.#phase = 'disconnected';
@@ -134,6 +139,7 @@ export class McpAppFrameSession {
     if (!this.#isGenerationLive(parsed.generation)) {
       throw new TypeError('MCP Apps replacement frame generation is not live');
     }
+    this.#assertFreshBinding(parsed);
     this.#teardown('disconnected', new Error('MCP Apps frame was replaced'));
     this.connect(parsed);
   }
@@ -290,6 +296,18 @@ export class McpAppFrameSession {
       throw new TypeError('MCP Apps frame source must support postMessage');
     }
     return Object.freeze({ generation, origin: OPAQUE_FRAME_ORIGIN, source: binding.source });
+  }
+
+  #assertFreshBinding(binding: McpAppFrameBinding): void {
+    if (
+      this.#highestConnectedGeneration !== undefined &&
+      binding.generation <= this.#highestConnectedGeneration
+    ) {
+      throw new TypeError('MCP Apps frame generation must increase after teardown');
+    }
+    if (this.#usedSources.has(binding.source)) {
+      throw new TypeError('MCP Apps frame reconnect must use a fresh source');
+    }
   }
 
   #receive(event: McpAppFrameMessageEvent): void {

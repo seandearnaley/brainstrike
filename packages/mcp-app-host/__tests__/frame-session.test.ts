@@ -105,15 +105,16 @@ describe('origin-bound MCP Apps frame session', () => {
       'MCP Apps frame sent traffic while ui/initialize is pending'
     );
 
-    session.connect({ generation: 2, origin: 'null', source: frame });
-    target.dispatch(frame, initialize);
+    const replacement = new TestFrame();
+    session.connect({ generation: 2, origin: 'null', source: replacement });
+    target.dispatch(replacement, initialize);
     claims.at(-1)?.complete();
     expect(session.snapshot.phase).toBe('awaiting-initialized');
 
     const initialized = { method: 'ui/notifications/initialized' };
-    target.dispatch(frame, initialized);
+    target.dispatch(replacement, initialized);
     expect(session.snapshot.phase).toBe('accepting-initialized');
-    target.dispatch(frame, initialized);
+    target.dispatch(replacement, initialized);
     expect(callbackMethods).toEqual([
       'ui/initialize',
       'ui/initialize',
@@ -177,7 +178,7 @@ describe('origin-bound MCP Apps frame session', () => {
 
     session.disconnect();
     expect(target.listeners.size).toBe(0);
-    session.connect({ generation: 3, origin: 'null', source: first });
+    session.connect({ generation: 3, origin: 'null', source: new TestFrame() });
     session.close();
     expect(session.snapshot).toEqual({ listenerCount: 0, phase: 'closed' });
     expect(target.listeners.size).toBe(0);

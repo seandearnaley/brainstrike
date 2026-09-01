@@ -9,7 +9,7 @@ import {
 } from './frame-session.js';
 import { type McpAppResponse, parseMcpAppResponse } from './json-rpc.js';
 import type { McpAppMessage } from './messages.js';
-import { parseMcpAppJsonRecord, parseMcpAppJsonValue, parseMcpAppMessage } from './messages.js';
+import { parseMcpAppJsonValue, parseMcpAppMessage } from './messages.js';
 import type { UnknownRecord } from './validation.js';
 
 const MAX_PENDING_NOTIFICATIONS = 256;
@@ -373,10 +373,9 @@ export class McpAppFrameBridge {
       return;
     }
     this.#session.assertGeneration(operation.generation);
-    const result = parseMcpAppJsonRecord(value, 'MCP Apps request result');
-    this.#session.post(
+    this.#postResponse(
       operation.generation,
-      Object.freeze({ id: operation.id, jsonrpc: '2.0' as const, result })
+      Object.freeze({ id: operation.id, jsonrpc: '2.0' as const, result: value })
     );
     operation.claim.complete();
   }
@@ -394,7 +393,7 @@ export class McpAppFrameBridge {
             message: value.message,
           })
         : Object.freeze({ code: -32_603, message: 'MCP Apps request failed' });
-    this.#session.post(
+    this.#postResponse(
       operation.generation,
       Object.freeze({ error, id: operation.id, jsonrpc: '2.0' as const })
     );
@@ -411,7 +410,7 @@ export class McpAppFrameBridge {
     }
     operation.controller.abort(new Error('MCP Apps inbound request timed out'));
     this.#session.assertGeneration(operation.generation);
-    this.#session.post(
+    this.#postResponse(
       operation.generation,
       Object.freeze({
         error: Object.freeze({ code: -32_000, message: 'MCP Apps request timed out' }),
@@ -424,6 +423,10 @@ export class McpAppFrameBridge {
       return;
     }
     operation.claim.complete();
+  }
+
+  #postResponse(generation: number, value: unknown): void {
+    this.#session.post(generation, parseMcpAppResponse(value));
   }
 
   #releaseInbound(operation: InboundOperation): boolean {

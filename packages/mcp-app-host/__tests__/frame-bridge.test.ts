@@ -79,15 +79,16 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
     expect(bridge.snapshot.phase).toBe('disconnected');
     expect(requests).toEqual([]);
 
-    bridge.connect({ generation: 1, origin: 'null', source: frame });
-    await completeHandshake(target, frame, bridge);
-    target.dispatch(frame, {
+    const replacement = new TestFrame();
+    bridge.connect({ generation: 2, origin: 'null', source: replacement });
+    await completeHandshake(target, replacement, bridge);
+    target.dispatch(replacement, {
       id: 'tool',
       jsonrpc: '2.0',
       method: 'tools/call',
       params: { name: 'refresh' },
     });
-    target.dispatch(frame, {
+    target.dispatch(replacement, {
       jsonrpc: '2.0',
       method: 'notifications/message',
       params: { data: { ready: true }, level: 'info' },
@@ -183,6 +184,50 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
         jsonrpc: '2.0',
       })
     );
+    expectQuiescent(bridge.snapshot);
+  });
+
+  it('rejects oversized success and error responses before posting and fails closed', async () => {
+    const errors: Error[] = [];
+    const oversized = 'x'.repeat(256 * 1024);
+    const target = new TestMessageTarget();
+    const first = new TestFrame();
+    const bridge = new McpAppFrameBridge({
+      eventTarget: target,
+      isGenerationLive: () => true,
+      onNotification: async () => undefined,
+      onProtocolError: (error) => errors.push(error),
+      onRequest: async (message) => {
+        if (message.method === 'ui/initialize') {
+          return {};
+        }
+        if (message.id === 'oversized-error') {
+          throw new McpAppFrameRpcError(-32_001, 'Oversized error', { oversized });
+        }
+        return { oversized };
+      },
+    });
+    bridge.connect({ generation: 1, origin: 'null', source: first });
+    await completeHandshake(target, first, bridge);
+    const firstSentCount = first.sent.length;
+    target.dispatch(first, { id: 'oversized-success', jsonrpc: '2.0', method: 'ping' });
+
+    await vi.waitFor(() => expect(bridge.snapshot.phase).toBe('disconnected'));
+    expect(first.sent).toHaveLength(firstSentCount);
+    expectQuiescent(bridge.snapshot);
+
+    const second = new TestFrame();
+    bridge.connect({ generation: 2, origin: 'null', source: second });
+    await completeHandshake(target, second, bridge);
+    const secondSentCount = second.sent.length;
+    target.dispatch(second, { id: 'oversized-error', jsonrpc: '2.0', method: 'ping' });
+
+    await vi.waitFor(() => expect(bridge.snapshot.phase).toBe('disconnected'));
+    expect(second.sent).toHaveLength(secondSentCount);
+    expect(errors.map((error) => error.message)).toEqual([
+      'MCP Apps response exceeds the maximum encoded size of 262144 bytes',
+      'MCP Apps response exceeds the maximum encoded size of 262144 bytes',
+    ]);
     expectQuiescent(bridge.snapshot);
   });
 
@@ -301,7 +346,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
       bridge.disconnect();
       expect(bridge.snapshot.listenerCount).toBe(0);
       expectQuiescent(bridge.snapshot);
-      bridge.connect({ generation: 3, origin: 'null', source: first });
+      bridge.connect({ generation: 3, origin: 'null', source: new TestFrame() });
       bridge.close();
       expect(bridge.snapshot.phase).toBe('closed');
       expect(target.listeners.size).toBe(0);
@@ -309,6 +354,45 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('requires a newer generation and fresh source before accepting traffic after teardown', async () => {
+    const errors: Error[] = [];
+    let pingCalls = 0;
+    const { bridge, frame, target } = createBridge({
+      onProtocolError: (error) => errors.push(error),
+      onRequest: async (message) => {
+        if (message.method === 'ping') {
+          pingCalls += 1;
+        }
+        return {};
+      },
+    });
+    await completeHandshake(target, frame, bridge);
+    const ping = { id: 'replayed-after-teardown', jsonrpc: '2.0', method: 'ping' };
+    target.dispatch(frame, ping);
+    await vi.waitFor(() => expect(pingCalls).toBe(1));
+
+    bridge.disconnect();
+    expect(() => bridge.connect({ generation: 1, origin: 'null', source: frame })).toThrow(
+      'MCP Apps frame generation must increase after teardown'
+    );
+    expect(() => bridge.connect({ generation: 2, origin: 'null', source: frame })).toThrow(
+      'MCP Apps frame reconnect must use a fresh source'
+    );
+
+    const replacement = new TestFrame();
+    bridge.connect({ generation: 2, origin: 'null', source: replacement });
+    await completeHandshake(target, replacement, bridge);
+    target.dispatch(frame, ping);
+    await Promise.resolve();
+
+    expect(pingCalls).toBe(1);
+    expect(errors.map((error) => error.message)).toEqual([
+      'MCP Apps message source does not match the connected frame',
+    ]);
+    expect(bridge.snapshot.phase).toBe('ready');
+    expectQuiescent(bridge.snapshot);
   });
 
   it('fails closed on malformed, unknown, replayed, or unsendable traffic', async () => {
