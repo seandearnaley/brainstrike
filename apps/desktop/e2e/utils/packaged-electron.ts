@@ -5,7 +5,9 @@ import { _electron as electron } from 'playwright';
 export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
   'APPDATA',
   'COMSPEC',
+  'DBUS_SESSION_BUS_ADDRESS',
   'DISPLAY',
+  'GNOME_KEYRING_CONTROL',
   'HOME',
   'LANG',
   'LC_ALL',
@@ -23,6 +25,9 @@ export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
   'USERPROFILE',
   'WINDIR',
   'XAUTHORITY',
+  'XDG_CURRENT_DESKTOP',
+  'XDG_DATA_HOME',
+  'XDG_RUNTIME_DIR',
 ] as const);
 export function packagedDesktopExecutablePath(): string {
   const releaseRoot = path.resolve(process.cwd(), 'release');
@@ -60,6 +65,7 @@ export async function launchPackagedDesktop(options: {
 }): Promise<{ readonly app: ElectronApplication; readonly window: Page }> {
   const app = await electron.launch({
     args: [
+      ...(process.platform === 'linux' ? ['--password-store=gnome-libsecret'] : []),
       '--test-mode',
       `--user-data-dir=${options.userDataDir}`,
       '--no-sandbox',

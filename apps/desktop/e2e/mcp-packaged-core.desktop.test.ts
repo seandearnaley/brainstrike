@@ -49,6 +49,12 @@ function stdioFixturePath(): string {
     '../../packages/mcp-test-lab/fixtures/stdio-reference-server.mjs'
   );
 }
+function oauthBrowserFixturePath(): string {
+  return path.resolve(
+    process.cwd(),
+    '../../packages/mcp-test-lab/fixtures/oauth-browser-client.mjs'
+  );
+}
 function inheritedStdioEnvironmentArgument(): string {
   const launcherKeys = new Set<string>(PACKAGED_DESKTOP_INHERITED_ENV_KEYS);
   const inheritedKeys = DEFAULT_INHERITED_ENV_VARS.filter(
@@ -404,6 +410,16 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const environment = {
       BRAINSTRIKE_OPENROUTER_API_KEY: 'packaged-e2e-provider-key',
       OPENROUTER_BASE_URL: modelProvider.baseUrl,
+      ...(process.platform === 'linux'
+        ? {
+            BRAINSTRIKE_MCP_OAUTH_BROWSER_STATE_FILE: path.join(
+              fixtureStateDir,
+              'oauth-browser-attempted'
+            ),
+            BROWSER: oauthBrowserFixturePath(),
+            XDG_CURRENT_DESKTOP: '',
+          }
+        : {}),
     };
     first = await launchPackagedDesktop({ environment, userDataDir });
     deferCleanup(async () => {

@@ -650,8 +650,21 @@ test('REAL REPO: packaged MCP core has one isolated packaged-artifact CI lane', 
     path.join(REPO_ROOT, 'packages/mcp-test-lab/fixtures/stdio-reference-server.mjs'),
     'utf8'
   );
+  const oauthBrowserFixture = readFileSync(
+    path.join(REPO_ROOT, 'packages/mcp-test-lab/fixtures/oauth-browser-client.mjs'),
+    'utf8'
+  );
   assert.doesNotMatch(packagedLauncher, /Object\.entries\(process\.env\)/u);
   assert.match(packagedLauncher, /PACKAGED_DESKTOP_INHERITED_ENV_KEYS/u);
+  assert.match(packagedLauncher, /DBUS_SESSION_BUS_ADDRESS/u);
+  assert.match(packagedLauncher, /GNOME_KEYRING_CONTROL/u);
+  assert.match(packagedLauncher, /--password-store=gnome-libsecret/u);
+  assert.match(packagedLauncher, /XDG_CURRENT_DESKTOP/u);
+  assert.match(packagedLauncher, /XDG_DATA_HOME/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /oauth-browser-client\.mjs/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /BRAINSTRIKE_MCP_OAUTH_BROWSER_STATE_FILE/u);
+  assert.match(oauthBrowserFixture, /redirect: 'manual'/u);
+  assert.match(oauthBrowserFixture, /hostname !== '127\.0\.0\.1'/u);
   assert.doesNotMatch(stdioFixture, /--brainstrike-production-env/u);
   assert.match(stdioFixture, /--brainstrike-expected-inherited-env=/u);
 
@@ -666,6 +679,10 @@ test('REAL REPO: packaged MCP core has one isolated packaged-artifact CI lane', 
     /--filter=@brainstrike\/mcp-test-lab/u,
     'native-electron must build the packaged verifier fixtures before packaging'
   );
+  const desktopServices = steps.find(({ name }) => name === 'Provision Linux desktop services');
+  assert.match(String(desktopServices?.run), /dbus-x11/u);
+  assert.match(String(desktopServices?.run), /gnome-keyring/u);
+  assert.match(String(desktopServices?.run), /xdg-utils/u);
   const watcherIndex = steps.findIndex(
     ({ name }) => name === 'Load the packaged @parcel/watcher binding in Electron (BST-568)'
   );
@@ -683,6 +700,15 @@ test('REAL REPO: packaged MCP core has one isolated packaged-artifact CI lane', 
     /test:e2e:lane:packaged-mcp-core/u,
     'native-electron must invoke the canonical package lane'
   );
+  assert.match(String(steps[laneIndex]?.run), /dbus-run-session/u);
+  assert.match(String(steps[laneIndex]?.run), /gnome-keyring-daemon --unlock/u);
+  assert.match(String(steps[laneIndex]?.run), /XDG_CURRENT_DESKTOP=GNOME/u);
+  assert.match(String(steps[laneIndex]?.run), /XDG_DATA_HOME=.*mktemp -d/u);
+  const uploadStep = steps[laneIndex + 1];
+  assert.equal(uploadStep?.name, 'Upload packaged MCP test diagnostics');
+  assert.equal(uploadStep?.uses, 'actions/upload-artifact@v7');
+  assert.equal(uploadStep?.with?.path, 'apps/desktop/blob-report');
+  assert.match(String(uploadStep?.if), /failure\(\)/u);
 });
 
 test('REAL REPO: the two BST-1010 orphans are fail-late full-regression lanes', async () => {
