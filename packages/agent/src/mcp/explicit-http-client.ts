@@ -3,10 +3,12 @@ import {
   Client,
   type ClientOptions,
   type InputRequiredResult,
+  type McpSubscription,
   type OAuthClientProvider,
   SdkHttpError,
   SSEClientTransport,
   StreamableHTTPClientTransport,
+  type SubscriptionFilter,
 } from '@modelcontextprotocol/client';
 import {
   composeMcpTransportCapabilities,
@@ -22,6 +24,12 @@ import {
   normalizeMcpRequestOptions,
 } from './client-policy';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
+import {
+  type McpServerFeatureEventDiagnosticSink,
+  type McpServerFeatureEventHandlers,
+  McpServerFeatureEventRegistry,
+  resolveMcpServerFeatureEventDiagnosticSink,
+} from './server-feature-events';
 import {
   diagnoseInvalidatedCloseFailure,
   notifyUnexpectedClose,
@@ -71,6 +79,14 @@ export type ExplicitHttpMcpTool = ExplicitHttpMcpListToolsResult['tools'][number
 export type ExplicitHttpMcpCallToolParams = Parameters<Client['callTool']>[0];
 export type ExplicitHttpMcpCallToolResult = Awaited<ReturnType<Client['callTool']>>;
 export type ExplicitHttpMcpInputRequiredResult = InputRequiredResult;
+export type ExplicitHttpMcpReadResourceParams = Parameters<Client['readResource']>[0];
+export type ExplicitHttpMcpReadResourceResult = Awaited<ReturnType<Client['readResource']>>;
+export type ExplicitHttpMcpGetPromptParams = Parameters<Client['getPrompt']>[0];
+export type ExplicitHttpMcpGetPromptResult = Awaited<ReturnType<Client['getPrompt']>>;
+export type ExplicitHttpMcpCompleteParams = Parameters<Client['complete']>[0];
+export type ExplicitHttpMcpCompleteResult = Awaited<ReturnType<Client['complete']>>;
+export type ExplicitHttpMcpSubscription = McpSubscription;
+export type ExplicitHttpMcpSubscriptionFilter = SubscriptionFilter;
 
 type ExplicitHttpMcpManualCallOptions = ExplicitHttpMcpRequestOptions & {
   allowInputRequired: true;
@@ -107,6 +123,7 @@ export interface ExplicitHttpMcpClientOptions {
   maxStepUpRetries?: number;
   name: string;
   onInsufficientScope?: 'reauthorize' | 'throw';
+  onServerFeatureEventError?: McpServerFeatureEventDiagnosticSink;
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol?: McpProtocol;
   responseCacheStore?: ClientOptions['responseCacheStore'];
@@ -142,6 +159,7 @@ interface NormalizedClientOptions {
   listMaxPages: number;
   maxStepUpRetries?: number;
   onInsufficientScope?: 'reauthorize' | 'throw';
+  onServerFeatureEventError: McpServerFeatureEventDiagnosticSink;
   onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
   protocol: McpProtocol;
   responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
@@ -323,6 +341,10 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     inputRequired: capabilityConfiguration.inputRequired,
     lifecycle: validateLifecycle(options.lifecycle, name),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
+    onServerFeatureEventError: resolveMcpServerFeatureEventDiagnosticSink(
+      options.onServerFeatureEventError,
+      name
+    ),
     ...scopeStepUp,
     ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
     protocol,
@@ -349,6 +371,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private closed = false;
   private connectPromise: Promise<ActiveConnection> | undefined;
   private readonly invalidatedConnections = new Set<ActiveConnection>();
+  private readonly featureEvents: McpServerFeatureEventRegistry;
   private readonly options: NormalizedClientOptions;
   private pendingConnection: ActiveConnection | undefined;
   private recoveryPromise: Promise<ActiveConnection> | undefined;
@@ -358,6 +381,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
 
   constructor(options: ExplicitHttpMcpClientOptions) {
     this.options = normalizeOptions(options);
+    this.featureEvents = new McpServerFeatureEventRegistry(this.options.onServerFeatureEventError);
   }
 
   async connect(options?: ExplicitHttpMcpRequestOptions): Promise<void> {
@@ -444,6 +468,64 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       (client, requestParams, requestOptions) =>
         client.listResourceTemplates(requestParams, requestOptions)
     );
+  }
+
+  async readResource(
+    params: ExplicitHttpMcpReadResourceParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<ExplicitHttpMcpReadResourceResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => client.readResource(params, requestOptions), requestOptions);
+  }
+
+  async getPrompt(
+    params: ExplicitHttpMcpGetPromptParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<ExplicitHttpMcpGetPromptResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => client.getPrompt(params, requestOptions), requestOptions);
+  }
+
+  async complete(
+    params: ExplicitHttpMcpCompleteParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<ExplicitHttpMcpCompleteResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => client.complete(params, requestOptions), requestOptions);
+  }
+
+  async subscribeResource(
+    params: ExplicitHttpMcpReadResourceParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    await this.runRequest(
+      (client) => client.subscribeResource(params, requestOptions),
+      requestOptions
+    );
+  }
+
+  async unsubscribeResource(
+    params: ExplicitHttpMcpReadResourceParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    await this.runRequest(
+      (client) => client.unsubscribeResource(params, requestOptions),
+      requestOptions
+    );
+  }
+
+  async listen(
+    filter: ExplicitHttpMcpSubscriptionFilter,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<ExplicitHttpMcpSubscription> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => client.listen(filter, requestOptions), requestOptions);
+  }
+
+  watchServerFeatures(handlers: McpServerFeatureEventHandlers): () => void {
+    return this.featureEvents.subscribe(handlers);
   }
 
   async callTool(
@@ -649,8 +731,9 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       ...this.options.capabilityRuntime.capabilities,
       ...(extensions ? { extensions } : {}),
     };
-    const clientOptions: ClientOptions = {
+    const clientOptions = {
       capabilities,
+      enforceStrictCapabilities: true,
       inputRequired: this.options.inputRequired,
       listMaxPages: this.options.listMaxPages,
       versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
@@ -661,9 +744,10 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
         ? {}
         : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
       responseCacheStore: this.options.responseCacheStore,
-    };
+    } satisfies ClientOptions;
     const client = new Client(this.options.clientInfo, clientOptions);
     const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
+    this.featureEvents.install(client);
     const connection = {
       capabilityLease,
       client,
