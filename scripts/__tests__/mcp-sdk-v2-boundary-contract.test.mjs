@@ -41,8 +41,12 @@ test('BST-1497: Brainstrike source and manifests use only stable SDK v2 split pa
   }
 
   const desktopManifest = readJson('apps/desktop/package.json');
+  const desktopDeclared = {
+    ...desktopManifest.dependencies,
+    ...desktopManifest.devDependencies,
+  };
   for (const packageName of [...serverTestPackages, '@modelcontextprotocol/server-filesystem']) {
-    assert.equal(desktopManifest.devDependencies[packageName], undefined, packageName);
+    assert.equal(desktopDeclared[packageName], undefined, packageName);
   }
 
   const workspace = parse(readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'));

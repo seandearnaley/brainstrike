@@ -62,14 +62,18 @@ describe('legacy desktop MCP client removal contract', () => {
 
     const manifest = JSON.parse(
       fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8')
-    ) as { devDependencies?: Record<string, string> };
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const declared = { ...manifest.dependencies, ...manifest.devDependencies };
     for (const packageName of [
       '@modelcontextprotocol/node',
       '@modelcontextprotocol/server',
       '@modelcontextprotocol/server-filesystem',
       '@modelcontextprotocol/server-legacy',
     ]) {
-      expect(manifest.devDependencies?.[packageName]).toBeUndefined();
+      expect(declared[packageName]).toBeUndefined();
     }
   });
 
@@ -93,24 +97,28 @@ describe('legacy desktop MCP client removal contract', () => {
     expect(source).toContain('export interface McpDiscoveredTool');
     expect(source).toContain('export function connectedStatus');
     expect(source).toContain('export function mcpStatusErrorMessage');
-    expect(providerContract).toContain(
-      'The dormant\n   pre-host global client registry, desktop `McpClient` wrapper, and HTTP/stdio/SSE\n   factory adapters do not exist.'
+    expect(providerContract).toMatch(
+      /The dormant\s+pre-host global client registry, desktop `McpClient` wrapper, and HTTP\/stdio\/SSE\s+factory adapters do not exist\./u
     );
   });
 
   it('omits the legacy stack from the production Electron main bundle', async () => {
     const buildOptions: esbuildTypes.BuildOptions = {
       ...(MAIN_PROCESS_BUILD_OPTIONS as Omit<esbuildTypes.BuildOptions, 'entryPoints'>),
-      entryPoints: { main: 'src/main-bootstrap.ts' },
+      absWorkingDir: desktopRoot,
+      entryPoints: { main: path.join(sourceRoot, 'main-bootstrap.ts') },
       logLevel: 'silent',
       write: false,
     };
     const result = await esbuild.build(buildOptions);
-    const mainOutput = result.outputFiles?.find((output) => output.path.endsWith('/main.js'));
+    const mainOutput = result.outputFiles?.find(
+      (output) => path.basename(output.path) === 'main.js'
+    );
     if (!mainOutput) {
       throw new Error('Production MCP removal verifier did not receive the Electron main bundle');
     }
     const bundle = mainOutput.text;
+    expect(bundle).toContain('Ready-dependent IPC handlers registered successfully');
 
     for (const marker of [
       'src/mcp/http-client.ts',
