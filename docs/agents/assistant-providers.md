@@ -2209,17 +2209,17 @@ denies, and settlement restores focus to the host-provided recovery target.
 The sandbox slot is inert and hidden from assistive technology while consent is
 open. This surface still does not register or advertise MCP Apps in production.
 
-The BST-1571 packaged verifier bundles those production authority and surface
-modules into an otherwise inert host harness, launches the exact
-electron-builder output, and first asserts `app.isPackaged === true`. It drives
-the host exclusively through accessible role/name selectors and proves consent
-focus entry, denial recovery, sanitized failure recovery, and completion
-recovery. Completion, tab close, replacement, disconnect, shutdown, denial,
-and execution failure must each leave zero authority listeners, pending
-approvals, and pending calls; the window owner awaits tab-close cleanup before
-destroying its packaged `BrowserWindow`. Together with BST-1570's packaged
-bridge verifier, this pins both bridge and call-authority cleanup without
-mounting or advertising MCP Apps in the production desktop renderer.
+The BST-1571 packaged verifier launches the exact electron-builder output,
+queries the live main process for `app.isPackaged === true`, and drives its
+dedicated verifier window over Chromium CDP. That window composes the production
+provenance authority, object-URL sandbox owner, opaque frame bridge, tool-call
+authority, and accessible host surface. App-originated `tools/call` traffic
+crosses the real frame listener and reaches a loopback HTTP request/response;
+host RPC responses return to the app. Completion, replacement, disconnect,
+shutdown, denial, server failure, protocol failure, and timeout must release all
+frames, object URLs, RPC callbacks/timers, consent listeners, calls, HTTP
+requests, sockets, and the packaged child process. This remains verifier-only:
+MCP Apps is neither mounted nor advertised in the production desktop renderer.
 
 BST-1567 owns the disabled Apps wire-contract projection from the immutable
 `@modelcontextprotocol/ext-apps@1.7.5` schema and stable `2026-01-26` spec. It

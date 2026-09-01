@@ -1,12 +1,16 @@
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
+import type { Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
+import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
-import type { ElectronApplication, Page } from 'playwright';
-import { _electron as electron } from 'playwright';
+import { type Browser, chromium, type Page } from 'playwright';
 
 const appHostModulePath = path.resolve(process.cwd(), '../../packages/mcp-app-host/dist/index.js');
 const appSurfaceModulePath = path.resolve(
@@ -22,6 +26,198 @@ interface AuthoritySnapshot {
   readonly pendingApprovals: readonly unknown[];
   readonly pendingCalls: number;
   readonly phase: 'closed' | 'open';
+}
+
+interface BridgeSnapshot {
+  readonly listenerCount: number;
+  readonly pendingCallbacks: number;
+  readonly pendingInboundRequests: number;
+  readonly pendingNotifications: number;
+  readonly pendingOutboundRequests: number;
+  readonly phase: 'closed' | 'disconnected' | 'ready';
+  readonly timerCount: number;
+}
+
+interface ResourceSnapshot {
+  readonly activeFetches: number;
+  readonly activeFrames: number;
+  readonly activeUrls: number;
+  readonly domFrames: number;
+}
+
+interface LifecycleSnapshot {
+  readonly authority: AuthoritySnapshot;
+  readonly bridge: BridgeSnapshot;
+  readonly resources: ResourceSnapshot;
+}
+
+interface LoopbackServerSnapshot {
+  readonly abortedRequests: number;
+  readonly activeRequests: number;
+  readonly completedRequests: number;
+  readonly listening: boolean;
+  readonly openSockets: number;
+  readonly totalRequests: number;
+}
+
+interface LoopbackToolServer {
+  readonly close: () => Promise<void>;
+  readonly origin: string;
+  readonly snapshot: () => LoopbackServerSnapshot;
+}
+
+interface PackagedHarnessApplication {
+  readonly browser: Browser;
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly isPackaged: boolean;
+  readonly page: Page;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
+  const sockets = new Set<Socket>();
+  let abortedRequests = 0;
+  let activeRequests = 0;
+  let completedRequests = 0;
+  let totalRequests = 0;
+  const server: Server = createServer(async (request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    for await (const chunk of request) {
+      body += chunk;
+    }
+    const payload: unknown = JSON.parse(body);
+    if (request.method !== 'POST' || request.url !== '/tool' || !isRecord(payload)) {
+      response.writeHead(400, { Connection: 'close' });
+      response.end();
+      return;
+    }
+    totalRequests += 1;
+    activeRequests += 1;
+    let settled = false;
+    const settle = (outcome: 'aborted' | 'completed'): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      activeRequests -= 1;
+      if (outcome === 'aborted') {
+        abortedRequests += 1;
+      } else {
+        completedRequests += 1;
+      }
+    };
+    response.once('finish', () => settle('completed'));
+    response.once('close', () => {
+      if (!response.writableEnded) {
+        settle('aborted');
+      }
+    });
+    response.setHeader('Access-Control-Allow-Origin', '*');
+    response.setHeader('Connection', 'close');
+    response.setHeader('Content-Type', 'application/json');
+    if (payload['mode'] === 'hold') {
+      return;
+    }
+    if (payload['mode'] === 'failure') {
+      response.writeHead(503);
+      response.end(JSON.stringify({ code: 'fixture_failure' }));
+      return;
+    }
+    response.writeHead(200);
+    response.end(JSON.stringify({ content: [{ text: 'created', type: 'text' }] }));
+  });
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+  });
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => reject(error);
+    server.once('error', onError);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', onError);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('BST-1571 loopback tool server address is unavailable');
+  }
+  let closed = false;
+  return {
+    close: async () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error === undefined ? resolve() : reject(error)))
+      );
+    },
+    origin: `http://127.0.0.1:${address.port}`,
+    snapshot: () => ({
+      abortedRequests,
+      activeRequests,
+      completedRequests,
+      listening: server.listening,
+      openSockets: sockets.size,
+      totalRequests,
+    }),
+  };
+}
+
+function sandboxedAppDocument(): string {
+  const scriptClose = '</script>';
+  return `<!doctype html><script>
+    const pending=new Set();
+    const send=message=>top.postMessage(message,'*');
+    let started=false;
+    addEventListener('message',event=>{
+      if(event.source!==top)return;
+      const message=event.data;
+      if(message?.type==='bst-start'&&!started){
+        started=true;
+        send({
+          id:'initialize',
+          jsonrpc:'2.0',
+          method:'ui/initialize',
+          params:{appCapabilities:{},appInfo:{name:'BST-1571 verifier',version:'1.0.0'},protocolVersion:'2026-01-26'}
+        });
+        return;
+      }
+      if(message?.id==='initialize'&&message?.result){
+        send({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}});
+        return;
+      }
+      if(message?.method==='ui/notifications/tool-input'){
+        const argumentsValue=message.params?.arguments??{};
+        const id=argumentsValue.label;
+        pending.add(id);
+        send({id,jsonrpc:'2.0',method:'tools/call',params:{arguments:argumentsValue,name:'create_issue'}});
+        return;
+      }
+      if(message?.method==='ui/notifications/host-context-changed'){
+        send({id:'protocol-failure',jsonrpc:'2.0',method:'tools/list',params:{}});
+        return;
+      }
+      if(message?.method==='ui/resource-teardown'&&!String(message.id).startsWith('pending-')){
+        send({id:message.id,jsonrpc:'2.0',result:{released:true}});
+        return;
+      }
+      if(pending.has(message?.id)&&(message?.result||message?.error)){
+        pending.delete(message.id);
+        send({
+          jsonrpc:'2.0',
+          method:'notifications/message',
+          params:{data:{callId:message.id,outcome:message.result?'resolved':'rejected'},level:'info'}
+        });
+      }
+    });
+  ${scriptClose}`;
 }
 
 function packagedExecutablePath(): string {
@@ -58,40 +254,257 @@ function electronEnvironment(): Record<string, string> {
   return environment;
 }
 
-function harnessSource(): string {
+async function evaluateElectronMain(endpoint: string, expression: string): Promise<unknown> {
+  const socket = new WebSocket(endpoint);
+  const connectionTimeout = AbortSignal.timeout(10_000);
+  await new Promise<void>((resolve, reject) => {
+    socket.addEventListener('open', () => resolve(), { once: true, signal: connectionTimeout });
+    socket.addEventListener(
+      'error',
+      () => reject(new Error('Electron inspector connection failed')),
+      { once: true, signal: connectionTimeout }
+    );
+    connectionTimeout.addEventListener(
+      'abort',
+      () => reject(new Error('Electron inspector connection timed out')),
+      { once: true }
+    );
+  });
+  try {
+    return await new Promise<unknown>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error('Electron inspector evaluation timed out')),
+        10_000
+      );
+      socket.addEventListener('message', (event) => {
+        const message: unknown = JSON.parse(String(event.data));
+        if (!isRecord(message) || message['id'] !== 1) {
+          return;
+        }
+        clearTimeout(timeout);
+        const result = message['result'];
+        const remote = isRecord(result) ? result['result'] : undefined;
+        if (!isRecord(remote) || Object.hasOwn(result ?? {}, 'exceptionDetails')) {
+          reject(new Error(`Electron inspector evaluation failed: ${String(message['error'])}`));
+          return;
+        }
+        resolve(remote['value']);
+      });
+      socket.send(
+        JSON.stringify({
+          id: 1,
+          method: 'Runtime.evaluate',
+          params: {
+            awaitPromise: true,
+            expression,
+            includeCommandLineAPI: true,
+            returnByValue: true,
+          },
+        })
+      );
+    });
+  } finally {
+    socket.close();
+  }
+}
+
+async function launchPackagedHarness(
+  executablePath: string,
+  harnessPath: string,
+  userDataDir: string
+): Promise<PackagedHarnessApplication> {
+  const child = spawn(
+    executablePath,
+    [
+      '--inspect=0',
+      '--remote-debugging-port=0',
+      '--test-mode',
+      `--user-data-dir=${userDataDir}`,
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-extensions',
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
+    ],
+    {
+      env: {
+        ...electronEnvironment(),
+        BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
+        BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
+        BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDir,
+        BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
+        ELECTRON_IS_E2E_TEST: 'true',
+        NODE_OPTIONS: '',
+      },
+      stdio: 'pipe',
+    }
+  );
+  try {
+    const recentLogs: string[] = [];
+    const endpoints = await new Promise<{
+      readonly browser: string;
+      readonly main: string;
+    }>((resolve, reject) => {
+      let browserEndpoint: string | undefined;
+      let mainEndpoint: string | undefined;
+      const timeout = setTimeout(
+        () => reject(new Error(`Packaged Electron DevTools timeout: ${recentLogs.join('\n')}`)),
+        120_000
+      );
+      const finish = (callback: () => void): void => {
+        clearTimeout(timeout);
+        stdout.close();
+        stderr.close();
+        child.stdout.resume();
+        child.stderr.resume();
+        child.off('exit', onExit);
+        callback();
+      };
+      const onLine = (line: string): void => {
+        recentLogs.push(line);
+        if (recentLogs.length > 40) {
+          recentLogs.shift();
+        }
+        browserEndpoint = line.match(/^DevTools listening on (ws:\/\/.*)$/)?.[1] ?? browserEndpoint;
+        mainEndpoint = line.match(/^Debugger listening on (ws:\/\/.*)$/)?.[1] ?? mainEndpoint;
+        if (browserEndpoint && mainEndpoint) {
+          const matched = { browser: browserEndpoint, main: mainEndpoint };
+          finish(() => resolve(matched));
+        }
+      };
+      const onExit = (code: number | null, signal: NodeJS.Signals | null): void =>
+        finish(() =>
+          reject(
+            new Error(
+              `Packaged Electron exited before DevTools (${String(code)}/${String(signal)}): ${recentLogs.join('\n')}`
+            )
+          )
+        );
+      const stdout = createInterface({ input: child.stdout });
+      const stderr = createInterface({ input: child.stderr });
+      stdout.on('line', onLine);
+      stderr.on('line', onLine);
+      child.once('exit', onExit);
+    });
+    const isPackaged = await evaluateElectronMain(
+      endpoints.main,
+      `(async()=>{const{app,BrowserWindow}=require('electron');await app.whenReady();const window=new BrowserWindow({show:true,webPreferences:{contextIsolation:true,nodeIntegration:false,partition:'bst-1571-packaged-host',sandbox:true,webSecurity:true}});globalThis.__bst1571PackagedWindow=window;await window.loadFile(${JSON.stringify(harnessPath)});return app.isPackaged})()`
+    );
+    const browser = await chromium.connectOverCDP(endpoints.browser);
+    const expectedUrl = pathToFileURL(harnessPath).href;
+    let page: Page | undefined;
+    await expect
+      .poll(() => {
+        page = browser
+          .contexts()[0]
+          ?.pages()
+          .find((candidate) => candidate.url() === expectedUrl);
+        return page?.url();
+      })
+      .toBe(expectedUrl);
+    if (!page) {
+      throw new Error('BST-1571 packaged harness page is unavailable');
+    }
+    return { browser, child, isPackaged: isPackaged === true, page };
+  } catch (error: unknown) {
+    child.kill('SIGTERM');
+    await waitForProcessExit(child).catch(() => child.kill('SIGKILL'));
+    throw error;
+  }
+}
+
+async function waitForProcessExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error('Packaged Electron did not exit after SIGTERM')),
+      15_000
+    );
+    child.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+function harnessSource(serverOrigin: string): string {
   return `
     import React, {createRef} from ${JSON.stringify(reactModulePath)};
     import {createRoot} from ${JSON.stringify(reactDomClientModulePath)};
     import {McpAppHostSurface} from ${JSON.stringify(appSurfaceModulePath)};
-    import {McpAppProvenanceAuthority, McpAppToolCallAuthority} from ${JSON.stringify(appHostModulePath)};
+    import {
+      McpAppFrameBridge,
+      McpAppProvenanceAuthority,
+      McpAppSandboxOwner,
+      McpAppToolCallAuthority,
+    } from ${JSON.stringify(appHostModulePath)};
 
     const APP_NAME='Linear issue editor';
+    const APP_DOCUMENT=${JSON.stringify(sandboxedAppDocument())};
+    const SERVER_ORIGIN=${JSON.stringify(serverOrigin)};
+    const activeUrls=new Set();
+    const appReceipts=new Map();
     const outcomes=new Map();
+    const pendingRpcOutcomes=new Map();
+    const provenance=new McpAppProvenanceAuthority();
     const recoveryFocusRef=createRef();
-    let authority;
-    let executionMode='success';
+    const sandboxFrameRef=createRef();
+    const sandboxOwner=new McpAppSandboxOwner({
+      urls:{
+        createObjectURL(blob){
+          const url=URL.createObjectURL(blob);
+          activeUrls.add(url);
+          return url;
+        },
+        revokeObjectURL(url){
+          URL.revokeObjectURL(url);
+          activeUrls.delete(url);
+        },
+      },
+    });
+    let activeFetches=0;
+    let current;
+    let generationSequence=0;
+    let lastAuthority;
+    let protocolTeardown;
     let root=createRoot(document.getElementById('root'));
 
-    function createAuthority(){
-      const provenance=new McpAppProvenanceAuthority();
-      const generation=provenance.openGeneration({generation:1,serverId:'linear'});
-      provenance.registerTool(generation,{_meta:{ui:{visibility:['app']}},name:'create_issue'});
-      authority=new McpAppToolCallAuthority({
-        generation,
-        prepare:async()=>({
-          decision:'ask',
-          execute:async({signal})=>{
-            if(signal.aborted)throw signal.reason;
-            if(executionMode==='failure')throw new Error('private failure detail');
-            return {content:[]};
-          },
-          riskCategory:'execute',
-        }),
-        provenance,
-      });
+    const delay=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+
+    async function waitFor(label,predicate,timeoutMs=5000){
+      const deadline=performance.now()+timeoutMs;
+      while(!predicate()){
+        if(performance.now()>deadline){
+          throw new Error(label+' timeout: '+JSON.stringify({
+            bridge:current?.bridge.snapshot,
+            resources:resourceSnapshot(),
+          }));
+        }
+        await delay(10);
+      }
     }
 
-    function render(state){
+    function resourceSnapshot(){
+      return {
+        activeFetches,
+        activeFrames:sandboxOwner.activeFrames,
+        activeUrls:activeUrls.size,
+        domFrames:document.querySelectorAll('[data-mcp-app-sandbox]').length,
+      };
+    }
+
+    function lifecycleSnapshot(session){
+      return {
+        authority:session.authority.snapshot,
+        bridge:session.bridge.snapshot,
+        resources:resourceSnapshot(),
+      };
+    }
+
+    function render(state,authority=lastAuthority,shellUrl){
+      if(!authority)throw new Error('MCP Apps verifier authority is unavailable');
       root.render(React.createElement(
         React.Fragment,
         null,
@@ -101,63 +514,217 @@ function harnessSource(): string {
           {
             appName:APP_NAME,
             authority,
-            onCancel:()=>globalThis.__bst1571.disconnect(),
-            onRetry:()=>globalThis.__bst1571.reset(),
+            onCancel:()=>void globalThis.__bst1571.disconnect(),
+            onRetry:()=>void globalThis.__bst1571.reset(),
             recoveryFocusRef,
             state,
           },
-          React.createElement('div',{'aria-label':'Sandboxed Linear app',role:'application'},'Sandboxed app')
+          state.phase==='ready'&&shellUrl
+            ? React.createElement('iframe',{
+                'aria-label':'Sandboxed Linear app',
+                'data-mcp-app-sandbox':'true',
+                key:shellUrl,
+                ref:sandboxFrameRef,
+                src:shellUrl,
+                title:'Sandboxed Linear app',
+              })
+            : null
         )
       ));
     }
 
-    function begin(label,mode='success'){
-      executionMode=mode;
-      outcomes.set(label,'pending');
-      const call=authority.call({
-        arguments:{secret:'must-not-render-in-host-ui'},
-        id:label,
+    async function executeServerCall(call,signal){
+      activeFetches+=1;
+      try{
+        const response=await fetch(SERVER_ORIGIN+'/tool',{
+          body:JSON.stringify(call.input),
+          method:'POST',
+          signal,
+        });
+        if(!response.ok)throw new Error('MCP Apps verifier server request failed');
+        return await response.json();
+      }finally{
+        activeFetches-=1;
+      }
+    }
+
+    async function createSession(){
+      generationSequence+=1;
+      const generation=provenance.openGeneration({generation:generationSequence,serverId:'linear'});
+      const tool=provenance.registerTool(generation,{
+        _meta:{ui:{resourceUri:'ui://linear/issue-editor',visibility:['app']}},
         name:'create_issue',
       });
-      call.then(()=>outcomes.set(label,'resolved'),()=>outcomes.set(label,'rejected'));
+      const resource=provenance.resolveResource(generation,tool,{
+        mimeType:'text/html;profile=mcp-app',
+        text:APP_DOCUMENT,
+        uri:'ui://linear/issue-editor',
+      });
+      const mount=sandboxOwner.open(resource);
+      const authority=new McpAppToolCallAuthority({
+        generation,
+        prepare:async call=>({
+          decision:'ask',
+          execute:async({signal})=>await executeServerCall(call,signal),
+          riskCategory:'execute',
+        }),
+        provenance,
+      });
+      lastAuthority=authority;
+      render({phase:'ready'},authority,mount.shellUrl);
+      await waitFor('sandbox shell frame',()=>sandboxFrameRef.current?.contentWindow);
+      const outerFrame=sandboxFrameRef.current;
+      await waitFor('sandbox app frame',()=>outerFrame.contentDocument?.querySelector('iframe')?.contentWindow);
+      const appFrame=outerFrame.contentDocument.querySelector('iframe');
+      const appWindow=appFrame?.contentWindow;
+      if(!appWindow)throw new Error('MCP Apps verifier frame source is unavailable');
+      let bridge;
+      bridge=new McpAppFrameBridge({
+        eventTarget:window,
+        isGenerationLive:value=>value===generation.generation,
+        onNotification:message=>{
+          if(message.method==='notifications/message'){
+            const data=message.params?.data;
+            if(data&&typeof data==='object')appReceipts.set(data.callId,data.outcome);
+          }
+        },
+        onProtocolError:error=>{
+          if(current?.bridge===bridge&&!current.tearingDown){
+            protocolTeardown=teardown({code:'protocol-failed',phase:'error'},'failed');
+          }
+        },
+        onRequest:async(message,context)=>{
+          if(message.method==='ui/initialize')return {};
+          if(message.method!=='tools/call')return {};
+          const argumentsValue=message.params?.arguments??{};
+          const label=argumentsValue.label;
+          try{
+            const result=await authority.call({
+              arguments:argumentsValue,
+              id:message.id,
+              name:message.params?.name,
+            },{signal:context.signal});
+            outcomes.set(label,'resolved');
+            return result;
+          }catch(error){
+            outcomes.set(label,'rejected');
+            throw error;
+          }
+        },
+        timeoutMs:5000,
+      });
+      current={authority,bridge,generation,mount,outerFrame,tearingDown:false};
+      bridge.connect({generation:generation.generation,origin:'null',source:appWindow});
+      const bootstrapDeadline=performance.now()+5000;
+      while(bridge.snapshot.phase==='awaiting-initialize'){
+        if(performance.now()>bootstrapDeadline){
+          throw new Error('MCP Apps bootstrap timeout: '+JSON.stringify(bridge.snapshot));
+        }
+        appWindow.postMessage({type:'bst-start'},'*');
+        await delay(10);
+      }
+      await waitFor('MCP Apps handshake',()=>bridge.snapshot.phase==='ready');
+      await waitFor('host surface subscription',()=>authority.snapshot.listenerCount===1);
+      return lifecycleSnapshot(current);
     }
 
-    async function closeAndRender(state){
-      const snapshot=await authority.close();
-      render(state);
-      return snapshot;
+    async function teardown(state,mode='close'){
+      const session=current;
+      if(!session)throw new Error('MCP Apps verifier session is unavailable');
+      session.tearingDown=true;
+      if(mode==='disconnect')session.bridge.disconnect();
+      else if(mode!=='failed')session.bridge.close();
+      const authoritySnapshot=await session.authority.close();
+      provenance.retireGeneration(session.generation);
+      session.outerFrame.remove();
+      await session.mount.close();
+      if(current===session)current=undefined;
+      render(state,session.authority);
+      return {
+        authority:authoritySnapshot,
+        bridge:session.bridge.snapshot,
+        resources:resourceSnapshot(),
+      };
     }
 
-    createAuthority();
-    render({phase:'ready'});
+    function begin(label,mode='success'){
+      const session=current;
+      if(!session)throw new Error('MCP Apps verifier session is unavailable');
+      outcomes.set(label,'pending');
+      session.bridge.sendNotification({
+        jsonrpc:'2.0',
+        method:'ui/notifications/tool-input',
+        params:{arguments:{label,mode,secret:'must-not-render-in-host-ui'}},
+      });
+    }
+
+    function beginPendingRpc(label){
+      const session=current;
+      if(!session)throw new Error('MCP Apps verifier session is unavailable');
+      const pending=session.bridge.sendRequest({
+        id:'pending-'+label,
+        jsonrpc:'2.0',
+        method:'ui/resource-teardown',
+        params:{},
+      });
+      pending.then(
+        ()=>pendingRpcOutcomes.set(label,'resolved'),
+        ()=>pendingRpcOutcomes.set(label,'rejected')
+      );
+    }
+
+    const initialReady=createSession();
     globalThis.__bst1571={
       begin,
-      complete:()=>closeAndRender({phase:'completed'}),
-      disconnect:()=>closeAndRender({phase:'cancelled'}),
-      fail:()=>closeAndRender({code:'protocol-failed',phase:'error'}),
+      beginPendingRpc,
+      complete:()=>teardown({phase:'completed'}),
+      disconnect:()=>teardown({phase:'cancelled'},'disconnect'),
+      fail:()=>teardown({code:'protocol-failed',phase:'error'}),
+      initialReady:()=>initialReady,
       outcome:label=>outcomes.get(label),
+      pendingRpcOutcome:label=>pendingRpcOutcomes.get(label),
+      protocolFailure:async()=>{
+        const session=current;
+        if(!session)throw new Error('MCP Apps verifier session is unavailable');
+        session.bridge.sendNotification({
+          jsonrpc:'2.0',
+          method:'ui/notifications/host-context-changed',
+          params:{},
+        });
+        await waitFor('protocol teardown',()=>protocolTeardown!==undefined);
+        return await protocolTeardown;
+      },
+      receipt:label=>appReceipts.get(label),
       reset:async()=>{
-        const previous=authority;
-        const previousSnapshot=await previous.close();
-        createAuthority();
-        render({phase:'ready'});
-        return {current:authority.snapshot,previous:previousSnapshot};
+        const previous=await teardown({phase:'loading'});
+        const next=await createSession();
+        return {current:next,previous};
+      },
+      roundTrip:async()=>{
+        const session=current;
+        if(!session)throw new Error('MCP Apps verifier session is unavailable');
+        return await session.bridge.sendRequest({
+          id:'round-trip',
+          jsonrpc:'2.0',
+          method:'ui/resource-teardown',
+          params:{},
+        });
       },
       shutdown:async()=>{
+        const snapshot=await teardown({phase:'cancelled'});
         root.unmount();
-        return await authority.close();
+        return snapshot;
       },
-      snapshot:()=>authority.snapshot,
-      tabClose:()=>authority.close(),
+      snapshot:()=>current?lifecycleSnapshot(current):undefined,
     };
   `;
 }
 
-async function buildHarness(directory: string): Promise<string> {
+async function buildHarness(directory: string, serverOrigin: string): Promise<string> {
   const entryPath = path.join(directory, 'harness-entry.jsx');
   const bundlePath = path.join(directory, 'harness-bundle.js');
   const htmlPath = path.join(directory, 'harness.html');
-  await writeFile(entryPath, harnessSource(), 'utf8');
+  await writeFile(entryPath, harnessSource(serverOrigin), 'utf8');
   await build({
     bundle: true,
     entryPoints: [entryPath],
@@ -199,6 +766,27 @@ async function harnessCall<T>(page: Page, expression: string): Promise<T> {
   }, expression);
 }
 
+async function harnessCallWithArgs<T>(
+  page: Page,
+  expression: string,
+  args: readonly unknown[]
+): Promise<T> {
+  return await page.evaluate(
+    ({ methodName, values }) => {
+      const harness = Reflect.get(globalThis, '__bst1571');
+      if (typeof harness !== 'object' || harness === null) {
+        throw new Error('BST-1571 harness is unavailable');
+      }
+      const method = Reflect.get(harness, methodName);
+      if (typeof method !== 'function') {
+        throw new Error(`BST-1571 harness method ${methodName} is unavailable`);
+      }
+      return Reflect.apply(method, harness, values);
+    },
+    { methodName: expression, values: args }
+  );
+}
+
 async function beginCall(page: Page, label: string, mode = 'success'): Promise<void> {
   await page.evaluate(
     ({ callLabel, callMode }) => {
@@ -231,164 +819,267 @@ async function expectOutcome(page: Page, label: string, outcome: string): Promis
     .toBe(outcome);
 }
 
-function expectQuiescent(snapshot: AuthoritySnapshot): void {
-  expect(snapshot).toEqual({
+async function expectHarnessValue(
+  page: Page,
+  methodName: string,
+  label: string,
+  expected: string
+): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ callLabel, name }) => {
+          const harness = Reflect.get(globalThis, '__bst1571');
+          const readValue =
+            typeof harness === 'object' && harness !== null
+              ? Reflect.get(harness, name)
+              : undefined;
+          return typeof readValue === 'function'
+            ? Reflect.apply(readValue, harness, [callLabel])
+            : undefined;
+        },
+        { callLabel: label, name: methodName }
+      )
+    )
+    .toBe(expected);
+}
+
+function expectQuiescent(
+  snapshot: LifecycleSnapshot,
+  bridgePhase: 'closed' | 'disconnected' = 'closed'
+): void {
+  expect(snapshot.authority).toEqual({
     listenerCount: 0,
     pendingApprovals: [],
     pendingCalls: 0,
     phase: 'closed',
   });
+  expect(snapshot.bridge).toMatchObject({
+    listenerCount: 0,
+    pendingCallbacks: 0,
+    pendingInboundRequests: 0,
+    pendingNotifications: 0,
+    pendingOutboundRequests: 0,
+    phase: bridgePhase,
+    timerCount: 0,
+  });
+  expect(snapshot.resources).toEqual({
+    activeFetches: 0,
+    activeFrames: 0,
+    activeUrls: 0,
+    domFrames: 0,
+  });
+}
+
+async function expectServerIdle(server: LoopbackToolServer): Promise<void> {
+  await expect
+    .poll(() => {
+      const snapshot = server.snapshot();
+      return { activeRequests: snapshot.activeRequests, openSockets: snapshot.openSockets };
+    })
+    .toEqual({ activeRequests: 0, openSockets: 0 });
 }
 
 test('MCP Apps production host lifecycle is accessible and quiescent in packaged Electron', async () => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   const executablePath = packagedExecutablePath();
   await access(executablePath, constants.X_OK);
   await access(appHostModulePath, constants.R_OK);
   await access(appSurfaceModulePath, constants.R_OK);
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'bst-1571-packaged-host-'));
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1571-packaged-user-data-'));
-  const harnessPath = await buildHarness(temporaryDirectory);
-  let electronApp: ElectronApplication | undefined;
+  const toolServer = await createLoopbackToolServer();
+  const harnessPath = await buildHarness(temporaryDirectory, toolServer.origin);
+  let packagedApplication: PackagedHarnessApplication | undefined;
   try {
-    electronApp = await electron.launch({
-      args: [
-        '--test-mode',
-        `--user-data-dir=${userDataDir}`,
-        '--no-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-extensions',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-      ],
-      env: {
-        ...electronEnvironment(),
-        ['BRAINSTRIKE_DISABLE_FILE_LOGS']: '1',
-        ['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES']: '1',
-        ['BRAINSTRIKE_E2E_USER_DATA_DIR']: userDataDir,
-        ['BRAINSTRIKE_OPENAI_API_KEY']: 'test-api-key-for-e2e-tests',
-        ['ELECTRON_IS_E2E_TEST']: 'true',
-        ['NODE_OPTIONS']: '',
-      },
-      executablePath,
-      timeout: 120_000,
-    });
-    expect(await electronApp.evaluate(({ app }) => app.isPackaged)).toBe(true);
-
-    const windowPromise = electronApp.waitForEvent('window');
-    await electronApp.evaluate(async ({ BrowserWindow }, filePath) => {
-      const window = new BrowserWindow({
-        show: true,
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-          partition: `bst-1571-packaged-host-${process.pid}`,
-          sandbox: true,
-          webSecurity: true,
-        },
-      });
-      let cleanupComplete = false;
-      window.on('close', (event) => {
-        if (cleanupComplete) {
-          return;
-        }
-        event.preventDefault();
-        void window.webContents
-          .executeJavaScript('globalThis.__bst1571.tabClose()')
-          .then((snapshot) => {
-            Reflect.set(globalThis, '__bst1571TabCloseResult', { snapshot });
-          })
-          .catch((error: unknown) => {
-            Reflect.set(globalThis, '__bst1571TabCloseResult', {
-              error: error instanceof Error ? error.message : String(error),
-            });
-          })
-          .finally(() => {
-            cleanupComplete = true;
-            window.close();
-          });
-      });
-      await window.loadFile(filePath);
-    }, harnessPath);
-    const page = await windowPromise;
+    packagedApplication = await launchPackagedHarness(executablePath, harnessPath, userDataDir);
+    const { page } = packagedApplication;
+    expect(packagedApplication.isPackaged).toBe(true);
     await waitForHarness(page);
+    const initial = await harnessCall<LifecycleSnapshot>(page, 'initialReady');
+    expect(initial.authority).toMatchObject({ listenerCount: 1, phase: 'open' });
+    expect(initial.bridge).toMatchObject({ listenerCount: 1, phase: 'ready', timerCount: 0 });
+    expect(initial.resources).toEqual({
+      activeFetches: 0,
+      activeFrames: 1,
+      activeUrls: 1,
+      domFrames: 1,
+    });
 
+    const completionBefore = toolServer.snapshot();
     await beginCall(page, 'completion');
     const allowButton = page.getByRole('button', { name: 'Allow create_issue once' });
     await expect(allowButton).toBeFocused();
     await expect(page.getByRole('alertdialog')).not.toContainText('must-not-render-in-host-ui');
     await allowButton.click();
     await expectOutcome(page, 'completion', 'resolved');
+    await expectHarnessValue(page, 'receipt', 'completion', 'resolved');
+    await expect(harnessCall<Readonly<{ released: boolean }>>(page, 'roundTrip')).resolves.toEqual({
+      released: true,
+    });
     expectQuiescent(await harnessCall(page, 'complete'));
+    await expectServerIdle(toolServer);
+    expect(toolServer.snapshot()).toMatchObject({
+      completedRequests: completionBefore.completedRequests + 1,
+      totalRequests: completionBefore.totalRequests + 1,
+    });
     await expect(page.getByRole('status')).toHaveText('Linear issue editor completed.');
     await expect(page.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
 
     await page.reload();
     await waitForHarness(page);
+    await harnessCall(page, 'initialReady');
+    const denialBefore = toolServer.snapshot();
     await beginCall(page, 'denial');
     await page.getByRole('button', { name: 'Deny create_issue' }).click();
     await expectOutcome(page, 'denial', 'rejected');
+    await expectHarnessValue(page, 'receipt', 'denial', 'rejected');
     await expect(page.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
-    expectQuiescent(await harnessCall(page, 'disconnect'));
+    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+    await expectServerIdle(toolServer);
+    expect(toolServer.snapshot().totalRequests).toBe(denialBefore.totalRequests);
 
     await page.reload();
     await waitForHarness(page);
+    await harnessCall(page, 'initialReady');
+    const failureBefore = toolServer.snapshot();
     await beginCall(page, 'failure', 'failure');
     await page.getByRole('button', { name: 'Allow create_issue once' }).click();
     await expectOutcome(page, 'failure', 'rejected');
+    await expectHarnessValue(page, 'receipt', 'failure', 'rejected');
     expectQuiescent(await harnessCall(page, 'fail'));
+    await expectServerIdle(toolServer);
+    expect(toolServer.snapshot()).toMatchObject({
+      completedRequests: failureBefore.completedRequests + 1,
+      totalRequests: failureBefore.totalRequests + 1,
+    });
     await expect(page.getByRole('alert')).toContainText('The app could not start safely.');
     await expect(page.getByRole('button', { name: 'Retry Linear issue editor' })).toBeFocused();
 
     await page.reload();
     await waitForHarness(page);
-    await beginCall(page, 'replacement');
+    await harnessCall(page, 'initialReady');
+    const replacementBefore = toolServer.snapshot();
+    await beginCall(page, 'replacement', 'hold');
+    await page.getByRole('button', { name: 'Allow create_issue once' }).click();
+    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+    await harnessCallWithArgs(page, 'beginPendingRpc', ['replacement']);
     const replacement = await harnessCall<{
-      readonly current: AuthoritySnapshot;
-      readonly previous: AuthoritySnapshot;
+      readonly current: LifecycleSnapshot;
+      readonly previous: LifecycleSnapshot;
     }>(page, 'reset');
     expectQuiescent(replacement.previous);
-    expect(replacement.current).toMatchObject({ listenerCount: 0, phase: 'open' });
-    await expect
-      .poll(() => harnessCall<AuthoritySnapshot>(page, 'snapshot'))
-      .toMatchObject({
-        listenerCount: 1,
-        pendingApprovals: [],
-        pendingCalls: 0,
-        phase: 'open',
-      });
-    expectQuiescent(await harnessCall(page, 'disconnect'));
-
-    await page.reload();
-    await waitForHarness(page);
-    await beginCall(page, 'shutdown');
-    expectQuiescent(await harnessCall(page, 'shutdown'));
-
-    await page.reload();
-    await waitForHarness(page);
-    await beginCall(page, 'tab-close');
-    await expect(page.getByRole('alertdialog')).toBeVisible();
-    await electronApp.evaluate(({ BrowserWindow }) => {
-      const hostWindow = BrowserWindow.getAllWindows().find((window) =>
-        window.webContents.getURL().includes('bst-1571-packaged-host-')
-      );
-      if (!hostWindow) {
-        throw new Error('BST-1571 packaged host window is unavailable');
-      }
-      hostWindow.close();
+    expect(replacement.current.authority).toMatchObject({ listenerCount: 1, phase: 'open' });
+    expect(replacement.current.bridge).toMatchObject({ listenerCount: 1, phase: 'ready' });
+    expect(replacement.current.resources).toEqual({
+      activeFetches: 0,
+      activeFrames: 1,
+      activeUrls: 1,
+      domFrames: 1,
     });
-    await expect.poll(() => page.isClosed()).toBe(true);
-    await expect
-      .poll(() => electronApp?.evaluate(() => Reflect.get(globalThis, '__bst1571TabCloseResult')))
-      .toMatchObject({ snapshot: { phase: 'closed' } });
-    const tabCloseResult = await electronApp.evaluate(() =>
-      Reflect.get(globalThis, '__bst1571TabCloseResult')
-    );
-    expectQuiescent(
-      (tabCloseResult as unknown as { readonly snapshot: AuthoritySnapshot }).snapshot
-    );
+    await expectHarnessValue(page, 'pendingRpcOutcome', 'replacement', 'rejected');
+    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+    await expectServerIdle(toolServer);
+    expect(toolServer.snapshot()).toMatchObject({
+      abortedRequests: replacementBefore.abortedRequests + 1,
+      totalRequests: replacementBefore.totalRequests + 1,
+    });
+
+    await page.reload();
+    await waitForHarness(page);
+    await harnessCall(page, 'initialReady');
+    const disconnectBefore = toolServer.snapshot();
+    await beginCall(page, 'disconnect', 'hold');
+    await page.getByRole('button', { name: 'Allow create_issue once' }).click();
+    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+    await expectOutcome(page, 'disconnect', 'rejected');
+    await expectServerIdle(toolServer);
+    expect(toolServer.snapshot()).toMatchObject({
+      abortedRequests: disconnectBefore.abortedRequests + 1,
+      totalRequests: disconnectBefore.totalRequests + 1,
+    });
+
+    await page.reload();
+    await waitForHarness(page);
+    await harnessCall(page, 'initialReady');
+    const timeoutBefore = toolServer.snapshot();
+    await beginCall(page, 'timeout', 'hold');
+    await page.getByRole('button', { name: 'Allow create_issue once' }).click();
+    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+    await expectOutcome(page, 'timeout', 'rejected');
+    await expectHarnessValue(page, 'receipt', 'timeout', 'rejected');
+    await expectServerIdle(toolServer);
+    const afterTimeout = await harnessCall<LifecycleSnapshot>(page, 'snapshot');
+    expect(afterTimeout.authority).toMatchObject({ pendingCalls: 0, phase: 'open' });
+    expect(afterTimeout.bridge).toMatchObject({
+      listenerCount: 1,
+      pendingCallbacks: 0,
+      pendingInboundRequests: 0,
+      pendingOutboundRequests: 0,
+      phase: 'ready',
+      timerCount: 0,
+    });
+    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+    expect(toolServer.snapshot()).toMatchObject({
+      abortedRequests: timeoutBefore.abortedRequests + 1,
+      totalRequests: timeoutBefore.totalRequests + 1,
+    });
+
+    await page.reload();
+    await waitForHarness(page);
+    await harnessCall(page, 'initialReady');
+    const protocolBefore = toolServer.snapshot();
+    await beginCall(page, 'protocol', 'hold');
+    await page.getByRole('button', { name: 'Allow create_issue once' }).click();
+    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+    const protocolFailure = await harnessCall<LifecycleSnapshot>(page, 'protocolFailure');
+    expectQuiescent(protocolFailure, 'disconnected');
+    await expectOutcome(page, 'protocol', 'rejected');
+    await expectServerIdle(toolServer);
+    expect(toolServer.snapshot()).toMatchObject({
+      abortedRequests: protocolBefore.abortedRequests + 1,
+      totalRequests: protocolBefore.totalRequests + 1,
+    });
+
+    await page.reload();
+    await waitForHarness(page);
+    await harnessCall(page, 'initialReady');
+    const shutdownBefore = toolServer.snapshot();
+    await beginCall(page, 'shutdown', 'hold');
+    await page.getByRole('button', { name: 'Allow create_issue once' }).click();
+    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+    expectQuiescent(await harnessCall(page, 'shutdown'));
+    await expectOutcome(page, 'shutdown', 'rejected');
+    await expectServerIdle(toolServer);
+    expect(toolServer.snapshot()).toMatchObject({
+      abortedRequests: shutdownBefore.abortedRequests + 1,
+      totalRequests: shutdownBefore.totalRequests + 1,
+    });
+
+    await page.close();
+
+    const launchedBrowser = packagedApplication.browser;
+    expect(packagedApplication.child.kill('SIGTERM')).toBe(true);
+    await waitForProcessExit(packagedApplication.child);
+    await expect.poll(() => launchedBrowser.isConnected()).toBe(false);
+    packagedApplication = undefined;
+    await expectServerIdle(toolServer);
+    await toolServer.close();
+    expect(toolServer.snapshot()).toMatchObject({
+      activeRequests: 0,
+      listening: false,
+      openSockets: 0,
+    });
   } finally {
-    await electronApp?.close();
+    if (packagedApplication) {
+      packagedApplication.child.kill('SIGTERM');
+      await waitForProcessExit(packagedApplication.child).catch(() => {
+        packagedApplication?.child.kill('SIGKILL');
+      });
+      await packagedApplication.browser.close().catch(() => undefined);
+    }
+    await toolServer.close();
     await rm(temporaryDirectory, { force: true, recursive: true });
     await rm(userDataDir, { force: true, recursive: true });
   }
