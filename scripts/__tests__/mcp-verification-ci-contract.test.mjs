@@ -75,6 +75,10 @@ test('official prerelease auth conformance is a bounded advisory job with saniti
   assert.equal(job['continue-on-error'], true);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
+  const provisionStep = findStep(workflow, 'official_auth', 'Provision Electron binary');
+  assert.equal(provisionStep['timeout-minutes'], descriptor.provisionTimeoutMinutes);
+  assert.equal(provisionStep['working-directory'], 'apps/desktop');
+
   const verifyStep = findStep(workflow, 'official_auth', 'Run official MCP auth conformance');
   assert.equal(verifyStep.run, officialBaselineCommand);
   assert.equal(
@@ -105,6 +109,10 @@ test('modern-only auth closeout is an independent bounded advisory job', () => {
   assert.ok(job);
   assert.equal(job['continue-on-error'], true);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
+
+  const provisionStep = findStep(workflow, 'official_modern_auth', 'Provision Electron binary');
+  assert.equal(provisionStep['timeout-minutes'], descriptor.provisionTimeoutMinutes);
+  assert.equal(provisionStep['working-directory'], 'apps/desktop');
 
   const verifyStep = findStep(
     workflow,

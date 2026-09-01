@@ -51,6 +51,7 @@ interface OfficialAuthConformanceProfileDescriptor {
   readonly evidenceProfile: boolean;
   readonly execution: 'parallel-by-protocol' | 'sequential';
   readonly jobTimeoutMinutes: number;
+  readonly provisionTimeoutMinutes: number;
   readonly runnerOverheadMs: number;
   readonly scenarioDeadlineMs: number;
   readonly scenariosByProtocol: Readonly<
@@ -70,7 +71,8 @@ export const OFFICIAL_AUTH_CONFORMANCE_PROFILES = Object.freeze({
     evidencePath: 'packages/mcp-test-lab/artifacts/official-auth-evidence.json',
     evidenceProfile: false,
     execution: 'parallel-by-protocol',
-    jobTimeoutMinutes: 8,
+    jobTimeoutMinutes: 11,
+    provisionTimeoutMinutes: 3,
     runnerOverheadMs: 60_000,
     scenarioDeadlineMs: SCENARIO_DEADLINE_MS,
     scenariosByProtocol: Object.freeze({
@@ -87,7 +89,8 @@ export const OFFICIAL_AUTH_CONFORMANCE_PROFILES = Object.freeze({
     evidencePath: 'packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json',
     evidenceProfile: true,
     execution: 'sequential',
-    jobTimeoutMinutes: 18,
+    jobTimeoutMinutes: 21,
+    provisionTimeoutMinutes: 3,
     runnerOverheadMs: 60_000,
     scenarioDeadlineMs: SCENARIO_DEADLINE_MS,
     scenariosByProtocol: Object.freeze({

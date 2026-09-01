@@ -48,7 +48,7 @@ jobs:
     name: Official MCP auth conformance (advisory prerelease)
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
-    timeout-minutes: 8
+    timeout-minutes: 11
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -65,6 +65,7 @@ jobs:
       # EEXIST extraction collisions (dist/*.pak). Provision exactly once,
       # before any child spawns.
       - name: Provision Electron binary
+        timeout-minutes: 3
         working-directory: apps/desktop
         run: |
           set -euo pipefail
@@ -98,7 +99,7 @@ jobs:
     name: Official MCP modern auth closeout (advisory prerelease)
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
-    timeout-minutes: 18
+    timeout-minutes: 21
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -112,6 +113,7 @@ jobs:
       # download races, and the sequential closeout stops depending on the
       # first child winning an on-demand download inside its own deadline.
       - name: Provision Electron binary
+        timeout-minutes: 3
         working-directory: apps/desktop
         run: |
           set -euo pipefail
