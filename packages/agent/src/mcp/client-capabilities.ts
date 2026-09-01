@@ -45,6 +45,7 @@ export interface McpClientHandlerContext {
 }
 
 export interface McpElicitationCapability {
+  readonly applyDefaults?: boolean;
   readonly form: boolean;
   readonly handle: (
     request: ElicitRequest,
@@ -148,8 +149,18 @@ function cloneCapabilities(options: McpClientCapabilityOptions): ClientCapabilit
     if (!(options.elicitation.form || options.elicitation.url)) {
       throw new Error('MCP elicitation capability must enable at least one mode');
     }
+    if (options.elicitation.applyDefaults !== undefined && !options.elicitation.form) {
+      throw new Error('MCP elicitation default application requires form mode');
+    }
     capabilities.elicitation = {
-      ...(options.elicitation.form ? { form: {} } : {}),
+      ...(options.elicitation.form
+        ? {
+            form:
+              options.elicitation.applyDefaults === undefined
+                ? {}
+                : { applyDefaults: options.elicitation.applyDefaults },
+          }
+        : {}),
       ...(options.elicitation.url ? { url: {} } : {}),
     };
   }

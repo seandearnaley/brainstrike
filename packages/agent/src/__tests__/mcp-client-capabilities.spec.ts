@@ -252,6 +252,37 @@ describe('MCP client capabilities', () => {
     );
   });
 
+  it('advertises elicitation default application only when explicitly enabled', () => {
+    const elicitation = {
+      applyDefaults: true,
+      form: true,
+      handle: vi.fn(async () => ({ action: 'accept' as const, content: {} })),
+      url: false,
+    };
+
+    expect(createMcpClientCapabilityRuntime({ elicitation }).capabilities).toEqual({
+      elicitation: { form: { applyDefaults: true } },
+    });
+    expect(
+      createMcpClientCapabilityRuntime({
+        elicitation: { ...elicitation, applyDefaults: undefined },
+      }).capabilities
+    ).toEqual({ elicitation: { form: {} } });
+  });
+
+  it('rejects elicitation default application without form mode', () => {
+    expect(() =>
+      createMcpClientCapabilityRuntime({
+        elicitation: {
+          applyDefaults: true,
+          form: false,
+          handle: vi.fn(),
+          url: true,
+        },
+      })
+    ).toThrow('default application requires form mode');
+  });
+
   it.each([
     'http://calendar.example/auth',
     'ftp://calendar.example/auth',
