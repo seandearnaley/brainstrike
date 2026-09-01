@@ -8,6 +8,13 @@ export {
   parseMcpAppsClientCapability,
 } from './capabilities.js';
 export {
+  MCP_APPS_STABLE_METHODS,
+  type McpAppMessage,
+  type McpAppMessageDirection,
+  type McpAppStableMethod,
+  parseMcpAppMessage,
+} from './messages.js';
+export {
   type McpAppResourceCsp,
   type McpAppResourceMeta,
   type McpAppResourcePermissions,
