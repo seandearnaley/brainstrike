@@ -98,6 +98,7 @@ export {
   type McpTaskInteractionElicitationContext,
   type McpTaskInteractionOptions,
   type McpTaskInteractionRequestOptions,
+  McpTaskObservationError,
 } from './mcp/tasks-interaction';
 export {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
@@ -106,7 +107,6 @@ export {
   type McpTaskLifecycleOptions,
   McpTaskLifecycleStoppedError,
   type McpTaskLifecycleStopReason,
-  McpTaskObservationError,
   type McpTaskPollingClient,
   type McpTaskRequestOptions,
   type McpTrackedTask,

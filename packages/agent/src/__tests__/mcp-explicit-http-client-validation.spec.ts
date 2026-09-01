@@ -373,6 +373,7 @@ describe('ExplicitHttpMcpClient validation', () => {
     const subscription = {
       close: vi.fn(async () => undefined),
       closed: Promise.resolve('local' as const),
+      honoredFilter: { taskIds: ['task-http-1'] },
     };
     const sdkClient = {
       getNegotiatedProtocolVersion: () => '2026-07-28',
@@ -389,6 +390,7 @@ describe('ExplicitHttpMcpClient validation', () => {
     const lease = await client.listenTasks(['task-http-1'], vi.fn());
 
     expect(runRequest).toHaveBeenCalledOnce();
+    expect(lease.honoredTaskIds).toEqual(['task-http-1']);
     expect(sdkClient.setNotificationHandler).toHaveBeenCalledWith(
       MCP_TASKS_STATUS_NOTIFICATION_CONTRACT.method,
       { params: MCP_TASKS_STATUS_NOTIFICATION_CONTRACT.paramsSchema },

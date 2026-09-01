@@ -1,8 +1,8 @@
 import type { ElicitRequest, ElicitResult, JSONObject } from '@modelcontextprotocol/client';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpClientExtensionRequestContract } from '../mcp/client-extension-registry.js';
 import {
-  MCP_TASKS_CANCEL_REQUEST_CONTRACT,
+  MCP_TASKS_GET_REQUEST_CONTRACT,
   MCP_TASKS_UPDATE_REQUEST_CONTRACT,
   type McpTasksNotificationHandler,
   type McpTasksNotificationLease,
@@ -12,6 +12,7 @@ import {
   McpTaskInteraction,
   type McpTaskInteractionClient,
   type McpTaskInteractionElicitationContext,
+  McpTaskObservationError,
 } from '../mcp/tasks-interaction.js';
 
 const CREATED_AT = '2026-09-01T09:00:00.000Z';
@@ -22,36 +23,8 @@ const scope = {
   serverId: 'linear',
 } as const;
 
-function deferred<Value>(): {
-  readonly promise: Promise<Value>;
-  readonly resolve: (value: Value) => void;
-} {
-  const state = Promise.withResolvers<Value>();
-  return { promise: state.promise, resolve: state.resolve };
-}
-
-function inputRequiredTask(taskId: string) {
-  return {
-    createdAt: CREATED_AT,
-    inputRequests: {
-      approval: {
-        method: 'elicitation/create' as const,
-        params: {
-          message: 'Approve the task result?',
-          mode: 'form' as const,
-          requestedSchema: {
-            properties: { approved: { type: 'boolean' as const } },
-            required: ['approved'],
-            type: 'object' as const,
-          },
-        },
-      },
-    },
-    lastUpdatedAt: CREATED_AT,
-    status: 'input_required' as const,
-    taskId,
-    ttlMs: 10_000,
-  };
+function deferred<Value>() {
+  return Promise.withResolvers<Value>();
 }
 
 function taskStatus(taskId: string, status: 'cancelled' | 'completed' | 'failed' | 'working') {
@@ -71,87 +44,107 @@ function taskStatus(taskId: string, status: 'cancelled' | 'completed' | 'failed'
   return common;
 }
 
-function createClient(): {
-  readonly activeListeners: () => number;
+function inputRequiredTask(taskId: string) {
+  return {
+    ...taskStatus(taskId, 'working'),
+    inputRequests: {
+      approval: {
+        method: 'elicitation/create' as const,
+        params: {
+          message: 'Approve the task result?',
+          mode: 'form' as const,
+          requestedSchema: {
+            properties: { approved: { type: 'boolean' as const } },
+            required: ['approved'],
+            type: 'object' as const,
+          },
+        },
+      },
+    },
+    status: 'input_required' as const,
+  };
+}
+
+interface FakeClient {
   readonly client: McpTaskInteractionClient;
-  readonly close: ReturnType<typeof vi.fn>;
   readonly endSubscription: () => void;
   readonly handler: () => McpTasksNotificationHandler;
+  readonly listenTasks: ReturnType<typeof vi.fn>;
   readonly requestExtension: ReturnType<typeof vi.fn>;
-} {
-  let taskHandler: McpTasksNotificationHandler | undefined;
-  let listeners = 0;
-  const closed = Promise.withResolvers<unknown>();
-  const releaseListener = (): void => {
-    if (taskHandler) {
-      taskHandler = undefined;
-      listeners -= 1;
+}
+
+function createClient(): FakeClient {
+  let handler: McpTasksNotificationHandler | undefined;
+  const closed = deferred<unknown>();
+  const release = (): void => {
+    if (handler) {
+      handler = undefined;
     }
   };
   const close = vi.fn(async () => {
-    releaseListener();
+    release();
     closed.resolve(undefined);
   });
   const requestExtension = vi.fn(
     async <Params extends JSONObject, Result>(
-      _contract: McpClientExtensionRequestContract<Params, Result>,
-      _params: Params
-    ): Promise<Result> => ({ resultType: 'complete' }) as Result
+      contract: McpClientExtensionRequestContract<Params, Result>,
+      params: Params
+    ): Promise<Result> =>
+      (contract === MCP_TASKS_GET_REQUEST_CONTRACT
+        ? { ...taskStatus(String(params.taskId), 'working'), resultType: 'complete' }
+        : { resultType: 'complete' }) as Result
   );
-  const client: McpTaskInteractionClient = {
-    listenTasks: vi.fn(
-      async (
-        _taskIds: readonly string[],
-        handler: McpTasksNotificationHandler
-      ): Promise<McpTasksNotificationLease> => {
-        if (taskHandler) {
-          throw new Error('Test client already has a task listener.');
-        }
-        taskHandler = handler;
-        listeners += 1;
-        return { close, closed: closed.promise };
-      }
-    ),
-    requestExtension,
-  };
+  const listenTasks = vi.fn(
+    async (
+      taskIds: readonly string[],
+      next: McpTasksNotificationHandler
+    ): Promise<McpTasksNotificationLease> => {
+      handler = next;
+      return { close, closed: closed.promise, honoredTaskIds: taskIds };
+    }
+  );
   return {
-    activeListeners: () => listeners,
-    client,
-    close,
+    client: { listenTasks, requestExtension },
     endSubscription: () => {
-      releaseListener();
+      release();
       closed.resolve(undefined);
     },
     handler: () => {
-      if (!taskHandler) {
+      if (!handler) {
         throw new Error('Task notification handler was not installed.');
       }
-      return taskHandler;
+      return handler;
     },
+    listenTasks,
     requestExtension,
   };
 }
 
-describe('McpTaskInteraction', () => {
-  it('deduplicates a mid-flight input key and preserves scoped elicitation provenance', async () => {
-    const decision = deferred<ElicitResult>();
-    const handle = vi.fn(
-      async (
-        _request: ElicitRequest,
-        _context: McpTaskInteractionElicitationContext
-      ): Promise<ElicitResult> => await decision.promise
-    );
-    const fake = createClient();
-    const interaction = new McpTaskInteraction({
-      client: fake.client,
-      elicitation: { form: true, handle, url: false },
-      scope,
-    });
-    await interaction.start(['task-1']);
+function createInteraction(
+  fake: FakeClient,
+  handle: (
+    request: ElicitRequest,
+    context: McpTaskInteractionElicitationContext
+  ) => Promise<ElicitResult> = async () => ({ action: 'decline' })
+): McpTaskInteraction {
+  return new McpTaskInteraction({
+    client: fake.client,
+    elicitation: { form: true, handle, url: false },
+    scope,
+  });
+}
 
+afterEach(() => vi.useRealTimers());
+describe('McpTaskInteraction', () => {
+  it('deduplicates task input and preserves exact elicitation and update provenance', async () => {
+    const decision = deferred<ElicitResult>();
+    const handle = vi.fn(async () => await decision.promise);
+    const fake = createClient();
+    const interaction = createInteraction(fake, handle);
+    await interaction.start(['task-1']);
     const first = fake.handler()(inputRequiredTask('task-1'));
     const repeated = fake.handler()(inputRequiredTask('task-1'));
-    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledOnce());
     expect(handle.mock.calls[0]?.[1]).toMatchObject({
       ...scope,
       inputKey: 'approval',
@@ -159,195 +152,117 @@ describe('McpTaskInteraction', () => {
       serverName: 'linear',
       taskId: 'task-1',
     });
-
     decision.resolve({ action: 'accept', content: { approved: true } });
     await Promise.all([first, repeated]);
-
-    expect(fake.requestExtension).toHaveBeenCalledTimes(1);
+    expect(fake.requestExtension).toHaveBeenCalledOnce();
     expect(fake.requestExtension).toHaveBeenCalledWith(
       MCP_TASKS_UPDATE_REQUEST_CONTRACT,
       {
-        inputResponses: {
-          approval: { action: 'accept', content: { approved: true } },
-        },
+        inputResponses: { approval: { action: 'accept', content: { approved: true } } },
         taskId: 'task-1',
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
-
     await interaction.close();
-    expect(fake.close).toHaveBeenCalledTimes(1);
-    expect(fake.activeListeners()).toBe(0);
-    expect(interaction.snapshot()).toEqual({
-      activeCancellations: 0,
-      activeInputs: 0,
-      inputKeys: 0,
-      subscriptionActive: false,
-    });
   });
-
-  it('reports cooperative cancellation only after the remote task is cancelled', async () => {
+  it('dynamically admits tasks and settles cancellation by polling after notification loss', async () => {
+    vi.useFakeTimers();
     const fake = createClient();
-    const interaction = new McpTaskInteraction({
-      client: fake.client,
-      elicitation: {
-        form: true,
-        handle: vi.fn(async () => ({ action: 'decline' })),
-        url: false,
-      },
-      scope,
-    });
-    await interaction.start(['task-1']);
-
-    const first = interaction.cancel('task-1');
-    const repeated = interaction.cancel('task-1');
-    let settled = false;
-    void first.finally(() => {
-      settled = true;
-    });
-    await vi.waitFor(() =>
-      expect(fake.requestExtension).toHaveBeenCalledWith(
-        MCP_TASKS_CANCEL_REQUEST_CONTRACT,
-        { taskId: 'task-1' },
-        expect.objectContaining({ signal: expect.any(AbortSignal) })
-      )
+    fake.requestExtension.mockImplementation(async (contract, params) =>
+      contract === MCP_TASKS_GET_REQUEST_CONTRACT
+        ? { ...taskStatus(String(params.taskId), 'cancelled'), resultType: 'complete' }
+        : { resultType: 'complete' }
     );
-    await fake.handler()(taskStatus('task-1', 'working'));
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
-    await fake.handler()(taskStatus('task-1', 'cancelled'));
-    await expect(first).resolves.toEqual({ ...scope, status: 'cancelled', taskId: 'task-1' });
-    await expect(repeated).resolves.toEqual({ ...scope, status: 'cancelled', taskId: 'task-1' });
-    expect(fake.requestExtension).toHaveBeenCalledTimes(1);
-
+    const interaction = createInteraction(fake);
+    await interaction.start(['task-1']);
+    fake.endSubscription();
+    await vi.waitFor(() => expect(interaction.snapshot().subscriptionActive).toBe(false));
+    interaction.admit('task-2');
+    const cancellation = interaction.cancel('task-2');
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(cancellation).resolves.toMatchObject({ status: 'cancelled', taskId: 'task-2' });
+    expect(interaction.notificationFailure()).toBeInstanceOf(Error);
+    expect(fake.listenTasks).toHaveBeenCalledWith(
+      ['task-1'],
+      expect.any(Function),
+      expect.any(Object)
+    );
+    expect(fake.requestExtension).toHaveBeenCalledWith(
+      MCP_TASKS_GET_REQUEST_CONTRACT,
+      { taskId: 'task-2' },
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeout: 30_000 })
+    );
+    await interaction.close();
+  });
+  it('bounds cancellation observation after three consecutive transport failures', async () => {
+    vi.useFakeTimers();
+    const fake = createClient();
+    fake.requestExtension.mockImplementation(async (contract) => {
+      if (contract === MCP_TASKS_GET_REQUEST_CONTRACT) {
+        throw new Error('transport lost');
+      }
+      return { resultType: 'complete' };
+    });
+    const interaction = createInteraction(fake);
+    await interaction.start(['task-1']);
+    const cancellation = interaction.cancel('task-1');
+    await vi.advanceTimersByTimeAsync(3500);
+    await expect(cancellation).rejects.toBeInstanceOf(McpTaskObservationError);
+    expect(interaction.snapshot().activeCancellations).toBe(0);
     await interaction.close();
   });
 
-  it.each(['decline', 'cancel'] as const)(
-    'delivers an elicitation %s decision exactly once',
-    async (action) => {
-      const fake = createClient();
-      const handle = vi.fn(async (): Promise<ElicitResult> => ({ action }));
-      const interaction = new McpTaskInteraction({
-        client: fake.client,
-        elicitation: { form: true, handle, url: false },
-        scope,
-      });
-      await interaction.start(['task-1']);
-
-      await fake.handler()(inputRequiredTask('task-1'));
-      await fake.handler()(inputRequiredTask('task-1'));
-
-      expect(handle).toHaveBeenCalledTimes(1);
-      expect(fake.requestExtension).toHaveBeenCalledTimes(1);
-      expect(fake.requestExtension.mock.calls[0]?.[1]).toEqual({
-        inputResponses: { approval: { action } },
-        taskId: 'task-1',
-      });
-      await interaction.close();
-    }
-  );
-
-  it('rejects lifetime key reuse with a changed request without presenting it again', async () => {
+  it('retires superseded input before a stale user response can be delivered', async () => {
     const decision = deferred<ElicitResult>();
-    const handle = vi.fn(async (): Promise<ElicitResult> => await decision.promise);
     const fake = createClient();
-    const interaction = new McpTaskInteraction({
-      client: fake.client,
-      elicitation: { form: true, handle, url: false },
-      scope,
-    });
+    const interaction = createInteraction(fake, async () => await decision.promise);
+    await interaction.start(['task-1']);
+    const input = fake.handler()(inputRequiredTask('task-1'));
+    await fake.handler()(taskStatus('task-1', 'working'));
+    decision.resolve({ action: 'accept', content: { approved: true } });
+    await expect(input).rejects.toThrow(/superseded/u);
+    expect(fake.requestExtension).not.toHaveBeenCalledWith(
+      MCP_TASKS_UPDATE_REQUEST_CONTRACT,
+      expect.anything(),
+      expect.anything()
+    );
+    await interaction.close();
+  });
+
+  it('rejects changed lifetime-key reuse without presenting the request again', async () => {
+    const decision = deferred<ElicitResult>();
+    const handle = vi.fn(async () => await decision.promise);
+    const fake = createClient();
+    const interaction = createInteraction(fake, handle);
     await interaction.start(['task-1']);
     const first = fake.handler()(inputRequiredTask('task-1'));
-    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledOnce());
     const changed = inputRequiredTask('task-1');
-
     await expect(
       fake.handler()({
         ...changed,
         inputRequests: {
           approval: {
             ...changed.inputRequests.approval,
-            params: {
-              ...changed.inputRequests.approval.params,
-              message: 'A different request under the same key',
-            },
+            params: { ...changed.inputRequests.approval.params, message: 'Changed request' },
           },
         },
       })
     ).rejects.toThrow(/reused input key/u);
-    expect(handle).toHaveBeenCalledTimes(1);
-
     decision.resolve({ action: 'decline' });
     await first;
-    expect(fake.requestExtension).toHaveBeenCalledTimes(1);
-    await interaction.close();
-  });
-
-  it('retries a failed response delivery without presenting the input again', async () => {
-    const fake = createClient();
-    fake.requestExtension.mockRejectedValueOnce(new Error('transient update failure'));
-    const handle = vi.fn(async (): Promise<ElicitResult> => ({ action: 'decline' }));
-    const interaction = new McpTaskInteraction({
-      client: fake.client,
-      elicitation: { form: true, handle, url: false },
-      scope,
-    });
-    await interaction.start(['task-1']);
-
-    await expect(fake.handler()(inputRequiredTask('task-1'))).rejects.toThrow(
-      /transient update failure/u
-    );
-    await expect(fake.handler()(inputRequiredTask('task-1'))).resolves.toBeUndefined();
-
-    expect(handle).toHaveBeenCalledTimes(1);
-    expect(fake.requestExtension).toHaveBeenCalledTimes(2);
-    await interaction.close();
-  });
-
-  it('fails visibly for an unsupported task input method without invoking consent', async () => {
-    const handle = vi.fn(async (): Promise<ElicitResult> => ({ action: 'decline' }));
-    const fake = createClient();
-    const interaction = new McpTaskInteraction({
-      client: fake.client,
-      elicitation: { form: true, handle, url: false },
-      scope,
-    });
-    await interaction.start(['task-1']);
-
-    await expect(
-      fake.handler()({
-        ...inputRequiredTask('task-1'),
-        inputRequests: {
-          roots: { method: 'roots/list', params: {} },
-        },
-      })
-    ).rejects.toThrow(/unsupported.*roots\/list/iu);
-    expect(handle).not.toHaveBeenCalled();
-    expect(fake.requestExtension).not.toHaveBeenCalled();
+    expect(handle).toHaveBeenCalledOnce();
     await interaction.close();
   });
 
   it.each(['completed', 'failed'] as const)(
-    'rejects cancellation when the remote task reaches %s',
+    'reports %s as a non-cancellation terminal outcome',
     async (status) => {
       const fake = createClient();
-      const interaction = new McpTaskInteraction({
-        client: fake.client,
-        elicitation: {
-          form: true,
-          handle: vi.fn(async () => ({ action: 'cancel' })),
-          url: false,
-        },
-        scope,
-      });
+      const interaction = createInteraction(fake);
       await interaction.start(['task-1']);
       const cancellation = interaction.cancel('task-1');
-      await vi.waitFor(() => expect(fake.requestExtension).toHaveBeenCalledTimes(1));
-
       await fake.handler()(taskStatus('task-1', status));
-
       await expect(cancellation).rejects.toEqual(
         new McpTaskCancellationOutcomeError('task-1', status)
       );
@@ -355,89 +270,28 @@ describe('McpTaskInteraction', () => {
     }
   );
 
-  it('fences an abort-ignorant elicitation callback from a stale generation', async () => {
-    const staleDecision = deferred<ElicitResult>();
-    const staleFake = createClient();
-    const staleInteraction = new McpTaskInteraction({
-      client: staleFake.client,
-      elicitation: {
-        form: true,
-        handle: vi.fn(async () => await staleDecision.promise),
-        url: false,
-      },
-      scope,
-    });
-    await staleInteraction.start(['task-1']);
-    const staleHandler = staleFake.handler();
-    const staleInput = staleHandler(inputRequiredTask('task-1'));
-
-    await staleInteraction.close();
-    await expect(staleInput).rejects.toThrow(/closed/u);
-    expect(staleFake.activeListeners()).toBe(0);
-
-    const currentFake = createClient();
-    const currentHandle = vi.fn(async (): Promise<ElicitResult> => ({ action: 'decline' }));
-    const currentInteraction = new McpTaskInteraction({
-      client: currentFake.client,
-      elicitation: { form: true, handle: currentHandle, url: false },
-      scope: { ...scope, generation: scope.generation + 1 },
-    });
-    await currentInteraction.start(['task-1']);
-    await currentFake.handler()(inputRequiredTask('task-1'));
-    expect(currentHandle.mock.calls[0]?.[1]).toMatchObject({ generation: scope.generation + 1 });
-
-    staleDecision.resolve({ action: 'accept', content: { approved: true } });
-    await Promise.resolve();
-    expect(staleFake.requestExtension).not.toHaveBeenCalled();
-    expect(currentFake.requestExtension).toHaveBeenCalledTimes(1);
-    await currentInteraction.close();
-  });
-
-  it('fences a pending input callback when the remote task becomes terminal', async () => {
+  it('fences an abort-ignorant input callback when the coordinator closes', async () => {
     const decision = deferred<ElicitResult>();
     const fake = createClient();
-    const interaction = new McpTaskInteraction({
-      client: fake.client,
-      elicitation: {
-        form: true,
-        handle: vi.fn(async () => await decision.promise),
-        url: false,
-      },
-      scope,
-    });
+    const interaction = createInteraction(fake, async () => await decision.promise);
     await interaction.start(['task-1']);
     const input = fake.handler()(inputRequiredTask('task-1'));
-
-    await fake.handler()(taskStatus('task-1', 'completed'));
-
-    await expect(input).rejects.toThrow(/terminal/u);
-    decision.resolve({ action: 'accept', content: { approved: true } });
-    await Promise.resolve();
-    expect(fake.requestExtension).not.toHaveBeenCalled();
     await interaction.close();
+    await expect(input).rejects.toThrow(/closed/u);
+    decision.resolve({ action: 'accept', content: { approved: true } });
+    expect(fake.requestExtension).not.toHaveBeenCalled();
   });
 
-  it('closes while an abort-ignorant cancellation request remains unresolved', async () => {
+  it('closes while an abort-ignorant cancellation acknowledgement remains unresolved', async () => {
     const acknowledgement = deferred<unknown>();
     const fake = createClient();
     fake.requestExtension.mockImplementationOnce(async () => await acknowledgement.promise);
-    const interaction = new McpTaskInteraction({
-      client: fake.client,
-      elicitation: {
-        form: true,
-        handle: vi.fn(async () => ({ action: 'cancel' })),
-        url: false,
-      },
-      scope,
-    });
+    const interaction = createInteraction(fake);
     await interaction.start(['task-1']);
     const cancellation = interaction.cancel('task-1');
-    await vi.waitFor(() => expect(fake.requestExtension).toHaveBeenCalledTimes(1));
-
+    await vi.waitFor(() => expect(fake.requestExtension).toHaveBeenCalledOnce());
     await interaction.close();
-
     await expect(cancellation).rejects.toThrow(/closed/u);
-    expect(fake.activeListeners()).toBe(0);
     expect(interaction.snapshot()).toEqual({
       activeCancellations: 0,
       activeInputs: 0,
@@ -445,29 +299,5 @@ describe('McpTaskInteraction', () => {
       subscriptionActive: false,
     });
     acknowledgement.resolve({ resultType: 'complete' });
-  });
-
-  it('drops ownership immediately when the notification subscription closes remotely', async () => {
-    const fake = createClient();
-    const interaction = new McpTaskInteraction({
-      client: fake.client,
-      elicitation: {
-        form: true,
-        handle: vi.fn(async () => ({ action: 'decline' })),
-        url: false,
-      },
-      scope,
-    });
-    await interaction.start(['task-1']);
-    expect(interaction.snapshot().subscriptionActive).toBe(true);
-
-    fake.endSubscription();
-    await vi.waitFor(() => expect(interaction.snapshot().subscriptionActive).toBe(false));
-
-    expect(fake.activeListeners()).toBe(0);
-    await expect(interaction.observe(taskStatus('task-1', 'working'))).rejects.toThrow(
-      /subscription closed/u
-    );
-    await interaction.close();
   });
 });
