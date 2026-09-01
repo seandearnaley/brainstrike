@@ -45,13 +45,12 @@ export interface McpClientHandlerContext {
   readonly signal: AbortSignal;
 }
 
-export interface McpElicitationCapability {
+export interface McpElicitationCapability<
+  Context extends McpClientHandlerContext = McpClientHandlerContext,
+> {
   readonly applyDefaults?: boolean;
   readonly form: boolean;
-  readonly handle: (
-    request: ElicitRequest,
-    context: McpClientHandlerContext
-  ) => Promise<ElicitResult>;
+  readonly handle: (request: ElicitRequest, context: Context) => Promise<ElicitResult>;
   readonly url: boolean;
   readonly urlPolicy?: McpUrlElicitationPolicy;
 }
@@ -213,19 +212,15 @@ function installHandlers(
     if (options.elicitation) {
       const capability = options.elicitation;
       client.setRequestHandler('elicitation/create', (request, context) =>
-        lease.track(context.mcpReq.signal, async (signal) => {
-          const mode = resolveElicitationMode(request);
-          if ((mode === 'form' && !capability.form) || (mode === 'url' && !capability.url)) {
-            throw new Error(`MCP elicitation mode "${mode}" is not enabled for "${serverName}"`);
-          }
-          validateMcpElicitationRequest(request, capability.urlPolicy ?? 'https-only');
-          const result = await capability.handle(
-            request,
-            handlerContext(serverName, context, signal)
-          );
-          validateMcpElicitationResult(request, result);
-          return result;
-        })
+        lease.track(
+          context.mcpReq.signal,
+          async (signal) =>
+            await fulfillMcpElicitationRequest(
+              capability,
+              request,
+              handlerContext(serverName, context, signal)
+            )
+        )
       );
       lease.recordRequestHandler('elicitation/create');
     }
@@ -262,6 +257,21 @@ function installHandlers(
   } catch (error) {
     return lease.rollbackInstall(error);
   }
+}
+
+export async function fulfillMcpElicitationRequest<Context extends McpClientHandlerContext>(
+  capability: McpElicitationCapability<Context>,
+  request: ElicitRequest,
+  context: Context
+): Promise<ElicitResult> {
+  const mode = resolveElicitationMode(request);
+  if ((mode === 'form' && !capability.form) || (mode === 'url' && !capability.url)) {
+    throw new Error(`MCP elicitation mode "${mode}" is not enabled for "${context.serverName}"`);
+  }
+  validateMcpElicitationRequest(request, capability.urlPolicy ?? 'https-only');
+  const result = await capability.handle(request, context);
+  validateMcpElicitationResult(request, result);
+  return result;
 }
 
 export function createMcpClientCapabilityRuntime(

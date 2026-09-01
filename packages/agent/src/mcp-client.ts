@@ -4,6 +4,7 @@ export {
   createMcpElicitationCapability,
   createMcpRootsCapability,
   DEFAULT_MCP_INPUT_REQUIRED_MAX_ROUNDS,
+  fulfillMcpElicitationRequest,
   type McpAdvisoryRoot,
   type McpClientCapabilityOptions,
   type McpClientHandlerContext,
@@ -88,6 +89,16 @@ export {
   type McpTasksNotificationLease,
   registerMcpTasksWireContracts,
 } from './mcp/tasks-extension';
+export {
+  McpTaskCancellationOutcomeError,
+  type McpTaskCancellationResult,
+  McpTaskInteraction,
+  type McpTaskInteractionClient,
+  type McpTaskInteractionElicitationAuthority,
+  type McpTaskInteractionElicitationContext,
+  type McpTaskInteractionOptions,
+  type McpTaskInteractionRequestOptions,
+} from './mcp/tasks-interaction';
 export {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
   McpTaskLifecycle,

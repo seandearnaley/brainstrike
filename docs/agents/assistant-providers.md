@@ -2040,6 +2040,21 @@ possible. It never emits `tasks/list` or the deprecated request `task.ttl` field
 and production registration remains absent until BST-1473's interaction and
 enablement layers are complete.
 
+BST-1564 adds the opt-in interaction coordinator without enabling Tasks in
+production. It deduplicates each task-scoped input key for the task lifetime,
+rejects key reuse with a different request, and sends elicitation
+accept/decline/cancel results through `tasks/update` only after the shared MCP
+elicitation authority validates the request and result. Its authority context
+includes the exact server, resource, principal, generation, task, and input-key
+provenance. Cooperative `tasks/cancel` acknowledgement is not success:
+Brainstrike resolves cancellation only after observing remote `cancelled`, and
+reports remote `completed` or `failed` as a non-cancellation outcome. One owned
+notification lease feeds the same interaction seam as polling; terminal task
+state, generation replacement, remote lease closure, and coordinator close
+abort pending input and remove listeners/subscriptions. Sampling/roots task
+input, renderer UX, host registration, and support advertisement remain
+disabled rather than falling back to a different authority.
+
 ### MCP client input and deprecated compatibility (BST-1470)
 
 Core client capabilities are installed through the one `McpClientCapabilityRuntime`
