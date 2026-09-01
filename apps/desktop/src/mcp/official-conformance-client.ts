@@ -339,14 +339,14 @@ async function executeProductionScenario(
   authScenario: OfficialAuthScenarioName | undefined
 ): Promise<void> {
   await runtime.replaceResolvedConfig(config);
-  if (parsed.scenario === 'request-metadata') {
+  if (parsed.scenario === 'initialize' || parsed.scenario === 'request-metadata') {
     const connected = await runtime.host.control({
       action: 'connect',
       configuredServerId: CONFORMANCE_SERVER_ID,
     });
     if (connected.state !== 'connected') {
       throw new Error(
-        'Production MCP conformance metadata connection did not reach connected state'
+        `Production MCP conformance ${parsed.scenario} connection did not reach connected state`
       );
     }
     return;

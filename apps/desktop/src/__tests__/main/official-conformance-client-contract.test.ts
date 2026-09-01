@@ -359,6 +359,29 @@ describe('production MCP conformance client contract', () => {
     expect(resolveCapabilities(server)).toBeUndefined();
   });
 
+  it('limits initialize to the production connection lifecycle handshake', async () => {
+    const { operations, replaceResolvedConfig, runtime } = runtimeReturningToolCall(
+      { result: { content: [{ text: 'unused', type: 'text' }] }, type: 'tools/call' },
+      'unused'
+    );
+
+    await runProductionMcpConformanceClient(
+      {
+        protocolVersion: '2025-11-25',
+        scenario: 'initialize',
+        serverUrl: 'https://mcp.example.test/mcp',
+      },
+      { createRuntime: () => runtime }
+    );
+
+    expect(replaceResolvedConfig).toHaveBeenCalledOnce();
+    expect(operations).toEqual([]);
+    expect(runtime.host.control).toHaveBeenCalledExactlyOnceWith({
+      action: 'connect',
+      configuredServerId: 'official-conformance',
+    });
+  });
+
   it('drives elicitation defaults through the host tool seam', async () => {
     const { runtime } = runtimeReturningToolCall(
       { result: { content: [{ text: 'accepted', type: 'text' }] }, type: 'tools/call' },
