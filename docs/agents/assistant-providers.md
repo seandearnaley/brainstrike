@@ -2284,31 +2284,41 @@ expected-failure consumption, and CI ownership remain BST-1560.
 
 The bounded official-runner driver is
 `scripts/run-official-mcp-client-conformance.mjs`. It validates the exact pinned
-`@modelcontextprotocol/conformance@0.2.0-alpha.10` manifest, then invokes its
-declared `dist/index.js` through `process.execPath` and argv arrays rather than
-using platform-specific package-manager shims. It runs the `core` and `auth`
-suites at both protocol revisions, passes only an allowlisted environment, and
-owns a detached POSIX process group with bounded SIGTERM/SIGKILL teardown.
-Every suite runs even when an earlier suite fails,
-then the driver throws one aggregate failure; the ten-minute outer deadline is
-headroom over alpha.10's parallel per-scenario 30-second timeouts. Runner output
-is not inherited because alpha.10 logs the credential-bearing conformance
-context; structured results go only below the ignored
-`packages/mcp-test-lab/artifacts/` directory. This suite topology is still a
-fail-closed tripwire; BST-1560 owns honest per-scenario auth execution without
-credential-bearing output artifacts. On Windows (BST-1557, a bounded
-child of the BST-1472 verifier project), the outer driver loads the existing
+`@modelcontextprotocol/conformance@0.2.0-alpha.10` manifest and both exact empty
+`{ "client": [] }` ledgers, then invokes the package's declared `dist/index.js`
+through `process.execPath` and argv arrays rather than platform-specific
+package-manager shims. The exact upstream alpha.10 CLI manifests have fourteen
+auth scenarios at `2025-11-25` and 25 at `2026-07-28`. BST-1560 runs its reviewed
+fourteen-scenario production-auth profile once at each declared revision in
+exactly two parallel revision waves; the eleven modern-only resource,
+offline-access, issuer, and migration scenarios are owned by BST-1576 and block
+any complete official-auth claim. Every invocation uses
+official single-scenario mode, a 30-second upstream timeout and a 45-second
+outer deadline, so the official process's exit status is authoritative. The
+driver never passes `--expected-failures` or auth `--output-dir`: alpha.10's raw
+auth output can contain conformance context, token bodies and OAuth responses.
+Child stdio is not inherited. Results retain only fixed revision/scenario ids,
+pass/fail status, timings, and a closed start/timeout/cleanup/exit/runner failure
+discriminator; failures aggregate once without child diagnostics.
+
+The driver writes one atomic, mode-0600
+`packages/mcp-test-lab/artifacts/official-auth-evidence.json` file. It binds the
+exact Git head and clean/dirty state, verified empty ledgers, both wave timings,
+all 28 fixed result ids, cleanup status, and the explicit
+`{ prerelease: true, required: false }` conformance classification. No raw auth
+artifact directory exists. On Windows (BST-1557, a bounded child of the
+BST-1472 verifier project), the outer driver loads the existing
 `@brainstrike/windows-job-native` capability from Desktop and assigns itself to
-its kill-on-close Job Object before the first suite spawn.
-Every child inherits that owner; timeout, failed start, failed exit, and clean
-close all verify authoritative Job membership and terminate only remaining Job
-members. Load, assignment, and cleanup failures stay visible with their primary
-causes, and unexpected outer-process exit closes the Job handle. There is no
-process-enumeration fallback. The bundled desktop process entry accepts only
-the exact auth context rules above and otherwise emits one fixed stderr line.
-C2b1 supplies `elicitation-sep1034-client-defaults` and `sse-retry`; BST-1559
-supplies the official auth adapter. Neither makes the full suite a release claim:
-the empty ledgers and missing BST-1560 result path keep it fail-closed.
+its kill-on-close Job Object before the first scenario spawn.
+Every child inherits that owner. Per-invocation cleanup remains isolated on
+POSIX; Windows cleanup, including a timed-out scenario, is deferred until all
+siblings in a revision wave settle, then authoritative Job membership is checked
+and any remaining descendants are terminated. Timeout, failed start, failed exit
+and cleanup failure remain visible;
+there is no process-enumeration fallback. The bundled desktop process entry
+accepts only the exact auth context rules above and otherwise emits one fixed
+stderr line. The official package remains prerelease advisory evidence, never a
+required release claim.
 
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
