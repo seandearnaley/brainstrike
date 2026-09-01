@@ -4,6 +4,7 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 
 export interface ObservedMcpHostRequest {
+  readonly authorization?: string;
   readonly body?: unknown;
   readonly method: string;
   readonly pathname: string;
@@ -96,6 +97,9 @@ export async function startStatefulMcpHostServer(): Promise<RunningMcpHostServer
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const body = request.method === 'POST' ? await readJsonBody(request) : undefined;
       requests.push({
+        ...(request.headers.authorization === undefined
+          ? {}
+          : { authorization: request.headers.authorization }),
         ...(body === undefined ? {} : { body }),
         method: request.method ?? 'UNKNOWN',
         pathname: url.pathname,
