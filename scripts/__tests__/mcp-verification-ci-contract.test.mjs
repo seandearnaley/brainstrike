@@ -240,7 +240,8 @@ test('PR and exhaustive lanes use the same command apart from profile and output
 });
 
 test('living contracts publish the exact local and CI commands', () => {
-  const providerContract = readRepoFile('docs/agents/assistant-providers.md');
+  // BST-1590: conformance prose lives in mcp-conformance.md, not the provider contract.
+  const providerContract = readRepoFile('docs/agents/mcp-conformance.md');
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
   for (const command of [representativeCommand, exhaustiveCommand]) {
@@ -260,7 +261,7 @@ test('living contracts publish the exact local and CI commands', () => {
 });
 
 test('living contracts link official conformance evidence and require dispatch URLs in PRs', () => {
-  const providerContract = readRepoFile('docs/agents/assistant-providers.md');
+  const providerContract = readRepoFile('docs/agents/mcp-conformance.md');
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
   for (const runUrl of officialGreenRunUrls) {
@@ -272,4 +273,20 @@ test('living contracts link official conformance evidence and require dispatch U
     ciContract,
     /pull request touching official MCP conformance must link its workflow-dispatch run URL/u
   );
+});
+
+test('the conformance contract is routed once from AGENTS.md and owns the moved prose', () => {
+  // BST-1590 rule 7: conformance/verification sections no longer live in the
+  // provider contract, so every landing stops rewriting that file.
+  const agents = readRepoFile('AGENTS.md');
+  const providerContract = readRepoFile('docs/agents/assistant-providers.md');
+  const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
+  const ciContract = readRepoFile('docs/agents/ci-quality.md');
+  assert.equal(agents.split('docs/agents/mcp-conformance.md').length - 1, 1);
+  assert.match(conformanceContract, /^## MCP verification harness$/mu);
+  assert.match(conformanceContract, /^## Official conformance evidence \(BST-1589\)$/mu);
+  assert.doesNotMatch(providerContract, /^### MCP verification harness$/mu);
+  assert.doesNotMatch(providerContract, /run-official-mcp-client-conformance\.mjs/u);
+  assert.match(providerContract, /docs\/agents\/mcp-conformance\.md/u);
+  assert.match(ciContract, /#### MCP 2026 fleet working agreements \(BST-1590\)/u);
 });

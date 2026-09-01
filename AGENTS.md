@@ -45,6 +45,7 @@ disagree with a historical document.
 | Persona subagents / delegation | `docs/agents/assistant-subagents.md` |
 | Message persistence & reload hydration, run notifications, context usage meter | `docs/agents/assistant-persistence.md` |
 | Providers/API keys, MCP transport selection, native tools + multi-registry, tool output budgets | `docs/agents/assistant-providers.md` |
+| MCP verification harness (`mcp-test-lab`), official conformance client/driver, conformance evidence schemas and links, MCP 2026 fleet working agreements | `docs/agents/mcp-conformance.md` (working agreements in `docs/agents/ci-quality.md`) |
 | Adding any `@mastra/*` package; Mastra Server/Workspace/Browser/RequestContext; stream-mapper ownership; Mastra observability or evals | `docs/agents/mastra-boundary.md` |
 | Embedding workers, local Gemma LLM, hidden hosts — **renderer-only inference is mandatory, never Electron main** | `docs/agents/local-inference.md` |
 | DB migrations, model catalog changes, PGlite construction sites/extensions, browser first-run bootstrap, `DatabaseWorkScheduler` priorities / background-starvation bound | `docs/agents/database.md` |
