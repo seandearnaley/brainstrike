@@ -155,6 +155,14 @@ describe('real opaque-origin iframe MCP Apps bridge', () => {
           onNotification: () => undefined,
           onProtocolError: (error) => errors.push(error.message),
           onRequest: async (message, context) => {
+            if (message.method === 'ui/initialize') {
+              return {
+                hostCapabilities: {},
+                hostContext: { platform: 'desktop' },
+                hostInfo: { name: 'Brainstrike', version: '1.0.0' },
+                protocolVersion: '2026-01-26',
+              };
+            }
             if (message.method !== 'tools/call' || message.params?.['name'] !== 'wait') {
               return {};
             }

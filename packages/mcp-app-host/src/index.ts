@@ -26,8 +26,10 @@ export {
 } from './frame-bridge.js';
 export {
   McpAppRequestCorrelator,
+  type McpAppRequestMethod,
   type McpAppResponse,
   parseMcpAppResponse,
+  parseMcpAppResponseId,
 } from './json-rpc.js';
 export {
   type McpAppMessage,

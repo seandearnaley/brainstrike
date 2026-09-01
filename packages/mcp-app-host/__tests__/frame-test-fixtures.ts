@@ -53,6 +53,13 @@ export const INITIALIZE = Object.freeze({
   },
 });
 
+export const INITIALIZE_RESULT = Object.freeze({
+  hostCapabilities: Object.freeze({}),
+  hostContext: Object.freeze({ platform: 'desktop' }),
+  hostInfo: Object.freeze({ name: 'Brainstrike', version: '1.0.0' }),
+  protocolVersion: '2026-01-26',
+});
+
 export const INITIALIZED = Object.freeze({
   jsonrpc: '2.0',
   method: 'ui/notifications/initialized',

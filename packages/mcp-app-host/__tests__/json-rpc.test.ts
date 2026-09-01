@@ -1,7 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import { McpAppRequestCorrelator, parseMcpAppResponse } from '../src/index.js';
+import { INITIALIZE_RESULT } from './frame-test-fixtures.js';
 
 describe('bounded MCP Apps JSON-RPC responses', () => {
+  it('rejects an empty ui/initialize result against the pinned canonical schema', () => {
+    expect(() =>
+      parseMcpAppResponse({ id: 'initialize', jsonrpc: '2.0', result: {} }, 'ui/initialize')
+    ).toThrow(/ui\/initialize.*canonical result schema/);
+  });
+
+  it.each([
+    ['ui/initialize', INITIALIZE_RESULT],
+    ['ui/request-display-mode', { mode: 'fullscreen' }],
+    ['resources/read', { contents: [] }],
+    ['ui/update-model-context', {}],
+  ] as const)('accepts the canonical result shape for %s', (method, result) => {
+    expect(parseMcpAppResponse({ id: method, jsonrpc: '2.0', result }, method)).toEqual({
+      id: method,
+      jsonrpc: '2.0',
+      result,
+    });
+  });
+
+  it.each([
+    ['ui/request-display-mode', {}],
+    ['resources/read', {}],
+    ['ui/update-model-context', { unexpected: true }],
+    ['tools/call', { isError: 'yes' }],
+  ] as const)('rejects a non-canonical result shape for %s', (method, result) => {
+    expect(() => parseMcpAppResponse({ id: method, jsonrpc: '2.0', result }, method)).toThrow(
+      /canonical result schema/
+    );
+  });
+
   it.each([
     { id: 1, jsonrpc: '2.0', result: {} },
     {
@@ -10,7 +41,7 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
       jsonrpc: '2.0',
     },
   ])('accepts an exact success or error response', (response) => {
-    expect(parseMcpAppResponse(response)).toEqual(response);
+    expect(parseMcpAppResponse(response, 'ping')).toEqual(response);
   });
 
   it('preserves a null-id error response as JSON-RPC 2.0 requires, but never routes it', () => {
@@ -34,7 +65,7 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
     { error: { code: -1, message: 42 }, id: 1, jsonrpc: '2.0' },
     { error: { code: -1, extra: true, message: 'bad' }, id: 1, jsonrpc: '2.0' },
   ])('rejects malformed response envelopes: %j', (response) => {
-    expect(() => parseMcpAppResponse(response)).toThrow(/MCP Apps response/);
+    expect(() => parseMcpAppResponse(response, 'ping')).toThrow(/MCP Apps response/);
   });
 
   it('rejects deeply nested and oversized response payloads', () => {
@@ -42,20 +73,32 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
     for (let depth = 0; depth < 66; depth += 1) {
       nested = { nested };
     }
-    expect(() => parseMcpAppResponse({ id: 1, jsonrpc: '2.0', result: nested })).toThrow(
+    expect(() => parseMcpAppResponse({ id: 1, jsonrpc: '2.0', result: nested }, 'ping')).toThrow(
       /maximum JSON depth/
     );
     expect(() =>
-      parseMcpAppResponse({ id: 1, jsonrpc: '2.0', result: { text: 'x'.repeat(262_145) } })
+      parseMcpAppResponse({ id: 1, jsonrpc: '2.0', result: { text: 'x'.repeat(262_145) } }, 'ping')
     ).toThrow(/maximum encoded size/);
   });
 });
 
 describe('MCP Apps request correlation', () => {
+  it('retains the request method until a canonical response settles it', () => {
+    const correlation = new McpAppRequestCorrelator();
+    correlation.register('initialize', 'ui/initialize');
+    expect(() => correlation.settle({ id: 'initialize', jsonrpc: '2.0', result: {} })).toThrow(
+      /ui\/initialize.*canonical result schema/
+    );
+    expect(correlation.pendingCount).toBe(1);
+    expect(
+      correlation.settle({ id: 'initialize', jsonrpc: '2.0', result: INITIALIZE_RESULT })
+    ).toMatchObject({ result: INITIALIZE_RESULT });
+  });
+
   it('correlates type-distinct ids exactly once', () => {
     const correlation = new McpAppRequestCorrelator();
-    correlation.register(1);
-    correlation.register('1');
+    correlation.register(1, 'ping');
+    correlation.register('1', 'ping');
     expect(correlation.settle({ id: 1, jsonrpc: '2.0', result: {} }).id).toBe(1);
     expect(correlation.settle({ id: '1', jsonrpc: '2.0', result: {} }).id).toBe('1');
     expect(correlation.pendingCount).toBe(0);
@@ -63,22 +106,22 @@ describe('MCP Apps request correlation', () => {
 
   it('rejects duplicate, unknown, and replayed ids', () => {
     const correlation = new McpAppRequestCorrelator();
-    correlation.register('one');
-    expect(() => correlation.register('one')).toThrow(/already pending/);
+    correlation.register('one', 'ping');
+    expect(() => correlation.register('one', 'ping')).toThrow(/already pending/);
     expect(() => correlation.settle({ id: 'unknown', jsonrpc: '2.0', result: {} })).toThrow(
       /not pending/
     );
     correlation.settle({ id: 'one', jsonrpc: '2.0', result: {} });
-    expect(() => correlation.register('one')).toThrow(/already used/);
+    expect(() => correlation.register('one', 'ping')).toThrow(/already used/);
     expect(() => correlation.settle({ id: 'one', jsonrpc: '2.0', result: {} })).toThrow(
       /not pending/
     );
 
     const bounded = new McpAppRequestCorrelator();
     for (let id = 0; id < 256; id += 1) {
-      bounded.register(id);
+      bounded.register(id, 'ping');
     }
-    expect(() => bounded.register(256)).toThrow(/exceeds 256 entries/);
+    expect(() => bounded.register(256, 'ping')).toThrow(/exceeds 256 entries/);
   });
 
   it('bounds replay memory to a recent-id ring instead of a session lifetime', () => {

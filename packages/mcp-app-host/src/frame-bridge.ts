@@ -8,7 +8,12 @@ import {
   type McpAppFrameSource,
 } from './frame-session.js';
 import { correlationKey, parsePositiveSafeInteger, toError } from './internal.js';
-import { McpAppRequestCorrelator, type McpAppResponse, parseMcpAppResponse } from './json-rpc.js';
+import {
+  McpAppRequestCorrelator,
+  type McpAppRequestMethod,
+  type McpAppResponse,
+  parseMcpAppResponse,
+} from './json-rpc.js';
 import type { McpAppMessage } from './messages.js';
 import { parseMcpAppJsonValue, parseMcpAppMessage } from './messages.js';
 import type { UnknownRecord } from './validation.js';
@@ -54,6 +59,7 @@ interface InboundOperation {
   readonly generation: number;
   readonly id: number | string;
   readonly key: string;
+  readonly method: McpAppRequestMethod;
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
@@ -74,6 +80,23 @@ interface OutboundOperation {
 
 function parseTimeout(value: number | undefined): number {
   return parsePositiveSafeInteger(value ?? 10_000, 'MCP Apps bridge timeout');
+}
+
+function parseRequestMethod(method: McpAppMessage['method']): McpAppRequestMethod {
+  switch (method) {
+    case 'ping':
+    case 'resources/read':
+    case 'tools/call':
+    case 'ui/initialize':
+    case 'ui/message':
+    case 'ui/open-link':
+    case 'ui/request-display-mode':
+    case 'ui/resource-teardown':
+    case 'ui/update-model-context':
+      return method;
+    default:
+      throw new TypeError(`MCP Apps method "${method}" is not a request`);
+  }
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -236,7 +259,9 @@ export class McpAppFrameBridge {
       if (signal?.aborted === true) {
         throw abortReason(signal);
       }
-      id = this.#outboundIds.register(message.id);
+      // The correlator retains the method so the reply is validated against
+      // its canonical result schema when it settles.
+      id = this.#outboundIds.register(message.id, parseRequestMethod(message.method));
     } catch (cause: unknown) {
       return Promise.reject(cause);
     }
@@ -304,15 +329,17 @@ export class McpAppFrameBridge {
     }
     // One-shot ids and the pending cap are the correlator's contract: a
     // replayed id is "already used", a live duplicate "already pending".
-    const id = this.#inboundIds.register(message.id);
-    this.#dispatchRequest(message, correlationKey(id), claim, id);
+    const method = parseRequestMethod(message.method);
+    const id = this.#inboundIds.register(message.id, method);
+    this.#dispatchRequest(message, correlationKey(id), claim, id, method);
   }
 
   #dispatchRequest(
     message: McpAppMessage,
     key: string,
     claim: McpAppFrameSessionClaim,
-    id: number | string
+    id: number | string,
+    method: McpAppRequestMethod
   ): void {
     const controller = new AbortController();
     const operation: InboundOperation = {
@@ -321,6 +348,7 @@ export class McpAppFrameBridge {
       generation: claim.generation,
       id,
       key,
+      method,
       timer: setTimeout(() => {
         try {
           this.#timeoutInbound(operation);
@@ -356,7 +384,8 @@ export class McpAppFrameBridge {
     this.#session.assertGeneration(operation.generation);
     this.#postResponse(
       operation.generation,
-      Object.freeze({ id: operation.id, jsonrpc: '2.0' as const, result: value })
+      Object.freeze({ id: operation.id, jsonrpc: '2.0' as const, result: value }),
+      operation.method
     );
     operation.claim.complete();
   }
@@ -376,7 +405,8 @@ export class McpAppFrameBridge {
         : Object.freeze({ code: -32_603, message: 'MCP Apps request failed' });
     this.#postResponse(
       operation.generation,
-      Object.freeze({ error, id: operation.id, jsonrpc: '2.0' as const })
+      Object.freeze({ error, id: operation.id, jsonrpc: '2.0' as const }),
+      operation.method
     );
     if (operation.claim.kind === 'initialize') {
       this.#session.disconnect();
@@ -397,7 +427,8 @@ export class McpAppFrameBridge {
         error: Object.freeze({ code: -32_000, message: 'MCP Apps request timed out' }),
         id: operation.id,
         jsonrpc: '2.0' as const,
-      })
+      }),
+      operation.method
     );
     if (operation.claim.kind === 'initialize') {
       this.#session.disconnect();
@@ -406,8 +437,8 @@ export class McpAppFrameBridge {
     operation.claim.complete();
   }
 
-  #postResponse(generation: number, value: unknown): void {
-    this.#session.post(generation, parseMcpAppResponse(value));
+  #postResponse(generation: number, value: unknown, method: McpAppRequestMethod): void {
+    this.#session.post(generation, parseMcpAppResponse(value, method));
   }
 
   #releaseInbound(operation: InboundOperation): boolean {
@@ -480,8 +511,9 @@ export class McpAppFrameBridge {
 
   #receiveResponse(value: unknown, generation: number): void {
     this.#session.assertGeneration(generation);
-    // settle() validates the reply, rejects an id-less error response (it
-    // cannot be correlated), and releases the pending id, or throws.
+    // settle() validates the reply against the pending request's canonical
+    // result schema, rejects an id-less error response (it cannot be
+    // correlated), and releases the pending id, or throws.
     const response = this.#outboundIds.settle(value);
     if (response.id === null) {
       throw new TypeError('MCP Apps error response without a request id cannot be correlated');

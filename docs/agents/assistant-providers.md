@@ -2317,6 +2317,12 @@ an unrelated frame a teardown primitive; malformed, unknown, replayed, or stale
 traffic from the bound frame fails that channel closed. Requests and
 notifications use bounded pending sets, owned deadlines and abort listeners;
 request IDs are type-sensitive and one-shot, and correlated errors are safe.
+Every successful response is validated against the exact originating request
+method before it is posted or settles a correlated caller. The mapping uses the
+pinned Apps result schemas for initialize, link, message, display-mode, and
+teardown requests, plus the pinned MCP Core result schemas for `tools/call`,
+`resources/read`, `ping`, and the empty `ui/update-model-context` result; there
+is no generic-record success path.
 Replacement, disconnect, close, or a bound-frame protocol failure aborts every
 inbound callback, rejects every outbound request, clears every timer, removes
 the message listener, and retires all request IDs. Real opaque-origin Chromium
