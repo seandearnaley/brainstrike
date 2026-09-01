@@ -21,6 +21,7 @@ export {
   type McpClientExtensionContract,
   type McpClientExtensionRegistration,
   McpClientExtensionRegistry,
+  type McpClientExtensionRequestContract,
 } from './mcp/client-extension-registry';
 export {
   type ExplicitHttpMcpCallToolParams,
