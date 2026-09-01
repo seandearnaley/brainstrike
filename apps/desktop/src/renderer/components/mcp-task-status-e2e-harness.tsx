@@ -1,30 +1,24 @@
+import {
+  type McpClientExtensionRequestContract,
+  McpTaskInteraction,
+  type McpTaskInteractionClient,
+  McpTaskLifecycle,
+  McpTaskPresentationController,
+  type McpTasksNotificationHandler,
+  type McpTasksNotificationLease,
+  type McpTrackedTask,
+  projectMcpTaskRecord,
+} from '@brainstrike/agent/mcp-tasks';
 import type {
   McpTaskActionRequest,
   McpTaskPresentation,
   McpTaskPresentationControllerPort,
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import { McpTaskStatusCard } from '@brainstrike/assistant-ui/mcp-task-status-card';
 import { McpTaskRepository, migrations } from '@brainstrike/db';
 import { PGlite } from '@electric-sql/pglite';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import { type ReactElement, use, useEffect, useState } from 'react';
-import type { McpClientExtensionRequestContract } from '../../../../../packages/agent/src/mcp/client-extension-registry';
-import {
-  McpTaskPresentationController,
-  projectMcpTaskRecord,
-} from '../../../../../packages/agent/src/mcp/task-presentation';
-import type {
-  McpTasksNotificationHandler,
-  McpTasksNotificationLease,
-} from '../../../../../packages/agent/src/mcp/tasks-extension';
-import {
-  McpTaskInteraction,
-  type McpTaskInteractionClient,
-} from '../../../../../packages/agent/src/mcp/tasks-interaction';
-import {
-  McpTaskLifecycle,
-  type McpTrackedTask,
-} from '../../../../../packages/agent/src/mcp/tasks-lifecycle';
-import { McpTaskStatusCard } from '../../../../../packages/assistant-ui/src/mcp-task-status-card';
 
 const TASK_SCOPE = {
   generation: 7,

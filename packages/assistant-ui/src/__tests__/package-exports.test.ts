@@ -16,6 +16,7 @@ describe('@brainstrike/assistant-ui package contract', () => {
         '.',
         './context-usage-store',
         './follow-up-queue-store',
+        './mcp-task-status-card',
         './rewind-composer-store',
         // Tailwind source directive, imported by both app stylesheets.
         './styles.css',

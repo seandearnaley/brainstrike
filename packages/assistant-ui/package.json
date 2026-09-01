@@ -56,6 +56,10 @@
       "types": "./dist/follow-up-queue-store.d.ts",
       "import": "./dist/follow-up-queue-store.js"
     },
+    "./mcp-task-status-card": {
+      "types": "./dist/mcp-task-status-card.d.ts",
+      "import": "./dist/mcp-task-status-card.js"
+    },
     "./rewind-composer-store": {
       "types": "./dist/rewind-composer-store.d.ts",
       "import": "./dist/rewind-composer-store.js"
