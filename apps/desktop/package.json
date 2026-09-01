@@ -47,6 +47,7 @@
       "icon": "build/icon.ico"
     },
     "linux": {
+      "executableName": "brainstrike-desktop",
       "target": "AppImage",
       "icon": "build/icons"
     }

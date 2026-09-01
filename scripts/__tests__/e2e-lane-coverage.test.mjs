@@ -629,6 +629,11 @@ test('REAL REPO: packaged MCP core has one isolated packaged-artifact CI lane', 
   }
 
   const scripts = desktopPackage.scripts;
+  assert.equal(
+    desktopPackage.build?.linux?.executableName,
+    'brainstrike-desktop',
+    'Linux packaging must expose the executable name used by the packaged verifier'
+  );
   const laneName = 'test:e2e:lane:packaged-mcp-core';
   const lane = scripts[laneName];
   assert.equal(typeof lane, 'string', `${laneName} must exist`);
