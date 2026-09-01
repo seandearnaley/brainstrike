@@ -26,6 +26,9 @@ const FIXTURE_TOOL_NAMES = ['inspect_env', 'exit_once', 'invalid_output'];
 
 interface FixtureState {
   exitToolCalls: number;
+  listPromptCalls?: number;
+  listResourceCalls?: number;
+  listResourceTemplateCalls?: number;
   listToolCalls: number;
   starts: number;
 }
@@ -60,7 +63,8 @@ async function createFixture(
   unexpectedCloseObserver?: () => void,
   environment?: Readonly<Record<string, string>>,
   onStderr?: (chunk: string) => void,
-  userPacedAuth = false
+  userPacedAuth = false,
+  defaultCacheTtlMs?: number
 ): Promise<{
   capabilitiesFile: string;
   client: ExplicitStdioMcpClient;
@@ -75,6 +79,7 @@ async function createFixture(
   const client = new ExplicitStdioMcpClient({
     args: [fixturePath],
     command: process.execPath,
+    ...(defaultCacheTtlMs === undefined ? {} : { defaultCacheTtlMs }),
     env: {
       BRAINSTRIKE_STDIO_TEST_CAPABILITIES_FILE: capabilitiesFile,
       BRAINSTRIKE_STDIO_TEST_OVERLAY: 'configured-overlay',
@@ -319,6 +324,48 @@ describe('ExplicitStdioMcpClient integration', () => {
     expect(reconnectedTools.tools.map((tool) => tool.name)).toEqual(FIXTURE_TOOL_NAMES);
     await expect(readStateFile(stateFile)).resolves.toEqual({
       exitToolCalls: 1,
+      listToolCalls: 2,
+      starts: 2,
+    });
+  });
+
+  it('refreshes every positive-TTL catalog independently on the first cursorless list after reconnect', async () => {
+    const { client, stateFile } = await createFixture(
+      'legacy',
+      undefined,
+      FIXTURE_PATH,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      60_000
+    );
+
+    await client.listTools();
+    await client.listResources();
+    await client.listResourceTemplates();
+    await client.listPrompts();
+    await client.listTools();
+    await client.listResources();
+    await client.listResourceTemplates();
+    await client.listPrompts();
+    await expect(client.callTool({ arguments: {}, name: 'exit_once' })).rejects.toThrow(
+      /connection closed/i
+    );
+
+    const tools = await client.listTools();
+    const resources = await client.listResources();
+    const templates = await client.listResourceTemplates();
+    const prompts = await client.listPrompts();
+
+    expect(tools.tools[0]?.name).toBe('inspect_env');
+    expect(resources.resources[0]?.name).toBe('resource-2');
+    expect(templates.resourceTemplates[0]?.name).toBe('template-2');
+    expect(prompts.prompts[0]?.name).toBe('prompt-2');
+    await expect(readStateFile(stateFile)).resolves.toMatchObject({
+      listPromptCalls: 2,
+      listResourceCalls: 2,
+      listResourceTemplateCalls: 2,
       listToolCalls: 2,
       starts: 2,
     });

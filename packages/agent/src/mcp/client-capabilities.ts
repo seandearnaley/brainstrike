@@ -98,6 +98,16 @@ export interface McpClientCapabilityLease {
 
 export type McpUrlElicitationPolicy = 'https-only' | 'https-or-loopback-http-development';
 
+export interface McpTransportCapabilityConfiguration {
+  readonly clientCapabilities?: McpClientCapabilityOptions;
+  readonly inputRequired?: ClientOptions['inputRequired'];
+}
+
+export interface McpTransportCapabilities {
+  readonly inputRequired: NonNullable<ClientOptions['inputRequired']>;
+  readonly runtime: McpClientCapabilityRuntime;
+}
+
 type McpFormElicitationRequest = ElicitRequest & { params: ElicitRequestFormParams };
 type McpUrlElicitationRequest = ElicitRequest & { params: ElicitRequestURLParams };
 
@@ -121,15 +131,13 @@ export interface McpAdvisoryRoot {
   readonly uri: string;
 }
 
-function normalizeMaxRounds(value: unknown): number {
+function normalizeMaxRounds(value: unknown, field = 'MCP input-required round cap'): number {
   const rounds = value ?? DEFAULT_MCP_INPUT_REQUIRED_MAX_ROUNDS;
   if (typeof rounds !== 'number' || !Number.isSafeInteger(rounds) || rounds < 1) {
-    throw new Error('MCP input-required round cap must be a positive safe integer');
+    throw new Error(`${field} must be a positive safe integer`);
   }
   if (rounds > MCP_SDK_INPUT_REQUIRED_MAX_ROUNDS) {
-    throw new Error(
-      `MCP input-required round cap must be at most ${MCP_SDK_INPUT_REQUIRED_MAX_ROUNDS}`
-    );
+    throw new Error(`${field} must be at most ${MCP_SDK_INPUT_REQUIRED_MAX_ROUNDS}`);
   }
   return rounds;
 }
@@ -262,6 +270,35 @@ export function createMcpClientCapabilityRuntime(
     capabilities,
     inputRequired,
     install: (client, serverName) => installHandlers(client, serverName, options),
+  };
+}
+
+export function composeMcpTransportCapabilities(
+  configuration: McpTransportCapabilityConfiguration
+): McpTransportCapabilities {
+  const clientCapabilities = configuration.clientCapabilities ?? {};
+  const configuredInput = configuration.inputRequired;
+  if (
+    clientCapabilities.maxInputRequiredRounds !== undefined &&
+    configuredInput?.maxRounds !== undefined
+  ) {
+    throw new Error(
+      'MCP clientCapabilities.maxInputRequiredRounds and inputRequired.maxRounds must not both configure the round cap'
+    );
+  }
+  if (
+    configuredInput?.autoFulfill !== undefined &&
+    typeof configuredInput.autoFulfill !== 'boolean'
+  ) {
+    throw new Error('MCP inputRequired.autoFulfill must be a boolean');
+  }
+  if (configuredInput?.maxRounds !== undefined) {
+    normalizeMaxRounds(configuredInput.maxRounds, 'MCP inputRequired.maxRounds');
+  }
+  const runtime = createMcpClientCapabilityRuntime(clientCapabilities);
+  return {
+    inputRequired: { ...runtime.inputRequired, ...configuredInput },
+    runtime,
   };
 }
 
