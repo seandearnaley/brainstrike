@@ -16,7 +16,8 @@ const CIMD_CLIENT_METADATA_URL = 'https://conformance-test.local/client-metadata
 export const OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_BASELINE_SCENARIOS;
 export const MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES = OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS;
 export type { OfficialAuthScenarioName };
-export const OfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_SCENARIOS);
+export const BaselineOfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_BASELINE_SCENARIOS);
+export const AllOfficialAuthScenarioNameSchema = z.enum(OFFICIAL_AUTH_SCENARIOS);
 export const ModernOnlyOfficialAuthScenarioNameSchema = z.enum(
   MODERN_ONLY_OFFICIAL_AUTH_SCENARIO_NAMES
 );

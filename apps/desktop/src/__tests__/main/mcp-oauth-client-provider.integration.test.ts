@@ -609,32 +609,60 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     await provider.close();
   });
 
-  it('refuses an issuer-less token choice when persisted issuers are ambiguous', async () => {
-    const identity = {
-      resourceUrl: 'https://mcp.example.test/mcp',
-      scopeKey: '',
-      serverId: 'issuer-ambiguity',
-    } as const;
-    const store = createInMemoryMcpOAuthStore();
-    await store.write(identity, {
-      'https://auth-a.example.test': {
-        tokens: { access_token: 'token-a', token_type: 'Bearer' },
-        updatedAt: 1,
-      },
-      'https://auth-b.example.test': {
-        tokens: { access_token: 'token-b', token_type: 'Bearer' },
-        updatedAt: 2,
-      },
-    });
+  it('keeps flow X discovery stale across overlapping flow Y reads and saves', async () => {
     const provider = await createMcpOAuthClientProvider({
       openExternal: async () => undefined,
-      serverId: identity.serverId,
-      serverUrl: identity.resourceUrl,
-      store,
+      serverId: 'overlapping-issuers',
+      serverUrl: 'https://mcp.example.test/mcp',
+      store: createInMemoryMcpOAuthStore(),
+    });
+    if (!(provider.saveDiscoveryState && provider.saveTokens)) {
+      throw new Error('OAuth provider did not expose issuer persistence methods.');
+    }
+    const issuerX = 'https://honest-x.example.test';
+    const issuerY = 'https://honest-y.example.test';
+    const discoveryX = { authorizationServerUrl: issuerX };
+    for (const issuer of [issuerX, issuerY]) {
+      await provider.saveDiscoveryState(
+        issuer === issuerX ? discoveryX : { authorizationServerUrl: issuer }
+      );
+      await provider.saveTokens(
+        { access_token: `${issuer}-token`, token_type: 'Bearer' },
+        { issuer }
+      );
+    }
+
+    await provider.tokens({ issuer: issuerX });
+    await provider.tokens();
+    await provider.tokens({ issuer: issuerY });
+    await expect(provider.discoveryState?.()).resolves.toEqual({
+      authorizationServerUrl: issuerY,
+    });
+    await provider.saveDiscoveryState({ authorizationServerUrl: issuerY });
+    await provider.saveTokens(
+      { access_token: 'y-replacement', token_type: 'Bearer' },
+      { issuer: issuerY }
+    );
+    await expect(provider.discoveryState?.()).resolves.toEqual({
+      authorizationServerUrl: issuerY,
     });
 
-    await expect(provider.tokens()).resolves.toBeUndefined();
+    await provider.tokens({ issuer: issuerX });
+    await provider.saveDiscoveryState(discoveryX);
     await expect(provider.discoveryState?.()).resolves.toBeUndefined();
+    const replacementDiscovery = {
+      authorizationServerUrl: issuerX,
+      resourceMetadataUrl: 'https://mcp.example.test/fresh-metadata',
+    };
+    await provider.saveDiscoveryState(replacementDiscovery);
+    await expect(provider.discoveryState?.()).resolves.toEqual(replacementDiscovery);
+    await provider.saveTokens(
+      { access_token: 'x-replacement', token_type: 'Bearer' },
+      { issuer: issuerX }
+    );
+
+    await provider.saveDiscoveryState(discoveryX);
+    await expect(provider.discoveryState?.()).resolves.toEqual(discoveryX);
     await provider.close();
   });
 
@@ -831,7 +859,9 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     const { client, transport } = await createClient(provider, server.url);
 
     await expect(client.connect(transport)).rejects.toBeInstanceOf(UnauthorizedError);
-    await expect(transport.finishAuth(await takeAuthorizationCallback(provider))).rejects.toThrow();
+    await expect(
+      transport.finishAuth(await takeAuthorizationCallback(provider))
+    ).rejects.toBeInstanceOf(IssuerMismatchError);
 
     expect(server.tokenCount()).toBe(0);
     await client.close().catch(() => undefined);

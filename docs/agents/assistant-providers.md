@@ -2295,13 +2295,17 @@ package-manager shims. The exact upstream alpha.10 CLI manifests have fourteen
 auth scenarios at `2025-11-25` and 25 at `2026-07-28`. BST-1560 runs its reviewed
 fourteen-scenario production-auth profile once at each declared revision in
 exactly two parallel revision waves. The production adapter and runner consume
-one typed authority at
-`@brainstrike/assistant-contract/official-auth-conformance`; it owns scenario
-manifests and each profile's evidence path, ticket, schema, execution strategy,
+one typed authority in `@brainstrike/assistant-contract`; Desktop consumes its
+built subpath while repository scripts load its runtime-independent source; it
+owns scenario manifests and each profile's evidence path, ticket, schema, execution strategy,
 and timeout budget. The script test independently invokes alpha.10's `list`
 command at both revisions, so the installed CLI remains the manifest oracle.
-Run the baseline with `pnpm run verify:mcp:official` and the closeout with
-`pnpm run verify:mcp:official -- --profile modern-closeout`.
+Both root commands build the contract and Desktop main bundle before running.
+
+```bash
+pnpm run verify:mcp:official
+pnpm run verify:mcp:official -- --profile modern-closeout
+```
 
 BST-1576's closed modern profile is exactly the remaining eleven scenarios in one
 `2026-07-28` wave, and sequential scenario process ownership. Sequential ownership
@@ -2657,13 +2661,12 @@ projection; no background connection may open a browser implicitly.
 
 The `2026-07-28` authorization-server migration contract requires a challenged
 bearer request to rediscover protected-resource metadata before selecting the next
-authorization server. A context-free token read marks that bearer use; the next
-`discoveryState()` call returns no cached state exactly once, forcing the installed
-SDK to rediscover PRM and select the current issuer. Callback-leg discovery remains
-persisted until bearer use so RFC 9207 `iss` validation still compares against the
-issuer recorded before authorization. Client information, tokens, and discovery
-remain issuer-partitioned, so migration re-registers instead of replaying credentials
-from the previous authorization server.
+authorization server. A context-free token read marks that issuer's discovery stale;
+reads and unrelated saves neither consume nor clear it. Only successful replacement
+token persistence for that issuer clears the mark (close/reset clears all), forcing
+fresh PRM while remaining bounded by persisted issuer records. Callback-leg discovery
+remains available for RFC 9207 `iss` validation. Client information, tokens, and discovery
+remain issuer-partitioned, so migration re-registers instead of replaying credentials.
 
 Deterministic production-provider coverage lives in
 `apps/desktop/src/__tests__/main/mcp-oauth-client-provider.integration.test.ts`.

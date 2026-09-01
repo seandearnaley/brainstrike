@@ -599,7 +599,7 @@ export async function createMcpOAuthClientProvider(
   const records = new Map<string, McpOAuthPersistedState>(Object.entries(persistedRecords));
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
-  let requireFreshDiscoveryAfterBearerUse = false;
+  const staleDiscoveryByIssuer = new Map<string, OAuthDiscoveryState | undefined>();
   let authorizationCallback: Promise<URLSearchParams> | undefined;
   let closePromise: Promise<McpOAuthCloseProof> | undefined;
   let closed = false;
@@ -722,6 +722,7 @@ export async function createMcpOAuthClientProvider(
       return closePromise;
     }
     closed = true;
+    staleDiscoveryByIssuer.clear();
     callback.cancel();
     closePromise = Promise.all([writeTail, callback.close()]).then(() => {
       liveProviders.delete(provider);
@@ -736,9 +737,9 @@ export async function createMcpOAuthClientProvider(
     tokenFlights.clear();
     await writeTail;
     records.clear();
+    staleDiscoveryByIssuer.clear();
     currentIssuer = undefined;
     currentState = undefined;
-    requireFreshDiscoveryAfterBearerUse = false;
     authorizationCallback = undefined;
     await options.store.clear(identity);
   };
@@ -807,14 +808,17 @@ export async function createMcpOAuthClientProvider(
       await closing;
     },
     async discoveryState() {
-      if (requireFreshDiscoveryAfterBearerUse) {
-        requireFreshDiscoveryAfterBearerUse = false;
+      const issuer =
+        currentIssuer ?? (records.size === 1 ? records.keys().next().value : undefined);
+      const discoveryState = issuer === undefined ? undefined : records.get(issuer)?.discoveryState;
+      if (
+        issuer !== undefined &&
+        staleDiscoveryByIssuer.has(issuer) &&
+        staleDiscoveryByIssuer.get(issuer) === discoveryState
+      ) {
         return;
       }
-      if (currentIssuer !== undefined) {
-        return records.get(currentIssuer)?.discoveryState;
-      }
-      return records.size === 1 ? records.values().next().value?.discoveryState : undefined;
+      return discoveryState;
     },
     fetch: fetchWithTokenFlight,
     async invalidateCredentials(scope) {
@@ -885,7 +889,6 @@ export async function createMcpOAuthClientProvider(
     },
     async saveDiscoveryState(state) {
       assertOpen();
-      requireFreshDiscoveryAfterBearerUse = false;
       currentIssuer = state.authorizationServerMetadata?.issuer ?? state.authorizationServerUrl;
       replaceCurrentRecord({ discoveryState: state });
       await persist();
@@ -897,10 +900,11 @@ export async function createMcpOAuthClientProvider(
     },
     async saveTokens(tokens, ctx) {
       assertOpen();
-      currentIssuer = ctx?.issuer ?? tokens.issuer;
-      if (currentIssuer === undefined) {
+      const issuer = ctx?.issuer ?? tokens.issuer;
+      if (issuer === undefined) {
         throw new Error('MCP OAuth tokens have no issuer.');
       }
+      currentIssuer = issuer;
       const tag = tokenTag(tokens.access_token);
       const tokenGeneration = tokenGenerations.get(tag);
       tokenGenerations.delete(tag);
@@ -912,6 +916,7 @@ export async function createMcpOAuthClientProvider(
       }
       replaceCurrentRecord({ tokens });
       await persist();
+      staleDiscoveryByIssuer.delete(issuer);
     },
     state() {
       assertOpen();
@@ -955,14 +960,11 @@ export async function createMcpOAuthClientProvider(
       if (ctx) {
         currentIssuer = ctx.issuer;
       }
-      const tokens =
-        currentIssuer === undefined
-          ? records.size === 1
-            ? records.values().next().value?.tokens
-            : undefined
-          : records.get(currentIssuer)?.tokens;
-      if (ctx === undefined && tokens !== undefined) {
-        requireFreshDiscoveryAfterBearerUse = true;
+      const issuer =
+        currentIssuer ?? (records.size === 1 ? records.keys().next().value : undefined);
+      const tokens = issuer === undefined ? undefined : records.get(issuer)?.tokens;
+      if (ctx === undefined && issuer !== undefined && tokens !== undefined) {
+        staleDiscoveryByIssuer.set(issuer, records.get(issuer)?.discoveryState);
       }
       return tokens;
     },

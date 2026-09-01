@@ -59,9 +59,14 @@ described in `assistant-providers.md`, outside the scheduled verifier loop.
 
 The same schedule/manual workflow has a separate
 `Official MCP auth conformance (advisory prerelease)` job. It builds the
-Desktop main-process runtime dependencies and bundle, then runs
-`pnpm run verify:mcp:official` under a three-minute step
-and eight-minute job bound. The job is explicitly `continue-on-error`: pinned
+Desktop main-process runtime dependencies and bundle through the root command.
+
+```bash
+pnpm run verify:mcp:official
+```
+
+Its combined build/run step has a seven-minute bound and its job an eight-minute
+bound. The job is explicitly `continue-on-error`: pinned
 `@modelcontextprotocol/conformance@0.2.0-alpha.10` remains prerelease evidence,
 not a required gate. Its runner executes the closed 28-case auth matrix without
 `--expected-failures` or `--output-dir`, suppresses credential-bearing child
@@ -76,9 +81,14 @@ atomic write fails after conformance has already failed, the job preserves both
 causes rather than replacing the primary conformance failure.
 
 BST-1576 adds a second independent advisory job,
-`Official MCP modern auth closeout (advisory prerelease)`. It runs
-`pnpm run verify:mcp:official -- --profile modern-closeout` under a four-minute
-build, ten-minute verification step, and 18-minute job bound.
+`Official MCP modern auth closeout (advisory prerelease)`. It runs:
+
+```bash
+pnpm run verify:mcp:official -- --profile modern-closeout
+```
+
+The command has a four-minute build allowance, ten-minute runner allowance,
+14-minute combined step bound, and 18-minute job bound.
 The profile executes exactly the eleven alpha.10 scenarios that apply only at
 `2026-07-28`, sequentially inside one evidence wave, with zero expected failures.
 It uploads only

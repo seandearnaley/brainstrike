@@ -11,7 +11,7 @@ import {
   OFFICIAL_AUTH_MODERN_CLOSEOUT_SCENARIOS,
   OFFICIAL_AUTH_PROTOCOL_VERSIONS,
   OFFICIAL_AUTH_SCENARIOS_BY_PROTOCOL,
-} from '@brainstrike/assistant-contract/official-auth-conformance';
+} from '../packages/assistant-contract/src/official-auth-conformance.ts';
 
 const CONFORMANCE_VERSION = '0.2.0-alpha.10';
 const CLIENT_COMMAND = 'node apps/desktop/dist/official-conformance-client-entry.js';
@@ -90,10 +90,11 @@ export function officialAuthProfileDescriptor(profile) {
 }
 
 export function parseOfficialAuthProfile(argv) {
-  if (argv.length === 0) {
+  const args = argv[0] === '--' && argv.length > 1 ? argv.slice(1) : argv;
+  if (args.length === 0) {
     return BASELINE_PROFILE;
   }
-  if (argv.length === 2 && argv[0] === '--profile' && argv[1] === MODERN_CLOSEOUT_PROFILE) {
+  if (args.length === 2 && args[0] === '--profile' && args[1] === MODERN_CLOSEOUT_PROFILE) {
     return MODERN_CLOSEOUT_PROFILE;
   }
   throw new Error('Official MCP auth conformance profile arguments are invalid');

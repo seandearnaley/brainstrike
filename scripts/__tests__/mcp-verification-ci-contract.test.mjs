@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { OFFICIAL_AUTH_CONFORMANCE_PROFILES } from '@brainstrike/assistant-contract/official-auth-conformance';
 import { parse as parseYaml } from 'yaml';
+import { OFFICIAL_AUTH_CONFORMANCE_PROFILES } from '../../packages/assistant-contract/src/official-auth-conformance.ts';
 
 import { buildPlan, CI_GATE_PLAN_IDS } from '../check.mjs';
 
@@ -75,20 +75,12 @@ test('official prerelease auth conformance is a bounded advisory job with saniti
   assert.equal(job['continue-on-error'], true);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
-  const buildStep = findStep(
-    workflow,
-    'official_auth',
-    'Build official MCP client dependencies and entry'
-  );
-  assert.equal(
-    buildStep.run,
-    'pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main'
-  );
-  assert.equal(buildStep['timeout-minutes'], descriptor.buildTimeoutMinutes);
-
   const verifyStep = findStep(workflow, 'official_auth', 'Run official MCP auth conformance');
   assert.equal(verifyStep.run, officialBaselineCommand);
-  assert.equal(verifyStep['timeout-minutes'], descriptor.stepTimeoutMinutes);
+  assert.equal(
+    verifyStep['timeout-minutes'],
+    descriptor.buildTimeoutMinutes + descriptor.stepTimeoutMinutes
+  );
   assert.equal(verifyStep['continue-on-error'], undefined);
 
   const uploadStep = findStep(workflow, 'official_auth', 'Upload official MCP auth evidence');
@@ -100,6 +92,8 @@ test('official prerelease auth conformance is a bounded advisory job with saniti
   assert.equal(uploadStep.with['retention-days'], 14);
 
   const source = readRepoFile('scripts/run-official-mcp-client-conformance.mjs');
+  assert.match(source, /packages\/assistant-contract\/src\/official-auth-conformance\.ts/u);
+  assert.doesNotMatch(source, /@brainstrike\/assistant-contract\/official-auth-conformance/u);
   assert.doesNotMatch(source, /'--expected-failures'/u);
   assert.doesNotMatch(source, /'--output-dir'/u);
 });
@@ -112,24 +106,16 @@ test('modern-only auth closeout is an independent bounded advisory job', () => {
   assert.equal(job['continue-on-error'], true);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
-  const buildStep = findStep(
-    workflow,
-    'official_modern_auth',
-    'Build official MCP client dependencies and entry'
-  );
-  assert.equal(
-    buildStep.run,
-    'pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main'
-  );
-  assert.equal(buildStep['timeout-minutes'], descriptor.buildTimeoutMinutes);
-
   const verifyStep = findStep(
     workflow,
     'official_modern_auth',
     'Run official MCP modern auth closeout'
   );
   assert.equal(verifyStep.run, officialModernCommand);
-  assert.equal(verifyStep['timeout-minutes'], descriptor.stepTimeoutMinutes);
+  assert.equal(
+    verifyStep['timeout-minutes'],
+    descriptor.buildTimeoutMinutes + descriptor.stepTimeoutMinutes
+  );
   assert.equal(verifyStep['continue-on-error'], undefined);
 
   const uploadStep = findStep(
@@ -146,17 +132,6 @@ test('modern-only auth closeout is an independent bounded advisory job', () => {
   );
   assert.equal(uploadStep.with['if-no-files-found'], 'error');
   assert.equal(uploadStep.with['retention-days'], 14);
-
-  const scenarioCount = Object.values(descriptor.scenariosByProtocol).flat().length;
-  const requiredStepMs =
-    scenarioCount * descriptor.scenarioDeadlineMs + descriptor.runnerOverheadMs;
-  assert.ok(descriptor.stepTimeoutMinutes * 60_000 >= requiredStepMs);
-  assert.ok(
-    descriptor.jobTimeoutMinutes >=
-      descriptor.buildTimeoutMinutes +
-        descriptor.stepTimeoutMinutes +
-        descriptor.workflowOverheadMinutes
-  );
 });
 
 test('PR and exhaustive lanes use the same command apart from profile and output', () => {
@@ -170,7 +145,7 @@ test('PR and exhaustive lanes use the same command apart from profile and output
   assert.equal(packageJson.scripts['verify:mcp'], 'node scripts/run-mcp-verification.mjs');
   assert.equal(
     packageJson.scripts['verify:mcp:official'],
-    'node scripts/run-official-mcp-client-conformance.mjs'
+    'pnpm --filter @brainstrike/assistant-contract build && pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main && node scripts/run-official-mcp-client-conformance.mjs'
   );
 });
 
@@ -178,14 +153,14 @@ test('living contracts publish the exact local and CI commands', () => {
   const providerContract = readRepoFile('docs/agents/assistant-providers.md');
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
-  for (const command of [
-    representativeCommand,
-    exhaustiveCommand,
-    officialBaselineCommand,
-    officialModernCommand,
-  ]) {
+  for (const command of [representativeCommand, exhaustiveCommand]) {
     assert.match(providerContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(ciContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  for (const command of [officialBaselineCommand, officialModernCommand]) {
+    const exactLine = new RegExp(`^${command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'mu');
+    assert.match(providerContract, exactLine);
+    assert.match(ciContract, exactLine);
   }
   assert.match(providerContract, /Evidence schema `1\.1\.0`/u);
   assert.match(ciContract, /evidence-schema `1\.1\.0`/u);

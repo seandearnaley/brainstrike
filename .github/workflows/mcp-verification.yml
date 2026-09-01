@@ -58,12 +58,8 @@ jobs:
         with:
           turbo-cache: 'true'
 
-      - name: Build official MCP client dependencies and entry
-        timeout-minutes: 4
-        run: pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main
-
       - name: Run official MCP auth conformance
-        timeout-minutes: 3
+        timeout-minutes: 7
         run: pnpm run verify:mcp:official
 
       - name: Upload official MCP auth evidence
@@ -89,12 +85,8 @@ jobs:
         with:
           turbo-cache: 'true'
 
-      - name: Build official MCP client dependencies and entry
-        timeout-minutes: 4
-        run: pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main
-
       - name: Run official MCP modern auth closeout
-        timeout-minutes: 10
+        timeout-minutes: 14
         run: pnpm run verify:mcp:official -- --profile modern-closeout
 
       - name: Upload official MCP modern auth evidence
