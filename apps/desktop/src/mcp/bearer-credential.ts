@@ -8,10 +8,14 @@ export interface McpBearerCredentialReference {
   readonly store: 'mcp-credentials';
 }
 
-export type McpBearerCredentialState = 'missing' | 'stored' | 'unreadable';
+export type McpBearerCredentialState = 'malformed' | 'missing' | 'stored' | 'unreadable';
 
 export interface McpBearerCredentialAuthority {
-  createFetch(reference: McpBearerCredentialReference, resourceUrl: string): ExplicitHttpMcpFetch;
+  createFetch(
+    reference: McpBearerCredentialReference,
+    resourceUrl: string,
+    onStateChanged?: (state: McpBearerCredentialState) => void
+  ): ExplicitHttpMcpFetch;
   inspect(reference: McpBearerCredentialReference): Promise<{
     readonly state: McpBearerCredentialState;
   }>;
@@ -19,6 +23,7 @@ export interface McpBearerCredentialAuthority {
 
 export type McpBearerCredentialFailureCode =
   | 'mcp-bearer-authorization-conflict'
+  | 'mcp-bearer-credential-malformed'
   | 'mcp-bearer-credential-missing'
   | 'mcp-bearer-credential-unreadable'
   | 'mcp-bearer-origin-mismatch';
@@ -26,6 +31,7 @@ export type McpBearerCredentialFailureCode =
 const FAILURE_MESSAGES = {
   'mcp-bearer-authorization-conflict':
     'MCP bearer authentication conflicts with transport authorization',
+  'mcp-bearer-credential-malformed': 'MCP bearer credential is malformed',
   'mcp-bearer-credential-missing': 'MCP bearer credential is missing',
   'mcp-bearer-credential-unreadable': 'MCP bearer credential is unreadable',
   'mcp-bearer-origin-mismatch': 'MCP bearer credential cannot be sent to another origin',
@@ -40,7 +46,9 @@ export class McpBearerCredentialFailure extends Error {
     this.name = 'McpBearerCredentialFailure';
     this.code = code;
     this.category =
-      code === 'mcp-bearer-credential-missing' || code === 'mcp-bearer-credential-unreadable'
+      code === 'mcp-bearer-credential-malformed' ||
+      code === 'mcp-bearer-credential-missing' ||
+      code === 'mcp-bearer-credential-unreadable'
         ? 'authentication'
         : 'configuration';
   }
@@ -63,28 +71,35 @@ function requestOrigin(input: string | URL): string {
 }
 
 export function createSecretsMcpBearerCredentialAuthority(
-  secrets: Pick<SecretsService, 'getKey'>,
+  secrets: Pick<SecretsService, 'getKey' | 'listProviders'>,
   baseFetch: ExplicitHttpMcpFetch = async (input, init) => await fetch(input, init)
 ): McpBearerCredentialAuthority {
-  const resolve = async (reference: McpBearerCredentialReference): Promise<string> => {
+  const resolve = async (
+    reference: McpBearerCredentialReference,
+    onStateChanged?: (state: McpBearerCredentialState) => void
+  ): Promise<string> => {
     let credential: string | null;
     try {
       credential = await secrets.getKey(mcpBearerCredentialStorageKey(reference));
     } catch {
+      onStateChanged?.('unreadable');
       throw new McpBearerCredentialFailure('mcp-bearer-credential-unreadable');
     }
     if (credential === null) {
+      onStateChanged?.('missing');
       throw new McpBearerCredentialFailure('mcp-bearer-credential-missing');
     }
     if (!isBearerToken(credential)) {
-      throw new McpBearerCredentialFailure('mcp-bearer-credential-unreadable');
+      onStateChanged?.('malformed');
+      throw new McpBearerCredentialFailure('mcp-bearer-credential-malformed');
     }
+    onStateChanged?.('stored');
     return credential;
   };
 
   return {
-    createFetch(reference, resourceUrl) {
-      const allowedOrigin = new URL(resourceUrl).origin;
+    createFetch(reference, resourceUrl, onStateChanged) {
+      const allowedOrigin = requestOrigin(resourceUrl);
       return async (input, init) => {
         if (requestOrigin(input) !== allowedOrigin) {
           throw new McpBearerCredentialFailure('mcp-bearer-origin-mismatch');
@@ -93,22 +108,17 @@ export function createSecretsMcpBearerCredentialAuthority(
         if (headers.has('authorization')) {
           throw new McpBearerCredentialFailure('mcp-bearer-authorization-conflict');
         }
-        const credential = await resolve(reference);
+        const credential = await resolve(reference, onStateChanged);
         headers.set('authorization', `Bearer ${credential}`);
         return await baseFetch(input, { ...init, headers });
       };
     },
     async inspect(reference) {
       try {
-        await resolve(reference);
-        return { state: 'stored' };
-      } catch (error) {
-        if (
-          error instanceof McpBearerCredentialFailure &&
-          error.code === 'mcp-bearer-credential-missing'
-        ) {
-          return { state: 'missing' };
-        }
+        const storageKey = mcpBearerCredentialStorageKey(reference);
+        const providers = await secrets.listProviders();
+        return { state: providers.includes(storageKey) ? 'stored' : 'missing' };
+      } catch {
         return { state: 'unreadable' };
       }
     },

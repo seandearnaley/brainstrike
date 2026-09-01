@@ -1960,9 +1960,10 @@ if (singleInstanceLockAcquired) {
       }
 
       logger.debug('Setting up IPC handlers that require app readiness...');
-      // ONE SecretsService instance is shared by the secrets IPC domain and
-      // the provider-auth engine — two ElectronStore instances over the same
-      // file would serve stale reads to each other.
+      // ONE SecretsService instance is shared by the secrets IPC domain, the
+      // provider-auth engine, and MCP external bearer resolution — multiple
+      // ElectronStore instances over the same file would serve stale reads to
+      // each other.
       const secretsService = getSecretsService();
       registerSecretsIpcHandlers(secretsService, {
         envFileFailures: desktopEnvLoadResult.failures,

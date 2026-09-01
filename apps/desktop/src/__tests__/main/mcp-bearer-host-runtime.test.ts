@@ -47,7 +47,10 @@ describe('Desktop MCP bearer host composition', () => {
     const secret = 'bearer-secret-must-not-escape';
     const bearerFetch = vi.fn(async () => new Response(null, { status: 204 }));
     const bearerCredentialAuthority: McpBearerCredentialAuthority = {
-      createFetch: vi.fn(() => bearerFetch),
+      createFetch: vi.fn((_reference, _resourceUrl, onStateChanged) => {
+        onStateChanged?.('stored');
+        return bearerFetch;
+      }),
       inspect: vi.fn(async () => ({ state: 'stored' as const })),
     };
     const createHttpTransportClient = vi.fn((_options: ExplicitHttpMcpClientOptions) =>
@@ -76,7 +79,8 @@ describe('Desktop MCP bearer host composition', () => {
     );
     expect(bearerCredentialAuthority.createFetch).toHaveBeenCalledWith(
       configuredServer.auth.credential,
-      configuredServer.url
+      configuredServer.url,
+      expect.any(Function)
     );
     expect(createHttpTransportClient).toHaveBeenCalledWith(
       expect.objectContaining({ fetch: bearerFetch, lifecycle: 'host-owned' })
@@ -90,7 +94,7 @@ describe('Desktop MCP bearer host composition', () => {
     await runtime.host.close();
   });
 
-  it.each(['missing', 'unreadable'] as const)(
+  it.each(['malformed', 'missing', 'unreadable'] as const)(
     'projects a %s reference without claiming the bearer credential is configured',
     async (state) => {
       const bearerCredentialAuthority: McpBearerCredentialAuthority = {
@@ -107,4 +111,30 @@ describe('Desktop MCP bearer host composition', () => {
       await runtime.host.close();
     }
   );
+
+  it('refreshes a stale presence projection when the owned fetch resolves the credential', async () => {
+    const bearerCredentialAuthority: McpBearerCredentialAuthority = {
+      createFetch: vi.fn((_reference, _resourceUrl, onStateChanged) => {
+        onStateChanged?.('stored');
+        return vi.fn(async () => new Response(null, { status: 204 }));
+      }),
+      inspect: vi.fn(async () => ({ state: 'missing' as const })),
+    };
+    const runtime = createDesktopMcpHostRuntime({
+      bearerCredentialAuthority,
+      createHttpTransportClient: vi.fn(() => transportClient()),
+    });
+    const configuredServer = server();
+
+    await expect(
+      runtime.replaceResolvedConfig({ servers: [configuredServer] })
+    ).resolves.toMatchObject({
+      servers: [expect.objectContaining({ auth: { credentialState: 'missing', type: 'bearer' } })],
+    });
+    await runtime.host.invoke({ configuredServerId: configuredServer.name, type: 'tools/list' });
+    expect(runtime.host.snapshot().servers[0]).toMatchObject({
+      auth: { credentialState: 'stored', type: 'bearer' },
+    });
+    await runtime.host.close();
+  });
 });

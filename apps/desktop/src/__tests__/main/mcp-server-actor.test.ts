@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
+import { McpBearerCredentialFailure } from '../../mcp/bearer-credential';
 import {
   McpServerActor,
   type McpServerActorClient,
@@ -131,6 +132,28 @@ describe('McpServerActor', () => {
       expect(error).toMatchObject({ category, code, message: 'MCP server actor operation failed' });
       expect(subject.snapshot()).toMatchObject({ error: { category, code } });
     }
+  });
+
+  it('preserves a bearer failure nested by the SDK operation boundary', async () => {
+    const cause = new SdkError(SdkErrorCode.SendFailed, 'private SDK wrapper detail', {
+      cause: new McpBearerCredentialFailure('mcp-bearer-credential-malformed'),
+      method: 'tools/list',
+    });
+    const subject = actor(async () =>
+      client(async () => {
+        throw cause;
+      })
+    );
+
+    const error = await subject.invoke(LIST).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      category: 'authentication',
+      code: 'mcp-bearer-credential-malformed',
+      message: 'MCP server actor operation failed',
+    });
+    expect(subject.snapshot()).toMatchObject({
+      error: { category: 'authentication', code: 'mcp-bearer-credential-malformed' },
+    });
   });
 
   it('keeps user-paced authentication actionable until an explicit connect', async () => {

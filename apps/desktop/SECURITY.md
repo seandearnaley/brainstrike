@@ -321,10 +321,13 @@ single configured HTTP MCP resource.
   configured resource origin, and attaches the header inside the final owned
   fetch boundary. It does not cache the resolved value.
 - Public config/status and renderer IPC expose only the UUID reference or the
-  token-free `missing | stored | unreadable` state. Missing, unreadable,
-  malformed, cross-origin, and conflicting-auth failures have fixed codes and
-  static messages; underlying keychain errors and token material are not
-  chained into runtime errors or diagnostics.
+  token-free `malformed | missing | stored | unreadable` state. The initial
+  presence projection enumerates storage keys without decrypting tokens; the
+  final owned fetch boundary validates the token and publishes its current
+  state back to the host snapshot. Malformed, missing, unreadable,
+  cross-origin, and conflicting-auth failures have fixed codes and static
+  messages; underlying keychain errors and token material are not chained into
+  runtime errors or diagnostics.
 - Disconnect destroys the HTTP client/closure but does not delete an externally
   managed credential that another configuration may reference. Factory reset
   clears the shared secrets authority; because every fetch resolves afresh, a

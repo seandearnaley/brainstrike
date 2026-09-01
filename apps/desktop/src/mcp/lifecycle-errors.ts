@@ -12,6 +12,7 @@ export type McpLifecycleFailureCode =
   | 'mcp-auth-callback-timeout'
   | 'mcp-authentication-required'
   | 'mcp-bearer-authorization-conflict'
+  | 'mcp-bearer-credential-malformed'
   | 'mcp-bearer-credential-missing'
   | 'mcp-bearer-credential-unreadable'
   | 'mcp-bearer-origin-mismatch'
@@ -28,6 +29,7 @@ const FAILURE_MESSAGES = {
   'mcp-authentication-required': 'MCP server requires authentication',
   'mcp-bearer-authorization-conflict':
     'MCP bearer authentication conflicts with transport authorization',
+  'mcp-bearer-credential-malformed': 'MCP bearer credential is malformed',
   'mcp-bearer-credential-missing': 'MCP bearer credential is missing',
   'mcp-bearer-credential-unreadable': 'MCP bearer credential is unreadable',
   'mcp-bearer-origin-mismatch': 'MCP bearer credential cannot be sent to another origin',
@@ -59,7 +61,9 @@ function readCode(cause: unknown): string | undefined {
   return typeof cause.code === 'string' ? cause.code : undefined;
 }
 
-function findBearerCredentialFailure(cause: unknown): McpBearerCredentialFailure | undefined {
+export function findBearerCredentialFailure(
+  cause: unknown
+): McpBearerCredentialFailure | undefined {
   if (cause instanceof McpBearerCredentialFailure) {
     return cause;
   }

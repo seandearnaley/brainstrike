@@ -90,9 +90,9 @@ function createDefaultBearerCredentialAuthority(): McpBearerCredentialAuthority 
     return authority;
   };
   return {
-    createFetch(reference, resourceUrl) {
+    createFetch(reference, resourceUrl, onStateChanged) {
       return async (input, init) =>
-        await (await load()).createFetch(reference, resourceUrl)(input, init);
+        await (await load()).createFetch(reference, resourceUrl, onStateChanged)(input, init);
     },
     async inspect(reference) {
       return await (await load()).inspect(reference);
@@ -650,7 +650,11 @@ export class DesktopMcpHostRuntime {
     }
     const bearerFetch =
       server.auth?.type === 'bearer'
-        ? this.bearerCredentialAuthority.createFetch(server.auth.credential, server.url)
+        ? this.bearerCredentialAuthority.createFetch(
+            server.auth.credential,
+            server.url,
+            (credentialState) => updateAuth({ credentialState, type: 'bearer' })
+          )
         : undefined;
     let client: ExplicitClient;
     try {
