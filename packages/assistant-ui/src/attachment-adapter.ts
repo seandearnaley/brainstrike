@@ -16,8 +16,23 @@ import {
 const MAX_MB = Math.round(ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES / (1024 * 1024));
 const COMBINED_MAX_MB = Math.round(ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES / (1024 * 1024));
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
+// One read per File: the preview (use-attachment-preview-url.ts) and send()
+// share the encoding, so without this every attachment is read (and base64
+// encoded) twice. Failed reads are evicted so a transient failure at preview
+// time cannot poison the send.
+const dataUrlByFile = new WeakMap<File, Promise<string>>();
+
+/**
+ * File → data URL, used both to ENCODE an attachment for send and to render
+ * its composer preview (use-attachment-preview-url.ts) — the preview shows
+ * exactly what will be sent, and no blob-URL lifecycle exists to get wrong.
+ */
+export function fileToDataUrl(file: File): Promise<string> {
+  const cached = dataUrlByFile.get(file);
+  if (cached) {
+    return cached;
+  }
+  const read = new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       resolve(String(reader.result));
@@ -27,6 +42,11 @@ function fileToDataUrl(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+  dataUrlByFile.set(file, read);
+  read.catch(() => {
+    dataUrlByFile.delete(file);
+  });
+  return read;
 }
 
 /**

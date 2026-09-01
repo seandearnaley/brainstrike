@@ -35,6 +35,14 @@ export const UserMessage = () => {
   const approvalChipKey = useAuiState((state) =>
     toApprovalActionChipKey(readApprovalActionChipProps(state.message))
   );
+  // Attachment-only messages render no empty bubble — but the gate must not
+  // silently drop CONTENT parts: MessagePrimitive.Parts renders every part
+  // type, so any non-text part (image/file parts hydrated into content, as
+  // opposed to message.attachments) still earns the bubble. Only a message
+  // whose content is nothing but blank text goes bubble-less.
+  const hasBubbleContent = useAuiState((state) =>
+    state.message.content.some((part) => part.type !== 'text' || part.text.trim() !== '')
+  );
   if (approvalChipKey) {
     const chipProps = fromApprovalActionChipKey(approvalChipKey);
     return (
@@ -47,18 +55,26 @@ export const UserMessage = () => {
     <MessagePrimitive.Root className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
       <UserActionBar />
 
-      <ExpandableMessageContent
-        className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2"
-        testId="assistant-user-message-content"
-      >
+      {/* Attachments sit ABOVE the bubble, outside ExpandableMessageContent:
+          the Show-more collapse (176px) is a TEXT-truncation affordance and
+          must never swallow an image (max-h-64 = 256px would always trip it,
+          BST-1575). */}
+      <div className="col-start-2 row-start-2 flex max-w-xl flex-col items-end gap-2">
         <UserMessageAttachments />
-        <MessagePrimitive.Parts
-          components={{
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
-            Text: UserMessageText,
-          }}
-        />
-      </ExpandableMessageContent>
+        {hasBubbleContent ? (
+          <ExpandableMessageContent
+            className="aui-user-message-content max-w-full break-words rounded-2xl bg-muted px-4 py-2"
+            testId="assistant-user-message-content"
+          >
+            <MessagePrimitive.Parts
+              components={{
+                /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
+                Text: UserMessageText,
+              }}
+            />
+          </ExpandableMessageContent>
+        ) : null}
+      </div>
 
       <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
 
