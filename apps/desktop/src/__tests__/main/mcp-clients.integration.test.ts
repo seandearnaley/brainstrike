@@ -143,7 +143,9 @@ describe('mcp-clients', () => {
       });
       await expect.poll(() => processIsGone(pid), { timeout: 10_000 }).toBe(true);
       await expect(fsp.readFile(stateFile, 'utf8').then(JSON.parse)).resolves.toMatchObject({
-        listToolCalls: 1,
+        // Startup populates the host-owned catalog; the explicit invocation below
+        // proves the connected client remains usable before close.
+        listToolCalls: 2,
         starts: 1,
       });
     } finally {

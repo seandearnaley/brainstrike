@@ -7,12 +7,22 @@ import type { ResolvedMcpConfig, ResolvedMcpServer } from '../../mcp-loader';
 const transportClient = () => ({
   callTool: vi.fn(async () => ({ content: [] })),
   close: vi.fn(async () => undefined),
+  complete: vi.fn(async () => ({ completion: { values: [] } })),
   connect: vi.fn(async (_options?: TransportConnectOptions) => undefined),
   getNegotiatedProtocolVersion: vi.fn(() => '2026-07-28'),
+  getPrompt: vi.fn(async () => ({ messages: [] })),
   getProtocolEra: vi.fn(() => 'modern' as const),
   getServerCapabilities: vi.fn(() => ({ tools: {} })),
   getServerVersion: vi.fn(() => ({ name: 'test', version: '1.0.0' })),
+  listen: vi.fn(),
+  listPrompts: vi.fn(async () => ({ prompts: [] })),
+  listResources: vi.fn(async () => ({ resources: [] })),
+  listResourceTemplates: vi.fn(async () => ({ resourceTemplates: [] })),
   listTools: vi.fn(async () => ({ tools: [] })),
+  readResource: vi.fn(async () => ({ contents: [] })),
+  subscribeResource: vi.fn(async () => undefined),
+  unsubscribeResource: vi.fn(async () => undefined),
+  watchServerFeatures: vi.fn(() => vi.fn()),
 });
 type HttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
 type StdioServer = Extract<ResolvedMcpServer, { transport: 'stdio' }>;
@@ -38,7 +48,7 @@ const resolved = (...servers: ResolvedMcpServer[]): ResolvedMcpConfig => ({ serv
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('DesktopMcpHostRuntime client capability composition', () => {
+describe('DesktopMcpHostRuntime core feature composition', () => {
   it.each([
     { childProcessesClosed: 0, cursor: '', server: http() },
     { childProcessesClosed: 1, cursor: 'next-page', server: stdio() },
@@ -109,6 +119,47 @@ describe('DesktopMcpHostRuntime client capability composition', () => {
     expect(resolveClientCapabilities).toHaveBeenCalledWith(testCase.server);
   });
 
+  it('closes the feature subscription before closing its transport client', async () => {
+    let subscriptionClosed = false;
+    const closeOrder: string[] = [];
+    const explicitClient = transportClient();
+    explicitClient.getServerCapabilities.mockReturnValue({ tools: { listChanged: true } });
+    explicitClient.listen.mockResolvedValue({
+      close: vi.fn(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        subscriptionClosed = true;
+        closeOrder.push('subscription');
+      }),
+      closed: new Promise<'graceful' | 'local' | 'remote'>(() => undefined),
+      honoredFilter: { toolsListChanged: true },
+    });
+    explicitClient.watchServerFeatures.mockImplementation(() =>
+      vi.fn(() => {
+        closeOrder.push('feature-events');
+      })
+    );
+    explicitClient.close.mockImplementation(async () => {
+      if (!subscriptionClosed) {
+        throw new Error('transport closed before feature subscription');
+      }
+      closeOrder.push('client');
+    });
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: () => explicitClient,
+    });
+    await runtime.replaceResolvedConfig(resolved(http()));
+    await runtime.host.invoke({
+      configuredServerId: parseConfiguredMcpServerId('team.linear.prod'),
+      type: 'tools/list',
+    });
+
+    const report = await runtime.host.close();
+
+    expect(report.failures).toEqual([]);
+    expect(report.subscriptionsClosed).toBe(1);
+    expect(closeOrder).toEqual(['feature-events', 'subscription', 'client']);
+  });
+
   it.each([http(), stdio()])(
     'omits clientCapabilities entirely when desktop has no explicit resolver for $transport',
     async (server) => {
@@ -133,4 +184,37 @@ describe('DesktopMcpHostRuntime client capability composition', () => {
       await runtime.host.close();
     }
   );
+
+  it('routes raw catalog causes to the internal sink without exposing them in snapshots', async () => {
+    const explicitClient = transportClient();
+    const raw = new Error('authorization=Bearer private-token');
+    const onInternalError = vi.fn();
+    explicitClient.listTools.mockRejectedValueOnce(raw);
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: () => explicitClient,
+      onInternalError,
+    });
+
+    await runtime.replaceResolvedConfig(resolved(http()));
+    await runtime.host.invoke({
+      configuredServerId: parseConfiguredMcpServerId('team.linear.prod'),
+      cursor: 'page-two',
+      type: 'tools/list',
+    });
+
+    expect(onInternalError).toHaveBeenCalledWith('mcp-tools-failed', raw);
+    expect(runtime.host.snapshot().servers[0]).toMatchObject({
+      catalog: {
+        errors: {
+          tools: {
+            category: 'operation',
+            code: 'mcp-tools-failed',
+            message: 'MCP catalog operation failed',
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(runtime.host.snapshot())).not.toContain('Bearer private-token');
+    await runtime.host.close();
+  });
 });

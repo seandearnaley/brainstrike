@@ -1,6 +1,7 @@
 import type {
   ConfiguredMcpServerId,
   McpHostAuthSnapshot,
+  McpHostCatalog,
   McpHostCloseReport,
   McpHostDiagnostic,
   McpHostError,
@@ -13,6 +14,7 @@ import type {
 } from '@brainstrike/assistant-contract';
 import { MCP_HOST_DIAGNOSTIC_MAX_ENTRIES } from '@brainstrike/assistant-contract';
 import {
+  parseMcpHostCatalog,
   parseMcpHostCloseReport,
   parseMcpHostOperationResult,
   parseMcpNegotiatedStatus,
@@ -22,9 +24,11 @@ import { McpLifecycleFailure } from './lifecycle-errors';
 
 type McpServerActorInvokeOptions = McpHostInvokeOptions & { signal: AbortSignal };
 export interface McpServerActorClient {
+  catalog?(): McpHostCatalog;
   close(): McpHostCloseReport | Promise<McpHostCloseReport>;
   invoke(operation: McpHostOperation, options: McpServerActorInvokeOptions): Promise<unknown>;
   readonly negotiated: McpNegotiatedStatus;
+  watchCatalog?(listener: (catalog: McpHostCatalog) => void): () => void;
 }
 export class McpServerActorClientCleanupError extends AggregateError {
   override readonly name = 'McpServerActorClientCleanupError';
@@ -60,7 +64,7 @@ type ActorStatus =
       state: 'authentication-required' | 'authorizing' | 'closing' | 'connecting' | 'disconnected';
     }
   | { error: McpHostError; state: 'error' }
-  | { negotiated: McpNegotiatedStatus; state: 'connected' };
+  | { catalog?: McpHostCatalog; negotiated: McpNegotiatedStatus; state: 'connected' };
 type McpServerActorErrorCode =
   | 'mcp-authentication-required'
   | 'mcp-client-close-failed'
@@ -77,6 +81,7 @@ type McpServerActorErrorCode =
   | 'mcp-protocol-timeout'
   | 'mcp-server-rejected'
   | 'mcp-spawn-not-found'
+  | 'mcp-catalog-invalid'
   | 'mcp-configured-server-mismatch'
   // Stable BST-1504 cross-process code; the underscore spelling is intentional.
   | 'mcp_generation_retired'
@@ -154,6 +159,8 @@ function mapMcpOperationError(error: unknown): MappedMcpOperationError {
         return { category: 'protocol', code: 'mcp-invalid-result' };
       case SdkErrorCode.ListPaginationExceeded:
         return { category: 'operation', code: 'mcp-list-pagination-exceeded' };
+      case SdkErrorCode.CapabilityNotSupported:
+        return { category: 'protocol', code: 'mcp-capability-missing' };
       case SdkErrorCode.MethodNotSupportedByProtocolVersion:
         return { category: 'protocol', code: 'mcp-era-mismatch' };
       case SdkErrorCode.RequestTimeout:
@@ -208,6 +215,7 @@ export class McpServerActor {
   private clientClosePromise: Promise<McpHostCloseReport> | undefined;
   private connectAttempt: AbortController | undefined;
   private clientPromise: Promise<McpServerActorClient> | undefined;
+  private catalogUnsubscribe: (() => void) | undefined;
   private closePromise: Promise<McpHostCloseReport> | undefined;
   private diagnosticPublishQueued = false;
   private failure: ActorError | undefined;
@@ -430,7 +438,26 @@ export class McpServerActor {
       throw this.fail(error);
     }
     if (!this.closePromise) {
-      this.change({ negotiated: status, state: 'connected' });
+      let catalog: McpHostCatalog | undefined;
+      try {
+        catalog = client.catalog ? parseMcpHostCatalog(client.catalog()) : undefined;
+        this.catalogUnsubscribe = client.watchCatalog?.((nextCatalog) => {
+          try {
+            const parsed = parseMcpHostCatalog(nextCatalog);
+            if (!this.closePromise && this.status.state === 'connected') {
+              this.change({ catalog: parsed, negotiated: status, state: 'connected' });
+            }
+          } catch (cause) {
+            this.diagnose('mcp-catalog-invalid', cause);
+            this.fail(new ActorError('protocol', 'mcp-catalog-invalid'));
+          }
+        });
+      } catch (cause) {
+        const error = new ActorError('protocol', 'mcp-catalog-invalid');
+        this.diagnose(error.code, cause);
+        throw this.fail(error);
+      }
+      this.change({ ...(catalog ? { catalog } : {}), negotiated: status, state: 'connected' });
     }
     return client;
   }
@@ -563,7 +590,7 @@ export class McpServerActor {
     if (!this.failure) {
       this.change({ state: 'disconnected' });
     }
-    return report;
+    return freezeCloseReport(report);
   }
 
   private diagnose(code: McpServerActorDiagnosticCode, cause: unknown): void {
@@ -634,6 +661,8 @@ export class McpServerActor {
         }
         return freezeCloseReport(report);
       } finally {
+        this.catalogUnsubscribe?.();
+        this.catalogUnsubscribe = undefined;
         this.client = undefined;
       }
     });

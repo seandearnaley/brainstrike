@@ -13,7 +13,6 @@ import {
   type McpHostAuthSnapshot,
   type McpHostCloseReport,
   type McpHostConfig,
-  type McpHostOperation,
   type McpHostPort,
   type McpHostSnapshot,
   parseConfiguredMcpServerId,
@@ -21,6 +20,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { shell } from 'electron';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
+import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features';
 import { McpHostRevisionPublisher } from './host-revision-publisher';
 import { McpHostService } from './host-service';
 import { classifyMcpLifecycleFailure, McpLifecycleFailure } from './lifecycle-errors';
@@ -46,10 +46,20 @@ import { connectedStatus } from './types';
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type ConfiguredServer = McpHostConfig['servers'][number];
 interface ExplicitClient extends NegotiatedProtocolFacts {
-  callTool: ExplicitHttpMcpClient['callTool'];
+  callTool: McpCoreFeatureClient['callTool'];
   close: ExplicitHttpMcpClient['close'];
+  complete: McpCoreFeatureClient['complete'];
   connect: ExplicitHttpMcpClient['connect'];
-  listTools: ExplicitHttpMcpClient['listTools'];
+  getPrompt: McpCoreFeatureClient['getPrompt'];
+  listen: McpCoreFeatureClient['listen'];
+  listPrompts: McpCoreFeatureClient['listPrompts'];
+  listResources: McpCoreFeatureClient['listResources'];
+  listResourceTemplates: McpCoreFeatureClient['listResourceTemplates'];
+  listTools: McpCoreFeatureClient['listTools'];
+  readResource: McpCoreFeatureClient['readResource'];
+  subscribeResource: McpCoreFeatureClient['subscribeResource'];
+  unsubscribeResource: McpCoreFeatureClient['unsubscribeResource'];
+  watchServerFeatures: McpCoreFeatureClient['watchServerFeatures'];
 }
 interface RuntimeDependencies {
   createActorClient?: (
@@ -89,6 +99,7 @@ const samePrivateConfig = (left: ResolvedMcpServer, right: ResolvedMcpServer): b
 const successfulCloseReport = (
   transport: ResolvedMcpServer['transport'],
   requestsSettled: number,
+  subscriptionsClosed: number,
   oauthProof?: McpOAuthCloseProof
 ): McpHostCloseReport =>
   Object.freeze({
@@ -99,17 +110,8 @@ const successfulCloseReport = (
     loopbackPortsClosed: oauthProof?.loopbackPortsClosed ?? 0,
     probesClosed: 0,
     requestsSettled,
-    subscriptionsClosed: 0,
+    subscriptionsClosed,
   });
-
-type ListToolsOperation = Extract<McpHostOperation, { type: 'tools/list' }>;
-const listToolsParams = (operation: ListToolsOperation) =>
-  operation._meta !== undefined || operation.cursor !== undefined
-    ? {
-        ...(operation._meta ? { _meta: operation._meta } : {}),
-        ...(operation.cursor === undefined ? {} : { cursor: operation.cursor }),
-      }
-    : undefined;
 
 async function closeClientResources(
   client: ExplicitClient,
@@ -156,6 +158,7 @@ async function connectClient(
   client: ExplicitClient,
   server: ResolvedMcpServer,
   context: ActorContext,
+  onInternalError: (code: string, cause: unknown) => void,
   diagnostics?: McpStdioDiagnosticCollector,
   provider?: McpOAuthClientProvider,
   onConnected?: () => Promise<void>
@@ -189,44 +192,68 @@ async function connectClient(
       provider
     );
   }
+  const catalogListeners = new Set<(catalog: ReturnType<typeof features.snapshot>) => void>();
+  const features = createMcpCoreServerFeatures(client, {
+    onCatalogChanged: (catalog) => {
+      for (const listener of catalogListeners) {
+        listener(catalog);
+      }
+    },
+    onInternalError,
+    signal: context.signal,
+  });
+  try {
+    await features.initialize();
+  } catch (cause) {
+    return await closeAfterFailure(client, cause, provider);
+  }
   let requestsSettled = 0;
   return {
+    catalog: () => features.snapshot(),
     async close() {
-      let oauthProof: McpOAuthCloseProof | undefined;
       try {
-        oauthProof = await closeClientResources(client, provider);
+        const errors: unknown[] = [];
+        let oauthProof: McpOAuthCloseProof | undefined;
+        let subscriptionsClosed = 0;
+        try {
+          subscriptionsClosed = (await features.close()).subscriptionsClosed;
+        } catch (cause) {
+          errors.push(cause);
+        }
+        catalogListeners.clear();
+        try {
+          oauthProof = await closeClientResources(client, provider);
+        } catch (cause) {
+          errors.push(cause);
+        }
+        if (errors.length === 1) {
+          throw errors[0];
+        }
+        if (errors.length > 1) {
+          throw new AggregateError(errors, 'Closing MCP core features and client failed');
+        }
+        return successfulCloseReport(
+          server.transport,
+          requestsSettled,
+          subscriptionsClosed,
+          oauthProof
+        );
       } finally {
         diagnostics?.flush();
       }
-      return successfulCloseReport(server.transport, requestsSettled, oauthProof);
     },
     async invoke(operation, options) {
-      const onProgress = options.onProgress;
       try {
-        if (operation.type === 'tools/list') {
-          return await client.listTools({ signal: options.signal }, listToolsParams(operation));
-        }
-        if (operation.type !== 'tools/call') {
-          throw new Error(`MCP operation ${operation.type} is not implemented by this host layer`);
-        }
-        return await client.callTool(
-          {
-            ...(operation._meta ? { _meta: operation._meta } : {}),
-            ...(operation.arguments ? { arguments: operation.arguments } : {}),
-            name: operation.toolName,
-            ...(operation.task ? { task: operation.task } : {}),
-          },
-          {
-            ...(onProgress ? { onprogress: onProgress } : {}),
-            resetTimeoutOnProgress: true,
-            signal: options.signal,
-          }
-        );
+        return await features.invoke(operation, options);
       } finally {
         requestsSettled += 1;
       }
     },
     negotiated: status.negotiated,
+    watchCatalog(listener) {
+      catalogListeners.add(listener);
+      return () => catalogListeners.delete(listener);
+    },
   };
 }
 
@@ -478,6 +505,7 @@ export class DesktopMcpHostRuntime {
   ): Promise<McpServerActorClient> {
     const clientCapabilities = this.resolveClientCapabilities(server);
     const common = {
+      cachePartition: `${server.name}:${context.generation}`,
       clientInfo: { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
       ...(clientCapabilities ? { clientCapabilities } : {}),
       name: server.name,
@@ -505,7 +533,13 @@ export class DesktopMcpHostRuntime {
           context.onUnexpectedClose(new McpLifecycleFailure('connection', 'mcp-child-exited')),
         userPacedAuth: server.startup === 'authentication-required',
       });
-      return connectClient(client, server, context, diagnostics);
+      return connectClient(
+        client,
+        server,
+        context,
+        (code, cause) => this.reportInternalError(code, cause),
+        diagnostics
+      );
     }
     let provider: McpOAuthClientProvider | undefined;
     if (server.auth?.type === 'oauth-user') {
@@ -545,6 +579,7 @@ export class DesktopMcpHostRuntime {
       client,
       server,
       context,
+      (code, cause) => this.reportInternalError(code, cause),
       undefined,
       provider,
       provider
