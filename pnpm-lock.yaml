@@ -1088,6 +1088,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/mcp-app-host':
+        specifier: workspace:*
+        version: link:../mcp-app-host
       '@brainstrike/mcp-tasks-extension':
         specifier: workspace:*
         version: link:../mcp-tasks-extension
@@ -1535,6 +1538,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/mcp-app-host':
+        specifier: workspace:*
+        version: link:../mcp-app-host
       '@brainstrike/tokenization':
         specifier: workspace:*
         version: link:../tokenization

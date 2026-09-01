@@ -2198,6 +2198,17 @@ This is infrastructure, not capability graduation: production Apps
 advertisement remains disabled until the host surface and packaged lifecycle
 layers are complete and reviewed together.
 
+The BST-1571 host surface lives in `@brainstrike/assistant-ui` as an explicitly
+composed capability, not a global or auto-mounted renderer. Its closed state
+union renders loading, ready, sanitized error-code, cancelled, and completed
+states without accepting raw error text. App-originated `ask` calls render one
+focus-trapped `alertdialog` at a time, expose only the owned tool name and risk
+category, and never render arguments or results. Allow and Deny act on the
+authority's opaque consent id; tab/shift-tab stay inside the dialog, Escape
+denies, and settlement restores focus to the host-provided recovery target.
+The sandbox slot is inert and hidden from assistive technology while consent is
+open. This surface still does not register or advertise MCP Apps in production.
+
 BST-1567 owns the disabled Apps wire-contract projection from the immutable
 `@modelcontextprotocol/ext-apps@1.7.5` schema and stable `2026-01-26` spec. It
 accepts all 15 stable `ui/*` methods plus `tools/call`, `resources/read`,

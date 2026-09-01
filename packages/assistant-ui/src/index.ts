@@ -61,6 +61,12 @@ export {
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export { McpTaskStatusCard, type McpTaskStatusCardProps } from './mcp-task-status-card';
 export {
+  type McpAppHostErrorCode,
+  type McpAppHostState,
+  McpAppHostSurface,
+  type McpAppHostSurfaceProps,
+} from './mcp-app-host-surface';
+export {
   MessageRewindAction,
   REWIND_ACTION_LABEL,
   RewindComposerBridge,
