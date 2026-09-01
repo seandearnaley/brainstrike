@@ -30,6 +30,15 @@ export {
   parseMcpAppToolMeta,
 } from './metadata.js';
 export {
+  type McpAppAudience,
+  type McpAppGeneration,
+  type McpAppOwnedResource,
+  type McpAppOwnedTool,
+  type McpAppOwnedToolResult,
+  McpAppProvenanceAuthority,
+  type McpAppToolCall,
+} from './provenance.js';
+export {
   MCP_APPS_PINNED_SCHEMA_UI_METHODS,
   MCP_APPS_SCHEMA_EXCLUSIONS,
   MCP_APPS_STABLE_METHODS,
