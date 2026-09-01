@@ -128,3 +128,21 @@ test('reports missing child output explicitly in diagnostics blocks', () => {
     ].join('\n')
   );
 });
+
+test('drops a truncated partial line so an unlabeled secret value cannot survive', () => {
+  const collector = createOfficialDiagnosticCollector();
+  collector.collect(`access_token=${'a'.repeat(70_000)}\nnext line ok\n`);
+  const lines = collector.lines();
+  assert.equal(lines.at(-1), 'next line ok');
+  assert.ok(lines[0].startsWith('…['));
+  assert.ok(!lines.some((line) => line.includes('aaaa')));
+});
+
+test('discards the whole buffer when overflow leaves no complete line', () => {
+  const collector = createOfficialDiagnosticCollector();
+  collector.collect(`refresh_token=${'b'.repeat(70_000)}`);
+  const lines = collector.lines();
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /earlier chars dropped/u);
+  assert.ok(!lines[0].includes('bbbb'));
+});

@@ -7,6 +7,8 @@ import {
 import { sanitizeStdioDiagnosticLine } from './mcp/stdio-diagnostics';
 
 const FAILURE_CAUSE_MAX_DEPTH = 4;
+const FAILURE_CAUSE_MAX_PARTS = 6;
+const FAILURE_CAUSE_MAX_AGGREGATED = 3;
 
 const ProcessInputSchema = z.strictObject({
   context: z.string().optional(),
@@ -47,21 +49,31 @@ export function parseOfficialConformanceProcessInput(
   return parsed;
 }
 
-export function describeConformanceFailureCause(error: unknown): string {
-  const parts: string[] = [];
-  let current: unknown = error;
-  for (let depth = 0; depth < FAILURE_CAUSE_MAX_DEPTH; depth += 1) {
-    if (current === undefined || current === null) {
-      break;
-    }
-    if (current instanceof Error) {
-      parts.push(`${current.name}: ${current.message}`);
-      current = current.cause;
-    } else {
-      parts.push(String(current));
-      break;
+function collectFailureCauseParts(error: unknown, parts: string[], depth: number): void {
+  if (
+    error === undefined ||
+    error === null ||
+    depth >= FAILURE_CAUSE_MAX_DEPTH ||
+    parts.length >= FAILURE_CAUSE_MAX_PARTS
+  ) {
+    return;
+  }
+  if (!(error instanceof Error)) {
+    parts.push(String(error));
+    return;
+  }
+  parts.push(`${error.name}: ${error.message}`);
+  if (error instanceof AggregateError) {
+    for (const aggregated of error.errors.slice(0, FAILURE_CAUSE_MAX_AGGREGATED)) {
+      collectFailureCauseParts(aggregated, parts, depth + 1);
     }
   }
+  collectFailureCauseParts(error.cause, parts, depth + 1);
+}
+
+export function describeConformanceFailureCause(error: unknown): string {
+  const parts: string[] = [];
+  collectFailureCauseParts(error, parts, 0);
   const flattened = parts.join(' <- ').replace(/\s+/gu, ' ');
   return sanitizeStdioDiagnosticLine(flattened)?.message ?? 'unknown cause';
 }

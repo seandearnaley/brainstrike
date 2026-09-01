@@ -2356,9 +2356,19 @@ official single-scenario mode, a 30-second upstream timeout and a 45-second
 outer deadline, so the official process's exit status is authoritative. The
 driver never passes `--expected-failures` or auth `--output-dir`: alpha.10's raw
 auth output can contain conformance context, token bodies and OAuth responses.
-Child stdio is not inherited. Results retain only fixed revision/scenario ids,
-pass/fail status, timings, and a closed start/timeout/cleanup/exit/runner failure
-discriminator; failures aggregate once without child diagnostics.
+Child stdio is not inherited; it is captured through a bounded collector that
+truncates only at line boundaries (so a dropped secret label can never leave an
+unlabeled value behind), sanitized per line (ANSI stripped; URL queries, OAuth
+parameters, and structured secret assignments redacted; 512-char line bound),
+and printed to driver stderr as one bounded diagnostics block per failed
+scenario — passing scenarios emit nothing. Results retain only fixed
+revision/scenario ids, pass/fail status, timings, and a closed
+start/timeout/cleanup/exit/runner failure discriminator; failure ids aggregate
+once, and captured child output never enters the sanitized evidence artifact.
+The conformance client process reports a sanitized bounded failure-cause chain
+(including `AggregateError` members) for runtime failures; parse-phase failures
+keep a fixed message because process input can carry credential-bearing auth
+context.
 
 The baseline driver writes one atomic, mode-0600
 `packages/mcp-test-lab/artifacts/official-auth-evidence.json` file; the modern

@@ -108,8 +108,14 @@ export function createOfficialDiagnosticCollector() {
     collect(chunk) {
       buffered += String(chunk);
       if (buffered.length > OFFICIAL_DIAGNOSTIC_MAX_BUFFER_CHARS) {
-        droppedChars += buffered.length - OFFICIAL_DIAGNOSTIC_MAX_BUFFER_CHARS;
-        buffered = buffered.slice(-OFFICIAL_DIAGNOSTIC_MAX_BUFFER_CHARS);
+        // Cut only at a line boundary: keeping the raw tail of a truncated
+        // line could retain a secret value whose label was dropped, and an
+        // unlabeled value defeats the pattern-based sanitizer below.
+        const overflowCut = buffered.length - OFFICIAL_DIAGNOSTIC_MAX_BUFFER_CHARS;
+        const nextLineStart = buffered.indexOf('\n', overflowCut);
+        const cut = nextLineStart === -1 ? buffered.length : nextLineStart + 1;
+        droppedChars += cut;
+        buffered = buffered.slice(cut);
       }
     },
     lines() {

@@ -512,6 +512,38 @@ describe('production MCP conformance client contract', () => {
     expect(written.endsWith('\n')).toBe(true);
   });
 
+  it('traverses AggregateError members in the sanitized failure cause', async () => {
+    const writeError = vi.fn();
+    const runClient = vi
+      .fn()
+      .mockRejectedValue(
+        new AggregateError(
+          [
+            new Error('scenario timeout access_token=sk-agg-leak'),
+            new Error('cleanup close failed'),
+          ],
+          'Production MCP conformance client and cleanup failed'
+        )
+      );
+
+    await expect(
+      runOfficialConformanceProcess(
+        ['https://mcp.example.test/mcp'],
+        {
+          MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
+          MCP_CONFORMANCE_SCENARIO: 'auth/basic-cimd',
+        },
+        { runClient, writeError }
+      )
+    ).resolves.toBe(1);
+
+    const written = String(writeError.mock.calls[0]?.[0]);
+    expect(written).toContain('Production MCP conformance client and cleanup failed');
+    expect(written).toContain('scenario timeout');
+    expect(written).toContain('cleanup close failed');
+    expect(written).not.toContain('sk-agg-leak');
+  });
+
   it('uses the production host runtime without constructing a parallel MCP client', () => {
     const source = readFileSync(SOURCE_PATH, 'utf8');
     const sourceFile = ts.createSourceFile(
