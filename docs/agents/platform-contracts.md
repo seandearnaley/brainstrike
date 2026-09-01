@@ -1458,6 +1458,17 @@ which is most of what this backstop exists to catch. This is also why there
 is no new rotating-log dependency (`pino-roll` etc.) — the rotation logic is
 hand-rolled in `RotatingFileSink` instead.
 
+MCP stdio child diagnostics join this existing path only after
+`McpStdioDiagnosticCollector` has made each line bounded, line-safe, and
+secret-redacted, including URL userinfo. Routine lines stay at `debug` and in
+the bounded session snapshot; they are not persisted. A connection failure or
+unexpected child exit takes one memoized failure report per server generation:
+at most the last five sanitized diagnostics plus the number omitted. That one
+`warn` is eligible for both the renderer diagnostic-event writer and the
+desktop NDJSON backstop. The production `logging-ipc.ts` addLogListener choke
+point, not a test-only listener, owns that handoff. Never log the raw stderr
+chunk alongside it.
+
 **Recursion rule**: nothing in the sink path
 (`rotating-file-sink.ts`, `error-log-sink.ts`) may import or call
 `@brainstrike/logging` — the sink is fed BY a log listener, so logging

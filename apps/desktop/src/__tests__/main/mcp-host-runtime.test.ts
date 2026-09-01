@@ -1,7 +1,7 @@
 import type { ExplicitHttpMcpClient } from '@brainstrike/agent/mcp-client';
 import type { McpHostCloseReport, McpHostConfig } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId, parseMcpHostConfig } from '@brainstrike/assistant-contract';
-import { addLogListener, type LogRecord } from '@brainstrike/logging';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createDesktopMcpHostRuntime,
@@ -858,7 +858,7 @@ describe('DesktopMcpHostRuntime', () => {
     }
   });
 
-  it('projects sanitized stdio diagnostics without treating every child line as a warning', async () => {
+  it('projects sanitized stdio diagnostics without persisting healthy stderr chatter', async () => {
     const explicitClient = transportClient();
     const records: LogRecord[] = [];
     const stop = addLogListener((record) => records.push(record));
@@ -881,9 +881,12 @@ describe('DesktopMcpHostRuntime', () => {
 
       const diagnostic = runtime.host.snapshot().servers[0]?.diagnostics?.[0]?.message;
       expect(diagnostic).toBe('Authorize at https://auth.example/callback?[redacted-query]');
-      expect(records).not.toContainEqual(
-        expect.objectContaining({ message: 'MCP stdio diagnostic' })
-      );
+      expect(
+        records.some(
+          (record) =>
+            record.level === LogLevel.WARN && record.message === 'MCP stdio failure diagnostics'
+        )
+      ).toBe(false);
       expect(JSON.stringify({ diagnostic, records })).not.toMatch(/private-code|private-state/u);
     } finally {
       stop();

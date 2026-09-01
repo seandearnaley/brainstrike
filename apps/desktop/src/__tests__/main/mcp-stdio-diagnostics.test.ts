@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES,
   MCP_STDIO_DIAGNOSTIC_MAX_MESSAGE_CHARS,
+  MCP_STDIO_DURABLE_FAILURE_MAX_ENTRIES,
   McpStdioDiagnosticCollector,
 } from '../../mcp/stdio-diagnostics';
 
@@ -13,6 +14,7 @@ describe('McpStdioDiagnosticCollector', () => {
 
     collector.write(
       'Open https://auth.example/authorize?code=oauth-code&state=oauth-state\r\n' +
+        'Basic URL https://alice:password@example.com/private\n' +
         `Authorization: ${bearer}\ncode_verifier=pkce-secret&state=state-secret\n`
     );
     collector.write(
@@ -22,9 +24,12 @@ describe('McpStdioDiagnosticCollector', () => {
 
     const messages = emitted.mock.calls.map(([diagnostic]) => diagnostic.message).join('\n');
     expect(messages).toContain('https://auth.example/authorize?[redacted-query]');
+    expect(messages).toContain('https://example.com/private');
     expect(messages).toContain('[redacted-oauth-parameter]');
     expect(messages).toContain('[redacted-secret:bearer-token]');
-    expect(messages).not.toMatch(/oauth-code|oauth-state|pkce-secret|state-secret|secret-token/u);
+    expect(messages).not.toMatch(
+      /oauth-code|oauth-state|pkce-secret|state-secret|secret-token|alice|password/u
+    );
     expect(messages).not.toContain('\u0000');
     for (const [diagnostic] of emitted.mock.calls) {
       expect(diagnostic.message.length).toBeLessThanOrEqual(MCP_STDIO_DIAGNOSTIC_MAX_MESSAGE_CHARS);
@@ -44,6 +49,19 @@ describe('McpStdioDiagnosticCollector', () => {
 
     expect(collector.snapshot()).toHaveLength(MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES);
     expect(collector.snapshot()[0]?.message).toBe('line-3');
+  });
+
+  it('takes one bounded durable failure report with an honest omitted count', () => {
+    const collector = new McpStdioDiagnosticCollector();
+    const total = MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES + 4;
+    collector.write(Array.from({ length: total }, (_, index) => `line-${index}`).join('\n'));
+    collector.flush();
+
+    const report = collector.takeFailureReport();
+    expect(report?.diagnostics).toHaveLength(MCP_STDIO_DURABLE_FAILURE_MAX_ENTRIES);
+    expect(report?.diagnostics[0]?.message).toBe(`line-${total - 5}`);
+    expect(report?.omittedDiagnostics).toBe(total - MCP_STDIO_DURABLE_FAILURE_MAX_ENTRIES);
+    expect(collector.takeFailureReport()).toBeNull();
   });
 
   it('redacts structured, colon-delimited, escaped, and multiline secret values', () => {
