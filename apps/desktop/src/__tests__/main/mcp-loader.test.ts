@@ -459,6 +459,9 @@ describe('mcp-loader', () => {
     expect(template).toContain('"transport": "streamable-http"');
     expect(template).toContain('"url": "https://your-host.example.com/mcp"');
     expect(template).toContain('Example: Legacy remote SSE server');
+    expect(template).toContain('"store": "mcp-credentials"');
+    expect(template).not.toContain('YOUR_TOKEN');
+    expect(template).not.toContain('"Authorization"');
     expect(template).toContain('Native Linear OAuth (hard read-only endpoint; safest default)');
     expect(template).toContain('"url": "https://mcp.linear.app/mcp/readonly"');
     expect(template).toContain('"scopes": ["read"]');

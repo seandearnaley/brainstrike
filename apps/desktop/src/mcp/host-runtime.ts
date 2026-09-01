@@ -19,6 +19,10 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
+import {
+  createSecretsMcpBearerCredentialAuthority,
+  type McpBearerCredentialAuthority,
+} from './bearer-credential';
 import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features';
 import { McpHostRevisionPublisher } from './host-revision-publisher';
 import { McpHostService } from './host-service';
@@ -62,6 +66,7 @@ interface ExplicitClient extends NegotiatedProtocolFacts {
   watchServerFeatures: McpCoreFeatureClient['watchServerFeatures'];
 }
 export interface DesktopMcpHostRuntimeDependencies {
+  bearerCredentialAuthority?: McpBearerCredentialAuthority;
   createActorClient?: (
     server: ResolvedMcpServer,
     context: ActorContext
@@ -74,6 +79,25 @@ export interface DesktopMcpHostRuntimeDependencies {
   onInternalError?: (code: string, cause: unknown) => Promise<void> | void;
   openExternal?: (url: string) => Promise<void>;
   resolveClientCapabilities?: (server: ResolvedMcpServer) => McpClientCapabilityOptions | undefined;
+}
+
+function createDefaultBearerCredentialAuthority(): McpBearerCredentialAuthority {
+  let authority: Promise<McpBearerCredentialAuthority> | undefined;
+  const load = (): Promise<McpBearerCredentialAuthority> => {
+    authority ??= import('../secrets').then(({ getSecretsService }) =>
+      createSecretsMcpBearerCredentialAuthority(getSecretsService())
+    );
+    return authority;
+  };
+  return {
+    createFetch(reference, resourceUrl) {
+      return async (input, init) =>
+        await (await load()).createFetch(reference, resourceUrl)(input, init);
+    },
+    async inspect(reference) {
+      return await (await load()).inspect(reference);
+    },
+  };
 }
 
 function createDefaultOAuthStore(): McpOAuthStore {
@@ -316,6 +340,7 @@ function reportStdioFailureDiagnostics(
 }
 
 export class DesktopMcpHostRuntime {
+  private readonly bearerCredentialAuthority: McpBearerCredentialAuthority;
   private committedByRef = new Map<string, PrivateConfigEntry>();
   private currentById = new Map<ConfiguredMcpServerId, PrivateConfigEntry>();
   private readonly pendingOAuthCleanup = new Map<
@@ -349,6 +374,8 @@ export class DesktopMcpHostRuntime {
   >;
 
   constructor(dependencies: DesktopMcpHostRuntimeDependencies = {}) {
+    this.bearerCredentialAuthority =
+      dependencies.bearerCredentialAuthority ?? createDefaultBearerCredentialAuthority();
     this.createConfigRef = dependencies.createConfigRef ?? randomUUID;
     this.createHttpTransportClient =
       dependencies.createHttpTransportClient ?? ((options) => new ExplicitHttpMcpClient(options));
@@ -537,7 +564,10 @@ export class DesktopMcpHostRuntime {
       return { type: 'none' };
     }
     if (server.auth.type === 'bearer') {
-      return { state: 'configured', type: 'bearer' };
+      const { state: credentialState } = await this.bearerCredentialAuthority.inspect(
+        server.auth.credential
+      );
+      return { credentialState, type: 'bearer' };
     }
     const identity = createMcpOAuthStoreIdentity(server.name, server.url, server.auth.scopes);
     try {
@@ -618,6 +648,10 @@ export class DesktopMcpHostRuntime {
       });
       updateAuth(provider.authSnapshot());
     }
+    const bearerFetch =
+      server.auth?.type === 'bearer'
+        ? this.bearerCredentialAuthority.createFetch(server.auth.credential, server.url)
+        : undefined;
     let client: ExplicitClient;
     try {
       client = this.createHttpTransportClient({
@@ -629,7 +663,9 @@ export class DesktopMcpHostRuntime {
               fetch: provider.fetch,
               maxStepUpRetries: MCP_OAUTH_MAX_STEP_UP_RETRIES,
             }
-          : {}),
+          : bearerFetch
+            ? { fetch: bearerFetch }
+            : {}),
         ...(server.headers ? { headers: server.headers } : {}),
         lifecycle: 'host-owned',
         ...(provider ? { onInsufficientScope: 'reauthorize' as const } : {}),

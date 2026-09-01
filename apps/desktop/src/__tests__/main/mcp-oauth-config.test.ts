@@ -41,27 +41,36 @@ describe('MCP explicit HTTP authentication modes', () => {
     });
   });
 
-  it('keeps bearer references gated until a credential resolver exists', () => {
-    expect(() =>
-      parseMcpConfig(
-        JSON.stringify({
-          servers: [
-            {
-              auth: {
-                credential: {
-                  id: '00000000-0000-4000-8000-000000000001',
-                  store: 'mcp-credentials',
-                },
-                type: 'bearer',
+  it('accepts only an opaque secure-store reference for external bearer authentication', () => {
+    const config = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            auth: {
+              credential: {
+                id: '00000000-0000-4000-8000-000000000001',
+                store: 'mcp-credentials',
               },
-              name: 'bearer',
-              transport: 'streamable-http',
-              url: 'https://example.test/bearer',
+              type: 'bearer',
             },
-          ],
-        })
-      )
-    ).toThrow('MCP bearer authentication requires a production credential resolver');
+            name: 'bearer',
+            transport: 'streamable-http',
+            url: 'https://example.test/bearer',
+          },
+        ],
+      })
+    );
+
+    expect(config.servers[0]).toMatchObject({
+      auth: {
+        credential: {
+          id: '00000000-0000-4000-8000-000000000001',
+          store: 'mcp-credentials',
+        },
+        type: 'bearer',
+      },
+    });
+    expect(JSON.stringify(config)).not.toContain('token');
   });
 
   it('rejects malformed or duplicate OAuth scope policy', () => {
@@ -92,6 +101,30 @@ describe('MCP explicit HTTP authentication modes', () => {
               auth: { type: 'oauth-user' },
               headers: { Authorization: 'Bearer configured-secret' },
               name: 'conflicting',
+              transport: 'streamable-http',
+              url: 'https://example.test/mcp',
+            },
+          ],
+        })
+      )
+    ).toThrow('auth mode must not be combined with an Authorization header');
+  });
+
+  it('rejects an external bearer reference beside a configured Authorization header', () => {
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              auth: {
+                credential: {
+                  id: '00000000-0000-4000-8000-000000000001',
+                  store: 'mcp-credentials',
+                },
+                type: 'bearer',
+              },
+              headers: { Authorization: 'Bearer configured-secret' },
+              name: 'conflicting-bearer',
               transport: 'streamable-http',
               url: 'https://example.test/mcp',
             },

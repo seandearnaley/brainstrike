@@ -2076,6 +2076,21 @@ Remote transport rules:
   transport. A 400/404/405 initialization failure therefore remains visible.
 - Both HTTP variants share strict HTTP(S)-URL, no-embedded-credentials, header,
   secret-decryption, cancellation, progress, and lifecycle behavior.
+- External bearer auth is desktop-main-only and reference-based. JSONC carries
+  exactly `{ type: "bearer", credential: { store: "mcp-credentials", id:
+  <uuid> } }`; the UUID maps to the `mcp-credentials:<uuid>` slot in the
+  existing safeStorage-encrypted `SecretsService`. The renderer-visible host
+  snapshot projects only `missing | stored | unreadable`. The credential
+  authority resolves the token for every owned HTTP request and injects
+  `Authorization: Bearer …` only after proving that the request origin equals
+  the configured resource origin and that no competing Authorization header
+  exists. The host runtime, config projection, actor context, status, logs,
+  diagnostics, and errors receive no token. Missing, unreadable, malformed,
+  cross-origin, and conflicting-auth states fail with fixed codes and static
+  messages; no fallback to unauthenticated transport occurs. Ordinary
+  disconnect closes the transport but retains the externally managed secret.
+  Factory reset clears the shared SecretsService, and request-time resolution
+  means no connected fetch closure can retain the cleared bearer.
 - HTTP lifecycle ownership is explicit. `client-owned` connections invalidate,
   close, reconnect once, and replay only a reconnectable session failure.
   `host-owned` connections invalidate and close locally without replay; the

@@ -167,13 +167,6 @@ const McpServerInputSchema = z
         path: ['auth'],
       });
     }
-    if (server.transport !== 'stdio' && server.auth?.type === 'bearer') {
-      context.addIssue({
-        code: 'custom',
-        message: 'MCP bearer authentication requires a production credential resolver',
-        path: ['auth'],
-      });
-    }
     if (
       server.transport !== 'stdio' &&
       server.auth?.type === 'oauth-user' &&
@@ -263,25 +256,35 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     //   "auth": { "type": "oauth-user" }
     // },
 
-    // Example: Remote Streamable HTTP server
+    // Example: Remote Streamable HTTP server with an external bearer credential.
+    // The UUID references the encrypted desktop credential authority; the token
+    // itself never belongs in this JSONC file.
     // {
     //   "transport": "streamable-http",
     //   "name": "remote-api",
     //   "protocol": "legacy",
     //   "url": "https://your-host.example.com/mcp",
-    //   "headers": {
-    //     "Authorization": "Bearer YOUR_TOKEN"
+    //   "auth": {
+    //     "type": "bearer",
+    //     "credential": {
+    //       "store": "mcp-credentials",
+    //       "id": "00000000-0000-4000-8000-000000000000"
+    //     }
     //   }
     // },
 
-    // Example: Legacy remote SSE server
+    // Example: Legacy remote SSE server using the same secure reference form.
     // {
     //   "transport": "sse",
     //   "name": "legacy-remote-api",
     //   "protocol": "legacy",
     //   "url": "https://your-host.example.com/mcp/sse",
-    //   "headers": {
-    //     "Authorization": "Bearer YOUR_TOKEN"
+    //   "auth": {
+    //     "type": "bearer",
+    //     "credential": {
+    //       "store": "mcp-credentials",
+    //       "id": "00000000-0000-4000-8000-000000000000"
+    //     }
     //   }
     // }
   ]

@@ -51,7 +51,13 @@ function McpAuthStatus({ server }: { readonly server: McpServerInfo }) {
     return <div className="text-muted-foreground text-xs">Authentication: none</div>;
   }
   if (auth.type === 'bearer') {
-    return <div className="text-muted-foreground text-xs">Bearer credential configured</div>;
+    const credentialLabel =
+      auth.credentialState === 'stored'
+        ? 'stored'
+        : auth.credentialState === 'unreadable'
+          ? 'unreadable'
+          : 'not stored';
+    return <div className="text-muted-foreground text-xs">Bearer credential {credentialLabel}</div>;
   }
   const credentialLabel =
     auth.credentialState === 'stored'

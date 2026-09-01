@@ -6,6 +6,7 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
+import { createSecretsMcpBearerCredentialAuthority } from '../../mcp/bearer-credential';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { createHttpClient } from '../../mcp/http-client';
 import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
@@ -266,6 +267,116 @@ async function startLegacySseServer(pathname = '/legacy'): Promise<RunningMcpSer
 }
 
 describe('desktop explicit HTTP MCP client', () => {
+  test('resolves an opaque bearer reference only at the real transport boundary', async () => {
+    const server = await startStreamableHttpServer('/mcp');
+    cleanup.push(server.close);
+    const configuredServerId = parseConfiguredMcpServerId('bearer.transport');
+    const reference = {
+      id: '00000000-0000-4000-8000-000000000001',
+      store: 'mcp-credentials',
+    } as const;
+    const secret = 'real-transport-secret-sentinel';
+    let storedCredential: string | null = secret;
+    const authority = createSecretsMcpBearerCredentialAuthority({
+      getKey: async () => storedCredential,
+    });
+    const runtime = createDesktopMcpHostRuntime({ bearerCredentialAuthority: authority });
+    const config = {
+      servers: [
+        {
+          auth: { credential: reference, type: 'bearer' as const },
+          name: configuredServerId,
+          protocol: 'auto' as const,
+          startup: 'automatic' as const,
+          transport: 'streamable-http' as const,
+          url: server.url,
+        },
+      ],
+    };
+
+    try {
+      const snapshot = await runtime.replaceResolvedConfig(config);
+      expect(snapshot.servers[0]).toMatchObject({
+        auth: { credentialState: 'stored', type: 'bearer' },
+      });
+      expect(JSON.stringify({ config, snapshot })).not.toContain(secret);
+
+      await expect(
+        runtime.host.invoke({
+          arguments: { text: 'before-reset' },
+          configuredServerId,
+          toolName: 'echo',
+          type: 'tools/call',
+        })
+      ).resolves.toMatchObject({
+        result: { structuredContent: { echo: 'before-reset' } },
+        type: 'tools/call',
+      });
+      expect(server.requests.length).toBeGreaterThan(0);
+      expect(
+        server.requests.every(({ authorization }) => authorization === `Bearer ${secret}`)
+      ).toBe(true);
+
+      const requestCountBeforeReset = server.requests.length;
+      storedCredential = null;
+      const failure = runtime.host.invoke({
+        arguments: { text: 'after-reset' },
+        configuredServerId,
+        toolName: 'echo',
+        type: 'tools/call',
+      });
+      await expect(failure).rejects.toMatchObject({
+        category: 'authentication',
+        code: 'mcp-bearer-credential-missing',
+      });
+      expect(server.requests).toHaveLength(requestCountBeforeReset);
+      expect(String(await failure.catch((error: unknown) => error))).not.toContain(secret);
+    } finally {
+      await runtime.host.close();
+    }
+  }, 30_000);
+
+  test('fails an initial real transport connection with the fixed missing-credential code', async () => {
+    const server = await startStreamableHttpServer('/mcp');
+    cleanup.push(server.close);
+    const configuredServerId = parseConfiguredMcpServerId('bearer.missing');
+    const authority = createSecretsMcpBearerCredentialAuthority({
+      getKey: async () => null,
+    });
+    const runtime = createDesktopMcpHostRuntime({ bearerCredentialAuthority: authority });
+
+    try {
+      await runtime.replaceResolvedConfig({
+        servers: [
+          {
+            auth: {
+              credential: {
+                id: '00000000-0000-4000-8000-000000000001',
+                store: 'mcp-credentials',
+              },
+              type: 'bearer',
+            },
+            name: configuredServerId,
+            protocol: 'auto',
+            startup: 'automatic',
+            transport: 'streamable-http',
+            url: server.url,
+          },
+        ],
+      });
+
+      await expect(
+        runtime.host.invoke({ configuredServerId, type: 'tools/list' })
+      ).rejects.toMatchObject({
+        category: 'authentication',
+        code: 'mcp-bearer-credential-missing',
+      });
+      expect(server.requests).toEqual([]);
+    } finally {
+      await runtime.host.close();
+    }
+  }, 30_000);
+
   test('desktop host closes its real Streamable HTTP session after settled work', async () => {
     const server = await startStreamableHttpServer('/mcp', () => 'desktop-host-lifecycle-session');
     cleanup.push(server.close);

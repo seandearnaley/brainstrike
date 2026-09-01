@@ -6,10 +6,15 @@ import {
   SdkHttpError,
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
+import { McpBearerCredentialFailure } from './bearer-credential';
 
 export type McpLifecycleFailureCode =
   | 'mcp-auth-callback-timeout'
   | 'mcp-authentication-required'
+  | 'mcp-bearer-authorization-conflict'
+  | 'mcp-bearer-credential-missing'
+  | 'mcp-bearer-credential-unreadable'
+  | 'mcp-bearer-origin-mismatch'
   | 'mcp-browser-open-failed'
   | 'mcp-child-exited'
   | 'mcp-connection-failed'
@@ -21,6 +26,11 @@ export type McpLifecycleFailureCode =
 const FAILURE_MESSAGES = {
   'mcp-auth-callback-timeout': 'MCP authorization callback timed out',
   'mcp-authentication-required': 'MCP server requires authentication',
+  'mcp-bearer-authorization-conflict':
+    'MCP bearer authentication conflicts with transport authorization',
+  'mcp-bearer-credential-missing': 'MCP bearer credential is missing',
+  'mcp-bearer-credential-unreadable': 'MCP bearer credential is unreadable',
+  'mcp-bearer-origin-mismatch': 'MCP bearer credential cannot be sent to another origin',
   'mcp-browser-open-failed': 'MCP authorization browser could not be opened',
   'mcp-child-exited': 'MCP stdio child exited before the operation completed',
   'mcp-connection-failed': 'MCP server connection failed',
@@ -47,6 +57,17 @@ function readCode(cause: unknown): string | undefined {
     return undefined;
   }
   return typeof cause.code === 'string' ? cause.code : undefined;
+}
+
+function findBearerCredentialFailure(cause: unknown): McpBearerCredentialFailure | undefined {
+  if (cause instanceof McpBearerCredentialFailure) {
+    return cause;
+  }
+  if (!(SdkError.isInstance(cause) && cause.data && typeof cause.data === 'object')) {
+    return;
+  }
+  const nested = Reflect.get(cause.data, 'cause');
+  return nested instanceof McpBearerCredentialFailure ? nested : undefined;
 }
 
 function packageResolutionFailed(diagnostics: readonly McpHostDiagnostic[]): boolean {
@@ -78,6 +99,12 @@ export function classifyMcpLifecycleFailure(
 ): McpLifecycleFailure {
   if (cause instanceof McpLifecycleFailure) {
     return cause;
+  }
+  const bearerFailure = findBearerCredentialFailure(cause);
+  if (bearerFailure) {
+    return new McpLifecycleFailure(bearerFailure.category, bearerFailure.code, {
+      cause: bearerFailure,
+    });
   }
   const code = readCode(cause);
   if (code === 'ENOENT') {

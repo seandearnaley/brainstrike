@@ -179,7 +179,7 @@ import {
   initializeProviderAuthRuntime,
   purgeProviderAuthRuntimeState,
 } from './provider-auth/provider-auth-runtime';
-import { createSecretsService } from './secrets';
+import { getSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
@@ -1963,7 +1963,7 @@ if (singleInstanceLockAcquired) {
       // ONE SecretsService instance is shared by the secrets IPC domain and
       // the provider-auth engine — two ElectronStore instances over the same
       // file would serve stale reads to each other.
-      const secretsService = createSecretsService();
+      const secretsService = getSecretsService();
       registerSecretsIpcHandlers(secretsService, {
         envFileFailures: desktopEnvLoadResult.failures,
         // Factory reset must also drop the provider-auth engine's IN-MEMORY

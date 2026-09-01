@@ -154,6 +154,16 @@ tolerated degradation: browsers without `indexedDB.databases()`, or browsers
 where enumeration rejects, still delete the explicit Brainstrike fallback
 names. Never convert a failed deletion into reset success.
 
+The main process uses one `getSecretsService()` singleton for secrets IPC,
+provider auth, and MCP external bearer resolution. MCP bearer references are
+namespaced keys inside that existing encrypted store, not a second credential
+database. The bearer transport resolves on every request and never caches token
+material, so the existing secrets `clearAll` step is the complete reset
+authority: after reset, an already-created transport closure fails visibly as
+credential-missing before network I/O. No extra bearer runtime purge exists or
+is needed unless token caching is introduced later (which would require this
+contract and paired reset tests to change together).
+
 If you add new persistence (Caches API, service worker, filesystem handles, etc.):
 - Document it next to the helper.
 - Integrate into reset pipeline.
