@@ -1,4 +1,4 @@
-import type { McpHostOperation } from '@brainstrike/assistant-contract';
+import type { McpHostOperation, McpHostPort } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import {
   createMcpContentApplicationPort,
@@ -89,6 +89,32 @@ function rejectOnAbort(signal: AbortSignal): Promise<never> {
     signal.addEventListener('abort', () => reject(signal.reason), { once: true })
   );
 }
+function trackApplicationWatches(host: McpHostPort): {
+  activeWatches(): number;
+  port: McpHostPort;
+} {
+  let activeWatches = 0;
+  return {
+    activeWatches: () => activeWatches,
+    port: {
+      ...host,
+      watch(filter, listener) {
+        expect(filter).toEqual({ configuredServerIds: [SERVER_ID] });
+        const unwatch = host.watch(filter, listener);
+        let active = true;
+        activeWatches += 1;
+        return (): void => {
+          if (!active) {
+            return;
+          }
+          active = false;
+          activeWatches -= 1;
+          unwatch();
+        };
+      },
+    },
+  };
+}
 describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', () => {
   it('rejects authority after terminal close and empty-config reset', async () => {
     const target = runtime();
@@ -147,4 +173,54 @@ describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', (
     await Promise.resolve();
     expect((await target.host.close()).subscriptionsClosed).toBe(0);
   });
+  it.each(['terminal close', 'empty config replacement'] as const)(
+    'settles active work once and releases authority on %s (BST-1580)',
+    async (teardown) => {
+      let aborts = 0;
+      let activeRequests = 0;
+      let applicationSettlements = 0;
+      let hostSettlements = 0;
+      let invocationSignal: AbortSignal | undefined;
+      const target = runtime(async (_operation, options) => {
+        invocationSignal = options.signal;
+        activeRequests += 1;
+        invocationSignal.addEventListener('abort', () => (aborts += 1), { once: true });
+        try {
+          return await rejectOnAbort(invocationSignal);
+        } finally {
+          activeRequests -= 1;
+          hostSettlements += 1;
+        }
+      });
+      const request = await ready(target);
+      const tracked = trackApplicationWatches(target.host);
+      const pending = createMcpContentApplicationPort(tracked.port)
+        .execute(request)
+        .finally(() => (applicationSettlements += 1));
+      await vi.waitFor(() => expect(activeRequests).toBe(1));
+      expect(tracked.activeWatches()).toBe(1);
+      const closing =
+        teardown === 'terminal close'
+          ? target.host.close()
+          : target.replaceResolvedConfig(config()).then(async () => await target.host.close());
+      await expect(pending).rejects.toMatchObject({
+        category: 'generation-retired',
+        code: 'mcp_content_generation_retired',
+      });
+      const report = await closing;
+      expect(invocationSignal?.aborted).toBe(true);
+      expect({ aborts, activeRequests, applicationSettlements, hostSettlements }).toEqual({
+        aborts: 1,
+        activeRequests: 0,
+        applicationSettlements: 1,
+        hostSettlements: 1,
+      });
+      expect(tracked.activeWatches()).toBe(0);
+      expect(report).toMatchObject({
+        failures: [],
+        requestsSettled: 0,
+        subscriptionsClosed: teardown === 'terminal close' ? 1 : 0,
+      });
+    }
+  );
 });
