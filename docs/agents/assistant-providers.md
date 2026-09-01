@@ -2527,7 +2527,9 @@ and must never cross renderer IPC or bypass the platform redaction path.
   authentication, retry a failed generation, cancel one, or clear and replace
   one selected OAuth authority; each action returns the resulting token-free
   server snapshot and retains failed servers even when discovery found zero
-  tools.
+  tools. Settings keeps `cancel` actionable while the original connect promise
+  is pending; cancellation supersedes that row's pending-action slot without
+  enabling any unrelated sibling control.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 

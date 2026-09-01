@@ -119,7 +119,7 @@ export function McpServerStatusRow({
   );
   const [controlError, setControlError] = useState<string | null>(null);
   const runControl = async (action: McpHostControlRequest['action']): Promise<void> => {
-    if (pendingActionRef.current !== null) {
+    if (pendingActionRef.current !== null && action !== 'cancel') {
       return;
     }
     pendingActionRef.current = action;
@@ -130,8 +130,10 @@ export function McpServerStatusRow({
     } catch (cause) {
       setControlError(cause instanceof Error ? cause.message : 'MCP lifecycle control failed');
     } finally {
-      pendingActionRef.current = null;
-      setPendingAction(null);
+      if (pendingActionRef.current === action) {
+        pendingActionRef.current = null;
+        setPendingAction(null);
+      }
     }
   };
   return (
@@ -144,7 +146,7 @@ export function McpServerStatusRow({
             aria-busy={pendingAction === action}
             aria-label={`${MCP_CONTROL_LABELS[action]} ${server.configuredServerId}`}
             data-testid={`mcp-${action}-${server.configuredServerId}`}
-            disabled={pendingAction !== null}
+            disabled={pendingAction !== null && action !== 'cancel'}
             key={action}
             onClick={() => {
               if (isCredentialDestructiveAction(action)) {

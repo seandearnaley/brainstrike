@@ -1348,6 +1348,73 @@ describe('UnifiedToolsSettings', () => {
       await waitFor(() => expect(reauthorize).toBeEnabled());
     });
 
+    it('keeps cancellation available while a user-paced connection is pending', async () => {
+      const operations = createMockOperations();
+      const connect = Promise.withResolvers<McpHostServerSnapshot>();
+      let publish: ((snapshot: McpHostSnapshot) => void) | undefined;
+      const serverId = parseConfiguredMcpServerId('linear');
+      operations.getTools = vi.fn().mockResolvedValue([]);
+      operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+        revision: 1,
+        servers: [
+          {
+            configuredProtocol: '2026-07-28',
+            configuredServerId: serverId,
+            generation: 1,
+            state: 'authentication-required',
+            transport: 'streamable-http',
+          },
+        ],
+      });
+      operations.subscribeMcpServerStatus = vi.fn((listener) => {
+        publish = listener;
+        return vi.fn();
+      });
+      const cancelled: McpHostServerSnapshot = {
+        configuredProtocol: '2026-07-28',
+        configuredServerId: serverId,
+        generation: 1,
+        state: 'disconnected',
+        transport: 'streamable-http',
+      };
+      operations.controlMcpServer = vi.fn(async (request) => {
+        if (request.action === 'connect') {
+          return await connect.promise;
+        }
+        return cancelled;
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Connect linear' }));
+      act(() => {
+        publish?.({
+          revision: 2,
+          servers: [
+            {
+              configuredProtocol: '2026-07-28',
+              configuredServerId: serverId,
+              generation: 1,
+              state: 'connecting',
+              transport: 'streamable-http',
+            },
+          ],
+        });
+      });
+      const cancel = await screen.findByRole('button', { name: 'Cancel linear' });
+      expect(cancel).toBeEnabled();
+      fireEvent.click(cancel);
+      await waitFor(() =>
+        expect(operations.controlMcpServer).toHaveBeenCalledWith({
+          action: 'cancel',
+          configuredServerId: serverId,
+        })
+      );
+      await act(async () => {
+        connect.reject(new Error('cancelled'));
+        await connect.promise.catch(() => undefined);
+      });
+    });
+
     it('renders lifecycle-control rejections and re-enables controls', async () => {
       const operations = createMockOperations();
       operations.getTools = vi.fn().mockResolvedValue([]);
