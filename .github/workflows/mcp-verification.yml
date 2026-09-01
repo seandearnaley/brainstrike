@@ -58,6 +58,29 @@ jobs:
         with:
           turbo-cache: 'true'
 
+      # The conformance scenario children execute the desktop dist entry,
+      # which resolves the real Electron module path. Electron has no install
+      # lifecycle (see the provisioning contract), so without this step the
+      # parallel legacy wave races an on-demand download and children die on
+      # EEXIST extraction collisions (dist/*.pak). Provision exactly once,
+      # before any child spawns.
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ARCH=$(node -p "process.arch")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-${ARCH}.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p,fs.constants.X_OK);console.log('Electron binary present at '+p)"
+
       - name: Run official MCP auth conformance
         timeout-minutes: 7
         run: pnpm run verify:mcp:official
@@ -84,6 +107,26 @@ jobs:
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: 'true'
+
+      # Same rationale as official_auth: one provisioning, no per-child
+      # download races, and the sequential closeout stops depending on the
+      # first child winning an on-demand download inside its own deadline.
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ARCH=$(node -p "process.arch")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-${ARCH}.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p,fs.constants.X_OK);console.log('Electron binary present at '+p)"
 
       - name: Run official MCP modern auth closeout
         timeout-minutes: 14
