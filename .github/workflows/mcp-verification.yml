@@ -1,6 +1,9 @@
 name: MCP Verification
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '23 8 * * *'
   workflow_dispatch:
@@ -45,9 +48,8 @@ jobs:
           retention-days: 14
 
   official_auth:
-    name: Official MCP auth conformance (advisory prerelease)
+    name: Official MCP auth conformance
     runs-on: ubuntu-24.04-arm
-    continue-on-error: true
     timeout-minutes: 11
     steps:
       - name: Checkout
@@ -106,9 +108,8 @@ jobs:
           retention-days: 14
 
   official_core:
-    name: Official MCP core conformance (advisory prerelease)
+    name: Official MCP core conformance
     runs-on: ubuntu-24.04-arm
-    continue-on-error: true
     timeout-minutes: 11
     steps:
       - name: Checkout
@@ -161,9 +162,8 @@ jobs:
           retention-days: 14
 
   official_modern_auth:
-    name: Official MCP modern auth closeout (advisory prerelease)
+    name: Official MCP modern auth closeout
     runs-on: ubuntu-24.04-arm
-    continue-on-error: true
     timeout-minutes: 21
     steps:
       - name: Checkout

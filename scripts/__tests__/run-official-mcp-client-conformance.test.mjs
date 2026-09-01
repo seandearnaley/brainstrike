@@ -469,7 +469,7 @@ test('writes exact-head prerelease advisory evidence with only fixed result data
   assert.deepEqual(evidence.conformance, {
     package: '@modelcontextprotocol/conformance',
     prerelease: true,
-    required: false,
+    required: true,
     version: '0.2.0-alpha.10',
   });
   assert.equal(evidence.schemaVersion, '1.0.0');

@@ -2453,12 +2453,14 @@ is then checked and remaining descendants are terminated. Timeout, failed start,
 and cleanup failure remain visible;
 there is no process-enumeration fallback. The bundled desktop process entry
 accepts only the exact auth context rules above and otherwise emits one fixed
-stderr line. The official package remains prerelease advisory evidence, never a
-required release claim.
+stderr line. The official package is prerelease, and the evidence records it as
+such; since BST-1582 the three official conformance jobs are nonetheless
+required gates on `main` pushes, the nightly schedule, and manual dispatch —
+a failing scenario fails the workflow.
 
 The modern workflow step has a ten-minute timeout: eleven sequential 45-second
 deadlines consume at most 495 seconds, leaving 105 seconds for runner setup,
-cleanup, and evidence persistence. Its 21-minute advisory job also reserves four
+cleanup, and evidence persistence. Its 21-minute required job also reserves four
 minutes for the build, three for the bounded Electron provisioning step, and
 four for workflow setup/upload. Contract tests compare
 these values to the shared descriptor; per-scenario deadlines are not shortened.

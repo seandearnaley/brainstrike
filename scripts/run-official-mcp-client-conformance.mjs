@@ -337,7 +337,7 @@ export function buildOfficialAuthEvidence({
     conformance: {
       package: '@modelcontextprotocol/conformance',
       prerelease: true,
-      required: false,
+      required: true,
       version: CONFORMANCE_VERSION,
     },
     expectedFailures: ledgers,

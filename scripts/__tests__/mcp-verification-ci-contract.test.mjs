@@ -48,9 +48,10 @@ test('required PR Static and the local check consume the representative command'
   ]);
 });
 
-test('exhaustive verification is schedule and manual only with bounded artifact retention', () => {
+test('verification runs on main pushes, schedule, and manual dispatch with bounded artifact retention', () => {
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
-  assert.deepEqual(Object.keys(workflow.on).sort(), ['schedule', 'workflow_dispatch']);
+  assert.deepEqual(Object.keys(workflow.on).sort(), ['push', 'schedule', 'workflow_dispatch']);
+  assert.deepEqual(workflow.on.push, { branches: ['main'] });
   assert.equal(workflow.on.schedule.length, 1);
   assert.deepEqual(workflow.permissions, { contents: 'read' });
   assert.equal(workflow.jobs.verify['timeout-minutes'], 10);
@@ -73,12 +74,13 @@ test('exhaustive verification is schedule and manual only with bounded artifact 
   assert.equal(uploadStep.with['retention-days'], 14);
 });
 
-test('official prerelease auth conformance is a bounded advisory job with sanitized evidence', () => {
+test('official auth conformance is a bounded required job with sanitized evidence', () => {
   const descriptor = OFFICIAL_AUTH_CONFORMANCE_PROFILES.baseline;
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
   const job = workflow.jobs.official_auth;
   assert.ok(job);
-  assert.equal(job['continue-on-error'], true);
+  // BST-1582: the official suites are required gates; a scenario failure fails the workflow.
+  assert.equal(job['continue-on-error'], undefined);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
   const provisionStep = findStep(workflow, 'official_auth', 'Provision Electron binary');
@@ -111,12 +113,13 @@ test('official prerelease auth conformance is a bounded advisory job with saniti
   assert.doesNotMatch(source, /'--output-dir'/u);
 });
 
-test('modern-only auth closeout is an independent bounded advisory job', () => {
+test('modern-only auth closeout is an independent bounded required job', () => {
   const descriptor = OFFICIAL_AUTH_CONFORMANCE_PROFILES['modern-closeout'];
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
   const job = workflow.jobs.official_modern_auth;
   assert.ok(job);
-  assert.equal(job['continue-on-error'], true);
+  // BST-1582: the official suites are required gates; a scenario failure fails the workflow.
+  assert.equal(job['continue-on-error'], undefined);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
   const provisionStep = findStep(workflow, 'official_modern_auth', 'Provision Electron binary');
@@ -151,12 +154,13 @@ test('modern-only auth closeout is an independent bounded advisory job', () => {
   assert.equal(uploadStep.with['retention-days'], 14);
 });
 
-test('official core conformance is an independent bounded advisory job', () => {
+test('official core conformance is an independent bounded required job', () => {
   const descriptor = OFFICIAL_AUTH_CONFORMANCE_PROFILES.core;
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
   const job = workflow.jobs.official_core;
   assert.ok(job);
-  assert.equal(job['continue-on-error'], true);
+  // BST-1582: the official suites are required gates; a scenario failure fails the workflow.
+  assert.equal(job['continue-on-error'], undefined);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
   const provisionStep = findStep(workflow, 'official_core', 'Provision Electron binary');
