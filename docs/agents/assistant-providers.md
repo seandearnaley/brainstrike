@@ -2260,6 +2260,23 @@ rejects a non-empty cleanup-failure report. Process/environment parsing,
 official-suite orchestration, auth scenarios, expected-failure consumption,
 and CI ownership remain separate later layers.
 
+The bounded official-runner driver is
+`scripts/run-official-mcp-client-conformance.mjs`. It invokes the exact pinned
+`@modelcontextprotocol/conformance@0.2.0-alpha.10` executable as argv arrays for
+the `core` and `auth` suites at both protocol revisions, passes only an
+allowlisted environment, and owns a detached POSIX process group with bounded
+SIGTERM/SIGKILL teardown. Every suite runs even when an earlier suite fails,
+then the driver throws one aggregate failure; the ten-minute outer deadline is
+headroom over alpha.10's parallel per-scenario 30-second timeouts. Runner output
+is not inherited because alpha.10 logs the credential-bearing conformance
+context; structured results go only below the ignored
+`packages/mcp-test-lab/artifacts/` directory. Windows fails closed until a Job
+Object owner is added. The bundled desktop process entry rejects conformance
+auth context. C2b must add `elicitation-defaults`, `sse-retry`, the complete
+auth scenario adapter, and Windows ownership before either full suite is a
+release claim; the empty ledgers make the C2a suite driver an executable
+fail-closed tripwire until then.
+
 Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
 transport, fault coordinate, OAuth route, evidence guarantee, or runner before

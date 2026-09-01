@@ -127,6 +127,8 @@
     "src/db-host-protocol.ts",
     "src/db-main.ts",
     "src/parser-host-entry.ts",
+    "src/official-conformance-client-entry.ts",
+    "src/official-conformance-client-process.ts",
     "src/parser-host-shared.ts",
     "src/parser-host-manager.ts",
     "src/ipc-parser-host.ts",
