@@ -252,19 +252,25 @@ describe('real opaque-origin iframe MCP Apps bridge', () => {
         await waitFor('bound-frame failure', () => bridge.snapshot.phase === 'disconnected');
         const afterFailure = bridge.snapshot;
 
-        bridge.connect({ generation: 3, origin: 'null', source: secondSource });
-        second.srcdoc = secondHtml;
+        liveGeneration = 4;
+        const reconnected = createFrame();
+        const reconnectedSource = reconnected.contentWindow;
+        if (reconnectedSource === null) {
+          throw new Error('MCP Apps reconnected verifier frame is unavailable');
+        }
+        bridge.connect({ generation: 4, origin: 'null', source: reconnectedSource });
+        reconnected.srcdoc = secondHtml;
         await waitFor('reconnect handshake', () => bridge.snapshot.phase === 'ready');
         bridge.disconnect();
         const afterDisconnect = bridge.snapshot;
 
-        liveGeneration = 4;
+        liveGeneration = 5;
         const third = createFrame();
         const thirdSource = third.contentWindow;
         if (thirdSource === null) {
           throw new Error('MCP Apps third verifier frame is unavailable');
         }
-        bridge.connect({ generation: 4, origin: 'null', source: thirdSource });
+        bridge.connect({ generation: 5, origin: 'null', source: thirdSource });
         third.srcdoc = thirdHtml;
         await waitFor('final handshake', () => bridge.snapshot.phase === 'ready');
         bridge.close();
