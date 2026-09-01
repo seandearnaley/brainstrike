@@ -28,8 +28,18 @@ import {
   normalizeMcpRequestOptions,
 } from './client-policy';
 import { type McpProtocol, toMcpVersionNegotiation } from './config';
+import { closeOwnedHttpConnection } from './http-connection-cleanup';
 import {
-  applyRegisteredExtensionHttpHeaders,
+  assertOAuthHeaderCompatibility,
+  createInteractiveOAuthCompletion,
+  type ExplicitHttpMcpAuthorizationCallbackSource,
+  type InteractiveOAuthCompletion,
+  type InteractiveOAuthOperation,
+  normalizeOAuthStepUpOptions,
+  tryCompleteInteractiveOAuthRequestAuthorization,
+} from './interactive-oauth-completion';
+import {
+  createHeaderPreservingFetch,
   installRegisteredExtensionDispatch,
 } from './registered-extension-dispatch';
 import {
@@ -45,25 +55,14 @@ import {
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
-// Session termination is advisory. Bound it so a stalled server cannot prevent
-// the owned SDK client from aborting its local fetches and releasing handlers.
-const SESSION_TERMINATION_TIMEOUT_MS = 250;
-const MAX_STEP_UP_RETRIES = 3;
-const PROTOCOL_OWNED_HEADERS = new Set([
-  'accept',
-  'content-type',
-  'last-event-id',
-  'mcp-method',
-  'mcp-name',
-  'mcp-protocol-version',
-  'mcp-session-id',
-]);
 
 export type ExplicitHttpMcpTransport = 'sse' | 'streamable-http';
 export type ExplicitHttpMcpLifecycle = 'client-owned' | 'host-owned';
 export type ExplicitHttpMcpUnexpectedCloseObserver = () => void | Promise<void>;
 
 export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
+
+export type { ExplicitHttpMcpAuthorizationCallbackSource } from './interactive-oauth-completion';
 
 type SdkRequestOptions = NonNullable<Parameters<Client['callTool']>[1]>;
 export type ExplicitHttpMcpRequestOptions = SdkRequestOptions;
@@ -114,6 +113,8 @@ export interface NegotiatedProtocolFacts {
 }
 
 export interface ExplicitHttpMcpClientOptions {
+  authorizationCallbackSource?: ExplicitHttpMcpAuthorizationCallbackSource;
+  authorizationCallbackTimeoutMs?: number;
   authProvider?: AuthProvider | OAuthClientProvider;
   cachePartition?: ClientOptions['cachePartition'];
   clientCapabilities?: McpClientCapabilityOptions;
@@ -144,6 +145,7 @@ type ExplicitHttpTransport = SSEClientTransport | StreamableHTTPClientTransport;
 interface ActiveConnection {
   capabilityLease: McpClientCapabilityLease;
   client: Client;
+  closePromise?: Promise<void>;
   disconnected: boolean;
   generation: number;
   transport: ExplicitHttpTransport;
@@ -163,6 +165,7 @@ interface NormalizedClientOptions {
   extensionRegistry?: McpClientExtensionRegistry;
   fetch: ExplicitHttpMcpFetch;
   inputRequired: NonNullable<ClientOptions['inputRequired']>;
+  interactiveOAuth?: InteractiveOAuthCompletion;
   lifecycle: ExplicitHttpMcpLifecycle;
   listMaxPages: number;
   maxStepUpRetries?: number;
@@ -210,99 +213,13 @@ function validateUnexpectedCloseObserver(
   return value as ExplicitHttpMcpUnexpectedCloseObserver;
 }
 
-function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
-  for (const name of Object.keys(headers ?? {})) {
-    const lowerName = name.toLowerCase();
-    if (PROTOCOL_OWNED_HEADERS.has(lowerName) || lowerName.startsWith('mcp-param-')) {
-      throw new Error(`Configured MCP header "${name}" is protocol-owned`);
-    }
-  }
-}
-
-function hasAuthorizationHeader(headers: Readonly<Record<string, string>> | undefined): boolean {
-  return Object.keys(headers ?? {}).some((name) => name.toLowerCase() === 'authorization');
-}
-
-function normalizeMaxStepUpRetries(value: unknown): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (
-    !Number.isSafeInteger(value) ||
-    (value as number) < 0 ||
-    (value as number) > MAX_STEP_UP_RETRIES
-  ) {
-    throw new Error(
-      `MCP OAuth step-up retries must be a safe integer from 0 to ${MAX_STEP_UP_RETRIES}`
-    );
-  }
-  return value as number;
-}
-
-function normalizeScopeStepUpOptions(
-  options: ExplicitHttpMcpClientOptions
-): Pick<NormalizedClientOptions, 'maxStepUpRetries' | 'onInsufficientScope'> {
-  if (
-    options.transport === 'sse' &&
-    (options.maxStepUpRetries !== undefined || options.onInsufficientScope !== undefined)
-  ) {
-    throw new Error('MCP OAuth scope step-up options require Streamable HTTP transport');
-  }
-  const maxStepUpRetries = normalizeMaxStepUpRetries(options.maxStepUpRetries);
-  return {
-    ...(maxStepUpRetries === undefined ? {} : { maxStepUpRetries }),
-    ...(options.onInsufficientScope === undefined
-      ? {}
-      : { onInsufficientScope: options.onInsufficientScope }),
-  };
-}
-
 function isReconnectableSessionError(error: unknown, hadSession: boolean): boolean {
   return hadSession && error instanceof SdkHttpError && error.status === 404;
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_resolve, reject) => {
-    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
-}
-
-function createHeaderPreservingFetch(
-  baseFetch: ExplicitHttpMcpFetch,
-  headers: Readonly<Record<string, string>> | undefined,
-  extensionRegistry: McpClientExtensionRegistry | undefined
-): ExplicitHttpMcpFetch {
-  validateConfiguredHeaders(headers);
-  const callerHeaders = new Headers(headers);
-  return async (url, init) => {
-    const mergedHeaders = new Headers(callerHeaders);
-    const protocolHeaders = new Headers(init?.headers);
-    protocolHeaders.forEach((value, name) => {
-      const configuredValue = mergedHeaders.get(name);
-      if (configuredValue !== null && configuredValue !== value) {
-        throw new Error(
-          `Configured MCP header "${name}" conflicts with the transport-required value`
-        );
-      }
-      mergedHeaders.set(name, value);
-    });
-    return baseFetch(
-      url,
-      applyRegisteredExtensionHttpHeaders({ ...init, headers: mergedHeaders }, extensionRegistry)
-    );
-  };
-}
-
 function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClientOptions {
   const name = validateNonEmpty(options.name, 'MCP client name');
+  const interactiveOAuth = createInteractiveOAuthCompletion(name, options);
   const onUnexpectedClose = validateUnexpectedCloseObserver(options.onUnexpectedClose, name);
   const protocol = options.protocol ?? 'legacy';
   if (options.transport === 'sse' && protocol !== 'legacy') {
@@ -330,12 +247,8 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     options.cachePartition,
     options.responseCacheStore !== undefined
   );
-  if (options.authProvider && hasAuthorizationHeader(options.headers)) {
-    throw new Error(
-      `MCP client "${name}" must not combine configured Authorization headers with authProvider`
-    );
-  }
-  const scopeStepUp = normalizeScopeStepUpOptions(options);
+  assertOAuthHeaderCompatibility(name, options.authProvider, options.headers);
+  const scopeStepUp = normalizeOAuthStepUpOptions(options);
   const capabilityConfiguration = composeMcpTransportCapabilities({
     ...(options.clientCapabilities ? { clientCapabilities: options.clientCapabilities } : {}),
     ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
@@ -349,8 +262,11 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
       ? {}
       : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
-    fetch: createHeaderPreservingFetch(baseFetch, options.headers, options.extensionRegistry),
+    fetch: createHeaderPreservingFetch(baseFetch, options.headers, options.extensionRegistry, () =>
+      interactiveOAuth?.getAuthorizationSignal()
+    ),
     inputRequired: capabilityConfiguration.inputRequired,
+    ...(interactiveOAuth ? { interactiveOAuth } : {}),
     lifecycle: validateLifecycle(options.lifecycle, name),
     listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
     onServerFeatureEventError: resolveMcpServerFeatureEventDiagnosticSink(
@@ -397,7 +313,10 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   }
 
   async connect(options?: ExplicitHttpMcpRequestOptions): Promise<void> {
-    await this.getConnection(normalizeMcpRequestOptions(options));
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connect = (operation?: InteractiveOAuthOperation) =>
+      this.getConnection(requestOptions, operation);
+    await (this.options.interactiveOAuth?.runOperation(connect) ?? connect());
   }
 
   getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
@@ -607,6 +526,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       return this.closePromise;
     }
     this.closed = true;
+    this.options.interactiveOAuth?.close();
     this.closePromise = this.closeConnections();
     return this.closePromise;
   }
@@ -645,7 +565,10 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     }
   }
 
-  private async getConnection(options?: ExplicitHttpMcpRequestOptions): Promise<ActiveConnection> {
+  private async getConnection(
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
+  ): Promise<ActiveConnection> {
     if (this.closed) {
       throw closedClientError();
     }
@@ -659,14 +582,17 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       return this.connectPromise;
     }
 
-    return this.startConnection(options);
+    return this.startConnection(options, operation);
   }
 
-  private startConnection(options?: ExplicitHttpMcpRequestOptions): Promise<ActiveConnection> {
+  private startConnection(
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
+  ): Promise<ActiveConnection> {
     this.connectionGeneration += 1;
     const connection = this.createConnection();
     this.pendingConnection = connection;
-    const connectPromise = this.openConnection(connection, options);
+    const connectPromise = this.openConnection(connection, options, operation);
     this.connectPromise = connectPromise;
     void connectPromise.then(
       () => {
@@ -693,7 +619,8 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
 
   private async openConnection(
     connection: ActiveConnection,
-    options?: ExplicitHttpMcpRequestOptions
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
   ): Promise<ActiveConnection> {
     const { client, transport } = connection;
     let connected = false;
@@ -713,58 +640,63 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       }
       return connection;
     } catch (error) {
-      if (!connected) {
-        try {
-          await this.closeConnection(connection);
-        } catch (cleanupError) {
-          const primaryError = options?.signal?.aborted ? options.signal.reason : error;
-          throw new AggregateError(
-            [primaryError, cleanupError],
-            'Opening and cleaning up an MCP HTTP connection both failed'
-          );
-        }
-      }
-      options?.signal?.throwIfAborted();
-      throw error;
+      return this.handleOpenConnectionFailure(connection, options, operation, connected, error);
     }
   }
 
-  private async closeConnection(connection: ActiveConnection): Promise<void> {
-    const errors: unknown[] = [];
-    if (
-      !connection.disconnected &&
-      connection.transport instanceof StreamableHTTPClientTransport &&
-      connection.transport.sessionId
-    ) {
-      try {
-        await withTimeout(
-          connection.transport.terminateSession(),
-          SESSION_TERMINATION_TIMEOUT_MS,
-          `MCP session termination timed out after ${SESSION_TERMINATION_TIMEOUT_MS}ms`
+  private async handleOpenConnectionFailure(
+    connection: ActiveConnection,
+    options: ExplicitHttpMcpRequestOptions | undefined,
+    operation: InteractiveOAuthOperation | undefined,
+    connected: boolean,
+    error: unknown
+  ): Promise<ActiveConnection> {
+    if (!connected && this.options.interactiveOAuth) {
+      if (!operation) {
+        throw new Error('Interactive OAuth connection is missing its operation context');
+      }
+      if (!(connection.transport instanceof StreamableHTTPClientTransport)) {
+        throw new AggregateError(
+          [error, new Error('Interactive OAuth requires a Streamable HTTP transport')],
+          'MCP connection failed with an invalid interactive OAuth transport'
         );
-      } catch (error) {
-        errors.push(error);
+      }
+      return this.options.interactiveOAuth.handleOpeningFailure(
+        {
+          cleanup: () => this.closeConnection(connection),
+          closedError: closedClientError,
+          isClosed: () => this.closed,
+          primaryError: error,
+          reconnect: () => this.startConnection(options, operation),
+          ...(options?.signal ? { signal: options.signal } : {}),
+          terminalCleanup: () => this.closePromise,
+          transport: connection.transport,
+        },
+        operation
+      );
+    }
+    if (!connected) {
+      try {
+        await this.closeConnection(connection);
+      } catch (cleanupError) {
+        const primaryError = options?.signal?.aborted ? options.signal.reason : error;
+        throw new AggregateError(
+          [primaryError, cleanupError],
+          'Opening and cleaning up an MCP HTTP connection both failed'
+        );
       }
     }
+    options?.signal?.throwIfAborted();
+    throw error;
+  }
 
-    try {
-      await connection.capabilityLease.close();
-    } catch (error) {
-      errors.push(error);
-    }
+  private closeConnection(connection: ActiveConnection): Promise<void> {
+    connection.closePromise ??= this.closeConnectionOnce(connection);
+    return connection.closePromise;
+  }
 
-    try {
-      await connection.client.close();
-    } catch (error) {
-      errors.push(error);
-    }
-
-    if (errors.length === 1) {
-      throw errors[0];
-    }
-    if (errors.length > 1) {
-      throw new AggregateError(errors, 'MCP session termination or owned local cleanup failed');
-    }
+  private async closeConnectionOnce(connection: ActiveConnection): Promise<void> {
+    await closeOwnedHttpConnection(connection);
   }
 
   private createConnection(): ActiveConnection {
@@ -805,33 +737,81 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     request: (client: Client, connection: ActiveConnection) => Promise<T>,
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<T> {
-    const connection = await this.getConnection(options);
-    const hadSession =
-      connection.transport instanceof StreamableHTTPClientTransport &&
-      connection.transport.sessionId !== undefined;
-    try {
-      return await request(connection.client, connection);
-    } catch (error) {
-      options?.signal?.throwIfAborted();
-      if (this.closed) {
-        throw error;
-      }
-      if (
+    const run = (operation?: InteractiveOAuthOperation) =>
+      this.runRequestWithinAuthorizationOperation(request, options, operation);
+    return this.options.interactiveOAuth?.runOperation(run) ?? run();
+  }
+
+  private async runRequestWithinAuthorizationOperation<T>(
+    request: (client: Client, connection: ActiveConnection) => Promise<T>,
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
+  ): Promise<T> {
+    const interactiveOAuth = this.options.interactiveOAuth;
+    if (interactiveOAuth && !operation) {
+      throw new Error('Interactive OAuth request is missing its operation context');
+    }
+    const connection = await this.getConnection(options, operation);
+    while (true) {
+      const hadSession =
         connection.transport instanceof StreamableHTTPClientTransport &&
-        isReconnectableSessionError(error, hadSession)
-      ) {
-        if (this.options.lifecycle === 'host-owned') {
-          if (this.invalidateConnection(connection, true)) {
-            await this.closeInvalidatedConnection(connection);
-          }
+        connection.transport.sessionId !== undefined;
+      try {
+        return await request(connection.client, connection);
+      } catch (error) {
+        options?.signal?.throwIfAborted();
+        if (this.closed) {
           throw error;
         }
-        const recovered = await this.recoverConnection(connection, options);
-        options?.signal?.throwIfAborted();
-        return request(recovered.client, recovered);
+        const authorizationCompleted = await tryCompleteInteractiveOAuthRequestAuthorization({
+          cleanup: () => this.closeConnection(connection),
+          completion: interactiveOAuth,
+          invalidate: () => this.invalidateConnection(connection),
+          operation,
+          primaryError: error,
+          signal: options?.signal,
+          transport: connection.transport,
+        });
+        if (authorizationCompleted) {
+          continue;
+        }
+        return this.handleRequestFailure(
+          connection,
+          error,
+          hadSession,
+          options,
+          request,
+          operation
+        );
+      }
+    }
+  }
+
+  private async handleRequestFailure<T>(
+    connection: ActiveConnection,
+    error: unknown,
+    hadSession: boolean,
+    options: ExplicitHttpMcpRequestOptions | undefined,
+    request: (client: Client, connection: ActiveConnection) => Promise<T>,
+    operation?: InteractiveOAuthOperation
+  ): Promise<T> {
+    if (
+      !(
+        connection.transport instanceof StreamableHTTPClientTransport &&
+        isReconnectableSessionError(error, hadSession)
+      )
+    ) {
+      throw error;
+    }
+    if (this.options.lifecycle === 'host-owned') {
+      if (this.invalidateConnection(connection, true)) {
+        await this.closeInvalidatedConnection(connection);
       }
       throw error;
     }
+    const recovered = await this.recoverConnection(connection, options, operation);
+    options?.signal?.throwIfAborted();
+    return request(recovered.client, recovered);
   }
 
   private async listCatalog<Params extends { cursor?: string | undefined }, Result>(
@@ -877,7 +857,8 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
 
   private recoverConnection(
     failedConnection: ActiveConnection,
-    options?: ExplicitHttpMcpRequestOptions
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
   ): Promise<ActiveConnection> {
     if (this.closed) {
       return Promise.reject(closedClientError());
@@ -886,7 +867,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       return this.recoveryPromise;
     }
     if (this.activeConnection !== failedConnection) {
-      return this.getConnection(options);
+      return this.getConnection(options, operation);
     }
 
     this.activeConnection = undefined;
@@ -896,7 +877,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
         throw closedClientError();
       }
       options?.signal?.throwIfAborted();
-      return this.startConnection(options);
+      return this.startConnection(options, operation);
     })();
     this.recoveryPromise = recoveryPromise;
     void recoveryPromise.then(
@@ -953,6 +934,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   }
 
   private createTransport(): ExplicitHttpTransport {
+    const authProvider = this.options.interactiveOAuth?.authProvider ?? this.options.authProvider;
     switch (this.options.transport) {
       case 'sse':
         return new SSEClientTransport(this.options.url, {
@@ -962,7 +944,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       case 'streamable-http':
         return installRegisteredExtensionDispatch(
           new StreamableHTTPClientTransport(this.options.url, {
-            ...(this.options.authProvider ? { authProvider: this.options.authProvider } : {}),
+            ...(authProvider ? { authProvider } : {}),
             fetch: this.options.fetch,
             ...(this.options.maxStepUpRetries === undefined
               ? {}
