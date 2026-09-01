@@ -146,3 +146,28 @@ test('discards the whole buffer when overflow leaves no complete line', () => {
   assert.match(lines[0], /earlier chars dropped/u);
   assert.ok(!lines[0].includes('bbbb'));
 });
+
+test('redacts assertion, DPoP, bare JWT, and Bearer shapes', () => {
+  assert.ok(
+    !sanitizeOfficialDiagnosticLine(
+      'client_assertion=eyJhbGciOiJSUzI1NiJ9.payload123.signature'
+    ).includes('eyJ')
+  );
+  assert.equal(
+    sanitizeOfficialDiagnosticLine('token line eyJhbGciOiJSUzI1NiJ9.payload123.sig ends'),
+    'token line [redacted-jwt] ends'
+  );
+  const bearer = sanitizeOfficialDiagnosticLine('Authorization: Bearer abcdef1234567890');
+  assert.ok(!bearer.includes('abcdef1234567890'));
+});
+
+test('keeps ordinary error and status text readable', () => {
+  assert.equal(
+    sanitizeOfficialDiagnosticLine('exit code=1 after error code=ECONNREFUSED state=failed'),
+    'exit code=1 after error code=ECONNREFUSED state=failed'
+  );
+  assert.equal(
+    sanitizeOfficialDiagnosticLine('callback received code=SplxlOBeZQ0YbYS6WxSbIA'),
+    'callback received code=[redacted-oauth-parameter]'
+  );
+});

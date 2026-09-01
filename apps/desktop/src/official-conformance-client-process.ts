@@ -59,7 +59,11 @@ function collectFailureCauseParts(error: unknown, parts: string[], depth: number
     return;
   }
   if (!(error instanceof Error)) {
-    parts.push(String(error));
+    try {
+      parts.push(String(error));
+    } catch {
+      parts.push('[unprintable cause]');
+    }
     return;
   }
   parts.push(`${error.name}: ${error.message}`);

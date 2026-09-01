@@ -544,6 +544,24 @@ describe('production MCP conformance client contract', () => {
     expect(written).not.toContain('sk-agg-leak');
   });
 
+  it('reports an unprintable rejected value without escaping the error path', async () => {
+    const writeError = vi.fn();
+    const runClient = vi.fn().mockRejectedValue(Object.create(null));
+
+    await expect(
+      runOfficialConformanceProcess(
+        ['https://mcp.example.test/mcp'],
+        {
+          MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
+          MCP_CONFORMANCE_SCENARIO: 'auth/basic-cimd',
+        },
+        { runClient, writeError }
+      )
+    ).resolves.toBe(1);
+
+    expect(String(writeError.mock.calls[0]?.[0])).toContain('unprintable cause');
+  });
+
   it('uses the production host runtime without constructing a parallel MCP client', () => {
     const source = readFileSync(SOURCE_PATH, 'utf8');
     const sourceFile = ts.createSourceFile(

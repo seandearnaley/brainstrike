@@ -33,10 +33,23 @@ const ANSI_ESCAPE_PATTERN = new RegExp(
 );
 const LINE_UNSAFE_PATTERN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 const OFFICIAL_URL_PATTERN = /https?:\/\/[^\s?#]+(?:\?[^\s#]*)?(?:#[^\s]*)?/giu;
+// Keys whose values are always credentials: redact unconditionally.
 const OFFICIAL_OAUTH_PARAMETER_PATTERN =
-  /\b(?:authorization_code|access_token|refresh_token|code|code_verifier|verifier|state)=([^&\s]+)/giu;
+  /\b(?:authorization_code|access_token|refresh_token|id_token|client_assertion|assertion|dpop|code_verifier|verifier)=([^&\s]+)/giu;
+// `code=`/`state=` are ambiguous: they also carry ordinary error/status text
+// (`exit code=1`, `code=ECONNREFUSED`, `state=failed`). Keep small numbers,
+// ALL-CAPS identifiers, and plain lowercase words readable; redact anything
+// mixed (real authorization codes and state values are high-entropy).
+// Case-sensitive on purpose: the wire parameters are lowercase, and the
+// carve-out classes must distinguish letter case to tell an ALL-CAPS error
+// identifier or plain word from a mixed-case high-entropy credential.
+const OFFICIAL_AMBIGUOUS_PARAMETER_PATTERN =
+  /\b(?:code|state)=(?!(?:\d{1,4}|[A-Z][A-Z0-9_]*|[a-z_]+)(?![\w-]))[^&\s]+/gu;
+// Shape-based backstop for bare secrets with no key prefix.
+const OFFICIAL_JWT_PATTERN = /\beyJ[\w-]{8,}\.[\w-]+\.[\w-]*/gu;
+const OFFICIAL_BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/giu;
 const OFFICIAL_STRUCTURED_SECRET_PATTERN =
-  /(?<![A-Z0-9_-])((?:\\?["']?)(?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|code[_-]?verifier|verifier|state|token|secret|password|api[_-]?key|apikey|cookie|set-cookie)(?:\\?["']?\s*[:=]\s*))(?!\[redacted-)[^\r\n,}\]]+/giu;
+  /(?<![A-Z0-9_-])((?:\\?["']?)(?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|client[_-]?assertion|assertion|dpop|code[_-]?verifier|verifier|token|secret|password|api[_-]?key|apikey|cookie|set-cookie)(?:\\?["']?\s*[:=]\s*))(?!\[redacted-)[^\r\n,}\]]+/giu;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireDesktopDependency = createRequire(path.join(REPO_ROOT, 'apps/desktop/package.json'));
 const initializedWindowsJobs = new WeakSet();
@@ -84,10 +97,18 @@ export function sanitizeOfficialDiagnosticLine(raw) {
       return '[redacted-auth-url]';
     }
   });
-  const oauthRedacted = urlRedacted.replace(
-    OFFICIAL_OAUTH_PARAMETER_PATTERN,
-    (match) => `${match.slice(0, match.indexOf('=') + 1)}[redacted-oauth-parameter]`
-  );
+  const shapeRedacted = urlRedacted
+    .replace(OFFICIAL_JWT_PATTERN, '[redacted-jwt]')
+    .replace(OFFICIAL_BEARER_PATTERN, 'Bearer [redacted-bearer-token]');
+  const oauthRedacted = shapeRedacted
+    .replace(
+      OFFICIAL_OAUTH_PARAMETER_PATTERN,
+      (match) => `${match.slice(0, match.indexOf('=') + 1)}[redacted-oauth-parameter]`
+    )
+    .replace(
+      OFFICIAL_AMBIGUOUS_PARAMETER_PATTERN,
+      (match) => `${match.slice(0, match.indexOf('=') + 1)}[redacted-oauth-parameter]`
+    );
   const redacted = oauthRedacted.replace(
     OFFICIAL_STRUCTURED_SECRET_PATTERN,
     (_match, prefix) => `${prefix}[redacted-structured-secret]`
@@ -478,6 +499,8 @@ export function runOfficialClientInvocation(
     );
   }
 
+  child.stdout?.setEncoding?.('utf8');
+  child.stderr?.setEncoding?.('utf8');
   child.stdout?.on('data', (chunk) => diagnostics.collect(chunk));
   child.stderr?.on('data', (chunk) => diagnostics.collect(chunk));
 
@@ -582,6 +605,10 @@ export function runOfficialClientInvocation(
       if (settled) {
         return;
       }
+      // The child is gone; the only remaining wait is the bounded stdio
+      // flush, so the process deadline must not fire and mislabel a clean
+      // exit inside the grace window as a timeout.
+      clearTimeout(deadlineTimer);
       exitGraceTimer = setTimeout(() => completeInvocation(code, signal), stdioFlushGraceMs);
     });
     child.once('close', (code, signal) => {
