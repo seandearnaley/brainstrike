@@ -64,7 +64,7 @@ function closeReport(
 
 function runtimeReturningToolCall(
   result: McpHostOperationResult,
-  toolName = 'add_numbers'
+  toolName: string | readonly string[] = 'add_numbers'
 ): {
   close: ReturnType<typeof vi.fn>;
   operations: McpHostOperation[];
@@ -84,10 +84,34 @@ function runtimeReturningToolCall(
         if (operation.type === 'tools/list') {
           return {
             result: {
-              tools: [{ inputSchema: { type: 'object' }, name: toolName }],
+              tools: (typeof toolName === 'string' ? [toolName] : toolName).map((name) => ({
+                inputSchema: { type: 'object' },
+                name,
+              })),
             },
             type: 'tools/list',
           };
+        }
+        if (operation.type === 'resources/list') {
+          return {
+            result: { resources: [{ name: 'header-resource', uri: 'test://header-resource' }] },
+            type: 'resources/list',
+          };
+        }
+        if (operation.type === 'resources/read') {
+          return {
+            result: { contents: [{ text: 'header resource', uri: operation.uri }] },
+            type: 'resources/read',
+          };
+        }
+        if (operation.type === 'prompts/list') {
+          return {
+            result: { prompts: [{ name: 'header-prompt' }] },
+            type: 'prompts/list',
+          };
+        }
+        if (operation.type === 'prompts/get') {
+          return { result: { messages: [] }, type: 'prompts/get' };
         }
         return result;
       }),
@@ -335,6 +359,29 @@ describe('production MCP conformance client contract', () => {
     expect(resolveCapabilities(server)).toBeUndefined();
   });
 
+  it('limits initialize to the production connection lifecycle handshake', async () => {
+    const { operations, replaceResolvedConfig, runtime } = runtimeReturningToolCall(
+      { result: { content: [{ text: 'unused', type: 'text' }] }, type: 'tools/call' },
+      'unused'
+    );
+
+    await runProductionMcpConformanceClient(
+      {
+        protocolVersion: '2025-11-25',
+        scenario: 'initialize',
+        serverUrl: 'https://mcp.example.test/mcp',
+      },
+      { createRuntime: () => runtime }
+    );
+
+    expect(replaceResolvedConfig).toHaveBeenCalledOnce();
+    expect(operations).toEqual([]);
+    expect(runtime.host.control).toHaveBeenCalledExactlyOnceWith({
+      action: 'connect',
+      configuredServerId: 'official-conformance',
+    });
+  });
+
   it('drives elicitation defaults through the host tool seam', async () => {
     const { runtime } = runtimeReturningToolCall(
       { result: { content: [{ text: 'accepted', type: 'text' }] }, type: 'tools/call' },
@@ -379,6 +426,198 @@ describe('production MCP conformance client contract', () => {
       toolName: 'test_reconnection',
       type: 'tools/call',
     });
+  });
+
+  it.each([
+    { expectedTypes: [], scenario: 'request-metadata', toolNames: ['unused'] },
+    {
+      expectedTypes: ['tools/list', 'tools/call', 'tools/call', 'tools/call', 'tools/call'],
+      scenario: 'sep-2322-client-request-state',
+      toolNames: [
+        'test_mrtr_echo_state',
+        'test_mrtr_unrelated',
+        'test_mrtr_no_state',
+        'test_mrtr_no_result_type',
+      ],
+    },
+    {
+      expectedTypes: [
+        'tools/list',
+        'tools/call',
+        'resources/list',
+        'resources/read',
+        'prompts/list',
+        'prompts/get',
+      ],
+      scenario: 'http-standard-headers',
+      toolNames: ['test_headers'],
+    },
+    {
+      context: JSON.stringify({
+        name: 'http-custom-headers',
+        toolCalls: [
+          {
+            arguments: { priority: 42, region: 'us-west1', verbose: false },
+            name: 'test_custom_headers',
+          },
+          {
+            arguments: { priority: 1, region: 'us-east1', verbose: null },
+            name: 'test_custom_headers_null',
+          },
+        ],
+      }),
+      expectedTypes: ['tools/list', 'tools/call', 'tools/call'],
+      scenario: 'http-custom-headers',
+      toolNames: ['test_custom_headers', 'test_custom_headers_null'],
+    },
+    {
+      expectedTypes: ['tools/list', 'tools/call'],
+      scenario: 'http-invalid-tool-headers',
+      toolNames: ['valid_tool'],
+    },
+    {
+      expectedTypes: ['tools/list'],
+      scenario: 'json-schema-ref-no-deref',
+      toolNames: ['unused'],
+    },
+  ] as const)(
+    'accepts and executes the pinned modern non-auth scenario $scenario',
+    async ({ context, expectedTypes, scenario, toolNames }) => {
+      const { operations, replaceResolvedConfig, runtime } = runtimeReturningToolCall(
+        { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
+        toolNames
+      );
+
+      await expect(
+        runProductionMcpConformanceClient(
+          {
+            ...(context === undefined ? {} : { context }),
+            protocolVersion: '2026-07-28',
+            scenario,
+            serverUrl: 'https://mcp.example.test/mcp',
+          },
+          { createRuntime: () => runtime }
+        )
+      ).resolves.toBeUndefined();
+
+      expect(replaceResolvedConfig).toHaveBeenCalledOnce();
+      expect(operations.map(({ type }) => type)).toEqual(expectedTypes);
+      expect(runtime.host.control).toHaveBeenCalledTimes(scenario === 'request-metadata' ? 1 : 0);
+    }
+  );
+
+  it('preserves both upstream custom-header tool calls and their arguments', async () => {
+    const toolCalls = [
+      {
+        arguments: { priority: 42, region: 'us-west1', verbose: false },
+        name: 'test_custom_headers',
+      },
+      {
+        arguments: { priority: 1, region: 'us-east1', verbose: null },
+        name: 'test_custom_headers_null',
+      },
+    ] as const;
+    const { operations, runtime } = runtimeReturningToolCall(
+      { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
+      toolCalls.map(({ name }) => name)
+    );
+
+    await runProductionMcpConformanceClient(
+      {
+        context: JSON.stringify({ name: 'http-custom-headers', toolCalls }),
+        protocolVersion: '2026-07-28',
+        scenario: 'http-custom-headers',
+        serverUrl: 'https://mcp.example.test/mcp',
+      },
+      { createRuntime: () => runtime }
+    );
+
+    expect(operations.filter(({ type }) => type === 'tools/call')).toEqual(
+      toolCalls.map((toolCall) => ({
+        arguments: toolCall.arguments,
+        configuredServerId: 'official-conformance',
+        toolName: toolCall.name,
+        type: 'tools/call',
+      }))
+    );
+  });
+
+  it('wires MRTR elicitation through the production capability engine', async () => {
+    const { replaceResolvedConfig, runtime } = runtimeReturningToolCall(
+      { result: { content: [{ text: 'ok', type: 'text' }] }, type: 'tools/call' },
+      [
+        'test_mrtr_echo_state',
+        'test_mrtr_unrelated',
+        'test_mrtr_no_state',
+        'test_mrtr_no_result_type',
+      ]
+    );
+    let captured: DesktopMcpHostRuntimeDependencies | undefined;
+
+    await runProductionMcpConformanceClient(
+      {
+        protocolVersion: '2026-07-28',
+        scenario: 'sep-2322-client-request-state',
+        serverUrl: 'https://mcp.example.test/mcp',
+      },
+      {
+        createRuntime: (dependencies) => {
+          captured = dependencies;
+          return runtime;
+        },
+      }
+    );
+
+    const server = replaceResolvedConfig.mock.calls[0]?.[0].servers[0];
+    const resolveCapabilities = captured?.resolveClientCapabilities;
+    if (!(server && resolveCapabilities)) {
+      throw new Error('Production MRTR capability resolver was not composed');
+    }
+    const elicitation = resolveCapabilities(server)?.elicitation;
+    if (!elicitation) {
+      throw new Error('Production MRTR elicitation capability was not composed');
+    }
+    expect(elicitation).toMatchObject({ form: true, url: false });
+    const controller = new AbortController();
+    await expect(
+      elicitation.handle(
+        {
+          method: 'elicitation/create',
+          params: {
+            message: 'Confirm?',
+            requestedSchema: {
+              properties: { confirmed: { type: 'boolean' } },
+              required: ['confirmed'],
+              type: 'object',
+            },
+          },
+        },
+        {
+          requestId: 'mrtr-elicitation',
+          serverName: 'official-conformance',
+          signal: controller.signal,
+        }
+      )
+    ).resolves.toEqual({ action: 'accept', content: { confirmed: true } });
+    await expect(
+      elicitation.handle(
+        {
+          method: 'elicitation/create',
+          params: {
+            message: 'Unexpected shape',
+            requestedSchema: {
+              properties: { answer: { type: 'string' } },
+              type: 'object',
+            },
+          },
+        },
+        {
+          requestId: 'mrtr-elicitation-invalid',
+          serverName: 'official-conformance',
+          signal: controller.signal,
+        }
+      )
+    ).rejects.toThrow('MRTR elicitation schema is unsupported');
   });
 
   it.each([
@@ -429,6 +668,36 @@ describe('production MCP conformance client contract', () => {
         MCP_CONFORMANCE_SCENARIO: 'tools_call',
       })
     ).toThrow(/credentials/);
+  });
+
+  it('accepts custom-header context only for its exact scenario contract', () => {
+    const context = JSON.stringify({
+      name: 'http-custom-headers',
+      toolCalls: [
+        { arguments: { region: 'us-west1' }, name: 'test_custom_headers' },
+        { arguments: { region: 'us-east1' }, name: 'test_custom_headers_null' },
+      ],
+    });
+    expect(
+      parseOfficialConformanceProcessInput(['https://mcp.example.test/mcp'], {
+        MCP_CONFORMANCE_CONTEXT: context,
+        MCP_CONFORMANCE_PROTOCOL_VERSION: '2026-07-28',
+        MCP_CONFORMANCE_SCENARIO: 'http-custom-headers',
+      })
+    ).toMatchObject({ context, scenario: 'http-custom-headers' });
+    expect(() =>
+      parseOfficialConformanceProcessInput(['https://mcp.example.test/mcp'], {
+        MCP_CONFORMANCE_PROTOCOL_VERSION: '2026-07-28',
+        MCP_CONFORMANCE_SCENARIO: 'http-custom-headers',
+      })
+    ).toThrow(/custom-header context is required/u);
+    expect(() =>
+      parseOfficialConformanceProcessInput(['https://mcp.example.test/mcp'], {
+        MCP_CONFORMANCE_CONTEXT: context,
+        MCP_CONFORMANCE_PROTOCOL_VERSION: '2026-07-28',
+        MCP_CONFORMANCE_SCENARIO: 'request-metadata',
+      })
+    ).toThrow(/context is invalid/u);
   });
 
   it('passes the exact pre-registration context without writing it', async () => {
