@@ -11,6 +11,9 @@ Usage:
 - Set runtime: browser | electron-main | electron-renderer.
 - Desktop main:
   - Logs to console + ${app.getPath('logs')}/brainstrike.log
+  - An explicit Agent DevTools or desktop E2E profile relocates `logs` under
+    the same isolated profile as `userData` and `sessionData`; durable-log
+    verification must never read or append to the ambient app log directory.
 - Web/renderer:
   - Call initializeLogging in main.tsx.
 

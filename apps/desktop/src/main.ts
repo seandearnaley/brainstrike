@@ -249,6 +249,10 @@ function applyExplicitPathIsolation(): void {
   const sessionDataDir = path.join(userDataDir, 'session-data');
   fs.mkdirSync(sessionDataDir, { recursive: true });
   app.setPath('sessionData', sessionDataDir);
+
+  const logsDir = path.join(userDataDir, 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+  app.setPath('logs', logsDir);
 }
 
 applyExplicitPathIsolation();
