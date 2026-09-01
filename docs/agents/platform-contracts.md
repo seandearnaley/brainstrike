@@ -46,6 +46,9 @@ Sensitive data:
 - Structured arguments and listener bindings are recursively redacted before transport,
   buffering, or display; transport serializers alone are not a sufficient boundary.
 - Add more via redactPaths.
+- MCP stdio startup failures persist their bounded sanitized stderr summary
+  only after transport cleanup drains final child output; reporting before
+  cleanup can lose the last diagnostic chunks.
 
 Testing:
 - Use addLogListener instead of mocking console.

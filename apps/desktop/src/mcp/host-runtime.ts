@@ -239,12 +239,16 @@ async function connectClient(
     await onConnected?.();
   } catch (cause) {
     diagnostics?.flush();
-    reportStdioFailureDiagnostics(server, context.generation, diagnostics);
-    return await closeAfterFailure(
-      client,
-      classifyMcpLifecycleFailure(cause, diagnostics?.snapshot()),
-      provider
-    );
+    const failure = classifyMcpLifecycleFailure(cause, diagnostics?.snapshot());
+    try {
+      return await closeAfterFailure(client, failure, provider);
+    } finally {
+      // A child can close the protocol stream before Node drains its final
+      // stderr chunks. Persist only after transport cleanup has completed so
+      // the durable report includes those sanitized late arrivals.
+      diagnostics?.flush();
+      reportStdioFailureDiagnostics(server, context.generation, diagnostics);
+    }
   }
   diagnostics?.flush();
   const status = connectedStatus(client, {
