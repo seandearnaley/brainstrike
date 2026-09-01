@@ -2141,20 +2141,22 @@ Ownership and flow:
    non-empty MCP config loads the dedicated subpath; keep split SDK packages out
    of root/browser-safe/Hosted Web bundles (the emitted-bundle verifier enforces
    this).
-3. Desktop clients — `apps/desktop/src/mcp/http-client.ts` adapts that shared
-   client to the desktop `McpClient` discovery/call contract. `sse-client.ts`
-   is only a compatibility factory delegating to the canonical adapter; no
-   bespoke SSE framing, endpoint rewriting, or environment-selected call path
-   remains.
+3. Desktop host composition — `apps/desktop/src/mcp/host-runtime.ts` constructs
+   the shared explicit clients only behind `McpHostService` actors. The dormant
+   pre-host global client registry, desktop `McpClient` wrapper, and HTTP/stdio/SSE
+   factory adapters do not exist. Shared token-free status projection and
+   discovered-tool types remain in `apps/desktop/src/mcp/types.ts`; removing the
+   obsolete wrappers must not remove those helpers or any protocol-era behavior
+   owned by the active explicit clients.
 4. Desktop authority — startup configuration and tool discovery flow through the
    singleton `DesktopMcpHostRuntime`; malformed reloads preserve the last valid
    authority, absent config installs explicit empty authority, and stale
    discovery epochs cannot overwrite a newer config projection. File-watcher
    projections are serialized, stale loads are discarded, and reload failures
-   remain distinct from projection callback failures. The global client-map
-   invocation router is absent; the legacy desktop client registry remains only
-   on the status migration boundary until BST-1529 removes it. BST-1506 owns the
-   shipped assistant runtime's host-invocation cutover.
+   remain distinct from projection callback failures. Shutdown closes the active
+   host and aggregates its close report; factory reset replaces its resolved
+   configuration with explicit empty authority. Neither path invokes a parallel
+   legacy registry cleanup owner.
 5. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` adapts the
    injected desktop host authority; it never constructs or closes an SDK client.
    Each run owns only generation-fenced watchers and cancellation leases, rolls

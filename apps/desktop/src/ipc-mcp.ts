@@ -14,7 +14,6 @@ import {
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import { disposeClients } from './mcp';
 import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { controlDestructiveMcpLifecycle, notifyMcpStatusUpdated } from './mcp/lifecycle-control';
 import type { McpDiscoveredTool } from './mcp/types';
@@ -464,17 +463,11 @@ export async function cleanupMcpRuntimeForShutdown(
   await mcpLifecycleBarrier;
   pendingFactoryResetSnapshot = null;
   purgeMcpRuntimeProjection();
-  const [hostClose, legacyClose] = await Promise.allSettled([
-    runtime.host.close(),
-    disposeClients(),
-  ]);
-  if (hostClose.status === 'rejected') {
-    failures.push(hostClose.reason);
-  } else {
-    failures.push(...hostClose.value.failures);
-  }
-  if (legacyClose.status === 'rejected') {
-    failures.push(legacyClose.reason);
+  try {
+    const hostClose = await runtime.host.close();
+    failures.push(...hostClose.failures);
+  } catch (error) {
+    failures.push(error);
   }
   throwMcpCleanupFailures('shutdown', failures);
 }
@@ -494,11 +487,6 @@ export async function resetMcpRuntimeForFactoryReset(
     failures.push(error);
   }
   purgeMcpRuntimeProjection();
-  try {
-    await disposeClients();
-  } catch (error) {
-    failures.push(error);
-  }
   throwMcpCleanupFailures('reset', failures);
 }
 

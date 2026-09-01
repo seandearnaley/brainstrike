@@ -18,13 +18,8 @@ import type { LoadedMcpConfig, ResolvedMcpConfig } from '../../mcp-loader';
 import { readMainSourceSections } from './main-source-test-helpers';
 
 const mocks = vi.hoisted(() => ({
-  disposeClients: vi.fn(async () => undefined),
-  getClient: vi.fn(),
-  getClientStatuses: vi.fn(() => []),
   getMcpConfigPath: vi.fn(async () => '/tmp/mcp.config.json'),
   hostInvoke: vi.fn(),
-  initClients: vi.fn(),
-  legacyListTools: vi.fn(),
   loadMcpConfig: vi.fn(),
   replaceResolvedConfig: vi.fn(),
   setCustomMcpConfigPath: vi.fn(async (): Promise<void> => undefined),
@@ -41,14 +36,6 @@ vi.mock('electron', () => ({
     removeHandler: vi.fn(),
     removeListener: vi.fn(),
   },
-}));
-
-// Global registry and preference mocks come from src/__tests__/setup.ts.
-vi.mock('../../mcp', () => ({
-  disposeClients: mocks.disposeClients,
-  getClient: mocks.getClient,
-  getClientStatuses: mocks.getClientStatuses,
-  initClients: mocks.initClients,
 }));
 
 vi.mock('../../mcp-loader', () => ({
@@ -170,10 +157,6 @@ describe('MCP desktop authority bootstrap', () => {
     mocks.hostInvoke.mockImplementation(async (operation: { configuredServerId: string }) =>
       listResult(operation.configuredServerId)
     );
-    mocks.legacyListTools.mockResolvedValue({
-      'legacy.inspect': { description: 'legacy tool', inputSchema: { type: 'object' } },
-    });
-    mocks.getClient.mockReturnValue({ listTools: mocks.legacyListTools });
     mocks.watchMcpConfig.mockImplementation(async (callback: WatchCallback) => {
       watchCallback = callback;
       const close = vi.fn();
@@ -258,7 +241,6 @@ describe('MCP desktop authority bootstrap', () => {
       configuredServerId: 'team.linear.prod',
       type: 'tools/list',
     });
-    expect(mocks.initClients).not.toHaveBeenCalled();
     expect(mcpToolRegistry.register).toHaveBeenCalledWith(
       'team.linear.prod',
       expect.objectContaining({ 'team.linear.prod.inspect': expect.any(Object) }),

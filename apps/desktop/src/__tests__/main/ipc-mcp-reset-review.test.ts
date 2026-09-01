@@ -2,7 +2,6 @@ import { mcpToolRegistry } from '@brainstrike/agent';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
-import { disposeClients } from '../../mcp';
 import {
   getMcpConfigPath,
   loadMcpConfig,
@@ -38,10 +37,6 @@ vi.mock('../../mcp-loader', () => ({
   setCustomMcpConfigPath: vi.fn(),
   watchMcpConfig: vi.fn(async () => ({ close: vi.fn() })),
   writeMcpConfigText: vi.fn(),
-}));
-
-vi.mock('../../mcp', () => ({
-  disposeClients: vi.fn(async () => undefined),
 }));
 
 describe('MCP reset review closure', () => {
@@ -93,7 +88,7 @@ describe('MCP reset review closure', () => {
     };
   }
 
-  it('cleans up the active watcher, MCP clients, and registry state on shutdown', async () => {
+  it('cleans up the active watcher, host, and registry state on shutdown', async () => {
     const watcher = { close: vi.fn() };
     vi.mocked(watchMcpConfig).mockResolvedValueOnce(watcher);
     mcpToolRegistry.register('server', {
@@ -108,7 +103,7 @@ describe('MCP reset review closure', () => {
     await mcpIpc.cleanupMcpRuntimeForShutdown(authority.runtime);
 
     expect(watcher.close).toHaveBeenCalledOnce();
-    expect(disposeClients).toHaveBeenCalledOnce();
+    expect(authority.runtime.host.close).toHaveBeenCalledOnce();
     expect(mcpToolRegistry.getStats()).toEqual({
       disabled: 0,
       enabled: 0,

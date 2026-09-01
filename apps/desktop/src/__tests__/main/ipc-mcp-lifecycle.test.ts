@@ -32,12 +32,6 @@ vi.mock('../../mcp-loader', () => ({
   writeMcpConfigText: vi.fn(),
 }));
 
-vi.mock('../../mcp', () => ({
-  disposeClients: vi.fn(),
-  getClientStatuses: vi.fn(() => []),
-  initClients: vi.fn(),
-}));
-
 vi.mock('../../openai-api-key', () => ({ readOpenAIApiKey: vi.fn() }));
 
 const mockSecretsService = {

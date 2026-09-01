@@ -3,7 +3,6 @@ import { ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  disposeClients: vi.fn(async () => undefined),
   loadMcpConfig: vi.fn(async () => ({ exists: false, path: '/tmp/mcp.config.json' })),
   watcherClose: vi.fn(),
 }));
@@ -18,10 +17,6 @@ vi.mock('electron', () => ({
     removeHandler: vi.fn(),
     removeListener: vi.fn(),
   },
-}));
-
-vi.mock('../../mcp', () => ({
-  disposeClients: mocks.disposeClients,
 }));
 
 vi.mock('../../mcp-loader', () => ({
@@ -51,7 +46,7 @@ describe('terminal MCP shutdown cleanup', () => {
     vi.clearAllMocks();
   });
 
-  it('isolates terminal closure while directly proving watcher, host, and legacy cleanup', async () => {
+  it('isolates terminal closure while directly proving watcher and active host cleanup', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
       handlers.set(channel, handler as (...args: unknown[]) => unknown);
@@ -78,14 +73,11 @@ describe('terminal MCP shutdown cleanup', () => {
 
     expect(mocks.watcherClose).toHaveBeenCalledOnce();
     expect(hostClose).toHaveBeenCalledOnce();
-    expect(mocks.disposeClients).toHaveBeenCalledOnce();
     expect(registryClear).toHaveBeenCalledTimes(registryClearsBeforeShutdown + 1);
   });
 
-  it('preserves host close-report and legacy cleanup failures together', async () => {
+  it('preserves active host close-report failures', async () => {
     const hostFailure = { category: 'transport', code: 'child_alive', message: 'child alive' };
-    const legacyFailure = new Error('legacy cleanup failed');
-    mocks.disposeClients.mockRejectedValueOnce(legacyFailure);
     const runtime = {
       host: {
         close: vi.fn(async () => ({ ...cleanCloseReport, failures: [hostFailure] })),
@@ -95,7 +87,7 @@ describe('terminal MCP shutdown cleanup', () => {
     const { cleanupMcpRuntimeForShutdown } = await import('../../ipc-mcp');
 
     await expect(cleanupMcpRuntimeForShutdown(runtime as never)).rejects.toMatchObject({
-      errors: [hostFailure, legacyFailure],
+      errors: [hostFailure],
       message: 'MCP runtime shutdown cleanup failed',
     });
   });

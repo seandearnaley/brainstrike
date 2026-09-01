@@ -4,7 +4,6 @@ import { mcpToolRegistry } from '@brainstrike/agent';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
-import { disposeClients, initClients } from '../../mcp';
 import {
   getMcpConfigPath,
   loadMcpConfig,
@@ -59,12 +58,6 @@ vi.mock('../../mcp-loader', () => ({
   setCustomMcpConfigPath: vi.fn(),
   watchMcpConfig: vi.fn(async () => ({ close: vi.fn() })),
   writeMcpConfigText: vi.fn(),
-}));
-
-vi.mock('../../mcp', () => ({
-  disposeClients: vi.fn(),
-  getClientStatuses: vi.fn(() => []),
-  initClients: vi.fn(),
 }));
 
 vi.mock('../../openai-api-key', () => ({
@@ -158,11 +151,12 @@ describe('ipc-mcp handlers', () => {
       await watchHandler({});
       await handlers.get('mcp:status:get')?.();
       mockWatcher.close.mockClear();
-      const disposeCallsBeforeUnregister = vi.mocked(disposeClients).mock.calls.length;
+      const hostClose = vi.mocked(authority.runtime.host.close);
+      const closeCallsBeforeUnregister = hostClose.mock.calls.length;
       unregister();
 
       expect(mockWatcher.close).not.toHaveBeenCalled();
-      expect(vi.mocked(disposeClients).mock.calls.length).toBe(disposeCallsBeforeUnregister);
+      expect(hostClose).toHaveBeenCalledTimes(closeCallsBeforeUnregister);
       expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:get');
     });
   });
@@ -266,10 +260,10 @@ describe('ipc-mcp handlers', () => {
       if (!handler) {
         throw new Error('handler not registered');
       }
+      const replacementsBefore = authority.replaceResolvedConfig.mock.calls.length;
       const result = await handler();
       expect(loadMcpConfig).toHaveBeenCalled();
-      expect(initClients).not.toHaveBeenCalled();
-      expect(disposeClients).not.toHaveBeenCalled();
+      expect(authority.replaceResolvedConfig).toHaveBeenCalledTimes(replacementsBefore);
       expect(result).toEqual({
         exists: true,
         loadedAt: mockConfig.loadedAt,
@@ -286,21 +280,17 @@ describe('ipc-mcp handlers', () => {
       };
 
       const mockedLoad = vi.mocked(loadMcpConfig);
-      const mockedDispose = vi.mocked(disposeClients);
       mockedLoad.mockResolvedValue(mockConfig as never);
-      mockedDispose.mockResolvedValue(undefined as never);
 
       const handler = handlers.get('mcp:config:get');
       if (!handler) {
         throw new Error('handler not registered');
       }
-      const initCallsBefore = vi.mocked(initClients).mock.calls.length;
-      const disposeCallsBefore = vi.mocked(disposeClients).mock.calls.length;
+      const replacementsBefore = authority.replaceResolvedConfig.mock.calls.length;
       const result = await handler();
 
       expect(loadMcpConfig).toHaveBeenCalled();
-      expect(vi.mocked(initClients).mock.calls.length).toBe(initCallsBefore);
-      expect(vi.mocked(disposeClients).mock.calls.length).toBe(disposeCallsBefore);
+      expect(authority.replaceResolvedConfig).toHaveBeenCalledTimes(replacementsBefore);
       expect(result).toEqual(mockConfig);
     });
 
@@ -419,7 +409,6 @@ describe('ipc-mcp handlers', () => {
       await watchCallback(newConfig);
 
       expect(authority.replaceResolvedConfig).toHaveBeenCalledWith(newConfig.config);
-      expect(disposeClients).not.toHaveBeenCalled();
       expect(send).toHaveBeenCalledWith('mcp:config:updated', {
         exists: true,
         path: '/path/to/config',
@@ -435,8 +424,6 @@ describe('ipc-mcp handlers', () => {
       mockWatchImpl((cb) => {
         watchCallback = cb;
       }, mockWatcher);
-      const mockedDispose = vi.mocked(disposeClients);
-      mockedDispose.mockResolvedValue(undefined as never);
 
       const handler = handlers.get('mcp:config:watch');
       if (!handler) {
@@ -589,8 +576,6 @@ describe('ipc-mcp handlers', () => {
       mockWatchImpl((cb) => {
         watchCallback = cb;
       }, mockWatcher);
-      const mockedDispose = vi.mocked(disposeClients);
-      mockedDispose.mockResolvedValue(undefined as never);
 
       // Start watching
       const watchHandler = handlers.get('mcp:config:watch');
@@ -658,7 +643,6 @@ describe('ipc-mcp handlers', () => {
         throw new Error('handlers not registered');
       }
 
-      const initCallsBefore = vi.mocked(initClients).mock.calls.length;
       const result1 = await getHandler();
       const publicConfig = {
         exists: true,
@@ -672,8 +656,6 @@ describe('ipc-mcp handlers', () => {
 
       const result2 = await getHandler();
       expect(result2).toEqual(publicConfig);
-
-      expect(vi.mocked(initClients).mock.calls.length - initCallsBefore).toBe(0);
     });
   });
 
