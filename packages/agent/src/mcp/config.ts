@@ -1,9 +1,9 @@
 import {
-  McpConfigSchema as SharedMcpConfigSchema,
   McpConfigValidationError,
-  McpServerSchema as SharedMcpServerSchema,
   parseMcpConfigValue as parseSharedMcpConfigValue,
   parseMcpServerValue as parseSharedMcpServerValue,
+  McpConfigSchema as SharedMcpConfigSchema,
+  McpServerSchema as SharedMcpServerSchema,
 } from '@brainstrike/assistant-contract/mcp-config';
 
 export * from '@brainstrike/assistant-contract/mcp-config';
@@ -11,8 +11,12 @@ export * from '@brainstrike/assistant-contract/mcp-config';
 const UNSUPPORTED_BEARER_MESSAGE =
   'MCP bearer authentication requires a production credential resolver';
 
-function bearerAuthUnsupported(server: { auth?: { type: string } | undefined }): boolean {
-  return server.auth?.type === 'bearer';
+function bearerAuthUnsupported(server: unknown): boolean {
+  if (!(typeof server === 'object' && server !== null && 'auth' in server)) {
+    return false;
+  }
+  const auth = server.auth;
+  return typeof auth === 'object' && auth !== null && 'type' in auth && auth.type === 'bearer';
 }
 
 export const McpServerSchema = SharedMcpServerSchema.superRefine((server, context) => {
@@ -33,9 +37,7 @@ export const McpConfigSchema = SharedMcpConfigSchema.superRefine((config, contex
   }
 });
 
-export function parseMcpServerValue(
-  value: unknown
-): ReturnType<typeof parseSharedMcpServerValue> {
+export function parseMcpServerValue(value: unknown): ReturnType<typeof parseSharedMcpServerValue> {
   const server = parseSharedMcpServerValue(value);
   if (bearerAuthUnsupported(server)) {
     throw new McpConfigValidationError([{ message: UNSUPPORTED_BEARER_MESSAGE, path: 'auth' }]);
@@ -43,9 +45,7 @@ export function parseMcpServerValue(
   return server;
 }
 
-export function parseMcpConfigValue(
-  value: unknown
-): ReturnType<typeof parseSharedMcpConfigValue> {
+export function parseMcpConfigValue(value: unknown): ReturnType<typeof parseSharedMcpConfigValue> {
   const parsed = parseSharedMcpConfigValue(value);
   const serverIndex = parsed.config.servers.findIndex(bearerAuthUnsupported);
   if (serverIndex !== -1) {
