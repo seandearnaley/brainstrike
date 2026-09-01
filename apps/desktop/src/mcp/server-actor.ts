@@ -377,8 +377,8 @@ export class McpServerActor {
   }
   private fail(error: ActorError): ActorError {
     if (!this.failure) {
-      this.options.onAuthorityRetired?.();
       this.failure = error;
+      this.options.onAuthorityRetired?.();
       this.change({
         error: { category: error.category, code: error.code, message: error.message },
         state: 'error',

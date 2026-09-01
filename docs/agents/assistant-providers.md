@@ -2008,9 +2008,10 @@ explicit future presenter or compatibility adapter, not an advertised desktop
 feature. The only active input-required policy is the capability-free SDK
 automation policy `{ autoFulfill: true, maxRounds: 8 }`.
 
-Desktop main owns one process-local elicitation presenter authority. It projects bounded
-server/generation/invocation/operation provenance, settles once, and retires on abort, disconnect,
-replacement, reset, or close; it never persists MRTR `requestState`. Production capability
+Desktop main owns one process-local elicitation presenter authority. An explicit active-invocation
+registry binds only a single matching server operation and rejects ambiguous concurrency; no async
+context or untrusted MRTR `requestState` supplies authority. Grants are weak, settlement is once-only,
+and actor retirement covers failure, replacement, reset, disconnect, and close. Production capability
 resolution stays undefined until accessible UI is complete, so this advertises nothing alone.
 
 Elicitation has independently declared form and URL modes. The host presenter

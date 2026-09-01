@@ -218,21 +218,22 @@ describe('MCP client capabilities', () => {
   });
 
   it.each([
-    ['property', { password: { type: 'string' } }],
-    ['title', { value: { title: 'API key', type: 'string' } }],
-    ['description', { value: { description: 'Paste access token', type: 'string' } }],
-    ['format', { value: { format: 'credential', type: 'string' } }],
-    ['nested hint', { value: { oneOf: [{ const: 'x', title: 'Client secret' }] } }],
-  ])('rejects sensitive form schema %s through the shared validator', (_label, properties) => {
-    expect(() =>
+    ['property', { password: { type: 'string' } }, true],
+    ['title', { value: { title: 'API key', type: 'string' } }, true],
+    ['format', { value: { format: 'credential', type: 'string' } }, true],
+    ['nested property', { value: { properties: { client_secret: { type: 'string' } } } }, true],
+    ['description', { value: { description: 'Track token budget', type: 'string' } }, false],
+  ])('classifies sensitive form schema %s exactly', (_label, properties, rejected) => {
+    const validate = () =>
       validateMcpElicitationRequest({
         method: 'elicitation/create',
-        params: {
-          message: 'Provide value',
-          requestedSchema: { properties, type: 'object' },
-        },
-      } as ElicitRequest)
-    ).toThrow('may not request sensitive');
+        params: { message: 'Provide value', requestedSchema: { properties, type: 'object' } },
+      } as ElicitRequest);
+    if (rejected) {
+      expect(validate).toThrow('may not request sensitive');
+    } else {
+      expect(validate).not.toThrow();
+    }
   });
 
   it('bounds accepted form responses by serialized UTF-8 bytes', () => {

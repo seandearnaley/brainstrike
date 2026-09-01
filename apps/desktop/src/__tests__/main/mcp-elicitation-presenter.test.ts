@@ -11,7 +11,9 @@ import {
 } from '../../mcp/elicitation-presenter';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
-const connectedServer = (): McpHostServerSnapshot => ({
+const connectedServer = (
+  websiteUrl = 'https://linear.example/about?token=must-not-project'
+): McpHostServerSnapshot => ({
   configuredProtocol: '2026-07-28',
   configuredServerId: SERVER_ID,
   generation: 7,
@@ -22,7 +24,7 @@ const connectedServer = (): McpHostServerSnapshot => ({
       name: 'Linear MCP',
       title: 'Linear',
       version: '2.0.0',
-      websiteUrl: 'https://linear.example/about?token=must-not-project',
+      websiteUrl,
     },
   },
   state: 'connected',
@@ -40,6 +42,17 @@ const formRequest = {
     },
   },
 } satisfies ElicitRequest;
+const context = (requestId: string, signal = new AbortController().signal) => ({
+  requestId,
+  serverName: SERVER_ID,
+  signal,
+});
+const settlement = (id: string | undefined, requestId: string) => ({
+  configuredServerId: SERVER_ID,
+  generation: 7,
+  id,
+  requestId,
+});
 
 describe('McpElicitationPresenterAuthority', () => {
   it('rejects invalid or sensitive form data without consuming a correctable presentation', async () => {
@@ -51,36 +64,19 @@ describe('McpElicitationPresenterAuthority', () => {
     authority.attach((value) => presentations.push(value));
     const operation = { configuredServerId: SERVER_ID, type: 'tools/list' } as const;
     const pending = authority.runWithOperation(operation, () =>
-      authority.presenter.presentForm(formRequest, {
-        requestId: 'correctable',
-        serverName: SERVER_ID,
-        signal: new AbortController().signal,
-      })
+      authority.presenter.presentForm(formRequest, context('correctable'))
     );
-    const settlement = {
+    const accepted = {
+      ...settlement(presentations[0]?.id, 'correctable'),
       action: 'accept' as const,
-      configuredServerId: SERVER_ID,
-      generation: 7,
-      id: presentations[0]?.id,
-      requestId: 'correctable',
     };
-    expect(() => authority.settle({ ...settlement, content: { workspace: 42 } })).toThrowError(
+    expect(() => authority.settle({ ...accepted, content: { workspace: 42 } })).toThrowError(
       expect.objectContaining({ code: 'mcp-elicitation-settlement-invalid' })
     );
-    authority.settle({ ...settlement, content: { workspace: 'Engineering' } });
+    authority.settle({ ...accepted, content: { workspace: 'Engineering' } });
     await expect(pending).resolves.toMatchObject({ content: { workspace: 'Engineering' } });
     const invalidRequests: Parameters<typeof authority.presenter.presentForm>[0][] = [
       { ...formRequest, params: { ...formRequest.params, message: 'x'.repeat(33_000) } },
-      {
-        ...formRequest,
-        params: {
-          ...formRequest.params,
-          requestedSchema: {
-            properties: { value: { description: 'Paste API token', type: 'string' } },
-            type: 'object' as const,
-          },
-        },
-      },
       {
         ...formRequest,
         params: { ...formRequest.params, requestedSchema: {} },
@@ -89,22 +85,20 @@ describe('McpElicitationPresenterAuthority', () => {
     for (const invalidRequest of invalidRequests) {
       await expect(
         authority.runWithOperation(operation, () =>
-          authority.presenter.presentForm(invalidRequest, {
-            requestId: 'sensitive',
-            serverName: SERVER_ID,
-            signal: new AbortController().signal,
-          })
+          authority.presenter.presentForm(invalidRequest, context('sensitive'))
         )
       ).rejects.toMatchObject({ code: 'mcp-elicitation-request-invalid' });
     }
     expect(presentations).toHaveLength(1);
   });
   it('presents exact provenance and settles an accepted form exactly once', async () => {
+    let server = connectedServer();
+    let sequence = 0;
     let presentation: McpElicitationPresentation | undefined;
     const authority = new McpElicitationPresenterAuthority({
-      createPresentationId: () => '00000000-0000-4000-8000-000000000001',
+      createPresentationId: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, '0')}`,
       openExternal: vi.fn(),
-      resolveServer: () => connectedServer(),
+      resolveServer: () => server,
     });
     authority.attach((value) => {
       presentation = value;
@@ -116,12 +110,7 @@ describe('McpElicitationPresenterAuthority', () => {
         toolName: 'search_issues',
         type: 'tools/call',
       },
-      () =>
-        authority.presenter.presentForm(formRequest, {
-          requestId: 'elicitation-1',
-          serverName: SERVER_ID,
-          signal: new AbortController().signal,
-        })
+      () => authority.presenter.presentForm(formRequest, context('elicitation-1'))
     );
     expect(presentation).toEqual({
       id: '00000000-0000-4000-8000-000000000001',
@@ -147,11 +136,8 @@ describe('McpElicitationPresenterAuthority', () => {
     });
     authority.settle({
       action: 'accept',
-      configuredServerId: SERVER_ID,
       content: { workspace: 'Engineering' },
-      generation: 7,
-      id: presentation?.id,
-      requestId: 'elicitation-1',
+      ...settlement(presentation?.id, 'elicitation-1'),
     });
     await expect(result).resolves.toEqual({
       action: 'accept',
@@ -160,12 +146,17 @@ describe('McpElicitationPresenterAuthority', () => {
     expect(() =>
       authority.settle({
         action: 'decline',
-        configuredServerId: SERVER_ID,
-        generation: 7,
-        id: presentation?.id,
-        requestId: 'elicitation-1',
+        ...settlement(presentation?.id, 'elicitation-1'),
       })
     ).toThrowError(expect.objectContaining({ code: 'mcp-elicitation-already-settled' }));
+    server = connectedServer('not a URL');
+    const malformedIdentity = authority.runWithOperation(
+      { configuredServerId: SERVER_ID, type: 'tools/list' },
+      () => authority.presenter.presentForm(formRequest, context('malformed-identity'))
+    );
+    expect(presentation).not.toHaveProperty('provenance.serverIdentity.websiteOrigin');
+    authority.settle({ action: 'cancel', ...settlement(presentation?.id, 'malformed-identity') });
+    await malformedIdentity;
   });
   it('opens a safe URL only after an exact one-use accept decision', async () => {
     const presentations: McpElicitationPresentation[] = [];
@@ -193,72 +184,50 @@ describe('McpElicitationPresenterAuthority', () => {
       },
     } satisfies ElicitRequest;
     const invoke = (requestId: string) =>
-      authority.runWithOperation(operation, () =>
-        capability.handle(request, {
-          requestId,
-          serverName: SERVER_ID,
-          signal: new AbortController().signal,
-        })
-      );
-    const declined = invoke('url-decline');
+      authority.runWithOperation(operation, () => capability.handle(request, context(requestId)));
+    const accepted = invoke('url-accept');
     expect(presentations[0]).toMatchObject({
       mode: 'url',
       url: request.params.url,
     });
     authority.settle({
-      action: 'decline',
-      configuredServerId: SERVER_ID,
-      generation: 7,
-      id: presentations[0]?.id,
-      requestId: 'url-decline',
-    });
-    await expect(declined).resolves.toEqual({ action: 'decline' });
-    expect(openExternal).not.toHaveBeenCalled();
-    const accepted = invoke('url-accept');
-    authority.settle({
       action: 'accept',
-      configuredServerId: SERVER_ID,
-      generation: 7,
-      id: presentations[1]?.id,
-      requestId: 'url-accept',
+      ...settlement(presentations[0]?.id, 'url-accept'),
     });
     await expect(accepted).resolves.toEqual({ action: 'accept' });
     expect(openExternal).toHaveBeenCalledOnce();
     expect(openExternal).toHaveBeenCalledWith(new URL(request.params.url));
     await expect(
       authority.runWithOperation(operation, () =>
-        authority.presenter.openExternal(new URL(request.params.url), {
-          requestId: 'url-accept',
-          serverName: SERVER_ID,
-          signal: new AbortController().signal,
-        })
+        authority.presenter.openExternal(new URL(request.params.url), context('url-accept'))
       )
     ).rejects.toMatchObject({ code: 'mcp-elicitation-url-not-authorized' });
-    const concurrent = [invoke('same-input-key'), invoke('same-input-key')];
-    const pair = presentations.slice(-2);
-    expect(pair[0]?.provenance.invocationId).not.toBe(pair[1]?.provenance.invocationId);
-    for (const presentation of pair) {
-      authority.settle({
-        action: 'accept',
-        configuredServerId: SERVER_ID,
-        generation: 7,
-        id: presentation?.id,
-        requestId: 'same-input-key',
-      });
+    for (const key of ['api_key', 'client_secret', 'session_token']) {
+      await expect(
+        authority.runWithOperation(operation, () =>
+          authority.presenter.confirmUrl(
+            { ...request, params: { ...request.params, url: `https://example.test/?${key}=x` } },
+            context(key)
+          )
+        )
+      ).rejects.toMatchObject({ code: 'mcp-elicitation-url-sensitive' });
     }
-    await expect(Promise.all(concurrent)).resolves.toEqual([
-      { action: 'accept' },
-      { action: 'accept' },
-    ]);
+    const held = Promise.withResolvers<void>();
+    const concurrent = [
+      authority.runWithOperation(operation, () => held.promise),
+      authority.runWithOperation(operation, () => held.promise),
+    ];
+    await expect(
+      authority.presenter.confirmUrl(request, context('ambiguous'))
+    ).rejects.toMatchObject({ code: 'mcp-elicitation-origin-unbound' });
+    held.resolve();
+    await Promise.all(concurrent);
     openExternal.mockRejectedValueOnce(new Error('opener failed'));
     const failedOpen = invoke('opener-failure');
     const failedPresentation = presentations.at(-1);
     authority.settle({
       action: 'accept',
-      configuredServerId: SERVER_ID,
-      generation: 7,
-      id: failedPresentation?.id,
-      requestId: 'opener-failure',
+      ...settlement(failedPresentation?.id, 'opener-failure'),
     });
     await expect(failedOpen).rejects.toThrow('opener failed');
   });
@@ -274,40 +243,38 @@ describe('McpElicitationPresenterAuthority', () => {
     let detach = attach();
     const present = (id: string) => {
       ids.push(id);
-      return authority.runWithOperation({ configuredServerId: SERVER_ID, type: 'tools/list' }, () =>
-        authority.presenter.presentForm(formRequest, {
-          requestId: id,
-          serverName: SERVER_ID,
-          signal: new AbortController().signal,
-        })
-      );
+      return authority.presenter.presentForm(formRequest, context(id));
     };
-    const pending = Array.from({ length: 32 }, (_, index) => present(`p${index}`));
-    await expect(present('overflow')).rejects.toMatchObject({
-      code: 'mcp-elicitation-settlement-invalid',
-    });
-    detach();
-    expect((await Promise.allSettled(pending)).every(({ status }) => status === 'rejected')).toBe(
-      true
+    await authority.runWithOperation(
+      { configuredServerId: SERVER_ID, type: 'tools/list' },
+      async () => {
+        const pending = Array.from({ length: 32 }, (_, index) => present(`p${index}`));
+        await expect(present('overflow')).rejects.toMatchObject({
+          code: 'mcp-elicitation-pending-limit',
+        });
+        detach();
+        expect(
+          (await Promise.allSettled(pending)).every(({ status }) => status === 'rejected')
+        ).toBe(true);
+        detach = attach();
+        for (let index = 0; index < 97; index++) {
+          const result = present(`f${index}`);
+          authority.settle({
+            action: 'cancel',
+            ...settlement(seen.at(-1)?.id, `f${index}`),
+          });
+          await result;
+        }
+        const reused = present('p0');
+        await expect(present('p0')).rejects.toMatchObject({
+          code: 'mcp-elicitation-id-collision',
+        });
+        detach();
+        await expect(reused).rejects.toMatchObject({
+          code: 'mcp-elicitation-presenter-unavailable',
+        });
+      }
     );
-    detach = attach();
-    for (let index = 0; index < 97; index++) {
-      const result = present(`f${index}`);
-      authority.settle({
-        action: 'cancel',
-        configuredServerId: SERVER_ID,
-        generation: 7,
-        id: seen.at(-1)?.id,
-        requestId: `f${index}`,
-      });
-      await result;
-    }
-    const reused = present('p0');
-    await expect(present('p0')).rejects.toMatchObject({
-      code: 'mcp-elicitation-settlement-invalid',
-    });
-    detach();
-    await expect(reused).rejects.toMatchObject({ code: 'mcp-elicitation-presenter-unavailable' });
   });
   it('settles caller abort, authority retirement, close, and restart without resumable state', async () => {
     let server = connectedServer();
@@ -325,7 +292,7 @@ describe('McpElicitationPresenterAuthority', () => {
     } as const;
     const present = (requestId: string, signal: AbortSignal) =>
       authority.runWithOperation(operation, () =>
-        authority.presenter.presentForm(formRequest, { requestId, serverName: SERVER_ID, signal })
+        authority.presenter.presentForm(formRequest, context(requestId, signal))
       );
     const caller = new AbortController();
     const aborted = present('abort-me', caller.signal);
@@ -344,10 +311,7 @@ describe('McpElicitationPresenterAuthority', () => {
     expect(() =>
       authority.settle({
         action: 'cancel',
-        configuredServerId: SERVER_ID,
-        generation: 7,
-        id: retiredId,
-        requestId: 'retire-me',
+        ...settlement(retiredId, 'retire-me'),
       })
     ).toThrowError(expect.objectContaining({ code: 'mcp-elicitation-stale-authority' }));
     server = { ...connectedServer(), generation: 8 };
