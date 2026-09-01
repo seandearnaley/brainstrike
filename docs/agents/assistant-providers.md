@@ -2122,6 +2122,23 @@ policy. Accepted form content is host-validated for the SDK's `email`, `uri`,
 enum/multiselect schema; unconstrained arrays are rejected by the SDK ingress
 schema.
 
+Final SEP-2322 defines an absent `resultType` as `complete` for backward
+compatibility. Stable `@modelcontextprotocol/client@2.0.0` instead rejects that
+shape on a 2026 connection, so both explicit transports install one immutable
+pre-codec mapping for the absent discriminator. It applies only to positively
+modern messages (pinned 2026, or `auto` after the SDK reports a negotiated
+modern era), never mutates the parsed message, and leaves explicit core or
+extension result kinds untouched for the SDK to validate. Before negotiation,
+transport classification can positively identify modern traffic; otherwise
+unclassified `auto` and legacy messages remain unchanged. Installation preserves
+and delegates through the transport's existing `onmessage` descriptor, composes
+both the SDK probe and production handlers, and recognizes probe-detach wrapper
+restoration without stacking or recursion. A second installation with a
+conflicting protocol or negotiated-era resolver fails visibly. Retire this
+mapping only when the pinned SDK implements
+the final SEP rule and the official `sep-2322-client-request-state` scenario
+still passes.
+
 Ownership and flow:
 1. Config — `packages/assistant-contract/src/mcp-config.ts` owns the shared
    transport grammar, normalization, migration records, and machine-readable
