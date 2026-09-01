@@ -8,7 +8,7 @@ function createBrainstrikeEchoReferenceServer(): McpServer {
     name: 'brainstrike-sdk-v2-reference',
     version: '2.0.0',
   });
-  const echoSchema = z.object({ text: z.string() });
+  const echoSchema = z.strictObject({ text: z.string() });
   server.registerTool(
     'echo',
     {

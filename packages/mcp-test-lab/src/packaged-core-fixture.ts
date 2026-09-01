@@ -1,12 +1,10 @@
 import { createMcpLabFaultPlan } from './faults.js';
 import { type McpLabCleanupReport, type McpLabSession, startMcpLabScenario } from './lab.js';
 import type { McpLabScenarioId } from './scenario.js';
-
 export type PackagedCoreFixtureId = Extract<
   McpLabScenarioId,
   'legacy-reference' | 'modern-reference' | 'oauth-reference'
 >;
-
 export interface PackagedCoreFixtureManifest {
   readonly authentication: 'none' | 'oauth';
   readonly authorizationUrl?: string;
@@ -14,7 +12,6 @@ export interface PackagedCoreFixtureManifest {
   readonly transport: 'streamable-http';
   readonly url: string;
 }
-
 export interface PackagedCoreFixtureCleanupReport {
   readonly clean: boolean;
   readonly httpListenersClosed: number;
@@ -25,29 +22,24 @@ export interface PackagedCoreFixtureCleanupReport {
     readonly tokens: number;
   };
 }
-
 export interface PackagedCoreFixture {
   authorizationDelayObserved(): boolean;
+  authorizationDelaySettled(): boolean;
   close(): Promise<PackagedCoreFixtureCleanupReport>;
   readonly manifest: PackagedCoreFixtureManifest;
 }
-
 export interface PackagedCoreFixtureOptions {
   readonly authorizationDelayMs?: number;
 }
-
 function assertLoopbackEndpoint(session: McpLabSession): URL {
   if (
-    session.endpoint.kind === 'loopback-http' ||
-    session.endpoint.kind === 'oauth-loopback-http'
+    session.endpoint.kind !== 'loopback-http' &&
+    session.endpoint.kind !== 'oauth-loopback-http'
   ) {
-    return session.endpoint.url;
+    throw new Error(`Packaged fixture ${session.scenario.id} did not create a loopback endpoint`);
   }
-  throw new Error(
-    `Packaged core fixture ${session.scenario.id} did not create a loopback endpoint`
-  );
+  return session.endpoint.url;
 }
-
 function toCleanupReport(report: McpLabCleanupReport): PackagedCoreFixtureCleanupReport {
   const oauthState = report.oauthRecordsRemaining;
   const clean =
@@ -61,7 +53,6 @@ function toCleanupReport(report: McpLabCleanupReport): PackagedCoreFixtureCleanu
     ...(oauthState ? { oauthState: Object.freeze({ ...oauthState }) } : {}),
   });
 }
-
 export async function startPackagedCoreFixture(
   id: PackagedCoreFixtureId,
   options: PackagedCoreFixtureOptions = {}
@@ -94,20 +85,38 @@ export async function startPackagedCoreFixture(
           ...(faultPlan ? { faultPlan } : {}),
         })
       : await startMcpLabScenario(id, { execution: 'loopback' });
-  const endpoint = assertLoopbackEndpoint(session);
-  const manifest: PackagedCoreFixtureManifest = Object.freeze({
-    authentication: session.scenario.authentication,
-    ...(session.endpoint.kind === 'oauth-loopback-http'
-      ? { authorizationUrl: session.endpoint.authorizationUrl.href }
-      : {}),
-    protocolVersion: session.scenario.protocol.version,
-    transport: 'streamable-http',
-    url: endpoint.href,
-  });
-  return Object.freeze({
-    authorizationDelayObserved: () =>
-      faultPlan?.untriggeredIds().includes('packaged-core-authorization-delay') === false,
-    close: async () => toCleanupReport(await session.close()),
-    manifest,
-  });
+  try {
+    const endpoint = assertLoopbackEndpoint(session);
+    let authorizationDelayObservedAt: number | undefined;
+    const manifest: PackagedCoreFixtureManifest = Object.freeze({
+      authentication: session.scenario.authentication,
+      ...(session.endpoint.kind === 'oauth-loopback-http'
+        ? { authorizationUrl: session.endpoint.authorizationUrl.href }
+        : {}),
+      protocolVersion: session.scenario.protocol.version,
+      transport: 'streamable-http',
+      url: endpoint.href,
+    });
+    return Object.freeze({
+      authorizationDelayObserved: () => {
+        if (faultPlan?.untriggeredIds().includes('packaged-core-authorization-delay') !== false) {
+          return false;
+        }
+        authorizationDelayObservedAt ??= Date.now();
+        return true;
+      },
+      authorizationDelaySettled: () =>
+        authorizationDelayObservedAt !== undefined &&
+        Date.now() - authorizationDelayObservedAt >= (options.authorizationDelayMs ?? 0),
+      close: async () => toCleanupReport(await session.close()),
+      manifest,
+    });
+  } catch (error) {
+    try {
+      await session.close();
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Packaged core fixture startup failed');
+    }
+    throw error;
+  }
 }

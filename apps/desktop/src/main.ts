@@ -1254,7 +1254,15 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   runtimes: [
     {
       name: 'mcp-runtime',
-      stop: () => resetMcpRuntimeForFactoryReset(getDesktopMcpHostRuntime()),
+      stop: async () => {
+        const runtime = getDesktopMcpHostRuntime();
+        await resetMcpRuntimeForFactoryReset(runtime);
+        logger.info('MCP runtime reset cleanup completed', {
+          hostCloseReport: runtime.retiredCleanupReport(),
+          legacyClientsClosed: true,
+          snapshot: runtime.host.snapshot(),
+        });
+      },
     },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
     { name: 'chunking-host', stop: () => chunkingHostManager.stop() },

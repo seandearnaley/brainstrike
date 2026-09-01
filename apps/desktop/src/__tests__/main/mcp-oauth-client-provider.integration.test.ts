@@ -1024,6 +1024,11 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     const second = await createProvider(async () => {
       throw new Error('browser must not open for a persisted MCP OAuth session');
     });
+    await expect(
+      second.clientInformation({ issuer: new URL('/', server.url).href })
+    ).resolves.toBeUndefined();
+    expect(await second.discoveryState?.()).toBeDefined();
+    await expect(second.saveResourceUrl?.(server.url.href)).resolves.toBeUndefined();
     const resumed = await createClient(second, server.url);
     await expect(resumed.client.connect(resumed.transport)).resolves.toBeUndefined();
     expect(server.authorizationRequests).toHaveLength(authorizationCount);

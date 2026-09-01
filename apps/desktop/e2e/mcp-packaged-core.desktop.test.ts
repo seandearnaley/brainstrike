@@ -1,11 +1,11 @@
 import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { TestInfo } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from 'playwright';
+import type { Page } from 'playwright';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
@@ -17,135 +17,103 @@ import {
   packagedDesktopExecutablePath,
 } from './utils/packaged-electron';
 
-interface FixtureManifest {
-  readonly authentication: 'none' | 'oauth';
-  readonly authorizationUrl?: string;
-  readonly protocolVersion: '2025-11-25' | '2026-07-28';
-  readonly transport: 'streamable-http';
-  readonly url: string;
-}
-
-interface FixtureCleanupReport {
-  readonly clean: boolean;
-  readonly httpListenersClosed: number;
-  readonly oauthState?: Readonly<Record<'clients' | 'codes' | 'states' | 'tokens', number>>;
-}
-
 interface PackagedFixture {
   authorizationDelayObserved(): boolean;
-  close(): Promise<FixtureCleanupReport>;
-  readonly manifest: FixtureManifest;
+  authorizationDelaySettled(): boolean;
+  close(): Promise<{
+    readonly clean: boolean;
+    readonly httpListenersClosed: number;
+    readonly oauthState?: Readonly<Record<string, number>>;
+  }>;
+  readonly manifest: { readonly url: string };
 }
-
 interface PackagedFixtureModule {
   startPackagedCoreFixture(
     id: 'legacy-reference' | 'modern-reference' | 'oauth-reference',
     options?: { readonly authorizationDelayMs?: number }
   ): Promise<PackagedFixture>;
 }
-
-interface PackagedContext {
-  readonly app: ElectronApplication;
-  readonly window: Page;
-}
-
-function fixtureModulePath(): string {
-  return pathToFileURL(path.resolve(process.cwd(), '../../packages/mcp-test-lab/dist/index.js'))
-    .href;
-}
-
+type PackagedContext = Awaited<ReturnType<typeof launchPackagedDesktop>>;
+type CloseReport = Record<string, number | readonly unknown[]>;
+const ASSISTANT_TOOL_PAYLOAD = 'packaged-assistant-payload';
 async function loadFixtures(): Promise<PackagedFixtureModule> {
-  return (await import(fixtureModulePath())) as unknown as PackagedFixtureModule;
+  return (await import(
+    pathToFileURL(path.resolve(process.cwd(), '../../packages/mcp-test-lab/dist/index.js')).href
+  )) as unknown as PackagedFixtureModule;
 }
-
 function stdioFixturePath(): string {
   return path.resolve(
     process.cwd(),
     '../../packages/mcp-test-lab/fixtures/stdio-reference-server.mjs'
   );
 }
-
+function oauthServer(url: string) {
+  return {
+    auth: { type: 'oauth-user' },
+    name: 'oauth',
+    protocol: '2026-07-28',
+    startup: 'authentication-required',
+    transport: 'streamable-http',
+    url,
+  } as const;
+}
 function buildConfig(options: {
   readonly diagnosticControlPath: string;
   readonly diagnosticPidFile: string;
   readonly legacyUrl: string;
   readonly modernUrl: string;
-  readonly oauthCancelUrl: string;
   readonly oauthUrl: string;
   readonly stdioPidFile: string;
 }): string {
-  return JSON.stringify(
-    {
-      servers: [
-        {
-          name: 'modern',
-          protocol: '2026-07-28',
-          transport: 'streamable-http',
-          url: options.modernUrl,
-        },
-        {
-          name: 'legacy',
-          protocol: 'legacy',
-          transport: 'streamable-http',
-          url: options.legacyUrl,
-        },
-        {
-          args: [
-            stdioFixturePath(),
-            '--brainstrike-production-env',
-            `--brainstrike-pid-file=${options.stdioPidFile}`,
-          ],
-          command: process.execPath,
-          env: { BRAINSTRIKE_STDIO_FIXTURE: '1' },
-          name: 'stdio',
-          protocol: '2026-07-28',
-          transport: 'stdio',
-        },
-        {
-          auth: { type: 'oauth-user' },
-          name: 'oauth-cancel',
-          protocol: '2026-07-28',
-          startup: 'authentication-required',
-          transport: 'streamable-http',
-          url: options.oauthCancelUrl,
-        },
-        {
-          auth: { type: 'oauth-user' },
-          name: 'oauth',
-          protocol: '2026-07-28',
-          startup: 'authentication-required',
-          transport: 'streamable-http',
-          url: options.oauthUrl,
-        },
-        {
-          args: [
-            stdioFixturePath(),
-            '--brainstrike-production-env',
-            `--brainstrike-fault-control=${options.diagnosticControlPath}`,
-            `--brainstrike-pid-file=${options.diagnosticPidFile}`,
-          ],
-          command: process.execPath,
-          env: { BRAINSTRIKE_STDIO_FIXTURE: '1' },
-          name: 'diagnostic-stdio',
-          protocol: '2026-07-28',
-          transport: 'stdio',
-        },
-      ],
-    },
-    null,
-    2
-  );
+  return JSON.stringify({
+    servers: [
+      {
+        name: 'modern',
+        protocol: '2026-07-28',
+        transport: 'streamable-http',
+        url: options.modernUrl,
+      },
+      {
+        name: 'legacy',
+        protocol: 'legacy',
+        transport: 'streamable-http',
+        url: options.legacyUrl,
+      },
+      {
+        args: [
+          stdioFixturePath(),
+          '--brainstrike-production-env',
+          `--brainstrike-pid-file=${options.stdioPidFile}`,
+        ],
+        command: process.execPath,
+        env: { BRAINSTRIKE_STDIO_FIXTURE: '1' },
+        name: 'stdio',
+        protocol: '2026-07-28',
+        transport: 'stdio',
+      },
+      oauthServer(options.oauthUrl),
+      {
+        args: [
+          stdioFixturePath(),
+          '--brainstrike-production-env',
+          `--brainstrike-fault-control=${options.diagnosticControlPath}`,
+          `--brainstrike-pid-file=${options.diagnosticPidFile}`,
+        ],
+        command: process.execPath,
+        env: { BRAINSTRIKE_STDIO_FIXTURE: '1' },
+        name: 'diagnostic-stdio',
+        protocol: '2026-07-28',
+        transport: 'stdio',
+      },
+    ],
+  });
 }
-
 async function openToolsSettings(page: Page): Promise<void> {
-  const home = new HomePage(page);
-  const settings = new SettingsPage(page);
-  await home.openSettings();
-  await settings.openCategory(/AI Tools/i, 'ai-tools');
+  await new HomePage(page).openSettings();
+  await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   await expect(page.getByTestId('mcp-config-editor-panel')).toBeVisible({ timeout: 30_000 });
 }
-
 async function configureThroughUi(page: Page, config: string): Promise<void> {
   await openToolsSettings(page);
   const editor = page.getByTestId('mcp-config-editor');
@@ -154,12 +122,6 @@ async function configureThroughUi(page: Page, config: string): Promise<void> {
   await expect(page.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
   await page.getByRole('tab', { name: 'Tools' }).click();
 }
-
-async function openToolsStatus(page: Page): Promise<void> {
-  await openToolsSettings(page);
-  await page.getByRole('tab', { name: 'Tools' }).click();
-}
-
 function serverRow(page: Page, id: string) {
   return page
     .getByTestId('mcp-server-status-list')
@@ -167,11 +129,9 @@ function serverRow(page: Page, id: string) {
     .locator('..')
     .locator('..');
 }
-
 async function waitForServerState(page: Page, id: string, state: RegExp): Promise<void> {
   await expect(serverRow(page, id)).toContainText(state, { timeout: 60_000 });
 }
-
 async function sendDiagnosticCommand(
   controlDirectory: string,
   sequence: number,
@@ -186,15 +146,13 @@ async function sendDiagnosticCommand(
   await expect
     .poll(
       async () =>
-        await access(path.join(controlDirectory, `ack-${id}`)).then(
-          () => true,
-          () => false
-        ),
+        await access(path.join(controlDirectory, `ack-${id}`))
+          .then(() => true)
+          .catch(() => false),
       { timeout: 10_000 }
     )
     .toBe(true);
 }
-
 async function verifyDiagnosticFailure(page: Page, controlDirectory: string): Promise<void> {
   await waitForServerState(page, 'diagnostic-stdio', /Connected/i);
   await sendDiagnosticCommand(controlDirectory, 2, 'stderr');
@@ -205,51 +163,27 @@ async function verifyDiagnosticFailure(page: Page, controlDirectory: string): Pr
   );
   await expect(serverRow(page, 'diagnostic-stdio')).not.toContainText('bst-1577-secret');
 }
-
 async function connectOAuthThroughNativeBrowser(
   page: Page,
   cancellationFixture: PackagedFixture
 ): Promise<void> {
-  await page.getByRole('button', { name: 'Connect oauth-cancel' }).click();
+  await page.getByRole('button', { name: 'Connect oauth' }).click();
   await expect
     .poll(
       async () =>
         cancellationFixture.authorizationDelayObserved()
           ? 'authorization-observed'
-          : ((await serverRow(page, 'oauth-cancel').textContent()) ?? 'missing-server-row'),
+          : ((await serverRow(page, 'oauth').textContent()) ?? 'missing-server-row'),
       { timeout: 30_000 }
     )
     .toBe('authorization-observed');
-  await page.evaluate(async () => {
-    const control = (
-      window as unknown as {
-        mcp?: {
-          controlServer?: (request: {
-            action: 'cancel';
-            configuredServerId: string;
-          }) => Promise<unknown>;
-        };
-      }
-    ).mcp?.controlServer;
-    if (!control) {
-      throw new Error('Packaged MCP lifecycle bridge is unavailable');
-    }
-    await control({ action: 'cancel', configuredServerId: 'oauth-cancel' });
-  });
-  await waitForServerState(page, 'oauth-cancel', /authentication-required|disconnected/i);
+  await page.getByRole('button', { exact: true, name: 'Cancel oauth' }).click();
+  await waitForServerState(page, 'oauth', /authentication-required|disconnected/i);
+  await expect.poll(() => cancellationFixture.authorizationDelaySettled()).toBe(true);
   await page.getByRole('button', { exact: true, name: 'Connect oauth' }).click();
   await waitForServerState(page, 'oauth', /Connected/i);
   await expect(serverRow(page, 'oauth')).toContainText('2026-07-28');
 }
-
-async function requireMcpApprovalThroughUi(page: Page): Promise<void> {
-  const settings = new SettingsPage(page);
-  await settings.openCategory(/Permissions/i, 'permissions');
-  const policy = page.getByRole('combobox', { name: 'MCP permission' });
-  await policy.selectOption('ask');
-  await expect(policy).toHaveValue('ask');
-}
-
 function processIsGone(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -261,26 +195,43 @@ function processIsGone(pid: number): boolean {
     throw error;
   }
 }
-
-async function readOwnedPid(pidFile: string): Promise<number> {
+async function readOwnedPid(pidFile: string, previous?: number): Promise<number> {
   let pid = 0;
   await expect
     .poll(
       async () => {
         const value = await readFile(pidFile, 'utf8').catch(() => '');
         pid = Number.parseInt(value.trim(), 10);
-        return Number.isSafeInteger(pid) && pid > 0;
+        return Number.isSafeInteger(pid) && pid > 0 && pid !== previous;
       },
       { timeout: 30_000 }
     )
     .toBe(true);
   return pid;
 }
-
 async function expectOwnedProcessGone(pid: number): Promise<void> {
   await expect.poll(() => processIsGone(pid), { timeout: 30_000 }).toBe(true);
 }
-
+async function readLifecycleDiagnostics(page: Page): Promise<{ hostPid: number; reset: unknown }> {
+  return await page.evaluate(async () => {
+    const bridge = (
+      window as unknown as {
+        desktopDiagnostics?: {
+          getSnapshot: () => Promise<{ database: unknown; reset: unknown }>;
+        };
+      }
+    ).desktopDiagnostics;
+    if (!bridge) {
+      throw new Error('Packaged desktop diagnostics bridge is unavailable');
+    }
+    const { database, reset } = await bridge.getSnapshot();
+    const hostPid = Reflect.get(database ?? {}, 'hostPid');
+    if (!(typeof hostPid === 'number' && Number.isSafeInteger(hostPid) && hostPid > 0)) {
+      throw new Error('Packaged desktop database host PID is unavailable');
+    }
+    return { hostPid, reset };
+  });
+}
 async function executeAssistantTool(page: Page): Promise<void> {
   await page.keyboard.press('Escape');
   await configureAssistantProvider(page, {
@@ -300,30 +251,46 @@ async function executeAssistantTool(page: Page): Promise<void> {
   ]);
   if (outcome === 'completed') {
     await page.getByRole('button', { exact: true, name: 'Expand details' }).click();
-    const transcript = await page.getByRole('region', { name: 'Assistant chat' }).innerText();
-    throw new Error(`MCP tool bypassed approval or failed before suspension: ${transcript}`);
+    throw new Error(
+      `MCP tool bypassed approval or failed before suspension: ${await page.getByRole('region', { name: 'Assistant chat' }).innerText()}`
+    );
   }
   await approval.getByRole('button', { name: /Approve/u }).click();
   await expect(completed).toBeVisible({ timeout: 90_000 });
-  const toolCard = page
-    .getByTestId('tool-fallback')
-    .filter({ hasText: 'modern.test_simple_text' })
-    .last();
+  const toolCard = page.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
   await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
-  await expect(toolCard).toContainText('This is a simple text response for testing.');
+  await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
 }
-
-async function findDurableDiagnostic(userDataDir: string): Promise<string> {
-  const logsDirectory = path.join(userDataDir, 'logs');
-  const entries = await readdir(logsDirectory);
-  const diagnosticName = entries.find((entry) => entry.endsWith('.ndjson'));
-  if (!diagnosticName) {
-    throw new Error('Packaged MCP proof did not create a durable NDJSON diagnostic log');
+function parseJsonLines(contents: string): Record<string, unknown>[] {
+  const values: unknown[] = contents
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  if (values.some((value) => !(value && typeof value === 'object' && !Array.isArray(value)))) {
+    throw new Error('Packaged MCP proof expected NDJSON objects');
   }
-  return await readFile(path.join(logsDirectory, diagnosticName), 'utf8');
+  return values as Record<string, unknown>[];
 }
-
+async function findLogRecords(
+  userDataDir: string,
+  fileName: string,
+  message: string
+): Promise<Record<string, unknown>[]> {
+  let records: Record<string, unknown>[] = [];
+  await expect
+    .poll(async () => {
+      const contents = await readFile(path.join(userDataDir, 'logs', fileName), 'utf8').catch(
+        () => ''
+      );
+      records = parseJsonLines(contents).filter(
+        (record) => record['message'] === message || record['msg'] === message
+      );
+      return records.length;
+    })
+    .toBeGreaterThan(0);
+  return records;
+}
 async function attachFailureDiagnostics(
   testFailed: boolean,
   testInfo: TestInfo,
@@ -332,86 +299,104 @@ async function attachFailureDiagnostics(
   if (!testFailed) {
     return;
   }
-  const logsDirectory = path.join(userDataDir, 'logs');
-  const entries = await readdir(logsDirectory).catch(() => []);
-  for (const entry of entries.filter((candidate) => candidate.endsWith('.ndjson'))) {
-    const contents = await readFile(path.join(logsDirectory, entry), 'utf8');
-    await testInfo.attach(`sanitized-${entry}`, {
-      body: contents.slice(-256_000),
-      contentType: 'application/x-ndjson',
-    });
-  }
-}
-
-async function performFactoryReset(page: Page): Promise<void> {
-  await openToolsSettings(page);
-  const home = new HomePage(page);
-  const settings = new SettingsPage(page);
-  await home.openSettings();
-  await settings.openCategory(/Factory Reset/i, 'factory-reset');
-  await page.evaluate(() => {
-    window.confirm = () => true;
-  });
-  await page.getByTestId('factory-reset-button').click();
-  await expect(page.getByRole('heading', { exact: true, name: 'Settings' })).toHaveCount(0, {
-    timeout: 30_000,
+  const contents = await Promise.all(
+    ['brainstrike-errors.ndjson', 'brainstrike.log'].map(
+      async (entry) => await readFile(path.join(userDataDir, 'logs', entry), 'utf8').catch(() => '')
+    )
+  );
+  await testInfo.attach('sanitized-mcp-logs', {
+    body: contents.join('\n').slice(-256_000),
+    contentType: 'application/x-ndjson',
   });
 }
-
-test('packaged renderer reaches the production MCP host, OAuth, assistant, and cleanup paths', async ({}, testInfo) => {
+test('renderer reaches production MCP and lifecycle paths @destructive', async ({}, testInfo) => {
   test.setTimeout(420_000);
-  await access(packagedDesktopExecutablePath(), constants.X_OK);
-  await access(stdioFixturePath(), constants.R_OK);
-  const fixtureModule = await loadFixtures();
-  const [modern, legacy, oauthCancel, oauth] = await Promise.all([
-    fixtureModule.startPackagedCoreFixture('modern-reference'),
-    fixtureModule.startPackagedCoreFixture('legacy-reference'),
-    fixtureModule.startPackagedCoreFixture('oauth-reference', { authorizationDelayMs: 10_000 }),
-    fixtureModule.startPackagedCoreFixture('oauth-reference'),
-  ]);
-  const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1577-packaged-user-data-'));
-  const fixtureStateDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1577-fixture-state-'));
-  const diagnosticControlDirectory = path.join(fixtureStateDir, 'diagnostic-control');
-  const diagnosticControlPath = path.join(diagnosticControlDirectory, 'configuration.json');
-  const diagnosticPidFile = path.join(fixtureStateDir, 'diagnostic-stdio.pid');
-  const stdioPidFile = path.join(fixtureStateDir, 'stdio.pid');
-  await mkdir(diagnosticControlDirectory, { recursive: true });
-  await Promise.all([
-    writeFile(
-      diagnosticControlPath,
-      JSON.stringify({
-        exitArmed: true,
-        exitCode: 1,
-        stderrText:
-          'Authorization: Bearer bst-1577-secret-bearer ' +
-          'https://auth.invalid/callback?code=bst-1577-secret-code&state=bst-1577-secret-state\n',
-      }),
-      { encoding: 'utf8', mode: 0o600 }
-    ),
-    writeFile(path.join(diagnosticControlDirectory, 'command-000001-start-mcp'), '', {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
-    }),
-  ]);
-  const modelProvider = await startModelProviderShim({
-    discoveryQuery: 'modern test simple text',
-    finalText: 'Packaged MCP tool completed.',
-    toolCall: { arguments: {}, name: 'modern_test_simple_text' },
-  });
-  let first: PackagedContext | undefined;
-  let firstStdioPid: number | undefined;
-  let restarted: PackagedContext | undefined;
-  let restartedStdioPid: number | undefined;
+  const cleanup = new AsyncDisposableStack();
   let testFailed = false;
-  let fixtureReports: readonly FixtureCleanupReport[] = [];
+  let failure: unknown;
+  let first: PackagedContext | undefined;
+  let restarted: PackagedContext | undefined;
+  const deferCleanup = (operation: () => Promise<void>): void => {
+    cleanup.defer(async () => {
+      try {
+        await operation();
+      } catch (error) {
+        testFailed = true;
+        throw error;
+      }
+    });
+  };
   try {
-    first = await launchPackagedDesktop({
-      environment: {
-        BRAINSTRIKE_OPENROUTER_API_KEY: 'packaged-e2e-provider-key',
-        OPENROUTER_BASE_URL: modelProvider.baseUrl,
+    await access(packagedDesktopExecutablePath(), constants.X_OK);
+    await access(stdioFixturePath(), constants.R_OK);
+    const fixtureModule = await loadFixtures();
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1577-packaged-user-data-'));
+    deferCleanup(async () => await rm(userDataDir, { force: true, recursive: true }));
+    const fixtureStateDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1577-fixture-state-'));
+    deferCleanup(async () => await rm(fixtureStateDir, { force: true, recursive: true }));
+    cleanup.defer(async () => await attachFailureDiagnostics(testFailed, testInfo, userDataDir));
+    const ownFixture = async (
+      fixturePromise: Promise<PackagedFixture>,
+      oauth = false
+    ): Promise<PackagedFixture> => {
+      const fixture = await fixturePromise;
+      deferCleanup(async () => {
+        const report = await fixture.close();
+        expect(report).toMatchObject({
+          clean: true,
+          httpListenersClosed: 1,
+          ...(oauth ? { oauthState: { clients: 0, codes: 0, states: 0, tokens: 0 } } : {}),
+        });
+      });
+      return fixture;
+    };
+    const modern = await ownFixture(fixtureModule.startPackagedCoreFixture('modern-reference'));
+    const legacy = await ownFixture(fixtureModule.startPackagedCoreFixture('legacy-reference'));
+    const oauth = await ownFixture(
+      fixtureModule.startPackagedCoreFixture('oauth-reference', { authorizationDelayMs: 1000 }),
+      true
+    );
+    const diagnosticControlDirectory = path.join(fixtureStateDir, 'diagnostic-control');
+    const diagnosticControlPath = path.join(diagnosticControlDirectory, 'configuration.json');
+    const diagnosticPidFile = path.join(fixtureStateDir, 'diagnostic-stdio.pid');
+    const stdioPidFile = path.join(fixtureStateDir, 'stdio.pid');
+    await mkdir(diagnosticControlDirectory, { recursive: true });
+    await Promise.all([
+      writeFile(
+        diagnosticControlPath,
+        JSON.stringify({
+          exitArmed: true,
+          exitCode: 1,
+          stderrText:
+            'Authorization: Bearer bst-1577-secret-bearer ' +
+            'https://auth.invalid/callback?code=bst-1577-secret-code&state=bst-1577-secret-state\n',
+        }),
+        { encoding: 'utf8', mode: 0o600 }
+      ),
+      writeFile(path.join(diagnosticControlDirectory, 'command-000001-start-mcp'), '', {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      }),
+    ]);
+    const modelProvider = await startModelProviderShim({
+      discoveryQuery: 'legacy echo',
+      finalText: 'Packaged MCP tool completed.',
+      toolCall: {
+        arguments: { text: ASSISTANT_TOOL_PAYLOAD },
+        name: 'legacy_echo',
       },
-      userDataDir,
+    });
+    deferCleanup(modelProvider.close);
+    const environment = {
+      BRAINSTRIKE_OPENROUTER_API_KEY: 'packaged-e2e-provider-key',
+      OPENROUTER_BASE_URL: modelProvider.baseUrl,
+    };
+    first = await launchPackagedDesktop({ environment, userDataDir });
+    deferCleanup(async () => {
+      if (first) {
+        await closePackagedDesktop(first);
+      }
     });
     expect(await first.app.evaluate(({ app }) => app.isPackaged)).toBe(true);
     await configureThroughUi(
@@ -421,101 +406,155 @@ test('packaged renderer reaches the production MCP host, OAuth, assistant, and c
         diagnosticPidFile,
         legacyUrl: legacy.manifest.url,
         modernUrl: modern.manifest.url,
-        oauthCancelUrl: oauthCancel.manifest.url,
         oauthUrl: oauth.manifest.url,
         stdioPidFile,
       })
     );
-    await waitForServerState(first.window, 'modern', /Connected/i);
-    await expect(serverRow(first.window, 'modern')).toContainText('2026-07-28');
-    await waitForServerState(first.window, 'legacy', /Connected/i);
-    await expect(serverRow(first.window, 'legacy')).toContainText('2025-11-25');
+    for (const [server, revision] of [
+      ['modern', '2026-07-28'],
+      ['legacy', '2025-11-25'],
+    ] as const) {
+      await waitForServerState(first.window, server, /Connected/i);
+      await expect(serverRow(first.window, server)).toContainText(revision);
+    }
     await waitForServerState(first.window, 'stdio', /Connected/i);
-    firstStdioPid = await readOwnedPid(stdioPidFile);
+    const firstStdioPid = await readOwnedPid(stdioPidFile);
     await verifyDiagnosticFailure(first.window, diagnosticControlDirectory);
     await expectOwnedProcessGone(await readOwnedPid(diagnosticPidFile));
-
-    await connectOAuthThroughNativeBrowser(first.window, oauthCancel);
-    await requireMcpApprovalThroughUi(first.window);
+    await connectOAuthThroughNativeBrowser(first.window, oauth);
+    await new SettingsPage(first.window).openCategory(/Permissions/i, 'permissions');
+    const permission = first.window.getByRole('combobox', { name: 'MCP permission' });
+    await permission.selectOption('ask');
+    await expect(permission).toHaveValue('ask');
     await executeAssistantTool(first.window);
-    await openToolsStatus(first.window);
-    const disconnect = first.window.getByRole('button', {
-      exact: true,
-      name: 'Disconnect oauth',
-    });
-    await disconnect.click();
-    await first.window
-      .getByRole('button', { exact: true, name: 'Confirm disconnect oauth' })
-      .click();
-    await expect(disconnect).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
-    await waitForServerState(first.window, 'oauth', /authentication-required/i);
-
     await closePackagedDesktop(first);
     first = undefined;
     await expectOwnedProcessGone(firstStdioPid);
-    const durableBeforeRestart = await findDurableDiagnostic(userDataDir);
-    expect(durableBeforeRestart).toContain('MCP stdio failure diagnostics');
-    expect(durableBeforeRestart).not.toContain('bst-1577-secret');
-
-    restarted = await launchPackagedDesktop({
-      environment: {
-        BRAINSTRIKE_OPENROUTER_API_KEY: 'packaged-e2e-provider-key',
-        OPENROUTER_BASE_URL: modelProvider.baseUrl,
+    const durable = (
+      await findLogRecords(
+        userDataDir,
+        'brainstrike-errors.ndjson',
+        'MCP stdio failure diagnostics'
+      )
+    ).at(-1);
+    expect(durable).toMatchObject({
+      context: {
+        diagnostics: [
+          { message: 'mcp-lab-stdio-ready', stream: 'stderr', truncated: false },
+          { message: 'mcp-lab-stdio-ready-second-chunk', stream: 'stderr', truncated: false },
+          {
+            message:
+              'Authorization: [redacted-secret:bearer-token] https://auth.invalid/callback?[redacted-query]',
+            stream: 'stderr',
+            truncated: false,
+          },
+        ],
+        generation: expect.any(Number),
+        omittedDiagnostics: 0,
+        server: 'diagnostic-stdio',
       },
-      userDataDir,
+      message: 'MCP stdio failure diagnostics',
+      severity: 'warn',
+      source: 'electron-main',
     });
-    expect(await restarted.app.evaluate(({ app }) => app.isPackaged)).toBe(true);
-    await openToolsStatus(restarted.window);
+    const diagnosticGeneration = Reflect.get(
+      Reflect.get(durable ?? {}, 'context') ?? {},
+      'generation'
+    );
+    expect(Number.isSafeInteger(diagnosticGeneration) && Number(diagnosticGeneration) > 0).toBe(
+      true
+    );
+    expect(JSON.stringify(durable)).not.toContain('bst-1577-secret');
+    const firstShutdown = (
+      await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime shutdown cleanup completed')
+    ).at(-1);
+    const firstCloseReport = Reflect.get(firstShutdown ?? {}, 'hostCloseReport') as CloseReport;
+    expect(firstCloseReport).toMatchObject({
+      failures: [],
+      loopbackPortsClosed: 1,
+      probesClosed: 0,
+      subscriptionsClosed: 1,
+    });
+    expect(firstCloseReport['childProcessesClosed']).toBeGreaterThanOrEqual(3);
+    expect(firstCloseReport['clientsClosed']).toBeGreaterThanOrEqual(6);
+    expect(firstCloseReport['callbacksClosed']).toBe(Number(firstCloseReport['clientsClosed']) + 1);
+    expect(firstShutdown).toMatchObject({ legacyClientsClosed: true });
+    restarted = await launchPackagedDesktop({ environment, userDataDir });
+    deferCleanup(async () => {
+      if (restarted) {
+        await closePackagedDesktop(restarted);
+      }
+    });
+    await openToolsSettings(restarted.window);
+    await restarted.window.getByRole('tab', { name: 'Tools' }).click();
     await waitForServerState(restarted.window, 'modern', /Connected/i);
-    await expect(serverRow(restarted.window, 'modern')).toContainText('2026-07-28');
     await waitForServerState(restarted.window, 'stdio', /Connected/i);
-    restartedStdioPid = await readOwnedPid(stdioPidFile);
-    expect(restartedStdioPid).not.toBe(firstStdioPid);
+    const restartedStdioPid = await readOwnedPid(stdioPidFile, firstStdioPid);
+    const beforeResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
+    await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
+    await expect(serverRow(restarted.window, 'oauth')).toContainText('OAuth credentials stored');
+    await new HomePage(restarted.window).openSettings();
+    await new SettingsPage(restarted.window).openCategory(/Factory Reset/i, 'factory-reset');
+    await restarted.window.evaluate(() => {
+      window.confirm = () => true;
+    });
+    const replacementLoaded = restarted.window.waitForEvent('domcontentloaded', {
+      timeout: 60_000,
+    });
+    await restarted.window.getByTestId('factory-reset-button').click();
+    await replacementLoaded;
+    await openToolsSettings(restarted.window);
+    await restarted.window.getByRole('tab', { name: 'Tools' }).click();
+    await expect(restarted.window.getByTestId('mcp-server-status-empty')).toHaveText(
+      'No MCP servers configured.'
+    );
+    await expectOwnedProcessGone(restartedStdioPid);
+    const resetEvidence = (
+      await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime reset cleanup completed')
+    ).at(-1);
+    expect(resetEvidence).toMatchObject({
+      hostCloseReport: {
+        callbacksClosed: 4,
+        childProcessesClosed: 2,
+        clientsClosed: 4,
+        failures: [],
+        loopbackPortsClosed: 0,
+        probesClosed: 0,
+        subscriptionsClosed: 0,
+      },
+      legacyClientsClosed: true,
+      snapshot: { servers: [] },
+    });
+    const resetCloseReport = Reflect.get(resetEvidence ?? {}, 'hostCloseReport') as CloseReport;
+    expect(resetCloseReport['requestsSettled']).toBeGreaterThanOrEqual(3);
+    const afterResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
+    expect(afterResetDiagnostics.reset).toMatchObject({
+      lastCompletedAt: expect.any(String),
+      lastError: null,
+      status: 'completed',
+    });
+    expect(afterResetDiagnostics.hostPid).not.toBe(beforeResetDiagnostics.hostPid);
+    await configureThroughUi(
+      restarted.window,
+      JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })
+    );
     await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
     await expect(serverRow(restarted.window, 'oauth')).toContainText(
       'OAuth credentials not stored'
     );
-    expect(await findDurableDiagnostic(userDataDir)).toContain('MCP stdio failure diagnostics');
-    await performFactoryReset(restarted.window);
-  } catch (error: unknown) {
+  } catch (error) {
     testFailed = true;
-    throw error;
-  } finally {
-    if (first) {
-      await closePackagedDesktop(first);
-    }
-    if (restarted) {
-      await closePackagedDesktop(restarted);
-    }
-    if (firstStdioPid !== undefined) {
-      await expectOwnedProcessGone(firstStdioPid);
-    }
-    if (restartedStdioPid !== undefined) {
-      await expectOwnedProcessGone(restartedStdioPid);
-    }
-    fixtureReports = await Promise.all([
-      modern.close(),
-      legacy.close(),
-      oauthCancel.close(),
-      oauth.close(),
-    ]);
-    await modelProvider.close();
-    await attachFailureDiagnostics(testFailed, testInfo, userDataDir);
-    await rm(fixtureStateDir, { force: true, recursive: true });
-    await rm(userDataDir, { force: true, recursive: true });
+    failure = error;
   }
-  expect(fixtureReports).toEqual([
-    expect.objectContaining({ clean: true, httpListenersClosed: 1 }),
-    expect.objectContaining({ clean: true, httpListenersClosed: 1 }),
-    expect.objectContaining({
-      clean: true,
-      httpListenersClosed: 1,
-      oauthState: { clients: 0, codes: 0, states: 0, tokens: 0 },
-    }),
-    expect.objectContaining({
-      clean: true,
-      httpListenersClosed: 1,
-      oauthState: { clients: 0, codes: 0, states: 0, tokens: 0 },
-    }),
-  ]);
+  try {
+    await cleanup.disposeAsync();
+  } catch (error) {
+    failure =
+      failure === undefined
+        ? error
+        : new AggregateError([failure, error], 'Packaged MCP test and cleanup failed');
+  }
+  if (failure !== undefined) {
+    throw failure;
+  }
 });

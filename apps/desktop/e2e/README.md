@@ -17,9 +17,6 @@ pnpm test:e2e:persistence
 # Run the real-backgrounding crash-repro regression path
 pnpm test:e2e:backgrounding
 
-# Build and verify the genuine packaged MCP production path
-pnpm test:e2e:mcp-packaged
-
 # Debug tests with inspector
 pnpm test:e2e:debug
 
@@ -314,16 +311,6 @@ Electron launch flags that otherwise disable renderer backgrounding in test mode
 This regression is intentionally kept off the default PR workflow because it is
 materially slower than the desktop smoke suite. Run it locally when debugging or
 when explicitly validating the production background-throttling path.
-
-### Packaged MCP Production Coverage
-
-`pnpm test:e2e:mcp-packaged` builds the distributable application and launches
-its real executable with `app.isPackaged === true`. The test configures MCP only
-through the renderer settings UI and preload bridge, then verifies modern and
-legacy Streamable HTTP, stdio ownership, native OAuth, assistant permission and
-tool execution, sanitized durable diagnostics, restart, disconnect, reset,
-cancellation, and zero residual fixture processes. It uses only bounded local
-fixtures and an isolated temporary `userData` directory.
 
 Note on file naming (2025): We standardize on `.test.ts` across unit, integration, and E2E to keep naming runner-agnostic and consistent. Playwright recognizes both `.spec` and `.test`, but `.test` aligns with our Vitest conventions and simplifies TypeScript include/exclude globs.
 

@@ -1,8 +1,7 @@
+import { once } from 'node:events';
 import path from 'node:path';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
-import { closeElectronApp } from './electron-helpers.mts';
-
 export function packagedDesktopExecutablePath(): string {
   const releaseRoot = path.resolve(process.cwd(), 'release');
   if (process.platform === 'darwin') {
@@ -10,10 +9,7 @@ export function packagedDesktopExecutablePath(): string {
     return path.join(
       releaseRoot,
       directory,
-      'BrainStrike Desktop.app',
-      'Contents',
-      'MacOS',
-      'BrainStrike Desktop'
+      'BrainStrike Desktop.app/Contents/MacOS/BrainStrike Desktop'
     );
   }
   if (process.platform === 'win32') {
@@ -26,7 +22,6 @@ export function packagedDesktopExecutablePath(): string {
   }
   throw new Error(`Packaged desktop verifier does not support ${process.platform}`);
 }
-
 function inheritedEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -36,7 +31,6 @@ function inheritedEnvironment(): Record<string, string> {
   }
   return environment;
 }
-
 export async function launchPackagedDesktop(options: {
   readonly environment?: Readonly<Record<string, string>>;
   readonly userDataDir: string;
@@ -67,10 +61,17 @@ export async function launchPackagedDesktop(options: {
   await window.waitForLoadState('domcontentloaded');
   return { app, window };
 }
-
 export async function closePackagedDesktop(context: {
   readonly app: ElectronApplication;
   readonly window: Page;
 }): Promise<void> {
-  await closeElectronApp(context);
+  const child = context.app.process();
+  const exited = child.exitCode === null ? once(child, 'exit') : Promise.resolve();
+  await context.app.close();
+  await exited;
+  if (child.exitCode !== 0 || child.signalCode !== null) {
+    throw new Error(
+      `Packaged desktop did not exit gracefully (code=${child.exitCode}, signal=${child.signalCode})`
+    );
+  }
 }

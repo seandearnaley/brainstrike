@@ -2236,17 +2236,6 @@ S256 PKCE and the RFC 8707 resource, emits and verifies the RFC 9207 issuer, and
 protects the real SDK v2 MCP handler with bearer authentication. Callback state
 and issuer verification is one-shot, route state is bounded, and close reports
 token-free zero counts for clients, states, codes, and tokens after clearing them.
-`startPackagedCoreFixture` is the sole packaged-Electron fixture projection: it
-starts only the owned modern, legacy, or OAuth loopback scenarios and returns a
-closed token-free manifest plus an exact cleanup report. Desktop tests consume
-that public verifier API; they do not copy its handlers or import it into a
-production application dependency graph. Its one optional authorization delay
-is bounded, OAuth-only, and directly observable so cancellation proof cannot
-race ahead of the native-browser request. The packaged verifier also records
-the owned stdio child PID and requires process death after shutdown, restart,
-and factory reset; its post-connect diagnostic command emits fixed
-secret-shaped data and terminates the owned child only to prove
-unexpected-close cleanup and durable log sanitization.
 
 The private artifact-integrity core reads each unique reference once and in
 order, passes an explicit positive byte limit to the reader, rejects an
@@ -2533,11 +2522,7 @@ and must never cross renderer IPC or bypass the platform redaction path.
   authentication, retry a failed generation, cancel one, or clear and replace
   one selected OAuth authority; each action returns the resulting token-free
   server snapshot and retains failed servers even when discovery found zero
-  tools. Settings keeps `cancel` actionable while the original connect promise
-  is pending; cancellation supersedes that row's pending-action slot without
-  enabling any unrelated sibling control. The renderer IPC dispatches `cancel`
-  directly to the host instead of awaiting the config lifecycle barrier that
-  contains the in-flight connect.
+  tools; cancel stays actionable during connect and bypasses that operation's config barrier.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 
@@ -2629,7 +2614,7 @@ as an ordering failure, but terminal MCP cleanup is still attempted. Host
 close-report failures remain visible in the shutdown `AggregateError`; a
 zero-failure host proof therefore covers its
 clients, accepted requests, subscriptions, callbacks, loopback ports, probes,
-and stdio children. Factory reset uses the
+and stdio children; shutdown/reset log this at INFO, including empty reset authority. Factory reset uses the
 same lifecycle fence but does not close the singleton: after prior config work
 settles it installs explicit empty authority, purges projections, and keeps
 admission closed through the enclosing database/user-data

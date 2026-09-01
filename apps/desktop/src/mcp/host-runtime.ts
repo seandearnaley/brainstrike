@@ -377,7 +377,7 @@ export class DesktopMcpHostRuntime {
   private readonly resolveClientCapabilities: NonNullable<
     DesktopMcpHostRuntimeDependencies['resolveClientCapabilities']
   >;
-  private readonly service: McpHostPort;
+  private readonly service: McpHostService;
   private readonly createStdioTransportClient: NonNullable<
     DesktopMcpHostRuntimeDependencies['createStdioTransportClient']
   >;
@@ -490,6 +490,10 @@ export class DesktopMcpHostRuntime {
     if (current) {
       this.elicitationPresenter.retireServer(configuredServerId, current.generation);
     }
+  }
+
+  retiredCleanupReport(): McpHostCloseReport {
+    return this.service.retiredCleanupReport();
   }
 
   private enqueueReplacement<T>(operation: () => Promise<T>): Promise<T> {

@@ -775,8 +775,13 @@ export async function createMcpOAuthClientProvider(
         return options.preRegisteredClient;
       }
       const stored = records.get(currentIssuer)?.clientInformation;
-      if (stored) {
+      const redirectUris = stored && Reflect.get(stored, 'redirect_uris');
+      if (stored && (!Array.isArray(redirectUris) || redirectUris.includes(callback.redirectUrl))) {
         return stored;
+      }
+      if (stored) {
+        clearCurrentRecordField('clientInformation');
+        await persistCurrentRecord();
       }
       if (
         options.preRegisteredClient &&

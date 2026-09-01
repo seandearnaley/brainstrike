@@ -11,9 +11,6 @@ Usage:
 - Set runtime: browser | electron-main | electron-renderer.
 - Desktop main:
   - Logs to console + ${app.getPath('logs')}/brainstrike.log
-  - An explicit Agent DevTools or desktop E2E profile relocates `logs` under
-    the same isolated profile as `userData` and `sessionData`; durable-log
-    verification must never read or append to the ambient app log directory.
 - Web/renderer:
   - Call initializeLogging in main.tsx.
 
@@ -46,9 +43,6 @@ Sensitive data:
 - Structured arguments and listener bindings are recursively redacted before transport,
   buffering, or display; transport serializers alone are not a sufficient boundary.
 - Add more via redactPaths.
-- MCP stdio startup failures persist their bounded sanitized stderr summary
-  only after transport cleanup drains final child output; reporting before
-  cleanup can lose the last diagnostic chunks.
 
 Testing:
 - Use addLogListener instead of mocking console.
