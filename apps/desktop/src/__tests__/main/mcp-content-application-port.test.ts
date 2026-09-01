@@ -1,4 +1,8 @@
-import type { McpHostOperation, McpHostPort } from '@brainstrike/assistant-contract';
+import type {
+  McpHostOperation,
+  McpHostPort,
+  McpHostWatchFilter,
+} from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import {
   createMcpContentApplicationPort,
@@ -91,15 +95,22 @@ function rejectOnAbort(signal: AbortSignal): Promise<never> {
 }
 function trackApplicationWatches(host: McpHostPort): {
   activeWatches(): number;
+  observedFilters(): readonly McpHostWatchFilter[];
   port: McpHostPort;
 } {
   let activeWatches = 0;
+  const observedFilters: McpHostWatchFilter[] = [];
   return {
     activeWatches: () => activeWatches,
+    observedFilters: () => observedFilters,
     port: {
-      ...host,
+      close: async () => await host.close(),
+      control: async (request) => await host.control(request),
+      invoke: async (operation, options) => await host.invoke(operation, options),
+      replaceConfig: async (config) => await host.replaceConfig(config),
+      snapshot: () => host.snapshot(),
       watch(filter, listener) {
-        expect(filter).toEqual({ configuredServerIds: [SERVER_ID] });
+        observedFilters.push(filter);
         const unwatch = host.watch(filter, listener);
         let active = true;
         activeWatches += 1;
@@ -194,15 +205,18 @@ describe('MCP content application port over DesktopMcpHostRuntime (BST-1578)', (
       });
       const request = await ready(target);
       const tracked = trackApplicationWatches(target.host);
-      const pending = createMcpContentApplicationPort(tracked.port)
+      const pending = createMcpContentApplicationPort(tracked.port, { onInternalError: vi.fn() })
         .execute(request)
         .finally(() => (applicationSettlements += 1));
       await vi.waitFor(() => expect(activeRequests).toBe(1));
       expect(tracked.activeWatches()).toBe(1);
+      expect(tracked.observedFilters()).toEqual([{ configuredServerIds: [SERVER_ID] }]);
       const closing =
         teardown === 'terminal close'
           ? target.host.close()
-          : target.replaceResolvedConfig(config()).then(async () => await target.host.close());
+          : target
+              .replaceResolvedConfig({ servers: [] })
+              .then(async () => await target.host.close());
       await expect(pending).rejects.toMatchObject({
         category: 'generation-retired',
         code: 'mcp_content_generation_retired',
