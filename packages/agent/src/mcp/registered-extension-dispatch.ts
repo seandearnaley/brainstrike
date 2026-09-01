@@ -7,6 +7,61 @@ import type { McpClientExtensionRegistry } from './client-extension-registry';
 
 const BASE64_SENTINEL_PREFIX = '=?base64?';
 const BASE64_SENTINEL_SUFFIX = '?=';
+const PROTOCOL_OWNED_HEADERS = new Set([
+  'accept',
+  'content-type',
+  'last-event-id',
+  'mcp-method',
+  'mcp-name',
+  'mcp-protocol-version',
+  'mcp-session-id',
+]);
+
+type McpHttpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
+
+function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
+  for (const name of Object.keys(headers ?? {})) {
+    const lowerName = name.toLowerCase();
+    if (PROTOCOL_OWNED_HEADERS.has(lowerName) || lowerName.startsWith('mcp-param-')) {
+      throw new Error(`Configured MCP header "${name}" is protocol-owned`);
+    }
+  }
+}
+
+export function createHeaderPreservingFetch(
+  baseFetch: McpHttpFetch,
+  headers: Readonly<Record<string, string>> | undefined,
+  extensionRegistry: McpClientExtensionRegistry | undefined,
+  getAuthorizationSignal?: () => AbortSignal | undefined
+): McpHttpFetch {
+  validateConfiguredHeaders(headers);
+  const callerHeaders = new Headers(headers);
+  return async (url, init) => {
+    const mergedHeaders = new Headers(callerHeaders);
+    const protocolHeaders = new Headers(init?.headers);
+    protocolHeaders.forEach((value, name) => {
+      const configuredValue = mergedHeaders.get(name);
+      if (configuredValue !== null && configuredValue !== value) {
+        throw new Error(
+          `Configured MCP header "${name}" conflicts with the transport-required value`
+        );
+      }
+      mergedHeaders.set(name, value);
+    });
+    const authorizationSignal = getAuthorizationSignal?.();
+    const signal = authorizationSignal
+      ? init?.signal
+        ? AbortSignal.any([init.signal, authorizationSignal])
+        : authorizationSignal
+      : init?.signal;
+    const requestInit = {
+      ...init,
+      headers: mergedHeaders,
+      ...(signal === undefined ? {} : { signal }),
+    };
+    return baseFetch(url, applyRegisteredExtensionHttpHeaders(requestInit, extensionRegistry));
+  };
+}
 
 function needsBase64(value: string): boolean {
   if (value.length === 0) {
