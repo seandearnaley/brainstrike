@@ -479,8 +479,37 @@ describe('production MCP conformance client contract', () => {
     ).resolves.toBe(1);
 
     expect(runClient).not.toHaveBeenCalled();
-    expect(writeError).toHaveBeenCalledWith('Production MCP conformance client failed\n');
+    expect(writeError).toHaveBeenCalledWith(
+      'Production MCP conformance client failed: invalid process input\n'
+    );
     expect(JSON.stringify(writeError.mock.calls)).not.toContain(secret);
+  });
+
+  it('reports a sanitized runtime failure cause without leaking credentials', async () => {
+    const writeError = vi.fn();
+    const runClient = vi.fn().mockRejectedValue(
+      new Error('token exchange rejected access_token=sk-live-runtime-9', {
+        cause: new Error('HTTP 401 from https://auth.example.test/token?client_secret=oops'),
+      })
+    );
+
+    await expect(
+      runOfficialConformanceProcess(
+        ['https://mcp.example.test/mcp'],
+        {
+          MCP_CONFORMANCE_PROTOCOL_VERSION: '2025-11-25',
+          MCP_CONFORMANCE_SCENARIO: 'auth/basic-cimd',
+        },
+        { runClient, writeError }
+      )
+    ).resolves.toBe(1);
+
+    const written = String(writeError.mock.calls[0]?.[0]);
+    expect(written).toMatch(/^Production MCP conformance client failed: Error: token exchange/u);
+    expect(written).toContain('[redacted-oauth-parameter]');
+    expect(written).not.toContain('sk-live-runtime-9');
+    expect(written).not.toContain('client_secret=oops');
+    expect(written.endsWith('\n')).toBe(true);
   });
 
   it('uses the production host runtime without constructing a parallel MCP client', () => {

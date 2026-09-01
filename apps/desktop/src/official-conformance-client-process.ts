@@ -4,6 +4,9 @@ import {
   AllOfficialAuthScenarioNameSchema,
   parseOfficialAuthScenarioContext,
 } from './mcp/official-conformance-oauth';
+import { sanitizeStdioDiagnosticLine } from './mcp/stdio-diagnostics';
+
+const FAILURE_CAUSE_MAX_DEPTH = 4;
 
 const ProcessInputSchema = z.strictObject({
   context: z.string().optional(),
@@ -44,18 +47,46 @@ export function parseOfficialConformanceProcessInput(
   return parsed;
 }
 
+export function describeConformanceFailureCause(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < FAILURE_CAUSE_MAX_DEPTH; depth += 1) {
+    if (current === undefined || current === null) {
+      break;
+    }
+    if (current instanceof Error) {
+      parts.push(`${current.name}: ${current.message}`);
+      current = current.cause;
+    } else {
+      parts.push(String(current));
+      break;
+    }
+  }
+  const flattened = parts.join(' <- ').replace(/\s+/gu, ' ');
+  return sanitizeStdioDiagnosticLine(flattened)?.message ?? 'unknown cause';
+}
+
 export async function runOfficialConformanceProcess(
   argv: readonly string[],
   environment: NodeJS.ProcessEnv,
   dependencies: ProcessDependencies = {}
 ): Promise<number> {
+  const writeError = dependencies.writeError ?? process.stderr.write.bind(process.stderr);
+  let input: z.output<typeof ProcessInputSchema>;
   try {
-    const input = parseOfficialConformanceProcessInput(argv, environment);
+    // Process input can carry credential-bearing auth context; never echo any
+    // parse detail for it.
+    input = parseOfficialConformanceProcessInput(argv, environment);
+  } catch {
+    writeError('Production MCP conformance client failed: invalid process input\n');
+    return 1;
+  }
+  try {
     await (dependencies.runClient ?? runProductionMcpConformanceClient)(input);
     return 0;
-  } catch {
-    (dependencies.writeError ?? process.stderr.write.bind(process.stderr))(
-      'Production MCP conformance client failed\n'
+  } catch (error) {
+    writeError(
+      `Production MCP conformance client failed: ${describeConformanceFailureCause(error)}\n`
     );
     return 1;
   }
