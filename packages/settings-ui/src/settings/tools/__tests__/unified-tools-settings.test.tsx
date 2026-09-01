@@ -1255,18 +1255,20 @@ describe('UnifiedToolsSettings', () => {
       operations.getTools = vi.fn().mockResolvedValue([]);
       operations.getMcpServerStatus = vi.fn().mockResolvedValue({
         revision: 6,
-        servers: (['stored', 'missing', 'unreadable'] as const).map((credentialState, index) => ({
-          auth: {
-            credentialState,
-            secretSentinel: 'bearer-secret-must-not-render',
-            type: 'bearer' as const,
-          },
-          configuredProtocol: 'auto' as const,
-          configuredServerId: parseConfiguredMcpServerId(`bearer-${credentialState}`),
-          generation: index + 1,
-          state: 'disconnected' as const,
-          transport: 'streamable-http' as const,
-        })),
+        servers: (['stored', 'missing', 'unreadable', 'malformed'] as const).map(
+          (credentialState, index) => ({
+            auth: {
+              credentialState,
+              secretSentinel: 'bearer-secret-must-not-render',
+              type: 'bearer' as const,
+            },
+            configuredProtocol: 'auto' as const,
+            configuredServerId: parseConfiguredMcpServerId(`bearer-${credentialState}`),
+            generation: index + 1,
+            state: 'disconnected' as const,
+            transport: 'streamable-http' as const,
+          })
+        ),
       });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -1275,6 +1277,7 @@ describe('UnifiedToolsSettings', () => {
       expect(statusList).toHaveTextContent('Bearer credential stored');
       expect(statusList).toHaveTextContent('Bearer credential not stored');
       expect(statusList).toHaveTextContent('Bearer credential unreadable');
+      expect(statusList).toHaveTextContent('Bearer credential malformed');
       expect(statusList).not.toHaveTextContent('bearer-secret-must-not-render');
     });
 

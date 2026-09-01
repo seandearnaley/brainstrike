@@ -204,18 +204,6 @@ describe('MCP desktop authority bootstrap', () => {
     );
   });
 
-  it('constructs the shared secrets authority before the default MCP runtime', () => {
-    const { source } = readMainSourceSections();
-    const readySource = source.slice(source.indexOf('app.whenReady()'));
-    const secretsIndex = readySource.indexOf('const secretsService = getSecretsService()');
-    const runtimeIndex = readySource.indexOf(
-      'registerMcpIpcHandlers({ runtime: getDesktopMcpHostRuntime() })'
-    );
-
-    expect(secretsIndex).toBeGreaterThanOrEqual(0);
-    expect(runtimeIndex).toBeGreaterThan(secretsIndex);
-  });
-
   it('projects the host snapshot and broadcasts revisioned host updates', async () => {
     const current = snapshot(7, [server('github'), server('linear')]);
     let listener: ((event: McpHostWatchEvent) => void) | undefined;

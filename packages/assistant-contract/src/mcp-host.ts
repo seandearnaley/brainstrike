@@ -85,7 +85,7 @@ export interface McpHostOAuthAuthSnapshot {
   type: 'oauth-user';
 }
 export interface McpHostBearerAuthSnapshot {
-  credentialState: 'missing' | 'stored' | 'unreadable';
+  credentialState: 'malformed' | 'missing' | 'stored' | 'unreadable';
   type: 'bearer';
 }
 export type McpHostAuthSnapshot =

@@ -2080,8 +2080,11 @@ Remote transport rules:
   exactly `{ type: "bearer", credential: { store: "mcp-credentials", id:
   <uuid> } }`; the UUID maps to the `mcp-credentials:<uuid>` slot in the
   existing safeStorage-encrypted `SecretsService`. The renderer-visible host
-  snapshot projects only `missing | stored | unreadable`. The credential
-  authority resolves the token for every owned HTTP request and injects
+  snapshot projects only `malformed | missing | stored | unreadable`. Its
+  initial projection enumerates storage keys without decrypting credentials;
+  the final owned fetch boundary validates the token and publishes the current
+  state back to the actor snapshot. The credential authority resolves the
+  token for every owned HTTP request and injects
   `Authorization: Bearer …` only after proving that the request origin equals
   the configured resource origin and that no competing Authorization header
   exists. The host runtime, config projection, actor context, status, logs,

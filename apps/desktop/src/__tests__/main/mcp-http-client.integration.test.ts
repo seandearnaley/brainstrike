@@ -6,7 +6,10 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
-import { createSecretsMcpBearerCredentialAuthority } from '../../mcp/bearer-credential';
+import {
+  createSecretsMcpBearerCredentialAuthority,
+  mcpBearerCredentialStorageKey,
+} from '../../mcp/bearer-credential';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { createHttpClient } from '../../mcp/http-client';
 import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
@@ -279,6 +282,8 @@ describe('desktop explicit HTTP MCP client', () => {
     let storedCredential: string | null = secret;
     const authority = createSecretsMcpBearerCredentialAuthority({
       getKey: async () => storedCredential,
+      listProviders: async () =>
+        storedCredential === null ? [] : [mcpBearerCredentialStorageKey(reference)],
     });
     const runtime = createDesktopMcpHostRuntime({ bearerCredentialAuthority: authority });
     const config = {
@@ -331,6 +336,9 @@ describe('desktop explicit HTTP MCP client', () => {
       });
       expect(server.requests).toHaveLength(requestCountBeforeReset);
       expect(String(await failure.catch((error: unknown) => error))).not.toContain(secret);
+      expect(runtime.host.snapshot().servers[0]).toMatchObject({
+        auth: { credentialState: 'missing', type: 'bearer' },
+      });
     } finally {
       await runtime.host.close();
     }
@@ -342,6 +350,7 @@ describe('desktop explicit HTTP MCP client', () => {
     const configuredServerId = parseConfiguredMcpServerId('bearer.missing');
     const authority = createSecretsMcpBearerCredentialAuthority({
       getKey: async () => null,
+      listProviders: async () => [],
     });
     const runtime = createDesktopMcpHostRuntime({ bearerCredentialAuthority: authority });
 

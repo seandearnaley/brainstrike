@@ -20,8 +20,7 @@ import {
   parseMcpNegotiatedStatus,
 } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { OAuthError, ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
-import { McpBearerCredentialFailure } from './bearer-credential';
-import { McpLifecycleFailure } from './lifecycle-errors';
+import { findBearerCredentialFailure, McpLifecycleFailure } from './lifecycle-errors';
 
 type McpServerActorInvokeOptions = McpHostInvokeOptions & { signal: AbortSignal };
 export interface McpServerActorClient {
@@ -67,11 +66,12 @@ type ActorStatus =
   | { error: McpHostError; state: 'error' }
   | { catalog?: McpHostCatalog; negotiated: McpNegotiatedStatus; state: 'connected' };
 type McpServerActorErrorCode =
+  | 'mcp-authentication-required'
   | 'mcp-bearer-authorization-conflict'
+  | 'mcp-bearer-credential-malformed'
   | 'mcp-bearer-credential-missing'
   | 'mcp-bearer-credential-unreadable'
   | 'mcp-bearer-origin-mismatch'
-  | 'mcp-authentication-required'
   | 'mcp-client-close-failed'
   | 'mcp-client-close-report-invalid'
   | 'mcp-client-close-reported-failures'
@@ -131,8 +131,9 @@ interface MappedMcpOperationError {
 }
 
 function mapMcpOperationError(error: unknown): MappedMcpOperationError {
-  if (error instanceof McpBearerCredentialFailure) {
-    return { category: error.category, code: error.code };
+  const bearerFailure = findBearerCredentialFailure(error);
+  if (bearerFailure) {
+    return { category: bearerFailure.category, code: bearerFailure.code };
   }
   if (OAuthError.isInstance(error)) {
     return { category: 'authentication', code: 'mcp-oauth-flow-failed' };
