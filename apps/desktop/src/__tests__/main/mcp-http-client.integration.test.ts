@@ -1,13 +1,14 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { SdkHttpError } from '@modelcontextprotocol/client';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import { McpServer } from '@modelcontextprotocol/server';
+import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { createHttpClient } from '../../mcp/http-client';
+import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
 
 interface ObservedRequest {
   authorization?: string;
@@ -79,6 +80,12 @@ function createFixtureMcpServer(): McpServer {
     isError: true,
   }));
 
+  server.registerTool(
+    'add_numbers',
+    { inputSchema: z.object({ a: z.number(), b: z.number() }) },
+    async ({ a, b }) => ({ content: [{ text: String(a + b), type: 'text' }] })
+  );
+
   server.registerTool('slow', {}, async () => {
     await new Promise((resolve) => setTimeout(resolve, 250));
     return { content: [{ text: 'too late', type: 'text' }] };
@@ -139,6 +146,10 @@ async function startStreamableHttpServer(
         sessionIdGenerator,
       })
     : undefined;
+  const statelessHandler = sessionIdGenerator
+    ? undefined
+    : createMcpHandler(createFixtureMcpServer, { legacy: 'stateless' });
+  const statelessNodeHandler = statelessHandler ? toNodeHandler(statelessHandler) : undefined;
   if (statefulMcp && statefulTransport) {
     await statefulMcp.connect(statefulTransport);
   }
@@ -175,16 +186,11 @@ async function startStreamableHttpServer(
       await statefulTransport.handleRequest(request, response, observed.body);
       return;
     }
-    const mcp = createFixtureMcpServer();
-    const transport = new NodeStreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    });
-    await mcp.connect(transport);
-    try {
-      await transport.handleRequest(request, response, observed.body);
-    } finally {
-      await closeAll([() => transport.close(), () => mcp.close()]);
+    if (!statelessNodeHandler) {
+      response.writeHead(500).end();
+      return;
     }
+    await statelessNodeHandler(request, response, observed.body);
   });
   const running = await listen(server);
   return {
@@ -192,6 +198,7 @@ async function startStreamableHttpServer(
       await closeAll([
         ...(statefulTransport ? [() => statefulTransport.close()] : []),
         ...(statefulMcp ? [() => statefulMcp.close()] : []),
+        ...(statelessHandler ? [() => statelessHandler.close()] : []),
         running.close,
       ]);
     },
@@ -457,5 +464,91 @@ describe('desktop explicit HTTP MCP client', () => {
     expect(client.supportsTool('remote.echo')).toBe(false);
     await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
     expect(client.getStatus()).toMatchObject({ state: 'disconnected' });
+  });
+
+  test.each([
+    { protocolVersion: '2025-11-25' as const, sessionId: 'conformance-legacy-session' },
+    { protocolVersion: '2026-07-28' as const, sessionId: undefined },
+  ])(
+    'drives official tools_call through the production host at $protocolVersion',
+    async ({ protocolVersion, sessionId }) => {
+      const server = await startStreamableHttpServer(
+        '/mcp',
+        sessionId === undefined ? undefined : () => sessionId
+      );
+      cleanup.push(server.close);
+
+      await runProductionMcpConformanceClient({
+        protocolVersion,
+        scenario: 'tools_call',
+        serverUrl: server.url,
+      });
+
+      const messages = server.requests.flatMap(({ body }) =>
+        typeof body === 'object' && body !== null && 'method' in body ? [body] : []
+      );
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ method: 'tools/list' }),
+          expect.objectContaining({
+            method: 'tools/call',
+            params: expect.objectContaining({ arguments: { a: 5, b: 3 }, name: 'add_numbers' }),
+          }),
+        ])
+      );
+      expect(messages.some(({ method }) => method === 'initialize')).toBe(
+        protocolVersion === '2025-11-25'
+      );
+    },
+    30_000
+  );
+
+  test('drives official initialize through the production host without calling a tool', async () => {
+    const server = await startStreamableHttpServer('/mcp', () => 'conformance-initialize');
+    cleanup.push(server.close);
+
+    await runProductionMcpConformanceClient({
+      protocolVersion: '2025-11-25',
+      scenario: 'initialize',
+      serverUrl: server.url,
+    });
+
+    const methods = server.requests.flatMap(({ body }) =>
+      typeof body === 'object' && body !== null && 'method' in body ? [body.method] : []
+    );
+    expect(methods).toEqual(
+      expect.arrayContaining(['initialize', 'notifications/initialized', 'tools/list'])
+    );
+    expect(methods).not.toContain('tools/call');
+  });
+
+  test('rejects later-layer auth scenarios instead of substituting core behavior', async () => {
+    await expect(
+      runProductionMcpConformanceClient({
+        protocolVersion: '2026-07-28',
+        scenario: 'auth/basic-cimd',
+        serverUrl: 'https://mcp.example.test/mcp',
+      })
+    ).rejects.toThrow(/scenario/u);
+  });
+
+  test('rejects initialize outside its canonical legacy applicability window', async () => {
+    await expect(
+      runProductionMcpConformanceClient({
+        protocolVersion: '2026-07-28',
+        scenario: 'initialize',
+        serverUrl: 'https://mcp.example.test/mcp',
+      })
+    ).rejects.toThrow(/protocolVersion/u);
+  });
+
+  test('rejects credential-bearing conformance URLs through the production config parser', async () => {
+    await expect(
+      runProductionMcpConformanceClient({
+        protocolVersion: '2026-07-28',
+        scenario: 'tools_call',
+        serverUrl: 'https://user:secret@mcp.example.test/mcp',
+      })
+    ).rejects.toThrow(/must not include credentials/u);
   });
 });
