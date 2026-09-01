@@ -1,0 +1,51 @@
+import { z } from 'zod';
+import { runProductionMcpConformanceClient } from './mcp/official-conformance-client';
+
+const ProcessInputSchema = z.strictObject({
+  protocolVersion: z.enum(['2025-11-25', '2026-07-28']),
+  scenario: z.string().min(1),
+  serverUrl: z
+    .url({ protocol: /^https?$/u })
+    .refine((value) => new URL(value).username === '' && new URL(value).password === '', {
+      message: 'server URL must not include credentials',
+    }),
+});
+
+interface ProcessDependencies {
+  runClient?: typeof runProductionMcpConformanceClient;
+  writeError?: (message: string) => void;
+}
+
+export function parseOfficialConformanceProcessInput(
+  argv: readonly string[],
+  environment: NodeJS.ProcessEnv
+): z.output<typeof ProcessInputSchema> {
+  if (argv.length !== 1) {
+    throw new Error('Production MCP conformance client requires exactly one server URL');
+  }
+  if (environment['MCP_CONFORMANCE_CONTEXT'] !== undefined) {
+    throw new Error('Production MCP conformance OAuth context is not implemented');
+  }
+  return ProcessInputSchema.parse({
+    protocolVersion: environment['MCP_CONFORMANCE_PROTOCOL_VERSION'],
+    scenario: environment['MCP_CONFORMANCE_SCENARIO'],
+    serverUrl: argv[0],
+  });
+}
+
+export async function runOfficialConformanceProcess(
+  argv: readonly string[],
+  environment: NodeJS.ProcessEnv,
+  dependencies: ProcessDependencies = {}
+): Promise<number> {
+  try {
+    const input = parseOfficialConformanceProcessInput(argv, environment);
+    await (dependencies.runClient ?? runProductionMcpConformanceClient)(input);
+    return 0;
+  } catch {
+    (dependencies.writeError ?? process.stderr.write.bind(process.stderr))(
+      'Production MCP conformance client failed\n'
+    );
+    return 1;
+  }
+}

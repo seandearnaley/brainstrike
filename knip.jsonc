@@ -104,7 +104,11 @@
         // in the module graph reaches it. The build config that names it lives
         // under apps/desktop/scripts/, which the root `scripts/**/*` ignore hides
         // from knip. Contract: docs/agents/platform-contracts.md:1284.
-        "src/diagnostics/main-watchdog-worker.ts"
+        "src/diagnostics/main-watchdog-worker.ts",
+        // Official MCP conformance child-process entry. Like the watchdog, this
+        // is a real build-main-config entry invoked by file name from the root
+        // driver rather than imported by the desktop module graph.
+        "src/official-conformance-client-entry.ts"
       ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],

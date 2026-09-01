@@ -50,6 +50,7 @@ export const MAIN_PROCESS_ENTRY_POINTS = {
   main: 'src/main-bootstrap.ts',
   'main-log-transport': 'src/diagnostics/main-log-transport.ts',
   'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
+  'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
   'parser-host-entry': 'src/parser-host-entry.ts',
   preload: 'src/preload.ts',
 };
