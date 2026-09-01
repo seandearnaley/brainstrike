@@ -576,7 +576,6 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
     async (_event, request: unknown) => {
       const parsed = parseMcpHostControlRequest(request);
       if (parsed.action === 'cancel') {
-        await mcpLifecycleBarrier;
         return structuredClone(await runtime.host.control(parsed));
       }
       return await trackConfigOperation(async (lifecycleEpoch) => {

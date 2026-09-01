@@ -2529,7 +2529,9 @@ and must never cross renderer IPC or bypass the platform redaction path.
   server snapshot and retains failed servers even when discovery found zero
   tools. Settings keeps `cancel` actionable while the original connect promise
   is pending; cancellation supersedes that row's pending-action slot without
-  enabling any unrelated sibling control.
+  enabling any unrelated sibling control. The renderer IPC dispatches `cancel`
+  directly to the host instead of awaiting the config lifecycle barrier that
+  contains the in-flight connect.
 - `close` is terminal and proves that every owned client, request, subscription,
   callback listener, loopback port, probe, and child process is gone.
 
