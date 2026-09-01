@@ -35,6 +35,11 @@
       "import": "./dist/memory-model-targets.mjs",
       "require": "./dist/memory-model-targets.js"
     },
+    "./mcp-content-application-port": {
+      "types": "./dist/mcp-content-application-port.d.ts",
+      "import": "./dist/mcp-content-application-port.mjs",
+      "require": "./dist/mcp-content-application-port.js"
+    },
     "./ports": {
       "types": "./dist/ports.d.ts",
       "import": "./dist/ports.mjs",
