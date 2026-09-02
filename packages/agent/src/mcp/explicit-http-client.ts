@@ -1,54 +1,54 @@
 import {
-  type AuthProvider,
-  Client,
-  type ClientOptions,
-  type InputRequiredResult,
+  type Client,
   type JSONObject,
-  type McpSubscription,
-  type OAuthClientProvider,
   SdkHttpError,
-  SSEClientTransport,
   StreamableHTTPClientTransport,
-  type SubscriptionFilter,
 } from '@modelcontextprotocol/client';
+import type { McpClientCapabilityLease } from './client-capabilities';
+import type { McpClientExtensionRequestContract } from './client-extension-registry';
+import { normalizeMcpRequestOptions } from './client-policy';
 import {
-  composeMcpTransportCapabilities,
-  type McpClientCapabilityLease,
-  type McpClientCapabilityOptions,
-  type McpClientCapabilityRuntime,
-} from './client-capabilities';
+  type ExplicitHttpMcpClientOptions,
+  type NormalizedHttpClientOptions,
+  normalizeExplicitHttpClientOptions,
+} from './explicit-http-client-options';
 import type {
-  McpClientExtensionRegistry,
-  McpClientExtensionRequestContract,
-} from './client-extension-registry';
-import {
-  createMcpResponseCacheStore,
-  normalizeMcpCachePartition,
-  normalizeMcpListMaxPages,
-  normalizeMcpRequestOptions,
-} from './client-policy';
-import { type McpProtocol, toMcpVersionNegotiation } from './config';
+  ExplicitHttpMcpCallToolParams,
+  ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpCompleteParams,
+  ExplicitHttpMcpCompleteResult,
+  ExplicitHttpMcpGetPromptParams,
+  ExplicitHttpMcpGetPromptResult,
+  ExplicitHttpMcpInputRequiredResult,
+  ExplicitHttpMcpListPromptsParams,
+  ExplicitHttpMcpListPromptsResult,
+  ExplicitHttpMcpListRequestOptions,
+  ExplicitHttpMcpListResourcesParams,
+  ExplicitHttpMcpListResourcesResult,
+  ExplicitHttpMcpListResourceTemplatesParams,
+  ExplicitHttpMcpListResourceTemplatesResult,
+  ExplicitHttpMcpListToolsParams,
+  ExplicitHttpMcpListToolsResult,
+  ExplicitHttpMcpManualCallOptions,
+  ExplicitHttpMcpNormalCallOptions,
+  ExplicitHttpMcpReadResourceParams,
+  ExplicitHttpMcpReadResourceResult,
+  ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpSubscription,
+  ExplicitHttpMcpSubscriptionFilter,
+  ExplicitHttpMcpTool,
+  NegotiatedProtocolFacts,
+} from './explicit-http-client-types';
+import { createExplicitHttpTransport, type ExplicitHttpTransport } from './explicit-http-transport';
+import { createExplicitMcpSdkClient, type McpCatalogKind } from './explicit-mcp-client-core';
 import { closeOwnedHttpConnection } from './http-connection-cleanup';
 import {
-  assertOAuthHeaderCompatibility,
-  createInteractiveOAuthCompletion,
-  type ExplicitHttpMcpAuthorizationCallbackSource,
-  type InteractiveOAuthCompletion,
   type InteractiveOAuthOperation,
-  normalizeOAuthStepUpOptions,
   tryCompleteInteractiveOAuthRequestAuthorization,
 } from './interactive-oauth-completion';
 import {
-  createHeaderPreservingFetch,
-  installRegisteredExtensionDispatch,
-  RegisteredExtensionDispatchLedger,
-} from './registered-extension-dispatch';
-import { installMcpResultTypeCompatibility } from './result-type-compatibility';
-import {
-  type McpServerFeatureEventDiagnosticSink,
   type McpServerFeatureEventHandlers,
   McpServerFeatureEventRegistry,
-  resolveMcpServerFeatureEventDiagnosticSink,
 } from './server-feature-events';
 import {
   listenForMcpTasks,
@@ -61,94 +61,10 @@ import {
   notifyUnexpectedClose,
 } from './unexpected-close-observer';
 
-const DEFAULT_CLIENT_VERSION = '0.1.0';
+export type { ExplicitHttpMcpClientOptions } from './explicit-http-client-options';
+export * from './explicit-http-client-types';
+
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
-
-export type ExplicitHttpMcpTransport = 'sse' | 'streamable-http';
-export type ExplicitHttpMcpLifecycle = 'client-owned' | 'host-owned';
-export type ExplicitHttpMcpUnexpectedCloseObserver = () => void | Promise<void>;
-
-export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
-
-export type { ExplicitHttpMcpAuthorizationCallbackSource } from './interactive-oauth-completion';
-
-type SdkRequestOptions = NonNullable<Parameters<Client['callTool']>[1]>;
-export type ExplicitHttpMcpRequestOptions = SdkRequestOptions;
-type ExplicitHttpMcpListRequestOptions = NonNullable<Parameters<Client['listTools']>[1]>;
-
-export type ExplicitHttpMcpListToolsResult = Awaited<ReturnType<Client['listTools']>>;
-export type ExplicitHttpMcpListToolsParams = NonNullable<Parameters<Client['listTools']>[0]>;
-export type ExplicitHttpMcpListPromptsResult = Awaited<ReturnType<Client['listPrompts']>>;
-export type ExplicitHttpMcpListPromptsParams = NonNullable<Parameters<Client['listPrompts']>[0]>;
-export type ExplicitHttpMcpListResourcesResult = Awaited<ReturnType<Client['listResources']>>;
-export type ExplicitHttpMcpListResourcesParams = NonNullable<
-  Parameters<Client['listResources']>[0]
->;
-export type ExplicitHttpMcpListResourceTemplatesResult = Awaited<
-  ReturnType<Client['listResourceTemplates']>
->;
-export type ExplicitHttpMcpListResourceTemplatesParams = NonNullable<
-  Parameters<Client['listResourceTemplates']>[0]
->;
-export type ExplicitHttpMcpTool = ExplicitHttpMcpListToolsResult['tools'][number];
-export type ExplicitHttpMcpCallToolParams = Parameters<Client['callTool']>[0];
-export type ExplicitHttpMcpCallToolResult = Awaited<ReturnType<Client['callTool']>>;
-export type ExplicitHttpMcpInputRequiredResult = InputRequiredResult;
-export type ExplicitHttpMcpReadResourceParams = Parameters<Client['readResource']>[0];
-export type ExplicitHttpMcpReadResourceResult = Awaited<ReturnType<Client['readResource']>>;
-export type ExplicitHttpMcpGetPromptParams = Parameters<Client['getPrompt']>[0];
-export type ExplicitHttpMcpGetPromptResult = Awaited<ReturnType<Client['getPrompt']>>;
-export type ExplicitHttpMcpCompleteParams = Parameters<Client['complete']>[0];
-export type ExplicitHttpMcpCompleteResult = Awaited<ReturnType<Client['complete']>>;
-export type ExplicitHttpMcpSubscription = McpSubscription;
-export type ExplicitHttpMcpSubscriptionFilter = SubscriptionFilter;
-
-type ExplicitHttpMcpManualCallOptions = ExplicitHttpMcpRequestOptions & {
-  allowInputRequired: true;
-};
-type ExplicitHttpMcpNormalCallOptions = Omit<
-  ExplicitHttpMcpRequestOptions,
-  'allowInputRequired'
-> & {
-  allowInputRequired?: false;
-};
-
-export interface NegotiatedProtocolFacts {
-  getNegotiatedProtocolVersion: () => ReturnType<Client['getNegotiatedProtocolVersion']>;
-  getProtocolEra: () => ReturnType<Client['getProtocolEra']>;
-  getServerCapabilities: () => ReturnType<Client['getServerCapabilities']>;
-  getServerVersion: () => ReturnType<Client['getServerVersion']>;
-}
-
-export interface ExplicitHttpMcpClientOptions {
-  authorizationCallbackSource?: ExplicitHttpMcpAuthorizationCallbackSource;
-  authorizationCallbackTimeoutMs?: number;
-  authProvider?: AuthProvider | OAuthClientProvider;
-  cachePartition?: ClientOptions['cachePartition'];
-  clientCapabilities?: McpClientCapabilityOptions;
-  clientInfo?: {
-    name: string;
-    version: string;
-  };
-  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
-  extensionRegistry?: McpClientExtensionRegistry;
-  fetch?: ExplicitHttpMcpFetch;
-  headers?: Readonly<Record<string, string>>;
-  inputRequired?: ClientOptions['inputRequired'];
-  lifecycle?: ExplicitHttpMcpLifecycle;
-  listMaxPages?: ClientOptions['listMaxPages'];
-  maxStepUpRetries?: number;
-  name: string;
-  onInsufficientScope?: 'reauthorize' | 'throw';
-  onServerFeatureEventError?: McpServerFeatureEventDiagnosticSink;
-  onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
-  protocol?: McpProtocol;
-  responseCacheStore?: ClientOptions['responseCacheStore'];
-  transport: ExplicitHttpMcpTransport;
-  url: string | URL;
-}
-
-type ExplicitHttpTransport = SSEClientTransport | StreamableHTTPClientTransport;
 
 interface ActiveConnection {
   capabilityLease: McpClientCapabilityLease;
@@ -159,147 +75,12 @@ interface ActiveConnection {
   transport: ExplicitHttpTransport;
 }
 
-type McpCatalogKind = 'prompts' | 'resource-templates' | 'resources' | 'tools';
-
-interface NormalizedClientOptions {
-  authProvider?: AuthProvider | OAuthClientProvider;
-  cachePartition?: ClientOptions['cachePartition'];
-  capabilityRuntime: McpClientCapabilityRuntime;
-  clientInfo: {
-    name: string;
-    version: string;
-  };
-  defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
-  extensionDispatchLedger: RegisteredExtensionDispatchLedger;
-  extensionRegistry?: McpClientExtensionRegistry;
-  fetch: ExplicitHttpMcpFetch;
-  inputRequired: NonNullable<ClientOptions['inputRequired']>;
-  interactiveOAuth?: InteractiveOAuthCompletion;
-  lifecycle: ExplicitHttpMcpLifecycle;
-  listMaxPages: number;
-  maxStepUpRetries?: number;
-  onInsufficientScope?: 'reauthorize' | 'throw';
-  onServerFeatureEventError: McpServerFeatureEventDiagnosticSink;
-  onUnexpectedClose?: ExplicitHttpMcpUnexpectedCloseObserver;
-  protocol: McpProtocol;
-  responseCacheStore: NonNullable<ClientOptions['responseCacheStore']>;
-  serverName: string;
-  transport: ExplicitHttpMcpTransport;
-  url: URL;
-}
-
 function closedClientError(): Error {
   return new Error(CLOSED_ERROR_MESSAGE);
 }
 
-function validateNonEmpty(value: string, field: string): string {
-  if (value.trim().length === 0) {
-    throw new Error(`${field} must not be empty`);
-  }
-  return value;
-}
-
-function validateLifecycle(value: unknown, clientName: string): ExplicitHttpMcpLifecycle {
-  const lifecycle = value ?? 'client-owned';
-  if (lifecycle !== 'client-owned' && lifecycle !== 'host-owned') {
-    throw new Error(
-      `MCP client "${clientName}": lifecycle must be "client-owned" or "host-owned" (got "${String(lifecycle)}")`
-    );
-  }
-  return lifecycle;
-}
-
-function validateUnexpectedCloseObserver(
-  value: unknown,
-  clientName: string
-): ExplicitHttpMcpUnexpectedCloseObserver | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== 'function') {
-    throw new Error(`MCP client "${clientName}": onUnexpectedClose must be a function`);
-  }
-  return value as ExplicitHttpMcpUnexpectedCloseObserver;
-}
-
 function isReconnectableSessionError(error: unknown, hadSession: boolean): boolean {
   return hadSession && error instanceof SdkHttpError && error.status === 404;
-}
-
-function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClientOptions {
-  const name = validateNonEmpty(options.name, 'MCP client name');
-  const interactiveOAuth = createInteractiveOAuthCompletion(name, options);
-  const onUnexpectedClose = validateUnexpectedCloseObserver(options.onUnexpectedClose, name);
-  const protocol = options.protocol ?? 'legacy';
-  if (options.transport === 'sse' && protocol !== 'legacy') {
-    throw new Error(
-      `MCP client "${name}": legacy SSE transport requires protocol "legacy" (got "${protocol}")`
-    );
-  }
-  const clientInfo = options.clientInfo ?? {
-    name: `brainstrike-${name}`,
-    version: DEFAULT_CLIENT_VERSION,
-  };
-  validateNonEmpty(clientInfo.name, 'MCP client info name');
-  validateNonEmpty(clientInfo.version, 'MCP client info version');
-
-  const url = new URL(options.url);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('MCP HTTP URL must use http: or https:');
-  }
-  if (url.username.length > 0 || url.password.length > 0) {
-    throw new Error('MCP HTTP URL must not include credentials');
-  }
-
-  const baseFetch: ExplicitHttpMcpFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  const cachePartition = normalizeMcpCachePartition(
-    options.cachePartition,
-    options.responseCacheStore !== undefined
-  );
-  assertOAuthHeaderCompatibility(name, options.authProvider, options.headers);
-  const scopeStepUp = normalizeOAuthStepUpOptions(options);
-  const extensionDispatchLedger = new RegisteredExtensionDispatchLedger();
-  const capabilityConfiguration = composeMcpTransportCapabilities({
-    ...(options.clientCapabilities ? { clientCapabilities: options.clientCapabilities } : {}),
-    ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
-  });
-  return {
-    ...(options.authProvider ? { authProvider: options.authProvider } : {}),
-    ...(cachePartition === undefined ? {} : { cachePartition }),
-    capabilityRuntime: capabilityConfiguration.runtime,
-    clientInfo: { ...clientInfo },
-    ...(options.defaultCacheTtlMs === undefined
-      ? {}
-      : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
-    extensionDispatchLedger,
-    ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
-    fetch: createHeaderPreservingFetch(
-      baseFetch,
-      options.headers,
-      options.extensionRegistry,
-      () => interactiveOAuth?.getAuthorizationSignal(),
-      extensionDispatchLedger
-    ),
-    inputRequired: capabilityConfiguration.inputRequired,
-    ...(interactiveOAuth ? { interactiveOAuth } : {}),
-    lifecycle: validateLifecycle(options.lifecycle, name),
-    listMaxPages: normalizeMcpListMaxPages(options.listMaxPages),
-    onServerFeatureEventError: resolveMcpServerFeatureEventDiagnosticSink(
-      options.onServerFeatureEventError,
-      name
-    ),
-    ...scopeStepUp,
-    ...(onUnexpectedClose ? { onUnexpectedClose } : {}),
-    protocol,
-    responseCacheStore: createMcpResponseCacheStore(options.responseCacheStore),
-    serverName: name,
-    transport: options.transport,
-    url,
-  };
-}
-
-function unsupportedTransport(transport: never): never {
-  throw new Error(`Unsupported explicit HTTP MCP transport: ${String(transport)}`);
 }
 
 /**
@@ -315,7 +96,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private connectPromise: Promise<ActiveConnection> | undefined;
   private readonly invalidatedConnections = new Set<ActiveConnection>();
   private readonly featureEvents: McpServerFeatureEventRegistry;
-  private readonly options: NormalizedClientOptions;
+  private readonly options: NormalizedHttpClientOptions;
   private pendingConnection: ActiveConnection | undefined;
   private recoveryPromise: Promise<ActiveConnection> | undefined;
   private toolDefinitions = new Map<string, ExplicitHttpMcpTool>();
@@ -323,7 +104,7 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private readonly catalogGenerations = new Map<McpCatalogKind, number>();
 
   constructor(options: ExplicitHttpMcpClientOptions) {
-    this.options = normalizeOptions(options);
+    this.options = normalizeExplicitHttpClientOptions(options);
     this.featureEvents = new McpServerFeatureEventRegistry(this.options.onServerFeatureEventError);
   }
 
@@ -732,34 +513,16 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   }
 
   private createConnection(): ActiveConnection {
-    const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
-    const capabilities = {
-      ...this.options.capabilityRuntime.capabilities,
-      ...(extensions ? { extensions } : {}),
-    };
-    const clientOptions = {
-      capabilities,
-      enforceStrictCapabilities: true,
-      inputRequired: this.options.inputRequired,
-      listMaxPages: this.options.listMaxPages,
-      versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
-      ...(this.options.cachePartition === undefined
-        ? {}
-        : { cachePartition: this.options.cachePartition }),
-      ...(this.options.defaultCacheTtlMs === undefined
-        ? {}
-        : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
-      responseCacheStore: this.options.responseCacheStore,
-    } satisfies ClientOptions;
-    const client = new Client(this.options.clientInfo, clientOptions);
-    const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
-    this.featureEvents.install(client);
+    const { capabilityLease, client } = createExplicitMcpSdkClient(
+      this.options,
+      this.featureEvents
+    );
     const connection = {
       capabilityLease,
       client,
       disconnected: false,
       generation: this.connectionGeneration,
-      transport: this.createTransport(client),
+      transport: createExplicitHttpTransport(this.options, client),
     };
     client.onclose = () => this.invalidateConnection(connection);
     return connection;
@@ -963,37 +726,5 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
       notifyUnexpectedClose(this.options.onUnexpectedClose, this.options.transport);
     }
     return true;
-  }
-
-  private createTransport(client: Client): ExplicitHttpTransport {
-    const authProvider = this.options.interactiveOAuth?.authProvider ?? this.options.authProvider;
-    switch (this.options.transport) {
-      case 'sse':
-        return new SSEClientTransport(this.options.url, {
-          ...(this.options.authProvider ? { authProvider: this.options.authProvider } : {}),
-          fetch: this.options.fetch,
-        });
-      case 'streamable-http':
-        return installMcpResultTypeCompatibility(
-          installRegisteredExtensionDispatch(
-            new StreamableHTTPClientTransport(this.options.url, {
-              ...(authProvider ? { authProvider } : {}),
-              fetch: this.options.fetch,
-              ...(this.options.maxStepUpRetries === undefined
-                ? {}
-                : { maxStepUpRetries: this.options.maxStepUpRetries }),
-              ...(this.options.onInsufficientScope === undefined
-                ? {}
-                : { onInsufficientScope: this.options.onInsufficientScope }),
-            }),
-            this.options.extensionRegistry,
-            this.options.extensionDispatchLedger
-          ),
-          this.options.protocol,
-          () => client.getProtocolEra()
-        );
-      default:
-        return unsupportedTransport(this.options.transport);
-    }
   }
 }
