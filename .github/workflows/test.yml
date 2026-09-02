@@ -791,6 +791,10 @@ jobs:
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
 
       - name: Package the desktop application
+        env:
+          # Bakes the E2E-only MCP Tasks harness chunk into THIS package for the
+          # packaged Tasks verifier below; release packaging never sets it.
+          VITE_MCP_TASK_HARNESS: '1'
         run: |
           set -euo pipefail
           test -n "${ELECTRON_DIST:-}"
@@ -798,6 +802,8 @@ jobs:
 
       - name: Verify packaged MCP Apps bridge
         run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge
+      - name: Verify packaged MCP Tasks lifecycle
+        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-tasks
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged

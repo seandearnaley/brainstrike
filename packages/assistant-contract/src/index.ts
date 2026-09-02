@@ -21,6 +21,7 @@ export * from './mastra-memory-schema.js';
 export * from './mcp-elicitation.js';
 export * from './mcp-host.js';
 export * from './mcp-status.js';
+export * from './mcp-task-presentation.js';
 export * from './memory-settings.js';
 export * from './model-reasoning.js';
 export * from './native-tool-catalog.js';

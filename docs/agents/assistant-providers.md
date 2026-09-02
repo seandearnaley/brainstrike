@@ -2016,12 +2016,15 @@ Reset aborts and drains registered creates before the authority and task tables
 are cleared, so a late insert cannot repopulate a fresh database. If PostgreSQL's canonical JSONB
 representation exceeds the durable budget, the lifecycle persists the remote
 status plus a bounded blocked diagnostic (field, exact byte count, limit, and
-SHA-256) and no raw payload; the row is terminal to local recovery rather than
-remaining a false-green `working` handle.
+SHA-256) and no raw payload; it publishes neither the rejected remote state nor
+an interaction event, so oversized input cannot trigger `tasks/update`. The row
+is terminal to local recovery rather than remaining a false-green `working`
+handle.
 Server replacement, removal, disconnect, reset, restart, lifecycle close, and
 caller cancellation abort timers, queued permits, and in-flight requests; a
 late stale-authority response cannot publish. The poller rejects a mismatched
-task id, terminally exposes bounded transport-attempt exhaustion, honors
+task id, terminally exposes the single canonical `maxTransportFailures`
+transport-attempt budget, honors
 changing `pollIntervalMs`, treats `ttlMs` as a lifetime backstop, and creates no
 subscription lease. This remains opt-in substrate: production registration,
 mid-flight input/cancellation interactions, renderer controls, and support
@@ -2054,6 +2057,38 @@ successfully; `completed` or `failed` is a non-cancellation outcome. Each observ
 can be sent. Task responses keep the merged BST-1561 discriminator ruling (an absent `resultType` is `complete` per final SEP-2322; a conflicting value is rejected). Terminal state, generation replacement, and coordinator close abort pending input and
 release resources. Sampling/roots input, renderer UX, host registration, and support advertisement
 remain disabled.
+
+BST-1565's first layer adds an opt-in presentation and control fence; it does
+not register Tasks. The browser-safe contract carries one opaque exact handle
+(server, resource, principal, generation, and task), status copy, and only the
+newest eight of the repository's 32 transition entries. Input/result metadata
+never crosses that seam. The separate model projection omits the complete
+control identity and is capped at 2,048 serialized UTF-8 bytes, with explicit
+truncation. Every recovery or cancellation click revalidates protocol
+`2026-07-28`, capability presence, principal, server/resource, and generation
+both before and after the owning authority runs. Failures use stable
+`stale_handle`, `lost_principal`, `unsupported_version`, and
+`capability_removed` diagnostics. The injected authority remains responsible
+for atomic repository/lifecycle/interaction fencing; the presentation module
+cannot create a task, turn a task handle into synchronous tool completion, or
+enable support advertisement.
+
+The final BST-1565 verifier is a test-only lazy renderer mode guarded by both
+`mode=mcp-task-harness` and Desktop test mode; a production launch cannot enter
+it, and the harness chunk itself exists only in a renderer built with
+`VITE_MCP_TASK_HARNESS=1` (the packaged verifier lane,
+`test:e2e:lane:packaged-mcp-tasks`, packages with it; release builds never do),
+so the harness, its PGlite and migration closure never ship to users. In a
+genuinely packaged Electron binary it opens the shared-factory PGlite store
+(full engine-extension set) migrated by the real `MigrationRunner` over the
+full migration list, a durable authority lease, and the real repository. The first process
+persists a lifecycle-owned handle and closes cleanly; a second process over the
+same isolated user-data directory rebuilds `restart_required`, recovers through
+`McpTaskLifecycle`, and cancels only after `McpTaskInteraction` observes remote
+`cancelled`. The packaged proof also exercises lost-principal and stale-
+generation refusal, focus behavior, and zero lifecycle polls/tasks/timers,
+interaction operations/listeners, and database ownership after explicit close.
+This verifier is not a production host adapter and does not advertise Tasks.
 
 ### MCP client input and deprecated compatibility (BST-1470)
 

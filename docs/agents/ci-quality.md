@@ -247,6 +247,14 @@ lane does not build or package. The same job runs
 tagged `@packaged @destructive`, excluded from the generic full-regression
 lane) right after packaging; `scripts/__tests__/mcp-apps-bridge-packaged-ci-contract.test.mjs`
 pins the step order and the lane script. `test:e2e:mcp-packaged` remains the local
+lane does not build or package. The same job packages with
+`VITE_MCP_TASK_HARNESS=1` so the E2E-only MCP Tasks harness chunk exists in
+THAT package (release packaging never sets it), then runs
+`test:e2e:lane:packaged-mcp-tasks` right after packaging (the core lane keeps
+its pinned slot immediately after the packaged native checks) (`mcp-task-restart.packaged.desktop.test.ts`,
+tagged `@packaged @destructive`, excluded from the generic full-regression lane);
+`scripts/__tests__/mcp-tasks-packaged-ci-contract.test.mjs` pins the flag, the
+step order, and the lane script. `test:e2e:mcp-packaged` remains the local
 developer convenience that builds the lab, packages the app, and delegates to
 the same lane. `scripts/__tests__/e2e-lane-coverage.test.mjs` pins the tags,
 broad-lane exclusion, canonical delegation, and workflow reachability/order.

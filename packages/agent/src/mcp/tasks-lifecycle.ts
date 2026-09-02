@@ -29,8 +29,8 @@ export const DEFAULT_MCP_TASK_LIFECYCLE_LIMITS = Object.freeze({
   initialPollMs: 500,
   maxBackoffMs: 30_000,
   maxConcurrentPolls: 4,
-  maxConsecutiveFailures: 3,
   maxLifetimeMs: 24 * 60 * 60 * 1000,
+  maxTransportFailures: 3,
   minimumPollMs: 100,
   pollRequestTimeoutMs: 30_000,
 });
@@ -39,8 +39,9 @@ export interface McpTaskLifecycleLimits {
   readonly initialPollMs: number;
   readonly maxBackoffMs: number;
   readonly maxConcurrentPolls: number;
-  readonly maxConsecutiveFailures: number;
   readonly maxLifetimeMs: number;
+  /** Sole bounded observation-attempt budget per poll cycle. */
+  readonly maxTransportFailures: number;
   readonly minimumPollMs: number;
   readonly pollRequestTimeoutMs: number;
 }
@@ -126,11 +127,11 @@ function normalizeLimits(input: McpTaskLifecycleLimits | undefined): McpTaskLife
     initialPollMs: requirePositiveInteger(limits.initialPollMs, 'initialPollMs'),
     maxBackoffMs: requirePositiveInteger(limits.maxBackoffMs, 'maxBackoffMs'),
     maxConcurrentPolls: requirePositiveInteger(limits.maxConcurrentPolls, 'maxConcurrentPolls'),
-    maxConsecutiveFailures: requirePositiveInteger(
-      limits.maxConsecutiveFailures,
-      'maxConsecutiveFailures'
-    ),
     maxLifetimeMs: requirePositiveInteger(limits.maxLifetimeMs, 'maxLifetimeMs'),
+    maxTransportFailures: requirePositiveInteger(
+      limits.maxTransportFailures,
+      'maxTransportFailures'
+    ),
     minimumPollMs: requirePositiveInteger(limits.minimumPollMs, 'minimumPollMs'),
     pollRequestTimeoutMs: requirePositiveInteger(
       limits.pollRequestTimeoutMs,
@@ -430,11 +431,15 @@ export class McpTaskLifecycle {
       if (signal.aborted) {
         throw abortReason(signal);
       }
+      if (persisted.blockedDiagnostic !== null) {
+        await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
+        return persisted;
+      }
       if (this.observationPort) {
         await raceAbort(this.observationPort.publish(result), signal);
       }
       await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
-      if (TERMINAL_TASK_STATUSES.has(persisted.status) || persisted.blockedDiagnostic !== null) {
+      if (TERMINAL_TASK_STATUSES.has(persisted.status)) {
         return persisted;
       }
       consecutiveFailures = 0;
@@ -469,7 +474,7 @@ export class McpTaskLifecycle {
     if (signal.aborted) {
       throw abortReason(signal);
     }
-    if (failures >= this.limits.maxConsecutiveFailures) {
+    if (failures >= this.limits.maxTransportFailures) {
       throw new McpTaskObservationError(taskId, failures, cause);
     }
   }
