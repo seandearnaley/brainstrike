@@ -42,12 +42,28 @@ export interface ModelProviderScript {
   readonly toolCall: ScriptedToolCall;
 }
 
+/**
+ * One decided request, recorded so a failing proof can show WHY the shim chose
+ * a turn instead of leaving the caller to guess. `resolveTurn` is a pure
+ * function of the request's own message history, so the recorded inputs
+ * (`roles`, `toolResultCount`) plus the `decision` fully explain the response.
+ */
+export interface ModelProviderTurnRecord {
+  /** `final-text`, or `tool:<name>` for a scripted tool call. */
+  readonly decision: string;
+  readonly requestIndex: number;
+  readonly roles: readonly string[];
+  readonly toolResultCount: number;
+}
+
 export interface ModelProviderShim {
   readonly baseUrl: string;
   readonly close: () => Promise<void>;
   readonly requestCount: () => number;
   /** Configure what the next tool-call/follow-up cycle returns. */
   readonly setScript: (script: ModelProviderScript) => void;
+  /** Every decided request, oldest first — failure diagnostics only. */
+  readonly transcript: () => readonly ModelProviderTurnRecord[];
 }
 
 interface ChatCompletionsRequestBody {
@@ -263,11 +279,33 @@ function writeJsonCompletion(
   );
 }
 
+function messageRoles(messages: unknown[] | undefined): readonly string[] {
+  return (messages ?? []).map((message) => {
+    if (!isRecord(message)) {
+      return 'unknown';
+    }
+    const role = typeof message['role'] === 'string' ? message['role'] : 'unknown';
+    const calls = message['tool_calls'];
+    if (!Array.isArray(calls)) {
+      return role;
+    }
+    const names = calls
+      .map((call) =>
+        isRecord(call) && isRecord(call['function']) && typeof call['function']['name'] === 'string'
+          ? call['function']['name']
+          : 'unknown'
+      )
+      .join('+');
+    return `${role}(${names})`;
+  });
+}
+
 export async function startModelProviderShim(
   initialScript: ModelProviderScript
 ): Promise<ModelProviderShim> {
   let script = initialScript;
   let requestCount = 0;
+  const transcript: ModelProviderTurnRecord[] = [];
 
   const server: Server = createServer((request, response) => {
     requestCount += 1;
@@ -278,7 +316,14 @@ export async function startModelProviderShim(
 
     void readJsonBody(request)
       .then(({ messages, stream }) => {
-        const turn = resolveTurn(script, countToolResultMessages(messages));
+        const toolResultCount = countToolResultMessages(messages);
+        const turn = resolveTurn(script, toolResultCount);
+        transcript.push({
+          decision: 'finalText' in turn ? 'final-text' : `tool:${turn.call.name}`,
+          requestIndex: transcript.length,
+          roles: messageRoles(messages),
+          toolResultCount,
+        });
         if (stream === false) {
           writeJsonCompletion(response, turn);
           return;
@@ -320,5 +365,6 @@ export async function startModelProviderShim(
     setScript: (nextScript) => {
       script = nextScript;
     },
+    transcript: () => [...transcript],
   };
 }
