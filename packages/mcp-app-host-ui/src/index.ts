@@ -10,6 +10,6 @@ export {
   type McpAppRuntimePorts,
   McpAppToolResult,
   type McpAppToolResultProps,
-  mcpAppToolResultRenderer,
 } from './mcp-app-tool-result';
+export { mcpAppToolResultRenderer } from './mcp-app-tool-result-renderer';
 export { McpAppBridgeContext, useMcpAppBridge } from './use-mcp-app-bridge';

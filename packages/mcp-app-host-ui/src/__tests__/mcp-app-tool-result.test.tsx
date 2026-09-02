@@ -4,14 +4,15 @@ import { createMcpAppToolInvocationResult } from '@brainstrike/assistant-contrac
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { type ReactElement, StrictMode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { McpAppBridgeProvider } from '../mcp-app-bridge-context';
 import {
   type McpAppMountedSession,
   type McpAppRuntimePorts,
   McpAppToolResult,
-  mcpAppToolResultRenderer,
 } from '../mcp-app-tool-result';
+import { mcpAppToolResultRenderer } from '../mcp-app-tool-result-renderer';
 
 const APP: McpAppOrigin = {
   mimeType: 'text/html;profile=mcp-app',
@@ -137,21 +138,29 @@ const TOOL_CALL = {
   toolName: 'create_issue',
 } as unknown as Parameters<typeof McpAppToolResult>[0];
 
-function renderApp(
+function appTree(
   test: Harness | undefined,
-  onSessionChange?: (session: McpAppMountedSession | undefined) => void
-) {
-  return render(
+  onSessionChange?: (session: McpAppMountedSession | undefined) => void,
+  toolCall: typeof TOOL_CALL = TOOL_CALL
+): ReactElement {
+  return (
     <TooltipProvider>
       <McpAppBridgeProvider bridge={test?.bridge ?? null}>
         <McpAppToolResult
-          {...TOOL_CALL}
+          {...toolCall}
           {...(onSessionChange ? { onSessionChange } : {})}
           {...(test ? { ports: test.ports } : {})}
         />
       </McpAppBridgeProvider>
     </TooltipProvider>
   );
+}
+
+function renderApp(
+  test: Harness | undefined,
+  onSessionChange?: (session: McpAppMountedSession | undefined) => void
+) {
+  return render(appTree(test, onSessionChange));
 }
 
 async function mountApp(test: Harness): Promise<McpAppMountedSession> {
@@ -309,6 +318,84 @@ describe('MCP App tool result', () => {
     const second = harness('allow');
     await mountApp(second);
     expect(screen.getByTitle('create_issue app')).toHaveAttribute('src', second.created[0]);
+  });
+
+  it('keeps the mount when a parent re-render carries an equal-but-new result object', async () => {
+    const test = harness('allow');
+    let torndown = false;
+    let session: McpAppMountedSession | undefined;
+    const onSessionChange = (next: McpAppMountedSession | undefined): void => {
+      if (next) {
+        session = next;
+        return;
+      }
+      torndown = true;
+    };
+    const view = render(appTree(test, onSessionChange));
+    await waitFor(() => expect(session).toBeDefined());
+    const shellUrl = screen.getByTitle('create_issue app').getAttribute('src');
+
+    const equalResult = createMcpAppToolInvocationResult(APP, { content: [] });
+    expect(equalResult).not.toBe(APP_RESULT);
+    view.rerender(appTree(test, onSessionChange, { ...TOOL_CALL, result: equalResult }));
+    view.rerender(appTree(test, onSessionChange, { ...TOOL_CALL, result: equalResult }));
+
+    await waitFor(() => expect(screen.getByTitle('create_issue app')).toBeInTheDocument());
+    expect(torndown).toBe(false);
+    expect(test.bridge.readResource).toHaveBeenCalledTimes(1);
+    expect(screen.getByTitle('create_issue app')).toHaveAttribute('src', shellUrl);
+    expect(test.revoked).toEqual([]);
+    expect(session?.authority.snapshot.phase).toBe('open');
+  });
+
+  it('tears the mount down and starts a fresh one when the app origin changes', async () => {
+    const test = harness('allow');
+    let torndown = false;
+    let session: McpAppMountedSession | undefined;
+    const onSessionChange = (next: McpAppMountedSession | undefined): void => {
+      if (next) {
+        session = next;
+        return;
+      }
+      torndown = true;
+    };
+    const view = render(appTree(test, onSessionChange));
+    await waitFor(() => expect(session).toBeDefined());
+    const first = session;
+
+    const otherApp: McpAppOrigin = { ...APP, resourceUri: 'ui://linear/issue-viewer' };
+    view.rerender(
+      appTree(test, onSessionChange, {
+        ...TOOL_CALL,
+        result: createMcpAppToolInvocationResult(otherApp, { content: [] }),
+      })
+    );
+
+    await waitFor(() => expect(torndown).toBe(true));
+    await waitFor(() => expect(session).not.toBe(first));
+    expect(test.bridge.readResource).toHaveBeenLastCalledWith(otherApp);
+    expect(first?.authority.snapshot.phase).toBe('closed');
+    expect(test.revoked).toEqual([test.created[0]]);
+    await waitFor(() =>
+      expect(screen.getByTitle('create_issue app')).toHaveAttribute('src', test.created[1])
+    );
+  });
+
+  it('reaches the connected state under StrictMode effect double-invocation', async () => {
+    const test = harness('allow');
+    let session: McpAppMountedSession | undefined;
+    render(
+      <StrictMode>
+        {appTree(test, (next) => {
+          session = next ?? session;
+        })}
+      </StrictMode>
+    );
+    await waitFor(() => expect(session).toBeDefined());
+    await waitFor(() => expect(screen.getByTitle('create_issue app')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(session?.authority.snapshot.phase).toBe('open');
+    expect(session?.sandboxOwner.activeFrames).toBe(1);
   });
 
   it('claims only persisted app markers through its renderer descriptor', () => {

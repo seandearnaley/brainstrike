@@ -4,10 +4,7 @@ import {
   readMcpAppToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { ToolFallback } from '@brainstrike/assistant-ui/tool-fallback';
-import type {
-  ToolResultRenderer,
-  ToolResultRendererProps,
-} from '@brainstrike/assistant-ui/tool-result-renderers';
+import type { ToolResultRendererProps } from '@brainstrike/assistant-ui/tool-result-renderers';
 import { createLogger } from '@brainstrike/logging';
 import {
   McpAppFrameBridge,
@@ -65,6 +62,9 @@ function createDefaultRuntimePorts(): McpAppRuntimePorts {
     resolveFrameSource: (frame) =>
       frame.contentDocument?.querySelector('iframe')?.contentWindow ?? undefined,
     urls: {
+      // Ownership lives in McpAppSandboxOwner: each shell URL it creates is
+      // revoked by its mount's `close()`, which the mount effect's cleanup
+      // drives through `sandboxOwner.closeAll()`.
       createObjectURL: (blob) => URL.createObjectURL(blob),
       revokeObjectURL: (url) => URL.revokeObjectURL(url),
     },
@@ -89,11 +89,6 @@ function parseRiskCategory(value: string): McpAppToolRiskCategory {
   return category;
 }
 
-interface McpAppView {
-  readonly shellUrl?: string;
-  readonly state: McpAppHostState;
-}
-
 interface AppSession {
   readonly authority: McpAppToolCallAuthority;
   readonly generation: McpAppGeneration;
@@ -103,9 +98,22 @@ interface AppSession {
 }
 
 /**
- * A renderer-local provenance + tool-call authority for ONE app mount. The
- * generation is per-mount (a fresh provenance authority per mount, opened at
- * generation 1), so a remount never replays a retired generation's ownership.
+ * ONE state cell: the session, the surface phase, and the shell URL always
+ * move together, so no render ever shows a ready surface without its frame
+ * (or a surface bound to a session the effect has already retired).
+ */
+interface McpAppView {
+  readonly session: AppSession;
+  readonly shellUrl?: string;
+  readonly state: McpAppHostState;
+}
+
+/**
+ * A renderer-local provenance + tool-call authority for ONE effect run. The
+ * generation is per-run (a fresh provenance authority, opened at generation
+ * 1), and the mount effect creates it: every cleanup retires exactly the
+ * generation its own run opened, so a re-run (StrictMode double-invocation,
+ * a changed bridge or ports) never replays a retired generation's ownership.
  * `prepare`/`execute`/`release` are the host bridge's admission contract: the
  * renderer never talks to the MCP server itself.
  */
@@ -187,10 +195,15 @@ function LiveMcpApp({
   readonly threadId: string;
 }): ReactElement {
   const runtimePorts = useMemo(() => ports ?? createDefaultRuntimePorts(), [ports]);
-  const [session] = useState(() => createAppSession(app, threadId, bridge));
-  // ONE state cell: the surface phase and the shell URL always move together,
-  // so no render ever shows a ready surface without its frame (or the reverse).
-  const [view, setView] = useState<McpAppView>({ state: { phase: 'loading' } });
+  // The persisted marker is re-read (freshly parsed) on every parent render,
+  // so the mount identity is the origin's primitives, never the object.
+  const { mimeType, resourceUri, serverId, toolName } = app;
+  const origin = useMemo<McpAppOrigin>(
+    () => ({ mimeType, resourceUri, serverId, toolName }),
+    [mimeType, resourceUri, serverId, toolName]
+  );
+  // `undefined` only between commit and the mount effect's first run.
+  const [view, setView] = useState<McpAppView | undefined>(undefined);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const recoveryRef = useRef<HTMLDivElement | null>(null);
   const sessionChangeRef = useRef(onSessionChange);
@@ -201,13 +214,15 @@ function LiveMcpApp({
   useEffect(() => {
     let disposed = false;
     let frameBridge: McpAppFrameBridge | undefined;
+    const session = createAppSession(origin, threadId, bridge);
     const sandboxOwner = new McpAppSandboxOwner({ urls: runtimePorts.urls });
+    setView({ session, state: { phase: 'loading' } });
 
     const fail = (code: 'load-failed' | 'protocol-failed'): void =>
-      setView({ state: { code, phase: 'error' } });
+      setView({ session, state: { code, phase: 'error' } });
 
     const start = async (): Promise<void> => {
-      const html = await bridge.readResource(app);
+      const html = await bridge.readResource(origin);
       if (disposed) {
         return;
       }
@@ -217,7 +232,7 @@ function LiveMcpApp({
         session.resourceValue(html)
       );
       const mount = sandboxOwner.open(resource);
-      setView({ shellUrl: mount.shellUrl, state: { phase: 'ready' } });
+      setView({ session, shellUrl: mount.shellUrl, state: { phase: 'ready' } });
       const source = await awaitFrameSource(
         () => {
           const frame = frameRef.current;
@@ -295,25 +310,28 @@ function LiveMcpApp({
         sessionChangeRef.current?.(undefined);
       })();
     };
-  }, [app, bridge, hostVersion, runtimePorts, session]);
+  }, [bridge, hostVersion, origin, runtimePorts, threadId]);
 
+  if (view === undefined) {
+    return <div className="my-1 max-w-xl" ref={recoveryRef} tabIndex={-1} />;
+  }
   return (
     <div className="my-1 max-w-xl" ref={recoveryRef} tabIndex={-1}>
       <McpAppHostSurface
-        appName={app.toolName}
-        authority={session.authority}
+        appName={origin.toolName}
+        authority={view.session.authority}
         recoveryFocusRef={recoveryRef}
         state={view.state}
       >
         {view.shellUrl === undefined ? null : (
           <iframe
-            aria-label={`${app.toolName} app`}
+            aria-label={`${origin.toolName} app`}
             className="h-64 w-full rounded-lg border-0"
             data-mcp-app-sandbox="true"
             key={view.shellUrl}
             ref={frameRef}
             src={view.shellUrl}
-            title={`${app.toolName} app`}
+            title={`${origin.toolName} app`}
           />
         )}
       </McpAppHostSurface>
@@ -370,14 +388,3 @@ export function McpAppToolResult({
     />
   );
 }
-
-/**
- * The host-registered renderer descriptor. The shared foundation router
- * consults it by RESULT SHAPE; nothing about MCP Apps leaks into that layer.
- */
-export const mcpAppToolResultRenderer: ToolResultRenderer = Object.freeze({
-  /* biome-ignore lint/style/useNamingConvention: React component slot */
-  Component: McpAppToolResult,
-  kind: 'mcp-app',
-  matches: (result: unknown) => readMcpAppToolInvocationResult(result) !== undefined,
-});
