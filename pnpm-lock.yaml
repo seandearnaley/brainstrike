@@ -471,6 +471,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../../packages/logging
+      '@brainstrike/mcp-app-host-ui':
+        specifier: workspace:*
+        version: link:../../packages/mcp-app-host-ui
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
@@ -820,6 +823,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../../packages/logging
+      '@brainstrike/mcp-app-host-ui':
+        specifier: workspace:*
+        version: link:../../packages/mcp-app-host-ui
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
