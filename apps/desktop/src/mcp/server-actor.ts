@@ -531,7 +531,15 @@ export class McpServerActor {
       const mapped = mapMcpOperationError(cause);
       const error = new ActorError(mapped.category, mapped.code);
       this.diagnose(error.code, cause);
-      this.fail(error);
+      // An `operation` failure belongs to THIS call, not to the connection: a
+      // request timeout, an exhausted input round, or a pagination cap says
+      // nothing about the transport, and the SDK has already cancelled the
+      // request it gave up on. Retiring the generation here turned one slow
+      // tool call into a server the user later found disconnected (BST-1594).
+      // Every other category still poisons the generation.
+      if (mapped.category !== 'operation') {
+        this.fail(error);
+      }
       throw error;
     }
     this.throwIfAborted(callerSignal);

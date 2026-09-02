@@ -2130,6 +2130,22 @@ Both dispatch paths receive the same SDK request options (`onprogress` from the
 invoke's `onProgress`, `resetTimeoutOnProgress: true`, the merged signal):
 `requestExtension` hands them straight to `client.request`, so progress and the
 timeout reset behave identically whichever path the advertisement selects.
+
+`resetTimeoutOnProgress` re-arms the SDK's 60s request timeout on EVERY progress
+notification, so only `normalizeMcpRequestOptions`' `maxTotalTimeout` (default
+600 000 ms) bounds a chatty server. The CALLER'S SIGNAL is therefore the real
+deadline: the agent's per-tool execution guard aborts it when it gives up (see
+`docs/agents/assistant-runtime.md`, "Per-tool guard"), which makes the SDK
+withdraw the request (`notifications/cancelled`) instead of leaving the POST
+open for the remaining absolute budget. Correspondingly, `McpServerActor`
+NEVER retires a generation for an `operation`-category failure
+(`mcp-request-timeout`, `mcp-input-rounds-exhausted`,
+`mcp-list-pagination-exceeded`): those describe the CALL, not the transport, and
+retiring on them turned one slow tool call into a server the user later found
+disconnected (BST-1594). Every other category still poisons the generation.
+Pinned by `apps/desktop/src/__tests__/main/mcp-server-actor.test.ts` and, over a
+real spawned stdio child,
+`apps/desktop/src/__tests__/main/mcp-progress-cancellation.integration.test.ts`.
 A later MCP Apps host registers onto the same fresh registry from this seam.
 `apps/desktop/src/__tests__/main/mcp-host-runtime-tasks.test.ts` pins that the
 real default resolver advertises exactly the support matrix's supported

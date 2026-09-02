@@ -117,6 +117,13 @@ describe('McpServerActor', () => {
         'operation',
       ],
       [
+        new SdkError(SdkErrorCode.RequestTimeout, 'private timeout detail', {
+          method: 'tools/call',
+        }),
+        'mcp-request-timeout',
+        'operation',
+      ],
+      [
         new ProtocolError(-32_020, 'private header mismatch detail'),
         'mcp-header-mismatch',
         'protocol',
@@ -130,8 +137,39 @@ describe('McpServerActor', () => {
       );
       const error = await subject.invoke(LIST).catch((caught: unknown) => caught);
       expect(error).toMatchObject({ category, code, message: 'MCP server actor operation failed' });
-      expect(subject.snapshot()).toMatchObject({ error: { category, code } });
+      // An `operation` failure is the CALL's failure, never the connection's:
+      // it must reach the caller without retiring the generation (BST-1594).
+      expect(subject.snapshot()).toMatchObject(
+        category === 'operation'
+          ? { state: 'connected' }
+          : { error: { category, code }, state: 'error' }
+      );
     }
+  });
+
+  it('keeps serving the same generation after an operation-category request timeout', async () => {
+    const onInternalError = vi.fn();
+    let failNext = true;
+    const factory = vi.fn(async () =>
+      client(async (request) => {
+        if (failNext) {
+          failNext = false;
+          throw new SdkError(SdkErrorCode.RequestTimeout, 'private timeout detail', {
+            method: 'tools/call',
+          });
+        }
+        return request.type === 'tools/list' ? listResult.result : callResult.result;
+      })
+    );
+    const subject = actor(factory, linearId, onInternalError);
+
+    await failure(subject.invoke(CALL), 'mcp-request-timeout');
+    expect(onInternalError).toHaveBeenCalledWith('mcp-request-timeout', expect.any(SdkError));
+    expect(subject.snapshot()).toMatchObject({ state: 'connected' });
+    expect(subject.invalidated()).toBe(false);
+
+    await expect(subject.invoke(LIST)).resolves.toEqual(listResult);
+    expect(factory).toHaveBeenCalledOnce();
   });
 
   it('preserves a bearer failure nested by the SDK operation boundary', async () => {

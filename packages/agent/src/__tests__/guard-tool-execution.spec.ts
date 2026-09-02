@@ -6,6 +6,7 @@ import {
   guardToolExecution,
   isGuardedToolError,
 } from '../tools/guard-tool-execution';
+import { readToolGuardDeadlineSignal } from '../tools/tool-guard-deadline';
 
 function makeTool(execute: (...args: unknown[]) => unknown) {
   return { description: 'd', execute, id: 'demo' };
@@ -84,6 +85,45 @@ describe('guardToolExecution', () => {
     expect(result.error.code).toBe('tool_input_invalid');
     expect(result.error.message.length).toBeLessThanOrEqual(1000);
     expect(result.error.message).toMatch(/\u2026 \[input error truncated\]$/);
+  });
+
+  it('aborts the deadline the running tool can observe before reporting the timeout', async () => {
+    vi.useFakeTimers();
+    const context = { agent: { toolCallId: 'call-1' } };
+    let observed: AbortSignal | undefined;
+    const tool = guardToolExecution(
+      makeTool((...args: unknown[]) => {
+        observed = readToolGuardDeadlineSignal(args[1]);
+        return new Promise(() => {});
+      }),
+      { timeoutMs: 50, toolName: 'demo' }
+    );
+
+    const promise = tool.execute({}, context);
+    expect(observed).toBeInstanceOf(AbortSignal);
+    expect(observed?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(60);
+    const result = (await promise) as GuardedToolError;
+    expect(result.error.code).toBe('tool_timeout');
+    expect(observed?.aborted).toBe(true);
+    expect(String((observed as AbortSignal).reason)).toContain('demo');
+    vi.useRealTimers();
+  });
+
+  it('leaves the deadline unaborted when the tool settles inside its budget', async () => {
+    const context = { agent: { toolCallId: 'call-2' } };
+    let observed: AbortSignal | undefined;
+    const tool = guardToolExecution(
+      makeTool(async (...args: unknown[]) => {
+        observed = readToolGuardDeadlineSignal(args[1]);
+        return { value: 1 };
+      }),
+      { timeoutMs: 1000, toolName: 'demo' }
+    );
+
+    await expect(tool.execute({}, context)).resolves.toEqual({ value: 1 });
+    expect(observed?.aborted).toBe(false);
   });
 
   it('leaves a tool without an execute function untouched', () => {

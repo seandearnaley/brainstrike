@@ -1,6 +1,7 @@
 import { type GuardedToolError, ToolInputError } from '@brainstrike/assistant-contract';
 import { readToolCallId } from './read-tool-call-id';
 import type { ToolExecutionDurations } from './tool-execution-durations';
+import { registerToolGuardDeadlineSignal } from './tool-guard-deadline';
 import type { ToolLogger } from './types';
 
 export type { GuardedToolError } from '@brainstrike/assistant-contract';
@@ -65,8 +66,17 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
 
   cloned.execute = async (...args: unknown[]): Promise<unknown> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Giving up on the race must also CANCEL the work, not merely stop waiting
+    // for it: a cancellable tool (the MCP client's in-flight `tools/call`)
+    // folds this signal into its own so the peer is told instead of being left
+    // holding a request the run has already abandoned (BST-1594).
+    const deadline = new AbortController();
+    const releaseDeadline = registerToolGuardDeadlineSignal(args, deadline.signal);
     const timeout = new Promise<GuardedToolError>((resolve) => {
       timer = setTimeout(() => {
+        // Abort BEFORE resolving so cancellation is ordered ahead of the
+        // model-facing answer rather than racing it.
+        deadline.abort(new Error(`Tool "${toolName}" exceeded its ${timeoutMs}ms execution guard`));
         logger?.error('Tool execution timed out', { timeoutMs, toolName });
         resolve({
           error: {
@@ -122,6 +132,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       if (timer) {
         clearTimeout(timer);
       }
+      releaseDeadline();
       // Recorded for a timeout and a throw as well as a success: the terminal
       // run event those produce still needs an honest number, and "how long did
       // it run before failing" is exactly what a reader wants there.

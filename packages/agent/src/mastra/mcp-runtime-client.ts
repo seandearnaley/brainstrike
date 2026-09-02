@@ -17,6 +17,7 @@ import type {
 } from '../mcp/explicit-http-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
+import { readToolGuardDeadlineSignal } from '../tools/tool-guard-deadline';
 import type { StreamChunk } from '../types';
 import {
   createMcpAppToolResult,
@@ -428,6 +429,16 @@ async function executeMcpTool(
 
   let result: ExplicitHttpMcpCallToolResult;
   const requestMeta = readToolCallMeta(context);
+  // The tool guard's deadline is folded in HERE rather than replacing
+  // `context.abortSignal`: the execution signal's identity carries meaning
+  // (`retainRawMcpCallToolResult`), and the host request is the thing that has
+  // to stop when the guard gives up. Without it the SDK's
+  // `resetTimeoutOnProgress` lets a progress-emitting server hold the request
+  // for the full `maxTotalTimeout` after the run walked away (BST-1594).
+  const callSignal = mergeCallToolSignals(
+    context?.abortSignal,
+    readToolGuardDeadlineSignal(context)
+  );
   try {
     result = await client.callTool(
       {
@@ -436,7 +447,7 @@ async function executeMcpTool(
         ...(requestMeta ? { _meta: requestMeta } : {}),
       },
       {
-        ...(context?.abortSignal ? { signal: context.abortSignal } : {}),
+        ...(callSignal ? { signal: callSignal } : {}),
         ...(onprogress ? { onprogress } : {}),
       }
     );
@@ -488,6 +499,16 @@ async function executeMcpTool(
     ordinaryResult = result.structuredContent;
   }
   return createMcpAppToolResult(appOrigin, ordinaryResult);
+}
+
+function mergeCallToolSignals(
+  executionSignal: AbortSignal | undefined,
+  guardDeadline: AbortSignal | undefined
+): AbortSignal | undefined {
+  if (!guardDeadline) {
+    return executionSignal;
+  }
+  return executionSignal ? AbortSignal.any([executionSignal, guardDeadline]) : guardDeadline;
 }
 
 function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {
