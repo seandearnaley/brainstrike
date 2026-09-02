@@ -2,6 +2,7 @@ import {
   MCP_TASKS_EXTENSION_ID as TEST_EXTENSION_ID,
   MCP_TASKS_EXTENSION_SETTINGS as TEST_EXTENSION_SETTINGS,
 } from '@brainstrike/mcp-tasks-extension';
+import type { AuthProvider } from '@modelcontextprotocol/client';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { afterEach, expect, it } from 'vitest';
 import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
@@ -170,6 +171,90 @@ it('sends the exact Tasks method on the modern wire with Mcp-Name', async () => 
   expect(JSON.stringify(requests.map(({ body }) => body))).not.toContain(
     'io.brainstrike/registered-extension/'
   );
+});
+
+it('leaves core legacy traffic and its 401 re-auth retry untouched with Tasks registered', async () => {
+  const extension = createTasksExtension();
+  const observed: Array<{ authorization: string | null; method: string; wire: string | null }> = [];
+  let token = 'expired-token';
+  let unauthorizedCalls = 0;
+  const authProvider: AuthProvider = {
+    async onUnauthorized() {
+      unauthorizedCalls += 1;
+      token = 'current-token';
+    },
+    async token() {
+      return token;
+    },
+  };
+  const client = new ExplicitHttpMcpClient({
+    authProvider,
+    extensionRegistry: extension.registry,
+    fetch: async (input, init) => {
+      const request = new Request(input, init);
+      const wire = request.headers.get('mcp-method');
+      const authorization = request.headers.get('authorization');
+      if (request.method !== 'POST') {
+        observed.push({ authorization, method: request.method, wire });
+        return new Response(null, { status: request.method === 'GET' ? 405 : 200 });
+      }
+      const body = (await request.json()) as { id?: number; method: string };
+      observed.push({ authorization, method: body.method, wire });
+      if (authorization !== 'Bearer current-token') {
+        return new Response(null, {
+          headers: {
+            'www-authenticate': 'Bearer resource_metadata="http://127.0.0.1/oauth-resource"',
+          },
+          status: 401,
+        });
+      }
+      if (body.method === 'initialize') {
+        return Response.json(
+          {
+            id: body.id,
+            jsonrpc: '2.0',
+            result: {
+              capabilities: { tools: {} },
+              protocolVersion: '2025-11-25',
+              serverInfo: { name: 'legacy-core-server', version: '1.0.0' },
+            },
+          },
+          { headers: { 'mcp-session-id': 'session-1' } }
+        );
+      }
+      if (body.method === 'tools/call') {
+        return Response.json({
+          id: body.id,
+          jsonrpc: '2.0',
+          result: { content: [{ text: 'ok', type: 'text' }] },
+        });
+      }
+      return new Response(null, { status: 202 });
+    },
+    name: 'registered-legacy-core-canary',
+    protocol: 'legacy',
+    transport: 'streamable-http',
+    url: 'http://mcp-legacy.invalid/mcp',
+  });
+  cleanupTasks.push(() => client.close());
+  extension.register();
+
+  await client.connect();
+  expect(unauthorizedCalls).toBe(1);
+  await expect(client.callTool({ arguments: {}, name: 'write' })).resolves.toMatchObject({
+    content: [{ text: 'ok', type: 'text' }],
+  });
+  await client.close();
+
+  expect(observed.map(({ method }) => method)).toEqual([
+    'initialize',
+    'initialize',
+    'notifications/initialized',
+    'GET',
+    'tools/call',
+    'DELETE',
+  ]);
+  expect(observed.every(({ wire }) => wire === null)).toBe(true);
 });
 
 it('rejects registered extension dispatch over SSE before opening a transport', async () => {

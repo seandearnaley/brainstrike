@@ -646,6 +646,10 @@ describe('agent-stream-init runtime composition and memory', () => {
         // BST-1352: the resolved auth input rides the stream OPTIONS.
         authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         mcpHost: expect.any(Object),
+        // BST-1566: the process-local task host rides the stream options
+        // beside mcpHost; it opens the database only once a Tasks-capable
+        // server connects, which is why getDatabase stays at 3 calls above.
+        mcpTaskTracking: expect.any(Object),
         memory: mockPgliteMastraMemory,
         storage: mockPgliteMastraStorage,
       }

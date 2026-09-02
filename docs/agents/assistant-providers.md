@@ -1980,6 +1980,19 @@ start, follows the SDK's current handler across reassignment, and fails visibly
 if a message arrives before the SDK handler exists. This is not an arbitrary
 custom-method escape hatch and does not patch the SDK dependency.
 
+The HTTP header bridge (`applyRegisteredExtensionHttpHeaders`) acts only on
+registered-extension requests and passes every other request through untouched:
+bodiless GET/DELETE, legacy-era core traffic without `Mcp-Method`, and the
+SDK's 401/403 re-auth re-sends of core requests. An exclusive extension wire
+method (`tasks/get`, `tasks/update`, `tasks/cancel`) is registered by shape
+alone. `tools/call` is the one wire method the registry shares with core (the
+Tasks result augmentation), so a `tools/call` counts as registered only while
+its request id sits in the client's dispatch ledger, which the transport `send`
+wrapper fills exactly when it rewrote the internal method (BST-1566 enablement
+regression: every desktop stdio/streamable-http connection now carries a
+registry, and a core legacy `tools/call` was rejected as a header mismatch). A
+malformed or header-disagreeing REGISTERED request still throws.
+
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
 | MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Registered (BST-1572): the default desktop registry, dedicated Electron sandbox startup, generation-fenced resource reader, validated frame bridge, thread-keyed ordinary admission authority (live run, then run-detached host-port execution), and visible-UI IPC consent path form one complete host | Yes (stdio, streamable-http); sse: not registered |

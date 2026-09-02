@@ -568,6 +568,15 @@ export class McpClientExtensionRegistry {
     return this.requestsByWireMethod.has(method);
   }
 
+  /**
+   * True when a registered wire method is also a core MCP method (only the
+   * `tools/call` result augmentation may be), so the wire shape alone cannot
+   * prove that a request came through registered dispatch.
+   */
+  sharesCoreWireMethod(method: string): boolean {
+    return this.hasWireRequestMethod(method) && RESERVED_METHOD_NAMESPACE.test(method);
+  }
+
   toClientExtensionCapabilities(): McpClientExtensionCapabilities | undefined {
     this.ensureSealed();
     return this.sealedCapabilities;
