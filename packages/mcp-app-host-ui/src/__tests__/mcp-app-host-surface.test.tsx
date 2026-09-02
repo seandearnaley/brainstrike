@@ -103,6 +103,45 @@ describe('MCP Apps host surface', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Linear issue editor completed.');
   });
 
+  it('keeps focus on Deny across unrelated authority publishes', async () => {
+    const user = userEvent.setup();
+    const { authority } = createAuthority();
+    render(
+      <McpAppHostSurface
+        appName="Linear issue editor"
+        authority={authority}
+        state={{ phase: 'ready' }}
+      >
+        <div data-testid="sandboxed-app-slot" />
+      </McpAppHostSurface>
+    );
+    await act(async () => {
+      void authority
+        .call({ arguments: {}, id: 'first-call', name: 'create_issue' })
+        .catch(() => undefined);
+      await Promise.resolve();
+    });
+    await screen.findByRole('alertdialog');
+    const denyButton = screen.getByRole('button', { name: 'Deny create_issue' });
+    await user.tab({ shift: true });
+    denyButton.focus();
+    expect(denyButton).toHaveFocus();
+
+    // A second concurrent call queues another approval and publishes a new
+    // snapshot; the open dialog's focus must not move.
+    await act(async () => {
+      void authority
+        .call({ arguments: {}, id: 'second-call', name: 'create_issue' })
+        .catch(() => undefined);
+      await Promise.resolve();
+    });
+    await screen.findByText(/1 more request/u);
+    expect(denyButton).toHaveFocus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(screen.getByRole('alertdialog')).toBeInTheDocument());
+    await authority.close();
+  });
+
   it('focuses explicit consent, exposes no arguments, and restores focus after allow or deny', async () => {
     const user = userEvent.setup();
     const recoveryRef = createRef<HTMLButtonElement>();

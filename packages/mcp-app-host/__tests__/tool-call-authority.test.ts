@@ -218,6 +218,33 @@ describe('MCP Apps ordinary tool-call authority', () => {
     });
   });
 
+  it('stays quiescent when the generation is torn down mid-call', async () => {
+    const { generation, provenance } = setup();
+    const onDiagnostic = vi.fn();
+    const gate = Promise.withResolvers<McpAppPreparedToolCall>();
+    const authority = new McpAppToolCallAuthority({
+      generation,
+      onDiagnostic,
+      prepare: vi.fn(async () => await gate.promise),
+      provenance,
+      release: releasePreparation,
+    });
+    const call = authority.call({ arguments: {}, id: 'call-torn', name: 'create_issue' });
+    await Promise.resolve();
+    // The app's server generation goes away while the call is in flight.
+    provenance.retireGeneration(generation);
+    gate.reject(new Error('preparation failed after teardown'));
+
+    // The original failure surfaces (a cancel error never replaces it), and
+    // cleanup still ran: nothing pending, close() resolves.
+    await expect(call).rejects.toThrow(/preparation failed after teardown/u);
+    expect(onDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'preparation failed after teardown' })
+    );
+    expect(authority.snapshot).toMatchObject({ pendingCalls: 0 });
+    await expect(authority.close()).resolves.toMatchObject({ pendingCalls: 0, phase: 'closed' });
+  });
+
   it('refuses unowned and model-only tools before policy preparation', async () => {
     const { generation, provenance } = setup();
     provenance.registerTool(generation, {

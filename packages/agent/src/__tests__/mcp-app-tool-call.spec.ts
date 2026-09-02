@@ -6,6 +6,7 @@ import {
   createMcpAppOrdinaryToolCallPreparer,
   createMcpAppToolAdmissionCapability,
   type McpAppToolAdmissionCapability,
+  McpAppToolNotAdmittedError,
 } from '../mastra/mcp-app-tool-call';
 import type { PermissionToolGateSnapshot } from '../mastra/permission-tool-gate';
 import { composeRuntimeToolMap } from '../mastra/runtime-assembly/tool-pipeline';
@@ -211,6 +212,50 @@ describe('MCP Apps ordinary runtime adapter', () => {
     ).resolves.toEqual({ content: [{ text: 'linear', type: 'text' }] });
     expect(linearExecute).toHaveBeenCalledOnce();
     expect(githubExecute).not.toHaveBeenCalled();
+  });
+
+  it('records inadmissible tools visibly instead of aborting runtime assembly', () => {
+    const execute = vi.fn(async () => ({ content: [] }));
+    const admission = createMcpAppToolAdmissionCapability({
+      askTools: new Map(),
+      toolNameMap: new Map([
+        ['linear_create_issue', 'linear.create_issue'],
+        ['linear_dup', 'linear.create_issue'],
+        ['github_wrong', 'linear.wrong_server'],
+      ]),
+      tools: {
+        github_wrong: { execute, mcpMetadata: { serverName: 'github' } },
+        linear_create_issue: { execute, mcpMetadata: { serverName: 'linear' } },
+        linear_dup: { execute, mcpMetadata: { serverName: 'linear' } },
+        malformed: { execute, mcpMetadata: 'not-an-object' },
+        unmapped: { execute, mcpMetadata: { serverName: 'linear' } },
+      } as unknown as ToolsInput,
+    });
+
+    expect(admission.inadmissibleTools).toEqual([
+      expect.objectContaining({
+        reason: expect.stringMatching(/does not belong/u),
+        toolId: 'github_wrong',
+      }),
+      expect.objectContaining({
+        reason: expect.stringMatching(/duplicated/u),
+        toolId: 'linear_dup',
+      }),
+      expect.objectContaining({
+        reason: expect.stringMatching(/must be an object/u),
+        toolId: 'malformed',
+      }),
+      expect.objectContaining({
+        reason: expect.stringMatching(/no namespaced name/u),
+        toolId: 'unmapped',
+      }),
+    ]);
+    // A duplicated identity is admissible to neither entry; a call for it is
+    // refused with the recorded reason rather than routed ambiguously.
+    expect(() => admission.admit(appCall('linear', 'create_issue'))).toThrow(/duplicated/u);
+    expect(() => admission.admit(appCall('linear', 'wrong_server'))).toThrow(
+      McpAppToolNotAdmittedError
+    );
   });
 
   it('keeps dotted server and tool identities distinct instead of concatenating them', async () => {

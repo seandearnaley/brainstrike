@@ -140,6 +140,17 @@ export function McpAppHostSurface({
   const getSnapshot = useCallback(() => authority.snapshot, [authority]);
   const authoritySnapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const approval = authoritySnapshot.pendingApprovals[0];
+  const approvalId = approval?.id;
+  // Focus "Allow once" only when a different approval takes over, never on
+  // the unrelated re-renders every authority publish causes: yanking focus
+  // from Deny to Allow mid-decision would be a consent-integrity bug.
+  const focusApproval = useCallback(
+    (node: HTMLButtonElement | null): void => {
+      node?.focus();
+    },
+    // biome-ignore lint/correctness/useExhaustiveDependencies: refocus only when a different approval takes over
+    [approvalId]
+  );
   const [actionErrorId, setActionErrorId] = useState<string | undefined>(undefined);
 
   const approve = (): void => {
@@ -252,7 +263,7 @@ export function McpAppHostSurface({
                 aria-label={`Allow ${approval.toolName} once`}
                 onClick={approve}
                 onKeyDown={handleConsentKeyDown}
-                ref={(node) => node?.focus()}
+                ref={focusApproval}
               >
                 Allow once
               </Button>

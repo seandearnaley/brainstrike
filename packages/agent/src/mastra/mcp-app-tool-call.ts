@@ -19,8 +19,19 @@ interface McpAppBoundOrdinaryExecutor {
   readonly riskCategory: ToolRiskCategory;
 }
 
+export interface McpAppInadmissibleTool {
+  readonly reason: string;
+  readonly toolId: string;
+}
+
 export interface McpAppToolAdmissionCapability {
   readonly admit: (call: McpAppToolCall) => McpAppBoundOrdinaryExecutor;
+  /**
+   * Tools the ordinary runtime holds but Apps cannot call, with the reason.
+   * Admission problems are recorded here and refused at `admit` time instead
+   * of aborting every agent runtime assembly for a feature that is dormant.
+   */
+  readonly inadmissibleTools: readonly McpAppInadmissibleTool[];
 }
 
 export interface McpAppToolCallTelemetry {
@@ -45,8 +56,10 @@ interface CreateMcpAppToolAdmissionCapabilityOptions {
 export class McpAppToolNotAdmittedError extends Error {
   readonly code = 'mcp_app_tool_not_admitted';
 
-  constructor(toolName: string) {
-    super(`MCP Apps tool ${toolName} is not admitted by the ordinary runtime`);
+  constructor(toolName: string, reason?: string) {
+    super(
+      `MCP Apps tool ${toolName} is not admitted by the ordinary runtime${reason === undefined ? '' : `: ${reason}`}`
+    );
     this.name = 'McpAppToolNotAdmittedError';
   }
 }
@@ -73,19 +86,27 @@ function isMcpCallToolErrorResult(value: unknown): boolean {
   );
 }
 
-function readMcpServerName(tool: ExecutableTool): string | undefined {
+type ServerNameReading =
+  | Readonly<{ kind: 'absent' }>
+  | Readonly<{ kind: 'invalid'; reason: string }>
+  | Readonly<{ kind: 'server'; serverName: string }>;
+
+function readMcpServerName(tool: ExecutableTool): ServerNameReading {
   const metadata = tool.mcpMetadata;
   if (metadata === undefined) {
-    return;
+    return { kind: 'absent' };
   }
   if (!(metadata && typeof metadata === 'object' && !Array.isArray(metadata))) {
-    throw new TypeError('MCP tool execution metadata must be an object');
+    return { kind: 'invalid', reason: 'MCP tool execution metadata must be an object' };
   }
   const serverName = (metadata as { serverName?: unknown }).serverName;
   if (typeof serverName !== 'string' || serverName.length === 0) {
-    throw new TypeError('MCP tool execution metadata requires a non-empty serverName');
+    return {
+      kind: 'invalid',
+      reason: 'MCP tool execution metadata requires a non-empty serverName',
+    };
   }
-  return serverName;
+  return { kind: 'server', serverName };
 }
 
 /**
@@ -110,28 +131,57 @@ export function createMcpAppToolAdmissionCapability(
       }>
     >
   >();
+  const inadmissible: McpAppInadmissibleTool[] = [];
+  const inadmissibleByIdentity = new Map<string, string>();
   for (const [sanitizedId, tool] of Object.entries(options.tools)) {
     if (!isExecutableTool(tool)) {
       continue;
     }
-    const serverId = readMcpServerName(tool);
-    if (serverId === undefined) {
+    const reading = readMcpServerName(tool);
+    if (reading.kind === 'absent') {
       continue;
     }
-    const originalName = options.toolNameMap.get(sanitizedId) ?? sanitizedId;
+    if (reading.kind === 'invalid') {
+      inadmissible.push({ reason: reading.reason, toolId: sanitizedId });
+      continue;
+    }
+    const serverId = reading.serverName;
+    const originalName = options.toolNameMap.get(sanitizedId);
     const namespacePrefix = `${serverId}.`;
+    if (originalName === undefined) {
+      inadmissible.push({
+        reason: `tool ${sanitizedId} has no namespaced name in the runtime tool map`,
+        toolId: sanitizedId,
+      });
+      continue;
+    }
     if (
       !(originalName.startsWith(namespacePrefix) && originalName.length > namespacePrefix.length)
     ) {
-      throw new TypeError(
-        `MCP tool ${originalName} does not belong to execution server ${serverId}`
-      );
+      inadmissible.push({
+        reason: `tool ${originalName} does not belong to execution server ${serverId}`,
+        toolId: sanitizedId,
+      });
+      continue;
     }
     const toolName = originalName.slice(namespacePrefix.length);
     const ask = options.askTools.get(sanitizedId);
     const serverTools = admittedByServer.get(serverId) ?? new Map();
     if (serverTools.has(toolName)) {
-      throw new TypeError(`MCP Apps tool identity ${serverId}/${toolName} is duplicated`);
+      // Ambiguous identity: neither entry is admissible to Apps.
+      const reason = `MCP Apps tool identity ${serverId}/${toolName} is duplicated`;
+      serverTools.delete(toolName);
+      inadmissibleByIdentity.set(`${serverId}/${toolName}`, reason);
+      inadmissible.push({ reason, toolId: sanitizedId });
+      admittedByServer.set(serverId, serverTools);
+      continue;
+    }
+    if (inadmissibleByIdentity.has(`${serverId}/${toolName}`)) {
+      inadmissible.push({
+        reason: inadmissibleByIdentity.get(`${serverId}/${toolName}`) ?? 'duplicated',
+        toolId: sanitizedId,
+      });
+      continue;
     }
     serverTools.set(
       toolName,
@@ -155,7 +205,10 @@ export function createMcpAppToolAdmissionCapability(
       const originalName = `${call.serverId}.${call.toolName}`;
       const admission = admittedByServer.get(call.serverId)?.get(call.toolName);
       if (!admission) {
-        throw new McpAppToolNotAdmittedError(originalName);
+        throw new McpAppToolNotAdmittedError(
+          originalName,
+          inadmissibleByIdentity.get(`${call.serverId}/${call.toolName}`)
+        );
       }
       invocationSequence += 1;
       const toolCallId = `mcp-app-${invocationSequence}`;
@@ -179,6 +232,7 @@ export function createMcpAppToolAdmissionCapability(
         riskCategory: admission.riskCategory,
       });
     },
+    inadmissibleTools: Object.freeze(inadmissible),
   });
 }
 

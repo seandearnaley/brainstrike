@@ -255,7 +255,13 @@ export class McpAppToolCallAuthority {
       throw failure;
     } finally {
       if (!completed) {
-        this.#provenance.cancelToolCall(this.#generation, call);
+        // cancelToolCall throws when the generation was torn down mid-call;
+        // that must not skip the cleanup below or replace the real failure.
+        try {
+          this.#provenance.cancelToolCall(this.#generation, call);
+        } catch (cancelError: unknown) {
+          this.#onDiagnostic(toError(cancelError, 'MCP Apps tool call cancellation failed'));
+        }
       }
       this.#ownedCalls.delete(owned);
       this.#publish();
