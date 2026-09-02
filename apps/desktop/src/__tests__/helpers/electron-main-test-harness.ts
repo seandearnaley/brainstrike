@@ -110,6 +110,9 @@ const electronMainMockSurface = {
   session: {
     ...electronTestStub.session,
     defaultSession: {
+      on: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
       webRequest: { onHeadersReceived: vi.fn() },
     },
     fromPartition: vi.fn(() => ({

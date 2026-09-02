@@ -2,6 +2,7 @@ import { createLogger } from '@brainstrike/logging';
 import { app, session } from 'electron';
 import { CANVAS_PROTOCOL_SCHEME } from './canvas-protocol';
 import { getCSP } from './csp-utils';
+import { installMcpAppSessionPolicy } from './mcp/apps-session-policy';
 import { MCP_APP_SHELL_PROTOCOL_SCHEME } from './mcp/apps-shell-protocol';
 
 const logger = createLogger('DesktopSecurity');
@@ -53,6 +54,13 @@ export function setupSecurity() {
       });
     }
   );
+
+  // The main window (and every other window on the default session) also gets
+  // the MCP App sandbox permission/download policy — the header stamp above
+  // deliberately skips the shell scheme, so the shell's own Permissions-Policy
+  // is all the frame carries and features outside Permissions-Policy (e.g.
+  // notifications) would otherwise reach Electron's grant-everything default.
+  installMcpAppSessionPolicy(session.defaultSession);
 
   logger.info('CSP configured', { mode, policy: csp });
 }

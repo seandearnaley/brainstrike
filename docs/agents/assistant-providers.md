@@ -2392,10 +2392,28 @@ of its shells) and `releaseShell` is immediate. The renderer reaches the app
 frame as the cross-origin shell's first child window (`frame.contentWindow[0]`);
 the shell document is unreachable. `will-frame-navigate`
 (`apps-frame-navigation.ts`, wired in `create-window.ts`) denies the shell any
-navigation and the app frame anything but `about:srcdoc`. NOT covered (known
-limitation, follow-up): no session-level permission-request or `will-download`
-handler is scoped to the app frame — `allow` + the `Permissions-Policy` header
-are the only permission denial, and downloads rely on the sandbox flags.
+navigation and the app frame anything but `about:srcdoc`.
+
+**Session policy (BST-1599).** `allow` + `Permissions-Policy` only govern
+Permissions-Policy features; `notifications` is not one, and with no session
+handler Electron 43 GRANTS it to the opaque app document by default.
+`installMcpAppSessionPolicy` (`apps/desktop/src/mcp/apps-session-policy.ts`,
+wired from `setup-security.ts` onto `session.defaultSession`) denies every
+permission request AND check whose `details.requestingUrl` is a
+`brainstrike-mcp-app://` shell, or is `about:srcdoc` while the requesting
+WebContents hosts an `about:srcdoc` frame parented by such a shell (Electron
+exposes no frame handle and no usable origin for the opaque app document, so
+the srcdoc arm resolves the parent from the frame tree and is fail-closed —
+it can only over-deny another opaque sandbox, never the host renderer, whose
+frames are never `about:srcdoc`). `will-download` cancels any download whose
+URL chain carries a shell origin (`brainstrike-mcp-app://…` or the
+`blob:brainstrike-mcp-app://…` a shell frame minted); the app document itself
+cannot reach `will-download` because its sandbox is exactly `allow-scripts`.
+Every other requester keeps Electron's default outcome, so the host renderer,
+the hidden renderer hosts, and the browser pane's own partition
+(`browser/browser-session.ts`) are unchanged. Pinned by
+`src/__tests__/main/mcp-apps-session-policy.test.ts` and a live probe in
+`test:e2e:lane:packaged-mcp-apps`.
 
 `McpDesktopAppHost` owns ordinary admission in main, keyed by the OWNING
 THREAD. `assistant-server.ts` registers each runtime's `mcpAppToolAdmission`

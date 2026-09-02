@@ -62,9 +62,32 @@ interface FrameFenceProbe {
   readonly shellDocumentReachable: boolean;
 }
 
+/** One `will-download` the main process saw while the probe ran. */
+interface RecordedDownload {
+  /** True when the session policy already cancelled it before the recorder ran. */
+  readonly defaultPrevented: boolean;
+  readonly url: string;
+}
+
+/**
+ * What the main window's session policy did to the mounted MCP App sandbox
+ * (BST-1599). `notifications` is deliberate: it is NOT a Permissions-Policy
+ * feature, so the app frame's `allow` attribute and the shell's
+ * `Permissions-Policy` header cannot touch it — without a session handler
+ * Electron's default GRANTS it to the opaque app document.
+ */
+interface SandboxSessionPolicyProbe {
+  readonly appPermission: string;
+  readonly downloads: readonly RecordedDownload[];
+  readonly hostPermission: string;
+  readonly shellPermission: string;
+}
+
 interface PackagedHarnessApplication {
   readonly browser: Browser;
   readonly child: ChildProcessWithoutNullStreams;
+  /** Evaluates an expression in the packaged MAIN process. */
+  readonly evaluateInMain: (expression: string) => Promise<unknown>;
   /** Fetches a URL from the packaged MAIN process (custom schemes included). */
   readonly fetchStatusFromMain: (url: string) => Promise<number>;
   readonly isPackaged: boolean;
@@ -376,7 +399,15 @@ async function launchPackagedHarness(
         URL.revokeObjectURL(url);
       }
     }, harnessBundle);
-    return { browser, child, fetchStatusFromMain, isPackaged: launchResult['isPackaged'], page };
+    return {
+      browser,
+      child,
+      evaluateInMain: async (expression: string) =>
+        await evaluateElectronMain(endpoints.main, expression),
+      fetchStatusFromMain,
+      isPackaged: launchResult['isPackaged'],
+      page,
+    };
   } catch (error: unknown) {
     child.kill('SIGTERM');
     await waitForProcessExit(child).catch(() => child.kill('SIGKILL'));
@@ -991,6 +1022,58 @@ function expectQuiescent(
   });
 }
 
+/**
+ * Drives the MOUNTED sandbox from the packaged main process and reports what
+ * the session policy did (BST-1599). Runs in main because Electron reports no
+ * frame for `will-download` and no origin for the opaque app document: the
+ * probe reaches each frame through `webFrameMain` and watches the real
+ * `session.defaultSession` events.
+ */
+async function probeSandboxSessionPolicy(
+  application: PackagedHarnessApplication
+): Promise<SandboxSessionPolicyProbe> {
+  const askPermission = `(typeof Notification==='undefined'?Promise.resolve('unavailable'):Notification.requestPermission().then(function(v){return v},function(e){return 'ERR:'+e.message}))`;
+  const startDownload = `(function(){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['bst-1599'],{type:'application/octet-stream'}));a.download='bst-1599.bin';document.body.append(a);a.click();return 'clicked'})()`;
+  const probe = await application.evaluateInMain(`(async()=>{
+    const requireFromMain=process.getBuiltinModule('node:module').createRequire(process.execPath);
+    const{BrowserWindow,session}=requireFromMain('electron');
+    const win=BrowserWindow.getAllWindows().find(candidate=>candidate.webContents.getURL().endsWith(${JSON.stringify(RENDERER_PAGE_SUFFIX)}));
+    if(!win)throw new Error('BST-1599 main window is unavailable');
+    const frames=win.webContents.mainFrame.framesInSubtree;
+    const shell=frames.find(frame=>frame.url.startsWith('brainstrike-mcp-app://'));
+    const appFrame=frames.find(frame=>frame.url==='about:srcdoc'&&frame.parent&&frame.parent.url.startsWith('brainstrike-mcp-app://'));
+    if(!(shell&&appFrame))throw new Error('BST-1599 MCP App sandbox frames are not mounted');
+    const downloads=[];
+    const record=(event,item)=>{
+      downloads.push({defaultPrevented:event.defaultPrevented,url:item.getURL()});
+      if(!event.defaultPrevented)event.preventDefault();
+    };
+    session.defaultSession.on('will-download',record);
+    try{
+      const appPermission=await appFrame.executeJavaScript(${JSON.stringify(askPermission)},true);
+      const shellPermission=await shell.executeJavaScript(${JSON.stringify(askPermission)},true);
+      const hostPermission=await win.webContents.mainFrame.executeJavaScript(${JSON.stringify(askPermission)},true);
+      await appFrame.executeJavaScript(${JSON.stringify(startDownload)},true);
+      await shell.executeJavaScript(${JSON.stringify(startDownload)},true);
+      await win.webContents.mainFrame.executeJavaScript(${JSON.stringify(startDownload)},true);
+      await new Promise(resolve=>setTimeout(resolve,2000));
+      return{appPermission,downloads,hostPermission,shellPermission};
+    }finally{
+      session.defaultSession.off('will-download',record);
+    }
+  })()`);
+  if (
+    !isRecord(probe) ||
+    typeof probe['appPermission'] !== 'string' ||
+    typeof probe['hostPermission'] !== 'string' ||
+    typeof probe['shellPermission'] !== 'string' ||
+    !Array.isArray(probe['downloads'])
+  ) {
+    throw new Error(`BST-1599 sandbox session policy probe is malformed: ${JSON.stringify(probe)}`);
+  }
+  return probe as unknown as SandboxSessionPolicyProbe;
+}
+
 async function expectServerIdle(server: LoopbackToolServer): Promise<void> {
   await expect
     .poll(() => {
@@ -1051,6 +1134,34 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
       roundTrip: { released: true },
       shellDocumentReachable: false,
     });
+
+    // The mounted sandbox shares the main window's session, so the boundary
+    // needs a session-level policy too (BST-1599). `notifications` proves it:
+    // it is outside Permissions-Policy, so neither the app frame's `allow`
+    // attribute nor the shell's header can decline it.
+    const sessionPolicy = await probeSandboxSessionPolicy(packagedApplication);
+    expect(sessionPolicy.appPermission).toBe('denied');
+    expect(sessionPolicy.shellPermission).toBe('denied');
+    // …and the host renderer keeps Electron's default outcome.
+    expect(sessionPolicy.hostPermission).toBe('granted');
+    // The app document cannot even reach `will-download`: its sandbox is
+    // exactly `allow-scripts`. The shell frame's download DOES reach the
+    // session and the policy cancels it, while the host renderer's does not.
+    expect(
+      sessionPolicy.downloads.filter((download) =>
+        download.url.startsWith('blob:brainstrike-mcp-app://')
+      )
+    ).toEqual([
+      {
+        defaultPrevented: true,
+        url: expect.stringMatching(/^blob:brainstrike-mcp-app:\/\/[0-9a-f]{32}\//u),
+      },
+    ]);
+    expect(
+      sessionPolicy.downloads.filter(
+        (download) => !download.url.startsWith('blob:brainstrike-mcp-app://')
+      )
+    ).toEqual([{ defaultPrevented: false, url: expect.stringMatching(/^blob:file:\/\/\//u) }]);
 
     const completionBefore = toolServer.snapshot();
     await beginCall(page, 'completion');

@@ -101,7 +101,14 @@ vi.mock('electron', async () => {
     },
     protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
     screen,
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    session: {
+      defaultSession: {
+        on: vi.fn(),
+        setPermissionCheckHandler: vi.fn(),
+        setPermissionRequestHandler: vi.fn(),
+        webRequest: { onHeadersReceived: vi.fn() },
+      },
+    },
     shell: {
       showItemInFolder: vi.fn(),
     },

@@ -381,15 +381,38 @@ session-level policy can ever observe an app frame.
   every frame and `will-navigate` guards the main frame; `will-frame-navigate`
   (`apps-frame-navigation.ts`) denies the shell frame any navigation and the
   app frame anything but its own `about:srcdoc` load.
-- **Known limitation (not covered).** The app frame runs in the main window's
-  default session, so there is NO session-level permission-request /
-  permission-check handler and NO `will-download` handler scoped to the app
-  frame: permission prompts are declined only by the frame's `allow`
-  attribute + the shell's `Permissions-Policy` header, and a download the
-  sandbox flags do not already block would reach the host session's default
-  handling. Follow-up: a main-window `session.setPermissionRequestHandler` /
-  `will-download` policy keyed on the requesting frame's origin
-  (`brainstrike-mcp-app:` shells and their `about:srcdoc` children).
+- **Session policy (BST-1599).** The app frame runs in the main window's
+  session, so the `allow` attribute and the shell's `Permissions-Policy`
+  header cannot be the whole story: they only govern Permissions-Policy
+  features. `notifications` is not one, and with no session handler installed
+  Electron's default GRANTS every permission request — measured on the pinned
+  Electron 43, `Notification.requestPermission()` from the opaque app document
+  resolved `granted`. `installMcpAppSessionPolicy`
+  (`src/mcp/apps-session-policy.ts`, wired from `setup-security.ts` onto
+  `session.defaultSession`) closes that:
+  - `setPermissionRequestHandler` / `setPermissionCheckHandler` DENY every
+    permission whose `details.requestingUrl` is a `brainstrike-mcp-app://`
+    shell, or is `about:srcdoc` while the requesting WebContents hosts an
+    `about:srcdoc` frame whose parent is such a shell. Electron reports no
+    frame handle and no usable origin for the opaque app document
+    (`requestingOrigin` is empty; `embeddingOrigin` is the TOP frame's), so
+    the srcdoc arm is resolved from the frame tree and is deliberately
+    fail-closed. It can only ever over-deny another opaque sandbox in the same
+    window (Canvas); the host renderer's frames are never `about:srcdoc` and
+    never carry the shell scheme, and nothing is denied at all while no shell
+    is mounted. Every other requester keeps Electron's default outcome, so the
+    host renderer and the hidden renderer hosts are unchanged; the browser
+    pane has its own partition and its own deny-by-default handlers.
+  - `will-download` cancels any download whose URL chain carries a shell
+    origin — `brainstrike-mcp-app://…` or the `blob:brainstrike-mcp-app://…`
+    a shell frame minted. Electron reports no frame for a download, and a blob
+    URL is the only carrier of the initiating origin; the packaged host
+    renderer's own blobs are `blob:file:///…` and are untouched. The app
+    document cannot reach `will-download` at all — its sandbox is exactly
+    `allow-scripts`, and without `allow-downloads` Chromium blocks the
+    download first (measured, and asserted by the packaged lane).
+  Pinned by `src/__tests__/main/mcp-apps-session-policy.test.ts` and by the
+  packaged lane's live probe (see below).
 - App-originated calls use strict prepare/execute/release messages over the
   visible-UI-only `mcp:apps:*` IPC domain. Every prepare names the persisted
   thread that owns the app's tool result; main resolves only THAT thread's
@@ -415,7 +438,9 @@ session-level policy can ever observe an app frame.
 - The packaged proof (`test:e2e:lane:packaged-mcp-apps`) mounts an app inside
   the REAL main window — production preload, default session, header CSP — and
   asserts that a `blob:` frame is blocked, the served shell loads and
-  handshakes, the frame fence holds, and the shell URL is 404 after release.
+  handshakes, the frame fence holds, the shell URL is 404 after release, and
+  that a permission request from the app frame and a download from the shell
+  frame are both denied while the host renderer's are not.
 
 ## Development vs Production
 

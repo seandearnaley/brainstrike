@@ -4,6 +4,9 @@ import { DESKTOP_DEV_RENDERER_URL } from '../../desktop-renderer-url';
 const onHeadersReceivedMock = vi.fn();
 const mockSession = {
   defaultSession: {
+    on: vi.fn(),
+    setPermissionCheckHandler: vi.fn(),
+    setPermissionRequestHandler: vi.fn(),
     webRequest: {
       onHeadersReceived: onHeadersReceivedMock,
     },
