@@ -10,7 +10,9 @@ import type { McpClientExtensionRequestContract } from './client-extension-regis
 import { MCP_TASKS_GET_REQUEST_CONTRACT } from './tasks-extension';
 import {
   assertMcpTaskTimingProgress,
+  createMcpTaskHandleUpdate,
   createMcpTaskUpdate,
+  hasPendingMcpTaskDetail,
   type McpTaskTiming,
   readMcpTaskTiming,
   readStoredMcpTaskTiming,
@@ -205,10 +207,15 @@ export class McpTaskLifecycle {
 
   async track(task: CreateTaskResult, signal?: AbortSignal): Promise<McpTrackedTask> {
     this.requireOpen(signal);
+    // Sole-authority guard BEFORE the durable write: a second track() of the
+    // same handle must be a clean rejection, not a persisted row plus a throw.
+    if (this.active.has(task.taskId)) {
+      throw new Error(`MCP task "${task.taskId}" is already tracked by this lifecycle.`);
+    }
     const timing = readMcpTaskTiming(task);
     const identity = this.identity(task.taskId);
     const record = await this.repository.create(
-      { ...identity, ...createMcpTaskUpdate(task) },
+      { ...identity, ...createMcpTaskHandleUpdate(task) },
       this.writeFence()
     );
     this.requireOpen(signal);
@@ -223,17 +230,38 @@ export class McpTaskLifecycle {
       record,
       timing: readStoredMcpTaskTiming(record),
     }));
-    return resumable.map(({ record, timing }) => this.start(record, timing, signal));
+    // All or nothing: a handle that fails to start must not leave earlier
+    // handles polling with no caller holding their `settled` promise.
+    const started: McpTrackedTask[] = [];
+    try {
+      for (const { record, timing } of resumable) {
+        started.push(this.start(record, timing, signal));
+      }
+    } catch (error) {
+      for (const tracked of started) {
+        this.active.get(tracked.record.taskId)?.controller.abort(error);
+      }
+      throw error;
+    }
+    return started;
   }
 
-  wake(taskId: string): void {
+  /**
+   * Schedules an immediate poll for a tracked task. A notification for a task
+   * this lifecycle no longer (or never) owns is ordinary MCP timing — the
+   * final status notification routinely lands after the in-flight `tasks/get`
+   * already settled the task — so it is reported as `false`, not thrown.
+   * Wake carries no state into persistence; ignoring it is a no-op.
+   */
+  wake(taskId: string): boolean {
     this.requireOpen();
     const task = this.active.get(taskId);
     if (!task) {
-      throw new Error(`MCP task notification is outside the active lifecycle: "${taskId}".`);
+      return false;
     }
     task.wake.requested = true;
     task.wake.release?.();
+    return true;
   }
 
   async stop(reason: McpTaskLifecycleStopReason): Promise<void> {
@@ -282,7 +310,13 @@ export class McpTaskLifecycle {
       signals.push(callerSignal);
     }
     const signal = AbortSignal.any(signals);
-    const wake: PollWakeState = { release: undefined, requested: false };
+    // A create response that claimed a status without its detail fields was
+    // persisted as `working` with a pending-detail marker; the first poll
+    // runs at once so the detailed state is fetched before any real waiting.
+    const wake: PollWakeState = {
+      release: undefined,
+      requested: hasPendingMcpTaskDetail(record),
+    };
     const settled = this.poll(record, initialTiming, signal, wake).finally(() => {
       this.active.delete(record.taskId);
     });
@@ -324,10 +358,17 @@ export class McpTaskLifecycle {
       }
       const release = await this.acquirePollPermit(signal);
       wake.requested = false;
+      // The permit wait can outlast the deadline computed before it; a poll
+      // must not be issued, nor a late response persisted, past the lifetime.
+      const remainingAfterPermit = deadline - Date.now();
+      if (remainingAfterPermit <= 0) {
+        release();
+        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
+      }
       let result: GetTaskResult;
       try {
         try {
-          result = await this.requestTask(initialRecord.taskId, signal);
+          result = await this.requestTask(initialRecord.taskId, signal, remainingAfterPermit);
         } catch (cause) {
           consecutiveFailures += 1;
           this.assertPollRetry(initialRecord.taskId, cause, signal, consecutiveFailures);
@@ -363,12 +404,16 @@ export class McpTaskLifecycle {
     }
   }
 
-  private async requestTask(taskId: string, signal: AbortSignal): Promise<GetTaskResult> {
+  private async requestTask(
+    taskId: string,
+    signal: AbortSignal,
+    remainingLifetimeMs: number
+  ): Promise<GetTaskResult> {
     return await raceAbort(
       this.client.requestExtension(
         MCP_TASKS_GET_REQUEST_CONTRACT,
         { taskId },
-        { signal, timeout: this.limits.pollRequestTimeoutMs }
+        { signal, timeout: Math.min(this.limits.pollRequestTimeoutMs, remainingLifetimeMs) }
       ),
       signal
     );

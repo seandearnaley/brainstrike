@@ -10,6 +10,7 @@ const MCP_TASK_STATUSES = [
 ] as const;
 type McpTaskStatus = (typeof MCP_TASK_STATUSES)[number];
 const TERMINAL_STATUSES = new Set<McpTaskStatus>(['cancelled', 'completed', 'failed']);
+export const MAX_ACTIVE_MCP_TASKS_PER_SCOPE = 256;
 
 type JsonValue = boolean | null | number | string | JsonValue[] | JsonObject;
 export interface JsonObject {
@@ -299,14 +300,30 @@ export class McpTaskRepository {
     return result.rows[0] === undefined ? null : mapRow(result.rows[0]);
   }
 
-  async listActive(scope: McpTaskScope): Promise<readonly McpTaskRecord[]> {
+  /**
+   * Bounded by construction like every other query here: the row count is
+   * the number of pollers `recover()` fans out, so it is capped at
+   * {@link MAX_ACTIVE_MCP_TASKS_PER_SCOPE} in deterministic
+   * `created_at, task_id` order (the partial resume index covers the scope).
+   */
+  async listActive(
+    scope: McpTaskScope,
+    options: { readonly limit?: number } = {}
+  ): Promise<readonly McpTaskRecord[]> {
     requireScope(scope);
+    const limit = options.limit ?? MAX_ACTIVE_MCP_TASKS_PER_SCOPE;
+    if (!(Number.isSafeInteger(limit) && limit > 0 && limit <= MAX_ACTIVE_MCP_TASKS_PER_SCOPE)) {
+      throw new TypeError(
+        `MCP task listActive limit must be an integer from 1 to ${MAX_ACTIVE_MCP_TASKS_PER_SCOPE}.`
+      );
+    }
     const result = await this.db.query(
       `SELECT * FROM ${TABLE}
        WHERE server_id = $1 AND resource = $2 AND principal_id = $3
          AND generation = $4 AND terminal_at IS NULL
-       ORDER BY created_at ASC, task_id ASC`,
-      [scope.serverId, scope.resource, scope.principalId, scope.generation]
+       ORDER BY created_at ASC, task_id ASC
+       LIMIT $5`,
+      [scope.serverId, scope.resource, scope.principalId, scope.generation, limit]
     );
     return result.rows.map(mapRow);
   }

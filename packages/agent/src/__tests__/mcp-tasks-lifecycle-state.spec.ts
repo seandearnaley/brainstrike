@@ -60,3 +60,45 @@ describe('MCP task poll delay', () => {
     expect(resolveMcpTaskPollDelay(timing(), 4000, 2, LIMITS)).toBe(4000);
   });
 });
+
+describe('MCP task create-result handles', () => {
+  it('persists a detail-less terminal create result as working with a pending-detail marker', async () => {
+    // Review of #2915 (codex): CreateTaskResult extends the base task schema,
+    // so `status: "completed"` may arrive without `result`. The handle must
+    // still be persisted; the detail is fetched through tasks/get.
+    const { createMcpTaskHandleUpdate, hasPendingMcpTaskDetail } = await import(
+      '../mcp/tasks-lifecycle-state'
+    );
+    const update = createMcpTaskHandleUpdate({
+      createdAt: '2026-09-02T04:00:00.000Z',
+      lastUpdatedAt: '2026-09-02T04:00:00.000Z',
+      resultType: 'task',
+      status: 'completed',
+      taskId: 'task-1',
+      ttlMs: null,
+    } as Parameters<typeof createMcpTaskHandleUpdate>[0]);
+    expect(update.status).toBe('working');
+    expect(update.inputMetadata).toMatchObject({ detail: 'pending', remoteStatus: 'completed' });
+    expect(
+      hasPendingMcpTaskDetail({
+        inputMetadata: update.inputMetadata,
+        status: 'working',
+      } as Parameters<typeof hasPendingMcpTaskDetail>[0])
+    ).toBe(true);
+  });
+
+  it('takes the ordinary path when the create result carries its detail', async () => {
+    const { createMcpTaskHandleUpdate } = await import('../mcp/tasks-lifecycle-state');
+    const update = createMcpTaskHandleUpdate({
+      createdAt: '2026-09-02T04:00:00.000Z',
+      lastUpdatedAt: '2026-09-02T04:00:00.000Z',
+      result: { answer: 42 },
+      resultType: 'task',
+      status: 'completed',
+      taskId: 'task-1',
+      ttlMs: null,
+    } as Parameters<typeof createMcpTaskHandleUpdate>[0]);
+    expect(update.status).toBe('completed');
+    expect(update.resultMetadata).toMatchObject({ result: { answer: 42 } });
+  });
+});

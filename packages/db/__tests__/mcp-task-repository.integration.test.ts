@@ -186,6 +186,28 @@ describe('McpTaskRepository', () => {
     ).rejects.toThrow(/without a fragment/u);
   });
 
+  it('bounds listActive deterministically', async () => {
+    // Review of #2915: the row count of this query is the number of pollers
+    // recover() fans out, so it is capped like every other bound here.
+    await openNumbered();
+    const repository = new McpTaskRepository(db);
+    for (const taskId of ['a-task', 'b-task', 'c-task']) {
+      await repository.create({ ...identity, status: 'working', taskId }, currentGeneration);
+    }
+    const scope = {
+      generation: identity.generation,
+      principalId: identity.principalId,
+      resource: identity.resource,
+      serverId: identity.serverId,
+    };
+    await expect(repository.listActive(scope, { limit: 2 })).resolves.toMatchObject([
+      { taskId: 'a-task' },
+      { taskId: 'b-task' },
+    ]);
+    await expect(repository.listActive(scope)).resolves.toHaveLength(3);
+    await expect(repository.listActive(scope, { limit: 0 })).rejects.toThrow(TypeError);
+  });
+
   it('accepts empty status messages from the protocol contract', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);

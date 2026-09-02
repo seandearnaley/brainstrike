@@ -106,6 +106,38 @@ export function readStoredMcpTaskTiming(record: McpTaskRecord): McpTaskTiming {
   });
 }
 
+/**
+ * `CreateTaskResult` extends the BASE task schema, so a create response may
+ * carry `status: "completed"` (or `failed`/`input_required`) without the
+ * detail fields the status-discriminated `tasks/get` result requires. The
+ * handle is still durable and must be persisted before exposure: it is stored
+ * as `working` with the remote status and a pending-detail marker, and the
+ * lifecycle fetches the detailed state through `tasks/get` immediately.
+ * Detail-complete create results take the ordinary path.
+ */
+export function createMcpTaskHandleUpdate(task: CreateTaskResult): UpdateMcpTaskInput {
+  const missingDetail =
+    (task.status === 'completed' && !('result' in task)) ||
+    (task.status === 'failed' && !('error' in task)) ||
+    (task.status === 'input_required' && !('inputRequests' in task));
+  if (!missingDetail) {
+    return createMcpTaskUpdate(task);
+  }
+  return {
+    inputMetadata: {
+      ...timingMetadata(readMcpTaskTiming(task)),
+      detail: 'pending',
+      remoteStatus: task.status,
+    },
+    status: 'working',
+    statusMessage: task.statusMessage ?? null,
+  };
+}
+
+export function hasPendingMcpTaskDetail(record: McpTaskRecord): boolean {
+  return record.status === 'working' && record.inputMetadata?.['detail'] === 'pending';
+}
+
 export function createMcpTaskUpdate(task: CreateTaskResult | GetTaskResult): UpdateMcpTaskInput {
   const lifecycleMetadata = timingMetadata(readMcpTaskTiming(task));
   const common = {
