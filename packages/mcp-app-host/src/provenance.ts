@@ -51,6 +51,8 @@ export interface McpAppToolCall extends McpAppGeneration {
 }
 
 export interface McpAppOwnedToolResult extends McpAppGeneration {
+  /** The audience that issued the call; a settled result stays bound to it. */
+  readonly audience: McpAppAudience;
   readonly id: number | string;
   readonly result: Readonly<UnknownRecord>;
   readonly toolName: string;
@@ -123,9 +125,17 @@ function requestIdKey(id: number | string): string {
   return `${typeof id}:${id}`;
 }
 
+// Base64 expands every 3 decoded bytes into 4 characters; this is the longest
+// canonical encoding of MAX_RESOURCE_BYTES, so anything longer is oversized
+// before any decoding work is spent on it.
+const MAX_RESOURCE_BASE64_LENGTH = Math.ceil(MAX_RESOURCE_BYTES / 3) * 4;
+
 function decodeBlob(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 1_398_104) {
+  if (typeof value !== 'string' || value.length === 0) {
     throw new TypeError(`${label} must be bounded canonical base64`);
+  }
+  if (value.length > MAX_RESOURCE_BASE64_LENGTH) {
+    throw new TypeError(`${label} exceeds ${MAX_RESOURCE_BYTES} decoded bytes`);
   }
   if (!/^(?:[A-Za-z\d+/]{4})*(?:[A-Za-z\d+/]{2}==|[A-Za-z\d+/]{3}=)?$/.test(value)) {
     throw new TypeError(`${label} must be bounded canonical base64`);
@@ -136,19 +146,23 @@ function decodeBlob(value: unknown, label: string): string {
   } catch (error: unknown) {
     throw new TypeError(`${label} must be bounded canonical base64`, { cause: error });
   }
-  if (btoa(binary) !== value || binary.length > MAX_RESOURCE_BYTES) {
+  if (binary.length > MAX_RESOURCE_BYTES) {
+    throw new TypeError(`${label} exceeds ${MAX_RESOURCE_BYTES} decoded bytes`);
+  }
+  if (btoa(binary) !== value) {
     throw new TypeError(`${label} must be bounded canonical base64`);
   }
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  let html: string;
   try {
-    const html = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    if (html.length === 0) {
-      throw new TypeError(`${label} must decode to non-empty UTF-8`);
-    }
-    return html;
+    html = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch (error: unknown) {
     throw new TypeError(`${label} must decode to non-empty UTF-8`, { cause: error });
   }
+  if (html.length === 0) {
+    throw new TypeError(`${label} must decode to non-empty UTF-8`);
+  }
+  return html;
 }
 
 function parseResource(
@@ -182,7 +196,12 @@ function parseResource(
       throw new TypeError(`${label}.text must be a non-empty string`);
     }
     html = text;
-    if (new TextEncoder().encode(html).byteLength > MAX_RESOURCE_BYTES) {
+    // A UTF-8 byte count is never smaller than the UTF-16 length, so an
+    // oversized string is rejected before the encoding pass allocates.
+    if (
+      html.length > MAX_RESOURCE_BYTES ||
+      new TextEncoder().encode(html).byteLength > MAX_RESOURCE_BYTES
+    ) {
       throw new TypeError(`${label}.text exceeds ${MAX_RESOURCE_BYTES} decoded bytes`);
     }
     source = 'text';
@@ -190,11 +209,15 @@ function parseResource(
     html = decodeBlob(record['blob'], `${label}.blob`);
     source = 'blob';
   }
+  // `_meta` is the MCP extension bag: `ui` is parsed when present and any
+  // namespaced sibling key is ignored, exactly as parseTool treats a tool's
+  // `_meta`. An empty `_meta` degrades to no metadata.
   let meta: McpAppResourceMeta | undefined;
   if (record['_meta'] !== undefined) {
     const outerMeta = expectRecord(record['_meta'], `${label}._meta`);
-    expectExactKeys(outerMeta, ['ui'], ['ui'], `${label}._meta`);
-    meta = parseMcpAppResourceMeta(outerMeta['ui']);
+    if (Object.hasOwn(outerMeta, 'ui')) {
+      meta = parseMcpAppResourceMeta(outerMeta['ui']);
+    }
   }
   return Object.freeze({ html, ...(meta === undefined ? {} : { meta }), mimeType, source, uri });
 }
@@ -261,10 +284,7 @@ export class McpAppProvenanceAuthority {
     value: unknown
   ): McpAppOwnedResource {
     const state = this.#requireActiveGeneration(generation);
-    const toolState = this.#tools.get(tool);
-    if (toolState?.generation !== state) {
-      throw new TypeError('MCP Apps tool does not belong to server generation');
-    }
+    this.#requireOwnedTool(state, tool);
     const resourceUri = tool.ui.resourceUri;
     if (resourceUri === undefined) {
       throw new TypeError('MCP Apps tool has no associated resource URI');
@@ -327,6 +347,7 @@ export class McpAppProvenanceAuthority {
     callState.settled = true;
     state.pendingCallIds.delete(requestIdKey(call.id));
     return Object.freeze({
+      audience: call.audience,
       ...state.handle,
       id: call.id,
       result,
@@ -334,13 +355,19 @@ export class McpAppProvenanceAuthority {
     });
   }
 
+  /**
+   * Explicit teardown (server disconnect without a replacement). The latest
+   * generation number is deliberately kept so a reconnect must still open a
+   * strictly greater generation: retirement never re-opens a replayable
+   * generation.
+   */
   retireGeneration(generation: McpAppGeneration): void {
     const state = this.#generations.get(generation);
     if (state === undefined) {
       throw new TypeError('MCP Apps server generation is not owned by this authority');
     }
-    state.active = false;
     if (this.#activeByServer.get(generation.serverId) === state) {
+      state.active = false;
       this.#activeByServer.delete(generation.serverId);
     }
   }

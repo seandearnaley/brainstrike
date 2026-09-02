@@ -159,38 +159,141 @@ describe('MCP Apps same-server provenance', () => {
       })
     ).toMatchObject({ html: '<!doctype html><title>Blob</title>', source: 'blob' });
 
-    for (const resource of [
-      { mimeType: 'text/html', text: '<!doctype html>', uri: 'ui://alpha/app' },
+    // Review of #2916: each rejection names its reason, so a regression in
+    // one row cannot hide behind an unrelated throw.
+    for (const { reason, resource } of [
       {
-        mimeType: 'text/html;profile=mcp-app',
-        text: '<!doctype html>',
-        uri: 'ui://beta/app',
+        reason: /MIME type/i,
+        resource: { mimeType: 'text/html', text: '<!doctype html>', uri: 'ui://alpha/app' },
       },
-      { blob: '***', mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
-      { blob: '/w==', mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
       {
-        blob: btoa('<!doctype html>'),
-        mimeType: 'text/html;profile=mcp-app',
-        text: '<!doctype html>',
-        uri: 'ui://alpha/app',
+        reason: /does not match the associated tool resource/,
+        resource: {
+          mimeType: 'text/html;profile=mcp-app',
+          text: '<!doctype html>',
+          uri: 'ui://beta/app',
+        },
       },
-      { mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
+      {
+        reason: /bounded canonical base64/,
+        resource: { blob: '***', mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
+      },
+      {
+        reason: /non-empty UTF-8/,
+        resource: { blob: '/w==', mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
+      },
+      {
+        reason: /exactly one of text or blob/,
+        resource: {
+          blob: btoa('<!doctype html>'),
+          mimeType: 'text/html;profile=mcp-app',
+          text: '<!doctype html>',
+          uri: 'ui://alpha/app',
+        },
+      },
+      {
+        reason: /exactly one of text or blob/,
+        resource: { mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
+      },
+      {
+        reason: /text exceeds 1048576 decoded bytes/,
+        resource: {
+          mimeType: 'text/html;profile=mcp-app',
+          text: 'x'.repeat(1024 * 1024 + 1),
+          uri: 'ui://alpha/app',
+        },
+      },
+      {
+        reason: /blob exceeds 1048576 decoded bytes/,
+        resource: {
+          blob: btoa('x'.repeat(1024 * 1024 + 1)),
+          mimeType: 'text/html;profile=mcp-app',
+          uri: 'ui://alpha/app',
+        },
+      },
     ]) {
-      expect(() => authority.resolveResource(generation, tool, resource)).toThrow();
+      expect(() => authority.resolveResource(generation, tool, resource)).toThrow(reason);
     }
-    expect(() =>
+  });
+
+  it('reads _meta.ui like a tool _meta: siblings ignored, empty bag means no metadata', () => {
+    // Review of #2916: `_meta` is the MCP extension bag; a namespaced
+    // sibling key must not reject the resource, and `_meta: {}` degrades to
+    // `meta === undefined` instead of throwing.
+    const authority = new McpAppProvenanceAuthority();
+    const generation = authority.openGeneration({ generation: 1, serverId: 'alpha' });
+    const tool = authority.registerTool(generation, {
+      _meta: { ui: { resourceUri: 'ui://alpha/app' } },
+      name: 'alpha-tool',
+    });
+    const base = {
+      mimeType: 'text/html;profile=mcp-app',
+      text: '<!doctype html>',
+      uri: 'ui://alpha/app',
+    };
+    expect(
       authority.resolveResource(generation, tool, {
-        mimeType: 'text/html;profile=mcp-app',
-        text: 'x'.repeat(1024 * 1024 + 1),
-        uri: 'ui://alpha/app',
-      })
-    ).toThrow(/decoded bytes/);
+        ...base,
+        _meta: { 'example.com/trace': 7, ui: { prefersBorder: true } },
+      }).meta
+    ).toMatchObject({ prefersBorder: true });
+    expect(
+      authority.resolveResource(generation, tool, { ...base, _meta: {} }).meta
+    ).toBeUndefined();
+  });
+
+  it('retires a generation explicitly and keeps its number fenced against replay', () => {
+    // Review of #2916: the explicit teardown path (disconnect without a
+    // replacement) was uncovered. The latest generation number survives
+    // retirement so a reconnect must still open a strictly greater one.
+    const authority = new McpAppProvenanceAuthority();
+    const generation = authority.openGeneration({ generation: 5, serverId: 'alpha' });
+    const tool = authority.registerTool(generation, {
+      _meta: { ui: { resourceUri: 'ui://alpha/app' } },
+      name: 'alpha-tool',
+    });
+    authority.retireGeneration(generation);
+    expect(() => authority.toolsFor(generation, 'app')).toThrow(/generation is retired/);
     expect(() =>
-      authority.resolveResource(generation, tool, {
-        blob: btoa('x'.repeat(1024 * 1024 + 1)),
-        mimeType: 'text/html;profile=mcp-app',
-        uri: 'ui://alpha/app',
-      })
-    ).toThrow(/bounded canonical base64/);
+      authority.beginToolCall(generation, tool, { audience: 'app', id: 1, input: {} })
+    ).toThrow(/generation is retired/);
+    expect(() => authority.openGeneration({ generation: 5, serverId: 'alpha' })).toThrow(
+      /increase monotonically/
+    );
+    expect(() => authority.retireGeneration(generation)).not.toThrow();
+    expect(() =>
+      authority.retireGeneration({ generation: 9, serverId: 'alpha' } as typeof generation)
+    ).toThrow(/not owned by this authority/);
+    const next = authority.openGeneration({ generation: 6, serverId: 'alpha' });
+    expect(authority.toolsFor(next, 'app')).toEqual([]);
+  });
+
+  it('keeps the calling audience on a settled result', () => {
+    // Review of #2916 (codex): a tool visible to both audiences would settle
+    // otherwise identical results; the audience travels with the result.
+    const authority = new McpAppProvenanceAuthority();
+    const generation = authority.openGeneration({ generation: 1, serverId: 'alpha' });
+    const tool = authority.registerTool(generation, {
+      _meta: { ui: { resourceUri: 'ui://alpha/app' } },
+      name: 'shared-tool',
+    });
+    const appCall = authority.beginToolCall(generation, tool, {
+      audience: 'app',
+      id: 1,
+      input: {},
+    });
+    expect(authority.completeToolCall(generation, appCall, { ok: true })).toMatchObject({
+      audience: 'app',
+      id: 1,
+    });
+    const modelCall = authority.beginToolCall(generation, tool, {
+      audience: 'model',
+      id: 1,
+      input: {},
+    });
+    expect(authority.completeToolCall(generation, modelCall, { ok: true })).toMatchObject({
+      audience: 'model',
+      id: 1,
+    });
   });
 });
