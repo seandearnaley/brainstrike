@@ -15,6 +15,7 @@ import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { registerMcpContentIpc } from './mcp/content-ipc';
+import { attachMcpElicitationBridge } from './mcp/elicitation-bridge';
 import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { controlDestructiveMcpLifecycle, notifyMcpStatusUpdated } from './mcp/lifecycle-control';
 import type { McpDiscoveredTool } from './mcp/types';
@@ -64,6 +65,7 @@ export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpd
 export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
 export const MCP_STATUS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated;
 type McpAuthorityRuntime = Pick<DesktopMcpHostRuntime, 'host' | 'replaceResolvedConfig'>;
+type McpIpcRuntime = McpAuthorityRuntime & Parameters<typeof attachMcpElicitationBridge>[0];
 
 export interface McpConfigStatus {
   error?: string;
@@ -546,10 +548,11 @@ export async function resumeMcpRuntimeAfterFactoryReset(
   }
 }
 
-export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRuntime }): () => void {
+export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }): () => void {
   logger.debug('Registering MCP IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
   const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
+  const detachElicitationBridge = attachMcpElicitationBridge(runtime, registry);
   const updateToolPreferences = async (mutation: () => void): Promise<void> => {
     const expectedAuthorityEpoch = latestAuthorityEpoch;
     await trackConfigOperation(async () => {
@@ -833,6 +836,7 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpAuthorityRunti
   });
 
   return () => {
+    detachElicitationBridge();
     stopStatusWatch();
     registry.unregisterAll();
   };

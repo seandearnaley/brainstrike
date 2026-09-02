@@ -11,6 +11,11 @@ type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
 type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
 type McpHostControlRequest = import('@brainstrike/assistant-contract').McpHostControlRequest;
+type McpElicitationPresentationWire =
+  import('@brainstrike/assistant-contract').McpElicitationPresentationWire;
+type McpElicitationRetiredWire =
+  import('@brainstrike/assistant-contract').McpElicitationRetiredWire;
+type McpElicitationSettlement = import('@brainstrike/assistant-contract').McpElicitationSettlement;
 type McpHostWatchEvent = import('@brainstrike/assistant-contract').McpHostWatchEvent;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
@@ -270,6 +275,9 @@ const MCP_CONFIG_READ_TEXT_CHANNEL = 'mcp:config:readText' as const;
 const MCP_CONFIG_WRITE_TEXT_CHANNEL = 'mcp:config:writeText' as const;
 const MCP_CONFIG_SELECT_PATH_CHANNEL = 'mcp:config:selectPath' as const;
 const MCP_CONFIG_CREATE_SAMPLE_CHANNEL = 'mcp:config:createSample' as const;
+const MCP_ELICITATION_REQUESTED_EVENT = 'mcp:elicitation:requested' as const;
+const MCP_ELICITATION_RETIRED_EVENT = 'mcp:elicitation:retired' as const;
+const MCP_ELICITATION_SETTLE_CHANNEL = 'mcp:elicitation:settle' as const;
 const MCP_TOOLS_LIST_CHANNEL = 'mcp:tools:list' as const;
 const MCP_TOOLS_ENABLE_CHANNEL = 'mcp:tools:enable' as const;
 const MCP_TOOLS_DISABLE_CHANNEL = 'mcp:tools:disable' as const;
@@ -879,6 +887,21 @@ contextBridge.exposeInMainWorld('mcp', {
       ipcRenderer.removeListener(MCP_CONFIG_UPDATED_EVENT, listener);
     };
   },
+  onElicitationRequested: (callback: (presentation: McpElicitationPresentationWire) => void) => {
+    const listener = (_event: unknown, presentation: McpElicitationPresentationWire) =>
+      callback(presentation);
+    ipcRenderer.on(MCP_ELICITATION_REQUESTED_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(MCP_ELICITATION_REQUESTED_EVENT, listener);
+    };
+  },
+  onElicitationRetired: (callback: (retired: McpElicitationRetiredWire) => void) => {
+    const listener = (_event: unknown, retired: McpElicitationRetiredWire) => callback(retired);
+    ipcRenderer.on(MCP_ELICITATION_RETIRED_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(MCP_ELICITATION_RETIRED_EVENT, listener);
+    };
+  },
   onServerStatusUpdated: (callback: (event: McpHostWatchEvent) => void) => {
     const listener = (_event: unknown, event: McpHostWatchEvent) => callback(event);
     ipcRenderer.on(MCP_STATUS_UPDATED_EVENT, listener);
@@ -927,6 +950,8 @@ contextBridge.exposeInMainWorld('mcp', {
   selectPath: () => ipcRenderer.invoke(MCP_CONFIG_SELECT_PATH_CHANNEL),
   setPath: (configPath: string | null) =>
     ipcRenderer.invoke(MCP_CONFIG_SET_PATH_CHANNEL, configPath),
+  settleElicitation: (settlement: McpElicitationSettlement) =>
+    ipcRenderer.invoke(MCP_ELICITATION_SETTLE_CHANNEL, settlement),
   unwatch: () => ipcRenderer.invoke(MCP_CONFIG_UNWATCH_CHANNEL),
   watch: () => ipcRenderer.invoke(MCP_CONFIG_WATCH_CHANNEL),
   writeConfigText: (content: string) => ipcRenderer.invoke(MCP_CONFIG_WRITE_TEXT_CHANNEL, content),

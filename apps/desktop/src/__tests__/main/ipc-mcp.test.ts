@@ -140,7 +140,7 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:complete', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:getPrompt', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:readResource', expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledTimes(21);
+      expect(ipcMain.handle).toHaveBeenCalledTimes(22);
     });
 
     it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {

@@ -41,7 +41,7 @@ describe('MCP lab stdio reference', () => {
       childPid = lab.endpoint.transport.pid;
       expect(childPid).toEqual(expect.any(Number));
       expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
-      expectReferenceToolContract((await client.listTools()).tools);
+      expectReferenceToolContract((await client.listTools()).tools, 'stdio');
       expect(
         await client.callTool({ arguments: { text: 'stdio-verified' }, name: 'echo' })
       ).toMatchObject({ structuredContent: { text: 'stdio-verified' } });

@@ -82,13 +82,25 @@ async function readJsonBody(request: IncomingMessage): Promise<ChatCompletionsRe
   };
 }
 
-/** Counts messages carrying a tool RESULT (not a tool CALL) — the turn signal. */
+/**
+ * Counts messages carrying a tool RESULT (not a tool CALL) since the LAST user
+ * message — the turn signal. Scoping to the current turn lets one shim serve a
+ * second scripted exchange on the same thread (via `setScript`) without the
+ * previous turn's tool results short-circuiting it to `finalText`.
+ */
 function countToolResultMessages(messages: unknown[] | undefined): number {
-  return (messages ?? []).filter(
-    (message) =>
-      isRecord(message) &&
-      (message['role'] === 'tool' || typeof message['tool_call_id'] === 'string')
-  ).length;
+  const history = messages ?? [];
+  const lastUserIndex = history.reduce<number>(
+    (found, message, index) => (isRecord(message) && message['role'] === 'user' ? index : found),
+    -1
+  );
+  return history
+    .slice(lastUserIndex + 1)
+    .filter(
+      (message) =>
+        isRecord(message) &&
+        (message['role'] === 'tool' || typeof message['tool_call_id'] === 'string')
+    ).length;
 }
 
 /**

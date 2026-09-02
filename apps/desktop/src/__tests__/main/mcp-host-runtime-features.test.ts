@@ -252,7 +252,7 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
   });
 
   it.each([http(), stdio()])(
-    'omits clientCapabilities entirely when desktop has no explicit resolver for $transport',
+    'omits clientCapabilities entirely when an explicit resolver declines for $transport',
     async (server) => {
       const explicitClient = transportClient();
       const createHttpTransportClient = vi.fn((_options: unknown) => explicitClient);
@@ -260,6 +260,7 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
       const runtime = createDesktopMcpHostRuntime({
         createHttpTransportClient,
         createStdioTransportClient,
+        resolveClientCapabilities: () => undefined,
       });
       await runtime.replaceResolvedConfig(resolved(server));
 
@@ -309,9 +310,52 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
     await runtime.host.close();
   });
 
-  it('composes the process-local presenter without advertising it', async () => {
-    const runtime = createDesktopMcpHostRuntime();
+  it('advertises form and URL elicitation backed by the process-local presenter', async () => {
+    const captured: Record<'http' | 'stdio', unknown> = { http: undefined, stdio: undefined };
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: (options) => {
+        captured.http = options.clientCapabilities;
+        return transportClient();
+      },
+      createStdioTransportClient: (options) => {
+        captured.stdio = options.clientCapabilities;
+        return transportClient();
+      },
+    });
     expect(runtime.elicitationPresenter.presenter).toMatchObject({ form: true, url: true });
+    await runtime.replaceResolvedConfig(resolved(http(), stdio()));
+    await runtime.host.invoke({ configuredServerId: http().name, type: 'tools/list' });
+    await runtime.host.invoke({ configuredServerId: stdio().name, type: 'tools/list' });
+    for (const transport of ['http', 'stdio'] as const) {
+      expect(captured[transport], transport).toEqual({
+        elicitation: {
+          form: true,
+          handle: expect.any(Function),
+          url: true,
+          urlPolicy: 'https-only',
+        },
+      });
+    }
+    const advertised = captured.http as {
+      elicitation: {
+        handle: (request: unknown, context: unknown) => Promise<unknown>;
+      };
+    };
+    // Fail closed: with no renderer listener attached, an inbound
+    // elicitation/create rejects instead of auto-accepting.
+    await expect(
+      advertised.elicitation.handle(
+        {
+          method: 'elicitation/create',
+          params: {
+            message: 'Confirm',
+            mode: 'form',
+            requestedSchema: { properties: {}, type: 'object' },
+          },
+        },
+        { requestId: 'unattended', serverName: http().name, signal: new AbortController().signal }
+      )
+    ).rejects.toMatchObject({ code: 'mcp-elicitation-presenter-unavailable' });
     await runtime.host.close();
   });
 });

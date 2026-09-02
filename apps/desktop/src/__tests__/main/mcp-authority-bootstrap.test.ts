@@ -16,6 +16,7 @@ import {
 } from '../../ipc-mcp';
 import type { LoadedMcpConfig, ResolvedMcpConfig } from '../../mcp-loader';
 import { readMainSourceSections } from './main-source-test-helpers';
+import { createMcpElicitationPresenterStub } from './mcp-authority-test-runtime';
 
 const mocks = vi.hoisted(() => ({
   getMcpConfigPath: vi.fn(async () => '/tmp/mcp.config.json'),
@@ -111,6 +112,7 @@ describe('MCP desktop authority bootstrap', () => {
     subscriptionsClosed: 0,
   };
   const runtime = {
+    elicitationPresenter: createMcpElicitationPresenterStub(),
     host: {
       close: vi.fn(async () => closeReport),
       control: vi.fn(),

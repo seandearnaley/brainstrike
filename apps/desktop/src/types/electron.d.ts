@@ -5,6 +5,9 @@ import type {
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
   AssistantRewindResult,
+  McpElicitationPresentationWire,
+  McpElicitationRetiredWire,
+  McpElicitationSettlement,
   McpHostControlRequest,
   McpHostServerSnapshot,
   McpHostSnapshot,
@@ -507,6 +510,11 @@ declare global {
       createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
       onConfigUpdated: (callback: (config: McpConfigStatus) => void) => () => void;
       onServerStatusUpdated: (callback: (event: McpHostWatchEvent) => void) => () => void;
+      onElicitationRequested: (
+        callback: (presentation: McpElicitationPresentationWire) => void
+      ) => () => void;
+      onElicitationRetired: (callback: (retired: McpElicitationRetiredWire) => void) => () => void;
+      settleElicitation: (settlement: McpElicitationSettlement) => Promise<void>;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{

@@ -91,6 +91,10 @@
     "./settings/tools/index": {
       "types": "./dist/settings/tools/index.d.ts",
       "import": "./dist/settings/tools/index.js"
+    },
+    "./settings/tools/mcp-elicitation-host": {
+      "types": "./dist/settings/tools/mcp-elicitation-host.d.ts",
+      "import": "./dist/settings/tools/mcp-elicitation-host.js"
     }
   },
   "files": [

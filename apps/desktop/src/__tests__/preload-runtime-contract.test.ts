@@ -339,6 +339,9 @@ describe('preload runtime contract', () => {
       MCP_CONTENT_COMPLETE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentComplete,
       MCP_CONTENT_GET_PROMPT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentGetPrompt,
       MCP_CONTENT_READ_RESOURCE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentReadResource,
+      MCP_ELICITATION_REQUESTED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRequested,
+      MCP_ELICITATION_RETIRED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRetired,
+      MCP_ELICITATION_SETTLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationSettle,
       MCP_STATUS_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
       MCP_STATUS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated,
       MCP_TOOLS_DISABLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisable,
@@ -424,6 +427,17 @@ describe('preload runtime contract', () => {
       'ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request)'
     );
     expect([...mcpBridge.keys()]).not.toContain('invoke');
+    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'settleElicitation')).toContain(
+      'ipcRenderer.invoke(MCP_ELICITATION_SETTLE_CHANNEL, settlement)'
+    );
+    for (const [property, constant] of [
+      ['onElicitationRequested', 'MCP_ELICITATION_REQUESTED_EVENT'],
+      ['onElicitationRetired', 'MCP_ELICITATION_RETIRED_EVENT'],
+    ] as const) {
+      const subscription = requireExposedBridgeProperty(mcpBridge, 'mcp', property);
+      expect(subscription).toContain(`ipcRenderer.on(${constant}, listener)`);
+      expect(subscription).toContain(`ipcRenderer.removeListener(${constant}, listener)`);
+    }
 
     const preloadWithoutContractDefinitions = removePreloadStringConstantDefinitions(preloadSource);
     for (const channel of Object.values(expectedConstants)) {
