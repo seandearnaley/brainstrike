@@ -1,6 +1,7 @@
 import { app, session } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCSP } from '../csp-utils';
+import { __resetMcpAppSessionPolicyForTests } from '../mcp/apps-session-policy';
 import { desktopSecurityLogger, setupSecurity } from '../setup-security';
 
 vi.mock('@brainstrike/logging', () => ({
@@ -16,8 +17,12 @@ vi.mock('electron', () => ({
   app: {
     isPackaged: false,
   },
+  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
   session: {
     defaultSession: {
+      on: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
       webRequest: {
         onHeadersReceived: vi.fn(),
       },
@@ -34,6 +39,7 @@ describe('setupSecurity', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetMcpAppSessionPolicyForTests();
   });
 
   afterEach(() => {
@@ -219,5 +225,20 @@ describe('setupSecurity', () => {
         'X-XSS-Protection': ['0'],
       },
     });
+  });
+  it('installs the MCP App sandbox session policy on the default session', () => {
+    vi.mocked(getCSP).mockReturnValue('test-csp-policy');
+
+    setupSecurity();
+
+    const defaultSession = session.defaultSession;
+    expect(defaultSession.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
+    expect(defaultSession.setPermissionCheckHandler).toHaveBeenCalledTimes(1);
+    expect(defaultSession.on).toHaveBeenCalledWith('will-download', expect.any(Function));
+
+    // Idempotent: a second setup must not stack a second will-download listener.
+    setupSecurity();
+    expect(defaultSession.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(defaultSession.on).mock.calls).toHaveLength(1);
   });
 });

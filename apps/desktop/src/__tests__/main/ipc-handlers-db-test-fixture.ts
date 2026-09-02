@@ -318,7 +318,14 @@ vi.mock('electron', async () => {
       getAllDisplays: vi.fn(() => []),
       getPrimaryDisplay: vi.fn(() => ({ workAreaSize: { height: 1080, width: 1920 } })),
     },
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    session: {
+      defaultSession: {
+        on: vi.fn(),
+        setPermissionCheckHandler: vi.fn(),
+        setPermissionRequestHandler: vi.fn(),
+        webRequest: { onHeadersReceived: vi.fn() },
+      },
+    },
     shell: {
       openPath: vi.fn().mockResolvedValue(''),
       showItemInFolder: vi.fn(),

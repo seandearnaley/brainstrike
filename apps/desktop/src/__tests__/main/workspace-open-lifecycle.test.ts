@@ -25,6 +25,9 @@ import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
 const mockSession = {
   defaultSession: {
+    on: vi.fn(),
+    setPermissionCheckHandler: vi.fn(),
+    setPermissionRequestHandler: vi.fn(),
     webRequest: {
       onHeadersReceived: vi.fn(),
     },

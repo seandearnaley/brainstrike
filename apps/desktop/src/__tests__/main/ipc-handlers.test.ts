@@ -30,6 +30,9 @@ vi.mock('electron', () => ({
   ipcMain: mockIpcMain,
   session: {
     defaultSession: {
+      on: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
       webRequest: {
         onHeadersReceived: vi.fn(),
       },
