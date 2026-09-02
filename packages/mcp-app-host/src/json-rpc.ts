@@ -11,7 +11,12 @@ export type McpAppResponse =
   | Readonly<{ id: number | string; jsonrpc: '2.0'; result: Readonly<UnknownRecord> }>
   | Readonly<{
       error: Readonly<{ code: number; data?: unknown; message: string }>;
-      id: number | string;
+      /**
+       * JSON-RPC 2.0 requires `null` when the responder could not read the
+       * request id (parse error, invalid request). Such an error is preserved
+       * for diagnostics but can never settle a pending request.
+       */
+      id: number | string | null;
       jsonrpc: '2.0';
     }>;
 
@@ -49,16 +54,15 @@ export function parseMcpAppResponse(value: unknown): McpAppResponse {
   if (record['jsonrpc'] !== '2.0') {
     throw new TypeError(`${label}.jsonrpc must be "2.0"`);
   }
-  const id = parseMcpAppRequestId(record['id'], label);
   const parsed: McpAppResponse = success
     ? Object.freeze({
-        id,
+        id: parseMcpAppRequestId(record['id'], label),
         jsonrpc: '2.0' as const,
         result: parseMcpAppJsonRecord(record['result'], `${label}.result`),
       })
     : Object.freeze({
         error: parseError(record['error'], `${label}.error`),
-        id,
+        id: record['id'] === null ? null : parseMcpAppRequestId(record['id'], label),
         jsonrpc: '2.0' as const,
       });
   expectEncodedSize(parsed, MCP_APP_MAX_MESSAGE_BYTES, label);
@@ -92,11 +96,43 @@ export class McpAppRequestCorrelator {
   }
 
   settle(value: unknown): McpAppResponse {
-    const response = parseMcpAppResponse(value);
+    let response: McpAppResponse;
+    try {
+      response = parseMcpAppResponse(value);
+    } catch (error) {
+      // A malformed reply still consumes the request it answers: an app must
+      // not be able to wedge the channel by answering badly 256 times.
+      this.#releaseRecoverableId(value);
+      throw error;
+    }
+    if (response.id === null) {
+      const failure = 'error' in response ? `${response.error.code} ${response.error.message}` : '';
+      throw new TypeError(`MCP Apps error response has no routable id: ${failure}`);
+    }
     const key = correlationKey(response.id);
     if (!this.#pending.delete(key)) {
       throw new TypeError(`MCP Apps response id ${JSON.stringify(response.id)} is not pending`);
     }
     return response;
+  }
+
+  /** Releases an abandoned request (timeout, abort, send failure). */
+  cancel(id: number | string): boolean {
+    return this.#pending.delete(correlationKey(id));
+  }
+
+  /** Releases every pending request; used on transport close. */
+  clear(): void {
+    this.#pending.clear();
+  }
+
+  #releaseRecoverableId(value: unknown): void {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return;
+    }
+    const id = (value as { readonly id?: unknown }).id;
+    if (typeof id === 'string' || (typeof id === 'number' && Number.isSafeInteger(id))) {
+      this.#pending.delete(correlationKey(id));
+    }
   }
 }

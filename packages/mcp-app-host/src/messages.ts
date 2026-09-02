@@ -52,6 +52,10 @@ const METHODS_BY_DIRECTION: Readonly<
   ]),
   'host-to-app': new Set<McpAppStableMethod>([
     'ui/resource-teardown',
+    // MCP ping is issued by either peer; the host uses it to detect a wedged
+    // frame. tools/call reaches an app that declared its own tools.
+    'ping',
+    'tools/call',
     'ui/notifications/tool-input',
     'ui/notifications/tool-input-partial',
     'ui/notifications/tool-result',

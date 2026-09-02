@@ -13,6 +13,18 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
     expect(parseMcpAppResponse(response)).toEqual(response);
   });
 
+  it('preserves a null-id error response as JSON-RPC 2.0 requires, but never routes it', () => {
+    // Review of #2914: §5 mandates `id: null` when the responder could not
+    // read the request id. The payload is kept for diagnostics; the
+    // correlator refuses to settle anything with it.
+    const response = { error: { code: -32_700, message: 'Parse error' }, id: null, jsonrpc: '2.0' };
+    expect(parseMcpAppResponse(response)).toEqual(response);
+    const correlation = new McpAppRequestCorrelator();
+    correlation.register('r1');
+    expect(() => correlation.settle(response)).toThrow(/no routable id: -32700 Parse error/);
+    expect(correlation.pendingCount).toBe(1);
+  });
+
   it.each([
     { id: null, jsonrpc: '2.0', result: {} },
     { id: 1.5, jsonrpc: '2.0', result: {} },
@@ -66,5 +78,31 @@ describe('MCP Apps request correlation', () => {
       bounded.register(id);
     }
     expect(() => bounded.register(256)).toThrow(/exceeds 256 entries/);
+  });
+
+  it('releases the slot when the answer to a pending id fails validation', () => {
+    // Review of #2914: a malformed reply used to leave its id pending forever,
+    // so 256 bad answers wedged the channel for the life of the instance.
+    const correlation = new McpAppRequestCorrelator();
+    correlation.register('r1');
+    expect(() =>
+      correlation.settle({ id: 'r1', jsonrpc: '2.0', result: { text: 'x'.repeat(262_145) } })
+    ).toThrow(/maximum encoded size/);
+    expect(correlation.pendingCount).toBe(0);
+    correlation.register('r1');
+    expect(() => correlation.settle({ id: 'r1', jsonrpc: '1.0', result: {} })).toThrow(/jsonrpc/);
+    expect(correlation.pendingCount).toBe(0);
+  });
+
+  it('cancels one abandoned request and clears all on close', () => {
+    const correlation = new McpAppRequestCorrelator();
+    correlation.register(1);
+    correlation.register(2);
+    expect(correlation.cancel(1)).toBe(true);
+    expect(correlation.cancel(1)).toBe(false);
+    expect(correlation.pendingCount).toBe(1);
+    correlation.clear();
+    expect(correlation.pendingCount).toBe(0);
+    expect(() => correlation.settle({ id: 2, jsonrpc: '2.0', result: {} })).toThrow(/not pending/);
   });
 });

@@ -65,6 +65,18 @@ const STABLE_MESSAGES: readonly [McpAppMessageDirection, unknown][] = [
     },
   ],
   ['host-to-app', { id: 'teardown', jsonrpc: '2.0', method: 'ui/resource-teardown', params: {} }],
+  // Review of #2914: ping is issued by either peer, and the host calls an
+  // app-declared tool through tools/call.
+  ['host-to-app', { id: 'liveness', jsonrpc: '2.0', method: 'ping', params: {} }],
+  [
+    'host-to-app',
+    {
+      id: 'app-tool',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'app-declared' },
+    },
+  ],
   [
     'host-to-app',
     {

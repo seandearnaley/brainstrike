@@ -86,7 +86,9 @@ describe('stable MCP Apps client capability', () => {
 
   it('projects the stable specification from the complete pinned schema vocabulary', () => {
     expect(
-      MCP_APPS_PINNED_SCHEMA_UI_METHODS.filter((method) => !(method in MCP_APPS_SCHEMA_EXCLUSIONS))
+      MCP_APPS_PINNED_SCHEMA_UI_METHODS.filter(
+        (method) => !Object.hasOwn(MCP_APPS_SCHEMA_EXCLUSIONS, method)
+      )
     ).toEqual(MCP_APPS_STABLE_UI_METHODS);
   });
 

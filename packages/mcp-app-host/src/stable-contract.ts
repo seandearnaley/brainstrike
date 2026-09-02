@@ -30,7 +30,7 @@ type McpAppStableUiMethod = Exclude<
 
 export const MCP_APPS_STABLE_UI_METHODS = Object.freeze(
   MCP_APPS_PINNED_SCHEMA_UI_METHODS.filter(
-    (method) => !(method in MCP_APPS_SCHEMA_EXCLUSIONS)
+    (method) => !Object.hasOwn(MCP_APPS_SCHEMA_EXCLUSIONS, method)
   ) as readonly McpAppStableUiMethod[]
 );
 

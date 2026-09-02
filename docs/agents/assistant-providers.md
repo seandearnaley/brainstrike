@@ -2087,11 +2087,20 @@ accepts all 15 stable `ui/*` methods plus `tools/call`, `resources/read`,
 `ui/notifications/request-teardown` are rejected. The package schema defines
 empty `ui/resource-teardown` params while the prose example includes a reason.
 Brainstrike follows the machine schema and rejects the reason-bearing variant
-until upstream reconciles the conflict. JSON-RPC uses string or safe-integer
-IDs, exact envelopes, one-shot correlation, 256 pending entries, 256 KiB
-messages, depth/node caps, 2,048-character URIs, and 32-entry/64 KiB metadata.
-These inert parsers do not register Apps support or provide resource, sandbox,
-frame, or consent behavior.
+until upstream reconciles the conflict. `ping` and `tools/call` are accepted
+in both directions (either peer may ping; the host calls an app-declared
+tool). JSON-RPC uses string or safe-integer IDs, exact envelopes, one-shot
+correlation, 256 pending entries, 256 KiB messages, depth/node caps,
+2,048-character URIs, and 32-entry/64 KiB metadata. An error response may
+carry `id: null` as JSON-RPC 2.0 §5 requires when the responder could not read
+the request id; it parses (for diagnostics) but never settles a pending
+request. The correlator releases a slot when the reply to it fails validation,
+exposes `cancel(id)` for an abandoned request (timeout, abort, send failure),
+and `clear()` for transport close, so a misbehaving app cannot wedge the
+256-entry bound. The parse-time size bound is defense in depth: the bridge
+layer (BST-1570) bounds raw `postMessage` payloads before parsing. These inert
+parsers do not register Apps support or provide resource, sandbox, frame, or
+consent behavior.
 
 Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
 `McpHostSnapshot` through `mcp:status:get` and revisioned
