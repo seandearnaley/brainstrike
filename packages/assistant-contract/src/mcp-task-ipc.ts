@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { hasToolResultKind } from './mcp-apps-ipc.js';
 import {
   type McpTaskActionRequest,
   type McpTaskActionResult,
@@ -66,8 +67,13 @@ export function parseMcpTaskStatusChangedEvent(value: unknown): McpTaskStatusCha
 /**
  * Exact-shape reader: a persisted tool result is a task marker only when it
  * matches the schema completely. Anything else is an ordinary tool result.
+ * Runs per tool part per render, so a result without the marker `kind`
+ * short-circuits before the schema walks the payload.
  */
 export function readMcpTaskToolInvocationResult(value: unknown): McpTaskPresentation | undefined {
+  if (!hasToolResultKind(value, MCP_TASK_TOOL_RESULT_KIND)) {
+    return undefined;
+  }
   const parsed = McpTaskToolInvocationResultSchema.safeParse(value);
   return parsed.success ? parsed.data.task : undefined;
 }

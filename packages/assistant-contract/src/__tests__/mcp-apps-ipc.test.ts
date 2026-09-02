@@ -1,11 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpAppToolInvocationResult,
   MCP_APPS_IPC_CHANNELS,
   McpAppPrepareRequestSchema,
+  McpAppToolInvocationResultSchema,
   parseMcpAppPrepareResult,
   readMcpAppToolInvocationResult,
 } from '../mcp-apps-ipc.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const origin = {
   mimeType: 'text/html;profile=mcp-app',
@@ -36,6 +41,28 @@ describe('MCP Apps IPC contract', () => {
     expect(() =>
       createMcpAppToolInvocationResult({ ...origin, resourceUri: 'https://x' }, {})
     ).toThrow();
+  });
+
+  it('never schema-walks a result that does not carry the app marker kind', () => {
+    const safeParse = vi.spyOn(McpAppToolInvocationResultSchema, 'safeParse');
+    const large = {
+      content: Array.from({ length: 5000 }, (_, index) => ({ text: `row ${index}`, type: 'text' })),
+      structuredContent: { rows: Array.from({ length: 5000 }, (_, index) => ({ index })) },
+    };
+    expect(readMcpAppToolInvocationResult(large)).toBeUndefined();
+    expect(readMcpAppToolInvocationResult({ ...large, kind: 'mcp-task' })).toBeUndefined();
+    expect(readMcpAppToolInvocationResult('mcp-app')).toBeUndefined();
+    expect(readMcpAppToolInvocationResult(null)).toBeUndefined();
+    expect(readMcpAppToolInvocationResult(['mcp-app'])).toBeUndefined();
+    expect(safeParse).not.toHaveBeenCalled();
+
+    // The right kind still goes through the exact-shape schema: a near miss
+    // stays an ordinary result (undefined), never a throw.
+    expect(readMcpAppToolInvocationResult({ kind: 'mcp-app', result: {} })).toBeUndefined();
+    expect(safeParse).toHaveBeenCalledTimes(1);
+    const marker = createMcpAppToolInvocationResult(origin, {});
+    expect(readMcpAppToolInvocationResult(marker)).toEqual(marker);
+    expect(safeParse).toHaveBeenCalledTimes(2);
   });
 
   it('validates prepare requests and results strictly', () => {

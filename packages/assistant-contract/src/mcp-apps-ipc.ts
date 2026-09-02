@@ -82,6 +82,17 @@ export interface McpAppBridge {
   release(request: McpAppReleaseRequest): Promise<void>;
 }
 
+/** Cheap discriminator probe shared by the persisted tool-result marker readers. */
+export function hasToolResultKind(value: unknown, kind: string): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    'kind' in value &&
+    value.kind === kind
+  );
+}
+
 export function parseMcpAppPrepareRequest(value: unknown): McpAppPrepareRequest {
   return McpAppPrepareRequestSchema.parse(value);
 }
@@ -98,10 +109,18 @@ export function parseMcpAppExecuteResult(value: unknown): McpAppExecuteResult {
   return McpAppExecuteResultSchema.parse(value);
 }
 
-/** Exact-shape reader: anything that is not a complete marker is an ordinary result. */
+/**
+ * Exact-shape reader: anything that is not a complete marker is an ordinary
+ * result. This sits on per-render and per-projection hot paths, so a result
+ * without the marker `kind` short-circuits before the schema walks the
+ * (arbitrarily large) payload; a value carrying the kind is validated fully.
+ */
 export function readMcpAppToolInvocationResult(
   value: unknown
 ): McpAppToolInvocationResult | undefined {
+  if (!hasToolResultKind(value, MCP_APP_TOOL_RESULT_KIND)) {
+    return undefined;
+  }
   const parsed = McpAppToolInvocationResultSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }

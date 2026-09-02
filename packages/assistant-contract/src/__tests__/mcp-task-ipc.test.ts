@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpTaskToolInvocationResult,
   MCP_TASK_IPC_CHANNELS,
   McpTaskListResultSchema,
+  McpTaskToolInvocationResultSchema,
   parseMcpTaskStatusChangedEvent,
   readMcpTaskToolInvocationResult,
 } from '../mcp-task-ipc.js';
@@ -26,7 +27,32 @@ const presentation: McpTaskPresentation = {
   updatedAt: '2026-09-02T00:00:00.000Z',
 };
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('MCP task IPC contract', () => {
+  it('never schema-walks a result that does not carry the task marker kind', () => {
+    const safeParse = vi.spyOn(McpTaskToolInvocationResultSchema, 'safeParse');
+    const large = {
+      content: Array.from({ length: 5000 }, (_, index) => ({ text: `row ${index}`, type: 'text' })),
+      structuredContent: { rows: Array.from({ length: 5000 }, (_, index) => ({ index })) },
+    };
+    expect(readMcpTaskToolInvocationResult(large)).toBeUndefined();
+    expect(readMcpTaskToolInvocationResult({ ...large, kind: 'mcp-app' })).toBeUndefined();
+    expect(readMcpTaskToolInvocationResult('mcp-task')).toBeUndefined();
+    expect(readMcpTaskToolInvocationResult(null)).toBeUndefined();
+    expect(readMcpTaskToolInvocationResult(presentation)).toBeUndefined();
+    expect(safeParse).not.toHaveBeenCalled();
+
+    expect(readMcpTaskToolInvocationResult({ kind: 'mcp-task' })).toBeUndefined();
+    expect(safeParse).toHaveBeenCalledTimes(1);
+    expect(
+      readMcpTaskToolInvocationResult(createMcpTaskToolInvocationResult(presentation))
+    ).toEqual(presentation);
+    expect(safeParse).toHaveBeenCalledTimes(2);
+  });
+
   it('pins the channel names preload and main share', () => {
     expect(MCP_TASK_IPC_CHANNELS).toEqual({
       act: 'mcp:task:act',
