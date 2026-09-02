@@ -25,6 +25,9 @@ test('the native package job runs the Apps bridge verifier against the package i
   assert.ok(verifierIndex < nativeIndex);
   assert.equal(steps[verifierIndex].run, packagedCommand);
   assert.equal(steps[verifierIndex]['continue-on-error'], undefined);
+  // The verifier imports the built bridge module; the job must build it.
+  const dependencyBuild = steps.find((step) => step.name === 'Build desktop dependency graph');
+  assert.match(String(dependencyBuild?.run), /--filter=@brainstrike\/mcp-app-host/u);
 });
 
 test('the packaged-only bridge spec has one explicit lane and is absent from unpackaged regression', () => {
