@@ -1,11 +1,13 @@
+import {
+  composeRuntimeToolMap,
+  createMcpAppOrdinaryToolCallPreparer,
+  resolveScaledToolResultBudget,
+} from '@brainstrike/agent';
 import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
 // @boundaries-ignore packaged verification composes the production Agent pipeline without exporting its internal assembly surface.
-import { createMcpAppOrdinaryToolCallPreparer } from '../../../../packages/agent/src/mastra/mcp-app-tool-call';
 // @boundaries-ignore packaged verification composes the production Agent pipeline without exporting its internal assembly surface.
-import { composeRuntimeToolMap } from '../../../../packages/agent/src/mastra/runtime-assembly/tool-pipeline';
 // @boundaries-ignore packaged verification uses the production transport-budget constructor required by the internal pipeline.
-import { resolveScaledToolResultBudget } from '../../../../packages/agent/src/stream/tool-output-limits';
 // @boundaries-ignore packaged verification exercises the local Apps package before production registration exports it to Desktop.
 import type {
   McpAppPreparedToolCall,
