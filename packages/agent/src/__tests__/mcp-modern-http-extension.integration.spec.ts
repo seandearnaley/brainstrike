@@ -192,7 +192,10 @@ it('dispatches the registered Tasks tools/call on the modern wire with agreeing 
               'io.modelcontextprotocol/serverInfo': { name: 'tasks-server', version: '1' },
             },
             cacheScope: 'private',
-            capabilities: { extensions: { [TEST_EXTENSION_ID]: TEST_EXTENSION_SETTINGS }, tools: {} },
+            capabilities: {
+              extensions: { [TEST_EXTENSION_ID]: TEST_EXTENSION_SETTINGS },
+              tools: {},
+            },
             resultType: 'complete',
             supportedVersions: ['2026-07-28'],
             ttlMs: 0,

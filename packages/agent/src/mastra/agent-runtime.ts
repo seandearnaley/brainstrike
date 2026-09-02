@@ -388,6 +388,21 @@ function createPersistedDiscoveryMessageLoader(params: {
   };
 }
 
+/**
+ * An app-free run can never mount an app: registering it would only detach
+ * into a host watch on disposal and supersede the thread's still-mounted app
+ * admission for nothing.
+ */
+function registerAppCapableAdmission(
+  registry: MastraAgentRuntimeOptions['mcpAppAdmission'],
+  admission: McpAppToolAdmissionCapability
+): (() => void) | undefined {
+  if (admission.appCapableToolCount === 0) {
+    return;
+  }
+  return registry?.register(admission);
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -644,13 +659,10 @@ export async function createMastraAgentRuntime(
     storage,
     runtime?.assistantMessageId
   );
-  // An app-free run can never mount an app: registering it would only detach
-  // into a host watch on disposal and supersede the thread's still-mounted
-  // app admission for nothing.
-  const invalidateMcpAppAdmission =
-    mcpAppToolAdmission.appCapableToolCount > 0
-      ? mcpAppAdmission?.register(mcpAppToolAdmission)
-      : undefined;
+  const invalidateMcpAppAdmission = registerAppCapableAdmission(
+    mcpAppAdmission,
+    mcpAppToolAdmission
+  );
 
   return {
     agent,
