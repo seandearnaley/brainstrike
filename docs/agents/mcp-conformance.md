@@ -43,6 +43,39 @@ S256 PKCE and the RFC 8707 resource, emits and verifies the RFC 9207 issuer, and
 protects the real SDK v2 MCP handler with bearer authentication. Callback state
 and issuer verification is one-shot, route state is bounded, and close reports
 token-free zero counts for clients, states, codes, and tokens after clearing them.
+`tasks-reference` is the executable Tasks-extension release proof (BST-1566,
+SEP-2663 revision 2026-07-28). The pinned upstream tree ships no executable
+Tasks conformance suite and its core still registers the pre-revision Tasks
+shape, so the scenario is a Brainstrike-owned schema-derived profile
+(`tasks-profile.ts`) whose evidence carries partial upstream provenance to the
+pinned SDK `packages/core/src/schemas.ts` and must not claim full upstream
+coverage. The lab-owned reference server is driven by that profile: one tool
+returns a `task` result; the observable timeline is `working`,
+`input_required` (one elicitation input request), `completed`; input is
+delivered through `tasks/update`; a second task proves `tasks/cancel`;
+unknown task ids are rejected (RED); every transition emits the optional
+`notifications/tasks` status notification on the stream of the request that
+caused it (`relatedRequestId`). Every response is parsed with the extension
+package's own parsers; `@brainstrike/mcp-tasks-extension` is a pure protocol
+contract (pinned schemas and parsers, SDK core and zod only) and is classed as
+`shared-foundation` in `architecture/domain-map.json` precisely so the
+production-independent verifier may consume it without importing production
+client code. The pinned server's `subscriptions/listen` bus models
+only the four spec change events and cannot honor a `taskIds` filter, so a
+pinned-SDK server can never push task status to a listen lease; the production
+client's zero-honored-ids path (BST-1563) is therefore the expected state
+against such a server and is not a Brainstrike defect. Two pinned-SDK facts shape the harness and are
+recorded here so nobody relitigates them: the pinned core physically deletes
+`tasks/get`/`tasks/cancel` from the 2026-07-28 wire codec on BOTH ends and its
+response funnel admits only `complete`/`input_required` result types, so the
+lab uses the same closed transport-boundary alias bridge the production client
+uses (`tasks-wire-alias.ts`: the SDK sees non-colliding consumer methods and
+`complete` results; only the wire carries the official shape); and the pinned
+server lifts the reserved retry-channel names `inputResponses`/`requestState`
+off every client request's params onto the handler context, which is where a
+`tasks/update` handler must read them. The modern handler allocates a server
+per request, so the Tasks fixture shares one task store per handler through
+`createReferenceServerFactory`.
 
 The private artifact-integrity core reads each unique reference once and in
 order, passes an explicit positive byte limit to the reader, rejects an
@@ -265,12 +298,13 @@ Add verifier capabilities incrementally. A package export may appear only in
 the layer that implements and independently tests it; do not advertise a
 transport, fault coordinate, OAuth route, evidence guarantee, or runner before
 that branch contains its executable path and focused verifier. The private
-runner manifest owns two closed deterministic profiles over six case ids:
+runner manifest owns two closed deterministic profiles over eight case ids:
 
-- `pr`: 4 cases, 10,000 ms per case, 60,000 ms per run — modern in-process
-  HTTP, legacy loopback HTTP, OAuth loopback HTTP, and modern stdio.
-- `exhaustive`: 6 cases, 20,000 ms per case, 180,000 ms per run — the PR set
-  plus modern loopback and legacy in-process HTTP.
+- `pr`: 5 cases, 10,000 ms per case, 60,000 ms per run — modern in-process
+  HTTP, legacy loopback HTTP, OAuth loopback HTTP, modern stdio, and modern
+  Tasks in-process HTTP.
+- `exhaustive`: 8 cases, 20,000 ms per case, 180,000 ms per run — the PR set
+  plus modern loopback, legacy in-process HTTP, and modern Tasks loopback HTTP.
 
 Selection accepts only `profile`, `caseIds`, `caseTimeoutMs`, and
 `runTimeoutMs`; unknown fields, duplicate/foreign case ids, and out-of-bound

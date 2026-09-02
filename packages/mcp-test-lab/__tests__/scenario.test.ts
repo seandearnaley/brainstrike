@@ -163,6 +163,7 @@ describe('MCP lab scenario manifest', () => {
       'legacy-reference',
       'stdio-reference',
       'oauth-reference',
+      'tasks-reference',
     ]);
     expect(new Set(MCP_LAB_SCENARIO_IDS).size).toBe(MCP_LAB_SCENARIO_IDS.length);
     expect(MCP_LAB_SCENARIO_IDS.map((id) => [id, getMcpLabScenario(id).availability])).toEqual([
@@ -170,6 +171,7 @@ describe('MCP lab scenario manifest', () => {
       ['legacy-reference', 'executable'],
       ['stdio-reference', 'executable'],
       ['oauth-reference', 'executable'],
+      ['tasks-reference', 'executable'],
     ]);
   });
 

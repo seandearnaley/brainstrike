@@ -3,7 +3,12 @@ import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { OFFICIAL_EVERYTHING_PROFILE } from '../src/official-everything-profile';
-import { MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE, MCP_LAB_SDK_SOURCE } from '../src/scenario';
+import {
+  MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
+  MCP_LAB_SDK_SOURCE,
+  MCP_LAB_SDK_TASKS_SCHEMA_SOURCE,
+} from '../src/scenario';
+import { TASKS_PROFILE } from '../src/tasks-profile';
 
 const execFileAsync = promisify(execFile);
 
@@ -56,5 +61,22 @@ describe('MCP lab upstream provenance', () => {
     for (const anchor of anchors) {
       expect(text).toContain(anchor);
     }
+  });
+
+  it('verifies the partial Tasks provenance: the pinned core carries the older Tasks shape', async () => {
+    // BST-1566: the Tasks profile is Brainstrike-owned because the pinned core
+    // registers the pre-2026-07-28 shape; the digest and these anchors prove
+    // exactly that, so the evidence cannot overclaim upstream coverage.
+    const source = MCP_LAB_SDK_TASKS_SCHEMA_SOURCE;
+    const rawUrl = `https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/${source.commitSha}/${source.path}`;
+    const response = await fetch(rawUrl);
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(source.sha256);
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toContain("'tasks/get'");
+    expect(text).toContain("'tasks/cancel'");
+    expect(text).not.toContain('tasks/update');
+    expect(text).not.toContain(`${TASKS_PROFILE.notificationMethod}'`);
   });
 });

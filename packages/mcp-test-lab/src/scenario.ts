@@ -1,4 +1,5 @@
 import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profile.js';
+import { TASKS_PROFILE_SHA256 } from './tasks-profile.js';
 
 export const MCP_LAB_SDK_VERSION = '2.0.0' as const;
 export const MCP_LAB_CONFORMANCE_VERSION = '0.2.0-alpha.10' as const;
@@ -33,6 +34,27 @@ export const MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE = Object.freeze({
   upstream: MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
 } as const);
 
+/**
+ * The pinned SDK v2 core carries only the older Tasks shape (`tasks/get`,
+ * `tasks/cancel`, `notifications/tasks/status`; no `tasks/update`), so this is
+ * PARTIAL upstream provenance for a Brainstrike-owned profile that implements
+ * the 2026-07-28 revision; the evidence must not imply full upstream coverage.
+ */
+export const MCP_LAB_SDK_TASKS_SCHEMA_SOURCE = Object.freeze({
+  commitSha: MCP_LAB_SDK_SOURCE_SHA,
+  kind: 'official-typescript-sdk',
+  path: 'packages/core/src/schemas.ts',
+  repositoryUrl: MCP_LAB_SDK_SOURCE.repositoryUrl,
+  sha256: '4d6cd50c55b1ee4f747f3a0fdd2b423d23f64c95fc5eb2afb4a197c9761d82e4',
+} as const);
+
+export const MCP_LAB_TASKS_PROFILE_SOURCE = Object.freeze({
+  kind: 'brainstrike-owned-derived-profile',
+  path: 'packages/mcp-test-lab/src/tasks-profile.ts',
+  sha256: TASKS_PROFILE_SHA256,
+  upstream: MCP_LAB_SDK_TASKS_SCHEMA_SOURCE,
+} as const);
+
 const BRAINSTRIKE_HTTP_FIXTURE_SOURCE = Object.freeze({
   kind: 'brainstrike-owned',
   path: 'packages/mcp-test-lab/src/reference-server.ts',
@@ -53,6 +75,7 @@ export const MCP_LAB_SCENARIO_IDS = Object.freeze([
   'legacy-reference',
   'stdio-reference',
   'oauth-reference',
+  'tasks-reference',
 ] as const);
 
 export type McpLabScenarioId = (typeof MCP_LAB_SCENARIO_IDS)[number];
@@ -61,13 +84,15 @@ export type McpLabFixture =
   | 'brainstrike-oauth-reference'
   | 'brainstrike-sdk-v2-reference'
   | 'brainstrike-stdio-reference'
+  | 'brainstrike-tasks-reference'
   | 'official-sdk-v2-everything-reference';
 
 export type McpLabFixtureSource =
   | typeof BRAINSTRIKE_HTTP_FIXTURE_SOURCE
   | typeof BRAINSTRIKE_OAUTH_FIXTURE_SOURCE
   | typeof BRAINSTRIKE_STDIO_FIXTURE_SOURCE
-  | typeof MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE;
+  | typeof MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE
+  | typeof MCP_LAB_TASKS_PROFILE_SOURCE;
 
 export interface McpLabScenario {
   readonly authentication: 'none' | 'oauth';
@@ -165,6 +190,20 @@ const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = Object.fre
     protocol: { era: 'modern', version: '2026-07-28' },
     reference: REFERENCE,
     transport: 'stdio',
+    usesAmbientCredentials: false,
+  }),
+  'tasks-reference': freezeScenario({
+    authentication: 'none',
+    availability: 'executable',
+    description:
+      'Executable modern Tasks-extension reference over the Brainstrike-owned schema-derived profile',
+    fixture: 'brainstrike-tasks-reference',
+    fixtureSource: MCP_LAB_TASKS_PROFILE_SOURCE,
+    id: 'tasks-reference',
+    network: 'loopback-only',
+    protocol: { era: 'modern', version: '2026-07-28' },
+    reference: REFERENCE,
+    transport: 'streamable-http',
     usesAmbientCredentials: false,
   }),
 });

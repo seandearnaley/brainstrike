@@ -1,10 +1,18 @@
 import { createHash } from 'node:crypto';
 import {
+  parseMcpCancelTaskResult,
+  parseMcpCreateTaskResult,
+  parseMcpGetTaskResult,
+  parseMcpTaskStatusNotificationParams,
+  parseMcpUpdateTaskResult,
+} from '@brainstrike/mcp-tasks-extension';
+import {
   Client,
   ProtocolError,
   ProtocolErrorCode,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+import { z } from 'zod';
 import {
   createMcpOAuthAuthorizationResponseVerifier,
   type McpLabCleanupReport,
@@ -18,6 +26,14 @@ import type {
   McpLabRunnerPhaseOwner,
 } from './runner.js';
 import type { McpLabRunnerCase } from './runner-manifest.js';
+import { TASKS_PROFILE } from './tasks-profile.js';
+import {
+  installTasksClientWireAlias,
+  restoreCompleteResultType,
+  TASKS_WIRE_ALIASES,
+  type TasksWireMethod,
+  unwrapTasksToolResult,
+} from './tasks-wire-alias.js';
 
 const REDIRECT_URI = 'http://127.0.0.1:54321/callback';
 const PKCE_VERIFIER = 'brainstrike-runner-pkce-verifier-000000000000000000000000';
@@ -116,13 +132,166 @@ function startCase(runnerCase: McpLabRunnerCase): Promise<McpLabSession> {
   return startMcpLabScenario(runnerCase.scenarioId, { execution: runnerCase.execution });
 }
 
+function expectedToolFor(scenarioId: McpLabRunnerCase['scenarioId']): string {
+  if (scenarioId === 'modern-reference') {
+    return 'test_simple_text';
+  }
+  return scenarioId === 'tasks-reference' ? TASKS_PROFILE.tool.name : 'echo';
+}
+
 function correlationSuffix(runnerCase: McpLabRunnerCase, phase: McpLabRunnerPhase): string {
   if (phase !== 'red') {
     return '';
   }
+  if (runnerCase.scenarioId === 'tasks-reference') {
+    return '-missing-task-rejection';
+  }
   return runnerCase.scenarioId === 'modern-reference'
     ? '-intentional-tool-error'
     : '-missing-tool-rejection';
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, entry: unknown) =>
+    typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.entries(entry as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))
+        )
+      : entry
+  );
+}
+
+async function requestTasks<Result>(
+  client: Client,
+  method: TasksWireMethod,
+  params: Record<string, unknown>,
+  parse: (value: unknown) => Result,
+  signal: AbortSignal
+): Promise<Result> {
+  const raw = await client.request({ method: TASKS_WIRE_ALIASES[method], params }, z.unknown(), {
+    signal,
+  });
+  return parse(restoreCompleteResultType(raw));
+}
+
+/**
+ * Schema-derived black-box Tasks matrix (BST-1566): every response is parsed
+ * with the extension's own parsers, the observable timeline must match the
+ * profile, mid-flight input is delivered through `tasks/update`, a second task
+ * proves cancellation, and the optional status notification is observed.
+ */
+async function probeTasksCapabilities(client: Client, signal: AbortSignal): Promise<boolean> {
+  const notifications: string[] = [];
+  const notificationErrors: string[] = [];
+  client.setNotificationHandler(
+    TASKS_PROFILE.notificationMethod,
+    { params: z.unknown() },
+    (params: unknown) => {
+      // The SDK swallows handler throws; record them so the matrix fails loudly.
+      try {
+        notifications.push(parseMcpTaskStatusNotificationParams(params).status);
+      } catch (error) {
+        notificationErrors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+  );
+  const created = parseMcpCreateTaskResult(
+    unwrapTasksToolResult(
+      await client.request(
+        { method: 'tools/call', params: { arguments: {}, name: TASKS_PROFILE.tool.name } },
+        z.unknown(),
+        { signal }
+      )
+    )
+  );
+  const first = await requestTasks(
+    client,
+    'tasks/get',
+    { taskId: created.taskId },
+    parseMcpGetTaskResult,
+    signal
+  );
+  const second = await requestTasks(
+    client,
+    'tasks/get',
+    { taskId: created.taskId },
+    parseMcpGetTaskResult,
+    signal
+  );
+  if (second.status !== 'input_required') {
+    return false;
+  }
+  const inputRequest = second.inputRequests[TASKS_PROFILE.input.key];
+  await requestTasks(
+    client,
+    'tasks/update',
+    {
+      inputResponses: { [TASKS_PROFILE.input.key]: TASKS_PROFILE.input.response },
+      taskId: created.taskId,
+    },
+    parseMcpUpdateTaskResult,
+    signal
+  );
+  const completed = await requestTasks(
+    client,
+    'tasks/get',
+    { taskId: created.taskId },
+    parseMcpGetTaskResult,
+    signal
+  );
+  const cancellable = parseMcpCreateTaskResult(
+    unwrapTasksToolResult(
+      await client.request(
+        { method: 'tools/call', params: { arguments: {}, name: TASKS_PROFILE.tool.name } },
+        z.unknown(),
+        { signal }
+      )
+    )
+  );
+  await requestTasks(
+    client,
+    'tasks/cancel',
+    { taskId: cancellable.taskId },
+    parseMcpCancelTaskResult,
+    signal
+  );
+  const cancelled = await requestTasks(
+    client,
+    'tasks/get',
+    { taskId: cancellable.taskId },
+    parseMcpGetTaskResult,
+    signal
+  );
+  const timeline = [first.status, second.status, completed.status];
+  const expectedTimeline: readonly string[] = TASKS_PROFILE.timeline;
+  const checks: ReadonlyArray<readonly [string, boolean]> = [
+    ['tool result is a task', created.resultType === 'task'],
+    ['created task starts working', created.status === expectedTimeline[0]],
+    [
+      'observed timeline matches the profile',
+      JSON.stringify(timeline) === JSON.stringify(expectedTimeline),
+    ],
+    [
+      'input request matches the profile',
+      canonicalJson(inputRequest) === canonicalJson(TASKS_PROFILE.input.request),
+    ],
+    [
+      'completed task carries the profile result',
+      canonicalJson(completed.result) === canonicalJson(TASKS_PROFILE.result),
+    ],
+    ['second task is cancelled', cancelled.status === 'cancelled'],
+    ['input_required status notification observed', notifications.includes('input_required')],
+    ['completed status notification observed', notifications.includes('completed')],
+    ['cancelled status notification observed', notifications.includes('cancelled')],
+    ['every status notification parsed', notificationErrors.length === 0],
+  ];
+  const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
+  if (failed.length > 0) {
+    throw new Error(
+      `MCP Tasks reference matrix failed: ${failed.join('; ')} (timeline ${JSON.stringify(timeline)}, notifications ${JSON.stringify(notifications)}, inputRequest ${JSON.stringify(inputRequest)}, notificationErrors ${JSON.stringify(notificationErrors)})`
+    );
+  }
+  return true;
 }
 
 export function isMissingToolProtocolError(error: unknown, toolName: string): boolean {
@@ -237,6 +406,26 @@ async function runReferenceTest(
   value: string,
   signal: AbortSignal
 ): Promise<boolean> {
+  if (runnerCase.scenarioId === 'tasks-reference') {
+    if (phase !== 'red') {
+      return probeTasksCapabilities(client, signal);
+    }
+    try {
+      await requestTasks(
+        client,
+        'tasks/get',
+        { taskId: TASKS_PROFILE.missingTaskId },
+        parseMcpGetTaskResult,
+        signal
+      );
+    } catch (error) {
+      if (error instanceof ProtocolError) {
+        return false;
+      }
+      throw error;
+    }
+    throw new Error('MCP reference runner RED tasks/get for a missing task was not rejected');
+  }
   if (runnerCase.scenarioId === 'modern-reference') {
     if (phase !== 'red') {
       return probeModernCapabilities(client, signal);
@@ -334,21 +523,23 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
       const accessToken =
         endpoint.kind === 'oauth-loopback-http' ? await authorize(this.lab, signal) : undefined;
       signal.throwIfAborted();
+      const transport = new StreamableHTTPClientTransport(endpoint.url, {
+        ...(endpoint.kind === 'in-process-http' ? { fetch: endpoint.fetch } : {}),
+        ...(accessToken
+          ? { requestInit: { headers: { authorization: `Bearer ${accessToken}` } } }
+          : {}),
+      });
       await this.client.connect(
-        new StreamableHTTPClientTransport(endpoint.url, {
-          ...(endpoint.kind === 'in-process-http' ? { fetch: endpoint.fetch } : {}),
-          ...(accessToken
-            ? { requestInit: { headers: { authorization: `Bearer ${accessToken}` } } }
-            : {}),
-        }),
+        this.runnerCase.scenarioId === 'tasks-reference'
+          ? installTasksClientWireAlias(transport)
+          : transport,
         { signal }
       );
     }
     signal.throwIfAborted();
     const tools = await this.client.listTools(undefined, { signal });
     signal.throwIfAborted();
-    const expectedTool =
-      this.runnerCase.scenarioId === 'modern-reference' ? 'test_simple_text' : 'echo';
+    const expectedTool = expectedToolFor(this.runnerCase.scenarioId);
     if (!tools.tools.some(({ name }) => name === expectedTool)) {
       throw new Error(`MCP reference runner server does not expose the ${expectedTool} tool`);
     }

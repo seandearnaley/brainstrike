@@ -7,6 +7,8 @@ import {
 import { z } from 'zod';
 import { OFFICIAL_EVERYTHING_PROFILE as profile } from './official-everything-profile.js';
 import type { McpLabFixture } from './scenario.js';
+import { TASKS_PROFILE as tasks } from './tasks-profile.js';
+import { installTasksServerWireAlias, TASKS_WIRE_ALIASES } from './tasks-wire-alias.js';
 
 function createBrainstrikeEchoReferenceServer(): McpServer {
   const server = new McpServer({
@@ -143,9 +145,151 @@ function createOfficialEverythingReferenceServer(): McpServer {
   return server;
 }
 
+type TaskStatus = 'cancelled' | 'completed' | 'input_required' | 'working';
+
+interface TaskState {
+  readonly createdAt: string;
+  lastUpdatedAt: string;
+  observed: number;
+  status: TaskStatus;
+}
+
+const TASK_REQUEST_PARAMS = z.object({ taskId: z.string() }).passthrough();
+const TASK_RESULT = z.object({}).passthrough();
+
+/**
+ * Deterministic black-box Tasks server driven by {@link TASKS_PROFILE}: one
+ * tool starts a task; the first `tasks/get` observes `working`, the second
+ * `input_required` with one elicitation input request; `tasks/update` with
+ * that input completes the task; `tasks/cancel` cancels a non-terminal task;
+ * unknown ids are rejected; every transition also emits the optional status
+ * notification.
+ */
+/** One task store per handler: the modern handler builds a server per request. */
+interface TaskStore {
+  sequence: number;
+  readonly states: Map<string, TaskState>;
+}
+
+function createTasksReferenceServer(store: TaskStore): McpServer {
+  const server = new McpServer(tasks.server, { capabilities: tasks.capabilities });
+  const { states } = store;
+  const now = (): string => new Date().toISOString();
+  /** The detailed task: status-specific fields ride on results AND notifications. */
+  const projection = (taskId: string, state: TaskState) => ({
+    createdAt: state.createdAt,
+    lastUpdatedAt: state.lastUpdatedAt,
+    pollIntervalMs: tasks.task.pollIntervalMs,
+    status: state.status,
+    taskId,
+    ttlMs: tasks.task.ttlMs,
+    ...(state.status === 'input_required'
+      ? { inputRequests: { [tasks.input.key]: tasks.input.request } }
+      : {}),
+    ...(state.status === 'completed' ? { result: tasks.result } : {}),
+  });
+  const requireTask = (taskId: string): TaskState => {
+    const state = states.get(taskId);
+    if (!state) {
+      throw new Error(`MCP Tasks reference task "${taskId}" does not exist`);
+    }
+    return state;
+  };
+  // The pinned server's `subscriptions/listen` bus models only the four spec
+  // change events, so the optional status notification can only travel on the
+  // stream of the request that caused the transition.
+  const transition = async (
+    taskId: string,
+    state: TaskState,
+    status: TaskStatus,
+    relatedRequestId: string | number
+  ) => {
+    state.status = status;
+    state.lastUpdatedAt = now();
+    await server.server.notification(
+      { method: tasks.notificationMethod, params: projection(taskId, state) },
+      { relatedRequestId }
+    );
+  };
+
+  server.registerTool(tasks.tool.name, { description: tasks.tool.description }, async () => {
+    store.sequence += 1;
+    const taskId = `reference-task-${store.sequence}`;
+    const createdAt = now();
+    states.set(taskId, { createdAt, lastUpdatedAt: createdAt, observed: 0, status: 'working' });
+    return {
+      content: [],
+      createdAt,
+      lastUpdatedAt: createdAt,
+      pollIntervalMs: tasks.task.pollIntervalMs,
+      resultType: 'task',
+      status: 'working',
+      taskId,
+      ttlMs: tasks.task.ttlMs,
+    } as never;
+  });
+  server.server.setRequestHandler(
+    TASKS_WIRE_ALIASES['tasks/get'],
+    { params: TASK_REQUEST_PARAMS, result: TASK_RESULT },
+    async ({ taskId }, context) => {
+      const state = requireTask(taskId);
+      state.observed += 1;
+      if (state.status === 'working' && state.observed >= 2) {
+        await transition(taskId, state, 'input_required', context.mcpReq.id);
+      }
+      return projection(taskId, state);
+    }
+  );
+  server.server.setRequestHandler(
+    TASKS_WIRE_ALIASES['tasks/update'],
+    { params: TASK_REQUEST_PARAMS, result: TASK_RESULT },
+    async ({ taskId }, context) => {
+      const state = requireTask(taskId);
+      // The pinned 2026-07-28 server lifts the reserved retry-channel names
+      // (`inputResponses`, `requestState`) off every client request's params
+      // and surfaces them on the handler context; `tasks/update` reuses them.
+      const inputResponses = context.mcpReq.inputResponses;
+      if (state.status !== 'input_required' || inputResponses?.[tasks.input.key] === undefined) {
+        throw new Error(`MCP Tasks reference task "${taskId}" is not awaiting input`);
+      }
+      await transition(taskId, state, 'completed', context.mcpReq.id);
+      return {};
+    }
+  );
+  server.server.setRequestHandler(
+    TASKS_WIRE_ALIASES['tasks/cancel'],
+    { params: TASK_REQUEST_PARAMS, result: TASK_RESULT },
+    async ({ taskId }, context) => {
+      const state = requireTask(taskId);
+      if (state.status === 'completed' || state.status === 'cancelled') {
+        throw new Error(`MCP Tasks reference task "${taskId}" is already terminal`);
+      }
+      await transition(taskId, state, 'cancelled', context.mcpReq.id);
+      return {};
+    }
+  );
+  return installTasksServerWireAlias(server);
+}
+
+/**
+ * Per-handler server factory. Every fixture but Tasks is stateless, so a
+ * fresh server per request is exact; the Tasks fixture shares one task store
+ * across the per-request servers the modern handler allocates.
+ */
+export function createReferenceServerFactory(fixture: McpLabFixture): () => McpServer {
+  if (fixture !== 'brainstrike-tasks-reference') {
+    return () => createReferenceServer(fixture);
+  }
+  const store: TaskStore = { sequence: 0, states: new Map() };
+  return () => createTasksReferenceServer(store);
+}
+
 export function createReferenceServer(fixture: McpLabFixture): McpServer {
   if (fixture === 'official-sdk-v2-everything-reference') {
     return createOfficialEverythingReferenceServer();
+  }
+  if (fixture === 'brainstrike-tasks-reference') {
+    return createTasksReferenceServer({ sequence: 0, states: new Map() });
   }
   return createBrainstrikeEchoReferenceServer();
 }

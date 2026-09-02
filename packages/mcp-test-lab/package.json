@@ -3,6 +3,7 @@
   "description": "Deterministic MCP protocol fixtures, faults, and verification evidence for Brainstrike tests",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/mcp-tasks-extension": "workspace:*",
     "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/node": "catalog:",
     "@modelcontextprotocol/server": "catalog:",

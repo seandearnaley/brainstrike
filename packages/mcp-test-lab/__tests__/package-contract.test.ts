@@ -71,6 +71,7 @@ describe('MCP test lab package contract', () => {
     const manifest = await readManifest();
 
     expect(manifest.dependencies).toEqual({
+      '@brainstrike/mcp-tasks-extension': 'workspace:*',
       '@modelcontextprotocol/client': 'catalog:',
       '@modelcontextprotocol/node': 'catalog:',
       '@modelcontextprotocol/server': 'catalog:',
@@ -204,6 +205,7 @@ describe('MCP test lab package contract', () => {
       'legacy-reference',
       'stdio-reference',
       'oauth-reference',
+      'tasks-reference',
     ]);
     expect(normalizedContract).toContain(
       "`modern-reference` and `legacy-reference` have `availability: 'executable'`"
