@@ -8,6 +8,11 @@ export {
   parseMcpAppsClientCapability,
 } from './capabilities.js';
 export {
+  installMcpAppElectronSandboxPolicy,
+  type McpAppElectronSandboxLease,
+  requireMcpAppSandboxPartition,
+} from './electron-sandbox.js';
+export {
   McpAppRequestCorrelator,
   type McpAppResponse,
   parseMcpAppResponse,
@@ -38,6 +43,15 @@ export {
   McpAppProvenanceAuthority,
   type McpAppToolCall,
 } from './provenance.js';
+export {
+  buildMcpAppSandboxPolicy,
+  type McpAppSandboxMount,
+  McpAppSandboxOwner,
+  type McpAppSandboxPolicy,
+  type McpAppSandboxUrlApi,
+  renderMcpAppResourceDocument,
+  renderMcpAppSandboxShellDocument,
+} from './sandbox.js';
 export {
   MCP_APPS_PINNED_SCHEMA_UI_METHODS,
   MCP_APPS_SCHEMA_EXCLUSIONS,

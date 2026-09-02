@@ -1982,7 +1982,7 @@ custom-method escape hatch and does not patch the SDK dependency.
 
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
-| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Disabled: no `ui://` resource reader, isolated sandbox/CSP/permissions enforcement, or validated app↔host `postMessage` RPC implementation is registered | No |
+| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Disabled: the isolated sandbox is inert; no `ui://` resource reader or validated app↔host `postMessage` RPC implementation is registered | No |
 | MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Exact get/update/cancel, task-result, routing-header, and notification-lease wire contracts exist (BST-1561), but no durable task host is registered (BST-1473) | No |
 | OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
@@ -2171,6 +2171,30 @@ or canonical base64 body, fatal UTF-8 decoding, and at most 1 MiB decoded HTML.
 Result settlement is one-shot. This authority does not infer ownership from a
 URI or tool name and does not register Apps, fetch resources, render content,
 or implement a frame, sandbox, consent, or approval path.
+
+BST-1569 adds the disabled renderer boundary. One host-owned object URL contains
+a shell whose only child is an opaque-origin `srcdoc` iframe with
+`sandbox="allow-scripts"`; same-origin, popup, download, top-navigation, form,
+object, and worker privileges remain absent. Validated Apps metadata constructs
+the resource CSP (each declared source is rejected if it carries a CSP
+delimiter or quote), and the shell carries that policy verbatim: the srcdoc app
+inherits the shell's policies and CSP combination only narrows, so a shell
+policy tighter than the app's would deny the app its declared sources, while
+Chromium exempts the srcdoc load itself from `frame-src`. The host owns the
+doctype so the app renders in standards mode with the CSP ahead of its bytes.
+Requested camera, microphone, geolocation, and clipboard permissions are
+recorded rather than granted until a later consent contract exists. Each owner permits at most eight active frames and 4 MiB of retained
+shell HTML; the prior provenance layer independently caps decoded HTML at 1 MiB.
+The Electron adapter requires a dedicated session, denies window creation,
+navigation, redirects, webviews, downloads, and all permission checks/requests.
+Session-scoped denials are installed once per session and never restored to
+Electron's permissive defaults (a lease's close cannot fail a sibling open);
+teardown removes the per-WebContents hooks, destroys the WebContents, clears
+session cache/storage once the last lease closes, and revokes the owner URL. Real Chromium and Electron adversarial
+verifiers pin those boundaries and repeated cleanup; the Chromium verifier is
+a `*.browser.test.ts` file run by the package's `test:browser`
+script in the Browser tests lane (Playwright image), never in the Unit lanes. Nothing registers this
+sandbox, advertises Apps, or implements app RPC, consent, or production UI.
 
 Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
 `McpHostSnapshot` through `mcp:status:get` and revisioned

@@ -7,6 +7,7 @@
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "playwright": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -28,8 +29,9 @@
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm -w lint",
-    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:browser": "vitest run --config vitest.browser.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },

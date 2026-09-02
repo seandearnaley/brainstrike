@@ -30,6 +30,18 @@ describe('stable MCP Apps resource identity', () => {
     );
   });
 
+  it.each([
+    'https://cdn.example.com; script-src-elem https://evil.example',
+    'https://cdn.example.com;script-src-elem',
+    'https://cdn.example.com,https://evil.example',
+    "https://cdn.example.com'",
+    'https://cdn.example.com\t',
+  ])('rejects a CSP source that could split or extend a directive: %j', (domain) => {
+    expect(() => parseMcpAppResourceMeta({ csp: { resourceDomains: [domain] } })).toThrow(
+      /CSP (delimiters|origin)/
+    );
+  });
+
   it.each(['text/html', 'text/html; profile=mcp-app', 'text/html;profile=MCP-app', '', null])(
     'rejects a noncanonical App MIME type: %j',
     (input) => {

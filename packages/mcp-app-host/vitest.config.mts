@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    exclude: ['node_modules', 'dist', '**/*.integration.test.ts'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.browser.test.ts'],
     globals: true,
     include: ['__tests__/**/*.test.ts'],
     name: 'mcp-app-host',
