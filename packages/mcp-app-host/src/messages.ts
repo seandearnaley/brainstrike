@@ -1,26 +1,13 @@
 import { MCP_APPS_SPEC_VERSION } from './capabilities.js';
 import { parseMcpAppResourceMeta } from './metadata.js';
-import { expectExactKeys, expectRecord, type UnknownRecord } from './validation.js';
-
-export const MCP_APPS_STABLE_METHODS = Object.freeze([
-  'ui/initialize',
-  'ui/notifications/initialized',
-  'ui/open-link',
-  'ui/message',
-  'ui/request-display-mode',
-  'ui/update-model-context',
-  'ui/notifications/size-changed',
-  'ui/resource-teardown',
-  'ui/notifications/tool-input',
-  'ui/notifications/tool-input-partial',
-  'ui/notifications/tool-result',
-  'ui/notifications/tool-cancelled',
-  'ui/notifications/host-context-changed',
-  'ui/notifications/sandbox-proxy-ready',
-  'ui/notifications/sandbox-resource-ready',
-] as const);
-
-export type McpAppStableMethod = (typeof MCP_APPS_STABLE_METHODS)[number];
+import { MCP_APPS_STABLE_METHODS, type McpAppStableMethod } from './stable-contract.js';
+import {
+  expectEncodedSize,
+  expectExactKeys,
+  expectRecord,
+  MCP_APP_MAX_MESSAGE_BYTES,
+  type UnknownRecord,
+} from './validation.js';
 export type McpAppMessageDirection =
   | 'app-to-host'
   | 'host-to-app'
@@ -42,6 +29,9 @@ const REQUEST_METHODS = new Set<McpAppStableMethod>([
   'ui/request-display-mode',
   'ui/update-model-context',
   'ui/resource-teardown',
+  'tools/call',
+  'resources/read',
+  'ping',
 ]);
 
 const METHODS_BY_DIRECTION: Readonly<
@@ -55,9 +45,17 @@ const METHODS_BY_DIRECTION: Readonly<
     'ui/request-display-mode',
     'ui/update-model-context',
     'ui/notifications/size-changed',
+    'tools/call',
+    'resources/read',
+    'notifications/message',
+    'ping',
   ]),
   'host-to-app': new Set<McpAppStableMethod>([
     'ui/resource-teardown',
+    // MCP ping is issued by either peer; the host uses it to detect a wedged
+    // frame. tools/call reaches an app that declared its own tools.
+    'ping',
+    'tools/call',
     'ui/notifications/tool-input',
     'ui/notifications/tool-input-partial',
     'ui/notifications/tool-result',
@@ -335,6 +333,14 @@ function parseJsonRecord(value: unknown, label: string): Readonly<UnknownRecord>
   return cloneJsonRecord(value, label);
 }
 
+export function parseMcpAppJsonRecord(value: unknown, label: string): Readonly<UnknownRecord> {
+  return cloneJsonRecord(value, label);
+}
+
+export function parseMcpAppJsonValue(value: unknown, label: string): JsonValue {
+  return cloneJsonValue(value, label);
+}
+
 type ParamsParser = (value: unknown, label: string) => Readonly<UnknownRecord>;
 
 function parseOpenLinkParams(value: unknown, label: string): Readonly<UnknownRecord> {
@@ -449,7 +455,88 @@ function parseSandboxResourceParams(value: unknown, label: string): Readonly<Unk
   return Object.freeze(parsed);
 }
 
+function parseOptionalMeta(
+  record: UnknownRecord,
+  label: string
+): Readonly<UnknownRecord> | undefined {
+  return record['_meta'] === undefined
+    ? undefined
+    : parseJsonRecord(record['_meta'], `${label}._meta`);
+}
+
+function parseCallToolParams(value: unknown, label: string): Readonly<UnknownRecord> {
+  const record = expectRecord(value, label);
+  expectExactKeys(record, ['_meta', 'arguments', 'name'], ['name'], label);
+  const name = expectString(record['name'], `${label}.name`);
+  if (name.length === 0 || name.length > 256) {
+    throw new TypeError(`${label}.name must contain 1 to 256 characters`);
+  }
+  const meta = parseOptionalMeta(record, label);
+  return Object.freeze({
+    ...(meta === undefined ? {} : { _meta: meta }),
+    ...(record['arguments'] === undefined
+      ? {}
+      : { arguments: parseJsonRecord(record['arguments'], `${label}.arguments`) }),
+    name,
+  });
+}
+
+function parseReadResourceParams(value: unknown, label: string): Readonly<UnknownRecord> {
+  const record = expectRecord(value, label);
+  expectExactKeys(record, ['_meta', 'uri'], ['uri'], label);
+  const uri = expectString(record['uri'], `${label}.uri`);
+  if (uri.length === 0 || uri.length > 2048) {
+    throw new TypeError(`${label}.uri must contain 1 to 2048 characters`);
+  }
+  try {
+    new URL(uri);
+  } catch (error: unknown) {
+    throw new TypeError(`${label}.uri must be an absolute URI`, { cause: error });
+  }
+  const meta = parseOptionalMeta(record, label);
+  return Object.freeze({ ...(meta === undefined ? {} : { _meta: meta }), uri });
+}
+
+const LOG_LEVELS = new Set([
+  'alert',
+  'critical',
+  'debug',
+  'emergency',
+  'error',
+  'info',
+  'notice',
+  'warning',
+]);
+
+function parseLoggingParams(value: unknown, label: string): Readonly<UnknownRecord> {
+  const record = expectRecord(value, label);
+  expectExactKeys(record, ['_meta', 'data', 'level', 'logger'], ['data', 'level'], label);
+  if (typeof record['level'] !== 'string' || !LOG_LEVELS.has(record['level'])) {
+    throw new TypeError(`${label}.level must be a standard MCP logging level`);
+  }
+  const meta = parseOptionalMeta(record, label);
+  return Object.freeze({
+    ...(meta === undefined ? {} : { _meta: meta }),
+    data: cloneJsonValue(record['data'], `${label}.data`),
+    level: record['level'],
+    ...(record['logger'] === undefined
+      ? {}
+      : { logger: expectString(record['logger'], `${label}.logger`) }),
+  });
+}
+
+function parsePingParams(value: unknown, label: string): Readonly<UnknownRecord> {
+  const record = expectRecord(value, label);
+  expectExactKeys(record, ['_meta'], [], label);
+  const meta = parseOptionalMeta(record, label);
+  return Object.freeze(meta === undefined ? {} : { _meta: meta });
+}
+
 const PARAMS_PARSERS: Readonly<Record<McpAppStableMethod, ParamsParser>> = Object.freeze({
+  'notifications/message': parseLoggingParams,
+  ping: parsePingParams,
+  'resources/read': parseReadResourceParams,
+  'tools/call': parseCallToolParams,
   'ui/initialize': parseInitializeParams,
   'ui/message': parseMessageParams,
   'ui/notifications/host-context-changed': parseJsonRecord,
@@ -492,6 +579,10 @@ function parseRequestId(value: unknown, label: string): number | string {
   throw new TypeError(`${label}.id must be a string or safe integer`);
 }
 
+export function parseMcpAppRequestId(value: unknown, label: string): number | string {
+  return parseRequestId(value, label);
+}
+
 export function parseMcpAppMessage(
   value: unknown,
   direction: McpAppMessageDirection
@@ -504,12 +595,14 @@ export function parseMcpAppMessage(
   }
 
   const isRequest = REQUEST_METHODS.has(method);
-  const paramsOptional = method === 'ui/notifications/initialized';
+  const paramsOptional = method === 'ui/notifications/initialized' || method === 'ping';
   expectExactKeys(
     record,
     isRequest ? ['id', 'jsonrpc', 'method', 'params'] : ['jsonrpc', 'method', 'params'],
     isRequest
-      ? ['id', 'jsonrpc', 'method', 'params']
+      ? paramsOptional
+        ? ['id', 'jsonrpc', 'method']
+        : ['id', 'jsonrpc', 'method', 'params']
       : paramsOptional
         ? ['jsonrpc', 'method']
         : ['jsonrpc', 'method', 'params'],
@@ -523,10 +616,12 @@ export function parseMcpAppMessage(
     record['params'] === undefined && paramsOptional
       ? undefined
       : parseMethodParams(method, record['params'], `${label} ${method}.params`);
-  return Object.freeze({
+  const parsed = Object.freeze({
     ...(isRequest ? { id: parseRequestId(record['id'], label) } : {}),
     jsonrpc: '2.0' as const,
     method,
     ...(params === undefined ? {} : { params }),
   });
+  expectEncodedSize(parsed, MCP_APP_MAX_MESSAGE_BYTES, label);
+  return parsed;
 }

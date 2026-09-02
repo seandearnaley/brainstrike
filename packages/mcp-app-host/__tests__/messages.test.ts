@@ -65,6 +65,18 @@ const STABLE_MESSAGES: readonly [McpAppMessageDirection, unknown][] = [
     },
   ],
   ['host-to-app', { id: 'teardown', jsonrpc: '2.0', method: 'ui/resource-teardown', params: {} }],
+  // Review of #2914: ping is issued by either peer, and the host calls an
+  // app-declared tool through tools/call.
+  ['host-to-app', { id: 'liveness', jsonrpc: '2.0', method: 'ping', params: {} }],
+  [
+    'host-to-app',
+    {
+      id: 'app-tool',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'app-declared' },
+    },
+  ],
   [
     'host-to-app',
     {
@@ -141,6 +153,10 @@ describe('stable MCP Apps message allowlist', () => {
       'ui/notifications/host-context-changed',
       'ui/notifications/sandbox-proxy-ready',
       'ui/notifications/sandbox-resource-ready',
+      'tools/call',
+      'resources/read',
+      'notifications/message',
+      'ping',
     ]);
   });
 
@@ -293,6 +309,38 @@ describe('stable MCP Apps message allowlist', () => {
         'host-to-app'
       )
     ).toThrow(/not allowed in direction/);
+  });
+
+  it.each([
+    { id: 'tool', jsonrpc: '2.0', method: 'tools/call', params: { name: 'refresh' } },
+    {
+      id: 'resource',
+      jsonrpc: '2.0',
+      method: 'resources/read',
+      params: { uri: 'ui://weather/dashboard' },
+    },
+    {
+      jsonrpc: '2.0',
+      method: 'notifications/message',
+      params: { data: { ready: true }, level: 'info' },
+    },
+    { id: 'ping', jsonrpc: '2.0', method: 'ping' },
+  ])('accepts the stable standard MCP subset: $method', (message) => {
+    expect(parseMcpAppMessage(message, 'app-to-host')).toEqual(message);
+  });
+
+  it('uses the pinned generated empty teardown shape until the stable prose conflict is resolved', () => {
+    expect(() =>
+      parseMcpAppMessage(
+        {
+          id: 'teardown',
+          jsonrpc: '2.0',
+          method: 'ui/resource-teardown',
+          params: { reason: 'replacement' },
+        },
+        'host-to-app'
+      )
+    ).toThrow(/unsupported field "reason"/);
   });
 
   it.each([
