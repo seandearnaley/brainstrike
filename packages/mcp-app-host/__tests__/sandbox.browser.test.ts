@@ -1,11 +1,6 @@
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  buildMcpAppSandboxPolicy,
-  McpAppProvenanceAuthority,
-  renderMcpAppResourceDocument,
-  renderMcpAppSandboxShellDocument,
-} from '../src/index.js';
+import { McpAppProvenanceAuthority, renderMcpAppSandboxShell } from '../src/index.js';
 
 const SCRIPT_CLOSE = '</script>';
 const APP_HTML = `<!doctype html><script>
@@ -34,7 +29,7 @@ describe('real Chromium MCP Apps sandbox', () => {
     await browser.close();
   });
 
-  it('blocks CSP network, parent access, popups, downloads, and top navigation, then revokes URLs', async () => {
+  it('blocks CSP network, parent access, popups, downloads, and top navigation through the header-served shell, then releases it', async () => {
     const context = await browser.newContext({ acceptDownloads: false });
     const page = await context.newPage();
     const popups: unknown[] = [];
@@ -58,13 +53,31 @@ describe('real Chromium MCP Apps sandbox', () => {
       text: APP_HTML,
       uri: 'ui://browser/app',
     });
-    const policy = buildMcpAppSandboxPolicy(resource.meta);
-    const resourceDocument = renderMcpAppResourceDocument(resource, policy);
-    const shellDocument = renderMcpAppSandboxShellDocument(resourceDocument, policy);
-    const shellUrl = await page.evaluate(
-      (documentText) => URL.createObjectURL(new Blob([documentText], { type: 'text/html' })),
-      shellDocument
-    );
+    // Production serves the shell from its own origin with the policies as
+    // RESPONSE HEADERS (desktop: the brainstrike-mcp-app: protocol). Model
+    // exactly that: a routed origin, header CSP + Permissions-Policy, and a
+    // release that turns the URL into a 404.
+    const shell = renderMcpAppSandboxShell(resource);
+    const shellUrl = 'https://mcp-app-shell.test/0123456789abcdef0123456789abcdef/';
+    let released = false;
+    await page.route(`${shellUrl}**`, async (route) => {
+      if (released) {
+        await route.fulfill({ body: 'Not found', status: 404 });
+        return;
+      }
+      await route.fulfill({
+        body: shell.document,
+        contentType: 'text/html; charset=utf-8',
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Security-Policy': shell.contentSecurityPolicy,
+          'Permissions-Policy': shell.permissionsPolicy,
+          'Referrer-Policy': 'no-referrer',
+          'X-Content-Type-Options': 'nosniff',
+        },
+        status: 200,
+      });
+    });
 
     await page.evaluate(() => {
       const results: unknown[] = [];
@@ -76,9 +89,10 @@ describe('real Chromium MCP Apps sandbox', () => {
       });
     });
     await page.evaluate((url) => {
+      // The host frames the shell WITHOUT a sandbox attribute (it lives on
+      // its own origin); only the shell's nested app frame is sandboxed.
       const frame = document.createElement('iframe');
       frame.id = 'mcp-app-shell';
-      frame.sandbox.add('allow-scripts');
       frame.src = url;
       document.body.append(frame);
     }, shellUrl);
@@ -108,11 +122,21 @@ describe('real Chromium MCP Apps sandbox', () => {
     expect(popups).toHaveLength(0);
     expect(downloads).toHaveLength(0);
 
-    await page.evaluate((shell) => {
-      document.querySelector('#mcp-app-shell')?.remove();
-      URL.revokeObjectURL(shell);
-    }, shellUrl);
-    await expect(page.evaluate((url) => fetch(url), shellUrl)).rejects.toThrow();
+    // The host can reach the app frame only as a cross-origin WindowProxy
+    // (`shell.frames[0]`), never the shell document itself.
+    expect(
+      await page.evaluate(() => {
+        const frame = document.querySelector('#mcp-app-shell');
+        if (!(frame instanceof HTMLIFrameElement) || frame.contentWindow === null) {
+          throw new Error('shell frame is unavailable');
+        }
+        return { appFrames: frame.contentWindow.length, shellDocument: frame.contentDocument };
+      })
+    ).toEqual({ appFrames: 1, shellDocument: null });
+
+    released = true;
+    await page.evaluate(() => document.querySelector('#mcp-app-shell')?.remove());
+    expect(await page.evaluate((url) => fetch(url).then((r) => r.status), shellUrl)).toBe(404);
     await context.close();
   });
 });

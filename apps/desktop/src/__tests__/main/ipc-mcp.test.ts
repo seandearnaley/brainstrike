@@ -144,10 +144,12 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:prepare', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:execute', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:release', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:prepareShell', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:releaseShell', expect.any(Function));
       // Durable Tasks handlers (BST-1566)
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:task:act', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:task:list', expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledTimes(27);
+      expect(ipcMain.handle).toHaveBeenCalledTimes(29);
     });
 
     it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {

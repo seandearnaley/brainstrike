@@ -12,6 +12,10 @@ type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
 type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
 type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
+type McpAppShellPrepareRequest =
+  import('@brainstrike/assistant-contract').McpAppShellPrepareRequest;
+type McpAppShellReleaseRequest =
+  import('@brainstrike/assistant-contract').McpAppShellReleaseRequest;
 type McpAppPrepareRequest = import('@brainstrike/assistant-contract').McpAppPrepareRequest;
 type McpAppExecuteRequest = import('@brainstrike/assistant-contract').McpAppExecuteRequest;
 type McpAppReleaseRequest = import('@brainstrike/assistant-contract').McpAppReleaseRequest;
@@ -305,6 +309,8 @@ const MCP_CONTENT_READ_RESOURCE_CHANNEL = 'mcp:content:readResource' as const;
 const MCP_APPS_PREPARE_CHANNEL = 'mcp:apps:prepare' as const;
 const MCP_APPS_EXECUTE_CHANNEL = 'mcp:apps:execute' as const;
 const MCP_APPS_RELEASE_CHANNEL = 'mcp:apps:release' as const;
+const MCP_APPS_PREPARE_SHELL_CHANNEL = 'mcp:apps:prepareShell' as const;
+const MCP_APPS_RELEASE_SHELL_CHANNEL = 'mcp:apps:releaseShell' as const;
 /**
  * `mcp:content:*` failures travel as a result envelope (a thrown Error would
  * reach the renderer as Electron's formatted string, main-process stack
@@ -911,9 +917,13 @@ contextBridge.exposeInMainWorld('mcp', {
       ipcRenderer.invoke(MCP_APPS_EXECUTE_CHANNEL, request),
     prepare: (request: McpAppPrepareRequest) =>
       ipcRenderer.invoke(MCP_APPS_PREPARE_CHANNEL, request),
+    prepareShell: (request: McpAppShellPrepareRequest) =>
+      ipcRenderer.invoke(MCP_APPS_PREPARE_SHELL_CHANNEL, request),
     readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
     release: (request: McpAppReleaseRequest) =>
       ipcRenderer.invoke(MCP_APPS_RELEASE_CHANNEL, request),
+    releaseShell: (request: McpAppShellReleaseRequest) =>
+      ipcRenderer.invoke(MCP_APPS_RELEASE_SHELL_CHANNEL, request),
   } satisfies McpAppBridge,
   complete: (request: unknown) =>
     unwrapMcpContent(ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request)),

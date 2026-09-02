@@ -30,10 +30,6 @@
     "./metadata": {
       "types": "./dist/metadata.d.ts",
       "default": "./dist/metadata.js"
-    },
-    "./electron-sandbox": {
-      "types": "./dist/electron-sandbox.d.ts",
-      "default": "./dist/electron-sandbox.js"
     }
   },
   "files": [

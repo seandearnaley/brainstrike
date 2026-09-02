@@ -184,6 +184,14 @@ export class McpAppShellRegistry {
   }
 }
 
+let singleton: McpAppShellRegistry | undefined;
+
+/** The process-wide registry the protocol handler and the IPC bridge share. */
+export function getMcpAppShellRegistry(): McpAppShellRegistry {
+  singleton ??= new McpAppShellRegistry();
+  return singleton;
+}
+
 function notFound(): Response {
   return new Response('Not found', { status: 404 });
 }

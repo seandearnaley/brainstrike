@@ -4,8 +4,10 @@ import { resolveMcpAppBridge } from '../mcp-app-bridge';
 const complete = {
   execute: () => undefined,
   prepare: () => undefined,
+  prepareShell: () => undefined,
   readResource: () => undefined,
   release: () => undefined,
+  releaseShell: () => undefined,
 };
 
 describe('resolveMcpAppBridge', () => {
@@ -22,6 +24,8 @@ describe('resolveMcpAppBridge', () => {
   it('is null for a partial or non-object bridge', () => {
     const { readResource: _omitted, ...partial } = complete;
     expect(resolveMcpAppBridge({ mcp: { apps: partial } })).toBeNull();
+    const { releaseShell: _omittedShell, ...withoutShell } = complete;
+    expect(resolveMcpAppBridge({ mcp: { apps: withoutShell } })).toBeNull();
     expect(resolveMcpAppBridge({ mcp: { apps: 'apps' } })).toBeNull();
   });
 });

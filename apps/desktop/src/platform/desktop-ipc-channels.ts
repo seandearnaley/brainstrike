@@ -140,7 +140,9 @@ export const DESKTOP_IPC_CHANNELS = {
   mcp: {
     appsExecute: 'mcp:apps:execute',
     appsPrepare: 'mcp:apps:prepare',
+    appsPrepareShell: 'mcp:apps:prepareShell',
     appsRelease: 'mcp:apps:release',
+    appsReleaseShell: 'mcp:apps:releaseShell',
     configCreateSample: 'mcp:config:createSample',
     configGet: 'mcp:config:get',
     configGetPath: 'mcp:config:getPath',

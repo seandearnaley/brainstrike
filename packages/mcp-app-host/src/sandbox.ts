@@ -18,9 +18,32 @@ export interface McpAppSandboxMount {
   readonly shellUrl: string;
 }
 
-export interface McpAppSandboxUrlApi {
-  createObjectURL(blob: Blob): string;
-  revokeObjectURL(url: string): void;
+/**
+ * A rendered shell plus the policies the serving host must deliver as
+ * RESPONSE HEADERS. The shell carries no CSP meta tag: the nested
+ * `about:srcdoc` app document inherits only a header policy, and
+ * `Permissions-Policy` is header-only (a meta tag would be inert).
+ */
+export interface McpAppSandboxShellDocument {
+  readonly contentSecurityPolicy: string;
+  readonly document: string;
+  readonly permissionsPolicy: string;
+}
+
+export interface McpAppSandboxShellLease {
+  readonly shellUrl: string;
+  readonly token: string;
+}
+
+/**
+ * The host that serves shells on an origin of their own (desktop: the
+ * `brainstrike-mcp-app:` protocol behind `window.mcp.apps`). `releaseShell`
+ * must make the URL unreachable immediately. This owner is host-agnostic: it
+ * never mints URLs itself, so a shell can never land on the host origin.
+ */
+export interface McpAppSandboxShellHost {
+  prepareShell(shell: McpAppSandboxShellDocument): Promise<McpAppSandboxShellLease>;
+  releaseShell(lease: { readonly token: string }): Promise<void>;
 }
 
 interface McpAppSandboxOwnerOptions {
@@ -28,7 +51,7 @@ interface McpAppSandboxOwnerOptions {
     readonly maxActiveFrames: number;
     readonly maxRetainedBytes: number;
   };
-  readonly urls: McpAppSandboxUrlApi;
+  readonly shellHost: McpAppSandboxShellHost;
 }
 
 function sources(values: readonly string[] | undefined, fallbacks: readonly string[]): string {
@@ -122,25 +145,37 @@ export function renderMcpAppResourceDocument(
 }
 
 /**
- * The shell carries the app policy VERBATIM. The nested `about:srcdoc` app
- * document inherits whichever policies bind the shell and CSP combination
- * only ever narrows, so any directive the shell omits or tightens is denied
- * to the app too: a literal shell policy would block every server-declared
+ * The shell carries the app policy VERBATIM — as a response HEADER served by
+ * the host, never as a meta tag. The nested `about:srcdoc` app document
+ * inherits whichever header policies bind the shell and CSP combination only
+ * ever narrows, so any directive the shell omits or tightens is denied to the
+ * app too: a literal shell policy would block every server-declared
  * `resourceDomains`/`connectDomains`/`frameDomains`. Chromium exempts the
  * srcdoc load itself from `frame-src` (verified against a shell with
  * `frame-src 'none'`), so the app's `frameDomains` govern its nested frames
- * through both documents. The shell runs in an opaque origin with
- * `allow-scripts` only and its sole script is the literal bootstrap below, so
- * the widened sources have nothing in the shell to reach.
+ * through both documents. The shell's sole script is the literal bootstrap
+ * below, so the widened sources have nothing in the shell to reach.
  */
 export function renderMcpAppSandboxShellDocument(
   resourceDocument: string,
   policy: McpAppSandboxPolicy
 ): string {
-  const shellCsp = policy.contentSecurityPolicy;
   const embeddedResource = embedAsJavaScriptString(resourceDocument);
   const allow = embedAsJavaScriptString(policy.iframeAllow);
-  return `<!doctype html><html><head><meta charset="utf-8">${cspMeta(shellCsp)}<meta http-equiv="Permissions-Policy" content="${escapeHtmlAttribute(policy.permissionsPolicy)}"><meta name="referrer" content="no-referrer"><title>MCP App sandbox</title><style>html,body,iframe{border:0;height:100%;margin:0;padding:0;width:100%}</style></head><body><script>(()=>{'use strict';const frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts');frame.setAttribute('allow',${allow});frame.setAttribute('referrerpolicy','no-referrer');frame.title='MCP App';frame.srcdoc=${embeddedResource};document.body.append(frame)})()</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>MCP App sandbox</title><style>html,body,iframe{border:0;height:100%;margin:0;padding:0;width:100%}</style></head><body><script>(()=>{'use strict';const frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts');frame.setAttribute('allow',${allow});frame.setAttribute('referrerpolicy','no-referrer');frame.title='MCP App';frame.srcdoc=${embeddedResource};document.body.append(frame)})()</script></body></html>`;
+}
+
+/** Everything a shell host needs to serve one mount: the document and its header policies. */
+export function renderMcpAppSandboxShell(
+  resource: McpAppOwnedResource
+): McpAppSandboxShellDocument {
+  const policy = buildMcpAppSandboxPolicy(resource.meta);
+  const resourceDocument = renderMcpAppResourceDocument(resource, policy);
+  return Object.freeze({
+    contentSecurityPolicy: policy.contentSecurityPolicy,
+    document: renderMcpAppSandboxShellDocument(resourceDocument, policy),
+    permissionsPolicy: policy.permissionsPolicy,
+  });
 }
 
 function parseLimit(value: number, label: string): number {
@@ -154,11 +189,12 @@ export class McpAppSandboxOwner {
   readonly #maxActiveFrames: number;
   readonly #maxRetainedBytes: number;
   readonly #mounts = new Set<McpAppSandboxMount>();
+  #pendingFrames = 0;
   #retainedBytes = 0;
-  readonly #urls: McpAppSandboxUrlApi;
+  readonly #shellHost: McpAppSandboxShellHost;
 
   constructor(options: McpAppSandboxOwnerOptions) {
-    this.#urls = options.urls;
+    this.#shellHost = options.shellHost;
     this.#maxActiveFrames = parseLimit(
       options.limits?.maxActiveFrames ?? DEFAULT_MAX_ACTIVE_FRAMES,
       'MCP Apps active frame limit'
@@ -169,45 +205,58 @@ export class McpAppSandboxOwner {
     );
   }
 
+  /** Mounts the host has served plus registrations still in flight. */
   get activeFrames(): number {
-    return this.#mounts.size;
+    return this.#mounts.size + this.#pendingFrames;
   }
 
   get retainedBytes(): number {
     return this.#retainedBytes;
   }
 
-  open(resource: McpAppOwnedResource): McpAppSandboxMount {
-    if (this.#mounts.size >= this.#maxActiveFrames) {
+  /**
+   * Renders the shell, reserves its budget, then asks the host to serve it.
+   * The budget is reserved BEFORE the asynchronous registration so concurrent
+   * opens cannot overshoot the limits; a failed registration releases the
+   * reservation and owns nothing.
+   */
+  async open(resource: McpAppOwnedResource): Promise<McpAppSandboxMount> {
+    if (this.activeFrames >= this.#maxActiveFrames) {
       throw new TypeError('MCP Apps active frame limit exceeded');
     }
-    const policy = buildMcpAppSandboxPolicy(resource.meta);
-    const resourceDocument = renderMcpAppResourceDocument(resource, policy);
-    const shellDocument = renderMcpAppSandboxShellDocument(resourceDocument, policy);
-    const retainedBytes = new TextEncoder().encode(shellDocument).byteLength;
+    const shell = renderMcpAppSandboxShell(resource);
+    const retainedBytes = new TextEncoder().encode(shell.document).byteLength;
     if (this.#retainedBytes + retainedBytes > this.#maxRetainedBytes) {
       throw new TypeError('MCP Apps retained memory limit exceeded');
     }
-    const shellUrl = this.#urls.createObjectURL(
-      new Blob([shellDocument], { type: 'text/html;charset=utf-8' })
-    );
+    this.#pendingFrames += 1;
+    this.#retainedBytes += retainedBytes;
+    let lease: McpAppSandboxShellLease;
+    try {
+      lease = await this.#shellHost.prepareShell(shell);
+    } catch (error: unknown) {
+      this.#pendingFrames -= 1;
+      this.#retainedBytes -= retainedBytes;
+      throw error;
+    }
     let closed = false;
     const mount: McpAppSandboxMount = Object.freeze({
       close: async () => {
         if (closed) {
           return;
         }
-        // Ownership is released only after revocation succeeds, so a failed
-        // revoke stays observable and retryable instead of leaking the URL.
-        this.#urls.revokeObjectURL(shellUrl);
+        // Ownership is released only after the host confirms the release, so
+        // a failed release stays observable and retryable instead of leaking
+        // a served shell.
+        await this.#shellHost.releaseShell({ token: lease.token });
         closed = true;
         this.#mounts.delete(mount);
         this.#retainedBytes -= retainedBytes;
       },
-      shellUrl,
+      shellUrl: lease.shellUrl,
     });
+    this.#pendingFrames -= 1;
     this.#mounts.add(mount);
-    this.#retainedBytes += retainedBytes;
     return mount;
   }
 

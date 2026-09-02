@@ -5,6 +5,9 @@ import {
   McpAppPrepareRequestSchema,
   McpAppToolInvocationResultSchema,
   parseMcpAppPrepareResult,
+  parseMcpAppShellPrepareRequest,
+  parseMcpAppShellPrepareResult,
+  parseMcpAppShellReleaseRequest,
   readMcpAppToolInvocationResult,
 } from '../mcp-apps-ipc.js';
 
@@ -24,7 +27,9 @@ describe('MCP Apps IPC contract', () => {
     expect(MCP_APPS_IPC_CHANNELS).toEqual({
       execute: 'mcp:apps:execute',
       prepare: 'mcp:apps:prepare',
+      prepareShell: 'mcp:apps:prepareShell',
       release: 'mcp:apps:release',
+      releaseShell: 'mcp:apps:releaseShell',
     });
     expect(Object.isFrozen(MCP_APPS_IPC_CHANNELS)).toBe(true);
   });
@@ -87,5 +92,34 @@ describe('MCP Apps IPC contract', () => {
       riskCategory: 'ordinary',
     });
     expect(() => parseMcpAppPrepareResult({ decision: 'deny', riskCategory: 'x' })).toThrow();
+  });
+
+  it('validates shell registration strictly and pins the served URL shape', () => {
+    const request = {
+      contentSecurityPolicy: "default-src 'none'",
+      document: '<!doctype html><title>shell</title>',
+      permissionsPolicy: 'camera=()',
+    };
+    expect(parseMcpAppShellPrepareRequest(request)).toEqual(request);
+    expect(() => parseMcpAppShellPrepareRequest({ ...request, document: '' })).toThrow();
+    expect(() => parseMcpAppShellPrepareRequest({ ...request, extra: 1 })).toThrow();
+    expect(() =>
+      parseMcpAppShellPrepareRequest({ ...request, contentSecurityPolicy: '' })
+    ).toThrow();
+
+    const token = 'a'.repeat(32);
+    const result = { shellUrl: `brainstrike-mcp-app://${token}/`, token };
+    expect(parseMcpAppShellPrepareResult(result)).toEqual(result);
+    // The URL and token must agree, the scheme is fixed, and blob: can never come back.
+    expect(() => parseMcpAppShellPrepareResult({ ...result, shellUrl: 'blob:x/y' })).toThrow();
+    expect(() =>
+      parseMcpAppShellPrepareResult({
+        ...result,
+        shellUrl: `brainstrike-mcp-app://${'b'.repeat(32)}/`,
+      })
+    ).toThrow();
+    expect(() => parseMcpAppShellPrepareResult({ ...result, token: 'A'.repeat(32) })).toThrow();
+    expect(parseMcpAppShellReleaseRequest({ token })).toEqual({ token });
+    expect(() => parseMcpAppShellReleaseRequest({ token: 'short' })).toThrow();
   });
 });

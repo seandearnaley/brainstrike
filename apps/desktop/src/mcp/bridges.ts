@@ -9,6 +9,8 @@
 import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { getMcpDesktopAppHost } from './apps-authority';
 import { attachMcpAppsBridge } from './apps-bridge';
+import { attachMcpAppShellBridge } from './apps-shell-bridge';
+import { getMcpAppShellRegistry } from './apps-shell-protocol';
 import { attachMcpElicitationBridge, type McpElicitationBridgeRuntime } from './elicitation-bridge';
 import { attachMcpTaskBridge, type McpTaskBridgeRuntime } from './task-bridge';
 
@@ -19,6 +21,7 @@ export function attachMcpBridges(
   registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>
 ): () => void {
   attachMcpAppsBridge({ appHost: getMcpDesktopAppHost() }, registry);
+  attachMcpAppShellBridge(getMcpAppShellRegistry(), registry);
   const detachElicitation = attachMcpElicitationBridge(runtime, registry);
   let detachTasks: () => void;
   try {
