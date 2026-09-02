@@ -1,4 +1,5 @@
 import { readToolCallId } from './read-tool-call-id';
+import type { ToolLogger } from './types';
 
 /**
  * The per-tool execution guard's cancellation seam (BST-1594).
@@ -30,11 +31,28 @@ import { readToolCallId } from './read-tool-call-id';
  * A call with no tool-call id publishes nothing and `readToolGuardDeadlineSignal`
  * returns `undefined`: that is the pre-guard behaviour (the caller's own signal
  * and the SDK's request bounds still apply), never a fabricated deadline.
+ *
+ * The id is PROVIDER DATA, so two live executions can collide on it — a
+ * provider that restarts its `call_1`/`call_2` sequence for a subagent run, or
+ * a replayed call. The registry cannot tell the two apart, so the later
+ * registration wins (it is the call the model is still waiting on) and the
+ * earlier one then reads the wrong deadline until the later call releases.
+ * That is REPORTED, never absorbed: see
+ * {@link registerToolGuardDeadlineSignal}.
  */
 const deadlineSignals = new Map<string, AbortSignal>();
 
 /**
  * Publish the guard's deadline for one tool execution.
+ *
+ * A collision on `toolCallId` is LOGGED, not thrown. Throwing would be the
+ * louder signal, but the id arrives as provider data rather than from a
+ * programming error on our side, and this function runs on the only path into
+ * `execute`: rejecting here would take a working tool call down over an id the
+ * provider chose. Logging keeps the call working and makes the mis-routing a
+ * diagnosable event instead of an invisible one — the failure it precedes (a
+ * cancellation landing on the wrong request, or a deadline that never fires)
+ * is otherwise unattributable.
  *
  * @param args the arguments Mastra passed to `execute` (input first, execution
  *   context second — the position {@link readToolCallId} documents).
@@ -42,11 +60,20 @@ const deadlineSignals = new Map<string, AbortSignal>();
  */
 export function registerToolGuardDeadlineSignal(
   args: readonly unknown[],
-  signal: AbortSignal
+  signal: AbortSignal,
+  logger?: ToolLogger
 ): () => void {
   const toolCallId = readToolCallId(args);
   if (!toolCallId) {
     return () => undefined;
+  }
+  const existing = deadlineSignals.get(toolCallId);
+  if (existing && existing !== signal) {
+    logger?.error('Tool guard deadline id collision', {
+      detail:
+        'Two live guarded executions share one tool-call id; the earlier call reads the later deadline until the later call releases.',
+      toolCallId,
+    });
   }
   deadlineSignals.set(toolCallId, signal);
   return (): void => {

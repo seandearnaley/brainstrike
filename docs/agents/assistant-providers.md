@@ -2138,13 +2138,33 @@ deadline: the agent's per-tool execution guard aborts it when it gives up (see
 `docs/agents/assistant-runtime.md`, "Per-tool guard"), which makes the SDK
 withdraw the request (`notifications/cancelled`) instead of leaving the POST
 open for the remaining absolute budget. Correspondingly, `McpServerActor`
-NEVER retires a generation for an `operation`-category failure
+does NOT retire a generation for an `operation`-category failure
 (`mcp-request-timeout`, `mcp-input-rounds-exhausted`,
 `mcp-list-pagination-exceeded`): those describe the CALL, not the transport, and
 retiring on them turned one slow tool call into a server the user later found
-disconnected (BST-1594). Every other category still poisons the generation.
-Pinned by `apps/desktop/src/__tests__/main/mcp-server-actor.test.ts` and, over a
-real spawned stdio child,
+disconnected (BST-1594). Every other category still poisons the generation
+immediately.
+
+**The one bounded exception is a transport that stops answering at all.**
+`mcp-request-timeout` is the only operation code that is AMBIGUOUS — the SDK
+gave up WITHOUT an answer, which is what a merely slow server and a wedged
+stdio child or black-holed HTTP endpoint both look like — and nothing else in
+the actor probes liveness: `onUnexpectedClose` fires only when the transport
+actually CLOSES, and there is no ping or health probe. `McpServerActor`
+therefore counts CONSECUTIVE unanswered `mcp-request-timeout`s and, at
+`MCP_WEDGED_TRANSPORT_TIMEOUTS` (2), INVALIDATES the transport instead of
+merely failing the call. Any answer of any kind resets the counter to zero — a
+successful result, and equally `mcp-input-rounds-exhausted` or
+`mcp-list-pagination-exceeded`, which the server had to respond to produce. A
+caller-side cancellation (the agent's per-tool execution guard) never reaches
+the counter, because the caller-abort check rejects first; only the SDK's own
+request bounds feed it. Invalidation is the state `McpHostService.invoke`
+already SELF-HEALS by building a fresh generation on the next call, so a dead
+server reconnects on its own rather than staying permanently and silently
+`connected`. One slow call still retires nothing. Pinned by
+`apps/desktop/src/__tests__/main/mcp-server-actor.test.ts` (both halves: the
+retirement AND the streak resets), `mcp-host-service.test.ts` for the self-heal
+replacement, and, over a real spawned stdio child,
 `apps/desktop/src/__tests__/main/mcp-progress-cancellation.integration.test.ts`.
 A later MCP Apps host registers onto the same fresh registry from this seam.
 `apps/desktop/src/__tests__/main/mcp-host-runtime-tasks.test.ts` pins that the

@@ -126,6 +126,17 @@ class ActorError extends Error {
 
 const MCP_HEADER_MISMATCH_CODE = -32_020;
 
+/**
+ * Consecutive unanswered `mcp-request-timeout`s before the transport is
+ * presumed wedged (BST-1594).
+ *
+ * Two, not one: the FIRST timeout is what a merely slow server produces, and
+ * retiring on it is the bug this actor was fixed for. Two in a row with no
+ * intervening answer of ANY kind is no longer explicable by slowness — nothing
+ * else here probes liveness, so the counter is the liveness probe.
+ */
+const MCP_WEDGED_TRANSPORT_TIMEOUTS = 2;
+
 interface MappedMcpOperationError {
   category: McpStableErrorCategory;
   code: McpServerActorErrorCode;
@@ -230,6 +241,7 @@ export class McpServerActor {
   private diagnosticPublishQueued = false;
   private failure: ActorError | undefined;
   private transportInvalidated = false;
+  private consecutiveRequestTimeouts = 0;
   private status: ActorStatus;
   constructor(private readonly options: McpServerActorOptions) {
     this.status = {
@@ -531,17 +543,11 @@ export class McpServerActor {
       const mapped = mapMcpOperationError(cause);
       const error = new ActorError(mapped.category, mapped.code);
       this.diagnose(error.code, cause);
-      // An `operation` failure belongs to THIS call, not to the connection: a
-      // request timeout, an exhausted input round, or a pagination cap says
-      // nothing about the transport, and the SDK has already cancelled the
-      // request it gave up on. Retiring the generation here turned one slow
-      // tool call into a server the user later found disconnected (BST-1594).
-      // Every other category still poisons the generation.
-      if (mapped.category !== 'operation') {
-        this.fail(error);
-      }
+      this.chargeOperationFailure(mapped, error);
       throw error;
     }
+    // An answer of any kind is the only liveness evidence this actor gets.
+    this.consecutiveRequestTimeouts = 0;
     this.throwIfAborted(callerSignal);
     try {
       return parseMcpHostOperationResult({ result, type: operation.type });
@@ -552,16 +558,58 @@ export class McpServerActor {
       throw this.fail(error);
     }
   }
-  private invalidateTransport(failure?: McpLifecycleFailure): void {
-    if (this.closePromise || this.transportInvalidated) {
+  /**
+   * Decide what ONE failed operation costs the generation.
+   *
+   * An `operation` failure normally belongs to THIS call, not to the
+   * connection: an exhausted input round or a pagination cap only happens
+   * because the server ANSWERED, repeatedly. Retiring the generation on those
+   * turned one slow tool call into a server the user later found disconnected
+   * (BST-1594), so they cost the generation nothing and reset the counter.
+   *
+   * `mcp-request-timeout` is the one operation code that is AMBIGUOUS: the SDK
+   * gave up without an answer, which is what a merely slow server AND a wedged
+   * stdio child or black-holed HTTP endpoint both look like. Nothing else in
+   * this actor probes liveness — `onUnexpectedClose` fires only when the
+   * transport actually CLOSES, and there is no ping or health probe — so
+   * forgiving it forever would leave a genuinely dead server permanently and
+   * silently `connected`, with every later call paying the full inactivity and
+   * absolute budget. {@link MCP_WEDGED_TRANSPORT_TIMEOUTS} consecutive
+   * unanswered timeouts therefore INVALIDATE the transport, which is precisely
+   * the state `McpHostService.invoke` self-heals by building a fresh
+   * generation on the next call — a path back, not a dead end.
+   *
+   * A caller-side cancellation (the agent's per-tool execution guard) never
+   * reaches here: `throwIfAborted(callerSignal)` above rejects first. Only the
+   * SDK's own request bounds feed this counter.
+   */
+  private chargeOperationFailure(mapped: MappedMcpOperationError, error: ActorError): void {
+    if (mapped.category !== 'operation') {
+      this.fail(error);
       return;
     }
-    this.transportInvalidated = true;
-    this.fail(
+    if (mapped.code !== 'mcp-request-timeout') {
+      this.consecutiveRequestTimeouts = 0;
+      return;
+    }
+    this.consecutiveRequestTimeouts += 1;
+    if (this.consecutiveRequestTimeouts >= MCP_WEDGED_TRANSPORT_TIMEOUTS) {
+      this.retireTransport(error);
+    }
+  }
+  private invalidateTransport(failure?: McpLifecycleFailure): void {
+    this.retireTransport(
       failure
         ? new ActorError(failure.category, failure.code)
         : new ActorError('connection', 'mcp-transport-closed')
     );
+  }
+  private retireTransport(error: ActorError): void {
+    if (this.closePromise || this.transportInvalidated) {
+      return;
+    }
+    this.transportInvalidated = true;
+    this.fail(error);
   }
   private recordDiagnostic(diagnostic: McpHostDiagnostic): void {
     this.diagnostics.push(structuredClone(diagnostic));

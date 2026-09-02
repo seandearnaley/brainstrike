@@ -71,7 +71,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     // folds this signal into its own so the peer is told instead of being left
     // holding a request the run has already abandoned (BST-1594).
     const deadline = new AbortController();
-    const releaseDeadline = registerToolGuardDeadlineSignal(args, deadline.signal);
+    const releaseDeadline = registerToolGuardDeadlineSignal(args, deadline.signal, logger);
     const timeout = new Promise<GuardedToolError>((resolve) => {
       timer = setTimeout(() => {
         // Abort BEFORE resolving so cancellation is ordered ahead of the

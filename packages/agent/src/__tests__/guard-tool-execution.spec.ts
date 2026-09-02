@@ -126,6 +126,40 @@ describe('guardToolExecution', () => {
     expect(observed?.aborted).toBe(false);
   });
 
+  it('reports two live executions colliding on one provider tool-call id', async () => {
+    // The tool-call id is PROVIDER data, so a collision is a data condition,
+    // not a programming error: the guard must keep both calls working and make
+    // the mis-routed deadline diagnosable rather than invisible (BST-1594
+    // review). Logging, not throwing, is what keeps the call working.
+    const logger = { debug: vi.fn(), error: vi.fn() };
+    const started = Promise.withResolvers<void>();
+    const first = guardToolExecution(
+      makeTool(async () => {
+        started.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { value: 'first' };
+      }),
+      { logger, timeoutMs: 5000, toolName: 'demo' }
+    );
+    const second = guardToolExecution(
+      makeTool(async () => ({ value: 'second' })),
+      { logger, timeoutMs: 5000, toolName: 'demo' }
+    );
+
+    const firstCall = first.execute({}, { agent: { toolCallId: 'shared-call' } });
+    await started.promise;
+    expect(logger.error).not.toHaveBeenCalled();
+
+    await expect(second.execute({}, { agent: { toolCallId: 'shared-call' } })).resolves.toEqual({
+      value: 'second',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      'Tool guard deadline id collision',
+      expect.objectContaining({ toolCallId: 'shared-call' })
+    );
+    await expect(firstCall).resolves.toEqual({ value: 'first' });
+  });
+
   it('leaves a tool without an execute function untouched', () => {
     const noExec = { description: 'd', id: 'x' } as { id: string; description: string };
     expect(guardToolExecution(noExec, { timeoutMs: 1000, toolName: 'x' })).toBe(noExec);

@@ -8,7 +8,7 @@
 // the client's `notifications/cancelled` (the SDK surfaces that as an abort on
 // the handler's request signal), so a test can prove the cancellation actually
 // reached the server rather than the request merely being abandoned.
-import { writeFile } from 'node:fs/promises';
+import { rename, writeFile } from 'node:fs/promises';
 import { Server } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
@@ -24,9 +24,21 @@ if (!Number.isSafeInteger(progressIntervalMs) || progressIntervalMs < 1) {
 
 const state = { cancelled: false, progressSent: 0 };
 
+// Write-then-rename, never write-in-place: `writeFile` truncates before it
+// writes, and the specs poll this file with `JSON.parse` while it is being
+// rewritten every few milliseconds. A read landing inside the truncation window
+// would see '' or half an object, and `expect.poll` would swallow the parse
+// error — turning a real regression into an opaque timeout message instead of
+// "cancelled never became true". `rename` is atomic on POSIX, so a reader sees
+// either the previous state or the next one. The queue already serialises the
+// writers; this closes the reader-side race.
+const stateTempFile = `${stateFile}.tmp`;
 let stateQueue = Promise.resolve();
 function persistState() {
-  stateQueue = stateQueue.then(() => writeFile(stateFile, JSON.stringify(state), 'utf8'));
+  stateQueue = stateQueue.then(async () => {
+    await writeFile(stateTempFile, JSON.stringify(state), 'utf8');
+    await rename(stateTempFile, stateFile);
+  });
   return stateQueue;
 }
 

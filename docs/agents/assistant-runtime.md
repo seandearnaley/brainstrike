@@ -64,7 +64,11 @@ below are LIVE.
    `notifications/cancelled` instead of leaving a progress-deferred request
    dangling. A call with no tool-call id publishes nothing and keeps the
    pre-guard behaviour — the caller's signal and the SDK request bounds still
-   apply. Verifier over a real spawned stdio child:
+   apply. The id is PROVIDER data, so two live executions can collide on it; the
+   later registration wins and the collision is LOGGED (`error`, not thrown —
+   a provider-chosen id must not take a working tool call down) so a
+   mis-routed cancellation is diagnosable rather than invisible. Verifier over a
+   real spawned stdio child:
    `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spec.ts`
    with `packages/agent/test-fixtures/mcp-stdio-progress-cancellation-server.mjs`.
 

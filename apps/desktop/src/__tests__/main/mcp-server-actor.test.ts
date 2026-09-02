@@ -172,6 +172,96 @@ describe('McpServerActor', () => {
     expect(factory).toHaveBeenCalledOnce();
   });
 
+  it('retires a transport that answers nothing after consecutive request timeouts', async () => {
+    // A wedged stdio child or a black-holed endpoint never closes the
+    // transport, so `onUnexpectedClose` never fires and nothing else probes
+    // liveness. Consecutive unanswered timeouts must therefore end in the
+    // invalidated state `McpHostService` self-heals, not in a server that is
+    // permanently and silently `connected` (BST-1594 review).
+    const timeout = () =>
+      new SdkError(SdkErrorCode.RequestTimeout, 'private timeout detail', { method: 'tools/call' });
+    const subject = actor(async () =>
+      client(async () => {
+        throw timeout();
+      })
+    );
+
+    await failure(subject.invoke(CALL), 'mcp-request-timeout');
+    expect(subject.snapshot()).toMatchObject({ state: 'connected' });
+    expect(subject.invalidated()).toBe(false);
+
+    await failure(subject.invoke(CALL), 'mcp-request-timeout');
+    expect(subject.snapshot()).toMatchObject({
+      error: { category: 'operation', code: 'mcp-request-timeout' },
+      state: 'error',
+    });
+    expect(subject.invalidated()).toBe(true);
+  });
+
+  it('resets the request-timeout streak on any answer from the server', async () => {
+    // One slow call between two answers must retire nothing, however many
+    // times the pattern repeats: only an UNBROKEN run of unanswered timeouts
+    // means the transport stopped answering.
+    let timeoutNext = true;
+    const subject = actor(async () =>
+      client(async (request) => {
+        if (timeoutNext) {
+          timeoutNext = false;
+          throw new SdkError(SdkErrorCode.RequestTimeout, 'private timeout detail', {
+            method: 'tools/call',
+          });
+        }
+        timeoutNext = true;
+        return request.type === 'tools/list' ? listResult.result : callResult.result;
+      })
+    );
+
+    for (let round = 0; round < 3; round += 1) {
+      await failure(subject.invoke(CALL), 'mcp-request-timeout');
+      await expect(subject.invoke(LIST)).resolves.toEqual(listResult);
+    }
+    expect(subject.snapshot()).toMatchObject({ state: 'connected' });
+    expect(subject.invalidated()).toBe(false);
+  });
+
+  it('resets the request-timeout streak on an answered operation-category failure', async () => {
+    // A pagination cap is an operation failure the server had to ANSWER to
+    // produce, so it is liveness evidence, not another silent timeout.
+    const responses: (() => never)[] = [
+      () => {
+        throw new SdkError(SdkErrorCode.RequestTimeout, 'private timeout detail', {
+          method: 'tools/list',
+        });
+      },
+      () => {
+        throw new SdkError(SdkErrorCode.ListPaginationExceeded, 'private pagination detail', {
+          listMaxPages: 1,
+          method: 'tools/list',
+        });
+      },
+      () => {
+        throw new SdkError(SdkErrorCode.RequestTimeout, 'private timeout detail', {
+          method: 'tools/list',
+        });
+      },
+    ];
+    const subject = actor(async () =>
+      client(async () => {
+        const next = responses.shift();
+        if (!next) {
+          throw new Error('unexpected extra invocation');
+        }
+        return next();
+      })
+    );
+
+    await failure(subject.invoke(LIST), 'mcp-request-timeout');
+    await failure(subject.invoke(LIST), 'mcp-list-pagination-exceeded');
+    await failure(subject.invoke(LIST), 'mcp-request-timeout');
+    expect(subject.snapshot()).toMatchObject({ state: 'connected' });
+    expect(subject.invalidated()).toBe(false);
+  });
+
   it('preserves a bearer failure nested by the SDK operation boundary', async () => {
     const cause = new SdkError(SdkErrorCode.SendFailed, 'private SDK wrapper detail', {
       cause: new McpBearerCredentialFailure('mcp-bearer-credential-malformed'),

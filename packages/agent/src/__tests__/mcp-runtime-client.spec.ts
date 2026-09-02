@@ -4,7 +4,7 @@ import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   createMcpRuntimeClient,
   MCP_PROGRESS_STREAM_PART_TYPE,
@@ -565,6 +565,10 @@ describe('MCP runtime client', () => {
     const guard = new AbortController();
     const context = { abortSignal: caller.signal, agent: { toolCallId: 'slow-call' } };
     const releaseDeadline = registerToolGuardDeadlineSignal([{}, context], guard.signal);
+    // The registry is module-global and keyed by tool-call id, so an assertion
+    // failure below would otherwise leave 'slow-call' registered for the rest
+    // of the file and turn one real failure into cascading ones.
+    onTestFinished(releaseDeadline);
 
     await tool.execute({}, context);
 
