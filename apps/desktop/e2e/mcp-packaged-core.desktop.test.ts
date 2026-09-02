@@ -248,12 +248,18 @@ async function disarmDiagnosticFaults(
   configurationPath: string
 ): Promise<void> {
   const entries = await readdir(controlDirectory);
-  await Promise.all(
-    entries
-      .filter((entry) => /^command-\d{6}-(?:exit|stderr)$/u.test(entry))
-      .map(async (entry) => await rm(path.join(controlDirectory, entry)))
-  );
-  await writeFile(configurationPath, JSON.stringify({ exitArmed: false }), {
+  const faultCommands = entries.filter((entry) => /^command-\d{6}-(?:exit|stderr)$/u.test(entry));
+  // Fail loudly rather than silently re-arming the relaunch race if the
+  // fixture's command-file naming ever drifts from this pattern.
+  expect(faultCommands.length).toBeGreaterThan(0);
+  await Promise.all(faultCommands.map((entry) => rm(path.join(controlDirectory, entry))));
+  // Read-modify-write: the fixture also reads `stderrText` and `exitCode` from
+  // this document, so replacing it wholesale would silently drop them.
+  const configuration: unknown = JSON.parse(await readFile(configurationPath, 'utf8'));
+  if (typeof configuration !== 'object' || configuration === null || Array.isArray(configuration)) {
+    throw new Error(`Unexpected MCP lab fault control configuration at ${configurationPath}`);
+  }
+  await writeFile(configurationPath, JSON.stringify({ ...configuration, exitArmed: false }), {
     encoding: 'utf8',
     mode: 0o600,
   });

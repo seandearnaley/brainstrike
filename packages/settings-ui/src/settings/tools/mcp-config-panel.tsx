@@ -149,6 +149,11 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 
   const fetchAndApplyDocument = useCallback(async () => {
     const readMcpConfigText = readMcpConfigTextRef.current;
+    // Unreachable while `editorAvailable` gates both the mount effect and the
+    // render: a runtime without `readMcpConfigText` returns the "unavailable"
+    // card and never reaches the `initialized` gate. That is what keeps the
+    // gate terminal — every settled outcome below dispatches DOCUMENT_LOADED,
+    // LOAD_ERROR (any rejection shape) or LOAD_DONE.
     if (!readMcpConfigText) {
       return;
     }
