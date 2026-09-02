@@ -102,6 +102,7 @@ export async function installOrdinaryRuntimeAdmission(
     localTools: undefined,
     mcpConfig: undefined,
     mcpHost: host,
+    mcpTaskTracking: undefined,
     mcpTimeoutMs: undefined,
     permissionSnapshot: {
       defaultRisk: 'mcp',
