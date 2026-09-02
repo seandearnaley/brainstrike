@@ -609,7 +609,7 @@ describe('McpTaskLifecycle exit fencing', () => {
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
     const rawSentinel = `oversized-input-${'x'.repeat(7000)}`;
-    const observationPort = new McpTaskObservationPort();
+    const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
     const elicitation = vi.fn(async () => ({ action: 'decline' as const }));
     const updateTask = vi.fn(async () => ({ resultType: 'complete' as const }));
     const neverCloses = Promise.withResolvers<void>();

@@ -30,6 +30,7 @@ export const DEFAULT_MCP_TASK_LIFECYCLE_LIMITS = Object.freeze({
   maxBackoffMs: 30_000,
   maxConcurrentPolls: 4,
   maxLifetimeMs: 24 * 60 * 60 * 1000,
+  maxTransportFailures: 3,
   minimumPollMs: 100,
   pollRequestTimeoutMs: 30_000,
 });
@@ -39,6 +40,8 @@ export interface McpTaskLifecycleLimits {
   readonly maxBackoffMs: number;
   readonly maxConcurrentPolls: number;
   readonly maxLifetimeMs: number;
+  /** Sole bounded observation-attempt budget per poll cycle. */
+  readonly maxTransportFailures: number;
   readonly minimumPollMs: number;
   readonly pollRequestTimeoutMs: number;
 }
@@ -125,6 +128,10 @@ function normalizeLimits(input: McpTaskLifecycleLimits | undefined): McpTaskLife
     maxBackoffMs: requirePositiveInteger(limits.maxBackoffMs, 'maxBackoffMs'),
     maxConcurrentPolls: requirePositiveInteger(limits.maxConcurrentPolls, 'maxConcurrentPolls'),
     maxLifetimeMs: requirePositiveInteger(limits.maxLifetimeMs, 'maxLifetimeMs'),
+    maxTransportFailures: requirePositiveInteger(
+      limits.maxTransportFailures,
+      'maxTransportFailures'
+    ),
     minimumPollMs: requirePositiveInteger(limits.minimumPollMs, 'minimumPollMs'),
     pollRequestTimeoutMs: requirePositiveInteger(
       limits.pollRequestTimeoutMs,
