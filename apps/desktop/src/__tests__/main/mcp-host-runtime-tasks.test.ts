@@ -192,6 +192,36 @@ describe('DesktopMcpHostRuntime task host binding', () => {
     expect(events.at(-1)).toBe('close');
   });
 
+  it('keeps the old Tasks session when a replacement definition fails to prepare', async () => {
+    const explicitClient = transportClient();
+    const { events, taskHost } = createTaskHost();
+    const inspect = vi
+      .fn<() => Promise<{ state: 'stored' }>>()
+      .mockResolvedValueOnce({ state: 'stored' })
+      .mockRejectedValueOnce(new Error('credential store unavailable'));
+    const runtime = createDesktopMcpHostRuntime({
+      bearerCredentialAuthority: {
+        createFetch: vi.fn(() => async () => new Response(null, { status: 204 })),
+        inspect,
+      },
+      createHttpTransportClient: () => explicitClient,
+      taskHost,
+    });
+    const bearer = (id: string) =>
+      http({ auth: { credential: { id, store: 'mcp-credentials' }, type: 'bearer' } });
+    await loadAndConnect(runtime, bearer('11111111-1111-4111-8111-111111111111'));
+    expect(events).toEqual([`connected:${http().name}:1`]);
+
+    // Private definition changes (new credential), but preparation rejects.
+    await expect(
+      runtime.replaceResolvedConfig(resolved(bearer('22222222-2222-4222-8222-222222222222')))
+    ).rejects.toThrow('credential store unavailable');
+    expect(events).toEqual([`connected:${http().name}:1`]);
+    expect(runtime.host.snapshot().servers[0]).toMatchObject({ generation: 1 });
+    await runtime.host.close();
+    expect(events.filter((event) => event.startsWith('retired'))).toEqual([]);
+  });
+
   it('does not bind the task host when no registry is resolved', async () => {
     const explicitClient = transportClient();
     const { events, taskHost } = createTaskHost();

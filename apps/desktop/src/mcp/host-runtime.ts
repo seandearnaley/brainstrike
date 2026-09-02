@@ -177,6 +177,12 @@ interface PrivateConfigEntry {
   configRef: string;
   server: ResolvedMcpServer;
 }
+
+interface StagedResolvedConfig {
+  readonly nextById: Map<ConfiguredMcpServerId, PrivateConfigEntry>;
+  readonly nextByRef: Map<string, PrivateConfigEntry>;
+  readonly servers: ConfiguredServer[];
+}
 type ConfigRefErrorCode =
   | 'mcp-config-ref-protocol-mismatch'
   | 'mcp-config-ref-server-mismatch'
@@ -559,6 +565,11 @@ export class DesktopMcpHostRuntime {
   replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
     const snapshot = structuredClone(config);
     return this.enqueueReplacement(async () => {
+      // Preparation (auth projection) can reject; nothing is retired until it
+      // succeeds, so a rejected replacement leaves the old actor AND its
+      // Tasks session exactly as they were.
+      const staged = await this.stageResolvedConfig(snapshot);
+      const retirements: Promise<void>[] = [];
       for (const [configuredServerId, current] of this.currentById) {
         const next = snapshot.servers.find(({ name }) => name === configuredServerId);
         if (!(next && isDeepStrictEqual(current.server, next))) {
@@ -566,14 +577,21 @@ export class DesktopMcpHostRuntime {
         }
         // Task authority epochs retire only when the private definition
         // changes or the server disappears; an enabledTools-only reload is a
-        // reconnect that rebinds the live epoch.
+        // reconnect that rebinds the live epoch. Each server's session is
+        // independent, so retirements run concurrently.
         if (!next) {
-          await this.taskHost.retired(configuredServerId, 'server-removed');
+          retirements.push(this.taskHost.retired(configuredServerId, 'server-removed'));
         } else if (!samePrivateConfig(current.server, next)) {
-          await this.taskHost.retired(configuredServerId, 'server-replaced');
+          retirements.push(this.taskHost.retired(configuredServerId, 'server-replaced'));
         }
       }
-      return await this.applyResolvedConfig(snapshot);
+      const retirementFailures = (await Promise.allSettled(retirements)).flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (retirementFailures.length > 0) {
+        throw new AggregateError(retirementFailures, 'MCP Tasks epoch retirement failed');
+      }
+      return await this.commitResolvedConfig(staged);
     });
   }
 
@@ -599,8 +617,8 @@ export class DesktopMcpHostRuntime {
     return replacement;
   }
 
-  private async applyResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
-    const previousEntries = [...this.currentById.values()];
+  /** Projects auth for every server; rejects before any live state changes. */
+  private async stageResolvedConfig(config: ResolvedMcpConfig): Promise<StagedResolvedConfig> {
     const nextById = new Map<ConfiguredMcpServerId, PrivateConfigEntry>();
     const nextByRef = new Map<string, PrivateConfigEntry>();
     const servers = await Promise.all(
@@ -629,6 +647,15 @@ export class DesktopMcpHostRuntime {
         };
       })
     );
+    return { nextById, nextByRef, servers };
+  }
+
+  private async commitResolvedConfig({
+    nextById,
+    nextByRef,
+    servers,
+  }: StagedResolvedConfig): Promise<McpHostSnapshot> {
+    const previousEntries = [...this.currentById.values()];
     this.stagedByRef = nextByRef;
     try {
       const snapshot = await this.service.replaceConfig({ servers });

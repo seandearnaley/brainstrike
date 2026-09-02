@@ -2059,7 +2059,11 @@ task-scoped input keys and sends elicitation results through `tasks/update` only
 validation with exact server, resource, principal, generation, task, and input-key provenance.
 `McpTaskLifecycle` is the sole ordered polling authority: it validates exact task identity, persists the
 observation, and only then publishes it through the neutral task-observation port. The interaction
-coordinator consumes that published stream and never starts a poller. Optional notifications for the
+coordinator consumes that published stream and never starts a poller. `recover()` is idempotent for
+tasks the lifecycle already polls: an active durable record whose id is already tracked is returned
+as its existing tracked entry (same `settled` promise) rather than started again, while `start()`
+stays strict so one poller per task holds; the desktop host mirrors this by reusing its registered
+entry on the card-driven `recover` action. Optional notifications for the
 acknowledged ID subset only coalesce an immediate lifecycle poll; lease loss does not disable polling.
 Transport exhaustion rejects the public tracked-task settlement and is published to the interaction
 failure surface. A `tasks/cancel` acknowledgement is not success: only observed `cancelled` settles
@@ -2122,6 +2126,10 @@ registers Tasks and the server advertises the extension: on the pinned client
 a core `callTool` answer with `resultType: 'task'` is rejected by the SDK
 funnel, so a task can only arrive on the registered path. That path takes
 exactly `{ name, arguments }`; an operation carrying `_meta` or `task` throws.
+Both dispatch paths receive the same SDK request options (`onprogress` from the
+invoke's `onProgress`, `resetTimeoutOnProgress: true`, the merged signal):
+`requestExtension` hands them straight to `client.request`, so progress and the
+timeout reset behave identically whichever path the advertisement selects.
 A later MCP Apps host registers onto the same fresh registry from this seam.
 `apps/desktop/src/__tests__/main/mcp-host-runtime-tasks.test.ts` pins that the
 real default resolver advertises exactly the support matrix's supported
@@ -2145,6 +2153,15 @@ the task session (`stop('disconnect')`) before the transport; a replaced
 private definition retires the epoch (`stop('server-replaced')`) and a removed
 server `stop('server-removed')` before the old generation closes, while an
 enabledTools-only reload is a plain reconnect (same `configRef`, same epoch).
+Retirement happens only AFTER the replacement configuration has been staged
+(`stageResolvedConfig`: auth projection for every server): a replacement whose
+preparation rejects (e.g. a bearer credential that cannot be inspected) leaves
+the old actor connected with its Tasks session intact. Retirements of distinct
+servers are independent sessions and run concurrently; any failure aggregates
+into the rejected replacement. The card-driven `recover` action reuses the
+host's registered entry for any id the lifecycle already polls (lifecycle
+recovery is idempotent, see above), so recovering one card never fails because
+another task on the same server is live.
 
 Handle derivation (`McpTaskHandle`): `serverId` is the configured server id
 (`ResolvedMcpServer.name`, equal to the host snapshot's `configuredServerId`);
@@ -2408,6 +2425,14 @@ process-level host-port call,
 on `getDesktopMcpHostRuntime().host` (the app's `toolName` is already the
 server-side name; `origin.serverId` is the configured server id), and the
 canonical `CallToolResult` is what the renderer posts back into the frame.
+When a Tasks-capable server answers a detached call with a CreateTaskResult
+(detected with `readMcpCreatedTaskResult`, which unwraps the registry envelope
+too), the authority hands it to the desktop task host through its lazily
+resolved `resolveTaskHost` seam (`getDesktopMcpHostRuntime().taskHost`) so the
+repository/lifecycle/lease own the task, then returns the canonical
+CreateTaskResult to the frame without awaiting settlement — the same shape the
+run-owned app path returns (see "TOOL-PATH WIRING (BST-1566)" in
+`assistant-runtime.md`). A task the host cannot track fails the call visibly.
 Detached calls bypass the run's tool hooks, guard/error processors, and
 telemetry by design: there is no run. Retention is bounded: at most one
 admission per thread; a detached admission is pinned to each admitted server's
@@ -2421,6 +2446,11 @@ until supersession or generation retirement. Execution, explicit release, run
 disposal, supersession, generation retirement, and WebContents destruction
 consume preparations; stale and replayed preparation ids cannot execute.
 
+The renderer supplies the preparation id and preparation awaits the admission
+preparer, so `prepare` reserves the id SYNCHRONOUSLY before its first await
+and drops the reservation on every exit path: a concurrent duplicate rejects
+with `mcp_app_preparation_duplicate` instead of overwriting the first entry
+(whose executor would otherwise be dropped without release).
 The visible-UI-only IPC domain is `mcp:apps:prepare`, `mcp:apps:execute`, and
 `mcp:apps:release`. `window.mcp.apps.readResource` resolves the server's live
 generation and uses the existing `mcp:content:readResource` path for the exact
