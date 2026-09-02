@@ -308,7 +308,12 @@ explicit write fence that is checked in the create/update SQL statement, rejects
 stale-generation writes and malformed rows, and measures metadata limits through
 PostgreSQL's canonical `jsonb::text` representation. It lists resumable rows only
 for one exact server/resource/principal/generation scope. The table is registered
-in both migration runners plus every factory-reset clear path.
+in both migration runners plus every factory-reset clear path. In the BST-1563
+layer a poller that abandons a task (bounded lifetime exceeded, observation
+failures exhausted, identity or timing regression) rejects its caller but leaves
+`terminal_at NULL`, so `listActive` returns that row to the next `recover()`;
+BST-1581 adds the `blocked_diagnostic` column that persists the bounded reason
+and makes such a row terminal, which is the intended durable state.
 
 Migration 076 owns terminal provider-forensics storage
 (`brainstrike_assistant_run_errors`) and the hot diagnostic correlation index

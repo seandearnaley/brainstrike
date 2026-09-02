@@ -12,10 +12,10 @@ import {
   assertMcpTaskTimingProgress,
   createMcpTaskUpdate,
   type McpTaskTiming,
-  parseMcpTaskDuration,
   readMcpTaskTiming,
   readStoredMcpTaskTiming,
   resolveMcpTaskDeadline,
+  resolveMcpTaskPollDelay,
   TERMINAL_TASK_STATUSES,
 } from './tasks-lifecycle-state';
 
@@ -308,7 +308,12 @@ export class McpTaskLifecycle {
         localDeadline,
         this.limits.maxLifetimeMs
       );
-      const requestedDelay = this.resolvePollDelay(latestTiming, backoffMs);
+      const requestedDelay = resolveMcpTaskPollDelay(
+        latestTiming,
+        backoffMs,
+        consecutiveFailures,
+        this.limits
+      );
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
         throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
@@ -381,11 +386,6 @@ export class McpTaskLifecycle {
     if (failures >= this.limits.maxConsecutiveFailures) {
       throw new McpTaskObservationError(taskId, failures, cause);
     }
-  }
-
-  private resolvePollDelay(timing: McpTaskTiming, backoffMs: number): number {
-    const requested = parseMcpTaskDuration(timing.pollIntervalMs, 'pollIntervalMs');
-    return requested === null ? backoffMs : Math.max(requested, this.limits.minimumPollMs);
   }
 
   private identity(taskId: string): McpTaskIdentity {

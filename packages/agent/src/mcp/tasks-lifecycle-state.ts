@@ -142,19 +142,48 @@ export function createMcpTaskUpdate(task: CreateTaskResult | GetTaskResult): Upd
   return { ...common, inputMetadata: lifecycleMetadata };
 }
 
+/**
+ * `ttlMs` is a duration, so it is anchored to the LOCAL instant the handle was
+ * first persisted (`record.createdAt`), never to the server's `createdAt`
+ * string: a server clock five minutes behind would otherwise expire a fresh
+ * task before its first poll, and one ahead would silently extend the TTL.
+ */
 export function resolveMcpTaskDeadline(
   timing: McpTaskTiming,
   record: McpTaskRecord,
   localDeadline: number,
   maxLifetimeMs: number
 ): number {
+  const persistedAt = record.createdAt.getTime();
   if (timing.ttlMs === null) {
-    return Math.min(localDeadline, record.createdAt.getTime() + maxLifetimeMs);
+    return Math.min(localDeadline, persistedAt + maxLifetimeMs);
   }
-  const createdAt = parseInstant(timing.createdAt, 'createdAt');
-  return Math.min(
-    localDeadline,
-    createdAt + timing.ttlMs,
-    record.createdAt.getTime() + maxLifetimeMs
-  );
+  return Math.min(localDeadline, persistedAt + timing.ttlMs, persistedAt + maxLifetimeMs);
+}
+
+export interface McpTaskPollDelayLimits {
+  readonly maxBackoffMs: number;
+  readonly minimumPollMs: number;
+}
+
+/**
+ * A server-supplied `pollIntervalMs` is a hint bounded by client-owned limits
+ * on both sides: never below `minimumPollMs` (a server cannot pin the client
+ * at zero delay) and never above `maxBackoffMs` (a server cannot stall
+ * observation). While transport failures are being retried the local backoff
+ * dominates the hint, so a stale interval from the last success cannot turn a
+ * failing server into a retry storm.
+ */
+export function resolveMcpTaskPollDelay(
+  timing: McpTaskTiming,
+  backoffMs: number,
+  consecutiveFailures: number,
+  limits: McpTaskPollDelayLimits
+): number {
+  const requested = parseMcpTaskDuration(timing.pollIntervalMs, 'pollIntervalMs');
+  if (requested === null) {
+    return backoffMs;
+  }
+  const clamped = Math.min(Math.max(requested, limits.minimumPollMs), limits.maxBackoffMs);
+  return consecutiveFailures > 0 ? Math.max(clamped, backoffMs) : clamped;
 }
