@@ -28,6 +28,7 @@ describe('registerPrivilegedSchemes', () => {
     expect(entries.map((entry) => entry.scheme).sort()).toEqual([
       'brainstrike-asset',
       'brainstrike-canvas',
+      'brainstrike-mcp-app',
     ]);
   });
 
@@ -42,6 +43,20 @@ describe('registerPrivilegedSchemes', () => {
     expect(canvas?.privileges).toMatchObject({
       corsEnabled: false,
       standard: false,
+      stream: false,
+      supportFetchAPI: false,
+    });
+  });
+
+  it('gives the MCP App shell scheme a real origin but nothing else (no fetch, no CORS, no streams)', () => {
+    // `standard: true` is what makes brainstrike-mcp-app://<token>/ an origin
+    // of its own (one per registered shell), so a shell never shares the host
+    // renderer's origin the way a blob: URL did.
+    const shell = PRIVILEGED_SCHEMES.find((entry) => entry.scheme === 'brainstrike-mcp-app');
+    expect(shell?.privileges).toMatchObject({
+      corsEnabled: false,
+      secure: true,
+      standard: true,
       stream: false,
       supportFetchAPI: false,
     });
