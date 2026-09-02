@@ -1,6 +1,7 @@
 import {
   type JSONRPCMessage,
   parseJSONRPCMessage,
+  SUBSCRIPTION_ID_META_KEY,
   type Transport,
 } from '@modelcontextprotocol/client';
 import type { McpClientExtensionRegistry } from './client-extension-registry';
@@ -19,13 +20,149 @@ const PROTOCOL_OWNED_HEADERS = new Set([
 
 type McpHttpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
+const SUBSCRIPTIONS_LISTEN_METHOD = 'subscriptions/listen';
+const SUBSCRIPTIONS_ACKNOWLEDGED_METHOD = 'notifications/subscriptions/acknowledged';
+
 /**
- * Request ids currently in flight through registered dispatch. A registered
- * wire method that is also a core method (`tools/call`) is only treated as an
- * extension request when its id is recorded here; core traffic on the same
- * connection passes the HTTP bridge untouched.
+ * One connection's observation of the server's raw
+ * `notifications/subscriptions/acknowledged` payload for a single
+ * `subscriptions/listen` request. The SDK settles `McpSubscription.honoredFilter`
+ * from the CORE `SubscriptionFilter` schema, which strips every extension field
+ * (the Tasks `taskIds` among them), so an extension lease can only learn what the
+ * server honored from the raw notification this capture holds.
  */
-export type RegisteredExtensionDispatchLedger = Set<string | number>;
+export interface McpSubscriptionAcknowledgementCapture {
+  /** True once the acknowledgement for the claimed listen request was seen. */
+  readonly acknowledged: boolean;
+  /** Raw `params.notifications` of the acknowledgement, before core stripping. */
+  readonly acknowledgement: unknown;
+  /** Drops the claim. Idempotent; required once the lease has read the ack. */
+  release(): void;
+}
+
+class SubscriptionAcknowledgementClaim implements McpSubscriptionAcknowledgementCapture {
+  acknowledgement: unknown = undefined;
+  acknowledged = false;
+  subscriptionId: string | undefined = undefined;
+
+  constructor(
+    readonly filter: object,
+    private readonly onRelease: (claim: SubscriptionAcknowledgementClaim) => void
+  ) {}
+
+  release(): void {
+    this.onRelease(this);
+  }
+}
+
+function readNotificationSubscriptionId(params: unknown): string | undefined {
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+    return;
+  }
+  const meta = Reflect.get(params, '_meta');
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+    return;
+  }
+  const subscriptionId = Reflect.get(meta, SUBSCRIPTION_ID_META_KEY);
+  if (typeof subscriptionId === 'string' || typeof subscriptionId === 'number') {
+    return String(subscriptionId);
+  }
+  return;
+}
+
+function readListenFilter(params: unknown): object | undefined {
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+    return;
+  }
+  const filter = Reflect.get(params, 'notifications');
+  return typeof filter === 'object' && filter !== null ? filter : undefined;
+}
+
+/**
+ * Per-connection registered-extension dispatch state, shared by the transport
+ * bridge (which fills it) and its readers. It carries exactly two facts, both
+ * only observable at the raw-wire seam the bridge already owns:
+ *
+ * - the request ids currently in flight through registered dispatch, so a
+ *   registered wire method that is also a core method (`tools/call`) is only
+ *   treated as an extension request when its id is recorded here; core traffic
+ *   on the same connection passes the HTTP bridge untouched;
+ * - the raw `notifications/subscriptions/acknowledged` payload for a claimed
+ *   `subscriptions/listen` request, which the SDK strips to the core
+ *   `SubscriptionFilter` before any consumer can read it.
+ */
+export class RegisteredExtensionDispatchLedger {
+  private readonly dispatchedRequestIds = new Set<string | number>();
+  private readonly claimsByFilter = new Map<object, SubscriptionAcknowledgementClaim>();
+  private readonly claimsBySubscriptionId = new Map<string, SubscriptionAcknowledgementClaim>();
+
+  trackDispatchedRequest(requestId: string | number): void {
+    this.dispatchedRequestIds.add(requestId);
+  }
+
+  releaseDispatchedRequest(requestId: string | number): void {
+    this.dispatchedRequestIds.delete(requestId);
+  }
+
+  hasDispatchedRequest(requestId: string | number): boolean {
+    return this.dispatchedRequestIds.has(requestId);
+  }
+
+  /**
+   * Claims the acknowledgement of the `subscriptions/listen` request that will
+   * carry `filter` as its `params.notifications`. The SDK passes the caller's
+   * filter object through to the transport untouched, so object identity — not
+   * ordering — correlates the claim to its listen request id.
+   */
+  captureSubscriptionAcknowledgement(filter: object): McpSubscriptionAcknowledgementCapture {
+    if (this.claimsByFilter.has(filter)) {
+      throw new Error('MCP subscription acknowledgement filter is already claimed');
+    }
+    const claim = new SubscriptionAcknowledgementClaim(filter, (released) => {
+      this.claimsByFilter.delete(released.filter);
+      if (released.subscriptionId !== undefined) {
+        this.claimsBySubscriptionId.delete(released.subscriptionId);
+      }
+    });
+    this.claimsByFilter.set(filter, claim);
+    return claim;
+  }
+
+  /** Binds a claimed listen filter to the request id the SDK allocated for it. */
+  bindSubscriptionRequest(requestId: string | number, params: unknown): void {
+    const filter = readListenFilter(params);
+    if (filter === undefined) {
+      return;
+    }
+    const claim = this.claimsByFilter.get(filter);
+    if (claim === undefined) {
+      return;
+    }
+    claim.subscriptionId = String(requestId);
+    this.claimsBySubscriptionId.set(claim.subscriptionId, claim);
+  }
+
+  /** Records the raw acknowledgement payload for a bound listen request. */
+  recordSubscriptionAcknowledgement(params: unknown): void {
+    const subscriptionId = readNotificationSubscriptionId(params);
+    if (subscriptionId === undefined) {
+      return;
+    }
+    const claim = this.claimsBySubscriptionId.get(subscriptionId);
+    if (claim === undefined || claim.acknowledged) {
+      return;
+    }
+    claim.acknowledged = true;
+    claim.acknowledgement = Reflect.get(params as object, 'notifications');
+  }
+
+  /** Nothing can answer after transport close; a reconnect inherits nothing. */
+  clear(): void {
+    this.dispatchedRequestIds.clear();
+    this.claimsByFilter.clear();
+    this.claimsBySubscriptionId.clear();
+  }
+}
 
 function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
   for (const name of Object.keys(headers ?? {})) {
@@ -41,7 +178,7 @@ export function createHeaderPreservingFetch(
   headers: Readonly<Record<string, string>> | undefined,
   extensionRegistry: McpClientExtensionRegistry | undefined,
   getAuthorizationSignal?: () => AbortSignal | undefined,
-  dispatchLedger?: ReadonlySet<string | number>
+  dispatchLedger?: RegisteredExtensionDispatchLedger
 ): McpHttpFetch {
   validateConfiguredHeaders(headers);
   const callerHeaders = new Headers(headers);
@@ -185,6 +322,13 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
       extensionResultType = pendingResultTypes.get(responseId);
       pendingResultTypes.delete(responseId);
     }
+    if (
+      !('id' in incoming) &&
+      'method' in incoming &&
+      incoming.method === SUBSCRIPTIONS_ACKNOWLEDGED_METHOD
+    ) {
+      dispatchLedger?.recordSubscriptionAcknowledgement(incoming.params);
+    }
     if (downstreamOnMessage === undefined) {
       throw new Error('MCP transport received a message before its SDK handler was registered');
     }
@@ -217,7 +361,15 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
       pendingResultTypes
     );
     if (dispatchedId !== undefined) {
-      dispatchLedger?.add(dispatchedId);
+      dispatchLedger?.trackDispatchedRequest(dispatchedId);
+    }
+    if (
+      dispatchLedger !== undefined &&
+      'id' in message &&
+      'method' in message &&
+      message.method === SUBSCRIPTIONS_LISTEN_METHOD
+    ) {
+      dispatchLedger.bindSubscriptionRequest(message.id, message.params);
     }
     try {
       await send(outgoing, options);
@@ -228,7 +380,7 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
       throw error;
     } finally {
       if (dispatchedId !== undefined) {
-        dispatchLedger?.delete(dispatchedId);
+        dispatchLedger?.releaseDispatchedRequest(dispatchedId);
       }
     }
   };
@@ -236,6 +388,7 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
   transport.close = async () => {
     // Nothing can answer after close; a reconnect must not inherit the map.
     pendingResultTypes.clear();
+    dispatchLedger?.clear();
     await close();
   };
   return transport;
@@ -262,7 +415,7 @@ function isRegisteredExtensionMethod(
   registry: McpClientExtensionRegistry,
   method: string,
   requestId: string | number | undefined,
-  dispatchLedger: ReadonlySet<string | number> | undefined
+  dispatchLedger: RegisteredExtensionDispatchLedger | undefined
 ): boolean {
   if (!registry.hasWireRequestMethod(method)) {
     return false;
@@ -270,7 +423,7 @@ function isRegisteredExtensionMethod(
   if (!registry.sharesCoreWireMethod(method)) {
     return true;
   }
-  return requestId !== undefined && dispatchLedger?.has(requestId) === true;
+  return requestId !== undefined && dispatchLedger?.hasDispatchedRequest(requestId) === true;
 }
 
 /**
@@ -283,7 +436,7 @@ function isRegisteredExtensionMethod(
 export function applyRegisteredExtensionHttpHeaders(
   init: RequestInit | undefined,
   registry: McpClientExtensionRegistry | undefined,
-  dispatchLedger?: ReadonlySet<string | number>
+  dispatchLedger?: RegisteredExtensionDispatchLedger
 ): RequestInit | undefined {
   if (registry === undefined) {
     return init;

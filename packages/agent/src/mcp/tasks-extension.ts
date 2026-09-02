@@ -36,6 +36,10 @@ import type {
   McpClientExtensionRequestContract,
 } from './client-extension-registry';
 import { REGISTERED_EXTENSION_RESULT_KEY } from './client-extension-registry';
+import type {
+  McpSubscriptionAcknowledgementCapture,
+  RegisteredExtensionDispatchLedger,
+} from './registered-extension-dispatch';
 
 const TASKS_WIRE_IMPLEMENTATION = Object.freeze({ exactWireContracts: true as const });
 const NEGOTIATION_PROBE_TASK_ID = 'brainstrike-tasks-negotiation-probe';
@@ -180,9 +184,46 @@ async function assertMcpTasksNegotiated(
   );
 }
 
+/**
+ * The honored task ids the server actually acknowledged, read from the raw
+ * acknowledgement captured by the transport dispatch bridge. `listen()` resolves
+ * on any acknowledgement, and its `honoredFilter` is the CORE
+ * `SubscriptionFilter` — `taskIds` is stripped before it reaches us — so an
+ * unacknowledged task id is invisible on the SDK surface and a lease would
+ * otherwise look active while it can never emit for that task (BST-1596).
+ */
+function resolveHonoredTaskIds(
+  capture: McpSubscriptionAcknowledgementCapture,
+  taskIds: readonly string[]
+): readonly string[] {
+  if (!capture.acknowledged) {
+    throw new Error(
+      'MCP Tasks notification acknowledgement was never observed on this connection.'
+    );
+  }
+  const acknowledged = parseMcpTaskSubscriptionAcknowledgedNotifications(capture.acknowledgement);
+  const honoredTaskIds = Object.freeze([...(acknowledged.taskIds ?? [])]);
+  const requestedTaskIds = new Set(taskIds);
+  if (
+    new Set(honoredTaskIds).size !== honoredTaskIds.length ||
+    honoredTaskIds.some((taskId) => !requestedTaskIds.has(taskId))
+  ) {
+    throw new Error('MCP Tasks notification acknowledgement is outside the requested task ids.');
+  }
+  const honored = new Set(honoredTaskIds);
+  const rejected = taskIds.filter((taskId) => !honored.has(taskId));
+  if (rejected.length > 0) {
+    throw new Error(
+      `MCP Tasks notification acknowledgement rejected task ids: ${rejected.join(', ')}`
+    );
+  }
+  return honoredTaskIds;
+}
+
 export async function listenForMcpTasks(
   client: Client,
   registry: McpClientExtensionRegistry,
+  dispatchLedger: RegisteredExtensionDispatchLedger,
   taskIds: readonly string[],
   handler: McpTasksNotificationHandler,
   options?: RequestOptions
@@ -216,26 +257,18 @@ export async function listenForMcpTasks(
       activeTaskSubscriptions.delete(client);
     }
   };
+  const capture = dispatchLedger.captureSubscriptionAcknowledgement(notifications);
   let subscription: McpSubscription;
   try {
     subscription = await client.listen(notifications as SubscriptionFilter, options);
   } catch (error) {
+    capture.release();
     release();
     throw error;
   }
   let honoredTaskIds: readonly string[];
   try {
-    const acknowledged = parseMcpTaskSubscriptionAcknowledgedNotifications(
-      subscription.honoredFilter
-    );
-    honoredTaskIds = Object.freeze([...(acknowledged.taskIds ?? [])]);
-    const requestedTaskIds = new Set(taskIds);
-    if (
-      new Set(honoredTaskIds).size !== honoredTaskIds.length ||
-      honoredTaskIds.some((taskId) => !requestedTaskIds.has(taskId))
-    ) {
-      throw new Error('MCP Tasks notification acknowledgement is outside the requested task ids.');
-    }
+    honoredTaskIds = resolveHonoredTaskIds(capture, taskIds);
   } catch (error) {
     release();
     // The transport may reject `closed` on exactly this path; keep it handled.
@@ -249,6 +282,8 @@ export async function listenForMcpTasks(
       );
     }
     throw error;
+  } finally {
+    capture.release();
   }
   const closed = subscription.closed.then(
     (cause) => {

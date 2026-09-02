@@ -41,7 +41,7 @@ import {
 import {
   createHeaderPreservingFetch,
   installRegisteredExtensionDispatch,
-  type RegisteredExtensionDispatchLedger,
+  RegisteredExtensionDispatchLedger,
 } from './registered-extension-dispatch';
 import { installMcpResultTypeCompatibility } from './result-type-compatibility';
 import {
@@ -258,7 +258,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
   );
   assertOAuthHeaderCompatibility(name, options.authProvider, options.headers);
   const scopeStepUp = normalizeOAuthStepUpOptions(options);
-  const extensionDispatchLedger: RegisteredExtensionDispatchLedger = new Set();
+  const extensionDispatchLedger = new RegisteredExtensionDispatchLedger();
   const capabilityConfiguration = composeMcpTransportCapabilities({
     ...(options.clientCapabilities ? { clientCapabilities: options.clientCapabilities } : {}),
     ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
@@ -510,8 +510,9 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
     }
     const registry = requireMcpTasksRegistry(this.options.extensionRegistry, 'notifications');
     const requestOptions = normalizeMcpRequestOptions(options);
+    const ledger = this.options.extensionDispatchLedger;
     return this.runRequest(
-      (client) => listenForMcpTasks(client, registry, taskIds, handler, requestOptions),
+      (client) => listenForMcpTasks(client, registry, ledger, taskIds, handler, requestOptions),
       requestOptions
     );
   }

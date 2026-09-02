@@ -9,6 +9,7 @@ import {
   applyRegisteredExtensionHttpHeaders,
   encodeMcpHeaderValue,
   installRegisteredExtensionDispatch,
+  RegisteredExtensionDispatchLedger,
 } from '../mcp/registered-extension-dispatch';
 import {
   MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
@@ -302,7 +303,9 @@ describe('registered extension HTTP dispatch', () => {
       }),
       method: 'POST',
     };
-    expect(applyRegisteredExtensionHttpHeaders(init, registry, new Set())).toBe(init);
+    expect(
+      applyRegisteredExtensionHttpHeaders(init, registry, new RegisteredExtensionDispatchLedger())
+    ).toBe(init);
   });
 
   it('still validates a tools/call that the registry dispatched', () => {
@@ -314,7 +317,8 @@ describe('registered extension HTTP dispatch', () => {
       method: 'tools/call',
       params: { arguments: {}, name: 'write' },
     });
-    const dispatched = new Set<number | string>([7]);
+    const dispatched = new RegisteredExtensionDispatchLedger();
+    dispatched.trackDispatchedRequest(7);
     expect(() =>
       applyRegisteredExtensionHttpHeaders({ body, method: 'POST' }, registry, dispatched)
     ).toThrow('method/header mismatch');

@@ -41,7 +41,10 @@ import type {
   ExplicitHttpMcpTool,
   NegotiatedProtocolFacts,
 } from './explicit-http-client';
-import { installRegisteredExtensionDispatch } from './registered-extension-dispatch';
+import {
+  installRegisteredExtensionDispatch,
+  RegisteredExtensionDispatchLedger,
+} from './registered-extension-dispatch';
 import { installMcpResultTypeCompatibility } from './result-type-compatibility';
 import {
   type McpServerFeatureEventDiagnosticSink,
@@ -125,6 +128,7 @@ interface ActiveConnection {
   catalogRefreshes: Set<McpCatalogKind>;
   client: Client;
   disconnected: boolean;
+  extensionDispatchLedger: RegisteredExtensionDispatchLedger;
   removeStderrListener(): void;
   toolDefinitions: ReadonlyMap<string, ExplicitHttpMcpTool>;
   toolMetadataReady: boolean;
@@ -430,7 +434,14 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const registry = requireMcpTasksRegistry(this.options.extensionRegistry, 'notifications');
     const requestOptions = normalizeMcpRequestOptions(options);
     const connection = await this.getConnection(requestOptions);
-    return listenForMcpTasks(connection.client, registry, taskIds, handler, requestOptions);
+    return listenForMcpTasks(
+      connection.client,
+      registry,
+      connection.extensionDispatchLedger,
+      taskIds,
+      handler,
+      requestOptions
+    );
   }
 
   watchServerFeatures(handlers: McpServerFeatureEventHandlers): () => void {
@@ -588,6 +599,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const client = new Client(this.options.clientInfo, clientOptions);
     const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
     this.featureEvents.install(client);
+    const extensionDispatchLedger = new RegisteredExtensionDispatchLedger();
     const transport = installMcpResultTypeCompatibility(
       installRegisteredExtensionDispatch(
         new StdioClientTransport({
@@ -596,7 +608,8 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
           ...(this.options.env ? { env: this.options.env } : {}),
           ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
         }),
-        this.options.extensionRegistry
+        this.options.extensionRegistry,
+        extensionDispatchLedger
       ),
       this.options.protocol,
       () => client.getProtocolEra()
@@ -622,6 +635,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       catalogRefreshes: new Set(),
       client,
       disconnected: false,
+      extensionDispatchLedger,
       removeStderrListener: () => stderr?.off('data', onStderrData),
       toolDefinitions: new Map(),
       toolMetadataReady: false,

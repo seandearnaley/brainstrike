@@ -65,9 +65,13 @@ contract (pinned schemas and parsers, SDK core and zod only) and is classed as
 production-independent verifier may consume it without importing production
 client code. The pinned server's `subscriptions/listen` bus models
 only the four spec change events and cannot honor a `taskIds` filter, so a
-pinned-SDK server can never push task status to a listen lease; the production
-client's zero-honored-ids path (BST-1563) is therefore the expected state
-against such a server and is not a Brainstrike defect. Two pinned-SDK facts shape the harness and are
+pinned-SDK server can never push task status to a listen lease. Since BST-1596
+the production client REJECTS such a lease (it closes and throws naming the
+unacknowledged ids) instead of returning a zero-honored-ids lease, because the
+raw acknowledgement — not the SDK's core-stripped `honoredFilter` — is now the
+source of truth. Against a pinned-SDK server that is the expected outcome and
+not a Brainstrike defect: polling stays the authoritative lifecycle path and the
+coordinator records the lease failure visibly. Two pinned-SDK facts shape the harness and are
 recorded here so nobody relitigates them: the pinned core physically deletes
 `tasks/get`/`tasks/cancel` from the 2026-07-28 wire codec on BOTH ends and its
 response funnel admits only `complete`/`input_required` result types, so the

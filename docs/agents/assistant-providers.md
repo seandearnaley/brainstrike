@@ -1993,6 +1993,23 @@ regression: every desktop stdio/streamable-http connection now carries a
 registry, and a core legacy `tools/call` was rejected as a header mismatch). A
 malformed or header-disagreeing REGISTERED request still throws.
 
+`RegisteredExtensionDispatchLedger` is that one per-connection dispatch state,
+and it carries the second fact only the raw-wire seam can see (BST-1596): the
+unstripped `notifications/subscriptions/acknowledged` payload for a claimed
+`subscriptions/listen` request. The SDK settles `McpSubscription.honoredFilter`
+from the CORE `SubscriptionFilter` schema, which drops every extension field, so
+an extension lease cannot otherwise learn which ids the server honored. A
+consumer claims a capture with `captureSubscriptionAcknowledgement(filter)`
+BEFORE calling `listen()`; the bridge's `send` wrapper binds that claim to the
+listen request id by filter object identity (the SDK forwards the caller's
+filter object untouched), its incoming hook records the raw payload against
+`_meta['io.modelcontextprotocol/subscriptionId']`, and transport close clears
+the ledger so a reconnect inherits nothing. The registry still refuses a
+contract for `notifications/subscriptions/acknowledged` itself — the SDK
+consumes that notification before custom handlers — and this capture does NOT
+consume it. Do not add a second dispatch substrate for raw-wire observation;
+extend this ledger.
+
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
 | MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Registered (BST-1572): the default desktop registry, dedicated Electron sandbox startup, generation-fenced resource reader, validated frame bridge, thread-keyed ordinary admission authority (live run, then run-detached host-port execution), and visible-UI IPC consent path form one complete host | Yes (stdio, streamable-http); sse: not registered |
@@ -2052,6 +2069,16 @@ lease per connection on both stdio and Streamable HTTP. The registry owns the
 notification method/schema, refuses reserved core notification methods, and
 releases the lease on local close, remote close, or rejected closure so retry is
 possible. It never emits `tasks/list` or the deprecated request `task.ttl` field.
+BST-1596 closes the acknowledgement gap: `listenForMcpTasks` reads the RAW
+acknowledgement from the connection's dispatch ledger, not the core-stripped
+`honoredFilter`, and a lease whose requested ids were not ALL honored closes
+itself and rejects naming the rejected ids — an unacknowledged id can never emit,
+so a partially or wholly unhonored lease must never look active. An
+acknowledgement the bridge never observed, or one honoring ids outside the
+request, rejects the same way; there is no zero-honored-ids success state left.
+Real stdio and real Streamable HTTP wire tests cover full, partial, and empty
+acknowledgements
+(`packages/agent/src/__tests__/mcp-tasks-subscription-acknowledgement.integration.spec.ts`).
 Production registration is the BST-1566 layer below.
 
 BST-1564 adds the opt-in interaction coordinator without enabling Tasks in production. It deduplicates

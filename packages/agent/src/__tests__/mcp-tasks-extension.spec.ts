@@ -1,6 +1,7 @@
-import type { Client } from '@modelcontextprotocol/client';
+import { type Client, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
+import { RegisteredExtensionDispatchLedger } from '../mcp/registered-extension-dispatch';
 import {
   listenForMcpTasks,
   MCP_TASKS_GET_REQUEST_CONTRACT,
@@ -14,6 +15,34 @@ function tasksRegistry(): McpClientExtensionRegistry {
   return registry;
 }
 
+/**
+ * Stands in for the transport dispatch bridge: binds the outgoing listen filter
+ * to a request id and records the server's RAW acknowledgement against it, which
+ * is the only place an extension field like `taskIds` survives (the SDK strips it
+ * from `McpSubscription.honoredFilter`).
+ */
+function acknowledgingListen<Subscription>(
+  ledger: RegisteredExtensionDispatchLedger,
+  acknowledgements: readonly unknown[],
+  subscribe: (attempt: number) => Subscription
+) {
+  let attempt = 0;
+  return vi.fn(async (filter: unknown) => {
+    const index = attempt;
+    attempt += 1;
+    const subscriptionId = `listen:${index}`;
+    ledger.bindSubscriptionRequest(subscriptionId, { notifications: filter });
+    const acknowledgement = acknowledgements[index];
+    if (acknowledgement !== undefined) {
+      ledger.recordSubscriptionAcknowledgement({
+        _meta: { [SUBSCRIPTION_ID_META_KEY]: subscriptionId },
+        notifications: acknowledgement,
+      });
+    }
+    return subscribe(index);
+  });
+}
+
 describe('MCP Tasks wire adapter', () => {
   it('rolls back active ownership when notification handler registration throws', async () => {
     const setNotificationHandler = vi
@@ -25,61 +54,112 @@ describe('MCP Tasks wire adapter', () => {
     const subscription = {
       close: vi.fn(async () => undefined),
       closed: new Promise<never>(() => undefined),
-      honoredFilter: { taskIds: ['task-1'] },
+      honoredFilter: {},
     };
+    const ledger = new RegisteredExtensionDispatchLedger();
     const client = {
       getNegotiatedProtocolVersion: () => '2026-07-28',
       getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
-      listen: vi.fn(async () => subscription),
+      listen: acknowledgingListen(
+        ledger,
+        [{ taskIds: ['task-1'] }, { taskIds: ['task-1'] }],
+        () => subscription
+      ),
       removeNotificationHandler: vi.fn(),
       setNotificationHandler,
     } as unknown as Client;
     const registry = tasksRegistry();
 
-    await expect(listenForMcpTasks(client, registry, ['task-1'], vi.fn())).rejects.toThrow(
+    await expect(listenForMcpTasks(client, registry, ledger, ['task-1'], vi.fn())).rejects.toThrow(
       /handler registration failed/u
     );
-    const lease = await listenForMcpTasks(client, registry, ['task-1'], vi.fn());
+    const lease = await listenForMcpTasks(client, registry, ledger, ['task-1'], vi.fn());
 
     expect(setNotificationHandler).toHaveBeenCalledTimes(2);
+    expect(lease.honoredTaskIds).toEqual(['task-1']);
     await lease.close();
   });
 
   it('rejects task notification acknowledgements outside the requested subset', async () => {
     const close = vi.fn(async () => undefined);
+    const ledger = new RegisteredExtensionDispatchLedger();
     const client = {
       getNegotiatedProtocolVersion: () => '2026-07-28',
       getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
-      listen: vi.fn(async () => ({
+      listen: acknowledgingListen(ledger, [{ taskIds: ['task-foreign'] }], () => ({
         close,
         closed: new Promise<never>(() => undefined),
-        honoredFilter: { taskIds: ['task-foreign'] },
+        honoredFilter: {},
       })),
       removeNotificationHandler: vi.fn(),
       setNotificationHandler: vi.fn(),
     } as unknown as Client;
 
-    await expect(listenForMcpTasks(client, tasksRegistry(), ['task-1'], vi.fn())).rejects.toThrow(
-      /outside the requested task ids/u
-    );
+    await expect(
+      listenForMcpTasks(client, tasksRegistry(), ledger, ['task-1'], vi.fn())
+    ).rejects.toThrow(/outside the requested task ids/u);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes and names the rejected ids when the server honors only a subset', async () => {
+    // Review of #2913 (BST-1596): `listen()` resolves on ANY acknowledgement and
+    // the SDK's `honoredFilter` has already dropped `taskIds`, so a partially
+    // honored lease used to look active while it could never emit for the
+    // unacknowledged task.
+    const close = vi.fn(async () => undefined);
+    const ledger = new RegisteredExtensionDispatchLedger();
+    const client = {
+      getNegotiatedProtocolVersion: () => '2026-07-28',
+      getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
+      listen: acknowledgingListen(ledger, [{ taskIds: ['task-1'] }], () => ({
+        close,
+        closed: new Promise<never>(() => undefined),
+        honoredFilter: {},
+      })),
+      removeNotificationHandler: vi.fn(),
+      setNotificationHandler: vi.fn(),
+    } as unknown as Client;
+
+    await expect(
+      listenForMcpTasks(client, tasksRegistry(), ledger, ['task-1', 'task-2'], vi.fn())
+    ).rejects.toThrow(/rejected task ids: task-2/u);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a lease whose acknowledgement never reached the dispatch bridge', async () => {
+    const close = vi.fn(async () => undefined);
+    const ledger = new RegisteredExtensionDispatchLedger();
+    const client = {
+      getNegotiatedProtocolVersion: () => '2026-07-28',
+      getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
+      listen: acknowledgingListen(ledger, [], () => ({
+        close,
+        closed: new Promise<never>(() => undefined),
+        honoredFilter: { taskIds: ['task-1'] },
+      })),
+      removeNotificationHandler: vi.fn(),
+      setNotificationHandler: vi.fn(),
+    } as unknown as Client;
+
+    await expect(
+      listenForMcpTasks(client, tasksRegistry(), ledger, ['task-1'], vi.fn())
+    ).rejects.toThrow(/never observed on this connection/u);
     expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('releases a rejected notification lease so the connection can listen again', async () => {
     const firstClosed = Promise.withResolvers<'remote'>();
     const secondClosed = Promise.withResolvers<'local'>();
-    const listen = vi
-      .fn()
-      .mockResolvedValueOnce({
+    const ledger = new RegisteredExtensionDispatchLedger();
+    const listen = acknowledgingListen(
+      ledger,
+      [{ taskIds: ['task-1'] }, { taskIds: ['task-2'] }],
+      (attempt) => ({
         close: vi.fn(async () => undefined),
-        closed: firstClosed.promise,
-        honoredFilter: { taskIds: ['task-1'] },
+        closed: attempt === 0 ? firstClosed.promise : secondClosed.promise,
+        honoredFilter: {},
       })
-      .mockResolvedValueOnce({
-        close: vi.fn(async () => undefined),
-        closed: secondClosed.promise,
-        honoredFilter: { taskIds: ['task-2'] },
-      });
+    );
     const removeNotificationHandler = vi.fn();
     const setNotificationHandler = vi.fn();
     const client = {
@@ -90,12 +170,12 @@ describe('MCP Tasks wire adapter', () => {
       setNotificationHandler,
     } as unknown as Client;
     const registry = tasksRegistry();
-    const first = await listenForMcpTasks(client, registry, ['task-1'], vi.fn());
+    const first = await listenForMcpTasks(client, registry, ledger, ['task-1'], vi.fn());
     const failure = new Error('remote subscription failed');
     firstClosed.reject(failure);
 
     await expect(first.closed).rejects.toBe(failure);
-    const second = await listenForMcpTasks(client, registry, ['task-2'], vi.fn());
+    const second = await listenForMcpTasks(client, registry, ledger, ['task-2'], vi.fn());
     expect(setNotificationHandler).toHaveBeenNthCalledWith(
       2,
       MCP_TASKS_STATUS_NOTIFICATION_CONTRACT.method,

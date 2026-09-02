@@ -1,4 +1,8 @@
-import { type Client, InMemoryResponseCacheStore } from '@modelcontextprotocol/client';
+import {
+  type Client,
+  InMemoryResponseCacheStore,
+  SUBSCRIPTION_ID_META_KEY,
+} from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import {
@@ -8,6 +12,7 @@ import {
 } from '../mcp/client-policy';
 import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
 import { ExplicitStdioMcpClient } from '../mcp/explicit-stdio-client';
+import type { RegisteredExtensionDispatchLedger } from '../mcp/registered-extension-dispatch';
 import {
   MCP_TASKS_STATUS_NOTIFICATION_CONTRACT,
   registerMcpTasksWireContracts,
@@ -373,12 +378,25 @@ describe('ExplicitHttpMcpClient validation', () => {
     const subscription = {
       close: vi.fn(async () => undefined),
       closed: Promise.resolve('local' as const),
-      honoredFilter: { taskIds: ['task-http-1'] },
+      honoredFilter: {},
     };
+    // Stands in for the transport dispatch bridge, which is the only place the
+    // server's raw (unstripped) acknowledgement is observable (BST-1596).
+    const dispatchLedger = Reflect.get(
+      Reflect.get(client, 'options') as object,
+      'extensionDispatchLedger'
+    ) as RegisteredExtensionDispatchLedger;
     const sdkClient = {
       getNegotiatedProtocolVersion: () => '2026-07-28',
       getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
-      listen: vi.fn(async () => subscription),
+      listen: vi.fn(async (filter: unknown) => {
+        dispatchLedger.bindSubscriptionRequest('listen:0', { notifications: filter });
+        dispatchLedger.recordSubscriptionAcknowledgement({
+          _meta: { [SUBSCRIPTION_ID_META_KEY]: 'listen:0' },
+          notifications: { taskIds: ['task-http-1'] },
+        });
+        return subscription;
+      }),
       removeNotificationHandler: vi.fn(),
       setNotificationHandler: vi.fn(),
     } as unknown as Client;
