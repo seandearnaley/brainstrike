@@ -92,33 +92,34 @@ function harness(decision: 'allow' | 'ask' = 'ask'): Harness {
   const prepare = vi.fn(async () => ({ decision, riskCategory: 'execute' as const }));
   const execute = vi.fn(async () => ({ result: { content: [{ text: 'done', type: 'text' }] } }));
   const release = vi.fn(async () => undefined);
+  let sequence = 0;
   const bridge: McpAppBridge = {
     execute: execute as unknown as McpAppBridge['execute'],
     prepare: prepare as unknown as McpAppBridge['prepare'],
+    // The host serves each shell from its own brainstrike-mcp-app: origin;
+    // `created`/`revoked` record the URLs it handed out and took back.
+    prepareShell: vi.fn(async (request) => {
+      expect(request.document).toContain('MCP App sandbox');
+      expect(request.contentSecurityPolicy).toContain("default-src 'none'");
+      expect(request.permissionsPolicy).toContain('camera=()');
+      sequence += 1;
+      const token = sequence.toString(16).padStart(32, '0');
+      const shellUrl = `brainstrike-mcp-app://${token}/`;
+      created.push(shellUrl);
+      return { shellUrl, token };
+    }),
     readResource: vi.fn(async () => APP_DOCUMENT),
     release: release as unknown as McpAppBridge['release'],
+    releaseShell: vi.fn(async ({ token }) => {
+      revoked.push(`brainstrike-mcp-app://${token}/`);
+    }),
   };
-  let sequence = 0;
   return {
     bridge,
     created,
     execute,
     frame,
-    ports: {
-      eventTarget: target,
-      resolveFrameSource: () => frame,
-      urls: {
-        createObjectURL: () => {
-          sequence += 1;
-          const url = `blob:mcp-app/${sequence}`;
-          created.push(url);
-          return url;
-        },
-        revokeObjectURL: (url) => {
-          revoked.push(url);
-        },
-      },
-    },
+    ports: { eventTarget: target, resolveFrameSource: () => frame },
     prepare,
     release,
     revoked,
@@ -205,11 +206,39 @@ describe('MCP App tool result', () => {
     expect(test.prepare).not.toHaveBeenCalled();
   });
 
-  it('mounts the sandbox shell URL after reading the app document', async () => {
+  it('mounts the host-served brainstrike-mcp-app: shell URL after reading the app document', async () => {
     const test = harness();
     await mountApp(test);
     expect(test.bridge.readResource).toHaveBeenCalledWith(APP);
-    expect(screen.getByTitle('create_issue app')).toHaveAttribute('src', test.created[0]);
+    expect(test.bridge.prepareShell).toHaveBeenCalledTimes(1);
+    const frame = screen.getByTitle('create_issue app');
+    expect(frame).toHaveAttribute('src', test.created[0]);
+    expect(frame.getAttribute('src')).toMatch(/^brainstrike-mcp-app:\/\/[0-9a-f]{32}\/$/u);
+    expect(test.revoked).toEqual([]);
+  });
+
+  it('releases the shell when the mount is torn down while the host is still registering it', async () => {
+    const test = harness();
+    let resolveShell: ((lease: { shellUrl: string; token: string }) => void) | undefined;
+    const slowPrepare = vi.fn(
+      () =>
+        new Promise<{ shellUrl: string; token: string }>((resolve) => {
+          resolveShell = resolve;
+        })
+    );
+    const bridge: McpAppBridge = { ...test.bridge, prepareShell: slowPrepare };
+    const view = render(
+      <TooltipProvider>
+        <McpAppBridgeProvider bridge={bridge}>
+          <McpAppToolResult {...TOOL_CALL} ports={test.ports} />
+        </McpAppBridgeProvider>
+      </TooltipProvider>
+    );
+    await waitFor(() => expect(slowPrepare).toHaveBeenCalledTimes(1));
+    view.unmount();
+    const token = 'f'.repeat(32);
+    resolveShell?.({ shellUrl: `brainstrike-mcp-app://${token}/`, token });
+    await waitFor(() => expect(test.bridge.releaseShell).toHaveBeenCalledWith({ token }));
   });
 
   it('routes an app tools/call through consent, execution, and the frame reply', async () => {

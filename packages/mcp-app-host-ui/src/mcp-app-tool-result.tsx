@@ -13,7 +13,6 @@ import {
   type McpAppGeneration,
   McpAppProvenanceAuthority,
   McpAppSandboxOwner,
-  type McpAppSandboxUrlApi,
   McpAppToolCallAuthority,
   type McpAppToolRiskCategory,
 } from '@brainstrike/mcp-app-host';
@@ -33,13 +32,14 @@ const RISK_CATEGORIES: readonly McpAppToolRiskCategory[] = ['edit', 'execute', '
 /**
  * Host-side ports the app runtime needs. Injectable so the renderer can be
  * exercised without a real nested-srcdoc frame; the default reads the live
- * window, the live `URL` object-store, and the sandbox shell's nested app
- * frame exactly as the packaged lifecycle proof does.
+ * window and the sandbox shell's nested app frame exactly as the packaged
+ * lifecycle proof does. Shell URLs are NOT a port: the host bridge serves
+ * each shell from its own `brainstrike-mcp-app:` origin (BST-1572), so the
+ * renderer never mints a URL of its own.
  */
 export interface McpAppRuntimePorts {
   readonly eventTarget: McpAppFrameEventTarget;
   readonly resolveFrameSource: (frame: HTMLIFrameElement) => McpAppFrameSource | undefined;
-  readonly urls: McpAppSandboxUrlApi;
 }
 
 /** Handles for an app session that reached the frame-connected state. */
@@ -56,19 +56,21 @@ export interface McpAppToolResultProps extends ToolResultRendererProps {
   readonly ports?: McpAppRuntimePorts;
 }
 
+/**
+ * The shell is cross-origin to the host, so its document is unreachable;
+ * the nested app frame is addressed as the shell window's first child
+ * WindowProxy (`window[0]`), which cross-origin access permits.
+ */
+function resolveNestedAppFrame(frame: HTMLIFrameElement): McpAppFrameSource | undefined {
+  const shell = frame.contentWindow;
+  if (shell === null || shell.length === 0) {
+    return undefined;
+  }
+  return shell[0];
+}
+
 function createDefaultRuntimePorts(): McpAppRuntimePorts {
-  return {
-    eventTarget: window,
-    resolveFrameSource: (frame) =>
-      frame.contentDocument?.querySelector('iframe')?.contentWindow ?? undefined,
-    urls: {
-      // Ownership lives in McpAppSandboxOwner: each shell URL it creates is
-      // revoked by its mount's `close()`, which the mount effect's cleanup
-      // drives through `sandboxOwner.closeAll()`.
-      createObjectURL: (blob) => URL.createObjectURL(blob),
-      revokeObjectURL: (url) => URL.revokeObjectURL(url),
-    },
-  };
+  return { eventTarget: window, resolveFrameSource: resolveNestedAppFrame };
 }
 
 function initializeResult(hostVersion: string): Readonly<Record<string, unknown>> {
@@ -215,7 +217,10 @@ function LiveMcpApp({
     let disposed = false;
     let frameBridge: McpAppFrameBridge | undefined;
     const session = createAppSession(origin, threadId, bridge);
-    const sandboxOwner = new McpAppSandboxOwner({ urls: runtimePorts.urls });
+    // Ownership lives in McpAppSandboxOwner: every shell it registers through
+    // the bridge is released by its mount's `close()`, which the cleanup
+    // drives through `sandboxOwner.closeAll()`.
+    const sandboxOwner = new McpAppSandboxOwner({ shellHost: bridge });
     setView({ session, state: { phase: 'loading' } });
 
     const fail = (code: 'load-failed' | 'protocol-failed'): void =>
@@ -231,7 +236,13 @@ function LiveMcpApp({
         session.tool,
         session.resourceValue(html)
       );
-      const mount = sandboxOwner.open(resource);
+      const mount = await sandboxOwner.open(resource);
+      if (disposed) {
+        // The cleanup's closeAll ran while registration was in flight; the
+        // served shell is ours to release.
+        await mount.close();
+        return;
+      }
       setView({ session, shellUrl: mount.shellUrl, state: { phase: 'ready' } });
       const source = await awaitFrameSource(
         () => {
