@@ -14,6 +14,17 @@ export {
   requireMcpAppSandboxPartition,
 } from './electron-sandbox.js';
 export {
+  type McpAppFrameBinding,
+  McpAppFrameBridge,
+  type McpAppFrameBridgeOptions,
+  type McpAppFrameBridgeSnapshot,
+  type McpAppFrameEventTarget,
+  McpAppFrameRemoteError,
+  type McpAppFrameRequestContext,
+  McpAppFrameRpcError,
+  type McpAppFrameSource,
+} from './frame-bridge.js';
+export {
   McpAppRequestCorrelator,
   type McpAppResponse,
   parseMcpAppResponse,

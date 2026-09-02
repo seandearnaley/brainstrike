@@ -242,7 +242,11 @@ grep-inverts `@packaged`; an unpackaged regression run must never discover it.
 The dependency build includes `@brainstrike/mcp-test-lab`, then the job packages
 the desktop once, runs the packaged native-addon checks, and invokes
 `test:e2e:lane:packaged-mcp-core` against that existing artifact. The canonical
-lane does not build or package. `test:e2e:mcp-packaged` remains the local
+lane does not build or package. The same job runs
+`test:e2e:lane:packaged-mcp-apps-bridge` (`mcp-apps-bridge.desktop.test.ts`,
+tagged `@packaged @destructive`, excluded from the generic full-regression
+lane) right after packaging; `scripts/__tests__/mcp-apps-bridge-packaged-ci-contract.test.mjs`
+pins the step order and the lane script. `test:e2e:mcp-packaged` remains the local
 developer convenience that builds the lab, packages the app, and delegates to
 the same lane. `scripts/__tests__/e2e-lane-coverage.test.mjs` pins the tags,
 broad-lane exclusion, canonical delegation, and workflow reachability/order.

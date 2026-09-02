@@ -69,6 +69,7 @@ describe('MCP Apps request correlation', () => {
       /not pending/
     );
     correlation.settle({ id: 'one', jsonrpc: '2.0', result: {} });
+    expect(() => correlation.register('one')).toThrow(/already used/);
     expect(() => correlation.settle({ id: 'one', jsonrpc: '2.0', result: {} })).toThrow(
       /not pending/
     );
@@ -80,6 +81,20 @@ describe('MCP Apps request correlation', () => {
     expect(() => bounded.register(256)).toThrow(/exceeds 256 entries/);
   });
 
+  it('bounds replay memory to a recent-id ring instead of a session lifetime', () => {
+    const correlation = new McpAppRequestCorrelator();
+    for (let id = 0; id < 4097; id += 1) {
+      correlation.register(id);
+      correlation.settle({ id, jsonrpc: '2.0', result: {} });
+    }
+    // The most recent ids are still refused as replays…
+    expect(() => correlation.register(4096)).toThrow(/already used/);
+    expect(() => correlation.register(1)).toThrow(/already used/);
+    // …while the oldest has been evicted, so a long session never wedges.
+    correlation.register(0);
+    expect(correlation.pendingCount).toBe(1);
+  });
+
   it('releases the slot when the answer to a pending id fails validation', () => {
     // Review of #2914: a malformed reply used to leave its id pending forever,
     // so 256 bad answers wedged the channel for the life of the instance.
@@ -89,8 +104,11 @@ describe('MCP Apps request correlation', () => {
       correlation.settle({ id: 'r1', jsonrpc: '2.0', result: { text: 'x'.repeat(262_145) } })
     ).toThrow(/maximum encoded size/);
     expect(correlation.pendingCount).toBe(0);
-    correlation.register('r1');
-    expect(() => correlation.settle({ id: 'r1', jsonrpc: '1.0', result: {} })).toThrow(/jsonrpc/);
+    // Ids are one-shot (BST-1570): the released id cannot be re-registered,
+    // but a fresh id proves the slot itself was released.
+    expect(() => correlation.register('r1')).toThrow(/already used/);
+    correlation.register('r2');
+    expect(() => correlation.settle({ id: 'r2', jsonrpc: '1.0', result: {} })).toThrow(/jsonrpc/);
     expect(correlation.pendingCount).toBe(0);
   });
 

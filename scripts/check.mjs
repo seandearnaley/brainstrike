@@ -123,6 +123,11 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
       'Part of the platform-specific Native Electron Package job, excluded as a unit — run `pnpm --filter @brainstrike/desktop run test:e2e:mcp-packaged` to build and verify the current developer-platform package explicitly.',
     step: 'native-electron › Verify packaged MCP core lifecycle',
   },
+  {
+    reason:
+      'Part of the platform-specific Native Electron Package job, excluded as a unit — run `pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge` against a developer-platform package explicitly.',
+    step: 'native-electron › Verify packaged MCP Apps bridge',
+  },
 ];
 
 /** CI run steps covered by each local plan step. */

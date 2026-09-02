@@ -1,3 +1,4 @@
+import { correlationKey } from './internal.js';
 import { parseMcpAppJsonRecord, parseMcpAppJsonValue, parseMcpAppRequestId } from './messages.js';
 import {
   expectEncodedSize,
@@ -70,13 +71,16 @@ export function parseMcpAppResponse(value: unknown): McpAppResponse {
 }
 
 const MAX_PENDING_REQUESTS = 256;
-
-function correlationKey(id: number | string): string {
-  return `${typeof id}:${id}`;
-}
+/**
+ * Replay defence, not a session lifetime: the correlator remembers the most
+ * recent one-shot ids in a bounded ring and evicts the oldest, so a long-lived
+ * app never exhausts its id space while the pending set stays the authority.
+ */
+const RECENT_REQUEST_IDS = 4096;
 
 export class McpAppRequestCorrelator {
   readonly #pending = new Set<string>();
+  readonly #seen = new Set<string>();
 
   get pendingCount(): number {
     return this.#pending.size;
@@ -88,8 +92,18 @@ export class McpAppRequestCorrelator {
     if (this.#pending.has(key)) {
       throw new TypeError(`MCP Apps request id ${JSON.stringify(id)} is already pending`);
     }
+    if (this.#seen.has(key)) {
+      throw new TypeError(`MCP Apps request id ${JSON.stringify(id)} was already used`);
+    }
     if (this.#pending.size >= MAX_PENDING_REQUESTS) {
       throw new TypeError(`MCP Apps request correlation exceeds ${MAX_PENDING_REQUESTS} entries`);
+    }
+    this.#seen.add(key);
+    if (this.#seen.size > RECENT_REQUEST_IDS) {
+      const oldest = this.#seen.values().next().value;
+      if (oldest !== undefined) {
+        this.#seen.delete(oldest);
+      }
     }
     this.#pending.add(key);
     return id;
@@ -124,6 +138,12 @@ export class McpAppRequestCorrelator {
   /** Releases every pending request; used on transport close. */
   clear(): void {
     this.#pending.clear();
+  }
+
+  /** Forgets pending AND one-shot ids: a new frame binding starts a fresh id space. */
+  reset(): void {
+    this.#pending.clear();
+    this.#seen.clear();
   }
 
   #releaseRecoverableId(value: unknown): void {

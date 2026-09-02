@@ -785,7 +785,7 @@ jobs:
           echo "ELECTRON_DIST=$ELECTRON_ZIP" >> "$GITHUB_ENV"
 
       - name: Build desktop dependency graph
-        run: pnpm turbo run build --filter=@brainstrike/desktop... --filter=@brainstrike/mcp-test-lab --concurrency=4
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --filter=@brainstrike/mcp-test-lab --filter=@brainstrike/mcp-app-host --concurrency=4
 
       - name: Load the native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
@@ -795,6 +795,9 @@ jobs:
           set -euo pipefail
           test -n "${ELECTRON_DIST:-}"
           pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST"
+
+      - name: Verify packaged MCP Apps bridge
+        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
