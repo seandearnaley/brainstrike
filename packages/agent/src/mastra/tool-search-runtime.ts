@@ -145,7 +145,20 @@ function buildSearchToolDescription(
   );
   const families = describeAvailableDeferredCapabilityFamilies(originalIds);
   const familiesClause = families.length > 0 ? ` this run: ${families}` : '';
-  return `Search deferred capabilities${familiesClause}. Matches load automatically for the next turn.`;
+  return `Search deferred capabilities${familiesClause}. Matches load automatically and are callable on your next step in this same response.`;
+}
+
+/**
+ * The model-facing sentence in a successful `search_tools` result. Mastra's
+ * own copy says the match is "available on your next turn"; in chat
+ * vocabulary a turn is a user message, and on 2026-09-02 a live run took it
+ * that way: the loaded definition was in the very next step, yet the model
+ * ended its reply with "I'll create the Linear issue once the ticket
+ * integration finishes loading" (finishReason `stop`, no call ever sent).
+ * Brainstrike owns this executor, so the sentence is Brainstrike's.
+ */
+function describeLoadedSearchResult(loadedToolNames: readonly string[]): string {
+  return `Found and loaded ${loadedToolNames.length} tool(s): ${loadedToolNames.join(', ')}. They are callable now, on your next step in this same response: call them right away and do not end your reply to wait for loading.`;
 }
 
 function readSearchQuery(args: readonly unknown[]): string | undefined {
@@ -248,7 +261,17 @@ function wrapSearchTelemetry(
         rankedResults: searchResult.rankedResults,
         stepNumber,
       });
-      return result;
+      // `result` already passed readSearchResult, so its `results` entries
+      // carry the sanitized names the model must call. Only the sentence
+      // changes; the ranked list is returned untouched.
+      const loaded = result as {
+        readonly message: string;
+        readonly results: { description: string; name: string; score: number }[];
+      };
+      return {
+        ...loaded,
+        message: describeLoadedSearchResult(loaded.results.map((entry) => entry.name)),
+      };
     },
     writable:
       executeDescriptor && 'writable' in executeDescriptor ? executeDescriptor.writable : true,

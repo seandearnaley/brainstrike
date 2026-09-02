@@ -3603,8 +3603,29 @@ result, with its space RESERVED inside the activation budget so truncation
 can never slice it off) carries the same recovery clause for
 `runSkillScript`, self-gated on `search_tools` being available.
 
+**"NEXT TURN" MEANS THE NEXT MODEL STEP OF THE SAME RESPONSE — say so
+explicitly.** Mastra's `search_tools` copy (its injected system line, its
+tool description, and its result message) says a match is "available on your
+next turn". In chat vocabulary a turn is a user message. The 2026-09-02 live
+Linear write proof failed on exactly that reading: `search_tools` loaded
+`linear.save_issue`, the loaded definition was in the very next step
+(`mastra_tool_discovery_step` reported it), and the model still ended its
+reply with "I'll create the Linear issue once the ticket integration finishes
+loading" — `finishReason: stop`, no `tools/call` ever sent, so the owner saw a
+chat that "stopped after the tool call" with no error anywhere. No runtime
+layer was involved. Every Brainstrike-owned surface therefore says "callable
+on your next step in this same response" and forbids ending the reply to
+wait: the instructions' discovery line pins the meaning of "next turn", the
+`search_tools` description says "same response", the skill execution
+guidance says the same, and `wrapSearchTelemetry` REPLACES Mastra's result
+sentence with `describeLoadedSearchResult` (ranked list untouched). Mastra's
+injected system line is the one surface Brainstrike does not own; the
+instructions' definition is what neutralizes it. Pinned by
+`default-instructions.spec.ts`, `tool-search-runtime.spec.ts`, and
+`skill-tools.spec.ts`.
+
 **THE BATCHING EXEMPTION LIVES ON THE BATCHING LINE — do not relitigate.** A
-loaded match is callable only on the FOLLOWING turn, so batching `search_tools`
+loaded match is callable only on the FOLLOWING model step, so batching `search_tools`
 with slow calls strands the discovery for their whole duration: an observed run
 issued it alongside two delegations that took ~15 minutes each, then spent three
 `search_tools` calls locating one tool the user had named explicitly. The

@@ -35,7 +35,7 @@ export const SKILL_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
  * is inert.
  */
 export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE =
-  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd — if that tool is not currently loaded, load it with search_tools when available (matches become callable next turn). Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.';
+  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd — if that tool is not currently loaded, load it with search_tools when available (matches become callable on your next step in this same response — keep going and call it). Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.';
 
 /** Mirrors countTokensHeuristic (4 chars/token) — same unit as the guard. */
 const APPROX_CHARS_PER_TOKEN = 4;
