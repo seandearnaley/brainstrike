@@ -3,6 +3,7 @@ import {
   McpTaskInteraction,
   type McpTaskInteractionClient,
   McpTaskLifecycle,
+  McpTaskObservationPort,
   McpTaskPresentationController,
   type McpTasksNotificationHandler,
   type McpTasksNotificationLease,
@@ -15,6 +16,7 @@ import type {
   McpTaskPresentationControllerPort,
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { McpTaskStatusCard } from '@brainstrike/assistant-ui/mcp-task-status-card';
+import type { McpTaskAuthorityLease } from '@brainstrike/db';
 import { McpTaskRepository, migrations } from '@brainstrike/db';
 import { PGlite } from '@electric-sql/pglite';
 import type { JSONObject } from '@modelcontextprotocol/client';
@@ -27,13 +29,21 @@ const TASK_SCOPE = {
   serverId: 'packaged-server',
 } as const;
 const TASK_ID = 'packaged-restart-task';
+/** Durable authority input: the epoch is minted/rebound by the repository at start. */
+const TASK_AUTHORITY_INPUT = {
+  connectionGeneration: TASK_SCOPE.generation,
+  principalId: TASK_SCOPE.principalId,
+  resource: TASK_SCOPE.resource,
+  runtimeId: 'packaged-task-harness',
+  serverId: TASK_SCOPE.serverId,
+} as const;
 const TASK_CREATED_AT = '2026-09-01T05:00:00.000Z';
 const TASK_DATA_DIR = 'idb://bst-1565-mcp-task-restart';
-const TASK_MIGRATION_VERSION = 114;
+const TASK_MIGRATION_VERSIONS = [114, 115] as const;
 
 type HarnessScenario =
   | 'live'
-  | 'stale_generation'
+  | 'stale_epoch'
   | 'lost_principal'
   | 'capability_removed'
   | 'unsupported_version';
@@ -62,11 +72,13 @@ declare global {
 }
 
 function taskMigrationSql(): string {
-  const migration = migrations.find((candidate) => candidate.version === TASK_MIGRATION_VERSION);
-  if (!(migration && typeof migration.up === 'string')) {
-    throw new Error(`MCP Tasks migration ${TASK_MIGRATION_VERSION} is unavailable.`);
-  }
-  return migration.up;
+  return TASK_MIGRATION_VERSIONS.map((version) => {
+    const migration = migrations.find((candidate) => candidate.version === version);
+    if (!(migration && typeof migration.up === 'string')) {
+      throw new Error(`MCP Tasks migration ${version} is unavailable.`);
+    }
+    return migration.up;
+  }).join('\n');
 }
 
 function taskStatus(status: 'working' | 'cancelled') {
@@ -94,6 +106,7 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
   private constructor(
     private readonly db: PGlite,
     private readonly repository: McpTaskRepository,
+    private readonly authority: McpTaskAuthorityLease,
     private readonly interaction: McpTaskInteraction,
     private presentation: McpTaskPresentation,
     lifecycle: McpTaskLifecycle
@@ -109,11 +122,23 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     const db = new PGlite(TASK_DATA_DIR);
     await db.exec(taskMigrationSql());
     const repository = new McpTaskRepository(db);
-    const identity = { ...TASK_SCOPE, taskId: TASK_ID };
+    const authority = await repository.openAuthority(TASK_AUTHORITY_INPUT);
+    const scope = {
+      authorityEpoch: authority.authorityEpoch,
+      principalId: authority.principalId,
+      resource: authority.resource,
+      serverId: authority.serverId,
+    };
+    const identity = { ...scope, taskId: TASK_ID };
+    const observationPort = new McpTaskObservationPort({
+      onConsumerError: (taskId, error) => {
+        throw new Error(`Packaged MCP task consumer failed for "${taskId}": ${String(error)}`);
+      },
+    });
     const existing = await repository.get(identity);
     const holder: { runtime: PackagedTaskHarnessRuntime | null } = { runtime: null };
     const client: McpTaskInteractionClient = {
-      listenTasks: async (_taskIds, handler): Promise<McpTasksNotificationLease> => {
+      listenTasks: async (taskIds, handler): Promise<McpTasksNotificationLease> => {
         const runtime = holder.runtime;
         if (!runtime) {
           throw new Error('Packaged MCP task runtime is not ready.');
@@ -129,6 +154,7 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
             runtime.subscriptionClosed.resolve('local');
           },
           closed: runtime.subscriptionClosed.promise,
+          honoredTaskIds: [...taskIds],
         };
       },
       requestExtension: async <Params extends JSONObject, Result>(
@@ -143,9 +169,14 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
         handle: async () => ({ action: 'cancel' }),
         url: false,
       },
-      scope: TASK_SCOPE,
+      observationPort,
+      scope,
     });
-    const lifecycle = PackagedTaskHarnessRuntime.createLifecycle(repository);
+    const lifecycle = PackagedTaskHarnessRuntime.createLifecycle(
+      repository,
+      authority,
+      observationPort
+    );
     let initialRecord = existing;
     let recovery: McpTaskPresentation['recovery'] = 'restart_required';
     if (!initialRecord) {
@@ -163,6 +194,7 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     const runtime = new PackagedTaskHarnessRuntime(
       db,
       repository,
+      authority,
       interaction,
       projectMcpTaskRecord(initialRecord, recovery),
       lifecycle
@@ -173,8 +205,13 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     return runtime;
   }
 
-  private static createLifecycle(repository: McpTaskRepository): McpTaskLifecycle {
+  private static createLifecycle(
+    repository: McpTaskRepository,
+    authority: McpTaskAuthorityLease,
+    observationPort: McpTaskObservationPort
+  ): McpTaskLifecycle {
     return new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: async <Params extends JSONObject, Result>(
           _contract: McpClientExtensionRequestContract<Params, Result>,
@@ -186,17 +223,18 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
             statusMessage: 'Packaged task is working',
           }) as Result,
       },
-      currentGeneration: () => TASK_SCOPE.generation,
       limits: {
         initialPollMs: 60_000,
         maxBackoffMs: 60_000,
         maxConcurrentPolls: 1,
         maxLifetimeMs: 600_000,
+        maxTransportFailures: 3,
         minimumPollMs: 100,
+        pollRequestTimeoutMs: 30_000,
       },
+      observationPort,
       onUpdate: () => undefined,
       repository,
-      scope: TASK_SCOPE,
     });
   }
 
@@ -268,7 +306,7 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
       const cancelled = await this.repository.update(
         request.handle,
         { status: 'cancelled', statusMessage: 'Cancelled by packaged verifier' },
-        { currentGeneration: TASK_SCOPE.generation }
+        this.authority
       );
       await this.lifecycle.stop('disconnect');
       return cancelled;
@@ -278,25 +316,31 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
   }
 
   private readEnvironment() {
+    const scope = {
+      authorityEpoch: this.authority.authorityEpoch,
+      principalId: this.authority.principalId,
+      resource: this.authority.resource,
+      serverId: this.authority.serverId,
+    };
     switch (this.scenario) {
       case 'capability_removed':
-        return { capabilityAvailable: false, protocolVersion: '2026-07-28', scope: TASK_SCOPE };
+        return { capabilityAvailable: false, protocolVersion: '2026-07-28', scope };
       case 'lost_principal':
         return {
           capabilityAvailable: true,
           protocolVersion: '2026-07-28',
-          scope: { ...TASK_SCOPE, principalId: 'replacement-principal' },
+          scope: { ...scope, principalId: 'replacement-principal' },
         };
-      case 'stale_generation':
+      case 'stale_epoch':
         return {
           capabilityAvailable: true,
           protocolVersion: '2026-07-28',
-          scope: { ...TASK_SCOPE, generation: TASK_SCOPE.generation + 1 },
+          scope: { ...scope, authorityEpoch: '00000000-0000-7000-8000-000000000000' },
         };
       case 'unsupported_version':
-        return { capabilityAvailable: true, protocolVersion: '2025-11-25', scope: TASK_SCOPE };
+        return { capabilityAvailable: true, protocolVersion: '2025-11-25', scope };
       case 'live':
-        return { capabilityAvailable: true, protocolVersion: '2026-07-28', scope: TASK_SCOPE };
+        return { capabilityAvailable: true, protocolVersion: '2026-07-28', scope };
     }
   }
 

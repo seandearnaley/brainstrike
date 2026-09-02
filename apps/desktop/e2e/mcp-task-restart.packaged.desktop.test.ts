@@ -9,7 +9,7 @@ import { closeElectronApp } from './utils/electron-helpers.mts';
 
 type HarnessScenario =
   | 'live'
-  | 'stale_generation'
+  | 'stale_epoch'
   | 'lost_principal'
   | 'capability_removed'
   | 'unsupported_version';
@@ -255,7 +255,7 @@ test('MCP task recovery is fenced and quiescent across a genuine packaged restar
     await expect(secondPage.getByRole('button', { name: 'Recover task' })).toHaveCount(0);
     await expect(secondPage.getByTestId('mcp-task-status-summary')).toBeFocused();
 
-    await setScenario(secondPage, 'stale_generation');
+    await setScenario(secondPage, 'stale_epoch');
     await secondPage.getByRole('button', { name: 'Cancel task' }).click();
     await expect(secondPage.getByRole('alert')).toContainText('replaced server connection');
     await expect(secondPage.getByTestId('mcp-task-status-summary')).toContainText('Working');

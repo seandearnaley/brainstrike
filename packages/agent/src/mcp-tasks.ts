@@ -12,3 +12,4 @@ export {
   type McpTaskInteractionClient,
 } from './mcp/tasks-interaction';
 export { McpTaskLifecycle, type McpTrackedTask } from './mcp/tasks-lifecycle';
+export { McpTaskObservationPort } from './mcp/tasks-observation';
