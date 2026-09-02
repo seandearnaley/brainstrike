@@ -179,6 +179,15 @@ function raceAbort<Value>(operation: Promise<Value>, signal: AbortSignal): Promi
   });
 }
 
+/** Milliseconds left before `deadline`; throws the bounded-lifetime error at or past it. */
+function requireRemainingLifetime(deadline: number, taskId: string): number {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw new Error(`MCP task "${taskId}" exceeded its bounded lifetime.`);
+  }
+  return remainingMs;
+}
+
 export class McpTaskLifecycle {
   private readonly active = new Map<string, ActiveTask>();
   private readonly authority: McpTaskAuthorityLease;
@@ -390,22 +399,19 @@ export class McpTaskLifecycle {
         consecutiveFailures,
         this.limits
       );
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) {
-        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
-      }
+      const remainingMs = requireRemainingLifetime(deadline, initialRecord.taskId);
       await this.wait(Math.min(requestedDelay, remainingMs), signal, wake);
-      if (Date.now() >= deadline) {
-        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
-      }
+      requireRemainingLifetime(deadline, initialRecord.taskId);
       const release = await this.acquirePollPermit(signal);
       wake.requested = false;
       // The permit wait can outlast the deadline computed before it; a poll
       // must not be issued, nor a late response persisted, past the lifetime.
-      const remainingAfterPermit = deadline - Date.now();
-      if (remainingAfterPermit <= 0) {
+      let remainingAfterPermit: number;
+      try {
+        remainingAfterPermit = requireRemainingLifetime(deadline, initialRecord.taskId);
+      } catch (error) {
         release();
-        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
+        throw error;
       }
       let result: GetTaskResult;
       try {
