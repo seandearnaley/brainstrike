@@ -451,6 +451,22 @@ async function executeMcpTool(
   // authorities and the tool settles on the bounded presentation instead.
   const createdTask = readMcpCreatedTaskResult(result);
   let ordinaryResult: unknown;
+  if (createdTask && shouldRetainRawMcpCallToolResult(context.abortSignal)) {
+    // App-originated call: the MCP App client expects the canonical
+    // CreateTaskResult (its frame bridge bounds inbound requests at 10 s, far
+    // under the settlement wait). The host still takes ownership of the task
+    // through `track`; nothing awaits settlement here.
+    if (!taskTracking) {
+      throw new Error(
+        `MCP tool "${serverName}.${toolName}" returned a task but this host has no task tracking capability`
+      );
+    }
+    await taskTracking.capability.track(
+      { configuredServerId: serverName, result: createdTask, toolName },
+      context.abortSignal
+    );
+    return createdTask;
+  }
   if (createdTask) {
     ordinaryResult = await settleMcpTaskToolResult({
       // `server.name` IS the configured server id: the host authority snapshot

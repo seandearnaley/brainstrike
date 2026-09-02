@@ -765,6 +765,13 @@ The agent runtime's MCP tool path is production-wired for a created task
   the host authority snapshot's `configuredServerId` (mapped verbatim in
   `createMcpRuntimeClient`) and therefore matches `McpTaskHandle.serverId` on
   the desktop host; `toolName` is the unprefixed MCP tool name.
+- **App-originated calls return the wire task.** When the Apps admission
+  executor marked the call for raw retention (`shouldRetainRawMcpCallToolResult`),
+  the tool still hands the task to `track()` so the host owns it, then returns
+  the canonical `CreateTaskResult` unchanged WITHOUT awaiting settlement: the
+  MCP App client expects that result and its frame bridge aborts inbound
+  requests after 10 s, far under the settlement wait. This branch runs before
+  the ordinary settlement branch; a tracking-less host still throws.
 - **Bounded settlement.** After `track()` the tool awaits
   `awaitSettlement(handle, { timeoutMs, signal })` with
   `timeoutMs = min(45_000, floor(0.75 × toolTimeoutMs))`
@@ -817,7 +824,8 @@ consumed by `executeMcpTool` in `mcp-runtime-client.ts`):
   for preview/authority execution. The marker is built only on the ordinary
   model-initiated path.
 - **Ordering and ordinary result.** Created Tasks first settle to their existing
-  task marker. For non-task calls the raw successful `CallToolResult` is kept
+  task marker (except app-originated raw-retention calls, which return the
+  CreateTaskResult after `track()` — see the BST-1566 section). For non-task calls the raw successful `CallToolResult` is kept
   when there is no `structuredContent` or when media is present; otherwise the
   existing `structuredContent` value is used. Canonical `isError: true` throws
   before any Apps marker exists. The selected value is exactly the result this
