@@ -71,6 +71,7 @@
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
+    "@brainstrike/mcp-app-host": "workspace:*",
     "@brainstrike/mcp-app-host-ui": "workspace:*",
     "@brainstrike/notes-vault": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",

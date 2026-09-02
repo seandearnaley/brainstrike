@@ -1,4 +1,8 @@
 export {
+  MCP_APPS_CLIENT_EXTENSION_CONTRACT,
+  registerMcpAppsClientCapability,
+} from './mcp/apps-extension';
+export {
   composeMcpTransportCapabilities,
   createMcpClientCapabilityRuntime,
   createMcpElicitationCapability,

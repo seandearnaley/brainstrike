@@ -173,6 +173,7 @@ export {
   createMastraAgentRuntime,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
+  type McpAppAdmissionObserver,
 } from './mastra/agent-runtime';
 export {
   type DiscoveredSuspendedApproval,

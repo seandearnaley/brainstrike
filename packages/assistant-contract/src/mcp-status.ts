@@ -40,9 +40,10 @@ export const MCP_SUPPORT_MATRIX = [
     status: 'supported',
   },
   {
-    evidence: 'No complete Apps host is registered.',
+    evidence:
+      'Registered by the desktop default extension registry, dedicated mcp-app sandbox startup, live-run admission authority, and visible-UI Apps IPC/preload bridge.',
     id: 'io.modelcontextprotocol/ui',
-    implementationTicket: 'BST-1474',
+    implementationTicket: 'BST-1572',
     kind: 'extension',
     label: 'MCP Apps',
     requirements: [
@@ -55,7 +56,7 @@ export const MCP_SUPPORT_MATRIX = [
       'lifecycle cleanup',
       'renderer tests',
     ],
-    status: 'unsupported',
+    status: 'supported',
   },
   {
     evidence:

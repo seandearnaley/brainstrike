@@ -5,6 +5,7 @@ import type {
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
   AssistantRewindResult,
+  McpAppBridge,
   McpElicitationPresentationWire,
   McpElicitationRetiredWire,
   McpElicitationSettlement,
@@ -480,6 +481,8 @@ declare global {
       ) => (() => void) | undefined;
     };
     mcp: {
+      /** MCP Apps admission and resource bridge; visible-UI preload only. */
+      apps?: McpAppBridge;
       complete: (
         request: McpContentBridgeRequest<'completion/complete'>
       ) => Promise<McpContentBridgeResult<'completion/complete'>>;

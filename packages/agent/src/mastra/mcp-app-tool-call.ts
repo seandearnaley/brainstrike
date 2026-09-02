@@ -25,13 +25,17 @@ export interface McpAppInadmissibleTool {
 }
 
 export interface McpAppToolAdmissionCapability {
-  readonly admit: (call: McpAppToolCall) => McpAppBoundOrdinaryExecutor;
+  readonly admit: (
+    call: Pick<McpAppToolCall, 'input' | 'serverId' | 'toolName'>
+  ) => McpAppBoundOrdinaryExecutor;
   /**
    * Tools the ordinary runtime holds but Apps cannot call, with the reason.
    * Admission problems are recorded here and refused at `admit` time instead
    * of aborting every agent runtime assembly for a feature that is dormant.
    */
   readonly inadmissibleTools: readonly McpAppInadmissibleTool[];
+  /** Exact configured server ids represented by this live runtime's admitted map. */
+  readonly serverIds: readonly string[];
 }
 
 export interface McpAppToolCallTelemetry {
@@ -211,7 +215,7 @@ export function createMcpAppToolAdmissionCapability(
   }
 
   return Object.freeze({
-    admit(call: McpAppToolCall) {
+    admit(call: Pick<McpAppToolCall, 'input' | 'serverId' | 'toolName'>) {
       const originalName = `${call.serverId}.${call.toolName}`;
       const admission = admittedByServer.get(call.serverId)?.get(call.toolName);
       if (!admission) {
@@ -243,12 +247,15 @@ export function createMcpAppToolAdmissionCapability(
       });
     },
     inadmissibleTools: Object.freeze(inadmissible),
+    serverIds: Object.freeze(Array.from(admittedByServer.keys())),
   });
 }
 
 export function createMcpAppOrdinaryToolCallPreparer(
   options: McpAppOrdinaryToolCallOptions
-): (call: McpAppToolCall) => Promise<McpAppPreparedToolCall> {
+): (
+  call: Pick<McpAppToolCall, 'input' | 'serverId' | 'toolName'>
+) => Promise<McpAppPreparedToolCall> {
   return async (call) => {
     const admission = options.admission.admit(call);
     const originalName = `${call.serverId}.${call.toolName}`;

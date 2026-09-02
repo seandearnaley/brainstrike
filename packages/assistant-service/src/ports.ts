@@ -41,6 +41,8 @@ export interface AssistantStreamRuntimeOptions extends SerializableIndependentSt
    * would silently discard.
    */
   authInput?: ProviderAuthInput;
+  /** Live-run MCP Apps admission observer; process-local like `mcpHost`. */
+  mcpAppAdmission?: NonNullable<MastraAgentRuntimeOptions['mcpAppAdmission']>;
   /**
    * The live host object graph is process-local and cannot survive request
    * serialization. Hosts inject it directly at the stream boundary.

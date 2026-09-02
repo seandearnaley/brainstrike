@@ -1982,7 +1982,7 @@ custom-method escape hatch and does not patch the SDK dependency.
 
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
-| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Disabled: the isolated sandbox is inert; no `ui://` resource reader or validated app↔host `postMessage` RPC implementation is registered | No |
+| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Registered (BST-1572): the default desktop registry, dedicated Electron sandbox startup, generation-fenced resource reader, validated frame bridge, live-run ordinary admission authority, and visible-UI IPC consent path form one complete host | Yes (stdio, streamable-http); sse: not registered |
 | MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Registered (BST-1566): `createDefaultMcpExtensionRegistry` installs the exact get/update/cancel, task-result, routing-header, and notification-lease wire contracts on every stdio and streamable-http connection, and `McpDesktopTaskHost` runs the durable repository/lifecycle/interaction/presentation chain per negotiated generation; the legacy `sse` transport gets no registry | Yes (stdio, streamable-http); sse: not registered |
 | OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
@@ -2320,14 +2320,49 @@ crosses the real frame listener and reaches a loopback HTTP request/response;
 host RPC responses return to the app. Completion, replacement, disconnect,
 shutdown, denial, server failure, protocol failure, and timeout must release all
 frames, object URLs, RPC callbacks/timers, consent listeners, calls, HTTP
-requests, sockets, and the packaged child process. The loopback admission broker
+requests, sockets, and the packaged child process. The verifier-only loopback broker
 keys each prepared executor by the authority preparation id; execute or explicit
 release consumes exactly that entry. Repeated denial and prepare-response
 cancellation assert zero pending entries before generation teardown, so the
-generation-wide release remains only a final shutdown assertion. This remains verifier-only:
-MCP Apps is neither mounted nor advertised in the production desktop renderer.
+generation-wide release remains only a final shutdown assertion. Production uses
+the IPC authority below and never imports this E2E implementation.
 The `Native Electron Package` job runs this proof through
 `test:e2e:lane:packaged-mcp-apps` against the artifact it just built.
+
+### Production Apps host (BST-1572)
+
+`registerMcpAppsClientCapability` defines the capability-only
+`io.modelcontextprotocol/ui` contract at stable revision `2026-01-26`. It has
+no extension requests or notifications and works on legacy-era connections.
+`createDefaultMcpExtensionRegistry` registers it beside Tasks on every fresh
+stdio or streamable-http generation; legacy `sse` receives no registry.
+Initialize advertises exactly
+`{ mimeTypes: ['text/html;profile=mcp-app'] }`.
+
+Electron main installs the Apps policy from `apps-sandbox-startup.ts` after
+`app.whenReady()`. The `web-contents-created` hook selects only WebContents
+whose explicit partition starts with `mcp-app:`; production uses
+`mcp-app:thread`. The host renderer stays on the default session and MUST NOT
+receive this policy: it would deny host-owned frame behavior and clear
+unrelated cache/storage on teardown. Sandbox leases release on WebContents
+destruction or desktop shutdown.
+
+`McpDesktopAppHost` owns ordinary admission in main. Each assistant runtime
+publishes its `mcpAppToolAdmission` only for that live run and invalidates it
+from runtime disposal. Preparation chooses the newest live run that owns the
+requested server, binds its one-use executor and release to the requesting
+WebContents plus preparation id, and fails closed with
+`mcp_app_admission_unavailable` when no live run owns the server. Execution,
+explicit release, run disposal, and WebContents destruction consume the entry;
+stale and replayed preparation ids cannot execute.
+
+The visible-UI-only IPC domain is `mcp:apps:prepare`, `mcp:apps:execute`, and
+`mcp:apps:release`. `window.mcp.apps.readResource` resolves the server's live
+generation and uses the existing `mcp:content:readResource` path for the exact
+server id and `ui://` URI, then requires text content and the exact Apps MIME
+type. Hidden preloads expose no `mcp` global. Renderer consent remains owned by
+`McpAppToolCallAuthority`; main executes only the ordinary runtime's already
+gated tool entry.
 
 BST-1567 owns the disabled Apps wire-contract projection from the immutable
 `@modelcontextprotocol/ext-apps@1.7.5` schema and stable `2026-01-26` spec. It

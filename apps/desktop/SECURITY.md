@@ -340,6 +340,29 @@ tests. Startup reports an authentication-required state, and only explicit
 Connect or Reauthorize passes the provider and its one-shot callback source to
 the production host connection.
 
+## MCP Apps sandbox and consent (BST-1572)
+
+- App documents run only in the dedicated non-persistent `mcp-app:thread`
+  Electron session partition. Startup applies the sandbox policy to
+  WebContents whose explicit partition starts with `mcp-app:` and never to the
+  default/main-window session.
+- The policy denies permissions, downloads, popups, webviews, top-level
+  navigation, redirects, and frame navigation other than the reviewed
+  `about:srcdoc` child-frame case. Final lease teardown destroys the
+  WebContents and clears only that owned partition's cache and storage.
+- The host renderer remains outside this policy. Applying it to the host
+  session would deny host-owned behavior and clear unrelated application
+  state.
+- App-originated calls use strict prepare/execute/release messages over the
+  visible-UI-only `mcp:apps:*` IPC domain. Main resolves only a live assistant
+  run's ordinary post-policy admission and binds it to the requesting
+  WebContents. Missing admission, malformed input, replay, release, run
+  disposal, and WebContents destruction all fail closed.
+- `window.mcp.apps.readResource` uses the existing visible-UI-only,
+  generation-fenced `mcp:content:readResource` path and returns HTML only when
+  an exact `text/html;profile=mcp-app` MIME type and text body are present.
+  Hidden renderer preloads receive no MCP bridge.
+
 ## Development vs Production
 
 ### Development Mode

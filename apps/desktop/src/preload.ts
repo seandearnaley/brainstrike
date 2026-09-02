@@ -10,6 +10,11 @@ type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRe
 type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
 type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
+type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
+type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
+type McpAppPrepareRequest = import('@brainstrike/assistant-contract').McpAppPrepareRequest;
+type McpAppExecuteRequest = import('@brainstrike/assistant-contract').McpAppExecuteRequest;
+type McpAppReleaseRequest = import('@brainstrike/assistant-contract').McpAppReleaseRequest;
 type McpHostControlRequest = import('@brainstrike/assistant-contract').McpHostControlRequest;
 type McpElicitationPresentationWire =
   import('@brainstrike/assistant-contract').McpElicitationPresentationWire;
@@ -297,6 +302,9 @@ const MCP_TOOLS_GET_STATS_CHANNEL = 'mcp:tools:getStats' as const;
 const MCP_CONTENT_COMPLETE_CHANNEL = 'mcp:content:complete' as const;
 const MCP_CONTENT_GET_PROMPT_CHANNEL = 'mcp:content:getPrompt' as const;
 const MCP_CONTENT_READ_RESOURCE_CHANNEL = 'mcp:content:readResource' as const;
+const MCP_APPS_PREPARE_CHANNEL = 'mcp:apps:prepare' as const;
+const MCP_APPS_EXECUTE_CHANNEL = 'mcp:apps:execute' as const;
+const MCP_APPS_RELEASE_CHANNEL = 'mcp:apps:release' as const;
 /**
  * `mcp:content:*` failures travel as a result envelope (a thrown Error would
  * reach the renderer as Electron's formatted string, main-process stack
@@ -313,6 +321,35 @@ const unwrapMcpContent = async (
     new Error(`${settled.error.message} (${settled.error.category} · ${settled.error.code})`),
     { category: settled.error.category, code: settled.error.code }
   );
+};
+
+const readMcpAppResource = async (origin: McpAppOrigin): Promise<string> => {
+  const snapshot = (await ipcRenderer.invoke(MCP_STATUS_GET_CHANNEL)) as McpHostSnapshot;
+  const server = snapshot.servers.find(
+    ({ configuredServerId }) => configuredServerId === origin.serverId
+  );
+  if (!server) {
+    throw new Error(`MCP Apps server "${origin.serverId}" has no live content authority`);
+  }
+  const response = await unwrapMcpContent(
+    ipcRenderer.invoke(MCP_CONTENT_READ_RESOURCE_CHANNEL, {
+      authority: { configuredServerId: origin.serverId, generation: server.generation },
+      uri: origin.resourceUri,
+    })
+  );
+  if (response.type !== 'resources/read') {
+    throw new Error('MCP Apps resource read returned an unexpected operation type');
+  }
+  const content = response.result.contents.find(({ uri }) => uri === origin.resourceUri);
+  if (!(content && 'text' in content) || typeof content.text !== 'string') {
+    throw new Error(`MCP Apps resource "${origin.resourceUri}" has no text content`);
+  }
+  if (content.mimeType !== origin.mimeType) {
+    throw new Error(
+      `MCP Apps resource "${origin.resourceUri}" MIME type must be "${origin.mimeType}"`
+    );
+  }
+  return content.text;
 };
 const LLM_HOST_STATUS_EVENT = 'llm-host:status' as const;
 const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
@@ -869,6 +906,15 @@ contextBridge.exposeInMainWorld('agent', {
 
 // MCP Config API (desktop-only)
 contextBridge.exposeInMainWorld('mcp', {
+  apps: {
+    execute: (request: McpAppExecuteRequest) =>
+      ipcRenderer.invoke(MCP_APPS_EXECUTE_CHANNEL, request),
+    prepare: (request: McpAppPrepareRequest) =>
+      ipcRenderer.invoke(MCP_APPS_PREPARE_CHANNEL, request),
+    readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
+    release: (request: McpAppReleaseRequest) =>
+      ipcRenderer.invoke(MCP_APPS_RELEASE_CHANNEL, request),
+  } satisfies McpAppBridge,
   complete: (request: unknown) =>
     unwrapMcpContent(ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request)),
   controlServer: (request: McpHostControlRequest) =>

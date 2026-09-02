@@ -4,6 +4,7 @@
  */
 import {
   McpClientExtensionRegistry,
+  registerMcpAppsClientCapability,
   registerMcpTasksWireContracts,
 } from '@brainstrike/agent/mcp-client';
 import type { McpTaskDatabase } from '@brainstrike/db';
@@ -25,6 +26,7 @@ export function createDefaultMcpExtensionRegistry(
     case 'stdio':
     case 'streamable-http': {
       const registry = new McpClientExtensionRegistry();
+      registerMcpAppsClientCapability(registry);
       registerMcpTasksWireContracts(registry);
       return registry;
     }

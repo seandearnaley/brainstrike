@@ -5,6 +5,7 @@
  */
 import type { McpClientExtensionRegistry } from '@brainstrike/agent/mcp-client';
 import { MCP_SUPPORT_MATRIX, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { MCP_APPS_CLIENT_CAPABILITY } from '@brainstrike/mcp-app-host';
 import { describe, expect, it, vi } from 'vitest';
 import { createDefaultMcpExtensionRegistry } from '../../mcp/host-extensions';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
@@ -97,10 +98,13 @@ describe('createDefaultMcpExtensionRegistry', () => {
 
   it.each([stdio(), http()])('advertises exactly the support matrix on $transport', (server) => {
     const registry = createDefaultMcpExtensionRegistry(server);
-    expect(Object.keys(registry?.toClientExtensionCapabilities() ?? {})).toEqual(
-      supportedExtensionIds
-    );
-    expect(supportedExtensionIds).toEqual(['io.modelcontextprotocol/tasks']);
+    const capabilities = registry?.toClientExtensionCapabilities() ?? {};
+    expect(Object.keys(capabilities)).toEqual(supportedExtensionIds);
+    expect(capabilities['io.modelcontextprotocol/ui']).toEqual(MCP_APPS_CLIENT_CAPABILITY);
+    expect(supportedExtensionIds).toEqual([
+      'io.modelcontextprotocol/ui',
+      'io.modelcontextprotocol/tasks',
+    ]);
   });
 
   it('registers nothing on the legacy sse transport', () => {

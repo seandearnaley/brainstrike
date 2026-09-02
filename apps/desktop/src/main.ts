@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike/types';
-import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, powerMonitor, session, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { buildFileMenuTemplate } from './application-file-menu';
@@ -169,6 +169,7 @@ import {
 import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
+import { installMcpAppsSandboxStartup } from './mcp/apps-sandbox-startup';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { ParserHostManager } from './parser-host-manager';
@@ -874,6 +875,7 @@ let forcedProcessExitTimeout: NodeJS.Timeout | null = null;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
 let completeFactoryResetRendererReplacement: (() => Promise<void>) | null = null;
+let closeMcpAppsSandboxStartup: (() => Promise<void>) | null = null;
 
 async function runShutdownStep(
   step: string,
@@ -964,6 +966,12 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     );
 
     recordFailure(await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown));
+    recordFailure(
+      await runShutdownStep('mcp-apps-sandbox', async () => {
+        await closeMcpAppsSandboxStartup?.();
+        closeMcpAppsSandboxStartup = null;
+      })
+    );
     if (!assistantServerDrained) {
       failures.push({
         message: 'Closed MCP host before assistant-server drain completed',
@@ -1641,6 +1649,12 @@ if (singleInstanceLockAcquired) {
       // startup failure.
       const quitAfterBootMeasurement = shouldQuitAfterBootMeasurement(app.isPackaged);
       logger.debug('App ready, starting initialization...');
+
+      closeMcpAppsSandboxStartup = installMcpAppsSandboxStartup({
+        app,
+        onTeardownError: (error) => logger.error('MCP Apps sandbox teardown failed', { error }),
+        sessions: session,
+      });
 
       const launchMode = resolveDesktopRendererLaunchMode({
         argv: process.argv,

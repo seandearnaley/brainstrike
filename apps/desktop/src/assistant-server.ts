@@ -120,6 +120,7 @@ import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-re
 import type { WorktreeToolCapability } from './assistant-server/worktree-tools';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
+import { getMcpDesktopAppHost } from './mcp/apps-authority';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { getSubscriptionFetchFactory } from './provider-auth/provider-auth-runtime';
 import { resolveDesktopPythonExecutable } from './python-runtime';
@@ -696,6 +697,7 @@ async function handleAssistantPost(
       authInput,
       executionSignal: executionAbortController.signal,
       initializeStream: async (core) => {
+        const admissionRunId = core.runId;
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
           authInput: core.authInput,
@@ -704,6 +706,17 @@ async function handleAssistantPost(
           getDatabase,
           logger,
           mcpConfig: undefined,
+          ...(admissionRunId
+            ? {
+                mcpAppAdmission: {
+                  register: (admission) => {
+                    const appHost = getMcpDesktopAppHost();
+                    appHost.registerAdmission(admissionRunId, admission);
+                    return () => appHost.invalidateAdmission(admissionRunId);
+                  },
+                },
+              }
+            : {}),
           mcpHost: getDesktopMcpHostRuntime().host,
           mcpTaskTracking: getDesktopMcpHostRuntime().taskHost,
           messages: core.messages,

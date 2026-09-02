@@ -138,6 +138,9 @@ export const DESKTOP_IPC_CHANNELS = {
     resolveTrustedRootIds: 'hooks:resolve-trusted-root-ids',
   },
   mcp: {
+    appsExecute: 'mcp:apps:execute',
+    appsPrepare: 'mcp:apps:prepare',
+    appsRelease: 'mcp:apps:release',
     configCreateSample: 'mcp:config:createSample',
     configGet: 'mcp:config:get',
     configGetPath: 'mcp:config:getPath',

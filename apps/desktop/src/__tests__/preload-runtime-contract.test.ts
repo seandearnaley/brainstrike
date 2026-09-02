@@ -326,6 +326,9 @@ describe('preload runtime contract', () => {
       GIT_UNSTAGE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.unstage,
       LAYOUT_LOAD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.layoutLoad,
       LAYOUT_SAVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.layoutSave,
+      MCP_APPS_EXECUTE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.appsExecute,
+      MCP_APPS_PREPARE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.appsPrepare,
+      MCP_APPS_RELEASE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.appsRelease,
       MCP_CONFIG_CREATE_SAMPLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configCreateSample,
       MCP_CONFIG_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
       MCP_CONFIG_GET_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGetPath,
@@ -406,6 +409,11 @@ describe('preload runtime contract', () => {
       expect(extractPreloadStringConstant(preloadSource, constantName)).toBe(channel);
     }
     const mcpBridge = extractExposedBridgeProperties(preloadSource, 'mcp');
+    const appsBridge = requireExposedBridgeProperty(mcpBridge, 'mcp', 'apps');
+    expect(appsBridge).toContain('ipcRenderer.invoke(MCP_APPS_PREPARE_CHANNEL, request)');
+    expect(appsBridge).toContain('ipcRenderer.invoke(MCP_APPS_EXECUTE_CHANNEL, request)');
+    expect(appsBridge).toContain('ipcRenderer.invoke(MCP_APPS_RELEASE_CHANNEL, request)');
+    expect(appsBridge).toContain('readMcpAppResource(origin)');
     expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'getServerStatusSnapshot')).toContain(
       'ipcRenderer.invoke(MCP_STATUS_GET_CHANNEL)'
     );

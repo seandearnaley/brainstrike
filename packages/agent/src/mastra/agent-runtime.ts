@@ -72,6 +72,8 @@ export interface MastraAgentRuntimeOptions {
   /** @internal Rehydrate context-backed deferred tools before a fresh resume runtime executes. */
   hydrateToolDiscoveryFromMemory?: boolean;
   instructions?: string;
+  /** Live-run observer for the Apps ordinary-tool admission capability. */
+  mcpAppAdmission?: McpAppAdmissionObserver;
   mcpConfig?: McpConfig;
   /** Host-owned MCP authority. Runtime disposal releases only its adapter lease. */
   mcpHost?: McpHostPort;
@@ -124,6 +126,10 @@ export interface MastraAgentRuntimeOptions {
    */
   toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
   tools?: ToolsInput;
+}
+
+export interface McpAppAdmissionObserver {
+  register(admission: McpAppToolAdmissionCapability): () => void;
 }
 
 export interface MastraAgentRuntime {
@@ -392,6 +398,7 @@ export async function createMastraAgentRuntime(
     model,
     mcpConfig,
     mcpHost,
+    mcpAppAdmission,
     mcpTaskTracking,
     tools: localTools,
     mcpTimeoutMs,
@@ -637,6 +644,7 @@ export async function createMastraAgentRuntime(
     storage,
     runtime?.assistantMessageId
   );
+  const invalidateMcpAppAdmission = mcpAppAdmission?.register(mcpAppToolAdmission);
 
   return {
     agent,
@@ -644,6 +652,7 @@ export async function createMastraAgentRuntime(
     askTools,
     delegationToolPersonas,
     dispose: async () => {
+      invalidateMcpAppAdmission?.();
       await mastra?.shutdown();
       await mcpClient?.disconnect();
     },
