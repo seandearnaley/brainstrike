@@ -1975,18 +1975,35 @@ transport dispatch. The released client SDK still treats historical
 extension methods that collide with retired core vocabulary as core-era methods,
 so Brainstrike routes only registered contracts through a non-colliding internal
 method and rewrites that method on its owned HTTP/stdio transport immediately
-before serialization. This is not an arbitrary custom-method escape hatch and
-does not patch the SDK dependency.
+before serialization. Incoming result rewriting is installed before transport
+start, follows the SDK's current handler across reassignment, and fails visibly
+if a message arrives before the SDK handler exists. This is not an arbitrary
+custom-method escape hatch and does not patch the SDK dependency.
 
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
 | MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Disabled: no `ui://` resource reader, isolated sandbox/CSP/permissions enforcement, or validated app↔host `postMessage` RPC implementation is registered | No |
-| MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Disabled pending BST-1473; the core method map is not cast into an incomplete task host | No |
+| MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Exact get/update/cancel, task-result, routing-header, and notification-lease wire contracts exist (BST-1561), but no durable task host is registered (BST-1473) | No |
 | OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
 
+Migration 114 and `McpTaskRepository` provide the factory-reset-covered,
+principal/resource/generation-bound Tasks persistence substrate. This does not
+advertise the extension; polling, input, cancellation, and wire registration
+remain owned by later BST-1473 layers.
+
 BST-1509 owns the Settings/diagnostics rendering of this matrix and modern
 per-request wire proof; the registry remains its host-owned source of truth.
+
+BST-1561's Tasks adapter is opt-in testable substrate only. It requires exact
+client and server `io.modelcontextprotocol/tasks` advertisement, routes all
+three task methods with `Mcp-Name: params.taskId`, and owns one notification
+lease per connection on both stdio and Streamable HTTP. The registry owns the
+notification method/schema, refuses reserved core notification methods, and
+releases the lease on local close, remote close, or rejected closure so retry is
+possible. It never emits `tasks/list` or the deprecated request `task.ttl` field,
+and production registration remains absent until BST-1473's durable task
+lifecycle is complete.
 
 ### MCP client input and deprecated compatibility (BST-1470)
 

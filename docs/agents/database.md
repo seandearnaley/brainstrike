@@ -300,6 +300,15 @@ every change in both migration runners and keep the migration/repository/reset
 tests paired with the persistence contract in
 `docs/agents/assistant-persistence.md`.
 
+Migration 114 owns principal-bound MCP Tasks handles in `brainstrike_mcp_tasks`.
+The composite identity is configured server, canonical resource, auth principal,
+connection generation, and task id. Its repository bounds transition history at
+32 entries, requires callers to supply the live connection generation as an
+explicit write fence that is checked in the create/update SQL statement, rejects
+stale-generation writes and malformed rows, and measures metadata limits through
+PostgreSQL's canonical `jsonb::text` representation. The table is registered in
+both migration runners plus every factory-reset clear path.
+
 Migration 076 owns terminal provider-forensics storage
 (`brainstrike_assistant_run_errors`) and the hot diagnostic correlation index
 `bst_diagnostic_events_run_idx`. Register it in the numbered runner and the

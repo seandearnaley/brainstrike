@@ -78,3 +78,13 @@ export type {
   McpServerFeatureEventHandlers,
   McpServerFeatureEventKind,
 } from './mcp/server-feature-events';
+export {
+  MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+  MCP_TASKS_CANCEL_REQUEST_CONTRACT,
+  MCP_TASKS_GET_REQUEST_CONTRACT,
+  MCP_TASKS_STATUS_NOTIFICATION_CONTRACT,
+  MCP_TASKS_UPDATE_REQUEST_CONTRACT,
+  type McpTasksNotificationHandler,
+  type McpTasksNotificationLease,
+  registerMcpTasksWireContracts,
+} from './mcp/tasks-extension';

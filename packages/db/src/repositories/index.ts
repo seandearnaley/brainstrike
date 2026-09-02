@@ -87,6 +87,16 @@ export type {
   IViewFilterPresetsRepository,
 } from './interfaces.js';
 export {
+  type CreateMcpTaskInput,
+  type McpTaskDatabase,
+  type McpTaskIdentity,
+  type McpTaskRecord,
+  McpTaskRepository,
+  type McpTaskStatus,
+  type McpTaskWriteFence,
+  type UpdateMcpTaskInput,
+} from './mcp-task-repository.js';
+export {
   type PromptItemDatabase,
   PromptItemRepository,
 } from './prompt-item-repository.js';

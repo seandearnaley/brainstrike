@@ -1,12 +1,19 @@
 import type { Transport } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
+import {
+  McpClientExtensionRegistry,
+  REGISTERED_EXTENSION_RESULT_KEY,
+} from '../mcp/client-extension-registry';
 import {
   applyRegisteredExtensionHttpHeaders,
   encodeMcpHeaderValue,
   installRegisteredExtensionDispatch,
 } from '../mcp/registered-extension-dispatch';
+import {
+  MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+  registerMcpTasksWireContracts,
+} from '../mcp/tasks-extension';
 import {
   createDeferredTestExtension,
   TEST_EXTENSION_REQUEST,
@@ -45,6 +52,100 @@ function registryWithoutMcpName(): McpClientExtensionRegistry {
 }
 
 describe('registered extension HTTP dispatch', () => {
+  it('isolates pending extension results by transport when request IDs collide', async () => {
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    const prepared = await registry.prepareRequest(
+      MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+      { arguments: {}, name: 'deferred-tool' },
+      { 'io.modelcontextprotocol/tasks': {} },
+      '2026-07-28'
+    );
+    const createTransport = () =>
+      installRegisteredExtensionDispatch(
+        {
+          close: vi.fn(async () => undefined),
+          send: vi.fn(async () => undefined),
+          start: vi.fn(async () => undefined),
+        } as unknown as Transport,
+        registry
+      );
+    const first = createTransport();
+    const second = createTransport();
+    const seen: unknown[] = [];
+    first.onmessage = (message) => seen.push(message);
+    second.onmessage = (message) => seen.push(message);
+    const request = {
+      id: 0,
+      jsonrpc: '2.0' as const,
+      method: prepared.internalMethod,
+      params: prepared.params,
+    };
+    await first.send(request);
+    await second.send(request);
+    const result = { resultType: 'task', taskId: 'task-123' };
+    first.onmessage?.({ id: 0, jsonrpc: '2.0', result });
+    second.onmessage?.({ id: 0, jsonrpc: '2.0', result });
+    expect(seen).toHaveLength(2);
+    expect(seen).toEqual([
+      expect.objectContaining({
+        result: expect.objectContaining({ [REGISTERED_EXTENSION_RESULT_KEY]: result }),
+      }),
+      expect.objectContaining({
+        result: expect.objectContaining({ [REGISTERED_EXTENSION_RESULT_KEY]: result }),
+      }),
+    ]);
+  });
+
+  it('releases a pending extension result type on local cancellation and on close', async () => {
+    // Review of #2913: entries were removed only by a matching response, so a
+    // timed-out or aborted task request leaked for the life of the transport.
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    const prepared = await registry.prepareRequest(
+      MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+      { arguments: {}, name: 'deferred-tool' },
+      { 'io.modelcontextprotocol/tasks': {} },
+      '2026-07-28'
+    );
+    const innerClose = vi.fn(async () => undefined);
+    const transport = installRegisteredExtensionDispatch(
+      {
+        close: innerClose,
+        send: vi.fn(async () => undefined),
+        start: vi.fn(async () => undefined),
+      } as unknown as Transport,
+      registry
+    );
+    const seen: unknown[] = [];
+    transport.onmessage = (message) => seen.push(message);
+    const request = (id: number) => ({
+      id,
+      jsonrpc: '2.0' as const,
+      method: prepared.internalMethod,
+      params: prepared.params,
+    });
+    const result = { resultType: 'task', taskId: 'task-123' };
+
+    await transport.send(request(1));
+    await transport.send({
+      jsonrpc: '2.0',
+      method: 'notifications/cancelled',
+      params: { reason: 'timeout', requestId: 1 },
+    });
+    transport.onmessage?.({ id: 1, jsonrpc: '2.0', result });
+
+    await transport.send(request(2));
+    await transport.close();
+    expect(innerClose).toHaveBeenCalledTimes(1);
+    transport.onmessage?.({ id: 2, jsonrpc: '2.0', result });
+
+    expect(seen).toHaveLength(2);
+    for (const message of seen) {
+      expect(message).toEqual({ id: expect.any(Number), jsonrpc: '2.0', result });
+    }
+  });
+
   it('reports rewrite failures through the transport promise', async () => {
     const transport = {
       close: vi.fn(async () => undefined),
@@ -61,6 +162,65 @@ describe('registered extension HTTP dispatch', () => {
     await expect(
       wrapped.send({ id: 1, jsonrpc: '2.0', method: 'tasks/get', params: {} })
     ).rejects.toThrow('rewrite rejected');
+  });
+
+  it('keeps incoming rewriting installed across SDK handler reassignment', async () => {
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    const prepared = await registry.prepareRequest(
+      MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+      { arguments: {}, name: 'deferred-tool' },
+      { 'io.modelcontextprotocol/tasks': {} },
+      '2026-07-28'
+    );
+    const wrapped = installRegisteredExtensionDispatch(
+      {
+        close: vi.fn(async () => undefined),
+        send: vi.fn(async () => undefined),
+        start: vi.fn(async () => undefined),
+      } as unknown as Transport,
+      registry
+    );
+    const firstHandler = vi.fn();
+    const secondHandler = vi.fn();
+    wrapped.onmessage = firstHandler;
+    await wrapped.send({
+      id: 1,
+      jsonrpc: '2.0',
+      method: prepared.internalMethod,
+      params: prepared.params,
+    });
+    wrapped.onmessage = secondHandler;
+    wrapped.onmessage?.({
+      id: 1,
+      jsonrpc: '2.0',
+      result: { resultType: 'task', taskId: 'task-123' },
+    });
+
+    expect(firstHandler).not.toHaveBeenCalled();
+    expect(secondHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          [REGISTERED_EXTENSION_RESULT_KEY]: expect.objectContaining({ taskId: 'task-123' }),
+        }),
+      }),
+      undefined
+    );
+  });
+
+  it('fails visibly when a message arrives before the SDK installs its handler', () => {
+    const wrapped = installRegisteredExtensionDispatch(
+      {
+        close: vi.fn(async () => undefined),
+        send: vi.fn(async () => undefined),
+        start: vi.fn(async () => undefined),
+      } as unknown as Transport,
+      registeredRegistry()
+    );
+
+    expect(() => wrapped.onmessage?.({ jsonrpc: '2.0', method: 'notifications/example' })).toThrow(
+      'before its SDK handler was registered'
+    );
   });
 
   it('encodes only header values that cannot be sent literally', () => {

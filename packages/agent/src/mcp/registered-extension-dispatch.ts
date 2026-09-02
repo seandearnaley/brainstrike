@@ -116,9 +116,75 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
   if (registry === undefined) {
     return transport;
   }
+  const pendingResultTypes = new Map<string | number, string>();
+  const activeMessages = new WeakSet<object>();
+  let downstreamOnMessage = transport.onmessage;
+  const rewriteIncoming: NonNullable<typeof transport.onmessage> = (incoming, extra) => {
+    if (activeMessages.has(incoming)) {
+      return;
+    }
+    const isResponse = 'id' in incoming && ('result' in incoming || 'error' in incoming);
+    const responseId = isResponse ? incoming.id : undefined;
+    let extensionResultType: string | undefined;
+    if (typeof responseId === 'string' || typeof responseId === 'number') {
+      extensionResultType = pendingResultTypes.get(responseId);
+      pendingResultTypes.delete(responseId);
+    }
+    if (downstreamOnMessage === undefined) {
+      throw new Error('MCP transport received a message before its SDK handler was registered');
+    }
+    const rewritten = registry.rewriteIncomingMessage(incoming, extensionResultType);
+    activeMessages.add(rewritten);
+    try {
+      downstreamOnMessage(rewritten, extra);
+    } finally {
+      activeMessages.delete(rewritten);
+    }
+  };
+  Object.defineProperty(transport, 'onmessage', {
+    configurable: true,
+    enumerable: true,
+    get: () => rewriteIncoming,
+    set: (next: typeof transport.onmessage) => {
+      if (next !== rewriteIncoming) {
+        downstreamOnMessage = next;
+      }
+    },
+  });
   const send = transport.send.bind(transport);
-  transport.send = async (message, options) =>
-    await send(registry.rewriteOutgoingMessage(message), options);
+  transport.send = async (message, options) => {
+    const outgoing = registry.rewriteOutgoingMessage(message);
+    // A locally abandoned request (timeout, abort) never gets a response; the
+    // SDK announces it with notifications/cancelled, which is the only signal
+    // this layer sees, so release the pending result type there.
+    if (!('id' in message) && 'method' in message && message.method === 'notifications/cancelled') {
+      const requestId = (message.params as { requestId?: unknown } | undefined)?.requestId;
+      if (typeof requestId === 'string' || typeof requestId === 'number') {
+        pendingResultTypes.delete(requestId);
+      }
+    }
+    if ('id' in message && 'method' in message) {
+      pendingResultTypes.delete(message.id);
+      const extensionResultType = registry.resolveOutgoingResultType(message);
+      if (extensionResultType !== undefined) {
+        pendingResultTypes.set(message.id, extensionResultType);
+      }
+    }
+    try {
+      await send(outgoing, options);
+    } catch (error) {
+      if ('id' in message && 'method' in message) {
+        pendingResultTypes.delete(message.id);
+      }
+      throw error;
+    }
+  };
+  const close = transport.close.bind(transport);
+  transport.close = async () => {
+    // Nothing can answer after close; a reconnect must not inherit the map.
+    pendingResultTypes.clear();
+    await close();
+  };
   return transport;
 }
 
