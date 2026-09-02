@@ -4,6 +4,12 @@ export {
   projectMcpTaskRecord,
 } from './mcp/task-presentation';
 export type {
+  McpTaskSettlementOptions,
+  McpTaskSettlementOutcome,
+  McpTaskTrackingCapability,
+  McpTaskTrackingRequest,
+} from './mcp/task-tracking.js';
+export type {
   McpTasksNotificationHandler,
   McpTasksNotificationLease,
 } from './mcp/tasks-extension';
