@@ -17,6 +17,8 @@ export const MCP_LAB_RUNNER_CASE_IDS = Object.freeze([
   'modern-stdio',
   'modern-tasks-in-process',
   'modern-tasks-loopback',
+  'modern-apps-in-process',
+  'modern-apps-loopback',
 ] as const);
 export type McpLabRunnerCaseId = (typeof MCP_LAB_RUNNER_CASE_IDS)[number];
 
@@ -43,6 +45,8 @@ export const MCP_LAB_RUNNER_CASES = Object.freeze([
   runnerCase('modern-stdio', 'stdio-reference', undefined),
   runnerCase('modern-tasks-in-process', 'tasks-reference', 'in-process'),
   runnerCase('modern-tasks-loopback', 'tasks-reference', 'loopback'),
+  runnerCase('modern-apps-in-process', 'apps-reference', 'in-process'),
+  runnerCase('modern-apps-loopback', 'apps-reference', 'loopback'),
 ] as const satisfies readonly McpLabRunnerCase[]);
 
 const CASE_BY_ID: ReadonlyMap<McpLabRunnerCaseId, McpLabRunnerCase> = new Map(
@@ -57,12 +61,15 @@ export const MCP_LAB_RUNNER_PROFILE_CASE_IDS = Object.freeze({
     'oauth-http-loopback',
     'modern-stdio',
     'modern-tasks-in-process',
+    'modern-apps-in-process',
   ] as const satisfies readonly McpLabRunnerCaseId[]),
 } as const satisfies Readonly<Record<McpLabRunnerProfile, readonly McpLabRunnerCaseId[]>>);
 
 export const MCP_LAB_RUNNER_PROFILE_TIMEOUTS = Object.freeze({
-  exhaustive: Object.freeze({ caseTimeoutMs: 20_000, runTimeoutMs: 180_000 }),
-  pr: Object.freeze({ caseTimeoutMs: 10_000, runTimeoutMs: 60_000 }),
+  // Run ceilings keep headroom above the sum of per-case ceilings (cases run
+  // sequentially) so a merely slow run fails per case, never as a run timeout.
+  exhaustive: Object.freeze({ caseTimeoutMs: 20_000, runTimeoutMs: 270_000 }),
+  pr: Object.freeze({ caseTimeoutMs: 10_000, runTimeoutMs: 90_000 }),
 } as const satisfies Readonly<
   Record<McpLabRunnerProfile, { readonly caseTimeoutMs: number; readonly runTimeoutMs: number }>
 >);

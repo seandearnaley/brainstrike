@@ -5,6 +5,7 @@ import {
   McpServer,
 } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+import { APPS_PROFILE as apps } from './apps-profile.js';
 import { OFFICIAL_EVERYTHING_PROFILE as profile } from './official-everything-profile.js';
 import type { McpLabFixture } from './scenario.js';
 import { TASKS_PROFILE as tasks } from './tasks-profile.js';
@@ -304,6 +305,60 @@ function createTasksReferenceServer(store: TaskStore): McpServer {
 }
 
 /**
+ * Derived from the pinned official ext-apps example server: one app tool whose
+ * metadata links it to one `ui://` resource served with the MCP Apps MIME
+ * profile. The wire shape is what `registerAppTool`/`registerAppResource`
+ * produce at the pinned tag, without importing the ext-apps package.
+ */
+function createAppsReferenceServer(): McpServer {
+  const server = new McpServer(apps.server, { capabilities: { resources: {}, tools: {} } });
+  server.registerTool(
+    apps.tool.name,
+    {
+      _meta: { ...apps.tool.meta, ui: { ...apps.tool.meta.ui } },
+      description: apps.tool.description,
+      inputSchema: {},
+      outputSchema: { [apps.tool.outputKey]: z.string() },
+      title: apps.tool.title,
+    },
+    async () => {
+      const time = new Date().toISOString();
+      return {
+        content: [{ text: time, type: 'text' as const }],
+        structuredContent: { [apps.tool.outputKey]: time },
+      };
+    }
+  );
+  server.registerResource(
+    apps.resource.name,
+    apps.resource.uri,
+    { mimeType: apps.resource.mimeType },
+    async () => {
+      // Capability negotiation is part of the proof: only a client that
+      // advertised the MCP Apps host capability with this MIME profile may
+      // read the app document.
+      const extension: unknown =
+        server.server.getClientCapabilities()?.extensions?.[apps.extensionId];
+      const mimeTypes =
+        typeof extension === 'object' && extension !== null
+          ? (extension as { mimeTypes?: unknown }).mimeTypes
+          : undefined;
+      if (!(Array.isArray(mimeTypes) && mimeTypes.includes(apps.resource.mimeType))) {
+        throw new Error(
+          `MCP Apps reference resource ${apps.resource.uri} requires the ${apps.extensionId} host capability with ${apps.resource.mimeType}`
+        );
+      }
+      return {
+        contents: [
+          { mimeType: apps.resource.mimeType, text: apps.document, uri: apps.resource.uri },
+        ],
+      };
+    }
+  );
+  return server;
+}
+
+/**
  * Per-handler server factory. Every fixture but Tasks is stateless, so a
  * fresh server per request is exact; the Tasks fixture shares one task store
  * across the per-request servers the modern handler allocates.
@@ -324,6 +379,9 @@ export function createReferenceServer(fixture: McpLabFixture): McpServer {
     throw new Error(
       'MCP Tasks reference requires createReferenceServerFactory: the task store must outlive the per-request server'
     );
+  }
+  if (fixture === 'brainstrike-apps-reference') {
+    return createAppsReferenceServer();
   }
   return createBrainstrikeEchoReferenceServer();
 }

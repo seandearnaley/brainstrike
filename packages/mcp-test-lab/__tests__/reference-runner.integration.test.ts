@@ -31,6 +31,7 @@ describe('MCP official reference runner', () => {
       'oauth-reference',
       'stdio-reference',
       'tasks-reference',
+      'apps-reference',
     ]);
     const caseIds = [
       'modern-http-in-process',
@@ -38,13 +39,15 @@ describe('MCP official reference runner', () => {
       'oauth-http-loopback',
       'modern-stdio',
       'modern-tasks-in-process',
+      'modern-apps-in-process',
     ];
-    const redSuffix = (scenarioId: string): string => {
-      if (scenarioId === 'modern-reference') {
-        return 'intentional-tool-error';
-      }
-      return scenarioId === 'tasks-reference' ? 'missing-task-rejection' : 'missing-tool-rejection';
+    const redSuffixes: Readonly<Record<string, string>> = {
+      'apps-reference': 'missing-resource-rejection',
+      'modern-reference': 'intentional-tool-error',
+      'tasks-reference': 'missing-task-rejection',
     };
+    const redSuffix = (scenarioId: string): string =>
+      redSuffixes[scenarioId] ?? 'missing-tool-rejection';
     for (const [index, { schema }] of bundles.entries()) {
       expect(schema.commands).toEqual([
         expect.objectContaining({
@@ -75,7 +78,9 @@ describe('MCP official reference runner', () => {
           ? ['completions', 'prompts', 'resources', 'tools']
           : schema.scenarioId === 'tasks-reference'
             ? ['extensions', 'tools']
-            : ['tools']
+            : schema.scenarioId === 'apps-reference'
+              ? ['resources', 'tools']
+              : ['tools']
       );
     }
     expect(JSON.stringify(bundles)).not.toMatch(/bearer|access[_-]?token|client[_-]?secret/i);
@@ -115,7 +120,12 @@ describe('MCP official reference runner', () => {
         command: COMMAND.replace('pr', 'exhaustive'),
         git: { commitSha: SHA, workspaceState: 'clean' },
         selection: {
-          caseIds: ['modern-http-loopback', 'legacy-http-in-process', 'modern-tasks-loopback'],
+          caseIds: [
+            'modern-http-loopback',
+            'legacy-http-in-process',
+            'modern-tasks-loopback',
+            'modern-apps-loopback',
+          ],
           profile: 'exhaustive',
         },
         ticket: 'BST-1496',
@@ -128,6 +138,7 @@ describe('MCP official reference runner', () => {
       'modern-reference',
       'legacy-reference',
       'tasks-reference',
+      'apps-reference',
     ]);
     expect(bundles.every(({ schema }) => schema.cleanup.verified)).toBe(true);
   }, 30_000);

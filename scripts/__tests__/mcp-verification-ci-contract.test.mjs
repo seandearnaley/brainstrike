@@ -50,6 +50,43 @@ test('required PR Static and the local check consume the representative command'
   ]);
 });
 
+test('the Tasks and Apps release proofs ride the required PR lane and the exhaustive lane', () => {
+  // BST-1566 / BST-1572: the in-process cases are in the representative
+  // profile (required PR Static step), the loopback cases in the exhaustive
+  // profile (scheduled/manual verify job), and each run ceiling fits its step.
+  const manifest = readRepoFile('packages/mcp-test-lab/src/runner-manifest.ts');
+  const profileBlock = (id) => {
+    const match = manifest.match(new RegExp(`${id}: Object\\.freeze\\(\\[([^\\]]*)\\]`, 'u'));
+    assert.ok(match, `missing ${id} profile block`);
+    return match[1];
+  };
+  const pr = profileBlock('pr');
+  assert.match(pr, /'modern-tasks-in-process'/u);
+  assert.match(pr, /'modern-apps-in-process'/u);
+  const caseIds = manifest.match(/MCP_LAB_RUNNER_CASE_IDS = Object\.freeze\(\[([^\]]*)\]/u);
+  assert.ok(caseIds);
+  assert.match(caseIds[1], /'modern-tasks-loopback'/u);
+  assert.match(caseIds[1], /'modern-apps-loopback'/u);
+  const runCeiling = (id) => {
+    const match = manifest.match(
+      new RegExp(
+        `${id}: Object\\.freeze\\(\\{ caseTimeoutMs: ([\\d_]+), runTimeoutMs: ([\\d_]+) \\}`,
+        'u'
+      )
+    );
+    assert.ok(match, `missing ${id} timeouts`);
+    return Number(match[2].replaceAll('_', ''));
+  };
+  const staticWorkflow = parseYaml(readRepoFile('.github/workflows/test.yml'));
+  const staticStep = findStep(staticWorkflow, 'static', 'MCP representative verification');
+  assert.equal(staticStep.run, representativeCommand);
+  const verification = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
+  const verifyStep = findStep(verification, 'verify', 'Run exhaustive MCP verification');
+  assert.equal(verifyStep.run, exhaustiveCommand);
+  assert.ok(runCeiling('exhaustive') < verifyStep['timeout-minutes'] * 60_000);
+  assert.ok(runCeiling('pr') < verification.jobs.verify['timeout-minutes'] * 60_000);
+});
+
 test('verification runs on main pushes, schedule, and manual dispatch with bounded artifact retention', () => {
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
   assert.deepEqual(Object.keys(workflow.on).sort(), ['push', 'schedule', 'workflow_dispatch']);

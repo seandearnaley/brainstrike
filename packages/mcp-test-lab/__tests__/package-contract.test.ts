@@ -212,6 +212,7 @@ describe('MCP test lab package contract', () => {
       'stdio-reference',
       'oauth-reference',
       'tasks-reference',
+      'apps-reference',
     ]);
     expect(normalizedContract).toContain(
       "`modern-reference` and `legacy-reference` have `availability: 'executable'`"

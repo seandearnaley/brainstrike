@@ -1,3 +1,4 @@
+import { APPS_PROFILE_SHA256 } from './apps-profile.js';
 import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profile.js';
 import { TASKS_PROFILE_SHA256 } from './tasks-profile.js';
 
@@ -55,6 +56,28 @@ export const MCP_LAB_TASKS_PROFILE_SOURCE = Object.freeze({
   upstream: MCP_LAB_SDK_TASKS_SCHEMA_SOURCE,
 } as const);
 
+/** Pinned official MCP Apps example server (lightweight tag; the tag IS the commit). */
+export const MCP_LAB_EXT_APPS_SOURCE = Object.freeze({
+  commitSha: '92f46a574568a3ddac7600343b7d3c4c4ed7b588',
+  repositoryUrl: 'https://github.com/modelcontextprotocol/ext-apps.git',
+  tag: 'v1.7.5',
+} as const);
+
+export const MCP_LAB_EXT_APPS_EXAMPLE_SERVER_SOURCE = Object.freeze({
+  commitSha: MCP_LAB_EXT_APPS_SOURCE.commitSha,
+  kind: 'official-ext-apps',
+  path: 'examples/basic-server-vanillajs/server.ts',
+  repositoryUrl: MCP_LAB_EXT_APPS_SOURCE.repositoryUrl,
+  sha256: '6fb0ea689385cfb870563d5cfb06218712c62f74664278ca12b1905aa6169d8d',
+} as const);
+
+export const MCP_LAB_APPS_PROFILE_SOURCE = Object.freeze({
+  kind: 'brainstrike-owned-derived-profile',
+  path: 'packages/mcp-test-lab/src/apps-profile.ts',
+  sha256: APPS_PROFILE_SHA256,
+  upstream: MCP_LAB_EXT_APPS_EXAMPLE_SERVER_SOURCE,
+} as const);
+
 const BRAINSTRIKE_HTTP_FIXTURE_SOURCE = Object.freeze({
   kind: 'brainstrike-owned',
   path: 'packages/mcp-test-lab/src/reference-server.ts',
@@ -76,11 +99,13 @@ export const MCP_LAB_SCENARIO_IDS = Object.freeze([
   'stdio-reference',
   'oauth-reference',
   'tasks-reference',
+  'apps-reference',
 ] as const);
 
 export type McpLabScenarioId = (typeof MCP_LAB_SCENARIO_IDS)[number];
 
 export type McpLabFixture =
+  | 'brainstrike-apps-reference'
   | 'brainstrike-oauth-reference'
   | 'brainstrike-sdk-v2-reference'
   | 'brainstrike-stdio-reference'
@@ -92,7 +117,8 @@ export type McpLabFixtureSource =
   | typeof BRAINSTRIKE_OAUTH_FIXTURE_SOURCE
   | typeof BRAINSTRIKE_STDIO_FIXTURE_SOURCE
   | typeof MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE
-  | typeof MCP_LAB_TASKS_PROFILE_SOURCE;
+  | typeof MCP_LAB_TASKS_PROFILE_SOURCE
+  | typeof MCP_LAB_APPS_PROFILE_SOURCE;
 
 export interface McpLabScenario {
   readonly authentication: 'none' | 'oauth';
@@ -140,6 +166,20 @@ function freezeScenario(scenario: McpLabScenario): McpLabScenario {
 }
 
 const SCENARIOS: Readonly<Record<McpLabScenarioId, McpLabScenario>> = Object.freeze({
+  'apps-reference': freezeScenario({
+    authentication: 'none',
+    availability: 'executable',
+    description:
+      'Executable modern MCP Apps reference derived from the pinned official ext-apps example server',
+    fixture: 'brainstrike-apps-reference',
+    fixtureSource: MCP_LAB_APPS_PROFILE_SOURCE,
+    id: 'apps-reference',
+    network: 'loopback-only',
+    protocol: { era: 'modern', version: '2026-07-28' },
+    reference: REFERENCE,
+    transport: 'streamable-http',
+    usesAmbientCredentials: false,
+  }),
   'legacy-reference': freezeScenario({
     authentication: 'none',
     availability: 'executable',

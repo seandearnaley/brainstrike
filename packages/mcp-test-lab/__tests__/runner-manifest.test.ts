@@ -27,6 +27,8 @@ describe('MCP verifier runner manifest', () => {
       'modern-stdio',
       'modern-tasks-in-process',
       'modern-tasks-loopback',
+      'modern-apps-in-process',
+      'modern-apps-loopback',
     ]);
     expect(MCP_LAB_RUNNER_CASES.map(({ id }) => id)).toEqual(MCP_LAB_RUNNER_CASE_IDS);
     expect(new Set(MCP_LAB_RUNNER_CASES.map(({ scenarioId }) => scenarioId))).toEqual(
@@ -49,6 +51,7 @@ describe('MCP verifier runner manifest', () => {
       'oauth-http-loopback',
       'modern-stdio',
       'modern-tasks-in-process',
+      'modern-apps-in-process',
     ]);
     expect(exhaustive.cases.map(({ id }) => id)).toEqual(MCP_LAB_RUNNER_CASE_IDS);
     expect(new Set(representative.cases).isSubsetOf(new Set(exhaustive.cases))).toBe(true);
@@ -110,8 +113,17 @@ describe('MCP verifier runner manifest', () => {
       runTimeoutMs: 12_000,
     });
 
-    expect(defaults).toMatchObject({ caseTimeoutMs: 10_000, runTimeoutMs: 60_000 });
+    expect(defaults).toMatchObject({ caseTimeoutMs: 10_000, runTimeoutMs: 90_000 });
     expect(selected).toMatchObject({ caseTimeoutMs: 2500, runTimeoutMs: 12_000 });
+  });
+
+  it('keeps run ceilings above the sum of sequential per-case ceilings', () => {
+    for (const profile of MCP_LAB_RUNNER_PROFILES) {
+      const timeouts = MCP_LAB_RUNNER_PROFILE_TIMEOUTS[profile];
+      expect(timeouts.runTimeoutMs).toBeGreaterThan(
+        MCP_LAB_RUNNER_PROFILE_CASE_IDS[profile].length * timeouts.caseTimeoutMs
+      );
+    }
   });
 
   it('keeps the living contract coupled to the executable profile defaults', async () => {

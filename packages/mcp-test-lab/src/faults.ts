@@ -73,8 +73,15 @@ const OFFICIAL_EVERYTHING_FIXTURE_OPERATIONS = Object.freeze([
   'tools/call',
   'tools/list',
 ] as const satisfies readonly McpLabOperationMethod[]);
+const APPS_FIXTURE_OPERATIONS = Object.freeze([
+  'resources/list',
+  'resources/read',
+  'tools/call',
+  'tools/list',
+] as const satisfies readonly McpLabOperationMethod[]);
 const OPERATIONS_BY_FIXTURE: Readonly<Record<McpLabFixture, readonly McpLabOperationMethod[]>> =
   Object.freeze({
+    'brainstrike-apps-reference': APPS_FIXTURE_OPERATIONS,
     'brainstrike-oauth-reference': ECHO_FIXTURE_OPERATIONS,
     'brainstrike-sdk-v2-reference': ECHO_FIXTURE_OPERATIONS,
     'brainstrike-stdio-reference': ECHO_FIXTURE_OPERATIONS,
