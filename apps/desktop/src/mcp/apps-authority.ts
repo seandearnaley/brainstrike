@@ -1,7 +1,9 @@
 import {
   createMcpAppOrdinaryToolCallPreparer,
   type McpAppToolAdmissionCapability,
+  readMcpCreatedTaskResult,
 } from '@brainstrike/agent';
+import type { McpTaskTrackingCapability } from '@brainstrike/agent/mcp-tasks';
 import {
   type ConfiguredMcpServerId,
   type McpAppExecuteRequest,
@@ -15,6 +17,7 @@ import {
   parseMcpAppExecuteResult,
 } from '@brainstrike/assistant-contract';
 import { getDesktopMcpHostRuntime } from './host-runtime';
+import type { McpDesktopTaskHostPort } from './task-host';
 
 type McpDesktopAppHostErrorCode =
   | 'mcp_app_admission_unavailable'
@@ -53,6 +56,12 @@ export type McpAppsExecutionHostPort = Pick<McpHostPort, 'invoke' | 'snapshot' |
 export interface McpDesktopAppHostOptions {
   /** Resolved lazily per detach/execute so construction never boots the MCP runtime. */
   readonly resolveHost: () => McpAppsExecutionHostPort;
+  /**
+   * Durable task authorities a detached call hands a created task to; resolved
+   * lazily like `resolveHost`. Without a run there is no runtime tracking
+   * capability, so the desktop task host owns app-originated tasks directly.
+   */
+  readonly resolveTaskHost: () => Pick<McpDesktopTaskHostPort, 'track'>;
 }
 
 interface LiveAdmissionEntry {
@@ -117,11 +126,15 @@ interface SenderEntry {
 export class McpDesktopAppHost {
   readonly #admissionsByThread = new Map<string, AdmissionEntry>();
   readonly #preparations = new Map<string, PreparationEntry>();
+  /** Ids claimed by an in-flight `prepare` before its entry exists (see `prepare`). */
+  readonly #reservedPreparationIds = new Set<string>();
   readonly #resolveHost: () => McpAppsExecutionHostPort;
+  readonly #resolveTaskHost: () => Pick<McpTaskTrackingCapability, 'track'>;
   readonly #senders = new Map<number, SenderEntry>();
 
   constructor(options: McpDesktopAppHostOptions) {
     this.#resolveHost = options.resolveHost;
+    this.#resolveTaskHost = options.resolveTaskHost;
   }
 
   registerAdmission(run: McpAppAdmissionRun, admission: McpAppToolAdmissionCapability): void {
@@ -155,13 +168,33 @@ export class McpDesktopAppHost {
     }
   }
 
+  /**
+   * The renderer supplies the preparation id, and preparation awaits the
+   * admission preparer, so the id is reserved SYNCHRONOUSLY before the first
+   * await: a concurrent duplicate rejects instead of overwriting the first
+   * entry (whose executor would then be dropped without release). The
+   * reservation is dropped on every exit path; the committed entry replaces it.
+   */
   async prepare(
     webContents: McpAppRequestingWebContents,
     request: McpAppPrepareRequest
   ): Promise<McpAppPrepareResult> {
-    if (this.#preparations.has(request.preparationId)) {
+    const { preparationId } = request;
+    if (this.#preparations.has(preparationId) || this.#reservedPreparationIds.has(preparationId)) {
       throw new McpDesktopAppHostError('mcp_app_preparation_duplicate');
     }
+    this.#reservedPreparationIds.add(preparationId);
+    try {
+      return await this.#prepareReserved(webContents, request);
+    } finally {
+      this.#reservedPreparationIds.delete(preparationId);
+    }
+  }
+
+  async #prepareReserved(
+    webContents: McpAppRequestingWebContents,
+    request: McpAppPrepareRequest
+  ): Promise<McpAppPrepareResult> {
     const entry = this.#resolveAdmission(request.threadId, request.origin.serverId);
     const call = {
       input: request.arguments,
@@ -289,6 +322,13 @@ export class McpDesktopAppHost {
    * and the risk category (`admit` touches no run client); execution is one
    * host-port `tools/call`. The app's tool name is already the server-side
    * name — the capability namespace-resolved `serverId.toolName` at build time.
+   *
+   * A Tasks-capable server may answer with a CreateTaskResult. Exactly like the
+   * run-owned app path (`executeMcpTool` with raw retention), the task is
+   * handed to the desktop task host so the repository/lifecycle/lease own it,
+   * and the canonical CreateTaskResult is returned to the frame without
+   * awaiting settlement (the frame bridge bounds inbound requests at 10 s).
+   * A task the host cannot track fails the call visibly.
    */
   #prepareDetached(
     entry: DetachedAdmissionEntry,
@@ -315,6 +355,13 @@ export class McpDesktopAppHost {
         if (outcome.type !== 'tools/call') {
           throw new Error(
             `MCP Apps detached call expected a tools/call result, received ${outcome.type}`
+          );
+        }
+        const createdTask = readMcpCreatedTaskResult(outcome.result);
+        if (createdTask !== undefined) {
+          await this.#resolveTaskHost().track(
+            { configuredServerId, result: createdTask, toolName: call.toolName },
+            signal
           );
         }
         return outcome.result;
@@ -400,7 +447,10 @@ let singleton: McpDesktopAppHost | undefined;
 
 export function getMcpDesktopAppHost(): McpDesktopAppHost {
   if (singleton === undefined) {
-    singleton = new McpDesktopAppHost({ resolveHost: () => getDesktopMcpHostRuntime().host });
+    singleton = new McpDesktopAppHost({
+      resolveHost: () => getDesktopMcpHostRuntime().host,
+      resolveTaskHost: () => getDesktopMcpHostRuntime().taskHost,
+    });
   }
   return singleton;
 }
