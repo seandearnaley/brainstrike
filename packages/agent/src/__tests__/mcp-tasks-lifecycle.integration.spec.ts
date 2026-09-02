@@ -1,4 +1,4 @@
-import { type McpTaskRecord, McpTaskRepository } from '@brainstrike/db';
+import { type McpTaskAuthorityLease, type McpTaskRecord, McpTaskRepository } from '@brainstrike/db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -12,12 +12,23 @@ import {
   type McpTaskPollingClient,
 } from '../mcp/tasks-lifecycle.js';
 
-const scope = {
-  generation: 7,
+const authorityInput = {
+  connectionGeneration: 7,
   principalId: 'linear:user-42',
   resource: 'https://mcp.linear.app/mcp',
+  runtimeId: 'desktop-runtime-a',
   serverId: 'linear',
 } as const;
+
+function taskIdentity(authority: McpTaskAuthorityLease, taskId: string) {
+  return {
+    authorityEpoch: authority.authorityEpoch,
+    principalId: authority.principalId,
+    resource: authority.resource,
+    serverId: authority.serverId,
+    taskId,
+  } as const;
+}
 
 const createdTask = {
   createdAt: '2026-09-01T04:00:00.000Z',
@@ -91,7 +102,6 @@ describe('McpTaskLifecycle', () => {
         expect(contract).toBe(MCP_TASKS_GET_REQUEST_CONTRACT);
         expect(params).toEqual({ taskId: createdTask.taskId });
         expect(options?.signal.aborted).toBe(false);
-        expect(options?.timeout).toBe(30_000);
         return {
           createdAt: createdTask.createdAt,
           lastUpdatedAt: '2026-09-01T04:00:00.100Z',
@@ -103,19 +113,21 @@ describe('McpTaskLifecycle', () => {
         };
       }),
     };
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client,
-      currentGeneration: () => scope.generation,
       limits: { ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS, initialPollMs: 25 },
       onUpdate: (record) => {
         updates.push(record.status);
       },
       repository,
-      scope,
     });
 
     const tracked = await lifecycle.track(createdTask);
-    await expect(repository.get({ ...scope, taskId: createdTask.taskId })).resolves.toMatchObject({
+    await expect(
+      repository.get(taskIdentity(authority, createdTask.taskId))
+    ).resolves.toMatchObject({
       status: 'working',
       taskId: createdTask.taskId,
     });
@@ -130,6 +142,7 @@ describe('McpTaskLifecycle', () => {
     expect(lifecycle.snapshot()).toEqual({
       activePolls: 0,
       activeTasks: 0,
+      pendingCreates: 0,
       queuedPolls: 0,
       timers: 0,
     });
@@ -141,14 +154,14 @@ describe('McpTaskLifecycle', () => {
     const dataDir = createPGliteTestDataDir('pglite-agent-mcp-task-restart');
     db = await openDatabaseAt(dataDir);
     const firstRepository = new McpTaskRepository(db);
+    const firstAuthority = await firstRepository.openAuthority(authorityInput);
     const firstLifecycle = new McpTaskLifecycle({
+      authority: firstAuthority,
       client: {
         requestExtension: vi.fn(() => Promise.reject(new Error('restart happened before poll'))),
       },
-      currentGeneration: () => scope.generation,
       onUpdate: vi.fn(),
       repository: firstRepository,
-      scope,
     });
 
     const beforeRestart = await firstLifecycle.track(createdTask);
@@ -162,14 +175,16 @@ describe('McpTaskLifecycle', () => {
     });
     await firstLifecycle.stop('restart');
     await expect(beforeRestart.settled).rejects.toMatchObject({ reason: 'restart' });
+    const otherPrincipalAuthority = await firstRepository.openAuthority({
+      ...authorityInput,
+      principalId: 'other',
+    });
     await firstRepository.create(
       {
-        ...scope,
-        principalId: 'other',
+        ...taskIdentity(otherPrincipalAuthority, 'other-principal'),
         status: 'working',
-        taskId: 'other-principal',
       },
-      { currentGeneration: scope.generation }
+      otherPrincipalAuthority
     );
     await db.close();
 
@@ -185,12 +200,18 @@ describe('McpTaskLifecycle', () => {
         ttlMs: createdTask.ttlMs,
       })
     );
+    const restartedRepository = new McpTaskRepository(db);
+    const reboundAuthority = await restartedRepository.openAuthority({
+      ...authorityInput,
+      connectionGeneration: 1,
+      runtimeId: 'desktop-runtime-b',
+    });
+    expect(reboundAuthority.authorityEpoch).toBe(firstAuthority.authorityEpoch);
     const recoveredLifecycle = new McpTaskLifecycle({
+      authority: reboundAuthority,
       client: { requestExtension },
-      currentGeneration: () => scope.generation,
       onUpdate: vi.fn(),
-      repository: new McpTaskRepository(db),
-      scope,
+      repository: restartedRepository,
     });
 
     const recovered = await recoveredLifecycle.recover();
@@ -202,6 +223,7 @@ describe('McpTaskLifecycle', () => {
     expect(recoveredLifecycle.snapshot()).toEqual({
       activePolls: 0,
       activeTasks: 0,
+      pendingCreates: 0,
       queuedPolls: 0,
       timers: 0,
     });
@@ -232,16 +254,17 @@ describe('McpTaskLifecycle', () => {
         inFlight -= 1;
       });
     });
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: { requestExtension },
-      currentGeneration: () => scope.generation,
       limits: {
         ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
         maxConcurrentPolls: 2,
       },
       onUpdate: vi.fn(),
-      repository: new McpTaskRepository(db),
-      scope,
+      repository,
     });
     const tracked = await Promise.all(
       ['task-a', 'task-b', 'task-c'].map((taskId) => lifecycle.track({ ...createdTask, taskId }))
@@ -278,6 +301,7 @@ describe('McpTaskLifecycle', () => {
     expect(lifecycle.snapshot()).toEqual({
       activePolls: 0,
       activeTasks: 0,
+      pendingCreates: 0,
       queuedPolls: 0,
       timers: 0,
     });
@@ -302,9 +326,11 @@ describe('McpTaskLifecycle', () => {
         ttlMs: createdTask.ttlMs,
       };
     });
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: { requestExtension },
-      currentGeneration: () => scope.generation,
       limits: {
         ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
         initialPollMs: 25,
@@ -312,8 +338,7 @@ describe('McpTaskLifecycle', () => {
         minimumPollMs: 10,
       },
       onUpdate: vi.fn(),
-      repository: new McpTaskRepository(db),
-      scope,
+      repository,
     });
     const tracked = await lifecycle.track({
       ...createdTask,
@@ -338,6 +363,7 @@ describe('McpTaskLifecycle', () => {
     expect(lifecycle.snapshot()).toEqual({
       activePolls: 0,
       activeTasks: 0,
+      pendingCreates: 0,
       queuedPolls: 0,
       timers: 0,
     });
@@ -358,15 +384,15 @@ describe('McpTaskLifecycle', () => {
       return poll.promise;
     });
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const publications: McpTaskRecord[] = [];
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: { requestExtension },
-      currentGeneration: () => scope.generation,
       onUpdate: (record) => {
         publications.push(record);
       },
       repository,
-      scope,
     });
     const tracked = await lifecycle.track(createdTask);
 
@@ -416,12 +442,13 @@ describe('McpTaskLifecycle', () => {
     db = await openDatabase();
     const request = deferred<GetTaskResult>();
     const onUpdate = vi.fn();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: { requestExtension: vi.fn(() => request.promise) },
-      currentGeneration: () => scope.generation,
       onUpdate,
-      repository: new McpTaskRepository(db),
-      scope,
+      repository,
     });
     const tracked = await lifecycle.track(createdTask);
     await vi.advanceTimersByTimeAsync(createdTask.pollIntervalMs);
@@ -439,6 +466,7 @@ describe('McpTaskLifecycle', () => {
       expect(lifecycle.snapshot()).toEqual({
         activePolls: 0,
         activeTasks: 0,
+        pendingCreates: 0,
         queuedPolls: 0,
         timers: 0,
       });

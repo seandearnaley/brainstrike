@@ -95,8 +95,6 @@ export {
   type McpTaskBlockedDiagnostic,
   type McpTaskDatabase,
   type McpTaskIdentity,
-  type McpTaskLegacyIdentity,
-  type McpTaskLegacyScope,
   McpTaskMetadataTooLargeError,
   type McpTaskRecord,
   McpTaskRepository,

@@ -50,22 +50,6 @@ export interface McpTaskIdentity extends McpTaskScope {
   readonly taskId: string;
 }
 
-/** Temporary stack bridge removed when BST-1563 adopts durable authority leases. */
-export interface McpTaskLegacyScope {
-  readonly generation: number;
-  readonly principalId: string;
-  readonly resource: string;
-  readonly serverId: string;
-}
-
-export interface McpTaskLegacyIdentity extends McpTaskLegacyScope {
-  readonly taskId: string;
-}
-
-export interface McpTaskWriteFence {
-  readonly currentGeneration: number;
-}
-
 export interface McpTaskRecord extends McpTaskIdentity {
   readonly blockedDiagnostic: McpTaskBlockedDiagnostic | null;
   readonly createdAt: Date;
@@ -87,7 +71,6 @@ export interface UpdateMcpTaskInput {
 }
 
 export interface CreateMcpTaskInput extends McpTaskIdentity, UpdateMcpTaskInput {}
-export interface CreateLegacyMcpTaskInput extends McpTaskLegacyIdentity, UpdateMcpTaskInput {}
 
 export interface McpTaskDatabase {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
@@ -280,27 +263,6 @@ function requireAuthorityInput(input: McpTaskAuthorityInput): void {
 function requireAuthorityLease(lease: McpTaskAuthorityLease): void {
   requireAuthorityInput(lease);
   requireScope(lease);
-}
-
-function requireLegacyIdentity(identity: McpTaskLegacyIdentity): void {
-  requireAuthorityIdentity(identity);
-  requireText(identity.taskId, 'taskId', 1024);
-  if (!(Number.isSafeInteger(identity.generation) && identity.generation >= 0)) {
-    throw new TypeError('MCP task generation must be a non-negative safe integer.');
-  }
-}
-
-function requireWriteFence(fence: McpTaskWriteFence): number {
-  if (!(Number.isSafeInteger(fence.currentGeneration) && fence.currentGeneration >= 0)) {
-    throw new TypeError('MCP task currentGeneration must be a non-negative safe integer.');
-  }
-  return fence.currentGeneration;
-}
-
-function isLegacyIdentity(
-  identity: McpTaskIdentity | McpTaskLegacyIdentity
-): identity is McpTaskLegacyIdentity {
-  return 'generation' in identity;
 }
 
 function serializeMetadata(value: JsonObject | null): string | null {
@@ -554,41 +516,7 @@ export class McpTaskRepository {
     );
   }
 
-  async create(input: CreateMcpTaskInput, lease: McpTaskAuthorityLease): Promise<McpTaskRecord>;
-  async create(
-    input: CreateLegacyMcpTaskInput,
-    fence: McpTaskWriteFence
-  ): Promise<McpTaskRecord & { readonly generation: number }>;
-  async create(
-    input: CreateMcpTaskInput | CreateLegacyMcpTaskInput,
-    authority: McpTaskAuthorityLease | McpTaskWriteFence
-  ): Promise<McpTaskRecord> {
-    if (isLegacyIdentity(input)) {
-      const currentGeneration = requireWriteFence(authority as McpTaskWriteFence);
-      if (input.generation !== currentGeneration) {
-        throw new Error('MCP task handle is missing or stale.');
-      }
-      const lease = await this.openAuthority({
-        ...input,
-        connectionGeneration: input.generation,
-        runtimeId: 'bst-1581-generation-bridge',
-      });
-      const { generation, ...legacyInput } = input;
-      return Object.freeze({
-        ...(await this.createWithLease(
-          { ...legacyInput, authorityEpoch: lease.authorityEpoch },
-          lease
-        )),
-        generation,
-      });
-    }
-    return await this.createWithLease(input, authority as McpTaskAuthorityLease);
-  }
-
-  private async createWithLease(
-    input: CreateMcpTaskInput,
-    lease: McpTaskAuthorityLease
-  ): Promise<McpTaskRecord> {
+  async create(input: CreateMcpTaskInput, lease: McpTaskAuthorityLease): Promise<McpTaskRecord> {
     requireIdentity(input);
     requireMatchingLease(input, lease);
     const status = requireStatus(input.status);
@@ -650,26 +578,7 @@ export class McpTaskRepository {
     return mapRow(result.rows[0]);
   }
 
-  async get(identity: McpTaskIdentity): Promise<McpTaskRecord | null>;
-  async get(
-    identity: McpTaskLegacyIdentity
-  ): Promise<(McpTaskRecord & { readonly generation: number }) | null>;
-  async get(identity: McpTaskIdentity | McpTaskLegacyIdentity): Promise<McpTaskRecord | null> {
-    if (isLegacyIdentity(identity)) {
-      const lease = await this.findLegacyAuthority(identity);
-      if (!lease) {
-        return null;
-      }
-      const record = await this.getWithIdentity({
-        ...identity,
-        authorityEpoch: lease.authorityEpoch,
-      });
-      return record ? Object.freeze({ ...record, generation: identity.generation }) : null;
-    }
-    return await this.getWithIdentity(identity);
-  }
-
-  private async getWithIdentity(identity: McpTaskIdentity): Promise<McpTaskRecord | null> {
+  async get(identity: McpTaskIdentity): Promise<McpTaskRecord | null> {
     requireIdentity(identity);
     const result = await this.db.query(
       `SELECT * FROM ${TABLE}
@@ -688,37 +597,12 @@ export class McpTaskRepository {
    */
   async listActive(
     lease: McpTaskAuthorityLease,
-    options?: { readonly limit?: number }
-  ): Promise<readonly McpTaskRecord[]>;
-  async listActive(
-    scope: McpTaskLegacyScope,
-    options?: { readonly limit?: number }
-  ): Promise<readonly (McpTaskRecord & { readonly generation: number })[]>;
-  async listActive(
-    lease: McpTaskAuthorityLease | McpTaskLegacyScope,
     options: { readonly limit?: number } = {}
   ): Promise<readonly McpTaskRecord[]> {
     const limit = options.limit ?? MAX_ACTIVE_MCP_TASKS_PER_SCOPE;
     if (!(Number.isSafeInteger(limit) && limit > 0 && limit <= MAX_ACTIVE_MCP_TASKS_PER_SCOPE)) {
       throw new TypeError(
         `MCP task listActive limit must be an integer from 1 to ${MAX_ACTIVE_MCP_TASKS_PER_SCOPE}.`
-      );
-    }
-    if ('generation' in lease) {
-      const authority = await this.findLegacyAuthority({ ...lease, taskId: 'scope-probe' });
-      if (!authority) {
-        return [];
-      }
-      const result = await this.db.query(
-        `SELECT * FROM ${TABLE}
-         WHERE authority_epoch = $1::uuid AND server_id = $2 AND resource = $3
-           AND principal_id = $4 AND terminal_at IS NULL
-         ORDER BY created_at ASC, task_id ASC
-         LIMIT $5`,
-        [authority.authorityEpoch, lease.serverId, lease.resource, lease.principalId, limit]
-      );
-      return result.rows.map((row) =>
-        Object.freeze({ ...mapRow(row), generation: lease.generation })
       );
     }
     requireAuthorityLease(lease);
@@ -740,40 +624,6 @@ export class McpTaskRepository {
   }
 
   async update(
-    identity: McpTaskIdentity,
-    input: UpdateMcpTaskInput,
-    lease: McpTaskAuthorityLease
-  ): Promise<McpTaskRecord>;
-  async update(
-    identity: McpTaskLegacyIdentity,
-    input: UpdateMcpTaskInput,
-    fence: McpTaskWriteFence
-  ): Promise<McpTaskRecord & { readonly generation: number }>;
-  async update(
-    identity: McpTaskIdentity | McpTaskLegacyIdentity,
-    input: UpdateMcpTaskInput,
-    authority: McpTaskAuthorityLease | McpTaskWriteFence
-  ): Promise<McpTaskRecord> {
-    if (isLegacyIdentity(identity)) {
-      const currentGeneration = requireWriteFence(authority as McpTaskWriteFence);
-      if (identity.generation !== currentGeneration) {
-        throw new Error('MCP task handle is missing or stale.');
-      }
-      const lease = await this.findLegacyAuthority(identity);
-      if (!lease) {
-        throw new Error('MCP task handle is missing or stale.');
-      }
-      const record = await this.updateWithLease(
-        { ...identity, authorityEpoch: lease.authorityEpoch },
-        input,
-        lease
-      );
-      return Object.freeze({ ...record, generation: identity.generation });
-    }
-    return await this.updateWithLease(identity, input, authority as McpTaskAuthorityLease);
-  }
-
-  private async updateWithLease(
     identity: McpTaskIdentity,
     input: UpdateMcpTaskInput,
     lease: McpTaskAuthorityLease
@@ -859,21 +709,6 @@ export class McpTaskRepository {
       inputMetadata,
       resultMetadata,
     });
-  }
-
-  private async findLegacyAuthority(
-    identity: McpTaskLegacyIdentity
-  ): Promise<McpTaskAuthorityLease | null> {
-    requireLegacyIdentity(identity);
-    const result = await this.db.query(
-      `SELECT * FROM ${AUTHORITY_TABLE}
-       WHERE server_id = $1 AND resource = $2 AND principal_id = $3
-         AND connection_generation = $4::bigint
-       ORDER BY (retired_at IS NULL) DESC, updated_at DESC
-       LIMIT 1`,
-      [identity.serverId, identity.resource, identity.principalId, identity.generation]
-    );
-    return result.rows[0] === undefined ? null : mapAuthorityRow(result.rows[0]);
   }
 
   private async assertMetadataBudgets(

@@ -1,9 +1,11 @@
 import type {
-  McpTaskLegacyIdentity,
-  McpTaskLegacyScope,
+  McpTaskAuthorityLease,
+  McpTaskIdentity,
   McpTaskRecord,
   McpTaskRepository,
+  McpTaskScope,
 } from '@brainstrike/db';
+import { McpTaskMetadataTooLargeError } from '@brainstrike/db';
 import type { CreateTaskResult, GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import type { McpClientExtensionRequestContract } from './client-extension-registry';
@@ -11,6 +13,7 @@ import { MCP_TASKS_GET_REQUEST_CONTRACT } from './tasks-extension';
 import {
   assertMcpTaskTimingProgress,
   createMcpTaskHandleUpdate,
+  createMcpTaskOverflowUpdate,
   createMcpTaskUpdate,
   hasPendingMcpTaskDetail,
   type McpTaskTiming,
@@ -89,12 +92,11 @@ export class McpTaskObservationError extends Error {
 }
 
 export interface McpTaskLifecycleOptions {
+  readonly authority: McpTaskAuthorityLease;
   readonly client: McpTaskPollingClient;
-  readonly currentGeneration: () => number;
   readonly limits?: McpTaskLifecycleLimits;
   readonly onUpdate: (record: McpTaskRecord) => Promise<void> | void;
   readonly repository: McpTaskRepository;
-  readonly scope: McpTaskLegacyScope;
 }
 
 interface ActiveTask {
@@ -184,47 +186,60 @@ function raceAbort<Value>(operation: Promise<Value>, signal: AbortSignal): Promi
 
 export class McpTaskLifecycle {
   private readonly active = new Map<string, ActiveTask>();
+  private readonly authority: McpTaskAuthorityLease;
   private readonly client: McpTaskPollingClient;
-  private readonly currentGeneration: () => number;
   private readonly lifecycleController = new AbortController();
   private readonly limits: McpTaskLifecycleLimits;
   private readonly onUpdate: McpTaskLifecycleOptions['onUpdate'];
+  private readonly pendingCreates = new Set<Promise<McpTrackedTask>>();
   private readonly pollWaiters: PollWaiter[] = [];
   private readonly repository: McpTaskRepository;
-  private readonly scope: McpTaskLegacyScope;
+  private readonly scope: McpTaskScope;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private activePolls = 0;
   private stopPromise: Promise<void> | undefined;
 
   constructor(options: McpTaskLifecycleOptions) {
+    this.authority = Object.freeze({ ...options.authority });
     this.client = options.client;
-    this.currentGeneration = options.currentGeneration;
     this.limits = normalizeLimits(options.limits);
     this.onUpdate = options.onUpdate;
     this.repository = options.repository;
-    this.scope = Object.freeze({ ...options.scope });
+    this.scope = Object.freeze({
+      authorityEpoch: options.authority.authorityEpoch,
+      principalId: options.authority.principalId,
+      resource: options.authority.resource,
+      serverId: options.authority.serverId,
+    });
   }
 
-  async track(task: CreateTaskResult, signal?: AbortSignal): Promise<McpTrackedTask> {
+  track(task: CreateTaskResult, signal?: AbortSignal): Promise<McpTrackedTask> {
     this.requireOpen(signal);
     // Sole-authority guard BEFORE the durable write: a second track() of the
     // same handle must be a clean rejection, not a persisted row plus a throw.
     if (this.active.has(task.taskId)) {
       throw new Error(`MCP task "${task.taskId}" is already tracked by this lifecycle.`);
     }
+    const operation = this.persistAndStart(task, signal);
+    this.pendingCreates.add(operation);
+    void operation.finally(() => this.pendingCreates.delete(operation)).catch(() => undefined);
+    return operation;
+  }
+
+  private async persistAndStart(
+    task: CreateTaskResult,
+    signal: AbortSignal | undefined
+  ): Promise<McpTrackedTask> {
     const timing = readMcpTaskTiming(task);
     const identity = this.identity(task.taskId);
-    const record = await this.repository.create(
-      { ...identity, ...createMcpTaskHandleUpdate(task) },
-      this.writeFence()
-    );
+    const record = await this.createRecord(identity, task);
     this.requireOpen(signal);
     return this.start(record, timing, signal);
   }
 
   async recover(signal?: AbortSignal): Promise<readonly McpTrackedTask[]> {
     this.requireOpen(signal);
-    const records = await this.repository.listActive(this.scope);
+    const records = await this.repository.listActive(this.authority);
     this.requireOpen(signal);
     const resumable = records.map((record) => ({
       record,
@@ -273,21 +288,21 @@ export class McpTaskLifecycle {
     for (const task of this.active.values()) {
       task.controller.abort(failure);
     }
-    this.stopPromise = Promise.allSettled(
-      [...this.active.values()].map(({ settled }) => settled)
-    ).then(() => undefined);
+    this.stopPromise = this.finishStop(reason);
     return this.stopPromise;
   }
 
   snapshot(): {
     readonly activePolls: number;
     readonly activeTasks: number;
+    readonly pendingCreates: number;
     readonly queuedPolls: number;
     readonly timers: number;
   } {
     return Object.freeze({
       activePolls: this.activePolls,
       activeTasks: this.active.size,
+      pendingCreates: this.pendingCreates.size,
       queuedPolls: this.pollWaiters.length,
       timers: this.timers.size,
     });
@@ -298,7 +313,7 @@ export class McpTaskLifecycle {
     initialTiming: McpTaskTiming,
     callerSignal: AbortSignal | undefined
   ): McpTrackedTask {
-    if (TERMINAL_TASK_STATUSES.has(record.status)) {
+    if (TERMINAL_TASK_STATUSES.has(record.status) || record.blockedDiagnostic !== null) {
       return Object.freeze({ record, settled: Promise.resolve(record) });
     }
     if (this.active.has(record.taskId)) {
@@ -384,16 +399,12 @@ export class McpTaskLifecycle {
       requireTaskIdentity(result.taskId, initialRecord.taskId);
       const resultTiming = readMcpTaskTiming(result);
       assertMcpTaskTimingProgress(latestTiming, resultTiming, initialRecord.taskId);
-      const persisted = await this.repository.update(
-        this.identity(initialRecord.taskId),
-        createMcpTaskUpdate(result),
-        this.writeFence()
-      );
+      const persisted = await this.updateRecord(this.identity(initialRecord.taskId), result);
       if (signal.aborted) {
         throw abortReason(signal);
       }
       await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
-      if (TERMINAL_TASK_STATUSES.has(persisted.status)) {
+      if (TERMINAL_TASK_STATUSES.has(persisted.status) || persisted.blockedDiagnostic !== null) {
         return persisted;
       }
       consecutiveFailures = 0;
@@ -433,12 +444,8 @@ export class McpTaskLifecycle {
     }
   }
 
-  private identity(taskId: string): McpTaskLegacyIdentity {
+  private identity(taskId: string): McpTaskIdentity {
     return { ...this.scope, taskId };
-  }
-
-  private writeFence(): { readonly currentGeneration: number } {
-    return { currentGeneration: this.currentGeneration() };
   }
 
   private requireOpen(callerSignal?: AbortSignal): void {
@@ -533,5 +540,58 @@ export class McpTaskLifecycle {
         waiter.grant();
       }
     };
+  }
+
+  private async createRecord(
+    identity: McpTaskIdentity,
+    task: CreateTaskResult
+  ): Promise<McpTaskRecord> {
+    try {
+      return await this.repository.create(
+        { ...identity, ...createMcpTaskHandleUpdate(task) },
+        this.authority
+      );
+    } catch (cause) {
+      if (!(cause instanceof McpTaskMetadataTooLargeError)) {
+        throw cause;
+      }
+      return await this.repository.create(
+        { ...identity, ...createMcpTaskOverflowUpdate(task, cause) },
+        this.authority
+      );
+    }
+  }
+
+  private async updateRecord(
+    identity: McpTaskIdentity,
+    task: GetTaskResult
+  ): Promise<McpTaskRecord> {
+    try {
+      return await this.repository.update(identity, createMcpTaskUpdate(task), this.authority);
+    } catch (cause) {
+      if (!(cause instanceof McpTaskMetadataTooLargeError)) {
+        throw cause;
+      }
+      return await this.repository.update(
+        identity,
+        createMcpTaskOverflowUpdate(task, cause),
+        this.authority
+      );
+    }
+  }
+
+  private async finishStop(reason: McpTaskLifecycleStopReason): Promise<void> {
+    await Promise.allSettled([
+      ...this.pendingCreates,
+      ...[...this.active.values()].map(({ settled }) => settled),
+    ]);
+    if (
+      reason === 'disconnect' ||
+      reason === 'reset' ||
+      reason === 'server-removed' ||
+      reason === 'server-replaced'
+    ) {
+      await this.repository.retireAuthority(this.authority);
+    }
   }
 }

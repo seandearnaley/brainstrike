@@ -423,4 +423,67 @@ describe('McpTaskRepository', () => {
     );
     await expect(repository.get(taskIdentity)).rejects.toThrow(/timestamp/u);
   });
+
+  it('rejects non-monotonic or contradictory durable history during hydration', async () => {
+    await openNumbered();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const corruptions = [
+      {
+        history: [
+          { at: '2026-09-01T05:00:00.000Z', status: 'working' },
+          { at: '2026-09-01T04:59:59.000Z', status: 'working' },
+        ],
+        message: /monotonic/u,
+        taskId: 'non-monotonic',
+        updatedAt: '2026-09-01T05:00:02.000Z',
+      },
+      {
+        history: [
+          { at: '2026-09-01T05:00:00.000Z', status: 'working' },
+          { at: '2026-09-01T05:00:01.000Z', status: 'cancelled' },
+        ],
+        message: /final status/u,
+        taskId: 'status-mismatch',
+        updatedAt: '2026-09-01T05:00:01.000Z',
+      },
+      {
+        history: [
+          { at: '2026-09-01T05:00:00.000Z', status: 'working' },
+          { at: '2026-09-01T05:00:00.500Z', status: 'working' },
+        ],
+        message: /end at updatedAt/u,
+        taskId: 'updated-at-mismatch',
+        updatedAt: '2026-09-01T05:00:01.000Z',
+      },
+      {
+        history: [
+          { at: '2026-09-01T05:00:00.000Z', status: 'completed' },
+          { at: '2026-09-01T05:00:01.000Z', status: 'working' },
+        ],
+        message: /cannot continue after a terminal status/u,
+        taskId: 'terminal-regression',
+        updatedAt: '2026-09-01T05:00:01.000Z',
+      },
+    ] as const;
+
+    for (const corruption of corruptions) {
+      const taskIdentity = identity(authority, corruption.taskId);
+      await repository.create({ ...taskIdentity, status: 'working' }, authority);
+      await db.query(
+        `UPDATE brainstrike_mcp_tasks
+         SET created_at = '2026-09-01T05:00:00.000Z'::timestamptz,
+             updated_at = $1::timestamptz,
+             history = $2::jsonb
+         WHERE authority_epoch = $3::uuid AND task_id = $4`,
+        [
+          corruption.updatedAt,
+          JSON.stringify(corruption.history),
+          authority.authorityEpoch,
+          corruption.taskId,
+        ]
+      );
+      await expect(repository.get(taskIdentity)).rejects.toThrow(corruption.message);
+    }
+  });
 });

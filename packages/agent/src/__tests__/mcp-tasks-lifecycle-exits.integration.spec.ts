@@ -1,4 +1,4 @@
-import { McpTaskRepository } from '@brainstrike/db';
+import { type McpTaskAuthorityLease, McpTaskRepository } from '@brainstrike/db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,12 +13,23 @@ import {
 } from '../mcp/tasks-lifecycle.js';
 
 const CREATED_AT = '2026-09-01T05:00:00.000Z';
-const scope = {
-  generation: 9,
+const authorityInput = {
+  connectionGeneration: 9,
   principalId: 'linear:user-42',
   resource: 'https://mcp.linear.app/mcp',
+  runtimeId: 'desktop-runtime-a',
   serverId: 'linear',
 } as const;
+
+function taskIdentity(authority: McpTaskAuthorityLease, taskId: string) {
+  return {
+    authorityEpoch: authority.authorityEpoch,
+    principalId: authority.principalId,
+    resource: authority.resource,
+    serverId: authority.serverId,
+    taskId,
+  } as const;
+}
 
 function task(taskId: string, overrides: { pollIntervalMs?: number; ttlMs?: number | null } = {}) {
   return {
@@ -63,6 +74,7 @@ function expectNoLifecycleLeaks(lifecycle: McpTaskLifecycle): void {
   expect(lifecycle.snapshot()).toEqual({
     activePolls: 0,
     activeTasks: 0,
+    pendingCreates: 0,
     queuedPolls: 0,
     timers: 0,
   });
@@ -88,15 +100,18 @@ describe('McpTaskLifecycle exit fencing', () => {
       'closed',
     ] as const satisfies readonly McpTaskLifecycleStopReason[];
 
-    for (const reason of reasons) {
+    for (const [index, reason] of reasons.entries()) {
+      const authority = await repository.openAuthority({
+        ...authorityInput,
+        connectionGeneration: authorityInput.connectionGeneration + index,
+      });
       const lifecycle = new McpTaskLifecycle({
+        authority,
         client: {
           requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
         },
-        currentGeneration: () => scope.generation,
         onUpdate: vi.fn(),
         repository,
-        scope,
       });
       const tracked = await lifecycle.track(task(`task-${reason}`));
       await lifecycle.stop(reason);
@@ -110,14 +125,14 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
       },
-      currentGeneration: () => scope.generation,
       onUpdate: vi.fn(),
       repository,
-      scope,
     });
     const controller = new AbortController();
     const tracked = await lifecycle.track(task('task-cancelled-by-caller'), controller.signal);
@@ -127,7 +142,7 @@ describe('McpTaskLifecycle exit fencing', () => {
 
     await expect(tracked.settled).rejects.toBe(reason);
     await expect(
-      repository.get({ ...scope, taskId: 'task-cancelled-by-caller' })
+      repository.get(taskIdentity(authority, 'task-cancelled-by-caller'))
     ).resolves.toMatchObject({ status: 'working' });
     expectNoLifecycleLeaks(lifecycle);
   });
@@ -147,13 +162,14 @@ describe('McpTaskLifecycle exit fencing', () => {
         };
       }),
     };
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client,
-      currentGeneration: () => scope.generation,
       limits: DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
       onUpdate: vi.fn(),
-      repository: new McpTaskRepository(db),
-      scope,
+      repository,
     });
     const tracked = await lifecycle.track(task('task-expiring', { ttlMs: 250 }));
     const settlement = expect(tracked.settled).rejects.toThrow(/bounded lifetime/u);
@@ -172,8 +188,10 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const onUpdate = vi.fn();
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(
           async (): Promise<GetTaskResult> => ({
@@ -187,10 +205,8 @@ describe('McpTaskLifecycle exit fencing', () => {
           })
         ),
       },
-      currentGeneration: () => scope.generation,
       onUpdate,
       repository,
-      scope,
     });
     const tracked = await lifecycle.track(task('expected-task'));
     const settlement = expect(tracked.settled).rejects.toThrow(/identity mismatch/u);
@@ -198,7 +214,7 @@ describe('McpTaskLifecycle exit fencing', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     await settlement;
-    await expect(repository.get({ ...scope, taskId: 'expected-task' })).resolves.toMatchObject({
+    await expect(repository.get(taskIdentity(authority, 'expected-task'))).resolves.toMatchObject({
       status: 'working',
     });
     expect(onUpdate).not.toHaveBeenCalled();
@@ -212,10 +228,11 @@ describe('McpTaskLifecycle exit fencing', () => {
     const transportFailure = new Error('transport unavailable');
     const requestExtension = vi.fn(() => Promise.reject(transportFailure));
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const onUpdate = vi.fn();
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: { requestExtension },
-      currentGeneration: () => scope.generation,
       limits: {
         ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
         initialPollMs: 25,
@@ -224,7 +241,6 @@ describe('McpTaskLifecycle exit fencing', () => {
       },
       onUpdate,
       repository,
-      scope,
     });
     const tracked = await lifecycle.track({
       ...task('task-exhausted'),
@@ -242,7 +258,7 @@ describe('McpTaskLifecycle exit fencing', () => {
     });
     expect(requestExtension).toHaveBeenCalledTimes(3);
     expect(onUpdate).not.toHaveBeenCalled();
-    await expect(repository.get({ ...scope, taskId: 'task-exhausted' })).resolves.toMatchObject({
+    await expect(repository.get(taskIdentity(authority, 'task-exhausted'))).resolves.toMatchObject({
       status: 'working',
     });
     expectNoLifecycleLeaks(lifecycle);
@@ -253,20 +269,20 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
       },
-      currentGeneration: () => scope.generation,
       onUpdate: vi.fn(),
       repository,
-      scope,
     });
 
     await expect(lifecycle.track(task('invalid-timing', { pollIntervalMs: -1 }))).rejects.toThrow(
       /pollIntervalMs/u
     );
-    await expect(repository.get({ ...scope, taskId: 'invalid-timing' })).resolves.toBeNull();
+    await expect(repository.get(taskIdentity(authority, 'invalid-timing'))).resolves.toBeNull();
     expectNoLifecycleLeaks(lifecycle);
   });
 
@@ -275,20 +291,20 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
       },
-      currentGeneration: () => scope.generation,
       onUpdate: vi.fn(),
       repository,
-      scope,
     });
 
     await expect(
       lifecycle.track({ ...task('invalid-terminal'), status: 'completed' })
     ).rejects.toThrow(/must include its result/u);
-    await expect(repository.get({ ...scope, taskId: 'invalid-terminal' })).resolves.toBeNull();
+    await expect(repository.get(taskIdentity(authority, 'invalid-terminal'))).resolves.toBeNull();
     expectNoLifecycleLeaks(lifecycle);
   });
 
@@ -297,8 +313,10 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const onUpdate = vi.fn();
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(
           async (): Promise<GetTaskResult> => ({
@@ -311,10 +329,8 @@ describe('McpTaskLifecycle exit fencing', () => {
           })
         ),
       },
-      currentGeneration: () => scope.generation,
       onUpdate,
       repository,
-      scope,
     });
     const tracked = await lifecycle.track(task('task-time-drift'));
     const settlement = tracked.settled.then(
@@ -325,9 +341,11 @@ describe('McpTaskLifecycle exit fencing', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(String(await settlement)).toMatch(/createdAt changed/u);
-    await expect(repository.get({ ...scope, taskId: 'task-time-drift' })).resolves.toMatchObject({
-      status: 'working',
-    });
+    await expect(repository.get(taskIdentity(authority, 'task-time-drift'))).resolves.toMatchObject(
+      {
+        status: 'working',
+      }
+    );
     expect(onUpdate).not.toHaveBeenCalled();
     expectNoLifecycleLeaks(lifecycle);
   });
@@ -337,7 +355,10 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     let polls = 0;
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(async (): Promise<GetTaskResult> => {
           polls += 1;
@@ -362,10 +383,8 @@ describe('McpTaskLifecycle exit fencing', () => {
           };
         }),
       },
-      currentGeneration: () => scope.generation,
       onUpdate: vi.fn(),
-      repository: new McpTaskRepository(db),
-      scope,
+      repository,
     });
     const tracked = await lifecycle.track(task('task-input'));
 
@@ -379,7 +398,59 @@ describe('McpTaskLifecycle exit fencing', () => {
     expectNoLifecycleLeaks(lifecycle);
   });
 
-  it('does not expose a handle when reset wins the persistence race', async () => {
+  it('persists a bounded digest and truthful blocked terminal record for oversized remote state', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(CREATED_AT));
+    db = await openDatabase();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const rawSentinel = `oversized-secret-${'x'.repeat(70_000)}`;
+    const onUpdate = vi.fn();
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: {
+        requestExtension: vi.fn(
+          async (): Promise<GetTaskResult> => ({
+            createdAt: CREATED_AT,
+            lastUpdatedAt: '2026-09-01T05:00:00.100Z',
+            result: { payload: rawSentinel },
+            resultType: 'complete',
+            status: 'completed',
+            taskId: 'task-oversized-result',
+            ttlMs: 10_000,
+          })
+        ),
+      },
+      onUpdate,
+      repository,
+    });
+    const tracked = await lifecycle.track(task('task-oversized-result'));
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    const settled = await tracked.settled;
+    expect(settled).toMatchObject({
+      blockedDiagnostic: {
+        actualBytes: expect.any(Number),
+        code: 'mcp_task_state_too_large',
+        field: 'resultMetadata',
+        maxBytes: 65_536,
+        remoteStatus: 'completed',
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      },
+      status: 'completed',
+      statusMessage: 'MCP task state exceeded the durable metadata limit.',
+      terminalAt: expect.any(Date),
+    });
+    expect(JSON.stringify(settled)).not.toContain(rawSentinel);
+    await expect(repository.get(taskIdentity(authority, 'task-oversized-result'))).resolves.toEqual(
+      settled
+    );
+    expect(onUpdate).toHaveBeenCalledWith(settled);
+    expectNoLifecycleLeaks(lifecycle);
+  });
+
+  it('waits for an in-flight create before reset clears the real database', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
@@ -397,23 +468,40 @@ describe('McpTaskLifecycle exit fencing', () => {
         return await db.query(sql, params);
       },
     });
+    const authority = await repository.openAuthority(authorityInput);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
       },
-      currentGeneration: () => scope.generation,
       onUpdate: vi.fn(),
       repository,
-      scope,
     });
 
     const tracking = lifecycle.track(task('task-reset-race'));
     await insertStarted.promise;
     const stopping = lifecycle.stop('reset');
+    let stopSettled = false;
+    void stopping.then(() => {
+      stopSettled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stopSettled).toBe(false);
+    expect(lifecycle.snapshot().pendingCreates).toBe(1);
     releaseInsert.resolve(undefined);
 
     await expect(tracking).rejects.toMatchObject({ reason: 'reset' });
     await stopping;
+    await db.exec(`
+      BEGIN;
+      DELETE FROM brainstrike_mcp_tasks;
+      DELETE FROM brainstrike_mcp_task_authorities;
+      COMMIT;
+    `);
+    const remaining = await db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM brainstrike_mcp_tasks'
+    );
+    expect(remaining.rows).toEqual([{ count: 0 }]);
     expectNoLifecycleLeaks(lifecycle);
   });
 
@@ -422,9 +510,10 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     await repository.create(
       {
-        ...scope,
+        ...taskIdentity(authority, 'a-valid'),
         inputMetadata: {
           lifecycle: {
             createdAt: CREATED_AT,
@@ -434,26 +523,23 @@ describe('McpTaskLifecycle exit fencing', () => {
           },
         },
         status: 'working',
-        taskId: 'a-valid',
       },
-      { currentGeneration: scope.generation }
+      authority
     );
     await repository.create(
       {
-        ...scope,
+        ...taskIdentity(authority, 'b-corrupt'),
         status: 'working',
-        taskId: 'b-corrupt',
       },
-      { currentGeneration: scope.generation }
+      authority
     );
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
       },
-      currentGeneration: () => scope.generation,
       onUpdate: vi.fn(),
       repository,
-      scope,
     });
 
     try {
@@ -469,15 +555,15 @@ describe('McpTaskLifecycle exit fencing', () => {
     vi.setSystemTime(new Date(CREATED_AT));
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     const firstLifecycle = new McpTaskLifecycle({
+      authority,
       client: {
         requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
       },
-      currentGeneration: () => scope.generation,
       limits: { ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS, maxLifetimeMs: 250 },
       onUpdate: vi.fn(),
       repository,
-      scope,
     });
     const original = await firstLifecycle.track(task('task-null-ttl', { ttlMs: null }));
     await firstLifecycle.stop('restart');
@@ -486,12 +572,11 @@ describe('McpTaskLifecycle exit fencing', () => {
 
     const requestExtension = vi.fn(() => Promise.reject(new Error('poll must not start')));
     const recoveredLifecycle = new McpTaskLifecycle({
+      authority,
       client: { requestExtension },
-      currentGeneration: () => scope.generation,
       limits: { ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS, maxLifetimeMs: 250 },
       onUpdate: vi.fn(),
       repository,
-      scope,
     });
     const [recovered] = await recoveredLifecycle.recover();
     let failure: unknown;
