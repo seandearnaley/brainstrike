@@ -265,9 +265,15 @@ allowlist, so the packaged proof has no production-environment bypass.
 
 After packaging, that same `Native Electron Package` job runs
 `test:e2e:lane:packaged-mcp-apps`. The tagged `@packaged` spec launches the exact
-electron-builder artifact, uses the official MCP Apps transport, and verifies
-the production Apps host plus popup denial and teardown in a dedicated Electron
-sandbox WebContents. Production renderer registration remains a separate
+electron-builder artifact, injects its harness into the REAL main window
+(production preload, default session, the production header CSP — never a
+harness window on a private partition, which escapes the header stamp and hid
+a `frame-src` regression), uses the official MCP Apps transport through the
+packaged `brainstrike-mcp-app:` shell protocol, and verifies the production
+Apps host: `blob:` frames blocked by the host CSP, shell load + handshake, the
+`will-frame-navigate` fence, and a 404 shell URL after release.
+`scripts/__tests__/mcp-apps-packaged-ci-contract.test.mjs` pins those
+assertions. Production renderer registration remains a separate
 release gate. The ordinary unpackaged full-regression lane excludes `@packaged`;
 there is no second or advisory path that can make this artifact-dependent proof
 appear green.

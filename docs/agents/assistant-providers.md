@@ -2369,17 +2369,33 @@ stdio or streamable-http generation; legacy `sse` receives no registry.
 Initialize advertises exactly
 `{ mimeTypes: ['text/html;profile=mcp-app'] }`.
 
-Electron main subscribes the Apps policy from `apps-sandbox-startup.ts` after
-`app.whenReady()`. Boot creates NO session: the `web-contents-created` hook
-first rejects any WebContents on `session.defaultSession` by identity, then
-resolves the `mcp-app:thread` partition lazily (memoized, `cache: false`) the
-first time a non-default WebContents appears, and installs
-`installMcpAppElectronSandboxPolicy` exactly once per WebContents whose
-session IS that partition. Boot-time electron doubles therefore need no
-`fromPartition`. The host renderer stays on the default session and MUST NOT
-receive this policy: it would deny host-owned frame behavior and clear
-unrelated cache/storage on teardown. Sandbox leases release on WebContents
-destruction or desktop shutdown.
+**Sandbox boundary (settled; do not reintroduce a partition).** The app is an
+in-page nested iframe in the main window; Electron never creates a WebContents
+for an in-page `<iframe>`, so a `web-contents-created` / session-partition
+policy can never observe it (the earlier `mcp-app:thread` wiring was dead code
+and was removed). The boundary is: an opaque-origin `about:srcdoc` app frame
+with `sandbox="allow-scripts"`, a per-document CSP meta tag, and `allow` set
+to `'none'` for every reviewed permission — created by a host-authored shell
+that the renderer renders (`McpAppSandboxOwner.open` → `renderMcpAppSandboxShell`)
+and registers over `window.mcp.apps.prepareShell`. Main serves the shell at
+`brainstrike-mcp-app://<token>/` (`apps/desktop/src/mcp/apps-shell-protocol.ts`:
+privileged `standard: true` scheme → one origin per shell, never the host
+origin; the app policy delivered as `Content-Security-Policy` AND
+`Permissions-Policy` RESPONSE HEADERS, which the nested srcdoc inherits;
+uniform 404 for unregistered/released tokens, 405 for non-GET; exempt from the
+`setup-security` header stamp like `brainstrike-canvas:`; registered in the
+single `registerSchemesAsPrivileged` call). The main window's CSP is
+`frame-src brainstrike-canvas: brainstrike-mcp-app:` — `blob:` is never a
+frame source. Shells are bound to the registering WebContents id
+(`apps-shell-bridge.ts`: only that sender may release; destruction drops all
+of its shells) and `releaseShell` is immediate. The renderer reaches the app
+frame as the cross-origin shell's first child window (`frame.contentWindow[0]`);
+the shell document is unreachable. `will-frame-navigate`
+(`apps-frame-navigation.ts`, wired in `create-window.ts`) denies the shell any
+navigation and the app frame anything but `about:srcdoc`. NOT covered (known
+limitation, follow-up): no session-level permission-request or `will-download`
+handler is scoped to the app frame — `allow` + the `Permissions-Policy` header
+are the only permission denial, and downloads rely on the sandbox flags.
 
 `McpDesktopAppHost` owns ordinary admission in main, keyed by the OWNING
 THREAD. `assistant-server.ts` registers each runtime's `mcpAppToolAdmission`
@@ -2451,8 +2467,11 @@ preparer, so `prepare` reserves the id SYNCHRONOUSLY before its first await
 and drops the reservation on every exit path: a concurrent duplicate rejects
 with `mcp_app_preparation_duplicate` instead of overwriting the first entry
 (whose executor would otherwise be dropped without release).
-The visible-UI-only IPC domain is `mcp:apps:prepare`, `mcp:apps:execute`, and
-`mcp:apps:release`. `window.mcp.apps.readResource` resolves the server's live
+The visible-UI-only IPC domain is `mcp:apps:prepare`, `mcp:apps:execute`,
+`mcp:apps:release`, `mcp:apps:prepareShell`, and `mcp:apps:releaseShell`
+(`McpAppShellPrepareRequest` = `{ contentSecurityPolicy, document,
+permissionsPolicy }`, result `{ shellUrl, token }` with the URL pinned to the
+token root on the shell scheme). `window.mcp.apps.readResource` resolves the server's live
 generation and uses the existing `mcp:content:readResource` path for the exact
 server id and `ui://` URI, then requires text content and the exact Apps MIME
 type. Hidden preloads expose no `mcp` global. Renderer consent remains owned by

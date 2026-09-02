@@ -1,10 +1,10 @@
 /**
  * Attaches every renderer-facing MCP bridge (Apps prepare/execute/release,
- * elicitation consent, durable Tasks) for one `registerMcpIpcHandlers`
- * lifetime and detaches them in reverse order. The Apps bridge owns no
- * subscription: it only registers invoke handlers, which the registry's
- * `unregisterAll` removes, so it has nothing to detach and nothing to undo
- * when a sibling attach throws.
+ * Apps shell registration, elicitation consent, durable Tasks) for one
+ * `registerMcpIpcHandlers` lifetime and detaches them in reverse order. The
+ * Apps bridges own no subscription: they only register invoke handlers,
+ * which the registry's `unregisterAll` removes, so they have nothing to
+ * detach and nothing to undo when a sibling attach throws.
  */
 import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { getMcpDesktopAppHost } from './apps-authority';
