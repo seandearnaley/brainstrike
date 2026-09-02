@@ -10,6 +10,7 @@ export {
 export {
   installMcpAppElectronSandboxPolicy,
   type McpAppElectronSandboxLease,
+  requireMcpAppSandboxPartition,
 } from './electron-sandbox.js';
 export {
   McpAppRequestCorrelator,

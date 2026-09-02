@@ -37,7 +37,7 @@ describe('dedicated MCP Apps sandbox shell', () => {
     const policy = buildMcpAppSandboxPolicy(createOwnedResource().meta);
 
     expect(policy.contentSecurityPolicy).toBe(
-      "base-uri 'none'; connect-src https://api.example.com; default-src 'none'; " +
+      "base-uri 'self'; connect-src https://api.example.com; default-src 'none'; " +
         "font-src https://cdn.example.com; form-action 'none'; " +
         'frame-src https://frame.example.com; img-src data: https://cdn.example.com; ' +
         "media-src data: https://cdn.example.com; object-src 'none'; " +
@@ -59,7 +59,7 @@ describe('dedicated MCP Apps sandbox shell', () => {
     const policy = buildMcpAppSandboxPolicy(undefined);
 
     expect(policy.contentSecurityPolicy).toBe(
-      "base-uri 'none'; connect-src 'none'; default-src 'none'; form-action 'none'; " +
+      "base-uri 'self'; connect-src 'none'; default-src 'none'; form-action 'none'; " +
         "frame-src 'none'; img-src data:; media-src data:; object-src 'none'; " +
         "script-src 'unsafe-inline'; style-src 'unsafe-inline'; worker-src 'none'"
     );
@@ -71,6 +71,18 @@ describe('dedicated MCP Apps sandbox shell', () => {
     const policy = buildMcpAppSandboxPolicy(resource.meta);
     const resourceDocument = renderMcpAppResourceDocument(resource, policy);
     const shell = renderMcpAppSandboxShellDocument(resourceDocument, policy);
+    // Every `<` of the embedded app is escaped, so neither `</script>` nor
+    // `<!--` can end or swallow the bootstrap script.
+    const hostile = renderMcpAppSandboxShellDocument(
+      renderMcpAppResourceDocument(
+        createOwnedResource('<!doctype html><!-- x --><script>1</script><title>A</title>'),
+        policy
+      ),
+      policy
+    );
+    const bootstrap = hostile.slice(hostile.indexOf('<body><script>') + '<body><script>'.length);
+    expect(bootstrap.indexOf('<')).toBe(bootstrap.indexOf('</script></body></html>'));
+    expect(bootstrap).toContain(String.raw`\x3c!--`);
 
     expect(resourceDocument.indexOf('Content-Security-Policy')).toBeLessThan(
       resourceDocument.indexOf('<title>App')
@@ -205,7 +217,19 @@ describe('Electron sandbox denial hooks', () => {
         }
       ),
     };
-    const lease = installMcpAppElectronSandboxPolicy({ session: sandboxSession, webContents });
+    const sessions = { fromPartition: vi.fn(() => sandboxSession) };
+    for (const partition of ['persist:mcp-app:unit', 'default', 'mcp-app:', 'mcp-app:bad name']) {
+      expect(() =>
+        installMcpAppElectronSandboxPolicy({ partition, sessions, webContents })
+      ).toThrow(/dedicated non-persistent/);
+    }
+    expect(sessions.fromPartition).not.toHaveBeenCalled();
+    const lease = installMcpAppElectronSandboxPolicy({
+      partition: 'mcp-app:unit',
+      sessions,
+      webContents,
+    });
+    expect(sessions.fromPartition).toHaveBeenCalledWith('mcp-app:unit', { cache: false });
 
     expect(openHandlers[0]?.()).toEqual({ action: 'deny' });
     for (const event of ['will-attach-webview', 'will-navigate', 'will-redirect']) {
@@ -236,7 +260,11 @@ describe('Electron sandbox denial hooks', () => {
     expect(permissionResult).toHaveBeenCalledWith(false);
 
     // A second lease on the same session shares the session denials.
-    const sibling = installMcpAppElectronSandboxPolicy({ session: sandboxSession, webContents });
+    const sibling = installMcpAppElectronSandboxPolicy({
+      partition: 'mcp-app:unit',
+      sessions,
+      webContents,
+    });
     expect(sandboxSession.setPermissionCheckHandler).toHaveBeenCalledOnce();
     expect(sandboxSession.setPermissionRequestHandler).toHaveBeenCalledOnce();
 

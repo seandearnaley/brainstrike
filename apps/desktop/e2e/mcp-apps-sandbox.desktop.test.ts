@@ -68,12 +68,10 @@ test('MCP Apps hidden Electron sandbox denies escapes and cleans repeated window
       '<body><script>',
       `<body><script>window.__mcpResult=new Promise(resolve=>addEventListener('message',event=>{if(event.data?.type==='mcp-app-electron-result')resolve(event.data.value)}));${scriptClose}<script>`
     );
-    const partition = `mcp-app-sandbox-verifier-${Date.now()}`;
+    const partition = `mcp-app:sandbox-verifier-${Date.now()}`;
     const sandboxSession = session.fromPartition(partition, { cache: false });
     let downloads = 0;
-    sandboxSession.on('will-download', () => {
-      downloads += 1;
-    });
+    let deniedDownloads = 0;
     const observations: unknown[] = [];
 
     for (let iteration = 0; iteration < 3; iteration += 1) {
@@ -92,7 +90,16 @@ test('MCP Apps hidden Electron sandbox denies escapes and cleans repeated window
       contents.on('did-create-window', () => {
         createdWindows += 1;
       });
-      const lease = install({ session: sandboxSession, webContents: contents });
+      const lease = install({ partition, sessions: session, webContents: contents });
+      // Registered AFTER the lease so the lease's denial runs first: a real
+      // denial observation is `defaultPrevented`, not that the event fired.
+      const observeDownload = (event: Electron.Event): void => {
+        downloads += 1;
+        if (event.defaultPrevented) {
+          deniedDownloads += 1;
+        }
+      };
+      sandboxSession.on('will-download', observeDownload);
       await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(shell)}`);
       const appResult = await contents.executeJavaScript(
         `Promise.race([window.__mcpResult,new Promise((_,reject)=>setTimeout(()=>reject(new Error('sandbox result timeout')),5000))])`
@@ -101,6 +108,7 @@ test('MCP Apps hidden Electron sandbox denies escapes and cleans repeated window
       await new Promise((resolve) => setTimeout(resolve, 50));
       const urlBeforeClose = contents.getURL();
       await lease.close();
+      sandboxSession.removeListener('will-download', observeDownload);
       observations.push({
         appResult,
         createdWindows,
@@ -108,10 +116,11 @@ test('MCP Apps hidden Electron sandbox denies escapes and cleans repeated window
         urlBeforeClose,
       });
     }
-    return { downloads, observations };
+    return { deniedDownloads, downloads, observations };
   }, sandboxModulePath);
 
   expect(result.downloads).toBeGreaterThan(0);
+  expect(result.deniedDownloads).toBe(result.downloads);
   expect(result.observations).toHaveLength(3);
   for (const observation of result.observations) {
     if (typeof observation !== 'object' || observation === null) {

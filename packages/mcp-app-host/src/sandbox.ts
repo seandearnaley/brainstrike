@@ -59,7 +59,8 @@ export function buildMcpAppSandboxPolicy(
   const resourceSources = resources.length === 0 ? '' : ` ${resources.join(' ')}`;
   const fontSources = resources.length === 0 ? [] : [`font-src ${resources.join(' ')}`];
   const contentSecurityPolicy = [
-    `base-uri ${sources(csp?.baseUriDomains, ["'none'"])}`,
+    // Spec default for an omitted baseUriDomains is same-origin ('self').
+    `base-uri ${sources(csp?.baseUriDomains, ["'self'"])}`,
     `connect-src ${sources(csp?.connectDomains, ["'none'"])}`,
     "default-src 'none'",
     ...fontSources,
@@ -89,8 +90,15 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
+/**
+ * The app document is embedded as a JS string literal inside the shell's
+ * inline script. Escaping only `</script` is not total: `<!--` also switches
+ * the HTML tokenizer into escaped script data and swallows the rest of the
+ * bootstrap, so every `<` is emitted as `\x3c` and no app byte can end or
+ * alter the script element.
+ */
 function embedAsJavaScriptString(value: string): string {
-  return JSON.stringify(value).replace(/<\//g, String.raw`<\/`);
+  return JSON.stringify(value).replace(/</g, String.raw`\x3c`);
 }
 
 function cspMeta(policy: string): string {

@@ -29,9 +29,32 @@ interface McpAppElectronSession {
   ): void;
 }
 
+interface McpAppElectronSessions {
+  fromPartition(partition: string, options: { cache: false }): McpAppElectronSession;
+}
+
 interface McpAppElectronSandboxOptions {
-  readonly session: McpAppElectronSession;
+  /** Dedicated in-memory partition, `mcp-app:<name>`; never `persist:` or the default session. */
+  readonly partition: string;
+  readonly sessions: McpAppElectronSessions;
   readonly webContents: McpAppElectronWebContents;
+}
+
+/**
+ * Teardown clears the session's cache and storage, so the session must be one
+ * this policy owns: it is created here from a dedicated, non-persistent
+ * `mcp-app:` partition (the same string the caller gives its WebContents), so
+ * `defaultSession` or another feature's partition can never be cleared.
+ */
+const OWNED_PARTITION = /^mcp-app:[A-Za-z0-9._~-]{1,128}$/u;
+
+export function requireMcpAppSandboxPartition(partition: string): string {
+  if (!OWNED_PARTITION.test(partition)) {
+    throw new TypeError(
+      'MCP Apps sandbox partition must be a dedicated non-persistent "mcp-app:<name>" partition'
+    );
+  }
+  return partition;
 }
 
 export interface McpAppElectronSandboxLease {
@@ -74,6 +97,9 @@ function releaseSessionLease(session: McpAppElectronSession): boolean {
 export function installMcpAppElectronSandboxPolicy(
   options: McpAppElectronSandboxOptions
 ): McpAppElectronSandboxLease {
+  const session = options.sessions.fromPartition(requireMcpAppSandboxPartition(options.partition), {
+    cache: false,
+  });
   const deny = (event: PreventableEvent): void => event.preventDefault();
   const denyFrameNavigation = (event: PreventableEvent): void => {
     if (event.isMainFrame === false && event.url === 'about:srcdoc') {
@@ -86,7 +112,7 @@ export function installMcpAppElectronSandboxPolicy(
   }
   options.webContents.on('will-frame-navigate', denyFrameNavigation);
   options.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  installSessionDenials(options.session);
+  installSessionDenials(session);
 
   let closed = false;
   return Object.freeze({
@@ -99,17 +125,14 @@ export function installMcpAppElectronSandboxPolicy(
         options.webContents.removeListener(event, deny);
       }
       options.webContents.removeListener('will-frame-navigate', denyFrameNavigation);
-      const lastLease = releaseSessionLease(options.session);
+      const lastLease = releaseSessionLease(session);
       if (!options.webContents.isDestroyed()) {
         options.webContents.close();
       }
       if (!lastLease) {
         return;
       }
-      const results = await Promise.allSettled([
-        options.session.clearCache(),
-        options.session.clearStorageData(),
-      ]);
+      const results = await Promise.allSettled([session.clearCache(), session.clearStorageData()]);
       const errors = results.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : []
       );
