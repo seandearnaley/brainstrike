@@ -564,6 +564,26 @@ async function runReferenceTest(
   }
 }
 
+type VerifierClientOptions = NonNullable<ConstructorParameters<typeof Client>[1]>;
+
+/** The Apps scenario must advertise the MCP Apps host capability; nothing else does. */
+function clientOptionsFor(
+  scenarioId: McpLabRunnerCase['scenarioId'],
+  protocol: { readonly era: 'legacy' | 'modern'; readonly version: string }
+): VerifierClientOptions {
+  const versionNegotiation: VerifierClientOptions['versionNegotiation'] =
+    protocol.era === 'legacy' ? { mode: 'legacy' } : { mode: { pin: protocol.version } };
+  if (scenarioId !== 'apps-reference') {
+    return { versionNegotiation };
+  }
+  return {
+    capabilities: {
+      extensions: { [APPS_PROFILE.extensionId]: { mimeTypes: [...APPS_PROFILE.host.mimeTypes] } },
+    },
+    versionNegotiation,
+  };
+}
+
 class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
   private client: Client | undefined;
   private closePromise: Promise<{ readonly details: string; readonly verified: true }> | undefined;
@@ -622,19 +642,7 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
     const protocol = this.lab.scenario.protocol;
     this.client = new Client(
       { name: 'brainstrike-mcp-verifier-runner', version: '1.0.0' },
-      {
-        ...(this.runnerCase.scenarioId === 'apps-reference'
-          ? {
-              capabilities: {
-                extensions: {
-                  [APPS_PROFILE.extensionId]: { mimeTypes: [...APPS_PROFILE.host.mimeTypes] },
-                },
-              },
-            }
-          : {}),
-        versionNegotiation:
-          protocol.era === 'legacy' ? { mode: 'legacy' } : { mode: { pin: protocol.version } },
-      }
+      clientOptionsFor(this.runnerCase.scenarioId, protocol)
     );
     const endpoint = this.lab.endpoint;
     if (endpoint.kind === 'stdio') {
