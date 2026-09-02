@@ -1,4 +1,8 @@
-import { isGuardedToolError, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  isGuardedToolError,
+  NATIVE_TOOL_ID,
+  readMcpAppToolInvocationResult,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { ToolsInput } from '@mastra/core/agent';
@@ -748,7 +752,9 @@ function projectDefaultModelOutput(
     return createDefaultModelOutput(toolName, nestedValidationError, resolvedDefaultBudget);
   }
   const envelope = readHookResultEnvelope(projectionSource);
-  const domainOutput = envelope ? envelope.result : projectionSource;
+  const persistedDomainOutput = envelope ? envelope.result : projectionSource;
+  const appResult = readMcpAppToolInvocationResult(persistedDomainOutput);
+  const domainOutput = appResult?.result ?? persistedDomainOutput;
   const hookContext = envelope?.additionalContext;
   const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
   const defaultProjection = createDefaultModelOutput(
@@ -850,7 +856,9 @@ function projectExistingModelOutput(
     return projectDefaultModelOutput(toolName, validationError, resolvedDefaultBudget);
   }
   const envelope = readHookResultEnvelope(projectionSource);
-  const domainOutput = envelope ? envelope.result : projectionSource;
+  const persistedDomainOutput = envelope ? envelope.result : projectionSource;
+  const appResult = readMcpAppToolInvocationResult(persistedDomainOutput);
+  const domainOutput = appResult?.result ?? persistedDomainOutput;
   const hookContext = envelope?.additionalContext;
   const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
   const boundResolvedProjection = (resolved: unknown): unknown => {

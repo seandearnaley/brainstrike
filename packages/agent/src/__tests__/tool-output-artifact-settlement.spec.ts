@@ -1,4 +1,8 @@
 import {
+  createMcpAppToolInvocationResult,
+  readMcpAppToolInvocationResult,
+} from '@brainstrike/assistant-contract';
+import {
   decodeToolOutputArtifactCursor,
   isToolOutputArtifactEnvelope,
   type ToolOutputArtifactReference,
@@ -87,6 +91,53 @@ describe('tool output artifact settlement', () => {
 
     expect(result).toBe(output);
     expect(store).not.toHaveBeenCalled();
+  });
+
+  it('preserves an MCP Apps marker through hooks and artifact settlement', async () => {
+    const marker = createMcpAppToolInvocationResult(
+      {
+        mimeType: 'text/html;profile=mcp-app',
+        resourceUri: 'ui://issues/detail',
+        serverId: 'remote',
+        toolName: 'show_issue',
+      },
+      { issueId: 'BST-1572' }
+    );
+    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>();
+    const hooked = applyToolHooks(
+      { fixture: executableTool(async () => marker) },
+      {
+        hookRunner: {
+          postToolUse: vi.fn(async () => ({ additionalContext: 'inspect the issue details' })),
+          preToolUse: vi.fn(async () => ({ decision: 'allow' as const })),
+        },
+        toolNameMap: new Map(),
+      }
+    );
+    const settled = applyToolOutputArtifactSettlement(hooked as ToolsInput, {
+      store: settlementStore(store),
+      toolNameMap: new Map(),
+    });
+    const projected = applyToolModelOutputProjections(
+      settled,
+      new Map(),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
+    );
+    const tool = projected['fixture'] as {
+      execute: (...args: unknown[]) => Promise<unknown>;
+      toModelOutput: (output: unknown) => unknown;
+    };
+
+    const result = await tool.execute({}, { agent: { toolCallId: 'call-1' } });
+    const display = readOutputTransform(tool, result);
+    const model = tool.toModelOutput(result);
+
+    expect(readMcpAppToolInvocationResult(display)).toEqual(marker);
+    expect(store).not.toHaveBeenCalled();
+    expect(JSON.stringify(model)).toContain('BST-1572');
+    expect(JSON.stringify(model)).toContain('Post-tool context: inspect the issue details');
+    expect(JSON.stringify(model)).not.toContain('mcp-app');
   });
 
   it('settles a tool above its stricter serialized-character threshold', async () => {

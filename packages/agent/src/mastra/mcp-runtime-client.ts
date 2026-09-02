@@ -18,11 +18,16 @@ import type {
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import type { StreamChunk } from '../types';
+import {
+  createMcpAppToolResult,
+  hasMcpAppToolMeta,
+  projectMcpAppOrTaskToolModelOutput,
+  readMcpAppToolResourceUri,
+} from './mcp-app-tool-result';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
 import {
   createMcpTaskToolTracking,
   type McpTaskToolTracking,
-  projectMcpTaskToolModelOutput,
   readMcpCreatedTaskResult,
   settleMcpTaskToolResult,
 } from './mcp-task-tool-result';
@@ -294,6 +299,7 @@ function createMcpTool(
         }
       : undefined;
   const strict = readStrictMeta(toolMeta);
+  const hasAppMeta = hasMcpAppToolMeta(tool._meta);
 
   return createTool({
     description: tool.description ?? '',
@@ -308,15 +314,16 @@ function createMcpTool(
       : {}),
     ...(mcp ? { mcp } : {}),
     ...(strict === undefined ? {} : { strict }),
-    // Only a tracking-capable host can ever produce the persisted task marker,
-    // so only then does the tool carry the bounded task projection; every other
-    // result keeps the generic projection (the projector returns undefined).
-    ...(taskTracking ? { toModelOutput: projectMcpTaskToolModelOutput } : {}),
+    // Tasks and Apps share one projector: Tasks get their bounded status view,
+    // while Apps project the inner ordinary result. Definitions carrying
+    // neither contract keep the generic pipeline path without a custom seam.
+    ...(taskTracking || hasAppMeta ? { toModelOutput: projectMcpAppOrTaskToolModelOutput } : {}),
     execute: async (input, context) =>
       executeMcpTool(
         { client, server, taskTracking },
         tool.name,
         requireToolArguments(input),
+        tool._meta,
         context
       ),
     mcpMetadata: { serverName: server.name },
@@ -364,9 +371,14 @@ async function executeMcpTool(
   { client, server, taskTracking }: TransportOwnedServerClient,
   toolName: string,
   input: Record<string, unknown>,
+  definitionMeta: Record<string, unknown> | undefined,
   context: McpExecuteContext
 ): Promise<unknown> {
   const serverName = server.name;
+  const appResourceUri = readMcpAppToolResourceUri(definitionMeta);
+  const appOrigin = appResourceUri
+    ? { resourceUri: appResourceUri, serverId: serverName, toolName }
+    : undefined;
   let progressWrites = Promise.resolve();
   let progressDeliveryError: unknown;
   let lastProgress = Number.NEGATIVE_INFINITY;
@@ -436,8 +448,9 @@ async function executeMcpTool(
   // isError, and no structuredContent. It is handed to the host's task
   // authorities and the tool settles on the bounded presentation instead.
   const createdTask = readMcpCreatedTaskResult(result);
+  let ordinaryResult: unknown;
   if (createdTask) {
-    return settleMcpTaskToolResult({
+    ordinaryResult = await settleMcpTaskToolResult({
       // `server.name` IS the configured server id: the host authority snapshot
       // exposes `configuredServerId` and createMcpRuntimeClient maps it to
       // `name` verbatim, so this matches McpTaskHandle.serverId on the host.
@@ -447,20 +460,16 @@ async function executeMcpTool(
       toolName,
       tracking: taskTracking,
     });
-  }
-  if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
+  } else if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
     return result;
-  }
-  if (result.isError) {
+  } else if (result.isError) {
     throw new Error(extractMcpToolError(result));
+  } else if (result.structuredContent === undefined || readMcpMultimodalOutput(result)) {
+    ordinaryResult = result;
+  } else {
+    ordinaryResult = result.structuredContent;
   }
-  if (result.structuredContent === undefined) {
-    return result;
-  }
-  if (readMcpMultimodalOutput(result)) {
-    return result;
-  }
-  return result.structuredContent;
+  return createMcpAppToolResult(appOrigin, ordinaryResult);
 }
 
 function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {
