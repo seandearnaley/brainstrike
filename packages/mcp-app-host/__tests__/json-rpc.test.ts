@@ -49,9 +49,9 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
     // read the request id. The payload is kept for diagnostics; the
     // correlator refuses to settle anything with it.
     const response = { error: { code: -32_700, message: 'Parse error' }, id: null, jsonrpc: '2.0' };
-    expect(parseMcpAppResponse(response)).toEqual(response);
+    expect(parseMcpAppResponse(response, 'ping')).toEqual(response);
     const correlation = new McpAppRequestCorrelator();
-    correlation.register('r1');
+    correlation.register('r1', 'ping');
     expect(() => correlation.settle(response)).toThrow(/no routable id: -32700 Parse error/);
     expect(correlation.pendingCount).toBe(1);
   });
@@ -83,15 +83,24 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
 });
 
 describe('MCP Apps request correlation', () => {
-  it('retains the request method until a canonical response settles it', () => {
+  it('validates a response against the method it answers and consumes the slot either way', () => {
+    // One request, one response (JSON-RPC 2.0): a reply that fails its
+    // canonical result schema is still the reply, so the slot is released
+    // rather than retained (review of #2914). A later well-formed answer to
+    // the same id is a replay and is refused.
     const correlation = new McpAppRequestCorrelator();
     correlation.register('initialize', 'ui/initialize');
     expect(() => correlation.settle({ id: 'initialize', jsonrpc: '2.0', result: {} })).toThrow(
       /ui\/initialize.*canonical result schema/
     );
-    expect(correlation.pendingCount).toBe(1);
-    expect(
+    expect(correlation.pendingCount).toBe(0);
+    expect(() =>
       correlation.settle({ id: 'initialize', jsonrpc: '2.0', result: INITIALIZE_RESULT })
+    ).toThrow(/not pending/);
+    const fresh = new McpAppRequestCorrelator();
+    fresh.register('initialize', 'ui/initialize');
+    expect(
+      fresh.settle({ id: 'initialize', jsonrpc: '2.0', result: INITIALIZE_RESULT })
     ).toMatchObject({ result: INITIALIZE_RESULT });
   });
 
@@ -142,23 +151,23 @@ describe('MCP Apps request correlation', () => {
     // Review of #2914: a malformed reply used to leave its id pending forever,
     // so 256 bad answers wedged the channel for the life of the instance.
     const correlation = new McpAppRequestCorrelator();
-    correlation.register('r1');
+    correlation.register('r1', 'ping');
     expect(() =>
       correlation.settle({ id: 'r1', jsonrpc: '2.0', result: { text: 'x'.repeat(262_145) } })
     ).toThrow(/maximum encoded size/);
     expect(correlation.pendingCount).toBe(0);
     // Ids are one-shot (BST-1570): the released id cannot be re-registered,
     // but a fresh id proves the slot itself was released.
-    expect(() => correlation.register('r1')).toThrow(/already used/);
-    correlation.register('r2');
+    expect(() => correlation.register('r1', 'ping')).toThrow(/already used/);
+    correlation.register('r2', 'ping');
     expect(() => correlation.settle({ id: 'r2', jsonrpc: '1.0', result: {} })).toThrow(/jsonrpc/);
     expect(correlation.pendingCount).toBe(0);
   });
 
   it('cancels one abandoned request and clears all on close', () => {
     const correlation = new McpAppRequestCorrelator();
-    correlation.register(1);
-    correlation.register(2);
+    correlation.register(1, 'ping');
+    correlation.register(2, 'ping');
     expect(correlation.cancel(1)).toBe(true);
     expect(correlation.cancel(1)).toBe(false);
     expect(correlation.pendingCount).toBe(1);
