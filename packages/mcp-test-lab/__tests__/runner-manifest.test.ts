@@ -112,8 +112,10 @@ describe('MCP verifier runner manifest', () => {
   });
 
   it('keeps the living contract coupled to the executable profile defaults', async () => {
+    // BST-1590: the verifier-harness prose (profiles, budgets) lives in the
+    // conformance contract, not the provider contract.
     const contract = await readFile(
-      new URL('../../../docs/agents/assistant-providers.md', import.meta.url),
+      new URL('../../../docs/agents/mcp-conformance.md', import.meta.url),
       'utf8'
     );
 
