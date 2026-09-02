@@ -878,6 +878,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // disk are handled by the explicit factory-reset step.
       await clearRelationIfPresent(tx, 'brainstrike_worktrees');
       await clearRelationIfPresent(tx, 'brainstrike_mcp_tasks');
+      await clearRelationIfPresent(tx, 'brainstrike_mcp_task_authorities');
       // Mind op-log (migration 079): tombstones for data this reset just
       // destroyed must not survive onto the fresh database (BST-993).
       await clearRelationIfPresent(tx, 'brainstrike_mind_ops');
@@ -938,6 +939,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // disk are handled by the explicit factory-reset step.
     await clearRelationIfPresent(tx, 'brainstrike_worktrees');
     await clearRelationIfPresent(tx, 'brainstrike_mcp_tasks');
+    await clearRelationIfPresent(tx, 'brainstrike_mcp_task_authorities');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');

@@ -300,20 +300,37 @@ every change in both migration runners and keep the migration/repository/reset
 tests paired with the persistence contract in
 `docs/agents/assistant-persistence.md`.
 
-Migration 114 owns principal-bound MCP Tasks handles in `brainstrike_mcp_tasks`.
-The composite identity is configured server, canonical resource, auth principal,
-connection generation, and task id. Its repository bounds transition history at
-32 entries, requires callers to supply the live connection generation as an
-explicit write fence that is checked in the create/update SQL statement, rejects
-stale-generation writes and malformed rows, and measures metadata limits through
-PostgreSQL's canonical `jsonb::text` representation. It lists resumable rows only
-for one exact server/resource/principal/generation scope. The table is registered
-in both migration runners plus every factory-reset clear path. In the BST-1563
-layer a poller that abandons a task (bounded lifetime exceeded, observation
-failures exhausted, identity or timing regression) rejects its caller but leaves
-`terminal_at NULL`, so `listActive` returns that row to the next `recover()`;
-BST-1581 adds the `blocked_diagnostic` column that persists the bounded reason
-and makes such a row terminal, which is the intended durable state.
+Migration 114 owns the original generation-bound MCP Tasks handles in
+`brainstrike_mcp_tasks`. Migration 115 upgrades that schema in place: it
+backfills one authority epoch per historical generation, retires every older
+generation in a scope, and makes only the highest generation live in
+`brainstrike_mcp_task_authorities`.
+The task identity is configured server, canonical resource, auth principal,
+durable authority epoch, and task id. An authority epoch survives a Desktop
+process restart even though the new host connection generation starts at one;
+an increasing generation inside one runtime retires that epoch and mints a new
+uuidv7 epoch, while a lower same-runtime generation is rejected as stale. Every
+create/update SQL statement requires the exact live epoch/runtime/generation
+lease, so retirement or factory-reset deletion fences late writes. Reset clears
+task rows before their authority parent in all three table-enumerating paths.
+
+The repository bounds transition history at 32 entries and rejects hydration
+when timestamps regress, a terminal status is followed by another entry, or the
+final history status/timestamp disagrees with `status`/`updated_at`. Metadata
+limits are measured through PostgreSQL's canonical `jsonb::text`
+representation; an oversize failure includes that representation's SHA-256 so
+the lifecycle can persist a bounded omission projection without retaining the
+payload. It lists resumable rows only for one exact live authority epoch.
+Migration 115 also adds the bounded blocked diagnostic and is registered after
+114 in both the numbered and Drizzle runners. Both tables are factory-reset
+owned; never edit migration 114 to introduce the authority schema because an
+existing BST-1562 profile must traverse the same upgrade.
+
+A poller that abandons a task after bounded-lifetime or observation-failure
+exhaustion rejects its caller but does not write a blocked diagnostic, so the
+row keeps `terminal_at NULL` and `listActive` returns it to the next
+`recover()`; only the oversize-state path persists the terminal blocked
+diagnostic (BST-1581 verifier scope).
 
 Migration 076 owns terminal provider-forensics storage
 (`brainstrike_assistant_run_errors`) and the hot diagnostic correlation index

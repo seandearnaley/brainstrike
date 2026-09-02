@@ -1987,18 +1987,40 @@ custom-method escape hatch and does not patch the SDK dependency.
 | OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
 
-Migration 114 and `McpTaskRepository` provide the factory-reset-covered,
-principal/resource/generation-bound Tasks persistence substrate.
-`McpTaskLifecycle` persists each returned handle and its server timing before
-exposing it, resumes only the exact live scope, polls `tasks/get` under bounded
-concurrency/backoff/lifetime, and persists before publishing every update.
-It is the sole ordered poll authority. Optional task notifications carry no
-state into persistence or interaction; they only wake and coalesce an immediate
-lifecycle poll. Interaction consumes lifecycle updates only after persistence
-and never starts a second poll fleet.
+Migrations 114-115 and `McpTaskRepository` provide the factory-reset-covered,
+principal/resource/durable-authority-bound Tasks persistence substrate. This
+matches the canonical Tasks contract that a task id is a durable handle and a
+client must resume it after restart: [Tasks overview](https://modelcontextprotocol.io/extensions/tasks/overview)
+and [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/seps/2663-tasks-extension.md).
+The repository rebinds the live authority epoch across a Desktop runtime restart
+instead of persisting the host's process-local generation. A same-runtime
+generation advance rotates the epoch, and every write checks the exact live
+epoch/runtime/generation lease in SQL. Because a rotated or retired epoch
+orphans its non-terminal rows (`listActive` lists only the live epoch), the
+generation must advance only when the server definition is replaced, never on
+a transport reconnect, and `McpTaskLifecycle.stop()` retires the epoch only
+for `server-removed` and `server-replaced`. A disconnect, restart, or close
+leaves the epoch live so the next `openAuthority` rebinds it and `recover()`
+resumes the handles; factory reset deletes the rows outright. Draining pollers
+and in-flight creates never rejects; a failed retirement rejects `stop()`
+without being memoized, so a later `stop()` retries it.
+
+`McpTaskLifecycle` is the sole ordered `tasks/get` poll authority. It persists
+each returned handle and its server timing before exposing it, registers
+in-flight creates before their first await, resumes only the exact live
+authority, and persists before publishing every update. Optional task
+notifications carry no state into persistence or interaction: they only wake
+and coalesce an immediate lifecycle poll. Interaction consumes the lifecycle's
+post-persistence observation callback and never starts a second poll fleet.
+Reset aborts and drains registered creates before the authority and task tables
+are cleared, so a late insert cannot repopulate a fresh database. If PostgreSQL's canonical JSONB
+representation exceeds the durable budget, the lifecycle persists the remote
+status plus a bounded blocked diagnostic (field, exact byte count, limit, and
+SHA-256) and no raw payload; the row is terminal to local recovery rather than
+remaining a false-green `working` handle.
 Server replacement, removal, disconnect, reset, restart, lifecycle close, and
 caller cancellation abort timers, queued permits, and in-flight requests; a
-late stale-generation response cannot publish. The poller rejects a mismatched
+late stale-authority response cannot publish. The poller rejects a mismatched
 task id, terminally exposes bounded transport-attempt exhaustion, honors
 changing `pollIntervalMs`, treats `ttlMs` as a lifetime backstop, and creates no
 subscription lease. This remains opt-in substrate: production registration,

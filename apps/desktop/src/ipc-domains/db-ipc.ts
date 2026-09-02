@@ -948,6 +948,7 @@ export function registerDatabaseIpcHandlers(
             await clearOptionalRelation(tx, 'brainstrike_forge_prs');
             await clearOptionalRelation(tx, 'brainstrike_worktrees');
             await clearOptionalRelation(tx, 'brainstrike_mcp_tasks');
+            await clearOptionalRelation(tx, 'brainstrike_mcp_task_authorities');
             // Mind op-log (migration 079, BST-993): tombstones for data this
             // clear just destroyed must not survive onto the fresh database.
             await clearOptionalRelation(tx, 'brainstrike_mind_ops');

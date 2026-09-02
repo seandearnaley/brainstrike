@@ -14,6 +14,13 @@ export interface McpTaskTiming {
   readonly ttlMs: number | null;
 }
 
+export interface McpTaskMetadataOverflow {
+  readonly actualBytes: number;
+  readonly field: 'inputMetadata' | 'resultMetadata';
+  readonly maxBytes: number;
+  readonly sha256: string;
+}
+
 function parseInstant(value: string, field: string): number {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) {
@@ -172,6 +179,33 @@ export function createMcpTaskUpdate(task: CreateTaskResult | GetTaskResult): Upd
     return { ...common, inputMetadata: null };
   }
   return { ...common, inputMetadata: lifecycleMetadata };
+}
+
+export function createMcpTaskOverflowUpdate(
+  task: CreateTaskResult | GetTaskResult,
+  overflow: McpTaskMetadataOverflow
+): UpdateMcpTaskInput {
+  const diagnostic = {
+    actualBytes: overflow.actualBytes,
+    code: 'mcp_task_state_too_large',
+    field: overflow.field,
+    maxBytes: overflow.maxBytes,
+    remoteStatus: task.status,
+    sha256: overflow.sha256,
+  } as const;
+  const projection = {
+    ...timingMetadata(readMcpTaskTiming(task)),
+    omittedState: diagnostic,
+  };
+  const common = {
+    blockedDiagnostic: diagnostic,
+    status: task.status,
+    statusMessage: 'MCP task state exceeded the durable metadata limit.',
+  } as const;
+  if (task.status === 'input_required' || task.status === 'working') {
+    return { ...common, inputMetadata: projection, resultMetadata: null };
+  }
+  return { ...common, inputMetadata: null, resultMetadata: projection };
 }
 
 /**
