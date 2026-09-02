@@ -37,7 +37,7 @@ import {
   SelectValue,
 } from '@brainstrike/ui';
 import type React from 'react';
-import { type FormEvent, useId, useRef, useState } from 'react';
+import { type FormEvent, useCallback, useId, useRef, useState } from 'react';
 import {
   buildMcpElicitationContent,
   describeMcpElicitationField,
@@ -321,6 +321,12 @@ export function McpElicitationDialog({
 }: McpElicitationDialogProps) {
   const idPrefix = useId();
   const declineRef = useRef<HTMLButtonElement | null>(null);
+  // When a request is retired the footer the user was focused on unmounts;
+  // the Dismiss button mounts in its place and takes focus so keyboard users
+  // are not dropped onto the dialog container.
+  const focusDismissOnMount = useCallback((node: HTMLButtonElement | null) => {
+    node?.focus();
+  }, []);
   const [values, setValues] = useState<McpElicitationFieldValues>(() =>
     presentation.mode === 'form'
       ? initialMcpElicitationFieldValues(presentation.requestedSchema)
@@ -379,7 +385,9 @@ export function McpElicitationDialog({
         onInteractOutside={(event) => event.preventDefault()}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          declineRef.current?.focus();
+          if (retiredCode === undefined) {
+            declineRef.current?.focus();
+          }
         }}
       >
         {/* noValidate: the mirrored validator below reports every problem in
@@ -491,6 +499,7 @@ export function McpElicitationDialog({
                 <Button
                   aria-label={`Dismiss retired MCP request from ${label}`}
                   onClick={onDismissRetired}
+                  ref={focusDismissOnMount}
                   type="button"
                 >
                   Dismiss

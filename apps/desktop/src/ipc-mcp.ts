@@ -551,8 +551,8 @@ export async function resumeMcpRuntimeAfterFactoryReset(
 export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }): () => void {
   logger.debug('Registering MCP IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
-  const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
   const detachElicitationBridge = attachMcpElicitationBridge(runtime, registry);
+  const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
   const updateToolPreferences = async (mutation: () => void): Promise<void> => {
     const expectedAuthorityEpoch = latestAuthorityEpoch;
     await trackConfigOperation(async () => {

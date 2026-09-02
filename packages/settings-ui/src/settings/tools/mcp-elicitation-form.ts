@@ -76,7 +76,11 @@ export function initialMcpElicitationFieldValues(
   for (const [name, schema] of Object.entries(requestedSchema.properties)) {
     switch (describeMcpElicitationField(schema)) {
       case 'boolean':
-        values[name] = schema.type === 'boolean' && schema.default === true;
+        // Only a declared default seeds a value: an untouched optional boolean
+        // stays absent so the server can tell "not answered" from "false".
+        if (schema.type === 'boolean' && typeof schema.default === 'boolean') {
+          values[name] = schema.default;
+        }
         break;
       case 'multi-select':
         values[name] = schema.type === 'array' && schema.default ? [...schema.default] : [];
@@ -265,6 +269,9 @@ function coerceField(
 ): FieldOutcome {
   switch (describeMcpElicitationField(schema)) {
     case 'boolean':
+      if (value === undefined) {
+        return isRequired ? { value: false } : { skip: true };
+      }
       return { value: value === true };
     case 'multi-select':
       return coerceMultiSelect(schema, value, isRequired);
@@ -278,7 +285,8 @@ function coerceField(
 /**
  * Coerce dialog field state into accepted elicitation content. Optional
  * fields left blank are omitted (so a blank optional string never trips a
- * `minLength`), required fields must be present, and every constraint the host
+ * `minLength`, and an untouched optional boolean without a default is not
+ * reported as `false`), required fields must be present, and every constraint the host
  * validator enforces is checked here first.
  */
 export function buildMcpElicitationContent(

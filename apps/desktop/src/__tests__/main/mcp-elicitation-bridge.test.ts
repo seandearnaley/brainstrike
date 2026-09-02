@@ -3,17 +3,21 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import type { ElicitRequest } from '@modelcontextprotocol/client';
-import { BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { attachMcpElicitationBridge } from '../../mcp/elicitation-bridge';
 import { McpElicitationPresenterAuthority } from '../../mcp/elicitation-presenter';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 import type { DesktopIpcInvokeHandler } from '../../platform/desktop-ipc-registry';
 
-vi.mock('electron', () => ({
-  BrowserWindow: {
-    getAllWindows: vi.fn(() => []),
-  },
+const { getTrackedWindowsByRoleMock } = vi.hoisted(() => ({
+  getTrackedWindowsByRoleMock: vi.fn(() => [] as unknown[]),
+}));
+
+// Consent payloads reach tracked visible-UI windows only; the bridge never
+// enumerates BrowserWindow.getAllWindows().
+vi.mock('../../window-role', () => ({
+  getTrackedWindowsByRole: getTrackedWindowsByRoleMock,
 }));
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
@@ -65,9 +69,11 @@ function createHarness() {
   const handlers = new Map<string, SettleHandler>();
   const invokeEvent = {} as Parameters<SettleHandler>[0];
   const registry = {
-    registerInvoke: vi.fn((_domain: string, channel: string, handler: unknown) => {
-      handlers.set(channel, handler as SettleHandler);
-    }),
+    registerAuthorizedInvoke: vi.fn(
+      (_domain: string, channel: string, _policy: unknown, handler: unknown) => {
+        handlers.set(channel, handler as SettleHandler);
+      }
+    ),
   };
   const settleHandler = (): ((settlement: unknown) => Promise<void>) => {
     const handler = handlers.get(DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationSettle);
@@ -87,7 +93,7 @@ function createHarness() {
 }
 
 afterEach(() => {
-  vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([]);
+  getTrackedWindowsByRoleMock.mockReturnValue([]);
   vi.clearAllMocks();
 });
 
@@ -96,20 +102,24 @@ describe('attachMcpElicitationBridge', () => {
     const live = createWindow();
     const other = createWindow();
     const destroyed = createWindow(true);
-    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
+    getTrackedWindowsByRoleMock.mockReturnValue([
       live,
       destroyed,
       other,
     ] as unknown as BrowserWindow[]);
     const harness = createHarness();
     const detach = attachMcpElicitationBridge(harness.runtime, harness.registry);
-    expect(harness.registry.registerInvoke).toHaveBeenCalledWith(
+    // Settlements accept content or authorize a URL, so only visible UI may
+    // send them; the registry enforces the role before the payload is parsed.
+    expect(harness.registry.registerAuthorizedInvoke).toHaveBeenCalledWith(
       'mcp',
       DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationSettle,
+      { roles: ['visible-ui'] },
       expect.any(Function)
     );
 
     const pending = harness.present('elicitation-1');
+    expect(getTrackedWindowsByRoleMock).toHaveBeenCalledWith('visible-ui');
     for (const window of [live, other]) {
       expect(window.webContents.send).toHaveBeenCalledWith(
         DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationRequested,
@@ -217,7 +227,7 @@ describe('attachMcpElicitationBridge', () => {
 
   it('retires pending presentations with presenter-unavailable when unregistered and pushes retirement events', async () => {
     const window = createWindow();
-    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([window] as unknown as BrowserWindow[]);
+    getTrackedWindowsByRoleMock.mockReturnValue([window] as unknown as BrowserWindow[]);
     const harness = createHarness();
     const detach = attachMcpElicitationBridge(harness.runtime, harness.registry);
     const pending = harness.present('elicitation-1');

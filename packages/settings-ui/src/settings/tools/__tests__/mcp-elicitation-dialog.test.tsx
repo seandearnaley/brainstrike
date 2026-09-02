@@ -233,6 +233,11 @@ describe('McpElicitationDialog', () => {
     expect(within(dialog).queryByRole('button', { name: /Decline/u })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: /^Cancel/u })).not.toBeInTheDocument();
     expect(within(dialog).getByRole('textbox', { name: 'Workspace' })).toBeDisabled();
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole('button', { name: 'Dismiss retired MCP request from Linear' })
+      ).toHaveFocus()
+    );
     await user.click(
       within(dialog).getByRole('button', { name: 'Dismiss retired MCP request from Linear' })
     );

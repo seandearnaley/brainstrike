@@ -150,4 +150,31 @@ describe('mcp-elicitation-form', () => {
       ok: true,
     });
   });
+
+  it('reports booleans only when defaulted, required, or explicitly changed', () => {
+    const requestedSchema = {
+      properties: {
+        defaultedOff: { default: false, type: 'boolean' },
+        optionalUntouched: { type: 'boolean' },
+        requiredUntouched: { type: 'boolean' },
+        toggled: { type: 'boolean' },
+      },
+      required: ['requiredUntouched'],
+      type: 'object',
+    } as const;
+    const values = initialMcpElicitationFieldValues(requestedSchema);
+    expect(values).toEqual({ defaultedOff: false });
+
+    const untouched = buildMcpElicitationContent(requestedSchema, values);
+    expect(untouched).toEqual({
+      content: { defaultedOff: false, requiredUntouched: false },
+      ok: true,
+    });
+
+    const toggled = buildMcpElicitationContent(requestedSchema, { ...values, toggled: true });
+    expect(toggled).toEqual({
+      content: { defaultedOff: false, requiredUntouched: false, toggled: true },
+      ok: true,
+    });
+  });
 });

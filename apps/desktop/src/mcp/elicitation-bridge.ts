@@ -19,9 +19,9 @@ import {
   type McpElicitationRetiredWire,
   parseMcpElicitationSettlement,
 } from '@brainstrike/assistant-contract';
-import { BrowserWindow } from 'electron';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { getTrackedWindowsByRole } from '../window-role';
 import {
   type McpElicitationPresentation,
   type McpElicitationPresenterAuthority,
@@ -47,18 +47,25 @@ export interface McpElicitationBridgeRuntime {
   >;
 }
 
+/**
+ * Consent payloads (server message, requested schema, a URL-mode
+ * authorization URL) go only to tracked visible-UI windows, never to hidden
+ * inference hosts or untracked windows.
+ */
 function broadcast(channel: string, payload: unknown): void {
   const cloned = structuredClone(payload);
-  for (const window of BrowserWindow.getAllWindows()) {
+  for (const window of getTrackedWindowsByRole('visible-ui')) {
     if (!window.isDestroyed()) {
       window.webContents.send(channel, cloned);
     }
   }
 }
 
+const MCP_ELICITATION_SETTLE_SENDER_POLICY = { roles: ['visible-ui'] } as const;
+
 export function attachMcpElicitationBridge(
   runtime: McpElicitationBridgeRuntime,
-  registry: Pick<DesktopIpcRegistry, 'registerInvoke'>
+  registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>
 ): () => void {
   const { elicitationPresenter } = runtime;
   const detach = elicitationPresenter.attach((presentation: McpElicitationPresentation) => {
@@ -75,9 +82,14 @@ export function attachMcpElicitationBridge(
     detach();
     throw error;
   }
-  registry.registerInvoke(
+  // A settlement can accept form content or authorize opening a URL, and the
+  // presentation is broadcast to every window, so only the visible UI may
+  // settle: hidden inference hosts and untracked senders are rejected before
+  // the payload is parsed (same policy as secrets and mcp:content:*).
+  registry.registerAuthorizedInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationSettle,
+    MCP_ELICITATION_SETTLE_SENDER_POLICY,
     (_event, settlement: unknown): void => {
       let parsed: ReturnType<typeof parseMcpElicitationSettlement>;
       try {

@@ -18,7 +18,11 @@
  *   stale authority.
  */
 import { z } from 'zod';
-import type { ConfiguredMcpServerId, McpHostOperation } from './mcp-host.js';
+import {
+  type ConfiguredMcpServerId,
+  type McpHostOperation,
+  parseConfiguredMcpServerId,
+} from './mcp-host.js';
 import type { McpConfiguredProtocol, McpStatusTransport } from './mcp-status.js';
 
 export const MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH = 256;
@@ -152,10 +156,14 @@ const RequestIdSchema = z.union([
   SafeIntegerSchema,
 ]);
 const SettlementBase = {
-  configuredServerId: z
-    .string()
-    .min(1)
-    .transform((value) => value as ConfiguredMcpServerId),
+  configuredServerId: z.string().transform((value, ctx): ConfiguredMcpServerId => {
+    try {
+      return parseConfiguredMcpServerId(value);
+    } catch {
+      ctx.addIssue({ code: 'custom', message: 'must be a configured MCP server id' });
+      return z.NEVER;
+    }
+  }),
   generation: SafeIntegerSchema,
   id: z.string().min(1).max(MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH),
   requestId: RequestIdSchema,
