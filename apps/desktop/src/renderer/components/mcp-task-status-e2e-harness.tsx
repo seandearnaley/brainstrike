@@ -312,11 +312,13 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     this.pendingCancellation = true;
     try {
       await this.interaction.cancel(request.handle.taskId);
-      const cancelled = await this.repository.update(
-        request.handle,
-        { status: 'cancelled', statusMessage: 'Cancelled by packaged verifier' },
-        this.authority
-      );
+      // The authoritative poll already persisted the observed terminal state
+      // (a terminal record is immutable), so the durable record is read back
+      // rather than written again.
+      const cancelled = await this.repository.get(request.handle);
+      if (cancelled === null) {
+        throw new Error('Packaged MCP task record vanished after cancellation.');
+      }
       await this.lifecycle.stop('disconnect');
       return cancelled;
     } finally {
