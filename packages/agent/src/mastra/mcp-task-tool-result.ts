@@ -3,7 +3,7 @@ import {
   type McpTaskToolInvocationResult,
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
-import { type CreateTaskResult, parseMcpCreateTaskResult } from '@brainstrike/mcp-tasks-extension';
+import { type CreateTaskResult, parseMcpCreateTaskResult } from '@brainstrike/mcp-tasks-extension/task';
 import { readRegisteredExtensionResult } from '../mcp/client-extension-registry';
 import {
   MCP_TASK_CONTEXT_MAX_BYTES,

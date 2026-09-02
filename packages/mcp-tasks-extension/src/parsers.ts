@@ -3,8 +3,6 @@ import {
   CancelTaskParamsSchema,
   type CancelTaskResult,
   CancelTaskResultSchema,
-  type CreateTaskResult,
-  CreateTaskResultSchema,
   type GetTaskParams,
   GetTaskParamsSchema,
   type GetTaskResult,
@@ -21,9 +19,7 @@ import {
   UpdateTaskResultSchema,
 } from './schema.js';
 
-export function parseMcpCreateTaskResult(value: unknown): CreateTaskResult {
-  return CreateTaskResultSchema.parse(value);
-}
+export { parseMcpCreateTaskResult } from './task.js';
 
 export function parseMcpGetTaskParams(value: unknown): GetTaskParams {
   return GetTaskParamsSchema.parse(value);
