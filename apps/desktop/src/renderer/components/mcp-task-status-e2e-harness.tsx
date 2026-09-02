@@ -183,6 +183,11 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     );
     let initialRecord = existing;
     let recovery: McpTaskPresentation['recovery'] = 'restart_required';
+    // The first process persists a lifecycle-owned handle, seeds the
+    // interaction while the lifecycle still holds the poll authority, and only
+    // then stops for the simulated restart (stop releases that authority, and a
+    // wake with no authority is a wiring defect the port refuses).
+    let stopForRestart = false;
     if (!initialRecord) {
       const tracked = await lifecycle.track({
         ...taskStatus('working'),
@@ -193,7 +198,7 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
       void tracked.settled.catch(() => undefined);
       initialRecord = tracked.record;
       recovery = 'live';
-      await lifecycle.stop('restart');
+      stopForRestart = true;
     }
     const runtime = new PackagedTaskHarnessRuntime(
       db,
@@ -206,6 +211,9 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     holder.runtime = runtime;
     await interaction.start([TASK_ID]);
     await runtime.requireNotificationHandler()(taskStatus('working'));
+    if (stopForRestart) {
+      await lifecycle.stop('restart');
+    }
     return runtime;
   }
 
