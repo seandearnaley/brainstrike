@@ -419,6 +419,8 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
     for (const failure of [
       { id: 'bad', jsonrpc: '1.0', method: 'ping' },
       { id: 'unknown', jsonrpc: '2.0', method: 'tools/list', params: {} },
+      // A canonical id-less error reply cannot be correlated to any request.
+      { error: { code: -32_600, message: 'unreadable request id' }, id: null, jsonrpc: '2.0' },
     ]) {
       const current = createBridge();
       await completeHandshake(current.target, current.frame, current.bridge);

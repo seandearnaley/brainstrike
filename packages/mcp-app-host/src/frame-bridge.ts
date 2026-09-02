@@ -509,6 +509,12 @@ export class McpAppFrameBridge {
   #receiveResponse(value: unknown, generation: number): void {
     this.#session.assertGeneration(generation);
     const response = parseMcpAppResponse(value);
+    // The canonical contract lets an error response carry `id: null` when the
+    // request id was unreadable; such a reply cannot be correlated, so it is a
+    // protocol violation here rather than something to drop silently.
+    if (response.id === null) {
+      throw new TypeError('MCP Apps error response without a request id cannot be correlated');
+    }
     const key = correlationKey(response.id);
     const operation = this.#outbound.get(key);
     if (operation === undefined) {
