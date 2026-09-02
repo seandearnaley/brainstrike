@@ -148,23 +148,54 @@ function attempt(operation: () => void, errors: unknown[], onSuccess?: () => voi
   }
 }
 
-function closeWebContents(webContents: McpAppElectronWebContents, errors: unknown[]): boolean {
+function isDestroyed(webContents: McpAppElectronWebContents, errors: unknown[]): boolean {
   let destroyed = false;
   attempt(() => {
     destroyed = webContents.isDestroyed();
   }, errors);
-  if (destroyed) {
-    return true;
-  }
-  let closeCompleted = false;
+  return destroyed;
+}
+
+/** Requests closure once; returns whether the request was accepted. */
+function requestClose(webContents: McpAppElectronWebContents, errors: unknown[]): boolean {
+  let requested = false;
   attempt(
     () => webContents.close(),
     errors,
     () => {
-      closeCompleted = true;
+      requested = true;
     }
   );
-  return closeCompleted;
+  return requested;
+}
+
+/**
+ * `webContents.close()` is asynchronous (unload handling runs first), so the
+ * WebContents counts as closed only once it is destroyed: the deny listeners
+ * stay installed while the frame can still navigate during unload.
+ */
+async function closeWebContents(
+  webContents: McpAppElectronWebContents,
+  errors: unknown[]
+): Promise<boolean> {
+  if (isDestroyed(webContents, errors)) {
+    return true;
+  }
+  const destroyed = new Promise<void>((resolve) => {
+    const onDestroyed: EventListener = () => {
+      webContents.removeListener('destroyed', onDestroyed);
+      resolve();
+    };
+    webContents.on('destroyed', onDestroyed);
+  });
+  if (!requestClose(webContents, errors)) {
+    return false;
+  }
+  if (isDestroyed(webContents, errors)) {
+    return true;
+  }
+  await destroyed;
+  return true;
 }
 
 function releaseCleanupTasks(tasks: CleanupTask[], errors: unknown[]): void {
@@ -194,32 +225,32 @@ async function purgeSession(
   purge: PurgeState,
   errors: unknown[]
 ): Promise<void> {
-  if (!purge.cacheCleared) {
-    try {
-      await session.clearCache();
-      purge.cacheCleared = true;
-    } catch (error: unknown) {
-      errors.push(error);
-    }
+  const [cache, storage] = await Promise.allSettled([
+    purge.cacheCleared ? Promise.resolve() : session.clearCache(),
+    purge.storageCleared ? Promise.resolve() : session.clearStorageData(),
+  ]);
+  if (cache.status === 'fulfilled') {
+    purge.cacheCleared = true;
+  } else {
+    errors.push(cache.reason);
   }
-  if (!purge.storageCleared) {
-    try {
-      await session.clearStorageData();
-      purge.storageCleared = true;
-    } catch (error: unknown) {
-      errors.push(error);
-    }
+  if (storage.status === 'fulfilled') {
+    purge.storageCleared = true;
+  } else {
+    errors.push(storage.reason);
   }
 }
 
 /**
- * Teardown is retryable: every step records its own success, a failed step is
- * retried on the next `close()`, every failure is reported in one
- * `AggregateError`, and the lease counts as closed only once every owed step
- * has succeeded. Per-WebContents hooks are released only after the
- * WebContents is closed so a live frame never runs without them. The session
- * lease is released on the first attempt; when it was the session's last
- * lease, cache and storage are purged (retried until they succeed).
+ * Teardown is retryable and coalesced: concurrent `close()` calls share one
+ * in-flight attempt, a failed attempt is retried on the next call, every step
+ * records its own success, failures aggregate into one `AggregateError`, and
+ * the lease counts as closed only once every owed step has succeeded.
+ * Per-WebContents hooks are released only after the WebContents is destroyed.
+ * The session lease is released on the first attempt; the purge it may owe is
+ * re-checked on every attempt and yields to a replacement lease that has
+ * since acquired the same session, so a retried purge never clears state a
+ * live sandbox now owns.
  */
 function createSandboxLease(
   webContents: McpAppElectronWebContents,
@@ -228,46 +259,59 @@ function createSandboxLease(
   initial: LeaseState
 ): McpAppElectronSandboxLease {
   let closed = false;
+  let inFlight: Promise<void> | undefined;
   let webContentsClosed = initial.webContentsClosed;
   let holdsSessionLease = initial.holdsSessionLease;
   let purgeOwed = false;
   const purge: PurgeState = { cacheCleared: false, storageCleared: false };
+  const runClose = async (): Promise<void> => {
+    const errors: unknown[] = [];
+    if (!webContentsClosed) {
+      webContentsClosed = await closeWebContents(webContents, errors);
+    }
+    if (webContentsClosed) {
+      releaseCleanupTasks(cleanupTasks, errors);
+    }
+    if (holdsSessionLease) {
+      holdsSessionLease = false;
+      purgeOwed = releaseSessionLease(session);
+    }
+    if (purgeOwed && sessionState(session).leases > 0) {
+      // A replacement lease owns the session now; its last close purges.
+      purgeOwed = false;
+    }
+    if (purgeOwed) {
+      await purgeSession(session, purge, errors);
+    }
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'MCP Apps Electron sandbox teardown failed');
+    }
+    closed =
+      cleanupTasks.length === 0 &&
+      webContentsClosed &&
+      (!purgeOwed || (purge.cacheCleared && purge.storageCleared));
+  };
   return Object.freeze({
-    close: async () => {
+    close: (): Promise<void> => {
       if (closed) {
-        return;
+        return Promise.resolve();
       }
-      const errors: unknown[] = [];
-      if (!webContentsClosed) {
-        webContentsClosed = closeWebContents(webContents, errors);
-      }
-      if (webContentsClosed) {
-        releaseCleanupTasks(cleanupTasks, errors);
-      }
-      if (holdsSessionLease) {
-        holdsSessionLease = false;
-        purgeOwed = releaseSessionLease(session);
-      }
-      if (purgeOwed) {
-        await purgeSession(session, purge, errors);
-      }
-      if (errors.length > 0) {
-        throw new AggregateError(errors, 'MCP Apps Electron sandbox teardown failed');
-      }
-      closed =
-        cleanupTasks.length === 0 &&
-        webContentsClosed &&
-        (!purgeOwed || (purge.cacheCleared && purge.storageCleared));
+      inFlight ??= runClose().finally(() => {
+        inFlight = undefined;
+      });
+      return inFlight;
     },
   });
 }
 
 /**
- * Installation is failure-atomic: a partial hook registration closes the
- * dedicated WebContents and rolls back every per-WebContents listener; the
- * session denials installed so far stay (they are fail-closed by design).
- * When rollback itself fails, the thrown `McpAppElectronSandboxInstallationError`
- * carries a `cleanup` lease that retains ownership for retry.
+ * Installation is failure-atomic: a partial hook registration requests
+ * closure of the dedicated WebContents and rolls back every per-WebContents
+ * listener once it is destroyed; the session denials installed so far stay
+ * (they are fail-closed by design). The thrown
+ * `McpAppElectronSandboxInstallationError` always carries a `cleanup` lease
+ * that owns whatever is still pending (an unfinished destroy, a failed close)
+ * so the caller can await or retry teardown.
  */
 export function installMcpAppElectronSandboxPolicy(
   options: McpAppElectronSandboxOptions
@@ -298,7 +342,10 @@ export function installMcpAppElectronSandboxPolicy(
     holdsSessionLease = true;
   } catch (error: unknown) {
     const rollbackErrors: unknown[] = [];
-    const webContentsClosed = closeWebContents(options.webContents, rollbackErrors);
+    const webContentsClosed =
+      isDestroyed(options.webContents, rollbackErrors) ||
+      (requestClose(options.webContents, rollbackErrors) &&
+        isDestroyed(options.webContents, rollbackErrors));
     if (webContentsClosed) {
       releaseCleanupTasks(cleanupTasks, rollbackErrors);
     }
