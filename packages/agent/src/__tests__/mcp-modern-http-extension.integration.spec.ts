@@ -8,6 +8,7 @@ import { afterEach, expect, it } from 'vitest';
 import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import { ExplicitHttpMcpClient } from '../mcp/explicit-http-client';
 import {
+  MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
   registerMcpTasksWireContracts,
   MCP_TASKS_GET_REQUEST_CONTRACT as TEST_EXTENSION_REQUEST,
 } from '../mcp/tasks-extension';
@@ -169,6 +170,73 @@ it('sends the exact Tasks method on the modern wire with Mcp-Name', async () => 
   expect(extensionRequests[0]?.headers.get('mcp-method')).toBe('tasks/get');
   expect(extensionRequests[0]?.headers.get('mcp-name')).toBe('task-123');
   expect(JSON.stringify(requests.map(({ body }) => body))).not.toContain(
+    'io.brainstrike/registered-extension/'
+  );
+});
+
+it('dispatches the registered Tasks tools/call on the modern wire with agreeing headers', async () => {
+  const extension = createTasksExtension();
+  const observed: Array<{ body: { method: string; params?: unknown }; headers: Headers }> = [];
+  const client = new ExplicitHttpMcpClient({
+    extensionRegistry: extension.registry,
+    fetch: async (input, init) => {
+      const request = new Request(input, init);
+      const body = (await request.json()) as { id?: number; method: string; params?: unknown };
+      observed.push({ body, headers: new Headers(request.headers) });
+      if (body.method === 'server/discover') {
+        return Response.json({
+          id: body.id,
+          jsonrpc: '2.0',
+          result: {
+            _meta: {
+              'io.modelcontextprotocol/serverInfo': { name: 'tasks-server', version: '1' },
+            },
+            cacheScope: 'private',
+            capabilities: { extensions: { [TEST_EXTENSION_ID]: TEST_EXTENSION_SETTINGS }, tools: {} },
+            resultType: 'complete',
+            supportedVersions: ['2026-07-28'],
+            ttlMs: 0,
+          },
+        });
+      }
+      if (body.method === 'tools/call') {
+        return Response.json({
+          id: body.id,
+          jsonrpc: '2.0',
+          result: {
+            createdAt: '2026-08-31T20:00:00Z',
+            lastUpdatedAt: '2026-08-31T20:00:00Z',
+            resultType: 'task',
+            status: 'working',
+            taskId: 'task-42',
+            ttlMs: null,
+          },
+        });
+      }
+      return Response.json({ id: body.id, jsonrpc: '2.0', result: {} });
+    },
+    name: 'registered-modern-tools-call-canary',
+    protocol: '2026-07-28',
+    transport: 'streamable-http',
+    url: 'http://mcp-modern.invalid/mcp',
+  });
+  cleanupTasks.push(() => client.close());
+  extension.register();
+
+  await client.connect();
+  await expect(
+    client.requestExtension(MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT, {
+      arguments: { count: 1 },
+      name: 'long_job',
+    })
+  ).resolves.toMatchObject({ status: 'working', taskId: 'task-42' });
+
+  const toolCalls = observed.filter(({ body }) => body.method === 'tools/call');
+  expect(toolCalls).toHaveLength(1);
+  expect(toolCalls[0]?.headers.get('mcp-method')).toBe('tools/call');
+  expect(toolCalls[0]?.headers.get('mcp-name')).toBe('long_job');
+  expect(toolCalls[0]?.body.params).toMatchObject({ arguments: { count: 1 }, name: 'long_job' });
+  expect(JSON.stringify(observed.map(({ body }) => body))).not.toContain(
     'io.brainstrike/registered-extension/'
   );
 });

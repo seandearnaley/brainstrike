@@ -215,6 +215,43 @@ describe('MCP Apps ordinary runtime adapter', () => {
     expect(githubExecute).not.toHaveBeenCalled();
   });
 
+  it('counts admitted app-capable tools from the execution metadata marker', async () => {
+    const plain = await compose({ decision: 'allow' });
+    expect(plain.mcpAppToolAdmission.appCapableToolCount).toBe(0);
+    const admission = createMcpAppToolAdmissionCapability({
+      askTools: new Map(),
+      toolNameMap: new Map([
+        ['linear_create_issue', 'linear.create_issue'],
+        ['linear_show_board', 'linear.show_board'],
+      ]),
+      tools: {
+        linear_create_issue: { execute: vi.fn(), mcpMetadata: { serverName: 'linear' } },
+        linear_show_board: {
+          execute: vi.fn(),
+          mcpMetadata: { appCapable: true, serverName: 'linear' },
+        },
+      } as ToolsInput,
+    });
+    expect(admission.appCapableToolCount).toBe(1);
+    expect(
+      createMcpAppToolAdmissionCapability({
+        askTools: new Map(),
+        toolNameMap: new Map([['linear_show_board', 'linear.show_board']]),
+        tools: {
+          linear_show_board: {
+            execute: vi.fn(),
+            mcpMetadata: { appCapable: 'yes', serverName: 'linear' },
+          },
+        } as ToolsInput,
+      }).inadmissibleTools
+    ).toEqual([
+      {
+        reason: 'MCP tool execution metadata appCapable must be true when present',
+        toolId: 'linear_show_board',
+      },
+    ]);
+  });
+
   it('records inadmissible tools visibly instead of aborting runtime assembly', () => {
     const execute = vi.fn(async () => ({ content: [] }));
     const admission = createMcpAppToolAdmissionCapability({

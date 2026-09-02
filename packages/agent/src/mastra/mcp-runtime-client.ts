@@ -326,7 +326,9 @@ function createMcpTool(
         tool._meta,
         context
       ),
-    mcpMetadata: { serverName: server.name },
+    // `appCapable` is the same marker predicate as the Apps projector above:
+    // the Apps admission gate registers a run only when at least one is present.
+    mcpMetadata: { serverName: server.name, ...(hasAppMeta ? { appCapable: true } : {}) },
   });
 }
 

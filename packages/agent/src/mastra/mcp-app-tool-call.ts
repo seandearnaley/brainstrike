@@ -29,6 +29,13 @@ export interface McpAppToolAdmissionCapability {
     call: Pick<McpAppToolCall, 'input' | 'serverId' | 'toolName'>
   ) => McpAppBoundOrdinaryExecutor;
   /**
+   * Admitted tools whose definition carries the Apps `_meta.ui` marker. A run
+   * with none can never mount an app, so the host registers no admission for
+   * it (and an app-free later run does not supersede a thread's still-mounted
+   * app admission).
+   */
+  readonly appCapableToolCount: number;
+  /**
    * Tools the ordinary runtime holds but Apps cannot call, with the reason.
    * Admission problems are recorded here and refused at `admit` time instead
    * of aborting every agent runtime assembly for a feature that is dormant.
@@ -93,7 +100,7 @@ function isMcpCallToolErrorResult(value: unknown): boolean {
 type ServerNameReading =
   | Readonly<{ kind: 'absent' }>
   | Readonly<{ kind: 'invalid'; reason: string }>
-  | Readonly<{ kind: 'server'; serverName: string }>;
+  | Readonly<{ appCapable: boolean; kind: 'server'; serverName: string }>;
 
 function readMcpServerName(tool: ExecutableTool): ServerNameReading {
   const metadata = tool.mcpMetadata;
@@ -103,18 +110,24 @@ function readMcpServerName(tool: ExecutableTool): ServerNameReading {
   if (!(metadata && typeof metadata === 'object' && !Array.isArray(metadata))) {
     return { kind: 'invalid', reason: 'MCP tool execution metadata must be an object' };
   }
-  const serverName = (metadata as { serverName?: unknown }).serverName;
+  const { appCapable, serverName } = metadata as { appCapable?: unknown; serverName?: unknown };
   if (typeof serverName !== 'string' || serverName.length === 0) {
     return {
       kind: 'invalid',
       reason: 'MCP tool execution metadata requires a non-empty serverName',
     };
   }
-  return { kind: 'server', serverName };
+  if (appCapable !== undefined && appCapable !== true) {
+    return {
+      kind: 'invalid',
+      reason: 'MCP tool execution metadata appCapable must be true when present',
+    };
+  }
+  return { appCapable: appCapable === true, kind: 'server', serverName };
 }
 
 type ToolIdentity =
-  | Readonly<{ originalName: string; serverId: string; toolName: string }>
+  | Readonly<{ appCapable: boolean; originalName: string; serverId: string; toolName: string }>
   | Readonly<{ reason: string }>;
 
 /** Namespace-resolves one runtime tool; `undefined` means "not an MCP tool". */
@@ -139,7 +152,26 @@ function resolveToolIdentity(
   if (!(originalName.startsWith(namespacePrefix) && originalName.length > namespacePrefix.length)) {
     return { reason: `tool ${originalName} does not belong to execution server ${serverId}` };
   }
-  return { originalName, serverId, toolName: originalName.slice(namespacePrefix.length) };
+  return {
+    appCapable: reading.appCapable,
+    originalName,
+    serverId,
+    toolName: originalName.slice(namespacePrefix.length),
+  };
+}
+
+function countAppCapableTools(
+  admittedByServer: ReadonlyMap<string, ReadonlyMap<string, Readonly<{ appCapable: boolean }>>>
+): number {
+  let count = 0;
+  for (const serverTools of admittedByServer.values()) {
+    for (const admitted of serverTools.values()) {
+      if (admitted.appCapable) {
+        count += 1;
+      }
+    }
+  }
+  return count;
 }
 
 /**
@@ -157,6 +189,7 @@ export function createMcpAppToolAdmissionCapability(
     Map<
       string,
       Readonly<{
+        appCapable: boolean;
         decision: 'allow' | 'ask';
         execute: ExecutableTool['execute'];
         receiver: ExecutableTool;
@@ -178,7 +211,7 @@ export function createMcpAppToolAdmissionCapability(
       inadmissible.push({ reason: identity.reason, toolId: sanitizedId });
       continue;
     }
-    const { originalName, serverId, toolName } = identity;
+    const { appCapable, originalName, serverId, toolName } = identity;
     const ask = options.askTools.get(sanitizedId);
     const serverTools = admittedByServer.get(serverId) ?? new Map();
     if (serverTools.has(toolName)) {
@@ -200,6 +233,7 @@ export function createMcpAppToolAdmissionCapability(
     serverTools.set(
       toolName,
       Object.freeze({
+        appCapable,
         decision: ask ? 'ask' : 'allow',
         execute: tool.execute,
         receiver: tool,
@@ -213,6 +247,8 @@ export function createMcpAppToolAdmissionCapability(
     );
     admittedByServer.set(serverId, serverTools);
   }
+
+  const appCapableToolCount = countAppCapableTools(admittedByServer);
 
   return Object.freeze({
     admit(call: Pick<McpAppToolCall, 'input' | 'serverId' | 'toolName'>) {
@@ -246,6 +282,7 @@ export function createMcpAppToolAdmissionCapability(
         riskCategory: admission.riskCategory,
       });
     },
+    appCapableToolCount,
     inadmissibleTools: Object.freeze(inadmissible),
     serverIds: Object.freeze(Array.from(admittedByServer.keys())),
   });

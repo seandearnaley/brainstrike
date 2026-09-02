@@ -2381,7 +2381,14 @@ requesting WebContents plus preparation id and fails closed with
 `mcp_app_admission_unavailable` otherwise. A newer run registering for the
 same thread supersedes the older admission (live or detached) and releases its
 pending preparations; a later disposal of that older run leaves the newer one
-intact.
+intact. Registration is gated on the run being able to mount an app at all:
+`createMcpAppToolAdmissionCapability` counts admitted tools whose execution
+metadata carries the `appCapable` marker (set in `mcp-runtime-client.ts` from
+the same `_meta.ui` predicate as the Apps projector), and `agent-runtime.ts`
+skips `mcpAppAdmission.register` when that count is zero. Consequence: an
+app-free later run of the same thread does NOT supersede the thread's
+still-mounted app admission, and it never detaches into a host watch (the
+packaged lifecycle E2E's `subscriptionsClosed: 1` pins this).
 
 **Admission lifetime: live run → detached → superseded/retired** (BST-1572
 acceptance: the user reads the rendered app and clicks a button AFTER the

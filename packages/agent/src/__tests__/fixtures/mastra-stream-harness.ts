@@ -55,7 +55,10 @@ export interface MockSuspendedRun {
   }>;
 }
 
-export type MockMcpToolsets = Record<string, Record<string, { description: string; id: string }>>;
+export type MockMcpToolsets = Record<
+  string,
+  Record<string, { _meta?: Record<string, unknown>; description: string; id: string }>
+>;
 
 export const agentInstances: MockMastraAgentInstance[] = [];
 export const mcpInstances: unknown[] = [];
@@ -103,6 +106,7 @@ export const mcpHost: McpHostPort = {
       return {
         result: {
           tools: Object.entries(toolset).map(([name, tool]) => ({
+            ...(tool._meta ? { _meta: tool._meta } : {}),
             description: tool.description,
             inputSchema: { additionalProperties: true, type: 'object' },
             name,
@@ -527,6 +531,7 @@ export const explicitStdioMcpClientModuleMock = {
     async listTools() {
       return {
         tools: Object.entries(mcpToolsets[this.options.name] ?? {}).map(([name, tool]) => ({
+          ...(tool._meta ? { _meta: tool._meta } : {}),
           description: tool.description,
           inputSchema: { additionalProperties: true, type: 'object' },
           name,

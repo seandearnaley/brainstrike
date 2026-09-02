@@ -644,7 +644,13 @@ export async function createMastraAgentRuntime(
     storage,
     runtime?.assistantMessageId
   );
-  const invalidateMcpAppAdmission = mcpAppAdmission?.register(mcpAppToolAdmission);
+  // An app-free run can never mount an app: registering it would only detach
+  // into a host watch on disposal and supersede the thread's still-mounted
+  // app admission for nothing.
+  const invalidateMcpAppAdmission =
+    mcpAppToolAdmission.appCapableToolCount > 0
+      ? mcpAppAdmission?.register(mcpAppToolAdmission)
+      : undefined;
 
   return {
     agent,

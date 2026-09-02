@@ -108,6 +108,11 @@ interface SenderEntry {
  * pinned to each server's live host generation and is dropped when that
  * generation retires, the server disappears, or a newer run of the thread
  * registers. Detached calls bypass the run's hooks and telemetry by design.
+ *
+ * Only runs whose tool map holds at least one app-capable tool
+ * (`McpAppToolAdmissionCapability.appCapableToolCount > 0`) register at all:
+ * an app-free later run of the same thread therefore does NOT supersede a
+ * still-mounted app admission, and never leaves a detached host watch behind.
  */
 export class McpDesktopAppHost {
   readonly #admissionsByThread = new Map<string, AdmissionEntry>();
