@@ -1715,6 +1715,37 @@ describe('UnifiedToolsSettings', () => {
         expect(screen.queryByTestId('mcp-catalog-content-github')).not.toBeInTheDocument();
         expect(read).toBeEnabled();
       });
+
+      it('discards browsed content when the server generation changes', async () => {
+        const operations = createContentOperations();
+        operations.getMcpServerStatus = vi
+          .fn()
+          .mockResolvedValueOnce({
+            revision: 1,
+            servers: [{ ...connectedMcpStatus, catalog: browsableCatalog }],
+          })
+          .mockResolvedValue({
+            revision: 2,
+            servers: [{ ...connectedMcpStatus, catalog: browsableCatalog, generation: 2 }],
+          });
+        const view = render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Read BST-1585' }));
+        await screen.findByTestId('mcp-catalog-content-github');
+
+        await act(async () => {
+          view.rerender(
+            <UnifiedToolsSettings mcpAvailable={true} operations={{ ...operations }} />
+          );
+        });
+
+        await waitFor(() => expect(operations.getMcpServerStatus).toHaveBeenCalledTimes(2));
+        await waitFor(() =>
+          expect(screen.queryByTestId('mcp-catalog-content-github')).not.toBeInTheDocument()
+        );
+        expect(await screen.findByRole('button', { name: 'Read BST-1585' })).toBeEnabled();
+        expect(operations.readMcpResource).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('distinguishes an explicit empty host snapshot from a malformed config', async () => {

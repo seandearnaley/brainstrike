@@ -104,14 +104,22 @@ async function runMcpContentRequest(
   }
 }
 
+/**
+ * Resource and prompt bodies are user data, so the three channels carry the
+ * same fail-closed `visible-ui` sender policy as secrets: hidden inference
+ * hosts and untracked senders are rejected before any payload is parsed.
+ */
+const MCP_CONTENT_SENDER_POLICY = { roles: ['visible-ui'] } as const;
+
 export function registerMcpContentIpc(
-  registry: Pick<DesktopIpcRegistry, 'registerInvoke'>,
+  registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>,
   runtime: Pick<DesktopMcpHostRuntime, 'host'>,
   lifecycle: McpContentLifecycleGate
 ): void {
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentReadResource,
+    MCP_CONTENT_SENDER_POLICY,
     async (_event, request: unknown) =>
       await runMcpContentRequest(runtime, lifecycle, () => {
         const parsed = McpContentReadResourceRequestSchema.parse(request);
@@ -123,9 +131,10 @@ export function registerMcpContentIpc(
       })
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentGetPrompt,
+    MCP_CONTENT_SENDER_POLICY,
     async (_event, request: unknown) =>
       await runMcpContentRequest(runtime, lifecycle, () => {
         const parsed = McpContentGetPromptRequestSchema.parse(request);
@@ -138,9 +147,10 @@ export function registerMcpContentIpc(
       })
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentComplete,
+    MCP_CONTENT_SENDER_POLICY,
     async (_event, request: unknown) =>
       await runMcpContentRequest(runtime, lifecycle, () => {
         const parsed = McpContentCompleteRequestSchema.parse(request);

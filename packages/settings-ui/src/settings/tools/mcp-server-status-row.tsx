@@ -203,6 +203,10 @@ export function McpServerStatusRow({
             <McpServerCatalog
               catalog={server.catalog}
               generation={server.generation}
+              // A replaced server keeps its id but not its generation; remount
+              // so content, prompt drafts, and completions from the retired
+              // generation never render under (or submit against) the new one.
+              key={server.generation}
               onComplete={onComplete}
               onGetPrompt={onGetPrompt}
               onReadResource={onReadResource}

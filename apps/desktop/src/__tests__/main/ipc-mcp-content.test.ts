@@ -7,6 +7,14 @@ import { loadMcpConfig } from '../../mcp-loader';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 
+const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
+  getWindowRoleByWebContentsIdMock: vi.fn(),
+}));
+
+vi.mock('../../window-role', () => ({
+  getWindowRoleByWebContentsId: getWindowRoleByWebContentsIdMock,
+}));
+
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp') },
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -39,6 +47,9 @@ vi.mock('../../secrets', () => ({
 }));
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
+// The registry resolves the sender role from `event.sender.id` before any
+// payload is parsed; the mocked resolver answers `visible-ui` by default.
+const VISIBLE_UI_EVENT = { sender: { id: 1 } };
 const RESOURCE_URI = 'linear://issue/BST-1585';
 const CLEAN_CLOSE = {
   callbacksClosed: 0,
@@ -115,6 +126,7 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');
     handlers = new Map();
     vi.mocked(ipcMain.handle).mockImplementation(((channel: string, handler: RegisteredHandler) => {
       handlers.set(channel, handler);
@@ -175,13 +187,13 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     const authority = await connect(target);
 
     await expect(
-      requireHandler('mcp:content:readResource')(undefined, { authority, uri: RESOURCE_URI })
+      requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, { authority, uri: RESOURCE_URI })
     ).resolves.toEqual({
       result: { contents: [{ text: '# BST-1585', uri: RESOURCE_URI }] },
       type: 'resources/read',
     });
     await expect(
-      requireHandler('mcp:content:getPrompt')(undefined, {
+      requireHandler('mcp:content:getPrompt')(VISIBLE_UI_EVENT, {
         arguments: { identifier: 'BST-1585' },
         authority,
         name: 'issue-summary',
@@ -191,7 +203,7 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
       type: 'prompts/get',
     });
     await expect(
-      requireHandler('mcp:content:complete')(undefined, {
+      requireHandler('mcp:content:complete')(VISIBLE_UI_EVENT, {
         argument: { name: 'identifier', value: 'BST' },
         authority,
         context: { arguments: { team: 'BST' } },
@@ -218,17 +230,20 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     const authority = await connect(target);
 
     await expect(
-      requireHandler('mcp:content:readResource')(undefined, {
+      requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, {
         authority,
         type: 'tools/call',
         uri: RESOURCE_URI,
       })
     ).rejects.toMatchObject({ category: 'configuration', code: 'mcp_content_request_invalid' });
     await expect(
-      requireHandler('mcp:content:readResource')(undefined, { authority, name: 'issue-summary' })
+      requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, {
+        authority,
+        name: 'issue-summary',
+      })
     ).rejects.toMatchObject({ code: 'mcp_content_request_invalid' });
     await expect(
-      requireHandler('mcp:content:getPrompt')(undefined, {
+      requireHandler('mcp:content:getPrompt')(VISIBLE_UI_EVENT, {
         authority: { ...authority, configuredServerId: 'team.other.server' },
         name: 'issue-summary',
       })
@@ -243,7 +258,7 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     const authority = await connect(target);
 
     const rejection = await Promise.resolve(
-      requireHandler('mcp:content:readResource')(undefined, { authority, uri: RESOURCE_URI })
+      requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, { authority, uri: RESOURCE_URI })
     ).then(
       () => {
         throw new Error('Expected the content request to reject');
@@ -267,7 +282,7 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
       'sk-secret'
     );
     await expect(
-      requireHandler('mcp:content:readResource')(undefined, {
+      requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, {
         authority: { ...authority, generation: authority.generation + 1 },
         uri: RESOURCE_URI,
       })
@@ -283,8 +298,35 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
 
     await mcpIpc.resetMcpRuntimeForFactoryReset(target);
     await expect(
-      requireHandler('mcp:content:readResource')(undefined, { authority, uri: RESOURCE_URI })
+      requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, { authority, uri: RESOURCE_URI })
     ).rejects.toThrow('MCP lifecycle is closed for cleanup');
     expect(invocations).toEqual([]);
   });
+
+  it.each(['chunking-host', 'embedding-host', 'llm-host', undefined])(
+    'rejects every content verb before dispatch for sender role %s',
+    async (role) => {
+      const { invocations, runtime: target } = createRuntime();
+      const authority = await connect(target);
+      getWindowRoleByWebContentsIdMock.mockReturnValue(role);
+      const event = { sender: { id: 7 } };
+      for (const [channel, request] of [
+        ['mcp:content:readResource', { authority, uri: RESOURCE_URI }],
+        ['mcp:content:getPrompt', { authority, name: 'issue-summary' }],
+        [
+          'mcp:content:complete',
+          {
+            argument: { name: 'identifier', value: 'BST' },
+            authority,
+            ref: { name: 'issue-summary', type: 'ref/prompt' },
+          },
+        ],
+      ] as const) {
+        await expect(requireHandler(channel)(event, request)).rejects.toThrow(
+          /requires sender role visible-ui/u
+        );
+      }
+      expect(invocations).toEqual([]);
+    }
+  );
 });
