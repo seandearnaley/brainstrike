@@ -145,7 +145,20 @@ function buildSearchToolDescription(
   );
   const families = describeAvailableDeferredCapabilityFamilies(originalIds);
   const familiesClause = families.length > 0 ? ` this run: ${families}` : '';
-  return `Search deferred capabilities${familiesClause}. Matches load automatically for the next turn.`;
+  return `Search deferred capabilities${familiesClause}. Matches load automatically and are callable on your next step in this same response.`;
+}
+
+/**
+ * The model-facing sentence in a successful `search_tools` result. Mastra's
+ * own copy says the match is "available on your next turn"; in chat
+ * vocabulary a turn is a user message, and on 2026-09-02 a live run took it
+ * that way: the loaded definition was in the very next step, yet the model
+ * ended its reply with "I'll create the Linear issue once the ticket
+ * integration finishes loading" (finishReason `stop`, no call ever sent).
+ * Brainstrike owns this executor, so the sentence is Brainstrike's.
+ */
+function describeLoadedSearchResult(loadedToolNames: readonly string[]): string {
+  return `Found and loaded ${loadedToolNames.length} tool(s): ${loadedToolNames.join(', ')}. They are callable now, on your next step in this same response: call them right away and do not end your reply to wait for loading.`;
 }
 
 function readSearchQuery(args: readonly unknown[]): string | undefined {
@@ -157,10 +170,15 @@ function readSearchQuery(args: readonly unknown[]): string | undefined {
   return typeof query === 'string' ? query : undefined;
 }
 
+interface ParsedSearchResult extends Pick<ToolDiscoverySearchObservation, 'rankedResults'> {
+  /** Sanitized ids exactly as the model must call them, in ranked order. */
+  readonly loadedNames: readonly string[];
+}
+
 function readSearchResult(
   value: unknown,
   toolNameMap: ReadonlyMap<string, string>
-): Pick<ToolDiscoverySearchObservation, 'rankedResults'> | undefined {
+): ParsedSearchResult | undefined {
   if (!value || typeof value !== 'object') {
     return;
   }
@@ -169,6 +187,7 @@ function readSearchResult(
     return;
   }
   const rankedResults: { score: number; toolId: string }[] = [];
+  const loadedNames: string[] = [];
   for (const result of results) {
     if (!result || typeof result !== 'object') {
       return;
@@ -178,8 +197,9 @@ function readSearchResult(
       return;
     }
     rankedResults.push({ score, toolId: toolNameMap.get(name) ?? name });
+    loadedNames.push(name);
   }
-  return { rankedResults };
+  return { loadedNames, rankedResults };
 }
 
 function wrapSearchTelemetry(
@@ -235,6 +255,8 @@ function wrapSearchTelemetry(
       };
       notify(observation);
       if (searchResult.rankedResults.length === 0) {
+        // Mastra's own "No tools found matching …" copy stays: there is
+        // nothing to call, so the same-response sentence would be a lie.
         logger.info('Mastra tool discovery search missed', {
           code: 'mastra_tool_discovery_catalog_miss',
           queryLength: query.length,
@@ -248,7 +270,14 @@ function wrapSearchTelemetry(
         rankedResults: searchResult.rankedResults,
         stepNumber,
       });
-      return result;
+      // The names come from the parse above (the same object readSearchResult
+      // validated), not from a second cast. Only the sentence changes; the
+      // ranked list is returned untouched.
+      const loadedResult = result as Extract<
+        Awaited<ReturnType<typeof execute>>,
+        { readonly results: unknown }
+      >;
+      return { ...loadedResult, message: describeLoadedSearchResult(searchResult.loadedNames) };
     },
     writable:
       executeDescriptor && 'writable' in executeDescriptor ? executeDescriptor.writable : true,

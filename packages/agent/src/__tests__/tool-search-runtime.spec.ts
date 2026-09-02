@@ -163,7 +163,46 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(description).toContain('workspace context and tapestry');
     expect(description).toContain('directory listings');
     expect(description).not.toContain('canvas documents');
-    expect(description).toContain('next turn');
+    expect(description).toContain('same response');
+    expect(description).not.toContain('next turn');
+  });
+
+  it('rewrites the loaded-result copy so the model calls the match in THIS response', async () => {
+    // Field failure (2026-09-02, live Linear proof): Mastra's result text
+    // "They are available on your next turn — call them directly." made the
+    // model end its reply to wait for a user turn; the loaded tool was in the
+    // very next step and was never called. Brainstrike owns the executor, so
+    // the model-facing sentence is Brainstrike's: same response, next step,
+    // do not end the reply.
+    const processor = createRankingProcessor();
+    const step = await processor.processInputStep(createStepArgs());
+
+    const result = (await step.tools.search_tools.execute?.({ query: 'workspace context' })) as {
+      message: string;
+      results: { name: string }[];
+    };
+
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.message).toContain(result.results[0]?.name ?? '');
+    expect(result.message).toContain('same response');
+    expect(result.message).toContain('do not end your reply');
+    expect(result.message).not.toContain('next turn');
+  });
+
+  it("keeps Mastra's no-match copy when the search loads nothing", async () => {
+    // Review of #2912: an unconditional rewrite would tell the model that
+    // zero tools are "callable now". The rewrite applies only to a loaded
+    // result; a miss returns Mastra's own message untouched.
+    const processor = createProcessor();
+    const step = await processor.processInputStep(createStepArgs());
+
+    const result = (await step.tools.search_tools.execute?.({
+      query: 'zzqx qqzz',
+    })) as { message: string; results: unknown[] };
+
+    expect(result.results).toEqual([]);
+    expect(result.message).toContain('No tools found');
+    expect(result.message).not.toContain('same response');
   });
 
   it('observes the exact query and original ranked ids without schemas', async () => {

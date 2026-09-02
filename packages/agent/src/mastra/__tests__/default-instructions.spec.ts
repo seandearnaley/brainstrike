@@ -662,7 +662,27 @@ describe('tool-discovery guidance', () => {
     // the same thing.
     const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
     const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
-    expect(line).toContain('next turn');
+    expect(line).toContain('same response');
+  });
+
+  it('defines "next turn" as the next step of the SAME response, never a later user message', () => {
+    // Field failure (2026-09-02, live Linear proof): search_tools loaded
+    // linear.save_issue, the loaded definition WAS in the very next step, and
+    // the model still ended its reply with "I'll create the Linear issue once
+    // the ticket integration finishes loading" — finishReason `stop`, no
+    // tools/call ever sent. Mastra's own result copy says the match is
+    // available "on your next turn"; in chat vocabulary a turn is a user
+    // message, so the model waited for one. The instructions must pin the
+    // meaning and forbid ending the reply to wait.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    expect(line).toContain('"next turn"');
+    expect(line).toContain('not a later user message');
+    expect(line).toContain('never end your reply to wait');
+    // Review of #2912: the clause must not be absolute — a zero-match search
+    // needs a stated exit, or "keep going and call them" invites a call to a
+    // tool that does not exist.
+    expect(line).toContain('If the search finds nothing');
   });
 });
 
