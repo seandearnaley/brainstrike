@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  createMcpElicitationCapability,
   ExplicitHttpMcpClient,
   type ExplicitHttpMcpClientOptions,
   ExplicitStdioMcpClient,
@@ -421,7 +422,14 @@ export class DesktopMcpHostRuntime {
     this.createActorClient =
       dependencies.createActorClient ??
       ((server, context) => this.createExplicitActorClient(server, context));
-    this.resolveClientCapabilities = dependencies.resolveClientCapabilities ?? (() => undefined);
+    // Production advertises form + URL elicitation backed by the process-local
+    // presenter (BST-1584). The arrow reads `this.elicitationPresenter` at call
+    // time — after construction below — so every connection shares one authority.
+    this.resolveClientCapabilities =
+      dependencies.resolveClientCapabilities ??
+      (() => ({
+        elicitation: createMcpElicitationCapability(this.elicitationPresenter.presenter),
+      }));
     this.onInternalError =
       dependencies.onInternalError ??
       ((code, cause) => logger.error('MCP host runtime failure', { cause, code }));

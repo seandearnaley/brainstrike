@@ -1746,6 +1746,14 @@ a reason to abort the whole check, so it cannot be used to defeat the guard.
 
 ## PERMISSION ENGINE (TOOL APPROVAL)
 
+Scope note: MCP elicitation (a server asking the user for input or link consent
+DURING a tool call, BST-1584) is a separate consent channel from tool approval
+and suspension. Approval/suspension ride the assistant stream and render as
+thread cards; elicitation is host-scoped — desktop main's presenter authority
+pushes it over IPC to an app-wide modal (`McpElicitationHost`) and receives the
+settlement back over IPC. Neither channel resumes or approves the other; see
+`docs/agents/assistant-providers.md` (client input / elicitation).
+
 Renderer execution boundary (BST-1233): production desktop main does not import
 or register `ipc-tools.ts`, the visible preload exposes no `tools.execute`, and
 desktop Settings supplies no playground execution callback. The `window.tools`

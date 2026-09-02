@@ -342,9 +342,10 @@ session termination before locally closing and still completes local cleanup if
 termination fails. An unexpected stdio child exit invalidates that connection
 without replaying its in-flight request; only a later operation may reconnect.
 
-Client input is fail-closed. The package provides one capability runtime for a
-later transport layer to install before connect; this layer does not install it
-into either explicit client or enable any desktop capability by default. Modern
+Client input is fail-closed. The package provides one capability runtime that
+the explicit transports install before connect; it advertises only what a
+caller's resolver supplies (desktop production supplies presenter-backed
+elicitation, BST-1584) and enables nothing on its own. Modern
 `input_required` and legacy pushed requests can share the same handlers, with
 automatic fulfillment bounded to eight rounds. Each install returns an owned
 lease that aborts active handler work, removes its request/notification

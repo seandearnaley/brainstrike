@@ -18,6 +18,7 @@ export * from './local-llm-artifacts.js';
 export * from './local-llm-device.js';
 export * from './local-llm-model-specs.js';
 export * from './mastra-memory-schema.js';
+export * from './mcp-elicitation.js';
 export * from './mcp-host.js';
 export * from './mcp-status.js';
 export * from './memory-settings.js';

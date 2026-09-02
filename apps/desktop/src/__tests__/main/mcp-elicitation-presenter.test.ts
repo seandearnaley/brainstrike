@@ -55,6 +55,65 @@ const settlement = (id: string | undefined, requestId: string) => ({
 });
 
 describe('McpElicitationPresenterAuthority', () => {
+  it('reports every finalization to bounded, non-throwing observers', async () => {
+    let sequence = 1;
+    const authority = new McpElicitationPresenterAuthority({
+      createPresentationId: () => `presentation-${sequence++}`,
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    authority.attach(() => undefined);
+    const events: unknown[] = [];
+    const stopObserving = authority.observeFinalized((event) => events.push(event));
+    const stopThrowing = authority.observeFinalized(() => {
+      throw new Error('observer failure must not affect settlement');
+    });
+    const operation = { configuredServerId: SERVER_ID, type: 'tools/list' } as const;
+    const settled = authority.runWithOperation(operation, () =>
+      authority.presenter.presentForm(formRequest, context('settle-me'))
+    );
+    authority.settle({
+      action: 'accept',
+      content: { workspace: 'Engineering' },
+      ...settlement('presentation-1', 'settle-me'),
+    });
+    await expect(settled).resolves.toEqual({
+      action: 'accept',
+      content: { workspace: 'Engineering' },
+    });
+    const caller = new AbortController();
+    const aborted = authority.runWithOperation(operation, () =>
+      authority.presenter.presentForm(formRequest, context('abort-me', caller.signal))
+    );
+    caller.abort();
+    await expect(aborted).rejects.toMatchObject({ code: 'mcp-elicitation-caller-aborted' });
+    expect(events).toEqual([
+      { code: 'mcp-elicitation-already-settled', id: 'presentation-1' },
+      { code: 'mcp-elicitation-caller-aborted', id: 'presentation-2' },
+    ]);
+    stopObserving();
+    stopThrowing();
+    const observers = [1, 2, 3, 4].map(() => authority.observeFinalized(() => undefined));
+    expect(() => authority.observeFinalized(() => undefined)).toThrowError(
+      expect.objectContaining({ code: 'mcp-elicitation-presenter-unavailable' })
+    );
+    for (const stop of observers) {
+      stop();
+    }
+    const closing = authority.runWithOperation(operation, () =>
+      authority.presenter.presentForm(formRequest, context('close-me'))
+    );
+    const closingResult = expect(closing).rejects.toMatchObject({
+      code: 'mcp-elicitation-presenter-closed',
+    });
+    authority.close();
+    await closingResult;
+    expect(events).toHaveLength(2);
+    expect(() => authority.observeFinalized(() => undefined)).toThrowError(
+      expect.objectContaining({ code: 'mcp-elicitation-presenter-closed' })
+    );
+  });
+
   it('rejects invalid or sensitive form data without consuming a correctable presentation', async () => {
     const presentations: McpElicitationPresentation[] = [];
     const authority = new McpElicitationPresenterAuthority({

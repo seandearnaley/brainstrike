@@ -97,7 +97,7 @@ describe('MCP lab loopback HTTP references', () => {
         expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(
           scenarioId === 'modern-reference'
             ? ['test_simple_text', 'test_error_handling']
-            : [expectedTool]
+            : [expectedTool, 'elicit_confirm']
         );
         if (scenarioId === 'modern-reference') {
           expect(await client.callTool({ name: expectedTool })).toMatchObject({

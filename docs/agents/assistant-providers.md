@@ -2001,18 +2001,52 @@ keeps opaque `requestState`, cancellation, request metadata, progress, and the
 originating tool call/approval context on one invocation. Round exhaustion and
 malformed requests stay visible SDK errors.
 
-The desktop host currently injects no client-capability resolver in production.
-Its HTTP and stdio constructor option objects therefore omit
-`clientCapabilities` entirely; the runtime above is disabled plumbing for an
-explicit future presenter or compatibility adapter, not an advertised desktop
-feature. The only active input-required policy is the capability-free SDK
-automation policy `{ autoFulfill: true, maxRounds: 8 }`.
+The desktop host's production capability resolver (BST-1584) advertises exactly
+`{ elicitation }` — form and URL modes backed by the process-local presenter
+authority through `createMcpElicitationCapability(elicitationPresenter.presenter)`
+with the default `https-only` URL policy — so both HTTP and stdio constructor
+option objects carry `clientCapabilities.elicitation` for every connection.
+Roots, sampling, and protocol logging remain absent. An explicit
+`resolveClientCapabilities` dependency (the conformance client injects its own)
+replaces this default wholesale; a resolver that returns `undefined` yields
+capability-free options exactly as before. The input-required policy stays the
+SDK automation policy `{ autoFulfill: true, maxRounds: 8 }`, so a modern
+`input_required` round dispatches through the same presenter as a legacy pushed
+`elicitation/create`.
 
 Desktop main owns one process-local elicitation presenter authority. An explicit active-invocation
 registry binds only a single matching server operation and rejects ambiguous concurrency; no async
 context or untrusted MRTR `requestState` supplies authority. Grants are weak, settlement is once-only,
-and actor retirement covers failure, replacement, reset, disconnect, and close. Production capability
-resolution stays undefined until accessible UI is complete, so this advertises nothing alone.
+and actor retirement covers failure, replacement, reset, disconnect, and close.
+
+The consent surface is one IPC seam plus one app-wide modal:
+
+- `apps/desktop/src/mcp/elicitation-bridge.ts` attaches the presenter's single
+  listener once per `registerMcpIpcHandlers` lifetime and broadcasts every
+  presentation (`mcp:elicitation:requested`) and every finalization
+  (`mcp:elicitation:retired`, `{ id, code }` — settlement, caller abort,
+  generation retirement, detach, close) to every live `BrowserWindow`. The
+  renderer answers through the `mcp:elicitation:settle` invoke; the payload is
+  parsed by `parseMcpElicitationSettlement` (`@brainstrike/assistant-contract`,
+  strict keys, `content` only with `accept`, safe-integer `generation`) before
+  it reaches `settle()`, and presenter failures surface as a code-only
+  `McpElicitationBridgeError` — no cause detail crosses the bridge.
+- Detaching the bridge (handler unregistration) rejects every pending
+  presentation with `mcp-elicitation-presenter-unavailable`; with no listener
+  attached an inbound request fails closed the same way. There is no auto-accept.
+- `McpElicitationHost` (`@brainstrike/settings-ui`, mounted app-wide in
+  app-shell's root layout beside the Settings dialog) resolves the three bridge
+  members by capability, queues presentations oldest-first, and renders one
+  `McpElicitationDialog` at a time. The dialog is non-dismissible (no corner
+  close, Escape and outside clicks ignored), names the provenance in its
+  accessible title/description (server identity, website origin, operation and
+  target, transport, negotiated revision), renders the restricted form schema
+  with labelled controls and a client-side mirror of
+  `validateMcpElicitationResult` (never a replacement — main and the SDK
+  re-validate), shows a URL request's full URL verbatim, and focuses Decline
+  by default. Accept on a URL request records a one-use grant; only main opens
+  the browser, and only after that accept. A retired presentation swaps the
+  actions for an explanation naming the code plus Dismiss.
 
 Elicitation has independently declared form and URL modes. The host presenter
 must render the SDK-validated restricted form schema and return exactly
@@ -2110,8 +2144,9 @@ Remote transport rules:
   `close()` remains idempotent and owns all final local/session cleanup.
 
 Both explicit clients install the shared client-capability engine before each
-connection opens; desktop production remains capability-empty until its host
-supplies an explicit resolver. Each connection owns the returned lease and
+connection opens; desktop production supplies the presenter-backed elicitation
+resolver above, and any other capability still requires an explicit resolver.
+Each connection owns the returned lease and
 closes it with the transport: active legacy pushed-handler work is aborted,
 handlers are removed, settlement is awaited, and cleanup failures remain part
 of the transport's aggregate close result. URL elicitation is validated by one

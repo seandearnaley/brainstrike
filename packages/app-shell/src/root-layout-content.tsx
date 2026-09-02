@@ -25,6 +25,7 @@ import {
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import type { QueueAdapter } from '@brainstrike/queue';
+import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
   ActionRegistryProvider,
   Dialog,
@@ -767,6 +768,10 @@ export function RootLayoutContent({
                       {settingsPageContent}
                     </DialogContent>
                   </Dialog>
+                  {/* MCP elicitation consent is app-wide (BST-1584): desktop main
+                    pushes server input requests here regardless of route, and the
+                    host renders nothing when the preload bridge is absent. */}
+                  <McpElicitationHost />
                   {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
                   <KeepMountedRoute

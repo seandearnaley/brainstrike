@@ -31,6 +31,15 @@ export const MCP_SUPPORT_MATRIX = [
     status: 'supported',
   },
   {
+    evidence:
+      'Form and URL elicitation are advertised per connection and answered by the accessible desktop consent dialog; provenance-bound settlement, one-use URL grants, and generation retirement.',
+    id: 'core:elicitation',
+    implementationTicket: 'BST-1584',
+    kind: 'core',
+    label: 'MCP elicitation',
+    status: 'supported',
+  },
+  {
     evidence: 'No complete Apps host is registered.',
     id: 'io.modelcontextprotocol/ui',
     implementationTicket: 'BST-1474',

@@ -39,6 +39,7 @@ interface PackagedFixtureModule {
 type PackagedContext = Awaited<ReturnType<typeof launchPackagedDesktop>>;
 type CloseReport = Record<string, number | readonly unknown[]>;
 const ASSISTANT_TOOL_PAYLOAD = 'packaged-assistant-payload';
+const ELICITATION_TOOL_PAYLOAD = 'packaged-elicitation-payload';
 const OAUTH_BROWSER_DESKTOP_FILE = 'brainstrike-mcp-oauth-browser.desktop';
 async function loadFixtures(): Promise<PackagedFixtureModule> {
   return (await import(
@@ -329,6 +330,50 @@ async function executeAssistantTool(page: Page): Promise<void> {
   await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
 }
+async function executeElicitationTool(
+  page: Page,
+  modelProvider: Awaited<ReturnType<typeof startModelProviderShim>>
+): Promise<void> {
+  modelProvider.setScript({
+    discoveryQuery: 'elicit confirm',
+    finalText: 'Packaged MCP elicitation completed.',
+    toolCall: {
+      arguments: { text: ELICITATION_TOOL_PAYLOAD },
+      name: 'oauth_elicit_confirm',
+    },
+  });
+  const input = page.locator('#assistant-input');
+  await input.fill('Run the packaged MCP elicitation proof.');
+  await page.getByRole('button', { exact: true, name: 'Send' }).click();
+  // The first proof's resolved approval notice (disabled Approve) stays in the
+  // thread, so target this tool's own Approve button rather than `.last()`.
+  const approve = page.getByRole('button', { exact: true, name: 'Approve oauth.elicit_confirm' });
+  await approve.waitFor({ state: 'visible', timeout: 90_000 });
+  await approve.click();
+  const dialog = page.getByTestId('mcp-elicitation-dialog');
+  await expect(dialog).toBeVisible({ timeout: 45_000 });
+  // Provenance: the OAuth reference server identity plus the configured id.
+  await expect(dialog).toContainText('brainstrike-sdk-v2-reference');
+  await expect(dialog).toContainText('Configured server "oauth"');
+  await expect(dialog).toContainText(
+    `Confirm the reference elicitation for "${ELICITATION_TOOL_PAYLOAD}".`
+  );
+  await expect(dialog.getByRole('button', { name: /^Decline/u })).toBeFocused();
+  await dialog.getByRole('checkbox', { name: 'Confirm' }).click();
+  await dialog.getByRole('textbox', { name: 'Note' }).fill('approved from packaged e2e');
+  await dialog.getByRole('button', { name: /^Accept/u }).click();
+  await expect(dialog).toBeHidden({ timeout: 30_000 });
+  await expect(page.getByText('Packaged MCP elicitation completed.').first()).toBeVisible({
+    timeout: 90_000,
+  });
+  const toolCard = page
+    .getByTestId('tool-fallback')
+    .filter({ hasText: 'oauth.elicit_confirm' })
+    .last();
+  await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
+  await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
+  await expect(toolCard).toContainText(ELICITATION_TOOL_PAYLOAD);
+}
 function parseJsonLines(contents: string): Record<string, unknown>[] {
   const completeEnd = contents.lastIndexOf('\n');
   if (completeEnd < 0) {
@@ -503,6 +548,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     await permission.selectOption('ask');
     await expect(permission).toHaveValue('ask');
     await executeAssistantTool(first.window);
+    await executeElicitationTool(first.window, modelProvider);
     await closePackagedDesktop(first);
     first = undefined;
     await expectOwnedProcessGone(firstStdioPid);

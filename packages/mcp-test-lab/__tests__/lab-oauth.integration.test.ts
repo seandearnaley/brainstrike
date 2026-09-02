@@ -268,7 +268,10 @@ describe('MCP OAuth loopback reference', () => {
         })
       );
       expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
-      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['echo']);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+        'echo',
+        'elicit_confirm',
+      ]);
       await expect(
         client.callTool({ arguments: { text: 'oauth-reference' }, name: 'echo' })
       ).resolves.toMatchObject({ structuredContent: { text: 'oauth-reference' } });
@@ -334,7 +337,10 @@ describe('MCP OAuth loopback reference', () => {
       await client.connect(
         new StreamableHTTPClientTransport(lab.endpoint.url, { authProvider: provider })
       );
-      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['echo']);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+        'echo',
+        'elicit_confirm',
+      ]);
     } finally {
       await client.close();
       await lab.close();

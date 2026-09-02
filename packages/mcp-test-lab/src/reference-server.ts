@@ -1,4 +1,9 @@
-import { McpServer } from '@modelcontextprotocol/server';
+import {
+  type ElicitRequestFormParams,
+  inputRequired,
+  inputResponse,
+  McpServer,
+} from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { OFFICIAL_EVERYTHING_PROFILE as profile } from './official-everything-profile.js';
 import type { McpLabFixture } from './scenario.js';
@@ -20,6 +25,57 @@ function createBrainstrikeEchoReferenceServer(): McpServer {
       content: [{ text, type: 'text' }],
       structuredContent: { text },
     })
+  );
+  const elicitConfirmOutputSchema = z.strictObject({ confirmed: z.boolean(), text: z.string() });
+  server.registerTool(
+    'elicit_confirm',
+    {
+      description:
+        'Ask the connected client to confirm a string through MCP form elicitation before echoing it.',
+      inputSchema: echoSchema,
+      outputSchema: elicitConfirmOutputSchema,
+    },
+    async ({ text }, ctx) => {
+      const requestedSchema: ElicitRequestFormParams['requestedSchema'] = {
+        properties: {
+          confirm: {
+            description: `Confirm that "${text}" may be echoed back.`,
+            title: 'Confirm',
+            type: 'boolean',
+          },
+          note: { maxLength: 80, title: 'Note', type: 'string' },
+        },
+        required: ['confirm'],
+        type: 'object',
+      };
+      const message = `Confirm the reference elicitation for "${text}".`;
+      const negotiated = server.server.getNegotiatedProtocolVersion();
+      let confirmed: boolean;
+      if (negotiated === '2026-07-28') {
+        // Modern era: elicitation rides the multi-round-trip result. The client
+        // answers the embedded request and retries with `inputResponses`; a
+        // decline or cancel is a final answer, never a reason to re-ask.
+        const answer = inputResponse(ctx.mcpReq.inputResponses, 'confirm');
+        if (answer.kind === 'missing') {
+          return inputRequired({
+            inputRequests: { confirm: inputRequired.elicit({ message, requestedSchema }) },
+          });
+        }
+        confirmed =
+          answer.kind === 'elicit' &&
+          answer.action === 'accept' &&
+          answer.content?.['confirm'] === true;
+      } else {
+        // Legacy era: the 2025 push-style server-to-client request.
+        const result = await ctx.mcpReq.elicitInput({ message, mode: 'form', requestedSchema });
+        confirmed = result.action === 'accept' && result.content?.['confirm'] === true;
+      }
+      const echoed = confirmed ? text : 'elicitation was not accepted';
+      return {
+        content: [{ text: echoed, type: 'text' }],
+        structuredContent: { confirmed, text: echoed },
+      };
+    }
   );
   return server;
 }

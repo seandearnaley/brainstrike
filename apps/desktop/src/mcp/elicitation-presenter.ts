@@ -19,6 +19,7 @@ import type {
   ElicitResult,
 } from '@modelcontextprotocol/client';
 
+const FINALIZED_OBSERVER_LIMIT = 4;
 const FINALIZED_PRESENTATION_LIMIT = 128;
 const OPERATION_TARGET_LIMIT = 1024;
 const PENDING_PRESENTATION_LIMIT = 32;
@@ -121,6 +122,11 @@ export interface McpElicitationPresenterAuthorityOptions {
   ) => McpHostServerSnapshot | undefined;
 }
 type PresentationListener = (presentation: McpElicitationPresentation) => void;
+export interface McpElicitationFinalizedEvent {
+  readonly code: McpElicitationPresenterErrorCode;
+  readonly id: string;
+}
+type FinalizedObserver = (event: McpElicitationFinalizedEvent) => void;
 const SENSITIVE_URL_PARAMETER =
   /^(?:(?:access|authorization|id|refresh|session)[_.-]?token|api[_.-]?key|authorization|authorization[_.-]?code|client[_.-]?secret|code|code[_.-]?verifier|credential|password|secret|token)$/iu;
 const clip = (value: string, limit: number): string =>
@@ -178,6 +184,7 @@ export class McpElicitationPresenterAuthority {
   private closed = false;
   private readonly createPresentationId: () => string;
   private readonly finalized = new Map<string, McpElicitationPresenterErrorCode>();
+  private readonly finalizedObservers = new Set<FinalizedObserver>();
   private invocationSequence = 0;
   private readonly invocations = new Set<InvocationAuthority>();
   private listener: PresentationListener | undefined;
@@ -209,6 +216,24 @@ export class McpElicitationPresenterAuthority {
         this.listener = undefined;
         this.finishAll('mcp-elicitation-presenter-unavailable');
       }
+    };
+  }
+
+  /**
+   * Observes every pending presentation finalization (settlement, abort,
+   * retirement, detach, close) so a renderer surface can retire its dialog.
+   * Bounded to a few observers; observer failures never affect settlement.
+   */
+  observeFinalized(observer: FinalizedObserver): () => void {
+    if (this.closed) {
+      throw new McpElicitationPresenterError('mcp-elicitation-presenter-closed');
+    }
+    if (this.finalizedObservers.size >= FINALIZED_OBSERVER_LIMIT) {
+      throw new McpElicitationPresenterError('mcp-elicitation-presenter-unavailable');
+    }
+    this.finalizedObservers.add(observer);
+    return () => {
+      this.finalizedObservers.delete(observer);
     };
   }
 
@@ -302,6 +327,7 @@ export class McpElicitationPresenterAuthority {
     this.closed = true;
     this.listener = undefined;
     this.finishAll('mcp-elicitation-presenter-closed');
+    this.finalizedObservers.clear();
   }
 
   private async present(
@@ -476,6 +502,13 @@ export class McpElicitationPresenterAuthority {
     pending.cleanup();
     this.recordFinalized(id, finalCode);
     settle();
+    for (const observer of this.finalizedObservers) {
+      try {
+        observer({ code: finalCode, id });
+      } catch {
+        // Observers are diagnostics-only; a failing observer never alters settlement.
+      }
+    }
   }
 
   private finishAll(code: McpElicitationPresenterErrorCode): void {

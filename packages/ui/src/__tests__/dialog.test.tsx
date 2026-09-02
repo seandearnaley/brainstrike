@@ -102,6 +102,19 @@ describe('Dialog Component', () => {
     expect(screen.queryByText('Test Dialog')).not.toBeInTheDocument();
   });
 
+  it('omits the corner close control when hideCloseButton is set', () => {
+    render(
+      <Dialog open>
+        <DialogContent hideCloseButton>
+          <DialogTitle>Consent</DialogTitle>
+          <DialogDescription>Explicit decisions only</DialogDescription>
+        </DialogContent>
+      </Dialog>
+    );
+    expect(screen.getByRole('dialog', { name: 'Consent' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+  });
+
   it('renders header, footer and description with custom classes', () => {
     render(
       <Dialog defaultOpen>

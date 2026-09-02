@@ -1,6 +1,7 @@
 import { mcpToolRegistry } from '@brainstrike/agent';
 import { ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createMcpElicitationPresenterStub } from './mcp-authority-test-runtime';
 
 const mocks = vi.hoisted(() => ({
   loadMcpConfig: vi.fn(async () => ({ exists: false, path: '/tmp/mcp.config.json' })),
@@ -53,6 +54,7 @@ describe('terminal MCP shutdown cleanup', () => {
     });
     const hostClose = vi.fn(async () => cleanCloseReport);
     const runtime = {
+      elicitationPresenter: createMcpElicitationPresenterStub(),
       host: {
         close: hostClose,
         control: vi.fn(),

@@ -7,9 +7,24 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { vi } from 'vitest';
+import type { McpElicitationBridgeRuntime } from '../../mcp/elicitation-bridge';
 import type { ResolvedMcpConfig } from '../../mcp-loader';
 
 type ListToolsResult = Extract<McpHostOperationResult, { type: 'tools/list' }>['result'];
+
+/**
+ * Permissive presenter stand-in: the IPC handler suites re-register handlers
+ * without detaching, which the production single-listener authority rejects.
+ * The real authority's attach/settle/finalization contract is covered by
+ * mcp-elicitation-presenter.test.ts and mcp-elicitation-bridge.test.ts.
+ */
+export function createMcpElicitationPresenterStub(): McpElicitationBridgeRuntime['elicitationPresenter'] {
+  return {
+    attach: vi.fn(() => vi.fn()),
+    observeFinalized: vi.fn(() => vi.fn()),
+    settle: vi.fn(),
+  };
+}
 
 export function createMcpAuthorityTestRuntime(
   listTools: (serverId: ConfiguredMcpServerId) => Promise<ListToolsResult> = async () => ({
@@ -64,10 +79,14 @@ export function createMcpAuthorityTestRuntime(
     watch: vi.fn(() => vi.fn()),
   };
 
+  const elicitationPresenter = createMcpElicitationPresenterStub();
+
   return {
+    elicitationPresenter,
     invoke,
     replaceResolvedConfig,
     runtime: {
+      elicitationPresenter,
       host,
       replaceResolvedConfig,
     },
