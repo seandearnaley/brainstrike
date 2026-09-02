@@ -90,8 +90,11 @@ describe('MCP Apps request correlation', () => {
       correlation.settle({ id: 'r1', jsonrpc: '2.0', result: { text: 'x'.repeat(262_145) } })
     ).toThrow(/maximum encoded size/);
     expect(correlation.pendingCount).toBe(0);
-    correlation.register('r1');
-    expect(() => correlation.settle({ id: 'r1', jsonrpc: '1.0', result: {} })).toThrow(/jsonrpc/);
+    // Ids are one-shot (BST-1570): the released id cannot be re-registered,
+    // but a fresh id proves the slot itself was released.
+    expect(() => correlation.register('r1')).toThrow(/already used/);
+    correlation.register('r2');
+    expect(() => correlation.settle({ id: 'r2', jsonrpc: '1.0', result: {} })).toThrow(/jsonrpc/);
     expect(correlation.pendingCount).toBe(0);
   });
 
