@@ -345,10 +345,11 @@ async function executeElicitationTool(
   const input = page.locator('#assistant-input');
   await input.fill('Run the packaged MCP elicitation proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
-  // `.last()`: the first proof's resolved approval notice stays in the thread.
-  const approval = page.getByTestId('assistant-tool-approval-notice').last();
-  await approval.waitFor({ state: 'visible', timeout: 45_000 });
-  await approval.getByRole('button', { name: /Approve/u }).click();
+  // The first proof's resolved approval notice (disabled Approve) stays in the
+  // thread, so target this tool's own Approve button rather than `.last()`.
+  const approve = page.getByRole('button', { exact: true, name: 'Approve oauth.elicit_confirm' });
+  await approve.waitFor({ state: 'visible', timeout: 90_000 });
+  await approve.click();
   const dialog = page.getByTestId('mcp-elicitation-dialog');
   await expect(dialog).toBeVisible({ timeout: 45_000 });
   // Provenance: the OAuth reference server identity plus the configured id.
