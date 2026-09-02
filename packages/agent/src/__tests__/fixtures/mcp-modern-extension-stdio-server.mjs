@@ -6,6 +6,24 @@ if (!requestsFile) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_REQUESTS_FILE is required');
 }
 
+/**
+ * Which requested task ids the fixture acknowledges on `subscriptions/listen`:
+ * `full` (default) echoes them, `partial` honors only the first, `empty` sends
+ * an acknowledgement with no task ids at all.
+ */
+const ackMode = process.env['BRAINSTRIKE_STDIO_TEST_ACK_MODE'] ?? 'full';
+if (!['full', 'partial', 'empty'].includes(ackMode)) {
+  throw new Error(`Unsupported BRAINSTRIKE_STDIO_TEST_ACK_MODE: ${ackMode}`);
+}
+
+function acknowledgedNotifications(requested) {
+  if (ackMode === 'empty') {
+    return {};
+  }
+  const taskIds = requested ?? [];
+  return { taskIds: ackMode === 'partial' ? taskIds.slice(0, 1) : taskIds };
+}
+
 const extensionId = 'io.modelcontextprotocol/tasks';
 const extensionSettings = {};
 const serverInfo = { name: 'brainstrike-modern-extension-fixture', version: '1.0.0' };
@@ -77,9 +95,12 @@ for await (const line of createInterface({ input: process.stdin })) {
       method: 'notifications/subscriptions/acknowledged',
       params: {
         _meta: { 'io.modelcontextprotocol/subscriptionId': subscriptionId },
-        notifications: { taskIds: request.params?.notifications?.taskIds },
+        notifications: acknowledgedNotifications(request.params?.notifications?.taskIds),
       },
     });
+    if (ackMode !== 'full') {
+      continue;
+    }
     send({
       jsonrpc: '2.0',
       method: 'notifications/tasks',

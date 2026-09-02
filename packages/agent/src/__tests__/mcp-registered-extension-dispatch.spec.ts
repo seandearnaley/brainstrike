@@ -1,4 +1,4 @@
-import type { Transport } from '@modelcontextprotocol/client';
+import { SUBSCRIPTION_ID_META_KEY, type Transport } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
@@ -9,6 +9,7 @@ import {
   applyRegisteredExtensionHttpHeaders,
   encodeMcpHeaderValue,
   installRegisteredExtensionDispatch,
+  RegisteredExtensionDispatchLedger,
 } from '../mcp/registered-extension-dispatch';
 import {
   MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
@@ -144,6 +145,78 @@ describe('registered extension HTTP dispatch', () => {
     for (const message of seen) {
       expect(message).toEqual({ id: expect.any(Number), jsonrpc: '2.0', result });
     }
+  });
+
+  it('clears only the closing transport entries from a client-scoped ledger', async () => {
+    // Review of #2928: the HTTP client builds ONE ledger per client and installs
+    // it on every transport it creates, so an old transport's close must not wipe
+    // a live transport's in-flight dispatch or its bound subscription claim.
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    const prepared = await registry.prepareRequest(
+      MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+      { arguments: {}, name: 'deferred-tool' },
+      { 'io.modelcontextprotocol/tasks': {} },
+      '2026-07-28'
+    );
+    const ledger = new RegisteredExtensionDispatchLedger();
+    const createTransport = (send: Transport['send']) =>
+      installRegisteredExtensionDispatch(
+        {
+          close: vi.fn(async () => undefined),
+          send,
+          start: vi.fn(async () => undefined),
+        } as unknown as Transport,
+        registry,
+        ledger
+      );
+    const closing = createTransport(vi.fn(async () => undefined));
+    const liveSend = Promise.withResolvers<void>();
+    const live = createTransport(
+      vi.fn(async (message) => {
+        if ('method' in message && message.method === 'tools/call') {
+          await liveSend.promise;
+        }
+      })
+    );
+    closing.onmessage = () => undefined;
+    live.onmessage = () => undefined;
+
+    const filter = { taskIds: ['task-live'] };
+    const capture = ledger.captureSubscriptionAcknowledgement(filter);
+    await live.send({
+      id: 9,
+      jsonrpc: '2.0',
+      method: 'subscriptions/listen',
+      params: { notifications: filter },
+    });
+    const inFlight = live.send({
+      id: 11,
+      jsonrpc: '2.0',
+      method: prepared.internalMethod,
+      params: prepared.params,
+    });
+    expect(ledger.hasDispatchedRequest(11)).toBe(true);
+
+    await closing.close();
+
+    expect(ledger.hasDispatchedRequest(11)).toBe(true);
+    live.onmessage?.({
+      jsonrpc: '2.0',
+      method: 'notifications/subscriptions/acknowledged',
+      params: {
+        _meta: { [SUBSCRIPTION_ID_META_KEY]: '9' },
+        notifications: { taskIds: ['task-live'] },
+      },
+    });
+    expect(capture.acknowledged).toBe(true);
+    expect(capture.acknowledgement).toEqual({ taskIds: ['task-live'] });
+
+    liveSend.resolve();
+    await inFlight;
+    expect(ledger.hasDispatchedRequest(11)).toBe(false);
+    await live.close();
+    expect(ledger.hasDispatchedRequest(11)).toBe(false);
   });
 
   it('reports rewrite failures through the transport promise', async () => {
@@ -302,7 +375,9 @@ describe('registered extension HTTP dispatch', () => {
       }),
       method: 'POST',
     };
-    expect(applyRegisteredExtensionHttpHeaders(init, registry, new Set())).toBe(init);
+    expect(
+      applyRegisteredExtensionHttpHeaders(init, registry, new RegisteredExtensionDispatchLedger())
+    ).toBe(init);
   });
 
   it('still validates a tools/call that the registry dispatched', () => {
@@ -314,7 +389,8 @@ describe('registered extension HTTP dispatch', () => {
       method: 'tools/call',
       params: { arguments: {}, name: 'write' },
     });
-    const dispatched = new Set<number | string>([7]);
+    const dispatched = new RegisteredExtensionDispatchLedger();
+    dispatched.openTransportScope().trackDispatchedRequest(7);
     expect(() =>
       applyRegisteredExtensionHttpHeaders({ body, method: 'POST' }, registry, dispatched)
     ).toThrow('method/header mismatch');

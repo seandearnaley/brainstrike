@@ -1993,6 +1993,36 @@ regression: every desktop stdio/streamable-http connection now carries a
 registry, and a core legacy `tools/call` was rejected as a header mismatch). A
 malformed or header-disagreeing REGISTERED request still throws.
 
+`RegisteredExtensionDispatchLedger` is that one dispatch state, and it carries
+the second fact only the raw-wire seam can see (BST-1596): the unstripped
+`notifications/subscriptions/acknowledged` payload for a claimed
+`subscriptions/listen` request. The SDK settles `McpSubscription.honoredFilter`
+from the CORE `SubscriptionFilter` schema, which drops every extension field, so
+an extension lease cannot otherwise learn which ids the server honored. A
+consumer claims a capture with `captureSubscriptionAcknowledgement(filter)`
+BEFORE calling `listen()`; the bridge's `send` wrapper binds that claim to the
+listen request id by filter object identity (the SDK forwards the caller's
+filter object untouched), and its incoming hook records the raw payload against
+`_meta['io.modelcontextprotocol/subscriptionId']`. The registry still refuses a
+contract for `notifications/subscriptions/acknowledged` itself — the SDK
+consumes that notification before custom handlers — and this capture does NOT
+consume it. Do not add a second dispatch substrate for raw-wire observation;
+extend this ledger.
+
+Ledger LIFETIME differs by transport and the ledger is not allowed to care:
+stdio allocates one per connection, while HTTP builds its header-preserving
+fetch once per CLIENT, so the ledger that fetch queries outlives every transport
+the client installs (reconnect, session reset, auth step-up retry each build a
+new one). Ownership therefore lives in a per-transport
+`RegisteredExtensionDispatchScope` that `installRegisteredExtensionDispatch`
+opens, and transport close clears only THAT scope — never the whole ledger
+(review of #2928). A shared clear would drop a sibling transport's in-flight
+`tools/call` id, and the fetch bridge would then classify it as core traffic and
+throw a method/header mismatch, or drop a live subscription claim so the lease
+fails as `never observed on this connection`. Subscription ids are JSON-RPC
+request ids, which restart on every new connection, so they are unique only
+inside one scope; never key raw-wire state by request id at ledger scope.
+
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
 | MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Registered (BST-1572): the default desktop registry, dedicated Electron sandbox startup, generation-fenced resource reader, validated frame bridge, thread-keyed ordinary admission authority (live run, then run-detached host-port execution), and visible-UI IPC consent path form one complete host | Yes (stdio, streamable-http); sse: not registered |
@@ -2052,6 +2082,16 @@ lease per connection on both stdio and Streamable HTTP. The registry owns the
 notification method/schema, refuses reserved core notification methods, and
 releases the lease on local close, remote close, or rejected closure so retry is
 possible. It never emits `tasks/list` or the deprecated request `task.ttl` field.
+BST-1596 closes the acknowledgement gap: `listenForMcpTasks` reads the RAW
+acknowledgement from the connection's dispatch ledger, not the core-stripped
+`honoredFilter`, and a lease whose requested ids were not ALL honored closes
+itself and rejects naming the rejected ids — an unacknowledged id can never emit,
+so a partially or wholly unhonored lease must never look active. An
+acknowledgement the bridge never observed, or one honoring ids outside the
+request, rejects the same way; there is no zero-honored-ids success state left.
+Real stdio and real Streamable HTTP wire tests cover full, partial, and empty
+acknowledgements
+(`packages/agent/src/__tests__/mcp-tasks-subscription-acknowledgement.integration.spec.ts`).
 Production registration is the BST-1566 layer below.
 
 BST-1564 adds the opt-in interaction coordinator without enabling Tasks in production. It deduplicates
