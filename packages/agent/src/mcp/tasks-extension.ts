@@ -58,45 +58,46 @@ const MCP_TASKS_TOOL_RESULT_SCHEMA = z.union([
     .transform((value) => value[REGISTERED_EXTENSION_RESULT_KEY]),
   CallToolResultSchema,
 ]);
-const registeredResult = <Output>(schema: z.ZodType<Output>) =>
-  z
-    .object({ [REGISTERED_EXTENSION_RESULT_KEY]: schema })
-    .transform((value): Output => value[REGISTERED_EXTENSION_RESULT_KEY]);
+const restoreCompleteResult = <Schema extends z.ZodType>(schema: Schema) =>
+  z.preprocess(
+    (value) =>
+      typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? { resultType: 'complete', ...value }
+        : value,
+    schema
+  );
 
 export const MCP_TASKS_GET_REQUEST_CONTRACT: McpClientExtensionRequestContract<
   JSONObject,
   GetTaskResult
 > = Object.freeze({
-  extensionResultType: 'complete',
   mcpNameParam: 'taskId',
   method: 'tasks/get',
   paramsSchema: GetTaskParamsSchema,
   protocol: '2026-07-28',
-  resultSchema: registeredResult(GetTaskResultSchema),
+  resultSchema: restoreCompleteResult(GetTaskResultSchema),
 });
 
 export const MCP_TASKS_UPDATE_REQUEST_CONTRACT: McpClientExtensionRequestContract<
   JSONObject,
   UpdateTaskResult
 > = Object.freeze({
-  extensionResultType: 'complete',
   mcpNameParam: 'taskId',
   method: 'tasks/update',
   paramsSchema: UpdateTaskParamsSchema,
   protocol: '2026-07-28',
-  resultSchema: registeredResult(UpdateTaskResultSchema),
+  resultSchema: restoreCompleteResult(UpdateTaskResultSchema),
 });
 
 export const MCP_TASKS_CANCEL_REQUEST_CONTRACT: McpClientExtensionRequestContract<
   JSONObject,
   UpdateTaskResult
 > = Object.freeze({
-  extensionResultType: 'complete',
   mcpNameParam: 'taskId',
   method: 'tasks/cancel',
   paramsSchema: CancelTaskParamsSchema,
   protocol: '2026-07-28',
-  resultSchema: registeredResult(CancelTaskResultSchema),
+  resultSchema: restoreCompleteResult(CancelTaskResultSchema),
 });
 
 export type McpTasksToolResult = CallToolResult | CreateTaskResult;

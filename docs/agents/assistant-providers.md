@@ -2051,8 +2051,7 @@ Transport exhaustion rejects the public tracked-task settlement and is published
 failure surface. A `tasks/cancel` acknowledgement is not success: only observed `cancelled` settles
 successfully; `completed` or `failed` is a non-cancellation outcome. Each observation treats
 `inputRequests` as the complete outstanding snapshot and retires omitted keys before stale responses
-can be sent. Exact 2026 task responses require canonical `resultType`; no compatibility repair runs on
-this path. Terminal state, generation replacement, and coordinator close abort pending input and
+can be sent. Task responses keep the merged BST-1561 discriminator ruling (an absent `resultType` is `complete` per final SEP-2322; a conflicting value is rejected). Terminal state, generation replacement, and coordinator close abort pending input and
 release resources. Sampling/roots input, renderer UX, host registration, and support advertisement
 remain disabled.
 
