@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { vi } from 'vitest';
 import type { McpElicitationBridgeRuntime } from '../../mcp/elicitation-bridge';
+import type { McpTaskBridgeRuntime } from '../../mcp/task-bridge';
 import type { ResolvedMcpConfig } from '../../mcp-loader';
 
 type ListToolsResult = Extract<McpHostOperationResult, { type: 'tools/list' }>['result'];
@@ -23,6 +24,15 @@ export function createMcpElicitationPresenterStub(): McpElicitationBridgeRuntime
     attach: vi.fn(() => vi.fn()),
     observeFinalized: vi.fn(() => vi.fn()),
     settle: vi.fn(),
+  };
+}
+
+/** Task-host stand-in for the IPC handler suites; the real host is covered by mcp-task-host tests. */
+export function createMcpTaskHostStub(): McpTaskBridgeRuntime['taskHost'] {
+  return {
+    act: vi.fn(),
+    list: vi.fn(() => ({ tasks: [] })),
+    subscribe: vi.fn(() => vi.fn()),
   };
 }
 
@@ -80,6 +90,7 @@ export function createMcpAuthorityTestRuntime(
   };
 
   const elicitationPresenter = createMcpElicitationPresenterStub();
+  const taskHost = createMcpTaskHostStub();
 
   return {
     elicitationPresenter,
@@ -89,6 +100,8 @@ export function createMcpAuthorityTestRuntime(
       elicitationPresenter,
       host,
       replaceResolvedConfig,
+      taskHost,
     },
+    taskHost,
   };
 }

@@ -43,8 +43,19 @@ test('the packaged-only spec has one explicit lane and is absent from unpackaged
   const verifier = readRepoFile('apps/desktop/e2e/mcp-apps-production-lifecycle.desktop.test.ts');
   assert.match(verifier, /tag:\s*\['@destructive',\s*'@packaged'\]/u);
   assert.match(verifier, /McpUiInitializeResultSchema/u);
-  assert.match(verifier, /installMcpAppElectronSandboxPolicy/u);
   assert.match(verifier, /new App\(/u);
+  // The verifier mounts through the REAL main window: the production preload's
+  // shell bridge, the production CSP stamp (blob: frames blocked), the packaged
+  // brainstrike-mcp-app: shell protocol (404 once released), and the
+  // will-frame-navigate fence. A harness window on a private partition would
+  // escape the header stamp and hide exactly the regression class this guards.
+  assert.match(verifier, /apps\.prepareShell/u);
+  assert.match(verifier, /securitypolicyviolation/u);
+  assert.match(verifier, /fetchStatusFromMain\(shellUrl\)\)\.toBe\(404\)/u);
+  assert.match(verifier, /probeFrameFence/u);
+  assert.doesNotMatch(verifier, /partition:\s*['`]/u);
+  assert.doesNotMatch(verifier, /installMcpAppElectronSandboxPolicy/u);
+  assert.doesNotMatch(verifier, /createObjectURL\(new Blob\(\[shell/u);
   const admissionHelper = readRepoFile('apps/desktop/e2e/helpers/mcp-apps-ordinary-admission.ts');
   assert.match(admissionHelper, /composeRuntimeToolMap/u);
   assert.match(admissionHelper, /createMcpAppOrdinaryToolCallPreparer/u);

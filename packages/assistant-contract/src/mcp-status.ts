@@ -40,9 +40,10 @@ export const MCP_SUPPORT_MATRIX = [
     status: 'supported',
   },
   {
-    evidence: 'No complete Apps host is registered.',
+    evidence:
+      'Registered by the desktop default extension registry, dedicated mcp-app sandbox startup, live-run admission authority, and visible-UI Apps IPC/preload bridge.',
     id: 'io.modelcontextprotocol/ui',
-    implementationTicket: 'BST-1474',
+    implementationTicket: 'BST-1572',
     kind: 'extension',
     label: 'MCP Apps',
     requirements: [
@@ -55,15 +56,16 @@ export const MCP_SUPPORT_MATRIX = [
       'lifecycle cleanup',
       'renderer tests',
     ],
-    status: 'unsupported',
+    status: 'supported',
   },
   {
-    evidence: 'No complete durable task host is registered.',
+    evidence:
+      'Desktop main registers the Tasks wire contracts on stdio and streamable-http connections and runs the durable task host: repository handles, the sole-authority poller, mid-flight input and cancellation, and renderer status cards. Legacy sse connections register no extensions.',
     id: 'io.modelcontextprotocol/tasks',
-    implementationTicket: 'BST-1473',
+    implementationTicket: 'BST-1566',
     kind: 'extension',
     label: 'MCP Tasks',
-    status: 'unsupported',
+    status: 'supported',
   },
   {
     evidence: 'No machine-to-machine credential host is registered.',

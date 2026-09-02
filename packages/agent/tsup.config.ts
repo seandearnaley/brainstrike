@@ -85,6 +85,11 @@ export default defineConfig((_options) => [
     // that default, not as an instant break — and do not add new ones:
     // `scripts/verify-hosted-web-bundle.mjs` fails the build on any beyond the
     // four already recorded there.
-    noExternal: [assistantContractExternal, '@brainstrike/types'],
+    noExternal: [
+      assistantContractExternal,
+      '@brainstrike/mcp-app-host',
+      '@brainstrike/mcp-tasks-extension',
+      '@brainstrike/types',
+    ],
   },
 ]);

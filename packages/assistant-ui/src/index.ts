@@ -59,7 +59,12 @@ export {
   useFollowUpQueueStore,
 } from './follow-up-queue-store';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
+export {
+  McpTaskBridgeProvider,
+  type McpTaskBridgeProviderProps,
+} from './mcp-task-bridge-context';
 export { McpTaskStatusCard, type McpTaskStatusCardProps } from './mcp-task-status-card';
+export { McpTaskToolResult, type McpTaskToolResultProps } from './mcp-task-tool-result';
 export {
   MessageRewindAction,
   REWIND_ACTION_LABEL,
@@ -89,6 +94,17 @@ export {
   useToolApprovalGrants,
 } from './tool-approval-grant-context';
 export * from './tool-fallback';
+export {
+  ToolResultRendererProvider,
+  type ToolResultRendererProviderProps,
+} from './tool-result-renderer-context';
+export { useMcpTaskBridge } from './use-mcp-task-bridge';
+export {
+  type ToolResultRenderer,
+  ToolResultRendererContext,
+  type ToolResultRendererProps,
+  useToolResultRenderers,
+} from './use-tool-result-renderers';
 export { PrChip, type WorkspaceBarForge } from './workspace-bar/pr-chip';
 export {
   WorkspaceBar,

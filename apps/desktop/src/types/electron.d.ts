@@ -5,6 +5,7 @@ import type {
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
   AssistantRewindResult,
+  McpAppBridge,
   McpElicitationPresentationWire,
   McpElicitationRetiredWire,
   McpElicitationSettlement,
@@ -12,6 +13,7 @@ import type {
   McpHostServerSnapshot,
   McpHostSnapshot,
   McpHostWatchEvent,
+  McpTaskBridge,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
@@ -479,6 +481,8 @@ declare global {
       ) => (() => void) | undefined;
     };
     mcp: {
+      /** MCP Apps admission and resource bridge; visible-UI preload only. */
+      apps?: McpAppBridge;
       complete: (
         request: McpContentBridgeRequest<'completion/complete'>
       ) => Promise<McpContentBridgeResult<'completion/complete'>>;
@@ -515,6 +519,8 @@ declare global {
       ) => () => void;
       onElicitationRetired: (callback: (retired: McpElicitationRetiredWire) => void) => () => void;
       settleElicitation: (settlement: McpElicitationSettlement) => Promise<void>;
+      /** Durable MCP Tasks bridge (BST-1566); present on the visible-UI preload only. */
+      tasks?: McpTaskBridge;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{

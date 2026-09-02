@@ -19,6 +19,14 @@ const PROTOCOL_OWNED_HEADERS = new Set([
 
 type McpHttpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Request ids currently in flight through registered dispatch. A registered
+ * wire method that is also a core method (`tools/call`) is only treated as an
+ * extension request when its id is recorded here; core traffic on the same
+ * connection passes the HTTP bridge untouched.
+ */
+export type RegisteredExtensionDispatchLedger = Set<string | number>;
+
 function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
   for (const name of Object.keys(headers ?? {})) {
     const lowerName = name.toLowerCase();
@@ -32,7 +40,8 @@ export function createHeaderPreservingFetch(
   baseFetch: McpHttpFetch,
   headers: Readonly<Record<string, string>> | undefined,
   extensionRegistry: McpClientExtensionRegistry | undefined,
-  getAuthorizationSignal?: () => AbortSignal | undefined
+  getAuthorizationSignal?: () => AbortSignal | undefined,
+  dispatchLedger?: ReadonlySet<string | number>
 ): McpHttpFetch {
   validateConfiguredHeaders(headers);
   const callerHeaders = new Headers(headers);
@@ -59,7 +68,10 @@ export function createHeaderPreservingFetch(
       headers: mergedHeaders,
       ...(signal === undefined ? {} : { signal }),
     };
-    return baseFetch(url, applyRegisteredExtensionHttpHeaders(requestInit, extensionRegistry));
+    return baseFetch(
+      url,
+      applyRegisteredExtensionHttpHeaders(requestInit, extensionRegistry, dispatchLedger)
+    );
   };
 }
 
@@ -105,13 +117,56 @@ export function encodeMcpHeaderValue(value: string): string {
 }
 
 /**
+ * A locally abandoned request (timeout, abort) never gets a response; the SDK
+ * announces it with notifications/cancelled, which is the only signal this
+ * layer sees, so release the pending result type there.
+ */
+function releaseCancelledResultType(
+  message: JSONRPCMessage,
+  pendingResultTypes: Map<string | number, string>
+): void {
+  if ('id' in message || !('method' in message) || message.method !== 'notifications/cancelled') {
+    return;
+  }
+  const requestId = (message.params as { requestId?: unknown } | undefined)?.requestId;
+  if (typeof requestId === 'string' || typeof requestId === 'number') {
+    pendingResultTypes.delete(requestId);
+  }
+}
+
+/**
+ * Records the pending extension result type for an outgoing request and reports
+ * whether the registry rewrote it (`dispatchedId`), i.e. it is a registered
+ * extension request rather than core traffic on a shared wire method.
+ */
+function trackOutgoingRequest(
+  message: JSONRPCMessage,
+  outgoing: JSONRPCMessage,
+  registry: McpClientExtensionRegistry,
+  pendingResultTypes: Map<string | number, string>
+): { dispatchedId: string | number | undefined; requestId: string | number | undefined } {
+  if (!('id' in message && 'method' in message)) {
+    return { dispatchedId: undefined, requestId: undefined };
+  }
+  const requestId = message.id;
+  pendingResultTypes.delete(requestId);
+  const extensionResultType = registry.resolveOutgoingResultType(message);
+  if (extensionResultType !== undefined) {
+    pendingResultTypes.set(requestId, extensionResultType);
+  }
+  const dispatched = 'method' in outgoing && outgoing.method !== message.method;
+  return { dispatchedId: dispatched ? requestId : undefined, requestId };
+}
+
+/**
  * Installs a closed registered-extension bridge on a newly allocated, client-owned transport.
  * The SDK sees a non-colliding custom method; only an exact registered contract is rewritten to
  * its official wire method before the transport serializes it.
  */
 export function installRegisteredExtensionDispatch<OwnedTransport extends Transport>(
   transport: OwnedTransport,
-  registry: McpClientExtensionRegistry | undefined
+  registry: McpClientExtensionRegistry | undefined,
+  dispatchLedger?: RegisteredExtensionDispatchLedger
 ): OwnedTransport {
   if (registry === undefined) {
     return transport;
@@ -154,29 +209,27 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
   const send = transport.send.bind(transport);
   transport.send = async (message, options) => {
     const outgoing = registry.rewriteOutgoingMessage(message);
-    // A locally abandoned request (timeout, abort) never gets a response; the
-    // SDK announces it with notifications/cancelled, which is the only signal
-    // this layer sees, so release the pending result type there.
-    if (!('id' in message) && 'method' in message && message.method === 'notifications/cancelled') {
-      const requestId = (message.params as { requestId?: unknown } | undefined)?.requestId;
-      if (typeof requestId === 'string' || typeof requestId === 'number') {
-        pendingResultTypes.delete(requestId);
-      }
-    }
-    if ('id' in message && 'method' in message) {
-      pendingResultTypes.delete(message.id);
-      const extensionResultType = registry.resolveOutgoingResultType(message);
-      if (extensionResultType !== undefined) {
-        pendingResultTypes.set(message.id, extensionResultType);
-      }
+    releaseCancelledResultType(message, pendingResultTypes);
+    const { dispatchedId, requestId } = trackOutgoingRequest(
+      message,
+      outgoing,
+      registry,
+      pendingResultTypes
+    );
+    if (dispatchedId !== undefined) {
+      dispatchLedger?.add(dispatchedId);
     }
     try {
       await send(outgoing, options);
     } catch (error) {
-      if ('id' in message && 'method' in message) {
-        pendingResultTypes.delete(message.id);
+      if (requestId !== undefined) {
+        pendingResultTypes.delete(requestId);
       }
       throw error;
+    } finally {
+      if (dispatchedId !== undefined) {
+        dispatchLedger?.delete(dispatchedId);
+      }
     }
   };
   const close = transport.close.bind(transport);
@@ -205,10 +258,32 @@ function parseRequestBody(body: BodyInit | null | undefined): JSONRPCMessage | u
   }
 }
 
-/** Adds the extension-defined Mcp-Name standard header after SDK body serialization. */
+function isRegisteredExtensionMethod(
+  registry: McpClientExtensionRegistry,
+  method: string,
+  requestId: string | number | undefined,
+  dispatchLedger: ReadonlySet<string | number> | undefined
+): boolean {
+  if (!registry.hasWireRequestMethod(method)) {
+    return false;
+  }
+  if (!registry.sharesCoreWireMethod(method)) {
+    return true;
+  }
+  return requestId !== undefined && dispatchLedger?.has(requestId) === true;
+}
+
+/**
+ * Adds the extension-defined Mcp-Name standard header after SDK body serialization.
+ * Acts only on registered-extension requests: an exclusive extension wire method
+ * (body or `Mcp-Method` header), or the core-shared `tools/call` when the body id is
+ * in the dispatch ledger. Every other request, including bodiless GET/DELETE and
+ * auth retries of core traffic, passes through untouched.
+ */
 export function applyRegisteredExtensionHttpHeaders(
   init: RequestInit | undefined,
-  registry: McpClientExtensionRegistry | undefined
+  registry: McpClientExtensionRegistry | undefined,
+  dispatchLedger?: ReadonlySet<string | number>
 ): RequestInit | undefined {
   if (registry === undefined) {
     return init;
@@ -216,10 +291,14 @@ export function applyRegisteredExtensionHttpHeaders(
   const headers = new Headers(init?.headers);
   const headerMethod = headers.get('mcp-method');
   const message = parseRequestBody(init?.body);
+  const requestId = message && 'id' in message && 'method' in message ? message.id : undefined;
   const candidateBodyMethod = message && 'method' in message ? message.method : undefined;
   const bodyIsRegistered =
-    candidateBodyMethod !== undefined && registry.hasWireRequestMethod(candidateBodyMethod);
-  const headerIsRegistered = headerMethod !== null && registry.hasWireRequestMethod(headerMethod);
+    candidateBodyMethod !== undefined &&
+    isRegisteredExtensionMethod(registry, candidateBodyMethod, requestId, dispatchLedger);
+  const headerIsRegistered =
+    headerMethod !== null &&
+    isRegisteredExtensionMethod(registry, headerMethod, requestId, dispatchLedger);
   if (!(bodyIsRegistered || headerIsRegistered)) {
     return init;
   }

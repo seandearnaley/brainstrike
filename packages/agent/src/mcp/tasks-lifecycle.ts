@@ -249,6 +249,15 @@ export class McpTaskLifecycle {
     return this.start(record, timing, signal);
   }
 
+  /**
+   * Resumes every active durable handle of this authority. Recovery is
+   * idempotent with respect to tasks this lifecycle already polls: an active
+   * record whose id is already tracked is returned as its EXISTING tracked
+   * entry (same `settled` promise, fresh durable record) rather than started
+   * again, so a recovery driven from one task's card cannot fail because
+   * another task on the same server is live. `start()` itself stays strict —
+   * a direct double-start still throws — so one poller per task holds.
+   */
   async recover(signal?: AbortSignal): Promise<readonly McpTrackedTask[]> {
     this.requireOpen(signal);
     const records = await this.repository.listActive(this.authority);
@@ -257,12 +266,22 @@ export class McpTaskLifecycle {
       record,
       timing: readStoredMcpTaskTiming(record),
     }));
-    // All or nothing: a handle that fails to start must not leave earlier
-    // handles polling with no caller holding their `settled` promise.
+    // All or nothing for the handles this call starts: one that fails to
+    // start must not leave earlier newly-started handles polling with no
+    // caller holding their `settled` promise. Already-tracked handles keep
+    // their existing poller either way.
+    const recovered: McpTrackedTask[] = [];
     const started: McpTrackedTask[] = [];
     try {
       for (const { record, timing } of resumable) {
-        started.push(this.start(record, timing, signal));
+        const existing = this.active.get(record.taskId);
+        if (existing) {
+          recovered.push(Object.freeze({ record, settled: existing.settled }));
+          continue;
+        }
+        const tracked = this.start(record, timing, signal);
+        started.push(tracked);
+        recovered.push(tracked);
       }
     } catch (error) {
       for (const tracked of started) {
@@ -270,7 +289,7 @@ export class McpTaskLifecycle {
       }
       throw error;
     }
-    return started;
+    return recovered;
   }
 
   /**

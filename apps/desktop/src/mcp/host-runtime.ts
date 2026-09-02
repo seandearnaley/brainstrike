@@ -7,6 +7,7 @@ import {
   ExplicitStdioMcpClient,
   type ExplicitStdioMcpClientOptions,
   type McpClientCapabilityOptions,
+  type McpClientExtensionRegistry,
   type NegotiatedProtocolFacts,
 } from '@brainstrike/agent/mcp-client';
 import {
@@ -29,6 +30,11 @@ import {
 } from './bearer-credential';
 import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features';
 import { McpElicitationPresenterAuthority } from './elicitation-presenter';
+import {
+  createDefaultMcpExtensionRegistry,
+  createDefaultTaskDatabaseOpener,
+  requireTaskConnectionClient,
+} from './host-extensions';
 import { McpHostRevisionPublisher } from './host-revision-publisher';
 import { McpHostService } from './host-service';
 import { classifyMcpLifecycleFailure, McpLifecycleFailure } from './lifecycle-errors';
@@ -49,23 +55,32 @@ import {
   type McpServerActorClientFactory,
 } from './server-actor';
 import { McpStdioDiagnosticCollector } from './stdio-diagnostics';
+import {
+  McpDesktopTaskHost,
+  type McpDesktopTaskHostPort,
+  type McpTaskConnection,
+  type McpTaskConnectionObserver,
+} from './task-host';
 import { connectedStatus } from './types';
 
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type ConfiguredServer = McpHostConfig['servers'][number];
 const MCP_OAUTH_MAX_STEP_UP_RETRIES = 3;
-interface ExplicitClient extends NegotiatedProtocolFacts {
+export interface ExplicitClient extends NegotiatedProtocolFacts {
   callTool: McpCoreFeatureClient['callTool'];
   close: ExplicitHttpMcpClient['close'];
   complete: McpCoreFeatureClient['complete'];
   connect: ExplicitHttpMcpClient['connect'];
   getPrompt: McpCoreFeatureClient['getPrompt'];
   listen: McpCoreFeatureClient['listen'];
+  /** Present on both production clients; required whenever an extension registry is attached. */
+  listenTasks?: ExplicitHttpMcpClient['listenTasks'];
   listPrompts: McpCoreFeatureClient['listPrompts'];
   listResources: McpCoreFeatureClient['listResources'];
   listResourceTemplates: McpCoreFeatureClient['listResourceTemplates'];
   listTools: McpCoreFeatureClient['listTools'];
   readResource: McpCoreFeatureClient['readResource'];
+  requestExtension?: ExplicitHttpMcpClient['requestExtension'];
   subscribeResource: McpCoreFeatureClient['subscribeResource'];
   unsubscribeResource: McpCoreFeatureClient['unsubscribeResource'];
   watchServerFeatures: McpCoreFeatureClient['watchServerFeatures'];
@@ -84,6 +99,19 @@ export interface DesktopMcpHostRuntimeDependencies {
   onInternalError?: (code: string, cause: unknown) => Promise<void> | void;
   openExternal?: (url: string) => Promise<void>;
   resolveClientCapabilities?: (server: ResolvedMcpServer) => McpClientCapabilityOptions | undefined;
+  /**
+   * Host-owned extension registration (BST-1566). Called once per connection
+   * generation and must return a FRESH registry each time: a registry seals on
+   * its first projection, so one instance can never serve two connections.
+   * `undefined` advertises no extensions. Defaults to
+   * `createDefaultMcpExtensionRegistry`.
+   */
+  resolveExtensionRegistry?: (
+    server: ResolvedMcpServer,
+    context: ActorContext
+  ) => McpClientExtensionRegistry | undefined;
+  /** Durable task authorities; defaults to the process-local `McpDesktopTaskHost`. */
+  taskHost?: McpDesktopTaskHostPort;
 }
 
 function createDefaultBearerCredentialAuthority(): McpBearerCredentialAuthority {
@@ -148,6 +176,12 @@ interface PrivateConfigEntry {
   auth: McpHostAuthSnapshot;
   configRef: string;
   server: ResolvedMcpServer;
+}
+
+interface StagedResolvedConfig {
+  readonly nextById: Map<ConfiguredMcpServerId, PrivateConfigEntry>;
+  readonly nextByRef: Map<string, PrivateConfigEntry>;
+  readonly servers: ConfiguredServer[];
 }
 type ConfigRefErrorCode =
   | 'mcp-config-ref-protocol-mismatch'
@@ -253,15 +287,20 @@ async function closeAfterConnectFailure(
   throw failure;
 }
 
+interface TransportActorClient extends McpServerActorClient {
+  readonly transportClient: ExplicitClient;
+}
+
 async function connectClient(
   client: ExplicitClient,
   server: ResolvedMcpServer,
   context: ActorContext,
   onInternalError: (code: string, cause: unknown) => void,
+  extensionRegistry: McpClientExtensionRegistry | undefined,
   diagnostics?: McpStdioDiagnosticCollector,
   provider?: McpOAuthClientProvider,
   onConnected?: () => Promise<void>
-): Promise<McpServerActorClient> {
+): Promise<TransportActorClient> {
   try {
     await client.connect({
       signal: context.signal,
@@ -295,6 +334,7 @@ async function connectClient(
   }
   const catalogListeners = new Set<(catalog: ReturnType<typeof features.snapshot>) => void>();
   const features = createMcpCoreServerFeatures(client, {
+    extensionRegistry,
     onCatalogChanged: (catalog) => {
       for (const listener of catalogListeners) {
         listener(catalog);
@@ -351,6 +391,7 @@ async function connectClient(
       }
     },
     negotiated: status.negotiated,
+    transportClient: client,
     watchCatalog(listener) {
       catalogListeners.add(listener);
       return () => catalogListeners.delete(listener);
@@ -405,6 +446,10 @@ export class DesktopMcpHostRuntime {
   private readonly resolveClientCapabilities: NonNullable<
     DesktopMcpHostRuntimeDependencies['resolveClientCapabilities']
   >;
+  private readonly resolveExtensionRegistry: NonNullable<
+    DesktopMcpHostRuntimeDependencies['resolveExtensionRegistry']
+  >;
+  readonly taskHost: McpDesktopTaskHostPort;
   private readonly service: McpHostService;
   private readonly createStdioTransportClient: NonNullable<
     DesktopMcpHostRuntimeDependencies['createStdioTransportClient']
@@ -430,6 +475,9 @@ export class DesktopMcpHostRuntime {
       (() => ({
         elicitation: createMcpElicitationCapability(this.elicitationPresenter.presenter),
       }));
+    this.resolveExtensionRegistry =
+      dependencies.resolveExtensionRegistry ??
+      ((server) => createDefaultMcpExtensionRegistry(server));
     this.onInternalError =
       dependencies.onInternalError ??
       ((code, cause) => logger.error('MCP host runtime failure', { cause, code }));
@@ -458,7 +506,7 @@ export class DesktopMcpHostRuntime {
           factory: (context) =>
             dependencies.createActorClient
               ? this.createActorClient(server, context)
-              : this.createExplicitActorClient(server, context, updateAuth),
+              : this.createExplicitActorClient(server, context, updateAuth, entry.configRef),
           generation: input.generation,
           onAuthorityRetired: () =>
             this.elicitationPresenter.retireServer(
@@ -481,10 +529,19 @@ export class DesktopMcpHostRuntime {
           .snapshot()
           .servers.find((server) => server.configuredServerId === configuredServerId),
     });
+    this.taskHost =
+      dependencies.taskHost ??
+      new McpDesktopTaskHost({
+        elicitationPresenter: this.elicitationPresenter,
+        onInternalError: (code, cause) => this.reportInternalError(code, cause),
+        openDatabase: createDefaultTaskDatabaseOpener(),
+      });
     this.host = {
-      close: () => {
+      close: async () => {
         this.elicitationPresenter.close();
-        return this.service.close();
+        const report = await this.service.close();
+        await this.taskHost.close();
+        return report;
       },
       control: (request) =>
         Promise.resolve().then(() => this.service.control(parseMcpHostControlRequest(request))),
@@ -508,13 +565,33 @@ export class DesktopMcpHostRuntime {
   replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
     const snapshot = structuredClone(config);
     return this.enqueueReplacement(async () => {
+      // Preparation (auth projection) can reject; nothing is retired until it
+      // succeeds, so a rejected replacement leaves the old actor AND its
+      // Tasks session exactly as they were.
+      const staged = await this.stageResolvedConfig(snapshot);
+      const retirements: Promise<void>[] = [];
       for (const [configuredServerId, current] of this.currentById) {
         const next = snapshot.servers.find(({ name }) => name === configuredServerId);
         if (!(next && isDeepStrictEqual(current.server, next))) {
           this.retirePresentations(configuredServerId);
         }
+        // Task authority epochs retire only when the private definition
+        // changes or the server disappears; an enabledTools-only reload is a
+        // reconnect that rebinds the live epoch. Each server's session is
+        // independent, so retirements run concurrently.
+        if (!next) {
+          retirements.push(this.taskHost.retired(configuredServerId, 'server-removed'));
+        } else if (!samePrivateConfig(current.server, next)) {
+          retirements.push(this.taskHost.retired(configuredServerId, 'server-replaced'));
+        }
       }
-      return await this.applyResolvedConfig(snapshot);
+      const retirementFailures = (await Promise.allSettled(retirements)).flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (retirementFailures.length > 0) {
+        throw new AggregateError(retirementFailures, 'MCP Tasks epoch retirement failed');
+      }
+      return await this.commitResolvedConfig(staged);
     });
   }
 
@@ -540,8 +617,8 @@ export class DesktopMcpHostRuntime {
     return replacement;
   }
 
-  private async applyResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
-    const previousEntries = [...this.currentById.values()];
+  /** Projects auth for every server; rejects before any live state changes. */
+  private async stageResolvedConfig(config: ResolvedMcpConfig): Promise<StagedResolvedConfig> {
     const nextById = new Map<ConfiguredMcpServerId, PrivateConfigEntry>();
     const nextByRef = new Map<string, PrivateConfigEntry>();
     const servers = await Promise.all(
@@ -570,6 +647,15 @@ export class DesktopMcpHostRuntime {
         };
       })
     );
+    return { nextById, nextByRef, servers };
+  }
+
+  private async commitResolvedConfig({
+    nextById,
+    nextByRef,
+    servers,
+  }: StagedResolvedConfig): Promise<McpHostSnapshot> {
+    const previousEntries = [...this.currentById.values()];
     this.stagedByRef = nextByRef;
     try {
       const snapshot = await this.service.replaceConfig({ servers });
@@ -685,16 +771,105 @@ export class DesktopMcpHostRuntime {
   private async createExplicitActorClient(
     server: ResolvedMcpServer,
     context: ActorContext,
-    updateAuth: (auth: McpHostAuthSnapshot) => void = () => undefined
+    updateAuth: (auth: McpHostAuthSnapshot) => void = () => undefined,
+    configRef?: string
   ): Promise<McpServerActorClient> {
+    const extensionRegistry = this.resolveExtensionRegistry(server, context);
+    const actorClient = await this.createTransportActorClient(
+      server,
+      context,
+      updateAuth,
+      extensionRegistry
+    );
+    if (!extensionRegistry) {
+      return actorClient;
+    }
+    if (configRef === undefined) {
+      throw new Error(`MCP server "${server.name}" connected without a private configuration ref.`);
+    }
+    return await this.bindTaskHost(actorClient, {
+      client: requireTaskConnectionClient(actorClient.transportClient, server),
+      configRef,
+      configuredServerId: context.configuredServerId,
+      generation: context.generation,
+      registry: extensionRegistry,
+      server,
+    });
+  }
+
+  /**
+   * Hands a negotiated connection to the task authorities; the actor client
+   * closes the task session before the transport so no poller outlives it.
+   */
+  private async bindTaskHost(
+    actorClient: TransportActorClient,
+    connection: McpTaskConnection
+  ): Promise<McpServerActorClient> {
+    const observer: McpTaskConnectionObserver = this.taskHost;
+    try {
+      await observer.connected(connection);
+    } catch (cause) {
+      try {
+        await actorClient.close();
+      } catch (cleanupCause) {
+        throw new McpServerActorClientCleanupError(
+          [cause, cleanupCause],
+          'MCP Tasks session failed to open and client cleanup also failed'
+        );
+      }
+      throw cause;
+    }
+    const { transportClient: _transportClient, ...client } = actorClient;
+    return {
+      ...client,
+      async close() {
+        const failures: unknown[] = [];
+        try {
+          await observer.disconnected(connection.configuredServerId, connection.generation);
+        } catch (cause) {
+          failures.push(cause);
+        }
+        let report: McpHostCloseReport;
+        try {
+          report = await actorClient.close();
+        } catch (cause) {
+          failures.push(cause);
+          if (failures.length > 1) {
+            throw new AggregateError(failures, 'Closing MCP Tasks session and client failed');
+          }
+          throw cause;
+        }
+        if (failures.length > 0) {
+          throw failures[0];
+        }
+        return report;
+      },
+    };
+  }
+
+  private commonClientOptions(
+    server: ResolvedMcpServer,
+    context: ActorContext,
+    extensionRegistry: McpClientExtensionRegistry | undefined
+  ) {
     const clientCapabilities = this.resolveClientCapabilities(server);
-    const common = {
+    return {
       cachePartition: `${server.name}:${context.generation}`,
       clientInfo: { name: `brainstrike-desktop-${server.name}`, version: '0.1.0' },
       ...(clientCapabilities ? { clientCapabilities } : {}),
+      ...(extensionRegistry ? { extensionRegistry } : {}),
       name: server.name,
       protocol: server.protocol,
     };
+  }
+
+  private async createTransportActorClient(
+    server: ResolvedMcpServer,
+    context: ActorContext,
+    updateAuth: (auth: McpHostAuthSnapshot) => void,
+    extensionRegistry: McpClientExtensionRegistry | undefined
+  ): Promise<TransportActorClient> {
+    const common = this.commonClientOptions(server, context, extensionRegistry);
     const diagnostics =
       server.transport === 'stdio'
         ? new McpStdioDiagnosticCollector((diagnostic) => {
@@ -724,6 +899,7 @@ export class DesktopMcpHostRuntime {
         server,
         context,
         (code, cause) => this.reportInternalError(code, cause),
+        extensionRegistry,
         diagnostics
       );
     }
@@ -783,6 +959,7 @@ export class DesktopMcpHostRuntime {
       server,
       context,
       (code, cause) => this.reportInternalError(code, cause),
+      extensionRegistry,
       undefined,
       provider,
       provider

@@ -8,12 +8,6 @@ export {
   parseMcpAppsClientCapability,
 } from './capabilities.js';
 export {
-  installMcpAppElectronSandboxPolicy,
-  McpAppElectronSandboxInstallationError,
-  type McpAppElectronSandboxLease,
-  requireMcpAppSandboxPartition,
-} from './electron-sandbox.js';
-export {
   type McpAppFrameBinding,
   McpAppFrameBridge,
   type McpAppFrameBridgeOptions,
@@ -62,8 +56,11 @@ export {
   type McpAppSandboxMount,
   McpAppSandboxOwner,
   type McpAppSandboxPolicy,
-  type McpAppSandboxUrlApi,
+  type McpAppSandboxShellDocument,
+  type McpAppSandboxShellHost,
+  type McpAppSandboxShellLease,
   renderMcpAppResourceDocument,
+  renderMcpAppSandboxShell,
   renderMcpAppSandboxShellDocument,
 } from './sandbox.js';
 export {

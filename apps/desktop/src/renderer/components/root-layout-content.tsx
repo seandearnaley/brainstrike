@@ -22,9 +22,12 @@ import {
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
+import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
+import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
+import { McpAppBridgeProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/panel`) so the startup check does not defeat the lazy code-split in
 // `@brainstrike/app-shell/notes-page-content`.
@@ -32,6 +35,8 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { GitBranch, Globe, NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
+import { resolveMcpAppBridge } from '../mcp-app-bridge';
+import { resolveMcpTaskBridge } from '../mcp-task-bridge';
 // Task A's changes-page-content.tsx exports this by name (not default,
 // unlike its git/context-explorer/terminal siblings) — imported as written.
 import { ChangesPageContent } from './changes-page-content';
@@ -68,6 +73,9 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = usePGliteDatabase();
   return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
 }
+
+/** Stable identity: the provider value must not change between renders. */
+const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 
 /**
  * Desktop app root layout component.
@@ -114,6 +122,14 @@ export default function RootLayoutContent() {
   // Capability gate: only surface the Browser tab when the desktop
   // `window.browser` bridge is present (no isElectron check). Resolved once.
   const browserAvailable = useMemo(() => isBrowserBridgeAvailable(), []);
+  // Capability port (BST-1566): live MCP task status for the thread's task
+  // cards comes from `window.mcp.tasks` when the preload exposes it; `null`
+  // keeps the cards on their persisted snapshot with a visible note. Resolved once.
+  const mcpTaskBridge = useMemo(() => resolveMcpTaskBridge(), []);
+  // Capability port (BST-1572): MCP Apps hosting comes from `window.mcp.apps`
+  // when the visible-UI preload exposes it; `null` keeps app tool results on
+  // the ordinary tool card with a visible note. Resolved once.
+  const mcpAppBridge = useMemo(() => resolveMcpAppBridge(), []);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
     const items = [...navigationItems];
     if (notesAvailable) {
@@ -344,7 +360,13 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
-      <RootLayout {...sharedProps} />
+      <McpTaskBridgeProvider bridge={mcpTaskBridge}>
+        <McpAppBridgeProvider bridge={mcpAppBridge}>
+          <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
+            <RootLayout {...sharedProps} />
+          </ToolResultRendererProvider>
+        </McpAppBridgeProvider>
+      </McpTaskBridgeProvider>
     </TokenCacheWrapper>
   );
 }

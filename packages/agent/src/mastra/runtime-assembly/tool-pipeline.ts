@@ -28,6 +28,7 @@ import {
   resolveAssistantResilienceConfig,
 } from '../../config/resilience-config';
 import type { McpConfig } from '../../mcp/config';
+import type { McpTaskTrackingCapability } from '../../mcp/task-tracking';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { applyProviderNativeWebSearch } from '../../providers/native-web-search';
 import type { ProviderAuthInput } from '../../providers/provider-auth-input';
@@ -410,6 +411,8 @@ export interface RuntimeToolMapParams {
   localTools: ToolsInput | undefined;
   mcpConfig: McpConfig | undefined;
   mcpHost: McpHostPort | undefined;
+  /** Host-owned MCP Tasks tracking; absent makes a task result a hard error. */
+  mcpTaskTracking: McpTaskTrackingCapability | undefined;
   mcpTimeoutMs: number | undefined;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
   planModeActive: boolean;
@@ -445,9 +448,18 @@ export interface RuntimeToolMapResult {
 export async function composeRuntimeToolMap(
   params: RuntimeToolMapParams
 ): Promise<RuntimeToolMapResult> {
+  // Resolved first: the MCP task settlement wait is capped under the same
+  // guard ceiling applyToolGuards enforces below.
+  const resilienceConfig = resolveAssistantResilienceConfig();
   const mcpClient = await createMcpRuntimeClient({
     config: params.mcpConfig,
     ...(params.mcpHost ? { host: params.mcpHost } : {}),
+    ...(params.mcpTaskTracking
+      ? {
+          mcpTaskTracking: params.mcpTaskTracking,
+          toolTimeoutMs: resilienceConfig.toolTimeoutMs,
+        }
+      : {}),
   });
 
   // Agent Skills (desktop-injected engine): fold Mastra's canonical
@@ -477,7 +489,6 @@ export async function composeRuntimeToolMap(
     timeoutOverrideMs: params.mcpTimeoutMs,
     toolNameMap,
   });
-  const resilienceConfig = resolveAssistantResilienceConfig();
   // Intentional global guard: every native and MCP tool execution shares this
   // ceiling so a single slow tool cannot freeze the assistant stream.
   // Per-runtime, which is per request. The guard is the only layer that sees

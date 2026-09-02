@@ -10,6 +10,15 @@ type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRe
 type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
 type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
+type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
+type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
+type McpAppShellPrepareRequest =
+  import('@brainstrike/assistant-contract').McpAppShellPrepareRequest;
+type McpAppShellReleaseRequest =
+  import('@brainstrike/assistant-contract').McpAppShellReleaseRequest;
+type McpAppPrepareRequest = import('@brainstrike/assistant-contract').McpAppPrepareRequest;
+type McpAppExecuteRequest = import('@brainstrike/assistant-contract').McpAppExecuteRequest;
+type McpAppReleaseRequest = import('@brainstrike/assistant-contract').McpAppReleaseRequest;
 type McpHostControlRequest = import('@brainstrike/assistant-contract').McpHostControlRequest;
 type McpElicitationPresentationWire =
   import('@brainstrike/assistant-contract').McpElicitationPresentationWire;
@@ -17,6 +26,12 @@ type McpElicitationRetiredWire =
   import('@brainstrike/assistant-contract').McpElicitationRetiredWire;
 type McpElicitationSettlement = import('@brainstrike/assistant-contract').McpElicitationSettlement;
 type McpHostWatchEvent = import('@brainstrike/assistant-contract').McpHostWatchEvent;
+type McpTaskActionRequest = import('@brainstrike/assistant-contract').McpTaskActionRequest;
+type McpTaskActionResult = import('@brainstrike/assistant-contract').McpTaskActionResult;
+type McpTaskBridge = import('@brainstrike/assistant-contract').McpTaskBridge;
+type McpTaskListResult = import('@brainstrike/assistant-contract').McpTaskListResult;
+type McpTaskStatusChangedEvent =
+  import('@brainstrike/assistant-contract').McpTaskStatusChangedEvent;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -278,6 +293,9 @@ const MCP_CONFIG_CREATE_SAMPLE_CHANNEL = 'mcp:config:createSample' as const;
 const MCP_ELICITATION_REQUESTED_EVENT = 'mcp:elicitation:requested' as const;
 const MCP_ELICITATION_RETIRED_EVENT = 'mcp:elicitation:retired' as const;
 const MCP_ELICITATION_SETTLE_CHANNEL = 'mcp:elicitation:settle' as const;
+const MCP_TASK_ACT_CHANNEL = 'mcp:task:act' as const;
+const MCP_TASK_LIST_CHANNEL = 'mcp:task:list' as const;
+const MCP_TASK_STATUS_CHANGED_EVENT = 'mcp:task:status-changed' as const;
 const MCP_TOOLS_LIST_CHANNEL = 'mcp:tools:list' as const;
 const MCP_TOOLS_ENABLE_CHANNEL = 'mcp:tools:enable' as const;
 const MCP_TOOLS_DISABLE_CHANNEL = 'mcp:tools:disable' as const;
@@ -288,6 +306,11 @@ const MCP_TOOLS_GET_STATS_CHANNEL = 'mcp:tools:getStats' as const;
 const MCP_CONTENT_COMPLETE_CHANNEL = 'mcp:content:complete' as const;
 const MCP_CONTENT_GET_PROMPT_CHANNEL = 'mcp:content:getPrompt' as const;
 const MCP_CONTENT_READ_RESOURCE_CHANNEL = 'mcp:content:readResource' as const;
+const MCP_APPS_PREPARE_CHANNEL = 'mcp:apps:prepare' as const;
+const MCP_APPS_EXECUTE_CHANNEL = 'mcp:apps:execute' as const;
+const MCP_APPS_RELEASE_CHANNEL = 'mcp:apps:release' as const;
+const MCP_APPS_PREPARE_SHELL_CHANNEL = 'mcp:apps:prepareShell' as const;
+const MCP_APPS_RELEASE_SHELL_CHANNEL = 'mcp:apps:releaseShell' as const;
 /**
  * `mcp:content:*` failures travel as a result envelope (a thrown Error would
  * reach the renderer as Electron's formatted string, main-process stack
@@ -304,6 +327,35 @@ const unwrapMcpContent = async (
     new Error(`${settled.error.message} (${settled.error.category} · ${settled.error.code})`),
     { category: settled.error.category, code: settled.error.code }
   );
+};
+
+const readMcpAppResource = async (origin: McpAppOrigin): Promise<string> => {
+  const snapshot = (await ipcRenderer.invoke(MCP_STATUS_GET_CHANNEL)) as McpHostSnapshot;
+  const server = snapshot.servers.find(
+    ({ configuredServerId }) => configuredServerId === origin.serverId
+  );
+  if (!server) {
+    throw new Error(`MCP Apps server "${origin.serverId}" has no live content authority`);
+  }
+  const response = await unwrapMcpContent(
+    ipcRenderer.invoke(MCP_CONTENT_READ_RESOURCE_CHANNEL, {
+      authority: { configuredServerId: origin.serverId, generation: server.generation },
+      uri: origin.resourceUri,
+    })
+  );
+  if (response.type !== 'resources/read') {
+    throw new Error('MCP Apps resource read returned an unexpected operation type');
+  }
+  const content = response.result.contents.find(({ uri }) => uri === origin.resourceUri);
+  if (!(content && 'text' in content) || typeof content.text !== 'string') {
+    throw new Error(`MCP Apps resource "${origin.resourceUri}" has no text content`);
+  }
+  if (content.mimeType !== origin.mimeType) {
+    throw new Error(
+      `MCP Apps resource "${origin.resourceUri}" MIME type must be "${origin.mimeType}"`
+    );
+  }
+  return content.text;
 };
 const LLM_HOST_STATUS_EVENT = 'llm-host:status' as const;
 const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
@@ -860,6 +912,19 @@ contextBridge.exposeInMainWorld('agent', {
 
 // MCP Config API (desktop-only)
 contextBridge.exposeInMainWorld('mcp', {
+  apps: {
+    execute: (request: McpAppExecuteRequest) =>
+      ipcRenderer.invoke(MCP_APPS_EXECUTE_CHANNEL, request),
+    prepare: (request: McpAppPrepareRequest) =>
+      ipcRenderer.invoke(MCP_APPS_PREPARE_CHANNEL, request),
+    prepareShell: (request: McpAppShellPrepareRequest) =>
+      ipcRenderer.invoke(MCP_APPS_PREPARE_SHELL_CHANNEL, request),
+    readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
+    release: (request: McpAppReleaseRequest) =>
+      ipcRenderer.invoke(MCP_APPS_RELEASE_CHANNEL, request),
+    releaseShell: (request: McpAppShellReleaseRequest) =>
+      ipcRenderer.invoke(MCP_APPS_RELEASE_SHELL_CHANNEL, request),
+  } satisfies McpAppBridge,
   complete: (request: unknown) =>
     unwrapMcpContent(ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request)),
   controlServer: (request: McpHostControlRequest) =>
@@ -952,6 +1017,19 @@ contextBridge.exposeInMainWorld('mcp', {
     ipcRenderer.invoke(MCP_CONFIG_SET_PATH_CHANNEL, configPath),
   settleElicitation: (settlement: McpElicitationSettlement) =>
     ipcRenderer.invoke(MCP_ELICITATION_SETTLE_CHANNEL, settlement),
+  // Durable MCP Tasks (BST-1566): visible UI only; hidden hosts never receive it.
+  tasks: {
+    act: (request: McpTaskActionRequest): Promise<McpTaskActionResult> =>
+      ipcRenderer.invoke(MCP_TASK_ACT_CHANNEL, request),
+    list: (): Promise<McpTaskListResult> => ipcRenderer.invoke(MCP_TASK_LIST_CHANNEL),
+    onStatusChanged: (callback: (event: McpTaskStatusChangedEvent) => void) => {
+      const listener = (_event: unknown, event: McpTaskStatusChangedEvent) => callback(event);
+      ipcRenderer.on(MCP_TASK_STATUS_CHANGED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(MCP_TASK_STATUS_CHANGED_EVENT, listener);
+      };
+    },
+  } satisfies McpTaskBridge,
   unwatch: () => ipcRenderer.invoke(MCP_CONFIG_UNWATCH_CHANNEL),
   watch: () => ipcRenderer.invoke(MCP_CONFIG_WATCH_CHANNEL),
   writeConfigText: (content: string) => ipcRenderer.invoke(MCP_CONFIG_WRITE_TEXT_CHANNEL, content),

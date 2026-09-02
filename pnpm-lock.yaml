@@ -471,6 +471,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../../packages/logging
+      '@brainstrike/mcp-app-host':
+        specifier: workspace:*
+        version: link:../../packages/mcp-app-host
       '@brainstrike/mcp-app-host-ui':
         specifier: workspace:*
         version: link:../../packages/mcp-app-host-ui
@@ -2650,6 +2653,15 @@ importers:
 
   packages/mcp-app-host-ui:
     dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
+      '@brainstrike/assistant-ui':
+        specifier: workspace:*
+        version: link:../assistant-ui
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/mcp-app-host':
         specifier: workspace:*
         version: link:../mcp-app-host

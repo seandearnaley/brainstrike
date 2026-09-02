@@ -13,6 +13,7 @@ import {
   resolveDesktopRendererLaunchMode,
 } from './desktop-launch-mode';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
+import { shouldDenyMcpAppFrameNavigation } from './mcp/apps-frame-navigation';
 import type { DesktopWindowState } from './store-schema';
 import { assignWindowRole, getWindowRole } from './window-role';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
@@ -63,6 +64,31 @@ function configureSecurity(win: BrowserWindow) {
     }
     event.preventDefault();
   });
+
+  // `will-navigate` is main-frame only. The MCP App sandbox shell and its
+  // srcdoc app frame are fenced here (BST-1572): see apps-frame-navigation.ts.
+  win.webContents.on(
+    'will-frame-navigate',
+    (details: Electron.Event<Electron.WebContentsWillFrameNavigateEventParams>) => {
+      // `frame` is null only for a frame Electron already disposed; such a
+      // navigation cannot belong to a live sandbox shell or app frame.
+      const frameUrl = details.frame?.url ?? '';
+      if (
+        shouldDenyMcpAppFrameNavigation({
+          frameUrl,
+          isMainFrame: details.isMainFrame,
+          parentUrl: details.frame?.parent?.url,
+          targetUrl: details.url,
+        })
+      ) {
+        startupLogger.warn(
+          { frameUrl, targetUrl: details.url },
+          'Denied MCP App sandbox frame navigation'
+        );
+        details.preventDefault();
+      }
+    }
+  );
 
   // CSP handled elsewhere
 }

@@ -286,6 +286,63 @@ describe('McpTaskLifecycle', () => {
     });
   });
 
+  it('recovers idempotently: an already-tracked active task is reused, only untracked ones start', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(createdTask.createdAt));
+    db = await openDatabase();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const polled: string[] = [];
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: {
+        requestExtension: vi.fn(async (_contract, params): Promise<GetTaskResult> => {
+          const taskId = String((params as { taskId: string }).taskId);
+          polled.push(taskId);
+          return completedTask(taskId, '2026-09-01T04:00:00.100Z');
+        }),
+      },
+      onUpdate: vi.fn(),
+      repository,
+    });
+    // One task is live in this lifecycle; a second active row exists durably
+    // but has no poller here (e.g. its earlier poll failed, or another runtime wrote it).
+    const live = await lifecycle.track(createdTask);
+    const orphan = await repository.create(
+      {
+        ...taskIdentity(authority, 'task-orphan'),
+        inputMetadata: {
+          lifecycle: {
+            createdAt: createdTask.createdAt,
+            lastUpdatedAt: createdTask.lastUpdatedAt,
+            pollIntervalMs: createdTask.pollIntervalMs,
+            ttlMs: createdTask.ttlMs,
+          },
+        },
+        status: 'working',
+      },
+      authority
+    );
+    expect(lifecycle.snapshot().activeTasks).toBe(1);
+
+    const recovered = await lifecycle.recover();
+
+    expect(recovered.map((tracked) => tracked.record.taskId).sort()).toEqual(
+      [createdTask.taskId, orphan.taskId].sort()
+    );
+    const reused = recovered.find((tracked) => tracked.record.taskId === createdTask.taskId);
+    expect(reused?.settled).toBe(live.settled);
+    expect(lifecycle.snapshot().activeTasks).toBe(2);
+    await vi.advanceTimersByTimeAsync(createdTask.pollIntervalMs);
+    await expect(live.settled).resolves.toMatchObject({ status: 'completed' });
+    const orphanTracked = recovered.find((tracked) => tracked.record.taskId === orphan.taskId);
+    await expect(orphanTracked?.settled).resolves.toMatchObject({ status: 'completed' });
+    // Exactly one poller per task: the live task was polled once, not twice.
+    expect(polled.filter((taskId) => taskId === createdTask.taskId)).toHaveLength(1);
+    expect(polled.filter((taskId) => taskId === orphan.taskId)).toHaveLength(1);
+    expect(lifecycle.snapshot().activeTasks).toBe(0);
+  });
+
   it('bounds concurrent polls and honors a changed server polling cadence', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(createdTask.createdAt));

@@ -41,6 +41,47 @@ describe('agent-runtime edge cases', () => {
       expect(runtime.agent).toBeDefined();
       await runtime.dispose();
     });
+
+    it('registers no Apps admission for a run whose tool map has no app-capable tool', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+      const register = vi.fn(() => vi.fn());
+      const runtime = await createMastraAgentRuntime({
+        mcpAppAdmission: { register },
+        mcpHost,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+
+      expect(runtime.mcpAppToolAdmission.appCapableToolCount).toBe(0);
+      expect(register).not.toHaveBeenCalled();
+      await runtime.dispose();
+    });
+
+    it('publishes Apps admission for the exact runtime lifetime when an app tool exists', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+      setMcpToolsets({
+        ...AGENT_RUNTIME_MCP_TOOLSETS,
+        apps: {
+          show_board: {
+            _meta: { ui: { resourceUri: 'ui://apps/board' } },
+            description: 'mounts an app',
+            id: 'show_board',
+          },
+        },
+      });
+      const invalidate = vi.fn();
+      const register = vi.fn(() => invalidate);
+      const runtime = await createMastraAgentRuntime({
+        mcpAppAdmission: { register },
+        mcpHost,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+
+      expect(runtime.mcpAppToolAdmission.appCapableToolCount).toBe(1);
+      expect(register).toHaveBeenCalledWith(runtime.mcpAppToolAdmission);
+      expect(invalidate).not.toHaveBeenCalled();
+      await runtime.dispose();
+      expect(invalidate).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('resolved/authInput overlap guard (BST-1352 review finding 7)', () => {

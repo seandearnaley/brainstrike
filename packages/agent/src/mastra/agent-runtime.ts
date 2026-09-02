@@ -8,6 +8,7 @@ import type { MastraMemory } from '@mastra/core/memory';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
+import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import {
@@ -71,9 +72,18 @@ export interface MastraAgentRuntimeOptions {
   /** @internal Rehydrate context-backed deferred tools before a fresh resume runtime executes. */
   hydrateToolDiscoveryFromMemory?: boolean;
   instructions?: string;
+  /** Live-run observer for the Apps ordinary-tool admission capability. */
+  mcpAppAdmission?: McpAppAdmissionObserver;
   mcpConfig?: McpConfig;
   /** Host-owned MCP authority. Runtime disposal releases only its adapter lease. */
   mcpHost?: McpHostPort;
+  /**
+   * Trusted host capability that owns MCP Tasks (BST-1566): a task-creating
+   * tool result is tracked by it and the tool settles on the bounded task
+   * presentation. Absent (web, no host) keeps every MCP call synchronous and a
+   * task result becomes a hard error rather than an untracked task.
+   */
+  mcpTaskTracking?: McpTaskTrackingCapability;
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
   memory?: MastraMemory;
@@ -116,6 +126,10 @@ export interface MastraAgentRuntimeOptions {
    */
   toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
   tools?: ToolsInput;
+}
+
+export interface McpAppAdmissionObserver {
+  register(admission: McpAppToolAdmissionCapability): () => void;
 }
 
 export interface MastraAgentRuntime {
@@ -374,6 +388,21 @@ function createPersistedDiscoveryMessageLoader(params: {
   };
 }
 
+/**
+ * An app-free run can never mount an app: registering it would only detach
+ * into a host watch on disposal and supersede the thread's still-mounted app
+ * admission for nothing.
+ */
+function registerAppCapableAdmission(
+  registry: MastraAgentRuntimeOptions['mcpAppAdmission'],
+  admission: McpAppToolAdmissionCapability
+): (() => void) | undefined {
+  if (admission.appCapableToolCount === 0) {
+    return;
+  }
+  return registry?.register(admission);
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -384,6 +413,8 @@ export async function createMastraAgentRuntime(
     model,
     mcpConfig,
     mcpHost,
+    mcpAppAdmission,
+    mcpTaskTracking,
     tools: localTools,
     mcpTimeoutMs,
     permissionPolicy,
@@ -474,6 +505,7 @@ export async function createMastraAgentRuntime(
     localTools,
     mcpConfig: resolvedMcpConfig,
     mcpHost,
+    mcpTaskTracking,
     mcpTimeoutMs,
     permissionSnapshot,
     planModeActive,
@@ -627,6 +659,10 @@ export async function createMastraAgentRuntime(
     storage,
     runtime?.assistantMessageId
   );
+  const invalidateMcpAppAdmission = registerAppCapableAdmission(
+    mcpAppAdmission,
+    mcpAppToolAdmission
+  );
 
   return {
     agent,
@@ -634,6 +670,7 @@ export async function createMastraAgentRuntime(
     askTools,
     delegationToolPersonas,
     dispose: async () => {
+      invalidateMcpAppAdmission?.();
       await mastra?.shutdown();
       await mcpClient?.disconnect();
     },

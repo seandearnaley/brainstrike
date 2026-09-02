@@ -734,8 +734,124 @@ focused alert; successful actions move focus to the live status summary, which
 is a polite status region. The identity is never rendered, the transition list
 is already bounded by the contract, and unexpected authority errors use fixed
 copy rather than exposing paths or credentials. The component is exported for
-opt-in composition only; production Tasks registration and advertisement remain
-disabled.
+opt-in composition only; host registration and advertisement of Tasks are
+governed by `docs/agents/assistant-providers.md`.
+
+### TOOL-PATH WIRING (BST-1566)
+
+The agent runtime's MCP tool path is production-wired for a created task
+(`packages/agent/src/mastra/mcp-task-tool-result.ts`, consumed by
+`executeMcpTool` in `mcp-runtime-client.ts`):
+
+- **Capability, not environment.** `MastraAgentRuntimeOptions.mcpTaskTracking?:
+  McpTaskTrackingCapability` (the port in `packages/agent/src/mcp/task-tracking.ts`)
+  is threaded exactly like `toolOutputArtifactStore`: runtime option →
+  `composeRuntimeToolMap` → `createMcpRuntimeClient({ mcpTaskTracking,
+  toolTimeoutMs })`, and it survives `toAiSdkStyleStream`'s `optionsOverride`
+  Pick. Only a trusted host composes it; web and host-less runs leave it absent
+  and every MCP call stays synchronous.
+- **Detection covers both wire shapes.** A `tools/call` answer is a created task
+  when it is the bare `resultType: 'task'` result OR the client extension
+  registry's neutral envelope `{ [REGISTERED_EXTENSION_RESULT_KEY]: task,
+  content: [], resultType: 'complete' }` (`readRegisteredExtensionResult` is the
+  inverse of `rewriteIncomingMessage`; never re-implement the unwrap). Both are
+  parsed with `parseMcpCreateTaskResult` — a malformed task throws, it is never
+  coerced into an ordinary result. Detection runs before the raw-result
+  retention and `isError` branches: a task has no content to retain.
+- **NO SILENT FALLBACK.** A task result on a runtime without `mcpTaskTracking`
+  throws `MCP tool "<server>.<tool>" returned a task but this host has no task
+  tracking capability`. The task is never dropped, never returned as raw state.
+- **Identity.** `track()` receives `configuredServerId = server.name`, which IS
+  the host authority snapshot's `configuredServerId` (mapped verbatim in
+  `createMcpRuntimeClient`) and therefore matches `McpTaskHandle.serverId` on
+  the desktop host; `toolName` is the unprefixed MCP tool name.
+- **App-originated calls return the wire task.** When the Apps admission
+  executor marked the call for raw retention (`shouldRetainRawMcpCallToolResult`),
+  the tool still hands the task to `track()` so the host owns it, then returns
+  the canonical `CreateTaskResult` unchanged WITHOUT awaiting settlement: the
+  MCP App client expects that result and its frame bridge aborts inbound
+  requests after 10 s, far under the settlement wait. This branch runs before
+  the ordinary settlement branch; a tracking-less host still throws.
+- **Bounded settlement.** After `track()` the tool awaits
+  `awaitSettlement(handle, { timeoutMs, signal })` with
+  `timeoutMs = min(45_000, floor(0.75 × toolTimeoutMs))`
+  (`MCP_TASK_SETTLEMENT_WAIT_MS`, `resolveMcpTaskSettlementTimeoutMs`). The
+  guard's ceiling (`BRAINSTRIKE_TOOL_TIMEOUT_MS`, default 60s) is not observable
+  from inside `execute`, so the wait is capped under the ceiling that
+  `applyToolGuards` enforces; the remaining quarter covers the `tools/call`
+  round trip and `track()` so the guard can never report a timed-out tool for a
+  task that is tracked and healthy. A ceiling too small to hold any wait throws
+  at runtime construction. Timeout is not an error: the capability resolves
+  `{ settled: false, reason: 'timeout', task }` and the tool returns the live
+  presentation the status card keeps updating.
+- **Persisted marker vs model projection.** The tool's RAW domain result (what
+  persists on the tool invocation, and what the live display/transcript
+  transforms pass through unchanged) is
+  `createMcpTaskToolInvocationResult(presentation)` from
+  `@brainstrike/assistant-contract` (`{ kind: 'mcp-task', task }`). The
+  MODEL-visible output goes through the existing `toModelOutput` seam:
+  tracking-capable runtimes give every MCP tool `projectMcpTaskToolModelOutput`,
+  which returns `{ type: 'json', value: projectMcpTaskForContext(task) }` for the
+  marker and `undefined` for every other result (the pipeline then applies its
+  generic projection, so non-task MCP results are unchanged). The projection
+  never carries the control handle or raw task state and is bounded by
+  `MCP_TASK_CONTEXT_MAX_BYTES` (2,048), tightened to the run's
+  `domainModelResultCharBudget` via `getActiveToolResultBudget()` so the
+  smallest scaled budget cannot trip the domain-projection RangeError.
+
+Tests: `packages/agent/src/__tests__/mcp-task-tool-result.spec.ts` (detection
+both shapes, malformed rejection, timeout resolution, absent-capability throw,
+settled/timeout flows, projection bound at the smallest budget) and the "MCP
+task results" block in `mcp-runtime-client.spec.ts` (end-to-end through the
+runtime tool, `track` identity, persisted marker, model projection).
+
+### TOOL-PATH WIRING (BST-1572)
+
+The ordinary model-initiated MCP tool path now persists the renderer-owned Apps
+mount marker when the executing tool definition advertises
+`_meta.ui.resourceUri` (`packages/agent/src/mastra/mcp-app-tool-result.ts`,
+consumed by `executeMcpTool` in `mcp-runtime-client.ts`):
+
+- **Strict definition detection.** A definition with no own `_meta.ui` member
+  is an ordinary MCP tool and is unchanged. A present `_meta.ui` is parsed by
+  `parseMcpAppToolMeta` from `@brainstrike/mcp-app-host` before `tools/call`;
+  invalid keys, shapes, visibility, size, or a non-`ui://` resource URI throw
+  visibly before the remote tool can execute. A valid `ui` object without
+  `resourceUri` remains an ordinary result.
+- **Ordinary calls only.** The Apps admission executor marks its authority-owned
+  abort signal with `retainRawMcpCallToolResult`; that early return remains
+  before Apps marker construction and preserves the complete `CallToolResult`
+  for preview/authority execution. The marker is built only on the ordinary
+  model-initiated path.
+- **Ordering and ordinary result.** Created Tasks first settle to their existing
+  task marker (except app-originated raw-retention calls, which return the
+  CreateTaskResult after `track()` — see the BST-1566 section). For non-task calls the raw successful `CallToolResult` is kept
+  when there is no `structuredContent` or when media is present; otherwise the
+  existing `structuredContent` value is used. Canonical `isError: true` throws
+  before any Apps marker exists. The selected value is exactly the result this
+  path returned before BST-1572.
+- **Persisted marker and identity.** `createMcpAppToolResult` calls
+  `createMcpAppToolInvocationResult` with `serverId = server.name` (the
+  configured server id), the unprefixed MCP `toolName`, the strict `ui://`
+  `resourceUri`, and `mimeType: 'text/html;profile=mcp-app'`. The raw domain
+  result is `{ kind: 'mcp-app', app: { mimeType, resourceUri, serverId,
+  toolName }, result: ordinaryResult }`. Existing hook display/transcript
+  transforms and bounded artifact settlement preserve this small raw domain
+  marker exactly as they do the sibling Tasks marker.
+- **Model projection.** Apps metadata never reaches the model.
+  `projectMcpAppOrTaskToolModelOutput` composes the Tasks projector with the
+  Apps marker reader. The central `toModelOutput` seam unwraps `result` before
+  the custom projector and before generic fallback, so a nested task keeps its
+  bounded task projection and every other Apps result receives exactly the
+  generic projection its `ordinaryResult` would have received without the
+  marker. Definitions with neither Tasks capability nor `_meta.ui` retain no
+  custom projector.
+
+Tests: the "MCP Apps tool results" block in
+`packages/agent/src/__tests__/mcp-runtime-client.spec.ts` pins both ordinary
+result shapes, strict metadata failure, unchanged non-Apps tools, `isError`
+ordering, persisted marker identity, and marker-free model projection;
+`mcp-app-tool-call.spec.ts` pins the unchanged admission executor path.
 
 ### ATTEMPTS VS TURNS (BST-1409)
 

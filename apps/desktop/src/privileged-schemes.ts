@@ -11,8 +11,13 @@
 import { protocol } from 'electron';
 import { ASSET_PROTOCOL_PRIVILEGE } from './asset-protocol';
 import { CANVAS_PROTOCOL_PRIVILEGE } from './canvas-protocol';
+import { MCP_APP_SHELL_PROTOCOL_PRIVILEGE } from './mcp/apps-shell-protocol';
 
-export const PRIVILEGED_SCHEMES = [ASSET_PROTOCOL_PRIVILEGE, CANVAS_PROTOCOL_PRIVILEGE];
+export const PRIVILEGED_SCHEMES = [
+  ASSET_PROTOCOL_PRIVILEGE,
+  CANVAS_PROTOCOL_PRIVILEGE,
+  MCP_APP_SHELL_PROTOCOL_PRIVILEGE,
+];
 
 /** MUST run before `app.whenReady()`, exactly once. */
 export function registerPrivilegedSchemes(): void {

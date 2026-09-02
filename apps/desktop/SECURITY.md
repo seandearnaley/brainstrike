@@ -340,6 +340,83 @@ tests. Startup reports an authentication-required state, and only explicit
 Connect or Reauthorize passes the provider and its one-shot callback source to
 the production host connection.
 
+## MCP Apps sandbox and consent (BST-1572)
+
+The real boundary is an in-page nested iframe inside the main window, NOT a
+separate Electron WebContents or session partition: Electron never creates a
+WebContents for an in-page `<iframe>`, so no `web-contents-created` /
+session-level policy can ever observe an app frame.
+
+- **App frame.** The untrusted app document is an `about:srcdoc` iframe with
+  `sandbox="allow-scripts"` (opaque origin; no `allow-same-origin`,
+  `allow-popups`, `allow-downloads`, `allow-forms`, or `allow-top-navigation`)
+  and `allow` = every reviewed permission set to `'none'`. Its document starts
+  with a host-owned doctype and a per-document CSP meta tag built from the
+  resource's validated `_meta.ui.csp` (`default-src 'none'`, no
+  `unsafe-eval`, `form-action 'none'`, `worker-src 'none'`, connect/frame/
+  resource domains only as declared).
+- **Shell.** The app frame is created by a host-authored shell document whose
+  sole script is a literal bootstrap. The renderer renders the shell
+  (`McpAppSandboxOwner`) and registers it through `window.mcp.apps.prepareShell`;
+  main serves it at `brainstrike-mcp-app://<128-bit token>/` from a privileged
+  standard scheme (`apps-shell-protocol.ts`), so every shell has an origin of
+  its own — never the host renderer's — and receives the app policy as REAL
+  `Content-Security-Policy` and `Permissions-Policy` response headers (the
+  nested srcdoc inherits a header policy; `Permissions-Policy` is header-only).
+  `setup-security.ts` exempts the scheme from the global header stamp exactly
+  like the Canvas shell. The main window's own CSP allows
+  `frame-src brainstrike-canvas: brainstrike-mcp-app:` only; `blob:` is never a
+  frame source (a blob shell would run on the host origin with no header CSP
+  and is blocked by that directive).
+- **Fenced lifetime.** Each shell is bound to the registering WebContents id
+  (only that sender may `releaseShell`); release makes the URL answer 404
+  immediately, WebContents destruction drops every shell it registered, and
+  the renderer owner releases on unmount, on generation retirement, and on a
+  teardown that races an in-flight registration.
+- **Frame bridge fencing.** Host↔app messages are fenced by origin (`null`),
+  by the bound app-frame `source` (reached as the cross-origin shell's first
+  child window; the shell document itself is unreachable from the host), and
+  by generation; anything else is a protocol error that tears the mount down.
+- **Navigation.** The main window's `setWindowOpenHandler` denies popups from
+  every frame and `will-navigate` guards the main frame; `will-frame-navigate`
+  (`apps-frame-navigation.ts`) denies the shell frame any navigation and the
+  app frame anything but its own `about:srcdoc` load.
+- **Known limitation (not covered).** The app frame runs in the main window's
+  default session, so there is NO session-level permission-request /
+  permission-check handler and NO `will-download` handler scoped to the app
+  frame: permission prompts are declined only by the frame's `allow`
+  attribute + the shell's `Permissions-Policy` header, and a download the
+  sandbox flags do not already block would reach the host session's default
+  handling. Follow-up: a main-window `session.setPermissionRequestHandler` /
+  `will-download` policy keyed on the requesting frame's origin
+  (`brainstrike-mcp-app:` shells and their `about:srcdoc` children).
+- App-originated calls use strict prepare/execute/release messages over the
+  visible-UI-only `mcp:apps:*` IPC domain. Every prepare names the persisted
+  thread that owns the app's tool result; main resolves only THAT thread's
+  admission (never the most recent run that knows the same server), requires
+  it to admit the server, and binds the one-use executor to the requesting
+  WebContents. While the owning run is live the executor is the run's gated
+  tool entry; after the run's turn ends the admission is detached: the same
+  static allow/ask decision and risk category still gate the renderer consent
+  dialog, and execution is a single `tools/call` on the process-level MCP host
+  port for the exact configured server and server-side tool name, pinned to
+  the host generation live at detach time. Detached calls carry no run hooks
+  or telemetry. Missing admission (a thread with no run ever, a detached
+  admission whose server generation retired or server was removed, or a host
+  that closed), malformed input, replay, release, supersession by a newer run
+  of the thread, and WebContents destruction all fail closed.
+- `window.mcp.apps.readResource` uses the existing visible-UI-only,
+  generation-fenced `mcp:content:readResource` path and returns HTML only when
+  an exact `text/html;profile=mcp-app` MIME type and text body are present.
+  `window.mcp.apps.prepareShell` / `releaseShell` are the visible-UI-only
+  `mcp:apps:prepareShell` / `mcp:apps:releaseShell` channels (strict schemas;
+  per-sender and per-document size limits fail closed). Hidden renderer
+  preloads receive no MCP bridge.
+- The packaged proof (`test:e2e:lane:packaged-mcp-apps`) mounts an app inside
+  the REAL main window — production preload, default session, header CSP — and
+  asserts that a `blob:` frame is blocked, the served shell loads and
+  handshakes, the frame fence holds, and the shell URL is 404 after release.
+
 ## Development vs Production
 
 ### Development Mode

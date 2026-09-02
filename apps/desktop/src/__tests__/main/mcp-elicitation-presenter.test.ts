@@ -397,3 +397,92 @@ describe('McpElicitationPresenterAuthority', () => {
     ).toThrowError(expect.objectContaining({ code: 'mcp-elicitation-settlement-invalid' }));
   });
 });
+
+describe('McpElicitationPresenterAuthority task-scoped binding (BST-1566)', () => {
+  const taskContext = (requestId: string) => ({
+    ...context(requestId),
+    inputKey: requestId,
+    taskId: 'task-1',
+  });
+
+  it('cannot route a task-scoped elicitation through the operation registry', async () => {
+    const authority = new McpElicitationPresenterAuthority({
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    authority.attach(() => undefined);
+    // Outside any in-flight host operation the single-matching-operation
+    // guard has nothing to bind to.
+    await expect(
+      authority.presenter.presentForm(formRequest, taskContext('input-1'))
+    ).rejects.toMatchObject({ code: 'mcp-elicitation-origin-unbound' });
+    authority.close();
+  });
+
+  it('binds task input to its own provenance while a tool call on the same server is in flight', async () => {
+    let sequence = 1;
+    const presentations: McpElicitationPresentation[] = [];
+    const authority = new McpElicitationPresenterAuthority({
+      createPresentationId: () => `presentation-${sequence++}`,
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    authority.attach((presentation) => presentations.push(presentation));
+    const binding = authority.bindTaskPresenter({
+      configuredServerId: SERVER_ID,
+      generation: 7,
+      operation: { target: 'long_running_tool', type: 'tools/call' },
+    });
+    let release: (() => void) | undefined;
+    const toolCall = authority.runWithOperation(
+      { configuredServerId: SERVER_ID, toolName: 'search_issues', type: 'tools/call' },
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        })
+    );
+    // The task binding never consults the operation registry, so the concurrent
+    // tools/call neither blocks it nor lends it a misattributed provenance.
+    const taskInput = binding.presenter.presentForm(formRequest, taskContext('input-1'));
+    await Promise.resolve();
+    expect(presentations).toHaveLength(1);
+    expect(presentations[0]?.provenance).toMatchObject({
+      configuredServerId: SERVER_ID,
+      generation: 7,
+      operation: { target: 'long_running_tool', type: 'tools/call' },
+      requestId: 'input-1',
+    });
+    authority.settle({
+      action: 'accept',
+      content: { workspace: 'Engineering' },
+      ...settlement('presentation-1', 'input-1'),
+    });
+    await expect(taskInput).resolves.toEqual({
+      action: 'accept',
+      content: { workspace: 'Engineering' },
+    });
+    release?.();
+    await toolCall;
+    // A replaced generation is a stale authority for the bound task presenter.
+    const stale = new McpElicitationPresenterAuthority({
+      openExternal: vi.fn(),
+      resolveServer: () => ({ ...connectedServer(), generation: 8 }),
+    });
+    stale.attach(() => undefined);
+    const staleBinding = stale.bindTaskPresenter({
+      configuredServerId: SERVER_ID,
+      generation: 7,
+      operation: { type: 'tools/call' },
+    });
+    await expect(
+      staleBinding.presenter.presentForm(formRequest, taskContext('input-2'))
+    ).rejects.toMatchObject({ code: 'mcp-elicitation-stale-authority' });
+    // Releasing the binding retires it: later presentations fail closed.
+    binding.release();
+    await expect(
+      binding.presenter.presentForm(formRequest, taskContext('input-3'))
+    ).rejects.toMatchObject({ code: 'mcp-elicitation-authority-retired' });
+    authority.close();
+    stale.close();
+  });
+});

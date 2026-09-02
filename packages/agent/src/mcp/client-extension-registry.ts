@@ -63,6 +63,21 @@ export interface McpClientExtensionContract<
 
 export const REGISTERED_EXTENSION_RESULT_KEY = 'io.brainstrike/registeredExtensionResult' as const;
 
+/**
+ * Inverse of {@link McpClientExtensionRegistry.rewriteIncomingMessage}: returns
+ * the original extension result carried inside the registry's neutral
+ * `complete` envelope, or `undefined` for any value that is not that envelope.
+ */
+export function readRegisteredExtensionResult(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return;
+  }
+  if (!Object.hasOwn(value, REGISTERED_EXTENSION_RESULT_KEY)) {
+    return;
+  }
+  return Reflect.get(value, REGISTERED_EXTENSION_RESULT_KEY);
+}
+
 export interface McpClientExtensionRegistration<
   Version extends string,
   Settings extends JSONObject,
@@ -551,6 +566,15 @@ export class McpClientExtensionRegistry {
   hasWireRequestMethod(method: string): boolean {
     this.ensureSealed();
     return this.requestsByWireMethod.has(method);
+  }
+
+  /**
+   * True when a registered wire method is also a core MCP method (only the
+   * `tools/call` result augmentation may be), so the wire shape alone cannot
+   * prove that a request came through registered dispatch.
+   */
+  sharesCoreWireMethod(method: string): boolean {
+    return this.hasWireRequestMethod(method) && RESERVED_METHOD_NAMESPACE.test(method);
   }
 
   toClientExtensionCapabilities(): McpClientExtensionCapabilities | undefined {

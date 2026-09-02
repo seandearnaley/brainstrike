@@ -144,12 +144,13 @@ function serializedBytes(value: McpTaskContextProjection): number {
 
 function fitStatusMessage(
   projection: Omit<McpTaskContextProjection, 'statusMessage'>,
-  message: string | null
+  message: string | null,
+  maxBytes: number
 ): string | null {
   if (message === null) {
     return null;
   }
-  if (serializedBytes({ ...projection, statusMessage: message }) <= MCP_TASK_CONTEXT_MAX_BYTES) {
+  if (serializedBytes({ ...projection, statusMessage: message }) <= maxBytes) {
     return message;
   }
   const characters = [...message];
@@ -158,9 +159,7 @@ function fitStatusMessage(
   while (lower < upper) {
     const midpoint = Math.ceil((lower + upper) / 2);
     const candidate = `${characters.slice(0, midpoint).join('')}${TRUNCATED_SUFFIX}`;
-    if (
-      serializedBytes({ ...projection, statusMessage: candidate }) <= MCP_TASK_CONTEXT_MAX_BYTES
-    ) {
+    if (serializedBytes({ ...projection, statusMessage: candidate }) <= maxBytes) {
       lower = midpoint;
     } else {
       upper = midpoint - 1;
@@ -169,7 +168,20 @@ function fitStatusMessage(
   return `${characters.slice(0, lower).join('')}${TRUNCATED_SUFFIX}`;
 }
 
-export function projectMcpTaskForContext(task: McpTaskPresentation): McpTaskContextProjection {
+/**
+ * Model-visible projection. `maxBytes` defaults to the 2,048-byte context cap
+ * and may only tighten it (a run whose domain budget sits below the cap passes
+ * its smaller bound); it can never widen the cap.
+ */
+export function projectMcpTaskForContext(
+  task: McpTaskPresentation,
+  maxBytes: number = MCP_TASK_CONTEXT_MAX_BYTES
+): McpTaskContextProjection {
+  if (!(Number.isSafeInteger(maxBytes) && maxBytes > 0 && maxBytes <= MCP_TASK_CONTEXT_MAX_BYTES)) {
+    throw new RangeError(
+      `MCP task context projection bound must be an integer in 1..${MCP_TASK_CONTEXT_MAX_BYTES}; received ${String(maxBytes)}`
+    );
+  }
   const projection = {
     history: task.history,
     kind: 'mcp_task_status' as const,
@@ -179,7 +191,7 @@ export function projectMcpTaskForContext(task: McpTaskPresentation): McpTaskCont
   };
   return {
     ...projection,
-    statusMessage: fitStatusMessage(projection, task.statusMessage),
+    statusMessage: fitStatusMessage(projection, task.statusMessage, maxBytes),
   };
 }
 

@@ -147,6 +147,45 @@ describe('setupSecurity', () => {
     });
   });
 
+  it('exempts brainstrike-mcp-app: responses — the shell protocol handler owns their headers (BST-1572)', () => {
+    // Same reasoning as the canvas exemption: the MCP App sandbox shell must
+    // stay frameable and must carry ONLY the per-app policy the protocol
+    // handler serves, which the nested srcdoc app frame inherits.
+    vi.mocked(getCSP).mockReturnValue('app-csp-policy');
+
+    setupSecurity();
+
+    const onHeadersReceived = vi.mocked(session.defaultSession.webRequest.onHeadersReceived);
+    const handler = onHeadersReceived.mock.calls[0]?.[0];
+
+    const details = {
+      id: 1,
+      method: 'GET',
+      referrer: '',
+      resourceType: 'subFrame',
+      responseHeaders: {
+        'Content-Security-Policy': ['mcp-app-policy'],
+        'Content-Type': ['text/html; charset=utf-8'],
+        'Permissions-Policy': ['camera=()'],
+      },
+      statusCode: 200,
+      statusLine: 'HTTP/1.1 200 OK',
+      timestamp: Date.now(),
+      url: 'brainstrike-mcp-app://0123456789abcdef0123456789abcdef/',
+    } as any;
+    const callback = vi.fn();
+
+    handler?.(details, callback);
+
+    expect(callback).toHaveBeenCalledWith({
+      responseHeaders: {
+        'Content-Security-Policy': ['mcp-app-policy'],
+        'Content-Type': ['text/html; charset=utf-8'],
+        'Permissions-Policy': ['camera=()'],
+      },
+    });
+  });
+
   it('should handle missing responseHeaders', () => {
     const mockCSP = 'test-csp-policy';
     vi.mocked(getCSP).mockReturnValue(mockCSP);

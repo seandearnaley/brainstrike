@@ -41,6 +41,7 @@ import {
 import {
   createHeaderPreservingFetch,
   installRegisteredExtensionDispatch,
+  type RegisteredExtensionDispatchLedger,
 } from './registered-extension-dispatch';
 import { installMcpResultTypeCompatibility } from './result-type-compatibility';
 import {
@@ -169,6 +170,7 @@ interface NormalizedClientOptions {
     version: string;
   };
   defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
+  extensionDispatchLedger: RegisteredExtensionDispatchLedger;
   extensionRegistry?: McpClientExtensionRegistry;
   fetch: ExplicitHttpMcpFetch;
   inputRequired: NonNullable<ClientOptions['inputRequired']>;
@@ -256,6 +258,7 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
   );
   assertOAuthHeaderCompatibility(name, options.authProvider, options.headers);
   const scopeStepUp = normalizeOAuthStepUpOptions(options);
+  const extensionDispatchLedger: RegisteredExtensionDispatchLedger = new Set();
   const capabilityConfiguration = composeMcpTransportCapabilities({
     ...(options.clientCapabilities ? { clientCapabilities: options.clientCapabilities } : {}),
     ...(options.inputRequired ? { inputRequired: options.inputRequired } : {}),
@@ -268,9 +271,14 @@ function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClie
     ...(options.defaultCacheTtlMs === undefined
       ? {}
       : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
+    extensionDispatchLedger,
     ...(options.extensionRegistry ? { extensionRegistry: options.extensionRegistry } : {}),
-    fetch: createHeaderPreservingFetch(baseFetch, options.headers, options.extensionRegistry, () =>
-      interactiveOAuth?.getAuthorizationSignal()
+    fetch: createHeaderPreservingFetch(
+      baseFetch,
+      options.headers,
+      options.extensionRegistry,
+      () => interactiveOAuth?.getAuthorizationSignal(),
+      extensionDispatchLedger
     ),
     inputRequired: capabilityConfiguration.inputRequired,
     ...(interactiveOAuth ? { interactiveOAuth } : {}),
@@ -977,7 +985,8 @@ export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
                 ? {}
                 : { onInsufficientScope: this.options.onInsufficientScope }),
             }),
-            this.options.extensionRegistry
+            this.options.extensionRegistry,
+            this.options.extensionDispatchLedger
           ),
           this.options.protocol,
           () => client.getProtocolEra()

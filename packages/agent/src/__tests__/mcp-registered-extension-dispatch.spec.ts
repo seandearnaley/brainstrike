@@ -290,6 +290,45 @@ describe('registered extension HTTP dispatch', () => {
     ).toThrow('Mcp-Name mismatch');
   });
 
+  it('passes a core tools/call through untouched when Tasks shares the wire method', () => {
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    const init = {
+      body: JSON.stringify({
+        id: 7,
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { arguments: {}, name: 'write' },
+      }),
+      method: 'POST',
+    };
+    expect(applyRegisteredExtensionHttpHeaders(init, registry, new Set())).toBe(init);
+  });
+
+  it('still validates a tools/call that the registry dispatched', () => {
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    const body = JSON.stringify({
+      id: 7,
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'write' },
+    });
+    const dispatched = new Set<number | string>([7]);
+    expect(() =>
+      applyRegisteredExtensionHttpHeaders({ body, method: 'POST' }, registry, dispatched)
+    ).toThrow('method/header mismatch');
+    expect(
+      new Headers(
+        applyRegisteredExtensionHttpHeaders(
+          { body, headers: { 'mcp-method': 'tools/call' }, method: 'POST' },
+          registry,
+          dispatched
+        )?.headers
+      ).get('mcp-name')
+    ).toBe('write');
+  });
+
   it('rejects an unexpected Mcp-Name when the contract declares no name parameter', () => {
     expect(() =>
       applyRegisteredExtensionHttpHeaders(

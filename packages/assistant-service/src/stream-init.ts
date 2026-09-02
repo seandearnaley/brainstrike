@@ -28,7 +28,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
-import { type McpHostPort, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { McpHostPort } from '@brainstrike/assistant-contract';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import {
@@ -45,6 +45,7 @@ import {
   trustedCompactionOverlayFields,
   withCompactionUsageChunk,
 } from './stream-init-compaction.js';
+import { buildInitialStreamMemoryOptions } from './stream-runtime-options.js';
 import type { AgentStreamFailure, AgentStreamResult, DesktopMemoryFeature } from './types.js';
 
 /**
@@ -163,28 +164,6 @@ export function resolveToolBuildBudget(
   }
   const model = runtimeData?.model || getProviderDefaultModel(normalizedProvider) || '';
   return resolveToolResultBudgetForModel(normalizedProvider, model);
-}
-
-function buildInitialStreamMemoryOptions(
-  memoryResult: AgentStreamMemoryResult | undefined,
-  toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
-  webExtractInlineMaxSerializedChars: number,
-  authInput: ProviderAuthInput | undefined,
-  mcpHost: McpHostPort | undefined
-): InitialStreamMemoryOptions {
-  return {
-    ...(authInput ? { authInput } : {}),
-    ...(mcpHost ? { mcpHost } : {}),
-    ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
-    ...(toolOutputArtifactStore
-      ? {
-          toolOutputArtifactInlineMaxSerializedCharsByToolName: new Map([
-            [NATIVE_TOOL_ID.webExtract, webExtractInlineMaxSerializedChars],
-          ]),
-          toolOutputArtifactStore,
-        }
-      : {}),
-  };
 }
 
 /**
@@ -746,8 +725,10 @@ export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKind
   readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
   readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
   readonly logger: ScopedLogger;
+  readonly mcpAppAdmission?: AssistantStreamRuntimeOptions['mcpAppAdmission'];
   readonly mcpConfig: McpConfig | undefined;
   readonly mcpHost?: McpHostPort;
+  readonly mcpTaskTracking?: AssistantStreamRuntimeOptions['mcpTaskTracking'];
   // Deliberately the mutable array type: this exact array is handed through
   // runUserPromptSubmitGate and resolveInitialAgentStream into
   // @brainstrike/agent's toAiSdkStyleStream, whose signature is AgentMessage[].
@@ -779,6 +760,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     authInput,
     mcpConfig,
     mcpHost,
+    mcpAppAdmission,
+    mcpTaskTracking,
     signal,
     runId,
     toolApprovalAction,
@@ -1005,7 +988,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
         resolvedToolResultBudget.domainModelResultCharBudget
       ),
       authInput,
-      mcpHost
+      { mcpAppAdmission, mcpHost, mcpTaskTracking }
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/

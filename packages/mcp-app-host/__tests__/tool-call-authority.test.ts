@@ -60,7 +60,7 @@ describe('MCP Apps ordinary tool-call authority', () => {
         toolName: 'create_issue',
       }),
       expect.objectContaining({
-        id: 'mcp-app-preparation-1-1',
+        id: expect.stringMatching(/^mcp-app-preparation-[0-9a-f-]{36}-1-1$/),
         signal: expect.any(AbortSignal),
       })
     );
@@ -71,6 +71,28 @@ describe('MCP Apps ordinary tool-call authority', () => {
       pendingCalls: 0,
       phase: 'open',
     });
+  });
+
+  it('issues preparation ids that never collide across authorities of the same generation', async () => {
+    const ids: string[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const { generation, provenance } = setup();
+      const authority = new McpAppToolCallAuthority({
+        generation,
+        prepare: vi.fn(async (_call, context) => {
+          ids.push(context.id);
+          return prepared('allow');
+        }),
+        provenance,
+        release: releasePreparation,
+      });
+      await authority.call({ arguments: {}, id: `call-${index}`, name: 'create_issue' });
+    }
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    for (const id of ids) {
+      expect(id.length).toBeLessThanOrEqual(256);
+    }
   });
 
   it('never executes ask or deny decisions without explicit host consent', async () => {

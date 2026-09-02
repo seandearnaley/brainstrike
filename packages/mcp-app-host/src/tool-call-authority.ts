@@ -121,6 +121,12 @@ export class McpAppToolCallAuthority {
   #closePromise: Promise<McpAppToolCallAuthoritySnapshot> | undefined;
   readonly #generation: McpAppGeneration;
   readonly #idleWaiters = new Set<() => void>();
+  /**
+   * Preparation ids are process-global at the desktop host, while every app
+   * mount owns its own authority opened at generation 1 with a local
+   * sequence; this nonce keeps two mounted cards from colliding.
+   */
+  readonly #instanceId = crypto.randomUUID();
   readonly #listeners = new Set<() => void>();
   readonly #onDiagnostic: (error: Error) => void;
   readonly #ownedCalls = new Set<OwnedCall>();
@@ -217,7 +223,7 @@ export class McpAppToolCallAuthority {
     this.#publish();
     this.#preparationSequence += 1;
     const preparation = Object.freeze({
-      id: `mcp-app-preparation-${this.#generation.generation}-${this.#preparationSequence}`,
+      id: `mcp-app-preparation-${this.#instanceId}-${this.#generation.generation}-${this.#preparationSequence}`,
       signal: controller.signal,
     });
     let completed = false;

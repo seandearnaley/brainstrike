@@ -1875,8 +1875,8 @@ describe('UnifiedToolsSettings', () => {
         ['core:2026-07-28-tools', 'supported', 'BST-1463'],
         ['core:server-features', 'supported', 'BST-1471'],
         ['core:elicitation', 'supported', 'BST-1584'],
-        ['io.modelcontextprotocol/ui', 'unsupported', 'BST-1474'],
-        ['io.modelcontextprotocol/tasks', 'unsupported', 'BST-1473'],
+        ['io.modelcontextprotocol/ui', 'supported', 'BST-1572'],
+        ['io.modelcontextprotocol/tasks', 'supported', 'BST-1566'],
         ['io.modelcontextprotocol/oauth-client-credentials', 'unsupported', ''],
         ['io.modelcontextprotocol/enterprise-managed-authorization', 'unsupported', ''],
       ] as const;

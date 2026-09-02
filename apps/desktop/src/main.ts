@@ -169,6 +169,7 @@ import {
 import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
+import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { ParserHostManager } from './parser-host-manager';
@@ -1658,6 +1659,11 @@ if (singleInstanceLockAcquired) {
       // Static Canvas sandbox shell (BST-1173); no DB dependency, serves one
       // reviewed document with its own CSP header (see canvas-protocol.ts).
       registerCanvasProtocol();
+
+      // Per-mount MCP App sandbox shells (BST-1572): the renderer registers
+      // each shell over the visible-UI `mcp:apps:prepareShell` IPC and this
+      // handler serves it on its own origin with header-delivered policies.
+      registerMcpAppShellProtocol(getMcpAppShellRegistry());
 
       // BST-1112: cross-workspace git worktree inventory service. Constructed
       // and started HERE, inside app.whenReady() — never at module scope.

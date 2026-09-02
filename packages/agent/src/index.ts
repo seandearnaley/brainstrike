@@ -173,6 +173,7 @@ export {
   createMastraAgentRuntime,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
+  type McpAppAdmissionObserver,
 } from './mastra/agent-runtime';
 export {
   type DiscoveredSuspendedApproval,
@@ -227,6 +228,7 @@ export {
   createMcpAppOrdinaryToolCallPreparer,
   McpAppToolNotAdmittedError,
 } from './mastra/mcp-app-tool-call';
+export { readMcpCreatedTaskResult } from './mastra/mcp-task-tool-result';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
