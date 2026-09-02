@@ -77,9 +77,17 @@ export function parseMcpAppMimeType(value: unknown): typeof MCP_APPS_MIME_TYPE {
   return MCP_APPS_MIME_TYPE;
 }
 
+// A source expression is interpolated verbatim into a CSP string, so any
+// directive or list delimiter (`;`, `,`, whitespace) or quote is rejected here
+// before it can split or extend a directive.
+const CSP_SOURCE_DELIMITERS = /[\s;,'"]/u;
+
 function parseCspSource(value: string, label: string, allowWebSocket: boolean): string {
   if (value.length === 0 || value.length > MAX_URI_LENGTH || value.trim() !== value) {
     throw new TypeError(`${label} must be a non-empty CSP origin`);
+  }
+  if (CSP_SOURCE_DELIMITERS.test(value)) {
+    throw new TypeError(`${label} must not contain CSP delimiters or quotes`);
   }
   const wildcardMarker = '://*.';
   const normalized = value.includes(wildcardMarker)

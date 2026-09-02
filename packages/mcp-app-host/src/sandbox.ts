@@ -97,18 +97,39 @@ function cspMeta(policy: string): string {
   return `<meta http-equiv="Content-Security-Policy" content="${escapeHtmlAttribute(policy)}">`;
 }
 
+const LEADING_DOCTYPE = /^\s*<!doctype\b[^>]*>/iu;
+
+/**
+ * The host owns the doctype: emitting `<!doctype html>` first and stripping
+ * the app's keeps standards mode (a meta tag before the app's doctype would
+ * force quirks mode and turn that doctype into a bogus comment) while the CSP
+ * still precedes every byte of app content.
+ */
 export function renderMcpAppResourceDocument(
   resource: McpAppOwnedResource,
   policy: McpAppSandboxPolicy
 ): string {
-  return `${cspMeta(policy.contentSecurityPolicy)}<meta name="referrer" content="no-referrer">${resource.html}`;
+  const body = resource.html.replace(LEADING_DOCTYPE, '');
+  return `<!doctype html>${cspMeta(policy.contentSecurityPolicy)}<meta name="referrer" content="no-referrer">${body}`;
 }
 
+/**
+ * The shell carries the app policy VERBATIM. The nested `about:srcdoc` app
+ * document inherits whichever policies bind the shell and CSP combination
+ * only ever narrows, so any directive the shell omits or tightens is denied
+ * to the app too: a literal shell policy would block every server-declared
+ * `resourceDomains`/`connectDomains`/`frameDomains`. Chromium exempts the
+ * srcdoc load itself from `frame-src` (verified against a shell with
+ * `frame-src 'none'`), so the app's `frameDomains` govern its nested frames
+ * through both documents. The shell runs in an opaque origin with
+ * `allow-scripts` only and its sole script is the literal bootstrap below, so
+ * the widened sources have nothing in the shell to reach.
+ */
 export function renderMcpAppSandboxShellDocument(
   resourceDocument: string,
   policy: McpAppSandboxPolicy
 ): string {
-  const shellCsp = policy.contentSecurityPolicy.replace(/frame-src [^;]+/, "frame-src 'self'");
+  const shellCsp = policy.contentSecurityPolicy;
   const embeddedResource = embedAsJavaScriptString(resourceDocument);
   const allow = embedAsJavaScriptString(policy.iframeAllow);
   return `<!doctype html><html><head><meta charset="utf-8">${cspMeta(shellCsp)}<meta http-equiv="Permissions-Policy" content="${escapeHtmlAttribute(policy.permissionsPolicy)}"><meta name="referrer" content="no-referrer"><title>MCP App sandbox</title><style>html,body,iframe{border:0;height:100%;margin:0;padding:0;width:100%}</style></head><body><script>(()=>{'use strict';const frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts');frame.setAttribute('allow',${allow});frame.setAttribute('referrerpolicy','no-referrer');frame.title='MCP App';frame.srcdoc=${embeddedResource};document.body.append(frame)})()</script></body></html>`;

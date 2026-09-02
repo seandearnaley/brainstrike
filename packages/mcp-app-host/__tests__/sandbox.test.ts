@@ -75,6 +75,21 @@ describe('dedicated MCP Apps sandbox shell', () => {
     expect(resourceDocument.indexOf('Content-Security-Policy')).toBeLessThan(
       resourceDocument.indexOf('<title>App')
     );
+    // Host-owned doctype: standards mode with the CSP still ahead of app bytes.
+    expect(
+      resourceDocument.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"')
+    ).toBe(true);
+    expect(resourceDocument.match(/<!doctype/giu)).toHaveLength(1);
+    expect(
+      renderMcpAppResourceDocument(createOwnedResource('<title>Bare</title>'), policy).startsWith(
+        '<!doctype html><meta http-equiv="Content-Security-Policy"'
+      )
+    ).toBe(true);
+    // The srcdoc app inherits the shell policy, so the shell carries it verbatim.
+    expect(shell).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="${policy.contentSecurityPolicy.replace(/'/g, "'")}">`
+    );
+    expect(shell).not.toContain("frame-src 'self'");
     expect(shell).toContain("setAttribute('sandbox','allow-scripts')");
     expect(shell).toContain("setAttribute('referrerpolicy','no-referrer')");
     expect(shell).toContain('frame.srcdoc=');
@@ -220,13 +235,26 @@ describe('Electron sandbox denial hooks', () => {
     permissionRequests[0]?.(permissionResult);
     expect(permissionResult).toHaveBeenCalledWith(false);
 
+    // A second lease on the same session shares the session denials.
+    const sibling = installMcpAppElectronSandboxPolicy({ session: sandboxSession, webContents });
+    expect(sandboxSession.setPermissionCheckHandler).toHaveBeenCalledOnce();
+    expect(sandboxSession.setPermissionRequestHandler).toHaveBeenCalledOnce();
+
     await lease.close();
     expect(webContents.close).toHaveBeenCalledOnce();
+    // Closing one lease never restores Electron's permissive defaults and does
+    // not purge the storage a live sibling still uses.
+    expect(permissionChecks).not.toContain(null);
+    expect(permissionRequests).not.toContain(null);
+    expect(permissionChecks.at(-1)?.()).toBe(false);
+    expect(sessionListeners.get('will-download')).toBeDefined();
+    expect(sandboxSession.clearStorageData).not.toHaveBeenCalled();
+
+    await sibling.close();
+    expect(listeners.size).toBe(0);
     expect(sandboxSession.clearCache).toHaveBeenCalledOnce();
     expect(sandboxSession.clearStorageData).toHaveBeenCalledOnce();
-    expect(listeners.size).toBe(0);
-    expect(sessionListeners.size).toBe(0);
-    expect(permissionChecks.at(-1)).toBeNull();
-    expect(permissionRequests.at(-1)).toBeNull();
+    expect(permissionChecks).not.toContain(null);
+    expect(sessionListeners.get('will-download')).toBeDefined();
   });
 });

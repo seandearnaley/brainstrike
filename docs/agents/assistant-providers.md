@@ -2151,17 +2151,24 @@ URI or tool name and does not register Apps, fetch resources, render content,
 or implement a frame, sandbox, consent, or approval path.
 
 BST-1569 adds the disabled renderer boundary. One host-owned object URL contains
-a trusted shell whose only child is an opaque-origin `srcdoc` iframe with
+a shell whose only child is an opaque-origin `srcdoc` iframe with
 `sandbox="allow-scripts"`; same-origin, popup, download, top-navigation, form,
 object, and worker privileges remain absent. Validated Apps metadata constructs
-the resource CSP, but requested camera, microphone, geolocation, and clipboard
-permissions are recorded rather than granted until a later consent contract
-exists. Each owner permits at most eight active frames and 4 MiB of retained
+the resource CSP (each declared source is rejected if it carries a CSP
+delimiter or quote), and the shell carries that policy verbatim: the srcdoc app
+inherits the shell's policies and CSP combination only narrows, so a shell
+policy tighter than the app's would deny the app its declared sources, while
+Chromium exempts the srcdoc load itself from `frame-src`. The host owns the
+doctype so the app renders in standards mode with the CSP ahead of its bytes.
+Requested camera, microphone, geolocation, and clipboard permissions are
+recorded rather than granted until a later consent contract exists. Each owner permits at most eight active frames and 4 MiB of retained
 shell HTML; the prior provenance layer independently caps decoded HTML at 1 MiB.
 The Electron adapter requires a dedicated session, denies window creation,
-navigation, redirects, webviews, downloads, and all permission checks/requests,
-then removes its hooks, destroys its WebContents, clears session cache/storage,
-and revokes the owner URL on teardown. Real Chromium and Electron adversarial
+navigation, redirects, webviews, downloads, and all permission checks/requests.
+Session-scoped denials are installed once per session and never restored to
+Electron's permissive defaults (a lease's close cannot fail a sibling open);
+teardown removes the per-WebContents hooks, destroys the WebContents, clears
+session cache/storage once the last lease closes, and revokes the owner URL. Real Chromium and Electron adversarial
 verifiers pin those boundaries and repeated cleanup. Nothing registers this
 sandbox, advertises Apps, or implements app RPC, consent, or production UI.
 
