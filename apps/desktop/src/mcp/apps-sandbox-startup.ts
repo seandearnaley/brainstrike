@@ -1,7 +1,7 @@
 import {
   installMcpAppElectronSandboxPolicy,
   type McpAppElectronSandboxLease,
-} from '@brainstrike/mcp-app-host';
+} from '@brainstrike/mcp-app-host/electron-sandbox';
 import type { App, Event as ElectronEvent, WebContents } from 'electron';
 
 export const MCP_APP_SANDBOX_PARTITION = 'mcp-app:thread' as const;

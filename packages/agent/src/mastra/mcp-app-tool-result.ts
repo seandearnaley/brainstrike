@@ -4,7 +4,7 @@ import {
   type McpAppToolInvocationResult,
   readMcpAppToolInvocationResult,
 } from '@brainstrike/assistant-contract';
-import { type McpAppResourceUri, parseMcpAppToolMeta } from '@brainstrike/mcp-app-host';
+import { type McpAppResourceUri, parseMcpAppToolMeta } from '@brainstrike/mcp-app-host/metadata';
 import { projectMcpTaskToolModelOutput } from './mcp-task-tool-result';
 
 export interface McpAppToolResultOrigin {

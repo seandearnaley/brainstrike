@@ -4,7 +4,7 @@ import {
   MCP_APPS_SPEC_VERSION,
   type McpAppsClientCapability,
   parseMcpAppsClientCapability,
-} from '@brainstrike/mcp-app-host';
+} from '@brainstrike/mcp-app-host/capabilities';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import type {
   McpClientExtensionContract,
