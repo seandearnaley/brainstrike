@@ -69,6 +69,29 @@ describe('MCP Tasks lab wire alias bridge', () => {
     expect(unwrapTasksToolResult(task)).toBe(task);
   });
 
+  it('releases a pending tools/call on local cancellation and on close', async () => {
+    const transport = installTasksClientWireAlias(createTransport());
+    const received: JSONRPCMessage[] = [];
+    transport.onmessage = (message) => {
+      received.push(message);
+    };
+    const task = { resultType: 'task', status: 'working', taskId: 'task-1' };
+    await transport.send({ id: 1, jsonrpc: '2.0', method: 'tools/call', params: { name: 't' } });
+    await transport.send({
+      jsonrpc: '2.0',
+      method: 'notifications/cancelled',
+      params: { requestId: 1 },
+    });
+    transport.deliver({ id: 1, jsonrpc: '2.0', result: task });
+    await transport.send({ id: 2, jsonrpc: '2.0', method: 'tools/call', params: { name: 't' } });
+    await transport.close();
+    transport.deliver({ id: 2, jsonrpc: '2.0', result: task });
+    expect(received).toEqual([
+      { id: 1, jsonrpc: '2.0', result: task },
+      { id: 2, jsonrpc: '2.0', result: task },
+    ]);
+  });
+
   it('restores the lifted complete result type without overwriting an explicit one', () => {
     expect(restoreCompleteResultType({ status: 'working' })).toEqual({
       resultType: 'complete',

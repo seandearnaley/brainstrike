@@ -89,6 +89,14 @@ export function installTasksClientWireAlias<OwnedTransport extends Transport>(
   const send = transport.send.bind(transport);
   transport.send = (message, options) => {
     if (!isRequest(message)) {
+      // A locally abandoned request never gets a response; the SDK announces
+      // it with notifications/cancelled, the only signal this layer sees.
+      if ('method' in message && message.method === 'notifications/cancelled') {
+        const requestId = (message.params as { requestId?: unknown } | undefined)?.requestId;
+        if (typeof requestId === 'string' || typeof requestId === 'number') {
+          pendingToolCalls.delete(requestId);
+        }
+      }
       return send(message, options);
     }
     if (message.method === 'tools/call') {
@@ -96,6 +104,11 @@ export function installTasksClientWireAlias<OwnedTransport extends Transport>(
     }
     const wire = ALIAS_TO_WIRE.get(message.method);
     return send(wire === undefined ? message : { ...message, method: wire }, options);
+  };
+  const close = transport.close.bind(transport);
+  transport.close = async () => {
+    pendingToolCalls.clear();
+    await close();
   };
   interceptInbound(transport, (message) => {
     const id = 'id' in message ? message.id : undefined;
