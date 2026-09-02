@@ -21,6 +21,15 @@
   ],
   "references": [
     {
+      "path": "../assistant-contract"
+    },
+    {
+      "path": "../assistant-ui"
+    },
+    {
+      "path": "../logging"
+    },
+    {
       "path": "../mcp-app-host"
     },
     {

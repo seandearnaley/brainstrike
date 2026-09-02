@@ -10,8 +10,8 @@ import {
   type McpAppMountedSession,
   type McpAppRuntimePorts,
   McpAppToolResult,
+  mcpAppToolResultRenderer,
 } from '../mcp-app-tool-result';
-import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS } from '../todo-progress';
 
 const APP: McpAppOrigin = {
   mimeType: 'text/html;profile=mcp-app',
@@ -125,13 +125,16 @@ function harness(decision: 'allow' | 'ask' = 'ask'): Harness {
   };
 }
 
+const APP_RESULT = createMcpAppToolInvocationResult(APP, { content: [] });
+
 const TOOL_CALL = {
   args: {},
   argsText: '{}',
+  result: APP_RESULT,
   status: { type: 'complete' as const },
   toolCallId: 'call-1',
   toolName: 'create_issue',
-} as unknown as Parameters<typeof McpAppToolResult>[0]['toolCall'];
+} as unknown as Parameters<typeof McpAppToolResult>[0];
 
 function renderApp(
   test: Harness | undefined,
@@ -141,8 +144,7 @@ function renderApp(
     <TooltipProvider>
       <McpAppBridgeProvider bridge={test?.bridge ?? null}>
         <McpAppToolResult
-          app={APP}
-          toolCall={TOOL_CALL}
+          {...TOOL_CALL}
           {...(onSessionChange ? { onSessionChange } : {})}
           {...(test ? { ports: test.ports } : {})}
         />
@@ -291,33 +293,25 @@ describe('MCP App tool result', () => {
     expect(screen.getByTitle('create_issue app')).toHaveAttribute('src', second.created[0]);
   });
 
-  it('keeps ordinary tool results on the shared tool fallback', () => {
-    const Fallback = CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
+  it('claims only persisted app markers through its renderer descriptor', () => {
+    expect(mcpAppToolResultRenderer.kind).toBe('mcp-app');
+    expect(mcpAppToolResultRenderer.matches(APP_RESULT)).toBe(true);
+    expect(mcpAppToolResultRenderer.matches({ ok: true })).toBe(false);
+    expect(mcpAppToolResultRenderer.matches(undefined)).toBe(false);
+  });
+
+  it('keeps an ordinary tool result on the shared tool fallback', () => {
+    const test = harness();
+    const Component = mcpAppToolResultRenderer.Component;
     render(
       <TooltipProvider>
-        <McpAppBridgeProvider bridge={harness().bridge}>
-          <Fallback {...TOOL_CALL} result={{ ok: true }} />
+        <McpAppBridgeProvider bridge={test.bridge}>
+          <Component {...TOOL_CALL} result={{ ok: true }} />
         </McpAppBridgeProvider>
       </TooltipProvider>
     );
     expect(screen.queryByTitle('create_issue app')).not.toBeInTheDocument();
     expect(screen.queryByTestId('mcp-app-host-note')).not.toBeInTheDocument();
-  });
-
-  it('routes a persisted app marker through the fallback router', async () => {
-    const test = harness('allow');
-    const Fallback = CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
-    render(
-      <TooltipProvider>
-        <McpAppBridgeProvider bridge={null}>
-          <Fallback
-            {...TOOL_CALL}
-            result={createMcpAppToolInvocationResult(APP, { content: [] })}
-          />
-        </McpAppBridgeProvider>
-      </TooltipProvider>
-    );
-    expect(await screen.findByTestId('mcp-app-host-note')).toBeInTheDocument();
     expect(test.bridge.readResource).not.toHaveBeenCalled();
   });
 });

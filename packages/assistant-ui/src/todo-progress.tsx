@@ -11,11 +11,9 @@ import {
   type AssistantTaskStatus,
   type ManageTaskListResult,
   NATIVE_TOOL_ID,
-  readMcpAppToolInvocationResult,
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
-import { McpAppToolResult } from './mcp-app-tool-result';
 import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
@@ -23,6 +21,7 @@ import {
   SubagentDelegationCard,
 } from './subagent-tool-cards';
 import { ToolFallback } from './tool-fallback';
+import { useToolResultRenderers } from './use-tool-result-renderers';
 
 const STATUS_GLYPH: Record<AssistantTaskStatus, string> = {
   completed: '✓',
@@ -141,16 +140,19 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({ args, argsText,
  * SubagentExecutionCard instead; everything else keeps the shared ToolFallback.
  */
 const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
+  // Host-registered result renderers (BST-1572): the adapter package that owns
+  // a surface supplies the descriptor, so nothing host-specific is imported
+  // here. Claimed by result SHAPE, never by a `by_name` entry.
+  const renderers = useToolResultRenderers();
   if (isSubagentDelegationToolName(props.toolName)) {
     return <SubagentDelegationCard {...props} />;
   }
-  // BST-1572: an app-producing MCP tool persists the `{ kind: 'mcp-app' }`
-  // marker as its raw result. Same exact-match reader rule as tasks below:
-  // server-defined tool names never earn a `by_name` entry.
-  const mcpApp =
-    props.result === undefined ? undefined : readMcpAppToolInvocationResult(props.result);
-  if (mcpApp) {
-    return <McpAppToolResult app={mcpApp.app} toolCall={{ ...props, result: mcpApp.result }} />;
+  const renderer =
+    props.result === undefined
+      ? undefined
+      : renderers.find((candidate) => candidate.matches(props.result));
+  if (renderer) {
+    return <renderer.Component {...props} />;
   }
   // BST-1566: a task-producing MCP tool persists the `{ kind: 'mcp-task' }`
   // marker as its raw result. Tool names are server-defined, so the branch is

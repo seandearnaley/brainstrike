@@ -22,11 +22,12 @@ import {
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
-import { McpAppBridgeProvider } from '@brainstrike/assistant-ui/mcp-app-bridge-context';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
+import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
+import { McpAppBridgeProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/panel`) so the startup check does not defeat the lazy code-split in
 // `@brainstrike/app-shell/notes-page-content`.
@@ -72,6 +73,9 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = usePGliteDatabase();
   return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
 }
+
+/** Stable identity: the provider value must not change between renders. */
+const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 
 /**
  * Desktop app root layout component.
@@ -358,7 +362,9 @@ export default function RootLayoutContent() {
     <TokenCacheWrapper>
       <McpTaskBridgeProvider bridge={mcpTaskBridge}>
         <McpAppBridgeProvider bridge={mcpAppBridge}>
-          <RootLayout {...sharedProps} />
+          <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
+            <RootLayout {...sharedProps} />
+          </ToolResultRendererProvider>
         </McpAppBridgeProvider>
       </McpTaskBridgeProvider>
     </TokenCacheWrapper>

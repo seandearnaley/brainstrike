@@ -10,8 +10,6 @@
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/mcp-app-host": "workspace:*",
-    "@brainstrike/mcp-app-host-ui": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
@@ -58,10 +56,6 @@
       "types": "./dist/follow-up-queue-store.d.ts",
       "import": "./dist/follow-up-queue-store.js"
     },
-    "./mcp-app-bridge-context": {
-      "types": "./dist/mcp-app-bridge-context.d.ts",
-      "import": "./dist/mcp-app-bridge-context.js"
-    },
     "./mcp-task-bridge-context": {
       "types": "./dist/mcp-task-bridge-context.d.ts",
       "import": "./dist/mcp-task-bridge-context.js"
@@ -74,7 +68,19 @@
       "types": "./dist/rewind-composer-store.d.ts",
       "import": "./dist/rewind-composer-store.js"
     },
-    "./styles.css": "./styles.css"
+    "./styles.css": "./styles.css",
+    "./tool-fallback": {
+      "types": "./dist/tool-fallback.d.ts",
+      "import": "./dist/tool-fallback.js"
+    },
+    "./tool-result-renderer-context": {
+      "types": "./dist/tool-result-renderer-context.d.ts",
+      "import": "./dist/tool-result-renderer-context.js"
+    },
+    "./tool-result-renderers": {
+      "types": "./dist/use-tool-result-renderers.d.ts",
+      "import": "./dist/use-tool-result-renderers.js"
+    }
   },
   "files": [
     "dist",

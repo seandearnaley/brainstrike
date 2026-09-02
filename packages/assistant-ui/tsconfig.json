@@ -30,12 +30,6 @@
       "path": "../logging"
     },
     {
-      "path": "../mcp-app-host"
-    },
-    {
-      "path": "../mcp-app-host-ui"
-    },
-    {
       "path": "../tokenization"
     },
     {

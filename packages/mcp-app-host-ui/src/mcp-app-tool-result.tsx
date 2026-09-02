@@ -1,5 +1,13 @@
 import type { McpAppBridge, McpAppOrigin } from '@brainstrike/assistant-contract';
-import { parseMcpAppPrepareRequest } from '@brainstrike/assistant-contract';
+import {
+  parseMcpAppPrepareRequest,
+  readMcpAppToolInvocationResult,
+} from '@brainstrike/assistant-contract';
+import { ToolFallback } from '@brainstrike/assistant-ui/tool-fallback';
+import type {
+  ToolResultRenderer,
+  ToolResultRendererProps,
+} from '@brainstrike/assistant-ui/tool-result-renderers';
 import { createLogger } from '@brainstrike/logging';
 import {
   McpAppFrameBridge,
@@ -12,16 +20,8 @@ import {
   McpAppToolCallAuthority,
   type McpAppToolRiskCategory,
 } from '@brainstrike/mcp-app-host';
-import { type McpAppHostState, McpAppHostSurface } from '@brainstrike/mcp-app-host-ui';
-import {
-  type ComponentProps,
-  type ReactElement,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { ToolFallback } from './tool-fallback';
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
+import { type McpAppHostState, McpAppHostSurface } from './mcp-app-host-surface';
 import { useMcpAppBridge } from './use-mcp-app-bridge';
 
 const logger = createLogger('McpAppToolResult');
@@ -52,14 +52,11 @@ export interface McpAppMountedSession {
   readonly sandboxOwner: McpAppSandboxOwner;
 }
 
-export interface McpAppToolResultProps {
-  readonly app: McpAppOrigin;
+export interface McpAppToolResultProps extends ToolResultRendererProps {
   readonly hostVersion?: string;
   /** Observation seam: the live session, then `undefined` once teardown settles. */
   readonly onSessionChange?: (session: McpAppMountedSession | undefined) => void;
   readonly ports?: McpAppRuntimePorts;
-  /** The ordinary tool result, rendered when this host cannot host apps. */
-  readonly toolCall: ComponentProps<typeof ToolFallback>;
 }
 
 function createDefaultRuntimePorts(): McpAppRuntimePorts {
@@ -327,17 +324,21 @@ function LiveMcpApp({
  * host's inability to run apps is stated, never silently swallowed.
  */
 export function McpAppToolResult({
-  app,
   hostVersion,
   onSessionChange,
   ports,
-  toolCall,
+  ...toolCall
 }: McpAppToolResultProps): ReactElement {
   const bridge = useMcpAppBridge();
+  const marker = readMcpAppToolInvocationResult(toolCall.result);
+  if (marker === undefined) {
+    return <ToolFallback {...toolCall} />;
+  }
+  const app = marker.app;
   if (bridge === null) {
     return (
       <div className="my-1">
-        <ToolFallback {...toolCall} />
+        <ToolFallback {...toolCall} result={marker.result} />
         <p
           className="mt-1 text-muted-foreground text-xs"
           data-testid="mcp-app-host-note"
@@ -353,10 +354,21 @@ export function McpAppToolResult({
     <LiveMcpApp
       app={app}
       bridge={bridge}
-      key={`${app.serverId} ${app.toolName} ${app.resourceUri}`}
+      key={`${app.serverId} ${app.toolName} ${app.resourceUri}`}
       {...(hostVersion === undefined ? {} : { hostVersion })}
       {...(onSessionChange === undefined ? {} : { onSessionChange })}
       {...(ports === undefined ? {} : { ports })}
     />
   );
 }
+
+/**
+ * The host-registered renderer descriptor. The shared foundation router
+ * consults it by RESULT SHAPE; nothing about MCP Apps leaks into that layer.
+ */
+export const mcpAppToolResultRenderer: ToolResultRenderer = Object.freeze({
+  /* biome-ignore lint/style/useNamingConvention: React component slot */
+  Component: McpAppToolResult,
+  kind: 'mcp-app',
+  matches: (result: unknown) => readMcpAppToolInvocationResult(result) !== undefined,
+});

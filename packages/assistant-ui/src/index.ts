@@ -94,7 +94,17 @@ export {
   useToolApprovalGrants,
 } from './tool-approval-grant-context';
 export * from './tool-fallback';
+export {
+  ToolResultRendererProvider,
+  type ToolResultRendererProviderProps,
+} from './tool-result-renderer-context';
 export { useMcpTaskBridge } from './use-mcp-task-bridge';
+export {
+  type ToolResultRenderer,
+  ToolResultRendererContext,
+  type ToolResultRendererProps,
+  useToolResultRenderers,
+} from './use-tool-result-renderers';
 export { PrChip, type WorkspaceBarForge } from './workspace-bar/pr-chip';
 export {
   WorkspaceBar,
