@@ -13,6 +13,7 @@ import {
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 import { z } from 'zod';
+import { APPS_PROFILE } from './apps-profile.js';
 import {
   createMcpOAuthAuthorizationResponseVerifier,
   type McpLabCleanupReport,
@@ -132,23 +133,88 @@ function startCase(runnerCase: McpLabRunnerCase): Promise<McpLabSession> {
   return startMcpLabScenario(runnerCase.scenarioId, { execution: runnerCase.execution });
 }
 
+const EXPECTED_TOOLS: Readonly<Record<McpLabRunnerCase['scenarioId'], string>> = Object.freeze({
+  'apps-reference': APPS_PROFILE.tool.name,
+  'legacy-reference': 'echo',
+  'modern-reference': 'test_simple_text',
+  'oauth-reference': 'echo',
+  'stdio-reference': 'echo',
+  'tasks-reference': TASKS_PROFILE.tool.name,
+});
+
 function expectedToolFor(scenarioId: McpLabRunnerCase['scenarioId']): string {
-  if (scenarioId === 'modern-reference') {
-    return 'test_simple_text';
+  return EXPECTED_TOOLS[scenarioId];
+}
+
+const RED_SUFFIXES: Readonly<Partial<Record<McpLabRunnerCase['scenarioId'], string>>> =
+  Object.freeze({
+    'apps-reference': '-missing-resource-rejection',
+    'modern-reference': '-intentional-tool-error',
+    'tasks-reference': '-missing-task-rejection',
+  });
+
+/**
+ * Black-box MCP Apps matrix (BST-1572) over the derived profile of the pinned
+ * official example server: the app tool advertises both resource-URI metadata
+ * keys, the linked `ui://` resource is listed and read with the MCP Apps MIME
+ * profile and the exact pinned document, and the tool call returns the
+ * structured output the example declares.
+ */
+async function probeAppsCapabilities(client: Client, signal: AbortSignal): Promise<boolean> {
+  const tools = await client.listTools(undefined, { signal });
+  const tool = tools.tools.find(({ name }) => name === APPS_PROFILE.tool.name);
+  const resources = await client.listResources(undefined, { signal });
+  const resource = await client.readResource({ uri: APPS_PROFILE.resource.uri }, { signal });
+  const call = await client.callTool({ arguments: {}, name: APPS_PROFILE.tool.name }, { signal });
+  const structured =
+    typeof call.structuredContent === 'object' && call.structuredContent !== null
+      ? (call.structuredContent as Record<string, unknown>)
+      : {};
+  const time = structured[APPS_PROFILE.tool.outputKey];
+  const contents = resource.contents[0];
+  const checks: ReadonlyArray<readonly [string, boolean]> = [
+    ['app tool is listed', tool !== undefined],
+    [
+      'app tool carries both resource-URI metadata keys',
+      canonicalJson(tool?._meta) === canonicalJson(APPS_PROFILE.tool.meta),
+    ],
+    ['app tool declares the structured output', tool?.outputSchema !== undefined],
+    [
+      'linked ui resource is listed with the MCP Apps MIME profile',
+      resources.resources.some(
+        ({ mimeType, uri }) =>
+          uri === APPS_PROFILE.resource.uri && mimeType === APPS_PROFILE.resource.mimeType
+      ),
+    ],
+    ['resource read returns exactly one content', resource.contents.length === 1],
+    [
+      'resource read carries the MIME profile and the pinned document',
+      contents !== undefined &&
+        contents.mimeType === APPS_PROFILE.resource.mimeType &&
+        'text' in contents &&
+        contents.text === APPS_PROFILE.document,
+    ],
+    [
+      'tool call returns an ISO 8601 time',
+      typeof time === 'string' && !Number.isNaN(Date.parse(time)),
+    ],
+    [
+      'tool call text mirrors the structured time',
+      call.content.some((entry) => entry.type === 'text' && entry.text === time),
+    ],
+  ];
+  const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
+  if (failed.length > 0) {
+    throw new Error(`MCP Apps reference matrix failed: ${failed.join('; ')}`);
   }
-  return scenarioId === 'tasks-reference' ? TASKS_PROFILE.tool.name : 'echo';
+  return true;
 }
 
 function correlationSuffix(runnerCase: McpLabRunnerCase, phase: McpLabRunnerPhase): string {
   if (phase !== 'red') {
     return '';
   }
-  if (runnerCase.scenarioId === 'tasks-reference') {
-    return '-missing-task-rejection';
-  }
-  return runnerCase.scenarioId === 'modern-reference'
-    ? '-intentional-tool-error'
-    : '-missing-tool-rejection';
+  return RED_SUFFIXES[runnerCase.scenarioId] ?? '-missing-tool-rejection';
 }
 
 function canonicalJson(value: unknown): string {
@@ -401,56 +467,38 @@ function isIntentionalToolError(value: unknown): boolean {
   );
 }
 
-async function runReferenceTest(
-  client: Client,
-  runnerCase: McpLabRunnerCase,
-  phase: McpLabRunnerPhase,
-  value: string,
-  signal: AbortSignal
-): Promise<boolean> {
-  if (runnerCase.scenarioId === 'tasks-reference') {
-    if (phase !== 'red') {
-      return probeTasksCapabilities(client, signal);
+/** RED probes assert a real server rejection; anything else is a harness bug. */
+/**
+ * RED probes assert the handler's OWN rejection. Any ProtocolError is too
+ * weak: a broken alias bridge or a params regression also yields one
+ * (method-not-found before dispatch, invalid params), so each probe pins the
+ * code and the identifier its reference server names.
+ */
+async function expectProtocolRejection(
+  action: () => Promise<unknown>,
+  description: string,
+  accept: (error: ProtocolError) => boolean
+): Promise<false> {
+  try {
+    await action();
+  } catch (error) {
+    if (error instanceof ProtocolError && accept(error)) {
+      return false;
     }
-    try {
-      await requestTasks(
-        client,
-        'tasks/get',
-        { taskId: TASKS_PROFILE.missingTaskId },
-        parseMcpGetTaskResult,
-        signal
-      );
-    } catch (error) {
-      // A broken alias bridge also yields a ProtocolError (method-not-found
-      // before dispatch), so pin the handler's own rejection: the reference
-      // server's throw maps to InternalError and names the task id.
-      if (
-        error instanceof ProtocolError &&
-        error.code === ProtocolErrorCode.InternalError &&
-        error.message.includes(TASKS_PROFILE.missingTaskId)
-      ) {
-        return false;
-      }
-      throw error;
-    }
-    throw new Error('MCP reference runner RED tasks/get for a missing task was not rejected');
+    throw error;
   }
-  if (runnerCase.scenarioId === 'modern-reference') {
-    if (phase !== 'red') {
-      return probeModernCapabilities(client, signal);
-    }
-    const result = await client.callTool({ name: 'test_error_handling' }, { signal });
-    if (!isIntentionalToolError(result)) {
-      throw new Error('MCP reference runner RED tool did not return the pinned intentional error');
-    }
-    return false;
+  throw new Error(`MCP reference runner RED ${description} was not rejected`);
+}
+
+async function runModernRed(client: Client, signal: AbortSignal): Promise<false> {
+  const result = await client.callTool({ name: 'test_error_handling' }, { signal });
+  if (!isIntentionalToolError(result)) {
+    throw new Error('MCP reference runner RED tool did not return the pinned intentional error');
   }
-  if (phase !== 'red') {
-    return (
-      echoText(await client.callTool({ arguments: { text: value }, name: 'echo' }, { signal })) ===
-      value
-    );
-  }
+  return false;
+}
+
+async function runEchoRed(client: Client, value: string, signal: AbortSignal): Promise<false> {
   try {
     await client.callTool({ arguments: { text: value }, name: 'missing-red-mutation' }, { signal });
   } catch (error) {
@@ -460,6 +508,61 @@ async function runReferenceTest(
     throw error;
   }
   throw new Error('MCP reference runner RED mutation did not produce a server rejection');
+}
+
+async function runReferenceTest(
+  client: Client,
+  runnerCase: McpLabRunnerCase,
+  phase: McpLabRunnerPhase,
+  value: string,
+  signal: AbortSignal
+): Promise<boolean> {
+  const { scenarioId } = runnerCase;
+  if (phase !== 'red') {
+    switch (scenarioId) {
+      case 'apps-reference':
+        return probeAppsCapabilities(client, signal);
+      case 'tasks-reference':
+        return probeTasksCapabilities(client, signal);
+      case 'modern-reference':
+        return probeModernCapabilities(client, signal);
+      default:
+        return (
+          echoText(
+            await client.callTool({ arguments: { text: value }, name: 'echo' }, { signal })
+          ) === value
+        );
+    }
+  }
+  switch (scenarioId) {
+    case 'apps-reference':
+      return expectProtocolRejection(
+        () => client.readResource({ uri: APPS_PROFILE.missingResourceUri }, { signal }),
+        'resources/read for a missing app resource',
+        (error) =>
+          error.code === ProtocolErrorCode.InvalidParams &&
+          error.message.includes(APPS_PROFILE.missingResourceUri)
+      );
+    case 'tasks-reference':
+      return expectProtocolRejection(
+        () =>
+          requestTasks(
+            client,
+            'tasks/get',
+            { taskId: TASKS_PROFILE.missingTaskId },
+            parseMcpGetTaskResult,
+            signal
+          ),
+        'tasks/get for a missing task',
+        (error) =>
+          error.code === ProtocolErrorCode.InternalError &&
+          error.message.includes(TASKS_PROFILE.missingTaskId)
+      );
+    case 'modern-reference':
+      return runModernRed(client, signal);
+    default:
+      return runEchoRed(client, value, signal);
+  }
 }
 
 class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {

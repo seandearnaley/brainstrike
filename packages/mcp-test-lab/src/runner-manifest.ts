@@ -17,6 +17,8 @@ export const MCP_LAB_RUNNER_CASE_IDS = Object.freeze([
   'modern-stdio',
   'modern-tasks-in-process',
   'modern-tasks-loopback',
+  'modern-apps-in-process',
+  'modern-apps-loopback',
 ] as const);
 export type McpLabRunnerCaseId = (typeof MCP_LAB_RUNNER_CASE_IDS)[number];
 
@@ -43,6 +45,8 @@ export const MCP_LAB_RUNNER_CASES = Object.freeze([
   runnerCase('modern-stdio', 'stdio-reference', undefined),
   runnerCase('modern-tasks-in-process', 'tasks-reference', 'in-process'),
   runnerCase('modern-tasks-loopback', 'tasks-reference', 'loopback'),
+  runnerCase('modern-apps-in-process', 'apps-reference', 'in-process'),
+  runnerCase('modern-apps-loopback', 'apps-reference', 'loopback'),
 ] as const satisfies readonly McpLabRunnerCase[]);
 
 const CASE_BY_ID: ReadonlyMap<McpLabRunnerCaseId, McpLabRunnerCase> = new Map(
@@ -57,6 +61,7 @@ export const MCP_LAB_RUNNER_PROFILE_CASE_IDS = Object.freeze({
     'oauth-http-loopback',
     'modern-stdio',
     'modern-tasks-in-process',
+    'modern-apps-in-process',
   ] as const satisfies readonly McpLabRunnerCaseId[]),
 } as const satisfies Readonly<Record<McpLabRunnerProfile, readonly McpLabRunnerCaseId[]>>);
 

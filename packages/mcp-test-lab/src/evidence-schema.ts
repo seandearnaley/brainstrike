@@ -11,6 +11,7 @@ const SDK_PACKAGE = '@modelcontextprotocol/client' as const;
 const CONFORMANCE_PACKAGE = '@modelcontextprotocol/conformance' as const;
 const MAX_EVIDENCE_ARRAY_ITEMS = 1000;
 const MCP_EVIDENCE_FIXTURE_IDS = Object.freeze([
+  'brainstrike-apps-reference',
   'brainstrike-oauth-reference',
   'brainstrike-sdk-v2-reference',
   'brainstrike-stdio-reference',
@@ -59,6 +60,11 @@ export interface McpEvidenceBlocker {
   readonly description: string;
   readonly owner: string;
 }
+export const MCP_EVIDENCE_UPSTREAM_KINDS = Object.freeze([
+  'official-ext-apps',
+  'official-typescript-sdk',
+] as const);
+export type McpEvidenceUpstreamKind = (typeof MCP_EVIDENCE_UPSTREAM_KINDS)[number];
 export type McpEvidenceFixtureVersion =
   | {
       readonly id: McpLabFixture;
@@ -72,7 +78,7 @@ export type McpEvidenceFixtureVersion =
       readonly sha256: string;
       readonly upstream: {
         readonly commitSha: string;
-        readonly kind: 'official-typescript-sdk';
+        readonly kind: McpEvidenceUpstreamKind;
         readonly path: string;
         readonly repositoryUrl: string;
         readonly sha256: string;
@@ -418,7 +424,9 @@ function assertCanonicalScenarioClaims(schema: McpEvidenceSchema): void {
       ? ['completions', 'prompts', 'resources', 'tools']
       : schema.scenarioId === 'tasks-reference'
         ? ['extensions', 'tools']
-        : ['tools'];
+        : schema.scenarioId === 'apps-reference'
+          ? ['resources', 'tools']
+          : ['tools'];
   if (
     schema.versions.spec !== scenario.protocol.version ||
     schema.versions.sdk.version !== scenario.reference.sdkVersion ||
@@ -528,10 +536,10 @@ function parseFixtureVersion(input: unknown): McpEvidenceFixtureVersion {
         /^[0-9a-f]{40}$/,
         'full lowercase 40-character commit SHA'
       ),
-      kind: exactLiteral(
+      kind: oneOf(
         upstream['kind'],
-        'official-typescript-sdk',
-        '$.versions.fixture.upstream.kind'
+        '$.versions.fixture.upstream.kind',
+        MCP_EVIDENCE_UPSTREAM_KINDS
       ),
       path: repositoryPath(upstream['path'], '$.versions.fixture.upstream.path'),
       repositoryUrl: repositoryUrl(

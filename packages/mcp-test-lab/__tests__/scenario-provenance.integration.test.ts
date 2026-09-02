@@ -2,8 +2,11 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
+import { APPS_PROFILE } from '../src/apps-profile';
 import { OFFICIAL_EVERYTHING_PROFILE } from '../src/official-everything-profile';
 import {
+  MCP_LAB_EXT_APPS_EXAMPLE_SERVER_SOURCE,
+  MCP_LAB_EXT_APPS_SOURCE,
   MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
   MCP_LAB_SDK_SOURCE,
   MCP_LAB_SDK_TASKS_SCHEMA_SOURCE,
@@ -78,5 +81,40 @@ describe('MCP lab upstream provenance', () => {
     expect(text).toContain("'tasks/cancel'");
     expect(text).not.toContain('tasks/update');
     expect(text).not.toContain(`${TASKS_PROFILE.notificationMethod}'`);
+  });
+
+  it('verifies the pinned ext-apps tag and every example-server file digest and anchor', async () => {
+    // BST-1572: v1.7.5 is a lightweight tag, so the tag object IS the commit.
+    const { stdout } = await execFileAsync('git', [
+      'ls-remote',
+      MCP_LAB_EXT_APPS_SOURCE.repositoryUrl,
+      `refs/tags/${MCP_LAB_EXT_APPS_SOURCE.tag}`,
+    ]);
+    expect(stdout.trim().split('\t')[0]).toBe(MCP_LAB_EXT_APPS_SOURCE.commitSha);
+    expect(APPS_PROFILE.upstream.files['server.ts']).toBe(
+      MCP_LAB_EXT_APPS_EXAMPLE_SERVER_SOURCE.sha256
+    );
+    const texts = new Map<string, string>();
+    for (const [file, sha256] of Object.entries(APPS_PROFILE.upstream.files)) {
+      const rawUrl = `https://raw.githubusercontent.com/modelcontextprotocol/ext-apps/${MCP_LAB_EXT_APPS_SOURCE.commitSha}/${APPS_PROFILE.upstream.directory}/${file}`;
+      const response = await fetch(rawUrl);
+      expect(response.status).toBe(200);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(sha256);
+      texts.set(file, new TextDecoder().decode(bytes));
+    }
+    expect(texts.get('mcp-app.html')).toBe(APPS_PROFILE.document);
+    const serverText = texts.get('server.ts') ?? '';
+    for (const anchor of [
+      APPS_PROFILE.server.name,
+      APPS_PROFILE.tool.name,
+      APPS_PROFILE.tool.title,
+      APPS_PROFILE.tool.description,
+      APPS_PROFILE.resource.uri,
+      'RESOURCE_MIME_TYPE',
+      '_meta: { ui: { resourceUri } }',
+    ]) {
+      expect(serverText).toContain(anchor);
+    }
   });
 });
