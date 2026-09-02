@@ -6,6 +6,7 @@ import {
   guardToolExecution,
   isGuardedToolError,
 } from '../tools/guard-tool-execution';
+import { readToolGuardDeadlineSignal } from '../tools/tool-guard-deadline';
 
 function makeTool(execute: (...args: unknown[]) => unknown) {
   return { description: 'd', execute, id: 'demo' };
@@ -84,6 +85,79 @@ describe('guardToolExecution', () => {
     expect(result.error.code).toBe('tool_input_invalid');
     expect(result.error.message.length).toBeLessThanOrEqual(1000);
     expect(result.error.message).toMatch(/\u2026 \[input error truncated\]$/);
+  });
+
+  it('aborts the deadline the running tool can observe before reporting the timeout', async () => {
+    vi.useFakeTimers();
+    const context = { agent: { toolCallId: 'call-1' } };
+    let observed: AbortSignal | undefined;
+    const tool = guardToolExecution(
+      makeTool((...args: unknown[]) => {
+        observed = readToolGuardDeadlineSignal(args[1]);
+        return new Promise(() => {});
+      }),
+      { timeoutMs: 50, toolName: 'demo' }
+    );
+
+    const promise = tool.execute({}, context);
+    expect(observed).toBeInstanceOf(AbortSignal);
+    expect(observed?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(60);
+    const result = (await promise) as GuardedToolError;
+    expect(result.error.code).toBe('tool_timeout');
+    expect(observed?.aborted).toBe(true);
+    expect(String((observed as AbortSignal).reason)).toContain('demo');
+    vi.useRealTimers();
+  });
+
+  it('leaves the deadline unaborted when the tool settles inside its budget', async () => {
+    const context = { agent: { toolCallId: 'call-2' } };
+    let observed: AbortSignal | undefined;
+    const tool = guardToolExecution(
+      makeTool(async (...args: unknown[]) => {
+        observed = readToolGuardDeadlineSignal(args[1]);
+        return { value: 1 };
+      }),
+      { timeoutMs: 1000, toolName: 'demo' }
+    );
+
+    await expect(tool.execute({}, context)).resolves.toEqual({ value: 1 });
+    expect(observed?.aborted).toBe(false);
+  });
+
+  it('reports two live executions colliding on one provider tool-call id', async () => {
+    // The tool-call id is PROVIDER data, so a collision is a data condition,
+    // not a programming error: the guard must keep both calls working and make
+    // the mis-routed deadline diagnosable rather than invisible (BST-1594
+    // review). Logging, not throwing, is what keeps the call working.
+    const logger = { debug: vi.fn(), error: vi.fn() };
+    const started = Promise.withResolvers<void>();
+    const first = guardToolExecution(
+      makeTool(async () => {
+        started.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { value: 'first' };
+      }),
+      { logger, timeoutMs: 5000, toolName: 'demo' }
+    );
+    const second = guardToolExecution(
+      makeTool(async () => ({ value: 'second' })),
+      { logger, timeoutMs: 5000, toolName: 'demo' }
+    );
+
+    const firstCall = first.execute({}, { agent: { toolCallId: 'shared-call' } });
+    await started.promise;
+    expect(logger.error).not.toHaveBeenCalled();
+
+    await expect(second.execute({}, { agent: { toolCallId: 'shared-call' } })).resolves.toEqual({
+      value: 'second',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      'Tool guard deadline id collision',
+      expect.objectContaining({ toolCallId: 'shared-call' })
+    );
+    await expect(firstCall).resolves.toEqual({ value: 'first' });
   });
 
   it('leaves a tool without an execute function untouched', () => {

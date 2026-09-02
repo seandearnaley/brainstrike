@@ -82,6 +82,7 @@
       "require": "./dist/test-fixtures/mcp-host-lifecycle.js"
     },
     "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs": "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs",
+    "./test-fixtures/mcp-stdio-progress-cancellation-server.mjs": "./test-fixtures/mcp-stdio-progress-cancellation-server.mjs",
     "./mcp-tasks": {
       "types": "./dist/mcp-tasks.d.ts",
       "import": "./dist/mcp-tasks.mjs",

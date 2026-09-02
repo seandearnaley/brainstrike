@@ -4,7 +4,7 @@ import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   createMcpRuntimeClient,
   MCP_PROGRESS_STREAM_PART_TYPE,
@@ -20,6 +20,10 @@ import type {
 } from '../mcp/explicit-http-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
+import {
+  readToolGuardDeadlineSignal,
+  registerToolGuardDeadlineSignal,
+} from '../tools/tool-guard-deadline';
 
 type ExecutableTool = ToolsInput[string] & {
   execute: (input: unknown, context?: unknown) => Promise<unknown>;
@@ -535,6 +539,80 @@ describe('MCP runtime client', () => {
       expect.objectContaining({ progress: 0.4 }),
       expect.objectContaining({ progress: 0.8 }),
     ]);
+  });
+
+  it('cancels the in-flight host request when the tool guard deadline fires', async () => {
+    const callTool = vi.fn(
+      async (
+        _params: ExplicitHttpMcpCallToolParams,
+        _options?: ExplicitHttpMcpRequestOptions
+      ): Promise<ExplicitHttpMcpCallToolResult> => ({
+        content: [{ text: 'ok', type: 'text' }],
+      })
+    );
+    const remote = {
+      callTool,
+      close: vi.fn().mockResolvedValue(undefined),
+      listTools: vi
+        .fn()
+        .mockResolvedValue({ tools: [{ inputSchema: { type: 'object' }, name: 'slow' }] }),
+    };
+    const { host } = createTestHost({ remote });
+    const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+    const discovered = await runtimeClient?.listToolsetsWithErrors();
+    const tool = requireExecutableTool(discovered?.toolsets['remote']?.['slow']);
+    const caller = new AbortController();
+    const guard = new AbortController();
+    const context = { abortSignal: caller.signal, agent: { toolCallId: 'slow-call' } };
+    const releaseDeadline = registerToolGuardDeadlineSignal([{}, context], guard.signal);
+    // The registry is module-global and keyed by tool-call id, so an assertion
+    // failure below would otherwise leave 'slow-call' registered for the rest
+    // of the file and turn one real failure into cascading ones.
+    onTestFinished(releaseDeadline);
+
+    await tool.execute({}, context);
+
+    const forwarded = callTool.mock.calls[0]?.[1]?.signal;
+    expect(forwarded).toBeInstanceOf(AbortSignal);
+    expect(forwarded?.aborted).toBe(false);
+    guard.abort(new Error('guard deadline'));
+    expect(forwarded?.aborted).toBe(true);
+    // The caller's own signal identity is untouched, so identity-marked
+    // execution signals keep their meaning.
+    expect(caller.signal.aborted).toBe(false);
+
+    releaseDeadline();
+    expect(readToolGuardDeadlineSignal(context)).toBeUndefined();
+  });
+
+  it('still cancels on the caller signal when no tool guard deadline is registered', async () => {
+    const callTool = vi.fn(
+      async (
+        _params: ExplicitHttpMcpCallToolParams,
+        _options?: ExplicitHttpMcpRequestOptions
+      ): Promise<ExplicitHttpMcpCallToolResult> => ({
+        content: [{ text: 'ok', type: 'text' }],
+      })
+    );
+    const remote = {
+      callTool,
+      close: vi.fn().mockResolvedValue(undefined),
+      listTools: vi
+        .fn()
+        .mockResolvedValue({ tools: [{ inputSchema: { type: 'object' }, name: 'plain' }] }),
+    };
+    const { host } = createTestHost({ remote });
+    const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+    const discovered = await runtimeClient?.listToolsetsWithErrors();
+    const tool = requireExecutableTool(discovered?.toolsets['remote']?.['plain']);
+    const caller = new AbortController();
+
+    await tool.execute({}, { abortSignal: caller.signal, agent: { toolCallId: 'plain-call' } });
+
+    const forwarded = callTool.mock.calls[0]?.[1]?.signal;
+    expect(forwarded?.aborted).toBe(false);
+    caller.abort(new Error('caller cancelled'));
+    expect(forwarded?.aborted).toBe(true);
   });
 
   describe('MCP Apps tool results', () => {
