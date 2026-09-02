@@ -5,6 +5,7 @@ import {
   type McpLabSession,
   startMcpLabScenario,
 } from '../src/lab';
+import { ECHO_REFERENCE_CONTENT } from '../src/reference-server';
 import { expectReferenceToolContract } from './reference-tool-contract';
 
 type VersionNegotiation = NonNullable<
@@ -242,6 +243,53 @@ describe('MCP lab in-process HTTP references', () => {
 
   it('negotiates the explicit legacy protocol through a real SDK exchange', async () => {
     await verifyReferenceExchange('legacy-reference', { mode: 'legacy' }, '2025-11-25');
+  });
+
+  it('serves the echo reference resource, prompt, and prompt-argument completion (BST-1592)', async () => {
+    const lab = await startMcpLabScenario('legacy-reference', { execution: 'in-process' });
+    const endpoint = requireInProcessEndpoint(lab);
+    const client = new Client(
+      { name: 'brainstrike-mcp-lab-content-test', version: '1.0.0' },
+      { versionNegotiation: { mode: 'legacy' } }
+    );
+    const { prompt, resource } = ECHO_REFERENCE_CONTENT;
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(endpoint.url, { fetch: endpoint.fetch })
+      );
+      // The catalog surfaces resources/prompts/completion only when the server
+      // negotiates the capability, so assert the inferred set first.
+      expect(Object.keys(client.getServerCapabilities() ?? {}).sort()).toEqual([
+        'completions',
+        'prompts',
+        'resources',
+        'tools',
+      ]);
+      expect((await client.listResources()).resources).toContainEqual(
+        expect.objectContaining({ mimeType: resource.mimeType, uri: resource.uri })
+      );
+      expect((await client.readResource({ uri: resource.uri })).contents).toEqual([
+        { mimeType: resource.mimeType, text: resource.text, uri: resource.uri },
+      ]);
+      expect((await client.listPrompts()).prompts).toContainEqual(
+        expect.objectContaining({
+          arguments: [expect.objectContaining({ name: prompt.argument, required: true })],
+          name: prompt.name,
+        })
+      );
+      expect(
+        (await client.getPrompt({ arguments: { [prompt.argument]: 'topic' }, name: prompt.name }))
+          .messages
+      ).toEqual([{ content: { text: prompt.message('topic'), type: 'text' }, role: 'user' }]);
+      const completion = await client.complete({
+        argument: { name: prompt.argument, value: 'bst-1592-a' },
+        ref: { name: prompt.name, type: 'ref/prompt' },
+      });
+      expect(completion.completion.values).toEqual(['bst-1592-alpha']);
+    } finally {
+      await client.close();
+      await lab.close();
+    }
   });
 
   it.each([

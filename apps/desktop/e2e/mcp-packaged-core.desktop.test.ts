@@ -51,6 +51,17 @@ type CloseReport = Record<string, number | readonly unknown[]>;
 const ASSISTANT_TOOL_PAYLOAD = 'packaged-assistant-payload';
 const ELICITATION_TOOL_PAYLOAD = 'packaged-elicitation-payload';
 const OAUTH_BROWSER_DESKTOP_FILE = 'brainstrike-mcp-oauth-browser.desktop';
+// BST-1592 content proof coordinates. Kept literal rather than imported from
+// the lab source: the packaged proof must fail if the fixture's user-visible
+// content drifts, not silently follow it.
+const ECHO_RESOURCE_TITLE = 'Echo reference notes';
+const ECHO_RESOURCE_URI = 'brainstrike://reference/echo-notes';
+const ECHO_RESOURCE_MARKER = 'bst-1592-resource-body';
+const ECHO_PROMPT_COMMAND_ID = 'mcp:legacy:echo_prompt';
+const ECHO_PROMPT_MENU_LABEL = 'Echo reference prompt · legacy';
+const ECHO_PROMPT_ARGUMENT = 'subject';
+const ECHO_PROMPT_ARGUMENT_VALUE = 'bst-1592-alpha';
+const ECHO_PROMPT_MESSAGE = `Echo the reference subject "${ECHO_PROMPT_ARGUMENT_VALUE}" back to me.`;
 async function loadFixtures(): Promise<PackagedFixtureModule> {
   return (await import(
     pathToFileURL(path.resolve(process.cwd(), '../../packages/mcp-test-lab/dist/index.js')).href
@@ -343,6 +354,45 @@ async function readLifecycleDiagnostics(page: Page): Promise<{ hostPid: number; 
     return { hostPid, reset };
   });
 }
+/**
+ * BST-1592 — user-initiated `resources/read` reaching the packaged renderer.
+ * Driven against the Brainstrike echo reference fixture (the `legacy` server),
+ * not the pinned official everything profile.
+ */
+async function verifyResourceRead(page: Page): Promise<void> {
+  const catalog = page.getByTestId('mcp-server-catalog-legacy');
+  await expect(catalog).toBeVisible({ timeout: 60_000 });
+  await catalog.getByRole('button', { name: `Read ${ECHO_RESOURCE_TITLE}` }).click();
+  const content = page.getByTestId('mcp-catalog-content-legacy');
+  await expect(content).toContainText(ECHO_RESOURCE_URI, { timeout: 30_000 });
+  await expect(content).toContainText(ECHO_RESOURCE_MARKER);
+}
+
+/**
+ * BST-1592 — user-initiated `prompts/get` reaching the packaged renderer
+ * through the composer's "/" menu: select the MCP prompt, fill its argument in
+ * the modal, and prove the server's own message text lands in the composer
+ * DRAFT (never auto-sent).
+ */
+async function verifyComposerPromptSelection(page: Page): Promise<void> {
+  const input = page.locator('#assistant-input');
+  await expect(input).toBeVisible({ timeout: 30_000 });
+  await input.fill('');
+  await input.click();
+  await input.pressSequentially(`/${ECHO_PROMPT_COMMAND_ID}`);
+  const popover = page.getByTestId('assistant-slash-popover');
+  await expect(popover).toBeVisible({ timeout: 30_000 });
+  await popover.getByRole('option', { name: ECHO_PROMPT_MENU_LABEL }).click();
+  const dialog = page.getByTestId('mcp-prompt-dialog');
+  await expect(dialog).toBeVisible({ timeout: 30_000 });
+  // Provenance: which configured server this prompt came from.
+  await expect(dialog).toContainText('legacy');
+  await dialog.getByLabel(ECHO_PROMPT_ARGUMENT).fill(ECHO_PROMPT_ARGUMENT_VALUE);
+  await dialog.getByRole('button', { exact: true, name: 'Insert prompt' }).click();
+  await expect(dialog).toBeHidden({ timeout: 30_000 });
+  await expect(input).toHaveValue(ECHO_PROMPT_MESSAGE, { timeout: 30_000 });
+}
+
 async function executeAssistantTool(page: Page): Promise<void> {
   await page.keyboard.press('Escape');
   await configureAssistantProvider(page, {
@@ -582,6 +632,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       await expect(serverRow(first.window, server)).toContainText(revision);
     }
     await waitForServerState(first.window, 'stdio', /Connected/i);
+    await verifyResourceRead(first.window);
     const firstStdioPid = await readOwnedPid(stdioPidFile);
     await verifyDiagnosticFailure(first.window, diagnosticControlDirectory);
     await expectOwnedProcessGone(await readOwnedPid(diagnosticPidFile));
@@ -592,6 +643,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     await expect(permission).toHaveValue('ask');
     await executeAssistantTool(first.window);
     await executeElicitationTool(first.window, modelProvider);
+    await verifyComposerPromptSelection(first.window);
     await closePackagedDesktop(first);
     first = undefined;
     await expectOwnedProcessGone(firstStdioPid);

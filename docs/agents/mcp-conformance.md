@@ -29,7 +29,15 @@ profile digest and the upstream source pin. A live integration test verifies
 the upstream bytes and every profile anchor. It exercises the official tool,
 resource, prompt, completion, and modern subscription capability shape without
 claiming to vendor or run the full upstream conformance server.
-The legacy scenario retains the Brainstrike-owned SDK v2 echo fixture. Both
+The legacy scenario retains the Brainstrike-owned SDK v2 echo fixture, which
+since BST-1592 also serves one resource, one `completable()`-argument prompt,
+and therefore `completion/complete` (`ECHO_REFERENCE_CONTENT` in
+`reference-server.ts`) so the packaged content proof runs against a
+Brainstrike-owned fixture rather than the pinned official profile. Negotiated
+capabilities are pinned per FIXTURE by `mcpEvidenceCapabilitiesFor`
+(`evidence-schema.ts`): the HTTP echo fixtures and the official profile
+negotiate `completions`/`prompts`/`resources`/`tools`, while the separate
+spawned stdio echo fixture still negotiates `tools` only. Both
 use focused real client exchanges over in-process and ephemeral loopback HTTP.
 Loopback listeners bind only `127.0.0.1` on an
 ephemeral port, apply the SDK localhost Host/Origin validators, and close before

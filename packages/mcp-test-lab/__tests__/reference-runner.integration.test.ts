@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { mcpEvidenceCapabilitiesFor } from '../src/evidence-schema';
 import { startMcpLabScenario } from '../src/lab';
 import { createMcpLabReferenceRunnerDependencies } from '../src/reference-runner';
 import { runMcpLabVerification } from '../src/runner';
@@ -74,13 +75,7 @@ describe('MCP official reference runner', () => {
         `${caseIds[index]}-red-${redSuffix(schema.scenarioId)}`
       );
       expect(schema.negotiation.capabilities).toEqual(
-        schema.scenarioId === 'modern-reference'
-          ? ['completions', 'prompts', 'resources', 'tools']
-          : schema.scenarioId === 'tasks-reference'
-            ? ['extensions', 'tools']
-            : schema.scenarioId === 'apps-reference'
-              ? ['resources', 'tools']
-              : ['tools']
+        mcpEvidenceCapabilitiesFor(schema.scenarioId)
       );
     }
     expect(JSON.stringify(bundles)).not.toMatch(/bearer|access[_-]?token|client[_-]?secret/i);

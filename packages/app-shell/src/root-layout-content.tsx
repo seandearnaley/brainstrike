@@ -72,6 +72,7 @@ import {
   rendererLongTaskTelemetry,
 } from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
+import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
@@ -772,6 +773,11 @@ export function RootLayoutContent({
                     pushes server input requests here regardless of route, and the
                     host renders nothing when the preload bridge is absent. */}
                   <McpElicitationHost />
+                  {/* Composer MCP prompt selection is app-wide (BST-1592): the
+                    "/" menu's execute hands the selection here from wherever the
+                    composer is mounted, and the host renders nothing when the
+                    preload bridge is absent. */}
+                  <McpPromptComposerHost />
                   {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
                   <KeepMountedRoute

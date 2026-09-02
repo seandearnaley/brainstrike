@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
 import type { McpArtifactIntegrityDependencies } from '../src/evidence';
+import { mcpEvidenceCapabilitiesFor } from '../src/evidence-schema';
 import {
   type McpLabRunnerCaseObservation,
   type McpLabRunnerDependencies,
@@ -46,10 +47,7 @@ function observation(
       ? ({ era: 'legacy', revision: '2025-11-25' } as const)
       : ({ era: 'modern', revision: '2026-07-28' } as const);
   return {
-    capabilities:
-      runnerCase.scenarioId === 'modern-reference'
-        ? ['completions', 'prompts', 'resources', 'tools']
-        : ['tools'],
+    capabilities: [...mcpEvidenceCapabilitiesFor(runnerCase.scenarioId)],
     correlationIds: [`${runnerCase.id}-${phase}`],
     exitStatus: phase === 'red' ? 1 : 0,
     negotiation,

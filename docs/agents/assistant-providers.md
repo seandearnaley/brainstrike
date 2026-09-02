@@ -2986,8 +2986,7 @@ Completion is gated on the server's advertised `features.completion`, debounced 
 empty input, and dedupes values. Bodies render bounded (text truncated at 2 KiB, at most 20
 contents, messages, or suggestion values per view, blobs and non-text content shown as metadata
 only) and are never eager model context; the catalog remounts per server generation so a retired
-generation's content or draft never carries over. Slash-command prompt integration and the
-packaged E2E proof are deferred to BST-1592. Desktop main
+generation's content or draft never carries over. Desktop main
 owns one `createMcpContentApplicationPort` per host runtime (`apps/desktop/src/mcp/content-port.ts`,
 memoized so factory reset keeps the singleton) with the main-process logger as the required
 internal-error sink. The `mcp:content:readResource` / `mcp:content:getPrompt` /
@@ -3007,6 +3006,54 @@ operations gated on bridge presence, so web omits the affordance entirely. Pinne
 `apps/desktop/src/__tests__/preload-runtime-contract.test.ts`,
 `apps/desktop/src/__tests__/renderer/components/settings/page-content-operations.test.tsx`, and
 `packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx`.
+
+BST-1592 makes prompts selectable from the COMPOSER, so using a prompt no longer requires opening
+Settings. MCP prompts are a FOURTH entry kind in the same `SlashCommand[]` the app commands,
+user-defined `/commands`, and Agent Skills already flow through
+(`packages/app-shell/src/use-mcp-prompt-slash-commands.ts`, merged last by
+`useAssistantSlashCommands`) — there is no parallel autocomplete surface. The list is a pure
+projection of the revisioned host snapshot (`mcp-prompts/mcp-prompt-catalog.ts`): only a CONNECTED
+server that advertises `features.prompts` and listed the prompt is offered, ordered by configured
+server id then prompt name. Two servers may expose the same prompt name, so both the command id
+(`mcp:<configuredServerId>:<promptName>`) and the menu label (`<title> · <configuredServerId>`)
+carry the configured server id. Desktop-only by construction: `resolveMcpPromptBridge()` requires
+all four `window.mcp` members (`complete`, `getPrompt`, `getServerStatusSnapshot`,
+`onServerStatusUpdated`) and a partial bridge disables the surface with an error rather than
+degrading; web has no preload and offers nothing.
+
+Selecting a prompt performs NO request. `execute` captures the live draft split around the typed
+trigger (the adapter strips it afterwards, and the popover can be invoked mid-draft, so trailing
+text must survive) and hands the selection to the app-wide `McpPromptComposerHost`
+(`packages/app-shell/src/mcp-prompts/mcp-prompt-host.tsx`, mounted beside `McpElicitationHost` in
+`root-layout-content.tsx`). That host owns every effect: an argument-less prompt stages immediately;
+an argument-taking prompt opens `McpPromptDialog`, whose inputs call `completion/complete`
+(`ref/prompt`, 250 ms debounce, empty input skipped, values deduped and capped at 20) and whose
+submit issues `prompts/get`. The pinned generation is watched for the lifetime of the selection, so
+a server that disconnects mid-selection blocks submission with a visible message instead of
+retargeting another generation — the visible half of a failure the content port would reject anyway.
+The result lands in the composer DRAFT via `assistant-composer-command-store` (`mode: 'replace'`),
+never auto-sent and never eager model context: the same contract as user-defined `/commands` and
+Agent Skills. A single user text message stages verbatim; anything else is role-labelled, and
+image/audio/resource parts are REPORTED in a toast rather than dropped, with a prompt carrying no
+text at all failing visibly.
+
+`completion/complete` with `ref/resource` has NO product caller and stays HOST-ONLY: it exists on the
+typed `invoke` union and the content port for a future resource-TEMPLATE surface, and resource
+contents entering assistant context remains out of scope until a bounded-context design exists. Do
+not add a caller for it as a side effect of another ticket. Every content VERB
+(`resources/read`, `prompts/get`, `completion/complete`) now has a product caller.
+
+The packaged proof runs in `apps/desktop/e2e/mcp-packaged-core.desktop.test.ts` against the
+Brainstrike-owned echo reference fixture (the `legacy` server), NOT the pinned official everything
+profile: Settings `Read` on the echo resource proves `resources/read` reaches the renderer, and the
+composer "/" menu → argument dialog → `Insert prompt` proves `prompts/get` does, with the server's
+own message text asserted in the composer draft. The fixture gained that content in
+`packages/mcp-test-lab/src/reference-server.ts` (`ECHO_REFERENCE_CONTENT`); its `completions`
+capability comes from a `completable()` prompt argument, which also installs the SDK's own
+`completion/complete` dispatcher — a hand-written handler for that method would collide with it.
+Pinned by `packages/app-shell/src/__tests__/mcp-prompt-catalog.test.ts`, `mcp-prompt-text.test.ts`,
+`use-mcp-prompt-slash-commands.test.tsx`, `mcp-prompt-host.test.tsx`, and
+`packages/mcp-test-lab/__tests__/lab-http.integration.test.ts`.
 
 Every promise-returning host operation reports malformed input and terminal
 closure as a rejected promise; `McpHostService` owns the typed `mcp-host-closed`

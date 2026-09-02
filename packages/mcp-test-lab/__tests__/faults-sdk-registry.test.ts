@@ -77,12 +77,17 @@ describe('MCP fault compatibility against the installed SDK', () => {
     const installed = await readInstalledSdkEraMethods();
     const expected = {
       legacy: [
+        'completion/complete',
         'initialize',
         'notifications/cancelled',
         'notifications/initialized',
         'notifications/progress',
         'notifications/roots/list_changed',
         'ping',
+        'prompts/get',
+        'prompts/list',
+        'resources/list',
+        'resources/read',
         'tools/call',
         'tools/list',
       ],

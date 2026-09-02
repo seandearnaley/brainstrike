@@ -400,7 +400,24 @@ packages/assistant-ui/src/__tests__/slash-commands.behavior.test.tsx
 Explicitly DEFERRED: shell expansion (never), web (no workspace-tool bridge),
 namespaced/categorized popover grouping. (Mastra skills LANDED — see AGENT
 SKILLS below; user-invocable skills are a THIRD slash-entry kind merged after
-user commands.)
+user commands. MCP server prompts are a FOURTH kind — see below.)
+
+### MCP SERVER PROMPTS — the fourth slash-entry kind (BST-1592)
+
+Prompts published by connected MCP servers, merged LAST into the same
+`SlashCommand[]`. Desktop-only by construction (`resolveMcpPromptBridge()` needs
+the visible-UI preload's `window.mcp` content + status members; web returns
+`[]`). Ids are `mcp:<configuredServerId>:<promptName>` and labels are
+`<title> · <configuredServerId>`, because two servers may expose the same prompt
+name and the user must see WHOSE prompt they are staging.
+
+Because the pinned popover cannot capture inline args (the F1 constraint above),
+an argument-taking prompt opens a MODAL (`packages/app-shell/src/mcp-prompts/`)
+whose inputs are backed by `completion/complete` (`ref/prompt`); an
+argument-less prompt stages immediately. Either way `prompts/get` runs only on
+that explicit action, and the result is written to the composer DRAFT — never
+auto-sent, never eager model context. Full contract, failure taxonomy, and
+packaged proof: `docs/agents/assistant-providers.md` (BST-1592).
 
 When changing this flow, update this section and the paired tests.
 
