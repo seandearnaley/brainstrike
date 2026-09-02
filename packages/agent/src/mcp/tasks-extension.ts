@@ -10,6 +10,7 @@ import {
   MCP_TASKS_EXTENSION_SETTINGS,
   MCP_TASKS_EXTENSION_VERSION,
   type McpTasksExtensionSettings,
+  parseMcpTaskSubscriptionAcknowledgedNotifications,
   parseMcpTaskSubscriptionNotifications,
   parseMcpTasksExtensionSettings,
   type TaskStatusNotificationParams,
@@ -57,7 +58,6 @@ const MCP_TASKS_TOOL_RESULT_SCHEMA = z.union([
     .transform((value) => value[REGISTERED_EXTENSION_RESULT_KEY]),
   CallToolResultSchema,
 ]);
-
 const restoreCompleteResult = <Schema extends z.ZodType>(schema: Schema) =>
   z.preprocess(
     (value) =>
@@ -142,7 +142,9 @@ const MCP_TASKS_WIRE_CONTRACT: McpClientExtensionContract<
   version: MCP_TASKS_EXTENSION_VERSION,
 });
 
-export type McpTasksNotificationLease = Pick<McpSubscription, 'close' | 'closed'>;
+export interface McpTasksNotificationLease extends Pick<McpSubscription, 'close' | 'closed'> {
+  readonly honoredTaskIds: readonly string[];
+}
 
 export type McpTasksNotificationHandler = (
   task: TaskStatusNotificationParams
@@ -196,11 +198,16 @@ export async function listenForMcpTasks(
     client.getNegotiatedProtocolVersion()
   );
   activeTaskSubscriptions.add(client);
-  client.setNotificationHandler(
-    notificationContract.method,
-    { params: notificationContract.paramsSchema },
-    handler
-  );
+  try {
+    client.setNotificationHandler(
+      notificationContract.method,
+      { params: notificationContract.paramsSchema },
+      handler
+    );
+  } catch (error) {
+    activeTaskSubscriptions.delete(client);
+    throw error;
+  }
   let released = false;
   const release = (): void => {
     if (!released) {
@@ -214,6 +221,33 @@ export async function listenForMcpTasks(
     subscription = await client.listen(notifications as SubscriptionFilter, options);
   } catch (error) {
     release();
+    throw error;
+  }
+  let honoredTaskIds: readonly string[];
+  try {
+    const acknowledged = parseMcpTaskSubscriptionAcknowledgedNotifications(
+      subscription.honoredFilter
+    );
+    honoredTaskIds = Object.freeze([...(acknowledged.taskIds ?? [])]);
+    const requestedTaskIds = new Set(taskIds);
+    if (
+      new Set(honoredTaskIds).size !== honoredTaskIds.length ||
+      honoredTaskIds.some((taskId) => !requestedTaskIds.has(taskId))
+    ) {
+      throw new Error('MCP Tasks notification acknowledgement is outside the requested task ids.');
+    }
+  } catch (error) {
+    release();
+    // The transport may reject `closed` on exactly this path; keep it handled.
+    void subscription.closed.catch(() => undefined);
+    try {
+      await subscription.close();
+    } catch (closeError) {
+      throw new AggregateError(
+        [error, closeError],
+        'MCP Tasks notification acknowledgement and cleanup failed.'
+      );
+    }
     throw error;
   }
   const closed = subscription.closed.then(
@@ -232,5 +266,6 @@ export async function listenForMcpTasks(
       await subscription.close();
     },
     closed,
+    honoredTaskIds,
   };
 }

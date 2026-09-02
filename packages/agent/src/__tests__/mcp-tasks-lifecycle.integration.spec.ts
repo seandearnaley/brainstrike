@@ -18,6 +18,11 @@ import {
   McpTaskLifecycle,
   type McpTaskPollingClient,
 } from '../mcp/tasks-lifecycle.js';
+import { McpTaskObservationPort } from '../mcp/tasks-observation.js';
+
+const consumerErrorSink = (taskId: string, error: unknown): void => {
+  throw new Error(`unexpected consumer error for ${taskId}: ${String(error)}`);
+};
 
 const authorityInput = {
   connectionGeneration: 7,
@@ -146,6 +151,51 @@ describe('McpTaskLifecycle', () => {
       status: 'completed',
     });
     expect(updates).toEqual(['completed']);
+    expect(lifecycle.snapshot()).toEqual({
+      activePolls: 0,
+      activeTasks: 0,
+      pendingCreates: 0,
+      queuedPolls: 0,
+      timers: 0,
+    });
+  });
+
+  it('coalesces notification wakeups into one lifecycle-owned poll and publishes after persistence', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(createdTask.createdAt));
+    db = await openDatabase();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
+    const observed = vi.fn(async (task: GetTaskResult) => {
+      await expect(repository.get(taskIdentity(authority, task.taskId))).resolves.toMatchObject({
+        status: task.status,
+      });
+    });
+    observationPort.subscribe({ fail: vi.fn(), observe: observed });
+    const requestExtension = vi.fn(
+      async (): Promise<GetTaskResult> => completedTask('task-wake', '2026-09-01T04:00:00.100Z')
+    );
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: { requestExtension },
+      observationPort,
+      onUpdate: vi.fn(),
+      repository,
+    });
+    const tracked = await lifecycle.track({
+      ...createdTask,
+      pollIntervalMs: 10_000,
+      taskId: 'task-wake',
+    });
+
+    observationPort.requestPoll('task-wake');
+    observationPort.requestPoll('task-wake');
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(tracked.settled).resolves.toMatchObject({ status: 'completed' });
+    expect(requestExtension).toHaveBeenCalledOnce();
+    expect(observed).toHaveBeenCalledOnce();
     expect(lifecycle.snapshot()).toEqual({
       activePolls: 0,
       activeTasks: 0,

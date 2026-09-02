@@ -4,6 +4,7 @@ export {
   createMcpElicitationCapability,
   createMcpRootsCapability,
   DEFAULT_MCP_INPUT_REQUIRED_MAX_ROUNDS,
+  fulfillMcpElicitationRequest,
   type McpAdvisoryRoot,
   type McpClientCapabilityOptions,
   type McpClientHandlerContext,
@@ -89,14 +90,29 @@ export {
   registerMcpTasksWireContracts,
 } from './mcp/tasks-extension';
 export {
+  McpTaskCancellationOutcomeError,
+  type McpTaskCancellationResult,
+  McpTaskInteraction,
+  type McpTaskInteractionClient,
+  type McpTaskInteractionElicitationAuthority,
+  type McpTaskInteractionElicitationContext,
+  type McpTaskInteractionOptions,
+  type McpTaskInteractionRequestOptions,
+} from './mcp/tasks-interaction';
+export {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
   McpTaskLifecycle,
   type McpTaskLifecycleLimits,
   type McpTaskLifecycleOptions,
   McpTaskLifecycleStoppedError,
   type McpTaskLifecycleStopReason,
-  McpTaskObservationError,
   type McpTaskPollingClient,
   type McpTaskRequestOptions,
   type McpTrackedTask,
 } from './mcp/tasks-lifecycle';
+export {
+  type McpTaskObservationConsumer,
+  McpTaskObservationError,
+  McpTaskObservationPort,
+  type McpTaskPollAuthority,
+} from './mcp/tasks-observation';

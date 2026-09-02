@@ -23,6 +23,7 @@ import {
   resolveMcpTaskPollDelay,
   TERMINAL_TASK_STATUSES,
 } from './tasks-lifecycle-state';
+import { McpTaskObservationError, type McpTaskObservationPort } from './tasks-observation';
 
 export const DEFAULT_MCP_TASK_LIFECYCLE_LIMITS = Object.freeze({
   initialPollMs: 500,
@@ -78,23 +79,11 @@ export class McpTaskLifecycleStoppedError extends Error {
   }
 }
 
-export class McpTaskObservationError extends Error {
-  constructor(
-    readonly taskId: string,
-    readonly failures: number,
-    cause: unknown
-  ) {
-    super(`MCP task "${taskId}" observation failed after ${failures} bounded attempts.`, {
-      cause,
-    });
-    this.name = 'McpTaskObservationError';
-  }
-}
-
 export interface McpTaskLifecycleOptions {
   readonly authority: McpTaskAuthorityLease;
   readonly client: McpTaskPollingClient;
   readonly limits?: McpTaskLifecycleLimits;
+  readonly observationPort?: McpTaskObservationPort;
   readonly onUpdate: (record: McpTaskRecord) => Promise<void> | void;
   readonly repository: McpTaskRepository;
 }
@@ -184,6 +173,15 @@ function raceAbort<Value>(operation: Promise<Value>, signal: AbortSignal): Promi
   });
 }
 
+/** Milliseconds left before `deadline`; throws the bounded-lifetime error at or past it. */
+function requireRemainingLifetime(deadline: number, taskId: string): number {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw new Error(`MCP task "${taskId}" exceeded its bounded lifetime.`);
+  }
+  return remainingMs;
+}
+
 export class McpTaskLifecycle {
   private readonly active = new Map<string, ActiveTask>();
   private readonly authority: McpTaskAuthorityLease;
@@ -192,10 +190,12 @@ export class McpTaskLifecycle {
   private readonly limits: McpTaskLifecycleLimits;
   private readonly onUpdate: McpTaskLifecycleOptions['onUpdate'];
   private readonly pendingCreates = new Set<Promise<McpTrackedTask>>();
+  private readonly observationPort: McpTaskObservationPort | undefined;
   private readonly pollWaiters: PollWaiter[] = [];
   private readonly repository: McpTaskRepository;
   private readonly scope: McpTaskScope;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly releaseObservationAuthority: (() => void) | undefined;
   private activePolls = 0;
   private stopPromise: Promise<void> | undefined;
   private retirePromise: Promise<void> | undefined;
@@ -205,12 +205,16 @@ export class McpTaskLifecycle {
     this.client = options.client;
     this.limits = normalizeLimits(options.limits);
     this.onUpdate = options.onUpdate;
+    this.observationPort = options.observationPort;
     this.repository = options.repository;
     this.scope = Object.freeze({
       authorityEpoch: options.authority.authorityEpoch,
       principalId: options.authority.principalId,
       resource: options.authority.resource,
       serverId: options.authority.serverId,
+    });
+    this.releaseObservationAuthority = this.observationPort?.attachAuthority({
+      wake: (taskId) => this.wake(taskId),
     });
   }
 
@@ -299,6 +303,7 @@ export class McpTaskLifecycle {
     if (!this.stopPromise) {
       const failure = new McpTaskLifecycleStoppedError(reason);
       this.lifecycleController.abort(failure);
+      this.releaseObservationAuthority?.();
       for (const task of this.active.values()) {
         task.controller.abort(failure);
       }
@@ -350,9 +355,16 @@ export class McpTaskLifecycle {
       release: undefined,
       requested: hasPendingMcpTaskDetail(record),
     };
-    const settled = this.poll(record, initialTiming, signal, wake).finally(() => {
-      this.active.delete(record.taskId);
-    });
+    const settled = this.poll(record, initialTiming, signal, wake)
+      .catch((error: unknown) => {
+        if (!(signal.aborted || this.lifecycleController.signal.aborted)) {
+          this.observationPort?.publishFailure(record.taskId, error);
+        }
+        throw error;
+      })
+      .finally(() => {
+        this.active.delete(record.taskId);
+      });
     void settled.catch(() => undefined);
     this.active.set(record.taskId, { controller, settled, wake });
     return Object.freeze({ record, settled });
@@ -381,22 +393,19 @@ export class McpTaskLifecycle {
         consecutiveFailures,
         this.limits
       );
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) {
-        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
-      }
+      const remainingMs = requireRemainingLifetime(deadline, initialRecord.taskId);
       await this.wait(Math.min(requestedDelay, remainingMs), signal, wake);
-      if (Date.now() >= deadline) {
-        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
-      }
+      requireRemainingLifetime(deadline, initialRecord.taskId);
       const release = await this.acquirePollPermit(signal);
       wake.requested = false;
       // The permit wait can outlast the deadline computed before it; a poll
       // must not be issued, nor a late response persisted, past the lifetime.
-      const remainingAfterPermit = deadline - Date.now();
-      if (remainingAfterPermit <= 0) {
+      let remainingAfterPermit: number;
+      try {
+        remainingAfterPermit = requireRemainingLifetime(deadline, initialRecord.taskId);
+      } catch (error) {
         release();
-        throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
+        throw error;
       }
       let result: GetTaskResult;
       try {
@@ -420,6 +429,9 @@ export class McpTaskLifecycle {
       const persisted = await this.updateRecord(this.identity(initialRecord.taskId), result);
       if (signal.aborted) {
         throw abortReason(signal);
+      }
+      if (this.observationPort) {
+        await raceAbort(this.observationPort.publish(result), signal);
       }
       await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
       if (TERMINAL_TASK_STATUSES.has(persisted.status) || persisted.blockedDiagnostic !== null) {
@@ -484,10 +496,11 @@ export class McpTaskLifecycle {
       return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const finish = (): void => {
         cleanup();
         resolve();
-      }, delayMs);
+      };
+      const timer = setTimeout(finish, delayMs);
       this.timers.add(timer);
       const onAbort = (): void => {
         cleanup();
