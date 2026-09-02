@@ -1,6 +1,16 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -185,6 +195,10 @@ async function openToolsSettings(page: Page): Promise<void> {
   await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   await expect(page.getByTestId('mcp-config-editor-panel')).toBeVisible({ timeout: 30_000 });
+  // The editor renders only once the panel's first config read settles. Filling
+  // before that races the load, which discards the typed config and the save
+  // status, so this is the panel's real readiness signal.
+  await expect(page.getByTestId('mcp-config-editor')).toBeVisible({ timeout: 30_000 });
 }
 async function configureThroughUi(page: Page, config: string): Promise<void> {
   await openToolsSettings(page);
@@ -220,6 +234,29 @@ async function sendDiagnosticCommand(
       { timeout: 10_000 }
     )
     .toBe(true);
+}
+/**
+ * A fixture process replays every `command-*` file from sequence zero, so a
+ * relaunch would re-arm the exit and race the host's connect handshake: the
+ * child can die before `initialize` settles, which leaves the restarted host
+ * without its diagnostic-stdio connection. The restart phase expects that
+ * server to serve normally, so retire the fault commands and disarm the
+ * configuration while no fixture process is running.
+ */
+async function disarmDiagnosticFaults(
+  controlDirectory: string,
+  configurationPath: string
+): Promise<void> {
+  const entries = await readdir(controlDirectory);
+  await Promise.all(
+    entries
+      .filter((entry) => /^command-\d{6}-(?:exit|stderr)$/u.test(entry))
+      .map(async (entry) => await rm(path.join(controlDirectory, entry)))
+  );
+  await writeFile(configurationPath, JSON.stringify({ exitArmed: false }), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
 }
 async function verifyDiagnosticFailure(page: Page, controlDirectory: string): Promise<void> {
   await waitForServerState(page, 'diagnostic-stdio', /Connected/i);
@@ -601,6 +638,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     expect(firstCloseReport['clientsClosed']).toBeGreaterThanOrEqual(6);
     expect(firstCloseReport['callbacksClosed']).toBe(Number(firstCloseReport['clientsClosed']) + 1);
     expect(firstShutdown).toMatchObject({ legacyClientsClosed: true });
+    await disarmDiagnosticFaults(diagnosticControlDirectory, diagnosticControlPath);
     restarted = await launchPackagedDesktop({ environment, userDataDir });
     deferCleanup(async () => {
       if (restarted) {
