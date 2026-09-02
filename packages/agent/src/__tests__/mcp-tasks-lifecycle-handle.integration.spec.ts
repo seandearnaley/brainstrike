@@ -2,7 +2,11 @@ import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@bra
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { McpTaskLifecycle, type McpTaskPollingClient } from '../mcp/tasks-lifecycle';
+import {
+  McpTaskLifecycle,
+  McpTaskLifecycleStoppedError,
+  type McpTaskPollingClient,
+} from '../mcp/tasks-lifecycle';
 
 const AUTHORITY_INPUT = {
   connectionGeneration: 1,
@@ -108,5 +112,74 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
     await expect(tracked.settled).resolves.toMatchObject({ status: 'completed' });
     expect(lifecycle.wake('task-2')).toBe(false);
     await lifecycle.stop('disconnect');
+  });
+
+  function workingHandle(taskId: string): Parameters<McpTaskLifecycle['track']>[0] {
+    return {
+      createdAt: '2026-09-02T04:00:00.000Z',
+      lastUpdatedAt: '2026-09-02T04:00:00.000Z',
+      resultType: 'task',
+      status: 'working',
+      taskId,
+      ttlMs: null,
+    } as Parameters<McpTaskLifecycle['track']>[0];
+  }
+
+  it('keeps the authority epoch live across a disconnect so the next connect recovers the handle', async () => {
+    const database = await openDb();
+    const repository = new McpTaskRepository(database);
+    const authority = await repository.openAuthority(AUTHORITY_INPUT);
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: { requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))) },
+      onUpdate: () => undefined,
+      repository,
+    });
+    const tracked = await lifecycle.track(workingHandle('task-3'));
+    await lifecycle.stop('disconnect');
+    await expect(tracked.settled).rejects.toMatchObject({ reason: 'disconnect' });
+
+    const rebound = await repository.openAuthority(AUTHORITY_INPUT);
+    expect(rebound.authorityEpoch).toBe(authority.authorityEpoch);
+    const recovered = new McpTaskLifecycle({
+      authority: rebound,
+      client: { requestExtension: vi.fn(async () => detailedCompleted('task-3')) },
+      onUpdate: () => undefined,
+      repository,
+    });
+    const handles = await recovered.recover();
+    expect(handles.map((handle) => handle.record.taskId)).toEqual(['task-3']);
+    await expect(handles[0]?.settled).resolves.toMatchObject({ status: 'completed' });
+    await recovered.stop('closed');
+  });
+
+  it('retires the epoch only for server removal, retrying a failed retirement after the drain settled', async () => {
+    const database = await openDb();
+    const repository = new McpTaskRepository(database);
+    const authority = await repository.openAuthority(AUTHORITY_INPUT);
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: { requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))) },
+      onUpdate: () => undefined,
+      repository,
+    });
+    const tracked = await lifecycle.track(workingHandle('task-4'));
+    const retire = vi
+      .spyOn(repository, 'retireAuthority')
+      .mockRejectedValueOnce(new Error('database is closed'));
+
+    await expect(lifecycle.stop('server-removed')).rejects.toThrow('database is closed');
+    await expect(tracked.settled).rejects.toMatchObject({ reason: 'server-removed' });
+    expect(lifecycle.snapshot()).toMatchObject({ activeTasks: 0, pendingCreates: 0, timers: 0 });
+    // A stopped lifecycle rejects track() instead of throwing synchronously.
+    await expect(lifecycle.track(workingHandle('task-5'))).rejects.toBeInstanceOf(
+      McpTaskLifecycleStoppedError
+    );
+
+    await lifecycle.stop('server-removed');
+    expect(retire).toHaveBeenCalledTimes(2);
+    const next = await repository.openAuthority(AUTHORITY_INPUT);
+    expect(next.authorityEpoch).not.toBe(authority.authorityEpoch);
+    expect(await repository.listActive(next)).toEqual([]);
   });
 });

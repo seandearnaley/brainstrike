@@ -399,7 +399,6 @@ function requireMatchingLease(identity: McpTaskScope, lease: McpTaskAuthorityLea
   }
 }
 
-/** Durable local Tasks handle store. Lifecycle polling is deliberately out of scope. */
 /**
  * Why an UPDATE matched no row: the SQL predicate refuses a terminal row, an
  * `input_required` transition without merged input metadata, and a
@@ -433,6 +432,7 @@ function explainRejectedUpdate(
   return new Error('MCP task handle is missing or stale.');
 }
 
+/** Durable local Tasks handle store. Lifecycle polling is deliberately out of scope. */
 export class McpTaskRepository {
   constructor(
     private readonly db: McpTaskDatabase,

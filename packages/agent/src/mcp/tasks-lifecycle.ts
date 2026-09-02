@@ -198,6 +198,7 @@ export class McpTaskLifecycle {
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private activePolls = 0;
   private stopPromise: Promise<void> | undefined;
+  private retirePromise: Promise<void> | undefined;
 
   constructor(options: McpTaskLifecycleOptions) {
     this.authority = Object.freeze({ ...options.authority });
@@ -213,16 +214,20 @@ export class McpTaskLifecycle {
     });
   }
 
+  /** Every failure, including a stopped lifecycle or an aborted caller signal, is a rejection. */
   track(task: CreateTaskResult, signal?: AbortSignal): Promise<McpTrackedTask> {
-    this.requireOpen(signal);
-    // Sole-authority guard BEFORE the durable write: a second track() of the
-    // same handle must be a clean rejection, not a persisted row plus a throw.
-    if (this.active.has(task.taskId)) {
-      return Promise.reject(
-        new Error(`MCP task "${task.taskId}" is already tracked by this lifecycle.`)
-      );
+    let operation: Promise<McpTrackedTask>;
+    try {
+      this.requireOpen(signal);
+      // Sole-authority guard BEFORE the durable write: a second track() of the
+      // same handle must be a clean rejection, not a persisted row plus a throw.
+      if (this.active.has(task.taskId)) {
+        throw new Error(`MCP task "${task.taskId}" is already tracked by this lifecycle.`);
+      }
+      operation = this.persistAndStart(task, signal);
+    } catch (cause) {
+      return Promise.reject(cause);
     }
-    const operation = this.persistAndStart(task, signal);
     this.pendingCreates.add(operation);
     void operation.finally(() => this.pendingCreates.delete(operation)).catch(() => undefined);
     return operation;
@@ -281,17 +286,28 @@ export class McpTaskLifecycle {
     return true;
   }
 
+  /**
+   * Aborts every poller and drains in-flight creates; that part never rejects
+   * and is memoized. Only `server-removed` and `server-replaced` retire the
+   * authority epoch afterwards: a disconnect, restart, or close leaves the
+   * epoch live so the next `openAuthority` rebinds it and `recover()` resumes
+   * every non-terminal handle, and factory reset deletes the rows outright. A
+   * failed retirement rejects this call but is not memoized, so a later
+   * `stop()` retries the write.
+   */
   async stop(reason: McpTaskLifecycleStopReason): Promise<void> {
-    if (this.stopPromise) {
-      return this.stopPromise;
+    if (!this.stopPromise) {
+      const failure = new McpTaskLifecycleStoppedError(reason);
+      this.lifecycleController.abort(failure);
+      for (const task of this.active.values()) {
+        task.controller.abort(failure);
+      }
+      this.stopPromise = this.drain();
     }
-    const failure = new McpTaskLifecycleStoppedError(reason);
-    this.lifecycleController.abort(failure);
-    for (const task of this.active.values()) {
-      task.controller.abort(failure);
+    await this.stopPromise;
+    if (reason === 'server-removed' || reason === 'server-replaced') {
+      await this.retire();
     }
-    this.stopPromise = this.finishStop(reason);
-    return this.stopPromise;
   }
 
   snapshot(): {
@@ -582,18 +598,20 @@ export class McpTaskLifecycle {
     }
   }
 
-  private async finishStop(reason: McpTaskLifecycleStopReason): Promise<void> {
+  private async drain(): Promise<void> {
     await Promise.allSettled([
       ...this.pendingCreates,
       ...[...this.active.values()].map(({ settled }) => settled),
     ]);
-    if (
-      reason === 'disconnect' ||
-      reason === 'reset' ||
-      reason === 'server-removed' ||
-      reason === 'server-replaced'
-    ) {
-      await this.repository.retireAuthority(this.authority);
-    }
+  }
+
+  private retire(): Promise<void> {
+    this.retirePromise ??= this.repository
+      .retireAuthority(this.authority)
+      .catch((cause: unknown) => {
+        this.retirePromise = undefined;
+        throw cause;
+      });
+    return this.retirePromise;
   }
 }

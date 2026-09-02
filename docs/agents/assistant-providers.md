@@ -1995,7 +1995,15 @@ and [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/blob
 The repository rebinds the live authority epoch across a Desktop runtime restart
 instead of persisting the host's process-local generation. A same-runtime
 generation advance rotates the epoch, and every write checks the exact live
-epoch/runtime/generation lease in SQL.
+epoch/runtime/generation lease in SQL. Because a rotated or retired epoch
+orphans its non-terminal rows (`listActive` lists only the live epoch), the
+generation must advance only when the server definition is replaced, never on
+a transport reconnect, and `McpTaskLifecycle.stop()` retires the epoch only
+for `server-removed` and `server-replaced`. A disconnect, restart, or close
+leaves the epoch live so the next `openAuthority` rebinds it and `recover()`
+resumes the handles; factory reset deletes the rows outright. Draining pollers
+and in-flight creates never rejects; a failed retirement rejects `stop()`
+without being memoized, so a later `stop()` retries it.
 
 `McpTaskLifecycle` is the sole ordered `tasks/get` poll authority. It persists
 each returned handle and its server timing before exposing it, registers
