@@ -223,9 +223,11 @@ function requireBlockedDiagnostic(value: unknown): McpTaskBlockedDiagnostic | nu
   const sha256 = diagnostic['sha256'];
   if (
     diagnostic['code'] !== 'mcp_task_state_too_large' ||
-    !(Number.isSafeInteger(actualBytes) && Number(actualBytes) > MCP_TASK_METADATA_MAX_BYTES) ||
+    // The diagnostic records the budget in force when the row was written, so
+    // it validates structurally rather than against today's constant.
+    !(Number.isSafeInteger(maxBytes) && Number(maxBytes) > 0) ||
+    !(Number.isSafeInteger(actualBytes) && Number(actualBytes) > Number(maxBytes)) ||
     !(field === 'inputMetadata' || field === 'resultMetadata') ||
-    maxBytes !== MCP_TASK_METADATA_MAX_BYTES ||
     typeof sha256 !== 'string' ||
     !/^[0-9a-f]{64}$/u.test(sha256)
   ) {
@@ -236,7 +238,7 @@ function requireBlockedDiagnostic(value: unknown): McpTaskBlockedDiagnostic | nu
     actualBytes: Number(actualBytes),
     code: 'mcp_task_state_too_large',
     field,
-    maxBytes,
+    maxBytes: Number(maxBytes),
     remoteStatus,
     sha256,
   });
@@ -718,14 +720,17 @@ export class McpTaskRepository {
     if (inputMetadataJson === null && resultMetadataJson === null) {
       return;
     }
+    // The digest is only read on the over-budget branch, so it is only hashed there.
     const result = await this.db.query(
       `SELECT octet_length(COALESCE($1::jsonb::text, '')) AS input_bytes,
-              encode(sha256(convert_to(COALESCE($1::jsonb::text, ''), 'UTF8')), 'hex')
-                AS input_sha256,
+              CASE WHEN octet_length(COALESCE($1::jsonb::text, '')) > $3::int
+                   THEN encode(sha256(convert_to($1::jsonb::text, 'UTF8')), 'hex')
+              END AS input_sha256,
               octet_length(COALESCE($2::jsonb::text, '')) AS result_bytes,
-              encode(sha256(convert_to(COALESCE($2::jsonb::text, ''), 'UTF8')), 'hex')
-                AS result_sha256`,
-      [inputMetadataJson, resultMetadataJson]
+              CASE WHEN octet_length(COALESCE($2::jsonb::text, '')) > $3::int
+                   THEN encode(sha256(convert_to($2::jsonb::text, 'UTF8')), 'hex')
+              END AS result_sha256`,
+      [inputMetadataJson, resultMetadataJson, MCP_TASK_METADATA_MAX_BYTES]
     );
     const row = result.rows[0];
     if (!isRecord(row)) {

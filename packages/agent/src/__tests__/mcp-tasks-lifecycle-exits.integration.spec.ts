@@ -467,6 +467,50 @@ describe('McpTaskLifecycle exit fencing', () => {
     expectNoLifecycleLeaks(lifecycle);
   });
 
+  it('hydrates a blocked diagnostic written under an older metadata budget', async () => {
+    db = await openDatabase();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const identity = taskIdentity(authority, 'task-legacy-budget');
+    const blockedDiagnostic = {
+      actualBytes: 2048,
+      code: 'mcp_task_state_too_large',
+      field: 'resultMetadata',
+      maxBytes: 1024,
+      remoteStatus: 'completed',
+      sha256: 'a'.repeat(64),
+    } as const;
+    const created = await repository.create(
+      {
+        ...identity,
+        blockedDiagnostic,
+        createdAt: new Date(CREATED_AT),
+        inputMetadata: null,
+        resultMetadata: { omittedState: blockedDiagnostic },
+        status: 'completed',
+        statusMessage: 'MCP task state exceeded the durable metadata limit.',
+      },
+      authority
+    );
+    expect(created.blockedDiagnostic).toEqual(blockedDiagnostic);
+    await expect(repository.get(identity)).resolves.toEqual(created);
+    await expect(
+      repository.create(
+        {
+          ...identity,
+          blockedDiagnostic: { ...blockedDiagnostic, actualBytes: 1024 },
+          createdAt: new Date(CREATED_AT),
+          inputMetadata: null,
+          resultMetadata: { omittedState: blockedDiagnostic },
+          status: 'completed',
+          statusMessage: null,
+          taskId: 'task-not-over-budget',
+        },
+        authority
+      )
+    ).rejects.toThrow(/blockedDiagnostic values are invalid/u);
+  });
+
   it('waits for an in-flight create before reset clears the real database', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(CREATED_AT));
