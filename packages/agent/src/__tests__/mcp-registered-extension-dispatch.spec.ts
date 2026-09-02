@@ -97,6 +97,55 @@ describe('registered extension HTTP dispatch', () => {
     ]);
   });
 
+  it('releases a pending extension result type on local cancellation and on close', async () => {
+    // Review of #2913: entries were removed only by a matching response, so a
+    // timed-out or aborted task request leaked for the life of the transport.
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    const prepared = await registry.prepareRequest(
+      MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+      { arguments: {}, name: 'deferred-tool' },
+      { 'io.modelcontextprotocol/tasks': {} },
+      '2026-07-28'
+    );
+    const innerClose = vi.fn(async () => undefined);
+    const transport = installRegisteredExtensionDispatch(
+      {
+        close: innerClose,
+        send: vi.fn(async () => undefined),
+        start: vi.fn(async () => undefined),
+      } as unknown as Transport,
+      registry
+    );
+    const seen: unknown[] = [];
+    transport.onmessage = (message) => seen.push(message);
+    const request = (id: number) => ({
+      id,
+      jsonrpc: '2.0' as const,
+      method: prepared.internalMethod,
+      params: prepared.params,
+    });
+    const result = { resultType: 'task', taskId: 'task-123' };
+
+    await transport.send(request(1));
+    await transport.send({
+      jsonrpc: '2.0',
+      method: 'notifications/cancelled',
+      params: { reason: 'timeout', requestId: 1 },
+    });
+    transport.onmessage?.({ id: 1, jsonrpc: '2.0', result });
+
+    await transport.send(request(2));
+    await transport.close();
+    expect(innerClose).toHaveBeenCalledTimes(1);
+    transport.onmessage?.({ id: 2, jsonrpc: '2.0', result });
+
+    expect(seen).toHaveLength(2);
+    for (const message of seen) {
+      expect(message).toEqual({ id: expect.any(Number), jsonrpc: '2.0', result });
+    }
+  });
+
   it('reports rewrite failures through the transport promise', async () => {
     const transport = {
       close: vi.fn(async () => undefined),

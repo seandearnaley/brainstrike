@@ -154,6 +154,15 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
   const send = transport.send.bind(transport);
   transport.send = async (message, options) => {
     const outgoing = registry.rewriteOutgoingMessage(message);
+    // A locally abandoned request (timeout, abort) never gets a response; the
+    // SDK announces it with notifications/cancelled, which is the only signal
+    // this layer sees, so release the pending result type there.
+    if (!('id' in message) && 'method' in message && message.method === 'notifications/cancelled') {
+      const requestId = (message.params as { requestId?: unknown } | undefined)?.requestId;
+      if (typeof requestId === 'string' || typeof requestId === 'number') {
+        pendingResultTypes.delete(requestId);
+      }
+    }
     if ('id' in message && 'method' in message) {
       pendingResultTypes.delete(message.id);
       const extensionResultType = registry.resolveOutgoingResultType(message);
@@ -169,6 +178,12 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
       }
       throw error;
     }
+  };
+  const close = transport.close.bind(transport);
+  transport.close = async () => {
+    // Nothing can answer after close; a reconnect must not inherit the map.
+    pendingResultTypes.clear();
+    await close();
   };
   return transport;
 }

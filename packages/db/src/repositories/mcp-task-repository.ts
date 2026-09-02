@@ -91,7 +91,8 @@ function requireIdentity(identity: McpTaskIdentity): void {
   if (
     !['http:', 'https:'].includes(url.protocol) ||
     url.href !== resource ||
-    url.hash ||
+    // `url.hash` is '' for a bare trailing '#', which the serializer keeps.
+    resource.includes('#') ||
     url.username ||
     url.password
   ) {
@@ -308,7 +309,8 @@ export class McpTaskRepository {
     const inputMetadataJson = serializeMetadata(inputMetadata);
     const resultMetadataJson = serializeMetadata(resultMetadata);
     const statusMessage = requireNullableText(input.statusMessage ?? null);
-    if ((status === 'completed' || status === 'failed') && !(hasResult && resultMetadata)) {
+    const requiresResult = status === 'completed' || status === 'failed';
+    if (hasResult && resultMetadata === null && requiresResult) {
       throw new TypeError('A completed or failed MCP task requires resultMetadata.');
     }
     await this.assertMetadataBudgets(
@@ -331,6 +333,8 @@ export class McpTaskRepository {
          AND $4 = $16
          AND ($6 <> 'input_required' OR
               (CASE WHEN $9 THEN $10::jsonb ELSE input_metadata END) IS NOT NULL)
+         AND ($6 NOT IN ('completed', 'failed') OR
+              (CASE WHEN $11 THEN $12::jsonb ELSE result_metadata END) IS NOT NULL)
        RETURNING *`,
       [
         ...identityParams(identity),
@@ -363,6 +367,13 @@ export class McpTaskRepository {
       (hasInput ? inputMetadata === null : existing.inputMetadata === null)
     ) {
       throw new TypeError('An input_required MCP task requires inputMetadata.');
+    }
+    if (
+      existing !== null &&
+      requiresResult &&
+      (hasResult ? resultMetadata === null : existing.resultMetadata === null)
+    ) {
+      throw new TypeError('A completed or failed MCP task requires resultMetadata.');
     }
     throw new Error('MCP task handle is missing or stale.');
   }

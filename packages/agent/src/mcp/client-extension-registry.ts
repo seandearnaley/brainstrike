@@ -14,6 +14,9 @@ const RESERVED_METHOD_NAMESPACE =
   /^(?:completion|elicitation|logging|notifications|prompts|resources|roots|sampling|server|subscriptions|tools)\//u;
 const RESERVED_NOTIFICATION_METHODS = new Set([
   'notifications/cancelled',
+  // The SDK consumes subscription acknowledgements internally before custom
+  // handlers run; a contract claiming them would silently never fire.
+  'notifications/subscriptions/acknowledged',
   'notifications/elicitation/complete',
   'notifications/initialized',
   'notifications/message',
@@ -170,13 +173,20 @@ function assertRequestMethod(
   if (!EXTENSION_METHOD_PATTERN.test(method)) {
     throw new Error(`Invalid MCP extension request method "${method}" for "${extensionId}"`);
   }
-  const augmentsToolResult =
-    method === 'tools/call' &&
-    extensionResultType !== undefined &&
-    /^[A-Za-z][A-Za-z0-9._-]*$/u.test(extensionResultType);
-  if (extensionResultType !== undefined && !augmentsToolResult) {
+  if (extensionResultType !== undefined && method !== 'tools/call') {
     throw new Error('MCP extension result augmentation may only target tools/call');
   }
+  // `complete` is the core CallToolResult discriminator: accepting it would
+  // rewrap every ordinary tool result on the connection.
+  if (
+    extensionResultType !== undefined &&
+    (extensionResultType === 'complete' || !/^[A-Za-z][A-Za-z0-9._-]*$/u.test(extensionResultType))
+  ) {
+    throw new Error(
+      `Invalid MCP extension result type "${extensionResultType}" for "${extensionId}"`
+    );
+  }
+  const augmentsToolResult = method === 'tools/call' && extensionResultType !== undefined;
   if (
     method.startsWith(INTERNAL_EXTENSION_METHOD_PREFIX) ||
     (RESERVED_METHOD_NAMESPACE.test(method) && !augmentsToolResult)

@@ -153,6 +153,39 @@ describe('McpTaskRepository', () => {
     });
   });
 
+  it('enforces merged result metadata before a terminal status', async () => {
+    // Review of #2913: input metadata was merged but result metadata had to
+    // arrive in the same call, so a stashed result made `completed` throw.
+    await openNumbered();
+    const repository = new McpTaskRepository(db);
+    await repository.create({ ...identity, status: 'working' }, currentGeneration);
+
+    await expect(
+      repository.update(identity, { status: 'completed' }, currentGeneration)
+    ).rejects.toThrow(TypeError);
+    await repository.update(
+      identity,
+      { resultMetadata: { answer: 42 }, status: 'working' },
+      currentGeneration
+    );
+    await expect(
+      repository.update(identity, { status: 'completed' }, currentGeneration)
+    ).resolves.toMatchObject({ resultMetadata: { answer: 42 }, status: 'completed' });
+  });
+
+  it('rejects a bare trailing fragment marker in the resource', async () => {
+    // Review of #2913: `url.hash` is '' for 'https://…/mcp#', so the guard
+    // let a second row for the same endpoint through.
+    await openNumbered();
+    const repository = new McpTaskRepository(db);
+    await expect(
+      repository.create(
+        { ...identity, resource: 'https://mcp.linear.app/mcp#', status: 'working' },
+        currentGeneration
+      )
+    ).rejects.toThrow(/without a fragment/u);
+  });
+
   it('accepts empty status messages from the protocol contract', async () => {
     await openNumbered();
     const repository = new McpTaskRepository(db);

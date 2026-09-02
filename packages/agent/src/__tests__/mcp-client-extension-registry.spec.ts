@@ -174,24 +174,28 @@ describe('McpClientExtensionRegistry', () => {
     ).toThrow('is not registered');
   });
 
-  it.each(['notifications/initialized', 'notifications/cancelled', 'notifications/progress'])(
-    'rejects reserved core notification method %s',
-    (method) => {
-      expect(() =>
-        new McpClientExtensionRegistry().register(
-          {
-            ...REQUEST_EXTENSION_CONTRACT,
-            notifications: [{ ...EXAMPLE_NOTIFICATION, method }],
-          },
-          {
-            implementation: COMPLETE_IMPLEMENTATION,
-            settings: { mode: 'strict' },
-            version: '2026-08-29',
-          }
-        )
-      ).toThrow('Invalid MCP extension notification contract');
-    }
-  );
+  it.each([
+    'notifications/initialized',
+    'notifications/cancelled',
+    'notifications/progress',
+    // Review of #2913: the SDK consumes acknowledgements before custom
+    // handlers, so a contract claiming them would never fire.
+    'notifications/subscriptions/acknowledged',
+  ])('rejects reserved core notification method %s', (method) => {
+    expect(() =>
+      new McpClientExtensionRegistry().register(
+        {
+          ...REQUEST_EXTENSION_CONTRACT,
+          notifications: [{ ...EXAMPLE_NOTIFICATION, method }],
+        },
+        {
+          implementation: COMPLETE_IMPLEMENTATION,
+          settings: { mode: 'strict' },
+          version: '2026-08-29',
+        }
+      )
+    ).toThrow('Invalid MCP extension notification contract');
+  });
 
   it('snapshots a request contract before untrusted callers can mutate it', async () => {
     const registry = new McpClientExtensionRegistry();
@@ -348,6 +352,48 @@ describe('McpClientExtensionRegistry', () => {
         }
       )
     ).toThrow('reserved MCP method namespace');
+  });
+
+  it.each([
+    ['complete', 'Invalid MCP extension result type'],
+    ['1task', 'Invalid MCP extension result type'],
+    ['', 'Invalid MCP extension result type'],
+  ])(
+    'rejects tools/call result augmentation with discriminator %j',
+    (extensionResultType, message) => {
+      // Review of #2913: `complete` is the core CallToolResult discriminator and
+      // would rewrap every ordinary tool result; a malformed value must name
+      // itself instead of claiming the target method is wrong.
+      expect(() =>
+        new McpClientExtensionRegistry().register(
+          {
+            ...REQUEST_EXTENSION_CONTRACT,
+            requests: [{ ...EXAMPLE_REQUEST, extensionResultType, method: 'tools/call' }],
+          },
+          {
+            implementation: COMPLETE_IMPLEMENTATION,
+            settings: { mode: 'strict' },
+            version: '2026-08-29',
+          }
+        )
+      ).toThrow(message);
+    }
+  );
+
+  it('names the target method when result augmentation is attached to a non tools/call request', () => {
+    expect(() =>
+      new McpClientExtensionRegistry().register(
+        {
+          ...REQUEST_EXTENSION_CONTRACT,
+          requests: [{ ...EXAMPLE_REQUEST, extensionResultType: 'task' }],
+        },
+        {
+          implementation: COMPLETE_IMPLEMENTATION,
+          settings: { mode: 'strict' },
+          version: '2026-08-29',
+        }
+      )
+    ).toThrow('may only target tools/call');
   });
 
   it('validates the captured method and protocol exactly once for accessor-backed contracts', () => {
