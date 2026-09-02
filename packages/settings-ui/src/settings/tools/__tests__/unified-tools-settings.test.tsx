@@ -1648,22 +1648,26 @@ describe('UnifiedToolsSettings', () => {
         expect(tone).not.toBeRequired();
 
         fireEvent.change(identifier, { target: { value: 'BST' } });
-        expect(operations.completeMcpContent).toHaveBeenCalledWith({
-          argument: { name: 'identifier', value: 'BST' },
-          authority,
-          ref: { name: 'issue-summary', type: 'ref/prompt' },
-        });
+        await waitFor(() =>
+          expect(operations.completeMcpContent).toHaveBeenCalledWith({
+            argument: { name: 'identifier', value: 'BST' },
+            authority,
+            ref: { name: 'issue-summary', type: 'ref/prompt' },
+          })
+        );
         await waitFor(() => expect(form.querySelectorAll('datalist option')).toHaveLength(2));
         expect(identifier).toHaveAttribute('list');
         expect(form.querySelector('datalist option')).toHaveAttribute('value', 'BST-1585');
 
         fireEvent.change(tone, { target: { value: 'friendly' } });
-        expect(operations.completeMcpContent).toHaveBeenLastCalledWith({
-          argument: { name: 'tone', value: 'friendly' },
-          authority,
-          context: { arguments: { identifier: 'BST' } },
-          ref: { name: 'issue-summary', type: 'ref/prompt' },
-        });
+        await waitFor(() =>
+          expect(operations.completeMcpContent).toHaveBeenLastCalledWith({
+            argument: { name: 'tone', value: 'friendly' },
+            authority,
+            context: { arguments: { identifier: 'BST' } },
+            ref: { name: 'issue-summary', type: 'ref/prompt' },
+          })
+        );
 
         fireEvent.submit(form);
         await waitFor(() =>
@@ -1714,6 +1718,95 @@ describe('UnifiedToolsSettings', () => {
         );
         expect(screen.queryByTestId('mcp-catalog-content-github')).not.toBeInTheDocument();
         expect(read).toBeEnabled();
+      });
+
+      it('debounces completion, skips empty input, dedupes values, and gates on the capability', async () => {
+        const operations = createContentOperations();
+        operations.completeMcpContent = vi.fn().mockResolvedValue({
+          result: { completion: { values: ['BST-1585', 'BST-1585', 'BST-1586'] } },
+          type: 'completion/complete',
+        });
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Use prompt Issue summary' }));
+        const form = await screen.findByTestId('mcp-catalog-prompt-form-github');
+        const identifier = within(form).getByLabelText('identifier (required)');
+
+        fireEvent.change(identifier, { target: { value: 'B' } });
+        fireEvent.change(identifier, { target: { value: 'BS' } });
+        fireEvent.change(identifier, { target: { value: 'BST' } });
+        await waitFor(() => expect(operations.completeMcpContent).toHaveBeenCalledTimes(1));
+        expect(operations.completeMcpContent).toHaveBeenCalledWith(
+          expect.objectContaining({ argument: { name: 'identifier', value: 'BST' } })
+        );
+        await waitFor(() => expect(form.querySelectorAll('datalist option')).toHaveLength(2));
+
+        fireEvent.change(identifier, { target: { value: '' } });
+        await waitFor(() => expect(identifier).not.toHaveAttribute('list'));
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        expect(operations.completeMcpContent).toHaveBeenCalledTimes(1);
+      });
+
+      it('never requests completion from a server that does not advertise it', async () => {
+        const operations = createContentOperations();
+        operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+          revision: 1,
+          servers: [
+            {
+              ...connectedMcpStatus,
+              catalog: {
+                ...browsableCatalog,
+                features: { ...browsableCatalog.features, completion: false },
+              },
+            },
+          ],
+        });
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Use prompt Issue summary' }));
+        const form = await screen.findByTestId('mcp-catalog-prompt-form-github');
+        const identifier = within(form).getByLabelText('identifier (required)');
+
+        fireEvent.change(identifier, { target: { value: 'BST' } });
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        expect(operations.completeMcpContent).not.toHaveBeenCalled();
+        expect(identifier).not.toHaveAttribute('list');
+        expect(form.querySelector('datalist')).toBeNull();
+      });
+
+      it('bounds rendered contents and messages to a fixed item count', async () => {
+        const operations = createContentOperations();
+        operations.readMcpResource = vi.fn().mockResolvedValue({
+          result: {
+            contents: Array.from({ length: 25 }, (_, index) => ({
+              text: `part ${index}`,
+              uri: `linear://issue/BST-1585/part-${index}`,
+            })),
+          },
+          type: 'resources/read',
+        });
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Read BST-1585' }));
+        const content = await screen.findByTestId('mcp-catalog-content-github');
+        expect(content).toHaveTextContent('Contents (showing 20 of 25)');
+        expect(content.querySelectorAll('pre')).toHaveLength(20);
+        expect(content).toHaveTextContent('part 19');
+        expect(content).not.toHaveTextContent('part 20');
+      });
+
+      it('clears the required-argument message on cancel and keeps it out of the request wrapper', async () => {
+        const operations = createContentOperations();
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Use prompt Issue summary' }));
+        const form = await screen.findByTestId('mcp-catalog-prompt-form-github');
+        fireEvent.submit(form);
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('Prompt argument identifier is required');
+        expect(alert).not.toHaveTextContent('MCP content request failed');
+
+        fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('mcp-catalog-prompt-form-github')).not.toBeInTheDocument();
       });
 
       it('discards browsed content when the server generation changes', async () => {

@@ -2343,17 +2343,26 @@ or automatic model-context injection.
 BST-1585 gives each of those three verbs one production caller: user-initiated catalog browsing in
 Settings (`packages/settings-ui/src/settings/tools/mcp-support-status.tsx`). `Read` on a listed
 resource issues `resources/read`; `Use prompt` opens an inline argument form whose inputs call
-`completion/complete` (`ref/prompt`) for suggestions and whose submit issues `prompts/get`. Bodies
-render bounded (text truncated at 2 KiB, blobs and non-text content shown as metadata only) and are
-never eager model context; slash-command prompt integration is deliberately deferred. Desktop main
+`completion/complete` (`ref/prompt`) for suggestions and whose submit issues `prompts/get`.
+Completion is gated on the server's advertised `features.completion`, debounced (250 ms), skips
+empty input, and dedupes values. Bodies render bounded (text truncated at 2 KiB, at most 20
+contents, messages, or suggestion values per view, blobs and non-text content shown as metadata
+only) and are never eager model context; the catalog remounts per server generation so a retired
+generation's content or draft never carries over. Slash-command prompt integration and the
+packaged E2E proof are deferred to BST-1592. Desktop main
 owns one `createMcpContentApplicationPort` per host runtime (`apps/desktop/src/mcp/content-port.ts`,
 memoized so factory reset keeps the singleton) with the main-process logger as the required
 internal-error sink. The `mcp:content:readResource` / `mcp:content:getPrompt` /
 `mcp:content:complete` channels (`apps/desktop/src/mcp/content-ipc.ts`) each force their own verb
 server-side, validate the renderer payload strictly, wait on the MCP lifecycle barrier and reject
-while admission is closed, but never enter the non-reentrant config-operation queue; only the port's
-fixed `{category, code, message}` taxonomy crosses IPC (raw causes stay in main). The renderer never
-sees `invoke`: the preload bridge exposes exactly `readResource`, `getPrompt`, and `complete`, and
+while admission is closed, but never enter the non-reentrant config-operation queue. They carry the
+same fail-closed `visible-ui` sender policy as secrets (hidden inference hosts and untracked senders
+are rejected before any payload is parsed). Failures travel as a result envelope
+(`{ ok: false, error: { category, code, message } }`) rather than a thrown Error, because
+`ipcMain.handle` replies to a throw with Electron's formatted string, main-process stack included;
+the preload unwraps the envelope into a clean Error whose message is `message (category · code)`.
+Only that fixed taxonomy crosses IPC: `hostError` text is server-originated and stays in main. The
+renderer never sees `invoke`: the preload bridge exposes exactly `readResource`, `getPrompt`, and `complete`, and
 settings-ui receives them as optional `readMcpResource` / `getMcpPrompt` / `completeMcpContent`
 operations gated on bridge presence, so web omits the affordance entirely. Pinned by
 `apps/desktop/src/__tests__/main/ipc-mcp-content.test.ts`,

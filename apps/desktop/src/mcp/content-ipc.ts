@@ -25,10 +25,35 @@ interface McpContentLifecycleGate {
 }
 
 const logger = createLogger('DesktopMcpContentIpc');
-const MCP_CONTENT_GENERIC_FAILURE = 'MCP content request failed';
+
+/**
+ * What the renderer receives. `ipcMain.handle` does not structured-clone a
+ * thrown Error: Electron replies with a formatted string that includes the
+ * main-process stack, so failures travel as data and the preload turns them
+ * back into a clean Error carrying only this fixed taxonomy.
+ */
+export interface McpContentIpcFailure {
+  readonly category: McpContentApplicationError['category'];
+  readonly code: string;
+  readonly message: string;
+}
+export type McpContentIpcResponse =
+  | { readonly error: McpContentIpcFailure; readonly ok: false }
+  | { readonly ok: true; readonly result: McpContentApplicationResult };
+
+const MCP_CONTENT_GENERIC_FAILURE: McpContentIpcFailure = {
+  category: 'host',
+  code: 'mcp_content_request_failed',
+  message: 'MCP content request failed',
+};
+const MCP_CONTENT_LIFECYCLE_CLOSED: McpContentIpcFailure = {
+  category: 'not-connected',
+  code: 'mcp_content_lifecycle_closed',
+  message: 'MCP lifecycle is closed for cleanup',
+};
 const McpContentAuthorityRequestSchema = z.strictObject({
   configuredServerId: z.string(),
-  generation: z.number(),
+  generation: z.number().int().nonnegative(),
 });
 const McpContentReadResourceRequestSchema = z.strictObject({
   authority: McpContentAuthorityRequestSchema,
@@ -60,21 +85,17 @@ function parseMcpContentAuthority(
 }
 
 /**
- * Only the application port's fixed public taxonomy crosses IPC. Raw causes
- * stay in main: the port already reported internal failures to its sink, and
- * anything outside that taxonomy is logged here and replaced with one generic
- * message.
+ * Only the application port's fixed public taxonomy crosses IPC. `hostError`
+ * carries server-originated text and stays in main (the port already reported
+ * it to its sink); anything outside the taxonomy is logged here and replaced
+ * with one generic failure.
  */
-function toRendererMcpContentError(cause: unknown): Error {
+export function toMcpContentIpcFailure(cause: unknown): McpContentIpcFailure {
   if (cause instanceof McpContentApplicationError) {
-    const detail = cause.hostError ? `: ${cause.hostError.message}` : '';
-    return Object.assign(
-      new Error(`${cause.message}${detail} (${cause.category} · ${cause.code})`),
-      { category: cause.category, code: cause.code }
-    );
+    return { category: cause.category, code: cause.code, message: cause.message };
   }
-  logger.error(MCP_CONTENT_GENERIC_FAILURE, { error: cause });
-  return new Error(MCP_CONTENT_GENERIC_FAILURE);
+  logger.error(MCP_CONTENT_GENERIC_FAILURE.message, { error: cause });
+  return MCP_CONTENT_GENERIC_FAILURE;
 }
 
 /**
@@ -86,21 +107,27 @@ async function runMcpContentRequest(
   runtime: Pick<DesktopMcpHostRuntime, 'host'>,
   lifecycle: McpContentLifecycleGate,
   buildRequest: () => McpContentApplicationRequest
-): Promise<McpContentApplicationResult> {
+): Promise<McpContentIpcResponse> {
   if (!lifecycle.isOpen()) {
-    throw new Error('MCP lifecycle is closed for cleanup');
+    return { error: MCP_CONTENT_LIFECYCLE_CLOSED, ok: false };
   }
   await lifecycle.barrier();
   let request: McpContentApplicationRequest;
   try {
     request = buildRequest();
   } catch {
-    throw toRendererMcpContentError(new McpContentApplicationError('invalidRequest'));
+    return {
+      error: toMcpContentIpcFailure(new McpContentApplicationError('invalidRequest')),
+      ok: false,
+    };
   }
   try {
-    return structuredClone(await getDesktopMcpContentPort(runtime).execute(request));
+    // Cloned here on purpose: a non-cloneable value surfaces as this fixed
+    // failure instead of an opaque IPC serialization error.
+    const result = structuredClone(await getDesktopMcpContentPort(runtime).execute(request));
+    return { ok: true, result };
   } catch (cause) {
-    throw toRendererMcpContentError(cause);
+    return { error: toMcpContentIpcFailure(cause), ok: false };
   }
 }
 

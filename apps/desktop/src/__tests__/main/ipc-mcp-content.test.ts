@@ -1,7 +1,9 @@
 import { type McpHostOperation, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { McpContentApplicationError } from '@brainstrike/assistant-service/mcp-content-application-port';
 import { ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
+import { toMcpContentIpcFailure } from '../../mcp/content-ipc';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { loadMcpConfig } from '../../mcp-loader';
 
@@ -189,8 +191,11 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     await expect(
       requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, { authority, uri: RESOURCE_URI })
     ).resolves.toEqual({
-      result: { contents: [{ text: '# BST-1585', uri: RESOURCE_URI }] },
-      type: 'resources/read',
+      ok: true,
+      result: {
+        result: { contents: [{ text: '# BST-1585', uri: RESOURCE_URI }] },
+        type: 'resources/read',
+      },
     });
     await expect(
       requireHandler('mcp:content:getPrompt')(VISIBLE_UI_EVENT, {
@@ -199,8 +204,11 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
         name: 'issue-summary',
       })
     ).resolves.toMatchObject({
-      result: { messages: [{ content: { text: 'Summarize BST-1585', type: 'text' } }] },
-      type: 'prompts/get',
+      ok: true,
+      result: {
+        result: { messages: [{ content: { text: 'Summarize BST-1585', type: 'text' } }] },
+        type: 'prompts/get',
+      },
     });
     await expect(
       requireHandler('mcp:content:complete')(VISIBLE_UI_EVENT, {
@@ -210,8 +218,11 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
         ref: { name: 'issue-summary', type: 'ref/prompt' },
       })
     ).resolves.toEqual({
-      result: { completion: { hasMore: false, total: 1, values: ['BST-1585'] } },
-      type: 'completion/complete',
+      ok: true,
+      result: {
+        result: { completion: { hasMore: false, total: 1, values: ['BST-1585'] } },
+        type: 'completion/complete',
+      },
     });
     expect(invocations.map((operation) => operation.type)).toEqual([
       'resources/read',
@@ -235,19 +246,25 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
         type: 'tools/call',
         uri: RESOURCE_URI,
       })
-    ).rejects.toMatchObject({ category: 'configuration', code: 'mcp_content_request_invalid' });
+    ).resolves.toMatchObject({
+      error: { category: 'configuration', code: 'mcp_content_request_invalid' },
+      ok: false,
+    });
     await expect(
       requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, {
         authority,
         name: 'issue-summary',
       })
-    ).rejects.toMatchObject({ code: 'mcp_content_request_invalid' });
+    ).resolves.toMatchObject({ error: { code: 'mcp_content_request_invalid' }, ok: false });
     await expect(
       requireHandler('mcp:content:getPrompt')(VISIBLE_UI_EVENT, {
         authority: { ...authority, configuredServerId: 'team.other.server' },
         name: 'issue-summary',
       })
-    ).rejects.toMatchObject({ category: 'configuration', code: 'mcp_content_server_unknown' });
+    ).resolves.toMatchObject({
+      error: { category: 'configuration', code: 'mcp_content_server_unknown' },
+      ok: false,
+    });
     expect(invocations).toEqual([]);
   });
 
@@ -257,38 +274,51 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     });
     const authority = await connect(target);
 
-    const rejection = await Promise.resolve(
-      requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, { authority, uri: RESOURCE_URI })
-    ).then(
-      () => {
-        throw new Error('Expected the content request to reject');
-      },
-      (error: unknown) => error
-    );
-    if (!(rejection instanceof Error)) {
-      throw new Error('Expected an Error rejection');
-    }
+    const response = await requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, {
+      authority,
+      uri: RESOURCE_URI,
+    });
     // The actor retires the errored transport, so the port's authority watch
     // wins the race; only the fixed public taxonomy crosses IPC either way.
-    expect(rejection).toMatchObject({
-      category: 'not-connected',
-      code: 'mcp_content_server_not_connected',
-      message:
-        'MCP content server not connected (not-connected · mcp_content_server_not_connected)',
+    expect(response).toEqual({
+      error: {
+        category: 'not-connected',
+        code: 'mcp_content_server_not_connected',
+        message: 'MCP content server not connected',
+      },
+      ok: false,
     });
-    expect(rejection).not.toHaveProperty('cause');
-    expect(rejection).not.toHaveProperty('hostError');
-    expect(JSON.stringify(rejection, Object.getOwnPropertyNames(rejection))).not.toContain(
-      'sk-secret'
-    );
+    expect(JSON.stringify(response)).not.toContain('sk-secret');
     await expect(
       requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, {
         authority: { ...authority, generation: authority.generation + 1 },
         uri: RESOURCE_URI,
       })
-    ).rejects.toMatchObject({
-      category: 'generation-retired',
-      code: 'mcp_content_generation_retired',
+    ).resolves.toMatchObject({
+      error: { category: 'generation-retired', code: 'mcp_content_generation_retired' },
+      ok: false,
+    });
+  });
+
+  it('never forwards server-originated host error text', () => {
+    const failure = toMcpContentIpcFailure(
+      new McpContentApplicationError('hostFailed', {
+        category: 'transport',
+        code: 'server_exploded',
+        message: 'upstream said: bearer sk-secret is invalid',
+      })
+    );
+    expect(failure).toEqual({
+      category: 'host',
+      code: 'mcp_content_host_operation_failed',
+      message: expect.any(String),
+    });
+    expect(JSON.stringify(failure)).not.toContain('sk-secret');
+    expect(JSON.stringify(failure)).not.toContain('server_exploded');
+    expect(toMcpContentIpcFailure(new Error('raw cause with /abs/path'))).toEqual({
+      category: 'host',
+      code: 'mcp_content_request_failed',
+      message: 'MCP content request failed',
     });
   });
 
@@ -299,7 +329,14 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     await mcpIpc.resetMcpRuntimeForFactoryReset(target);
     await expect(
       requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, { authority, uri: RESOURCE_URI })
-    ).rejects.toThrow('MCP lifecycle is closed for cleanup');
+    ).resolves.toEqual({
+      error: {
+        category: 'not-connected',
+        code: 'mcp_content_lifecycle_closed',
+        message: 'MCP lifecycle is closed for cleanup',
+      },
+      ok: false,
+    });
     expect(invocations).toEqual([]);
   });
 

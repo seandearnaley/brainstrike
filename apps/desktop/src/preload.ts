@@ -8,6 +8,7 @@ type Changeset = import('@brainstrike/types').Changeset;
 type WorktreeAdoptParams = import('@brainstrike/types').WorktreeAdoptParams;
 type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
 type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
+type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
 type McpHostControlRequest = import('@brainstrike/assistant-contract').McpHostControlRequest;
 type McpHostWatchEvent = import('@brainstrike/assistant-contract').McpHostWatchEvent;
@@ -279,6 +280,23 @@ const MCP_TOOLS_GET_STATS_CHANNEL = 'mcp:tools:getStats' as const;
 const MCP_CONTENT_COMPLETE_CHANNEL = 'mcp:content:complete' as const;
 const MCP_CONTENT_GET_PROMPT_CHANNEL = 'mcp:content:getPrompt' as const;
 const MCP_CONTENT_READ_RESOURCE_CHANNEL = 'mcp:content:readResource' as const;
+/**
+ * `mcp:content:*` failures travel as a result envelope (a thrown Error would
+ * reach the renderer as Electron's formatted string, main-process stack
+ * included). Rebuild a clean Error carrying only the fixed taxonomy.
+ */
+const unwrapMcpContent = async (
+  response: Promise<McpContentIpcResponse>
+): Promise<Extract<McpContentIpcResponse, { ok: true }>['result']> => {
+  const settled = await response;
+  if (settled.ok) {
+    return settled.result;
+  }
+  throw Object.assign(
+    new Error(`${settled.error.message} (${settled.error.category} · ${settled.error.code})`),
+    { category: settled.error.category, code: settled.error.code }
+  );
+};
 const LLM_HOST_STATUS_EVENT = 'llm-host:status' as const;
 const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
 const LLM_HOST_PROGRESS_EVENT = 'llm-host:progress' as const;
@@ -834,7 +852,8 @@ contextBridge.exposeInMainWorld('agent', {
 
 // MCP Config API (desktop-only)
 contextBridge.exposeInMainWorld('mcp', {
-  complete: (request: unknown) => ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request),
+  complete: (request: unknown) =>
+    unwrapMcpContent(ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request)),
   controlServer: (request: McpHostControlRequest) =>
     ipcRenderer.invoke(MCP_LIFECYCLE_CONTROL_CHANNEL, request),
   createSampleConfig: () => ipcRenderer.invoke(MCP_CONFIG_CREATE_SAMPLE_CHANNEL),
@@ -846,7 +865,8 @@ contextBridge.exposeInMainWorld('mcp', {
   enableTools: (toolIds: string[]) => ipcRenderer.invoke(MCP_TOOLS_ENABLE_CHANNEL, toolIds),
   getConfig: () => ipcRenderer.invoke(MCP_CONFIG_GET_CHANNEL),
   getPath: () => ipcRenderer.invoke(MCP_CONFIG_GET_PATH_CHANNEL),
-  getPrompt: (request: unknown) => ipcRenderer.invoke(MCP_CONTENT_GET_PROMPT_CHANNEL, request),
+  getPrompt: (request: unknown) =>
+    unwrapMcpContent(ipcRenderer.invoke(MCP_CONTENT_GET_PROMPT_CHANNEL, request)),
   getServerStatusSnapshot: (): Promise<McpHostSnapshot> =>
     ipcRenderer.invoke(MCP_STATUS_GET_CHANNEL),
   getToolStats: () => ipcRenderer.invoke(MCP_TOOLS_GET_STATS_CHANNEL),
@@ -902,7 +922,7 @@ contextBridge.exposeInMainWorld('mcp', {
   },
   readConfigText: () => ipcRenderer.invoke(MCP_CONFIG_READ_TEXT_CHANNEL),
   readResource: (request: unknown) =>
-    ipcRenderer.invoke(MCP_CONTENT_READ_RESOURCE_CHANNEL, request),
+    unwrapMcpContent(ipcRenderer.invoke(MCP_CONTENT_READ_RESOURCE_CHANNEL, request)),
   resetTools: () => ipcRenderer.invoke(MCP_TOOLS_RESET_CHANNEL),
   selectPath: () => ipcRenderer.invoke(MCP_CONFIG_SELECT_PATH_CHANNEL),
   setPath: (configPath: string | null) =>

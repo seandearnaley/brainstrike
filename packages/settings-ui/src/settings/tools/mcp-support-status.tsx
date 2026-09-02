@@ -1,6 +1,6 @@
 import { type ConfiguredMcpServerId, MCP_SUPPORT_MATRIX } from '@brainstrike/assistant-contract';
 import { Button, Input, Label } from '@brainstrike/ui';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   McpCompleteRequest,
   McpCompleteResult,
@@ -18,6 +18,10 @@ type PromptMessageContent = McpGetPromptResult['result']['messages'][number]['co
 const CATALOG_PREVIEW_LIMIT = 5;
 /** Bound for any single text body rendered from user-initiated content browsing. */
 const CONTENT_TEXT_LIMIT = 2000;
+/** Bound for resource contents, prompt messages, and completion values rendered per view. */
+const CONTENT_ITEM_LIMIT = 20;
+/** Keystrokes collapse into one `completion/complete` round trip per pause. */
+const COMPLETION_DEBOUNCE_MS = 250;
 const CONTENT_FAILURE_FALLBACK = 'MCP content request failed';
 
 /**
@@ -122,7 +126,7 @@ function withStableKeys<Item>(
   identity: (item: Item) => string
 ): readonly { item: Item; key: string }[] {
   const seen = new Map<string, number>();
-  return items.map((item) => {
+  return items.slice(0, CONTENT_ITEM_LIMIT).map((item) => {
     const id = identity(item);
     const occurrence = seen.get(id) ?? 0;
     seen.set(id, occurrence + 1);
@@ -130,9 +134,25 @@ function withStableKeys<Item>(
   });
 }
 
+function BoundedItemsNote({ label, total }: { label: string; total: number }) {
+  if (total <= CONTENT_ITEM_LIMIT) {
+    return null;
+  }
+  return (
+    <div className="text-muted-foreground">
+      {label} (showing {CONTENT_ITEM_LIMIT} of {total})
+    </div>
+  );
+}
+
+function uniqueSuggestionValues(values: readonly string[]): readonly string[] {
+  return [...new Set(values)].slice(0, CONTENT_ITEM_LIMIT);
+}
+
 function ResourceContents({ result }: { result: McpReadResourceResult['result'] }) {
   return (
     <>
+      <BoundedItemsNote label="Contents" total={result.contents.length} />
       {withStableKeys(result.contents, (content) => content.uri).map(({ item, key }) => (
         <div className="space-y-0.5" key={key}>
           <div className="break-all text-muted-foreground">
@@ -174,6 +194,7 @@ function PromptContents({ name, result }: { name: string; result: McpGetPromptRe
       {typeof result.description === 'string' && result.description.trim() !== '' && (
         <div className="text-muted-foreground">{result.description}</div>
       )}
+      <BoundedItemsNote label="Messages" total={result.messages.length} />
       {withStableKeys(result.messages, (message) => `${name}:${message.role}`).map(
         ({ item, key }) => (
           <div className="space-y-0.5" key={key}>
@@ -219,13 +240,26 @@ export function McpServerCatalog({
   const authority: McpContentAuthority = { configuredServerId: serverId, generation };
   const pendingRef = useRef<object | null>(null);
   const completionSequenceRef = useRef(0);
+  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [content, setContent] = useState<ContentView | null>(null);
   const [contentError, setContentError] = useState<string | null>(null);
   const [completionError, setCompletionError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [promptDraft, setPromptDraft] = useState<PromptDraft | null>(null);
   const [suggestions, setSuggestions] = useState<ArgumentSuggestions | null>(null);
   const busy = pendingKey !== null;
+  // Completion is gated on the server's advertised capability, not just on
+  // platform presence: a server without it would fail every keystroke.
+  const completionAvailable = onComplete !== undefined && catalog.features.completion;
+  const cancelPendingCompletion = (): void => {
+    completionSequenceRef.current += 1;
+    if (completionTimerRef.current !== null) {
+      clearTimeout(completionTimerRef.current);
+      completionTimerRef.current = null;
+    }
+  };
+  useEffect(() => cancelPendingCompletion, []);
 
   const runContent = async (key: string, operation: () => Promise<ContentView>): Promise<void> => {
     if (pendingRef.current !== null) {
@@ -278,9 +312,11 @@ export function McpServerCatalog({
       getPrompt(prompt.name, undefined);
       return;
     }
-    completionSequenceRef.current += 1;
+    cancelPendingCompletion();
     setSuggestions(null);
     setCompletionError(null);
+    setContentError(null);
+    setFormError(null);
     setPromptDraft({ prompt, values: {} });
   };
   const requestSuggestions = (
@@ -289,41 +325,50 @@ export function McpServerCatalog({
     value: string,
     values: Record<string, string>
   ): void => {
-    if (!onComplete) {
+    cancelPendingCompletion();
+    if (!(completionAvailable && onComplete) || value === '') {
+      setSuggestions(null);
       return;
     }
-    const sequence = ++completionSequenceRef.current;
+    const sequence = completionSequenceRef.current;
     const resolved = Object.fromEntries(
       Object.entries(values).filter(([name, argument]) => name !== argumentName && argument !== '')
     );
-    void onComplete({
-      argument: { name: argumentName, value },
-      authority,
-      ...(Object.keys(resolved).length > 0 && { context: { arguments: resolved } }),
-      ref: { name: prompt.name, type: 'ref/prompt' },
-    }).then(
-      (response) => {
-        if (sequence === completionSequenceRef.current) {
-          setCompletionError(null);
-          setSuggestions({ argument: argumentName, values: response.result.completion.values });
+    completionTimerRef.current = setTimeout(() => {
+      completionTimerRef.current = null;
+      void onComplete({
+        argument: { name: argumentName, value },
+        authority,
+        ...(Object.keys(resolved).length > 0 && { context: { arguments: resolved } }),
+        ref: { name: prompt.name, type: 'ref/prompt' },
+      }).then(
+        (response) => {
+          if (sequence === completionSequenceRef.current) {
+            setCompletionError(null);
+            setSuggestions({
+              argument: argumentName,
+              values: uniqueSuggestionValues(response.result.completion.values),
+            });
+          }
+        },
+        (cause: unknown) => {
+          if (sequence === completionSequenceRef.current) {
+            setSuggestions(null);
+            setCompletionError(failureMessage(cause));
+          }
         }
-      },
-      (cause: unknown) => {
-        if (sequence === completionSequenceRef.current) {
-          setSuggestions(null);
-          setCompletionError(failureMessage(cause));
-        }
-      }
-    );
+      );
+    }, COMPLETION_DEBOUNCE_MS);
   };
   const submitPromptDraft = (draft: PromptDraft): void => {
     const missing = promptArguments(draft.prompt).find(
       (argument) => argument.required === true && (draft.values[argument.name] ?? '') === ''
     );
     if (missing) {
-      setContentError(`Prompt argument ${missing.name} is required`);
+      setFormError(`Prompt argument ${missing.name} is required`);
       return;
     }
+    setFormError(null);
     const values = Object.fromEntries(
       Object.entries(draft.values).filter(([, argument]) => argument !== '')
     );
@@ -460,6 +505,7 @@ export function McpServerCatalog({
                   onChange={(event) => {
                     const value = event.target.value;
                     const values = { ...promptDraft.values, [argument.name]: value };
+                    setFormError(null);
                     setPromptDraft({ prompt: promptDraft.prompt, values });
                     requestSuggestions(promptDraft.prompt, argument.name, value, values);
                   }}
@@ -482,6 +528,11 @@ export function McpServerCatalog({
           {completionError && (
             <div className="text-destructive">Argument autocomplete failed: {completionError}</div>
           )}
+          {formError && (
+            <div className="text-destructive" role="alert">
+              {formError}
+            </div>
+          )}
           <div className="flex gap-2">
             <Button
               aria-label={`Get prompt ${displayTitle(promptDraft.prompt.title, promptDraft.prompt.name)}`}
@@ -497,10 +548,12 @@ export function McpServerCatalog({
               className="h-7 px-2 text-xs"
               disabled={busy}
               onClick={() => {
-                completionSequenceRef.current += 1;
+                cancelPendingCompletion();
                 setPromptDraft(null);
                 setSuggestions(null);
                 setCompletionError(null);
+                setContentError(null);
+                setFormError(null);
               }}
               size="sm"
               type="button"
