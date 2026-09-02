@@ -263,6 +263,49 @@ allowlist plus test-owned overrides; it never forwards the ambient CI environmen
 Its stdio fixtures enforce the exact SDK-default key set expected from that
 allowlist, so the packaged proof has no production-environment bypass.
 
+THE CORE LANE'S APPROVAL PROOF AND ITS ERROR PATH (BST-1602). Under the `ask`
+MCP policy the proof races two locators — `assistant-tool-approval-notice` and
+the scripted completion text — because an approval pause and a final text are
+mutually exclusive outcomes of one turn (`agent-streaming`'s pause is terminal
+for its leg; see `docs/agents/assistant-runtime.md`). The race is the right
+observation; what was wrong was what it did when the WRONG racer won. Two rules
+now hold, and both are load-bearing:
+
+- The diagnostic branch never CLICKS. It previously reached for a page-wide
+  `getByRole('button', { name: 'Expand details' })` while several tool cards were
+  mounted, so the branch that exists to explain a failure produced a
+  `locator.click` timeout instead of its own message — and the stalled app then
+  failed `closePackagedDesktop` with `code=1` (main's 5 s
+  `SIGNAL_SHUTDOWN_TIMEOUT_MS` forced exit), burying the real cause under two
+  unrelated errors. A failing proof's error path must resolve immediately: it
+  reads text, it does not act.
+- Both racers are explicitly `.catch`-handled. The loser keeps waiting out its
+  own 45 s budget and then rejects (timeout, or "target closed"), which
+  Playwright reports as a second, test-less error. `Promise.race` still settles
+  on whichever promise settles first, so "neither appeared" still fails.
+
+The branch dumps three boundaries: `startModelProviderShim`'s `transcript()`
+(every decided request — `roles`, `toolResultCount`, and the turn it chose, so
+the shim's pure turn accounting is never guesswork), each `tool-fallback` card's
+text, and the assistant region. That dump is what distinguishes the two very
+different failures that land here. A tool that RAN unprompted would be a
+permission-engine defect. What actually reproduces is the other one: when
+`legacy_echo` is not in the run's ACTIVE tool definitions at the moment the
+model calls it, the call fails fast with a tool RESULT and never reaches the
+approval gate at all, so the shim's third turn emits the completion text and
+`completed` wins the race. Demonstrated by forcing a `search_tools` miss: the
+dump shows `search_tools … 0 results` next to `legacy.echo … Tool execution
+failed.`, with no approval notice. In the wild the same state is reachable
+because per-run MCP discovery is skip-on-failure — `mcp-tool-loader.ts`'s
+`fetchMcpToolsetsWithTimeout` drops the WHOLE toolset after the hard-coded 5 s
+`DEFAULT_MCP_TIMEOUT_MS` and `logMcpToolsetErrors` drops a single server's, both
+continuing the run, and `pickMcpDiscoveryLogMethod` demotes exactly the two
+likeliest reasons (`Connection closed`, `mcp_tool_discovery_timeout`) to
+`debug`, which this lane's `LOG_LEVEL=info` does not record. Waiting for the
+Settings row to read `Connected` does NOT establish that precondition. Making
+that degradation visible is its own change; do not widen this lane to paper
+over it.
+
 After packaging, that same `Native Electron Package` job runs
 `test:e2e:lane:packaged-mcp-apps`. The tagged `@packaged` spec launches the exact
 electron-builder artifact, injects its harness into the REAL main window
