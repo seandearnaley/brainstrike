@@ -294,21 +294,16 @@ describe('McpTaskRepository', () => {
     // recover() fans out, so it is capped like every other bound here.
     await openNumbered();
     const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
     for (const taskId of ['a-task', 'b-task', 'c-task']) {
-      await repository.create({ ...identity, status: 'working', taskId }, currentGeneration);
+      await repository.create({ ...identity(authority, taskId), status: 'working' }, authority);
     }
-    const scope = {
-      generation: identity.generation,
-      principalId: identity.principalId,
-      resource: identity.resource,
-      serverId: identity.serverId,
-    };
-    await expect(repository.listActive(scope, { limit: 2 })).resolves.toMatchObject([
+    await expect(repository.listActive(authority, { limit: 2 })).resolves.toMatchObject([
       { taskId: 'a-task' },
       { taskId: 'b-task' },
     ]);
-    await expect(repository.listActive(scope)).resolves.toHaveLength(3);
-    await expect(repository.listActive(scope, { limit: 0 })).rejects.toThrow(TypeError);
+    await expect(repository.listActive(authority)).resolves.toHaveLength(3);
+    await expect(repository.listActive(authority, { limit: 0 })).rejects.toThrow(TypeError);
   });
 
   it('accepts empty status messages from the protocol contract', async () => {

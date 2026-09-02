@@ -218,7 +218,9 @@ export class McpTaskLifecycle {
     // Sole-authority guard BEFORE the durable write: a second track() of the
     // same handle must be a clean rejection, not a persisted row plus a throw.
     if (this.active.has(task.taskId)) {
-      throw new Error(`MCP task "${task.taskId}" is already tracked by this lifecycle.`);
+      return Promise.reject(
+        new Error(`MCP task "${task.taskId}" is already tracked by this lifecycle.`)
+      );
     }
     const operation = this.persistAndStart(task, signal);
     this.pendingCreates.add(operation);

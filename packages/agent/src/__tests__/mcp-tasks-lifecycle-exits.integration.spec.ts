@@ -290,25 +290,38 @@ describe('McpTaskLifecycle exit fencing', () => {
     expectNoLifecycleLeaks(lifecycle);
   });
 
-  it('rejects a terminal creation seed that omits its canonical result', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(CREATED_AT));
+  it('persists a terminal creation seed that omits its detail and fetches the detail at once', async () => {
+    // Review of #2915 (codex): CreateTaskResult extends the BASE task schema,
+    // so a create response may claim `completed` without `result`. The handle
+    // is durable and must not be discarded; it is stored as `working` with a
+    // pending-detail marker and the first tasks/get runs immediately.
+    vi.useRealTimers();
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
+    const requestExtension = vi.fn(async () => ({
+      ...task('seed-terminal'),
+      result: { answer: 42 },
+      resultType: 'complete',
+      status: 'completed',
+    }));
     const lifecycle = new McpTaskLifecycle({
       authority,
-      client: {
-        requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
-      },
+      client: { requestExtension },
       onUpdate: vi.fn(),
       repository,
     });
 
-    await expect(
-      lifecycle.track({ ...task('invalid-terminal'), status: 'completed' })
-    ).rejects.toThrow(/must include its result/u);
-    await expect(repository.get(taskIdentity(authority, 'invalid-terminal'))).resolves.toBeNull();
+    const tracked = await lifecycle.track({ ...task('seed-terminal'), status: 'completed' });
+    expect(tracked.record).toMatchObject({
+      inputMetadata: expect.objectContaining({ detail: 'pending', remoteStatus: 'completed' }),
+      status: 'working',
+    });
+    await expect(tracked.settled).resolves.toMatchObject({
+      resultMetadata: expect.objectContaining({ result: { answer: 42 } }),
+      status: 'completed',
+    });
+    expect(requestExtension).toHaveBeenCalledTimes(1);
     expectNoLifecycleLeaks(lifecycle);
   });
 

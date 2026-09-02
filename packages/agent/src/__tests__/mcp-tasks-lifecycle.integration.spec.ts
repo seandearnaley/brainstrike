@@ -440,7 +440,9 @@ describe('McpTaskLifecycle', () => {
       },
     ]);
     expect(JSON.stringify(publications)).not.toContain(staleNotification.lastUpdatedAt);
-    expect(() => lifecycle.wake(createdTask.taskId)).toThrow(/outside the active lifecycle/u);
+    // A late notification for a settled task is ordinary MCP timing (review
+    // of #2915): reported, never thrown.
+    expect(lifecycle.wake(createdTask.taskId)).toBe(false);
   });
 
   it('fences an uncooperative in-flight poll immediately when the generation is replaced', async () => {

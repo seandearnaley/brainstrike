@@ -4,10 +4,11 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { McpTaskLifecycle, type McpTaskPollingClient } from '../mcp/tasks-lifecycle';
 
-const SCOPE = {
-  generation: 1,
+const AUTHORITY_INPUT = {
+  connectionGeneration: 1,
   principalId: 'principal-1',
   resource: 'https://tasks.example.com/mcp',
+  runtimeId: 'runtime-handle-spec',
   serverId: 'tasks',
 } as const;
 
@@ -44,12 +45,12 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
     const repository = new McpTaskRepository(database);
     const requestExtension = vi.fn(async () => detailedCompleted('task-1'));
     const client = { requestExtension } as unknown as McpTaskPollingClient;
+    const authority = await repository.openAuthority(AUTHORITY_INPUT);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client,
-      currentGeneration: () => SCOPE.generation,
       onUpdate: () => undefined,
       repository,
-      scope: SCOPE,
     });
 
     const tracked = await lifecycle.track({
@@ -70,7 +71,7 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
     expect(settled.status).toBe('completed');
     expect(settled.resultMetadata).toMatchObject({ result: { answer: 42 } });
     expect(requestExtension).toHaveBeenCalledTimes(1);
-    expect(lifecycle.snapshot()).toMatchObject({ activeTasks: 0, timers: 0 });
+    expect(lifecycle.snapshot()).toMatchObject({ activeTasks: 0, pendingCreates: 0, timers: 0 });
     await lifecycle.stop('disconnect');
   });
 
@@ -80,12 +81,12 @@ describe('MCP task lifecycle handles (review of #2915)', () => {
     const createSpy = vi.spyOn(repository, 'create');
     const gate = Promise.withResolvers<GetTaskResult>();
     const requestExtension = vi.fn(() => gate.promise);
+    const authority = await repository.openAuthority(AUTHORITY_INPUT);
     const lifecycle = new McpTaskLifecycle({
+      authority,
       client: { requestExtension } as unknown as McpTaskPollingClient,
-      currentGeneration: () => SCOPE.generation,
       onUpdate: () => undefined,
       repository,
-      scope: SCOPE,
     });
     expect(lifecycle.wake('never-tracked')).toBe(false);
 
