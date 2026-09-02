@@ -105,15 +105,20 @@ describe('MCP Apps host surface', () => {
 
   it('keeps focus on Deny across unrelated authority publishes', async () => {
     const user = userEvent.setup();
+    const recoveryRef = createRef<HTMLButtonElement>();
     const { authority } = createAuthority();
     render(
-      <McpAppHostSurface
-        appName="Linear issue editor"
-        authority={authority}
-        state={{ phase: 'ready' }}
-      >
-        <div data-testid="sandboxed-app-slot" />
-      </McpAppHostSurface>
+      <>
+        <button aria-label="Linear app frame" ref={recoveryRef} type="button" />
+        <McpAppHostSurface
+          appName="Linear issue editor"
+          authority={authority}
+          recoveryFocusRef={recoveryRef}
+          state={{ phase: 'ready' }}
+        >
+          <div data-testid="sandboxed-app-slot" />
+        </McpAppHostSurface>
+      </>
     );
     await act(async () => {
       void authority

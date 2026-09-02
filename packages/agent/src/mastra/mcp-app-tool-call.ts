@@ -109,6 +109,35 @@ function readMcpServerName(tool: ExecutableTool): ServerNameReading {
   return { kind: 'server', serverName };
 }
 
+type ToolIdentity =
+  | Readonly<{ originalName: string; serverId: string; toolName: string }>
+  | Readonly<{ reason: string }>;
+
+/** Namespace-resolves one runtime tool; `undefined` means "not an MCP tool". */
+function resolveToolIdentity(
+  sanitizedId: string,
+  tool: ExecutableTool,
+  toolNameMap: ReadonlyMap<string, string>
+): ToolIdentity | undefined {
+  const reading = readMcpServerName(tool);
+  if (reading.kind === 'absent') {
+    return;
+  }
+  if (reading.kind === 'invalid') {
+    return { reason: reading.reason };
+  }
+  const serverId = reading.serverName;
+  const originalName = toolNameMap.get(sanitizedId);
+  if (originalName === undefined) {
+    return { reason: `tool ${sanitizedId} has no namespaced name in the runtime tool map` };
+  }
+  const namespacePrefix = `${serverId}.`;
+  if (!(originalName.startsWith(namespacePrefix) && originalName.length > namespacePrefix.length)) {
+    return { reason: `tool ${originalName} does not belong to execution server ${serverId}` };
+  }
+  return { originalName, serverId, toolName: originalName.slice(namespacePrefix.length) };
+}
+
 /**
  * Capture the ordinary runtime's exact post-plan/post-permission/post-storage
  * executable entry before artifact/model projection. Each admitted call gets
@@ -137,34 +166,15 @@ export function createMcpAppToolAdmissionCapability(
     if (!isExecutableTool(tool)) {
       continue;
     }
-    const reading = readMcpServerName(tool);
-    if (reading.kind === 'absent') {
+    const identity = resolveToolIdentity(sanitizedId, tool, options.toolNameMap);
+    if (identity === undefined) {
       continue;
     }
-    if (reading.kind === 'invalid') {
-      inadmissible.push({ reason: reading.reason, toolId: sanitizedId });
+    if ('reason' in identity) {
+      inadmissible.push({ reason: identity.reason, toolId: sanitizedId });
       continue;
     }
-    const serverId = reading.serverName;
-    const originalName = options.toolNameMap.get(sanitizedId);
-    const namespacePrefix = `${serverId}.`;
-    if (originalName === undefined) {
-      inadmissible.push({
-        reason: `tool ${sanitizedId} has no namespaced name in the runtime tool map`,
-        toolId: sanitizedId,
-      });
-      continue;
-    }
-    if (
-      !(originalName.startsWith(namespacePrefix) && originalName.length > namespacePrefix.length)
-    ) {
-      inadmissible.push({
-        reason: `tool ${originalName} does not belong to execution server ${serverId}`,
-        toolId: sanitizedId,
-      });
-      continue;
-    }
-    const toolName = originalName.slice(namespacePrefix.length);
+    const { originalName, serverId, toolName } = identity;
     const ask = options.askTools.get(sanitizedId);
     const serverTools = admittedByServer.get(serverId) ?? new Map();
     if (serverTools.has(toolName)) {

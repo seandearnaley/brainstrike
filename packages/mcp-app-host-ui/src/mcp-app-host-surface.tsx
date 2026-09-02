@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type RefObject,
   useCallback,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -140,17 +141,19 @@ export function McpAppHostSurface({
   const getSnapshot = useCallback(() => authority.snapshot, [authority]);
   const authoritySnapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const approval = authoritySnapshot.pendingApprovals[0];
-  const approvalId = approval?.id;
   // Focus "Allow once" only when a different approval takes over, never on
   // the unrelated re-renders every authority publish causes: yanking focus
-  // from Deny to Allow mid-decision would be a consent-integrity bug.
-  const focusApproval = useCallback(
-    (node: HTMLButtonElement | null): void => {
-      node?.focus();
-    },
-    // biome-ignore lint/correctness/useExhaustiveDependencies: refocus only when a different approval takes over
-    [approvalId]
-  );
+  // from Deny to Allow mid-decision would be a consent-integrity bug. The
+  // callback is stable; it compares the button's approval id itself.
+  const focusedApprovalRef = useRef<string | undefined>(undefined);
+  const focusApproval = useCallback((node: HTMLButtonElement | null): void => {
+    const nodeApprovalId = node?.dataset['approvalId'];
+    if (node === null || nodeApprovalId === focusedApprovalRef.current) {
+      return;
+    }
+    focusedApprovalRef.current = nodeApprovalId;
+    node.focus();
+  }, []);
   const [actionErrorId, setActionErrorId] = useState<string | undefined>(undefined);
 
   const approve = (): void => {
@@ -261,6 +264,7 @@ export function McpAppHostSurface({
               </Button>
               <Button
                 aria-label={`Allow ${approval.toolName} once`}
+                data-approval-id={approval.id}
                 onClick={approve}
                 onKeyDown={handleConsentKeyDown}
                 ref={focusApproval}
