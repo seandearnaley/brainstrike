@@ -17,8 +17,8 @@ import type {
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { McpTaskStatusCard } from '@brainstrike/assistant-ui/mcp-task-status-card';
 import type { McpTaskAuthorityLease } from '@brainstrike/db';
-import { McpTaskRepository, migrations } from '@brainstrike/db';
-import { PGlite } from '@electric-sql/pglite';
+import { McpTaskRepository, migrations, wasmLoader } from '@brainstrike/db';
+import type { PGlite } from '@electric-sql/pglite';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import { type ReactElement, use, useEffect, useState } from 'react';
 
@@ -119,7 +119,9 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
   }
 
   static async create(): Promise<PackagedTaskHarnessRuntime> {
-    const db = new PGlite(TASK_DATA_DIR);
+    // The shared factory loads the full engine-extension set every PGlite
+    // construction site must use (docs/agents/database.md).
+    const db = await wasmLoader.createPGlite(TASK_DATA_DIR);
     await db.exec(taskMigrationSql());
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(TASK_AUTHORITY_INPUT);

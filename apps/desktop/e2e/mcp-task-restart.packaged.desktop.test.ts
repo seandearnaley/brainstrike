@@ -198,7 +198,9 @@ async function setScenario(page: Page, scenario: HarnessScenario): Promise<void>
   }, scenario);
 }
 
-test('MCP task recovery is fenced and quiescent across a genuine packaged restart', async () => {
+test('MCP task recovery is fenced and quiescent across a genuine packaged restart', {
+  tag: ['@destructive', '@packaged'],
+}, async () => {
   test.setTimeout(240_000);
   const executablePath = packagedExecutablePath();
   await access(executablePath, constants.X_OK);

@@ -512,9 +512,15 @@ root.render(
     ) : isLlmHostMode() ? (
       <LlmHostApp />
     ) : desktopRendererRole === 'mcp-task-harness' ? (
-      <Suspense fallback={<div role="status">Loading MCP Tasks verifier…</div>}>
-        <McpTaskStatusE2eHarness />
-      </Suspense>
+      McpTaskStatusE2eHarness === null ? (
+        <div data-testid="mcp-task-harness-unavailable" role="alert">
+          MCP Tasks verifier is not built into this renderer (VITE_MCP_TASK_HARNESS unset).
+        </div>
+      ) : (
+        <Suspense fallback={<div role="status">Loading MCP Tasks verifier…</div>}>
+          <McpTaskStatusE2eHarness />
+        </Suspense>
+      )
     ) : (
       <StrictMode>
         <App />

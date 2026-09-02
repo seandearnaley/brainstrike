@@ -99,6 +99,22 @@ function projectHistory(record: McpTaskRecord): {
   };
 }
 
+const MAX_STATUS_MESSAGE_BYTES = 4096;
+
+/**
+ * The repository bounds `statusMessage` to 4,096 UTF-8 bytes at write and
+ * hydration; the presentation seam re-checks it so an unbounded record can
+ * never cross into the renderer silently.
+ */
+function requireBoundedStatusMessage(message: string | null): string | null {
+  if (message !== null && TEXT_ENCODER.encode(message).length > MAX_STATUS_MESSAGE_BYTES) {
+    throw new TypeError(
+      `MCP task statusMessage exceeds ${MAX_STATUS_MESSAGE_BYTES} UTF-8 bytes at the presentation seam.`
+    );
+  }
+  return message;
+}
+
 export function projectMcpTaskRecord(
   record: McpTaskRecord,
   recovery: 'live' | 'restart_required' = 'live'
@@ -117,7 +133,7 @@ export function projectMcpTaskRecord(
     ...projectHistory(record),
     recovery: terminal ? 'terminal' : recovery,
     status: record.status,
-    statusMessage: record.statusMessage,
+    statusMessage: requireBoundedStatusMessage(record.statusMessage),
     updatedAt: record.updatedAt.toISOString(),
   };
 }

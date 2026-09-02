@@ -53,7 +53,12 @@ describe('MCP task presentation', () => {
   });
 
   it('projects a byte-bounded context summary without payload metadata or control identity', () => {
-    const presentation = projectMcpTaskRecord(record({ statusMessage: '🤖'.repeat(4096) }));
+    // 1,024 four-byte glyphs: exactly the 4,096-byte repository bound, above
+    // the 2,048-byte context budget.
+    const presentation = projectMcpTaskRecord(record({ statusMessage: '🤖'.repeat(1024) }));
+    expect(() => projectMcpTaskRecord(record({ statusMessage: '🤖'.repeat(1025) }))).toThrow(
+      /exceeds 4096 UTF-8 bytes/u
+    );
     const context = projectMcpTaskForContext(presentation);
     const serialized = JSON.stringify(context);
 

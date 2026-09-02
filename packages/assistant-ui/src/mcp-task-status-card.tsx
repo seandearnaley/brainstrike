@@ -60,7 +60,7 @@ export interface McpTaskStatusCardProps {
 }
 
 function formatTimestamp(value: string): string {
-  return value.replace('T', ' ').replace('.000Z', ' UTC');
+  return value.replace('T', ' ').replace(/\.\d{3}Z$/u, ' UTC');
 }
 
 function taskHandleKey(task: McpTaskPresentation): string {
@@ -241,9 +241,13 @@ export function McpTaskStatusCard({
     startTransition(async () => {
       const outcome = await executeTaskAction(controller, action, task.handle);
       if (taskKeyRef.current !== pending.taskKey) {
+        // The handle was replaced while the action was in flight: nothing is
+        // pending any more, so the stale state must not disable the controls
+        // if this handle is rendered again.
         if (inFlightRef.current?.token === pending.token) {
           inFlightRef.current = null;
         }
+        setPendingAction((current) => (current?.token === pending.token ? null : current));
         return;
       }
       if (outcome.task) {

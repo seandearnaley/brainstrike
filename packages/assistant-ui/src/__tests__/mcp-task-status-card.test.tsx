@@ -208,6 +208,20 @@ describe('McpTaskStatusCard', () => {
     await waitFor(() => expect(onTaskChange).toHaveBeenCalledWith(cancelled));
   });
 
+  it('renders fractional-second timestamps as UTC', () => {
+    render(
+      <ControlledCard
+        initialTask={task({
+          createdAt: '2026-09-01T05:00:00.123Z',
+          updatedAt: '2026-09-01T05:00:07.999Z',
+        })}
+        port={controller({ ok: true, task: task() }).port}
+      />
+    );
+    expect(screen.getByText(/2026-09-01 05:00:07 UTC/u)).toBeInTheDocument();
+    expect(screen.queryByText(/\.999Z/u)).toBeNull();
+  });
+
   it('does not let an action for a replaced task overwrite the new card task', async () => {
     const pending = Promise.withResolvers<McpTaskActionResult>();
     const control = controller(pending.promise);
@@ -240,5 +254,13 @@ describe('McpTaskStatusCard', () => {
 
     expect(onTaskChange).not.toHaveBeenCalled();
     expect(screen.getByText('Replacement task is live')).toBeInTheDocument();
+
+    // Rendering the original handle again must not resurrect the abandoned
+    // action as a permanently disabled control.
+    view.rerender(
+      <McpTaskStatusCard controller={control.port} onTaskChange={onTaskChange} task={original} />
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Recover task' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Cancel task' })).toBeEnabled();
   });
 });
