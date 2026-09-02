@@ -344,6 +344,14 @@ async function readLifecycleDiagnostics(page: Page): Promise<{ hostPid: number; 
   });
 }
 /**
+ * Every read here is BOUNDED. `.catch()` converts a rejection but never
+ * shortens the wait that produced it, and this project sets no `actionTimeout`
+ * (Playwright's default is 0 — no timeout), so an unmatched locator would
+ * auto-wait the whole 420s test budget before its catch handler ever ran. An
+ * explicit timeout is the only thing that makes these reads unstallable.
+ */
+const DIAGNOSTIC_READ_TIMEOUT_MS = 2000;
+/**
  * Dump every observable boundary for a proof that took an unexpected branch:
  * the shim's decided turns (why the model said what it said), the assistant
  * transcript, and each tool card's own text. Read-only — it can never hang the
@@ -363,12 +371,14 @@ async function describeAssistantState(
     .catch(() => []);
   const cardTexts = await Promise.all(
     cards.map((card) =>
-      card.innerText().catch((error: unknown) => `<unavailable: ${String(error)}>`)
+      card
+        .innerText({ timeout: DIAGNOSTIC_READ_TIMEOUT_MS })
+        .catch((error: unknown) => `<unavailable: ${String(error)}>`)
     )
   );
   const region = await page
     .getByRole('region', { name: 'Assistant chat' })
-    .innerText()
+    .innerText({ timeout: DIAGNOSTIC_READ_TIMEOUT_MS })
     .catch((error: unknown) => `<unavailable: ${String(error)}>`);
   return [
     `provider turns: ${JSON.stringify(modelProvider.transcript())}`,
