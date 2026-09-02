@@ -95,6 +95,7 @@ export {
   type McpTaskLifecycleOptions,
   McpTaskLifecycleStoppedError,
   type McpTaskLifecycleStopReason,
+  McpTaskObservationError,
   type McpTaskPollingClient,
   type McpTaskRequestOptions,
   type McpTrackedTask,

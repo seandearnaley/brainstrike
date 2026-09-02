@@ -23,20 +23,25 @@ export const DEFAULT_MCP_TASK_LIFECYCLE_LIMITS = Object.freeze({
   initialPollMs: 500,
   maxBackoffMs: 30_000,
   maxConcurrentPolls: 4,
+  maxConsecutiveFailures: 3,
   maxLifetimeMs: 24 * 60 * 60 * 1000,
   minimumPollMs: 100,
+  pollRequestTimeoutMs: 30_000,
 });
 
 export interface McpTaskLifecycleLimits {
   readonly initialPollMs: number;
   readonly maxBackoffMs: number;
   readonly maxConcurrentPolls: number;
+  readonly maxConsecutiveFailures: number;
   readonly maxLifetimeMs: number;
   readonly minimumPollMs: number;
+  readonly pollRequestTimeoutMs: number;
 }
 
 export interface McpTaskRequestOptions {
   readonly signal?: AbortSignal;
+  readonly timeout?: number;
 }
 
 export interface McpTaskPollingClient {
@@ -68,6 +73,19 @@ export class McpTaskLifecycleStoppedError extends Error {
   }
 }
 
+export class McpTaskObservationError extends Error {
+  constructor(
+    readonly taskId: string,
+    readonly failures: number,
+    cause: unknown
+  ) {
+    super(`MCP task "${taskId}" observation failed after ${failures} bounded attempts.`, {
+      cause,
+    });
+    this.name = 'McpTaskObservationError';
+  }
+}
+
 export interface McpTaskLifecycleOptions {
   readonly client: McpTaskPollingClient;
   readonly currentGeneration: () => number;
@@ -80,6 +98,12 @@ export interface McpTaskLifecycleOptions {
 interface ActiveTask {
   readonly controller: AbortController;
   readonly settled: Promise<McpTaskRecord>;
+  readonly wake: PollWakeState;
+}
+
+interface PollWakeState {
+  release: (() => void) | undefined;
+  requested: boolean;
 }
 
 interface PollWaiter {
@@ -109,8 +133,16 @@ function normalizeLimits(input: McpTaskLifecycleLimits | undefined): McpTaskLife
     initialPollMs: requirePositiveInteger(limits.initialPollMs, 'initialPollMs'),
     maxBackoffMs: requirePositiveInteger(limits.maxBackoffMs, 'maxBackoffMs'),
     maxConcurrentPolls: requirePositiveInteger(limits.maxConcurrentPolls, 'maxConcurrentPolls'),
+    maxConsecutiveFailures: requirePositiveInteger(
+      limits.maxConsecutiveFailures,
+      'maxConsecutiveFailures'
+    ),
     maxLifetimeMs: requirePositiveInteger(limits.maxLifetimeMs, 'maxLifetimeMs'),
     minimumPollMs: requirePositiveInteger(limits.minimumPollMs, 'minimumPollMs'),
+    pollRequestTimeoutMs: requirePositiveInteger(
+      limits.pollRequestTimeoutMs,
+      'pollRequestTimeoutMs'
+    ),
   };
   if (normalized.maxBackoffMs < normalized.initialPollMs) {
     throw new TypeError('MCP task lifecycle maxBackoffMs must be at least initialPollMs.');
@@ -194,6 +226,16 @@ export class McpTaskLifecycle {
     return resumable.map(({ record, timing }) => this.start(record, timing, signal));
   }
 
+  wake(taskId: string): void {
+    this.requireOpen();
+    const task = this.active.get(taskId);
+    if (!task) {
+      throw new Error(`MCP task notification is outside the active lifecycle: "${taskId}".`);
+    }
+    task.wake.requested = true;
+    task.wake.release?.();
+  }
+
   async stop(reason: McpTaskLifecycleStopReason): Promise<void> {
     if (this.stopPromise) {
       return this.stopPromise;
@@ -240,20 +282,23 @@ export class McpTaskLifecycle {
       signals.push(callerSignal);
     }
     const signal = AbortSignal.any(signals);
-    const settled = this.poll(record, initialTiming, signal).finally(() => {
+    const wake: PollWakeState = { release: undefined, requested: false };
+    const settled = this.poll(record, initialTiming, signal, wake).finally(() => {
       this.active.delete(record.taskId);
     });
     void settled.catch(() => undefined);
-    this.active.set(record.taskId, { controller, settled });
+    this.active.set(record.taskId, { controller, settled, wake });
     return Object.freeze({ record, settled });
   }
 
   private async poll(
     initialRecord: McpTaskRecord,
     initialTiming: McpTaskTiming,
-    signal: AbortSignal
+    signal: AbortSignal,
+    wake: PollWakeState
   ): Promise<McpTaskRecord> {
     let backoffMs = this.limits.initialPollMs;
+    let consecutiveFailures = 0;
     let latestTiming = initialTiming;
     const localDeadline = Date.now() + this.limits.maxLifetimeMs;
     while (true) {
@@ -268,21 +313,22 @@ export class McpTaskLifecycle {
       if (remainingMs <= 0) {
         throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
       }
-      await this.wait(Math.min(requestedDelay, remainingMs), signal);
+      await this.wait(Math.min(requestedDelay, remainingMs), signal, wake);
       if (Date.now() >= deadline) {
         throw new Error(`MCP task "${initialRecord.taskId}" exceeded its bounded lifetime.`);
       }
       const release = await this.acquirePollPermit(signal);
+      wake.requested = false;
       let result: GetTaskResult;
       try {
-        result = await raceAbort(
-          this.client.requestExtension(
-            MCP_TASKS_GET_REQUEST_CONTRACT,
-            { taskId: initialRecord.taskId },
-            { signal }
-          ),
-          signal
-        );
+        try {
+          result = await this.requestTask(initialRecord.taskId, signal);
+        } catch (cause) {
+          consecutiveFailures += 1;
+          this.assertPollRetry(initialRecord.taskId, cause, signal, consecutiveFailures);
+          backoffMs = Math.min(backoffMs * 2, this.limits.maxBackoffMs);
+          continue;
+        }
       } finally {
         release();
       }
@@ -304,10 +350,36 @@ export class McpTaskLifecycle {
       if (TERMINAL_TASK_STATUSES.has(persisted.status)) {
         return persisted;
       }
+      consecutiveFailures = 0;
       latestTiming = resultTiming;
       if (result.pollIntervalMs === undefined) {
         backoffMs = Math.min(backoffMs * 2, this.limits.maxBackoffMs);
       }
+    }
+  }
+
+  private async requestTask(taskId: string, signal: AbortSignal): Promise<GetTaskResult> {
+    return await raceAbort(
+      this.client.requestExtension(
+        MCP_TASKS_GET_REQUEST_CONTRACT,
+        { taskId },
+        { signal, timeout: this.limits.pollRequestTimeoutMs }
+      ),
+      signal
+    );
+  }
+
+  private assertPollRetry(
+    taskId: string,
+    cause: unknown,
+    signal: AbortSignal,
+    failures: number
+  ): void {
+    if (signal.aborted) {
+      throw abortReason(signal);
+    }
+    if (failures >= this.limits.maxConsecutiveFailures) {
+      throw new McpTaskObservationError(taskId, failures, cause);
     }
   }
 
@@ -333,9 +405,13 @@ export class McpTaskLifecycle {
     }
   }
 
-  private wait(delayMs: number, signal: AbortSignal): Promise<void> {
+  private wait(delayMs: number, signal: AbortSignal, wake: PollWakeState): Promise<void> {
     if (signal.aborted) {
       return Promise.reject(abortReason(signal));
+    }
+    if (wake.requested) {
+      wake.requested = false;
+      return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -351,8 +427,17 @@ export class McpTaskLifecycle {
         clearTimeout(timer);
         this.timers.delete(timer);
         signal.removeEventListener('abort', onAbort);
+        if (wake.release === onWake) {
+          wake.release = undefined;
+        }
+      };
+      const onWake = (): void => {
+        wake.requested = false;
+        cleanup();
+        resolve();
       };
       signal.addEventListener('abort', onAbort, { once: true });
+      wake.release = onWake;
     });
   }
 

@@ -1992,10 +1992,15 @@ principal/resource/generation-bound Tasks persistence substrate.
 `McpTaskLifecycle` persists each returned handle and its server timing before
 exposing it, resumes only the exact live scope, polls `tasks/get` under bounded
 concurrency/backoff/lifetime, and persists before publishing every update.
+It is the sole ordered poll authority. Optional task notifications carry no
+state into persistence or interaction; they only wake and coalesce an immediate
+lifecycle poll. Interaction consumes lifecycle updates only after persistence
+and never starts a second poll fleet.
 Server replacement, removal, disconnect, reset, restart, lifecycle close, and
 caller cancellation abort timers, queued permits, and in-flight requests; a
-late stale-generation response cannot publish. The poller honors changing
-`pollIntervalMs`, treats `ttlMs` as a lifetime backstop, and creates no
+late stale-generation response cannot publish. The poller rejects a mismatched
+task id, terminally exposes bounded transport-attempt exhaustion, honors
+changing `pollIntervalMs`, treats `ttlMs` as a lifetime backstop, and creates no
 subscription lease. This remains opt-in substrate: production registration,
 mid-flight input/cancellation interactions, renderer controls, and support
 advertisement remain disabled for later BST-1473 layers.
