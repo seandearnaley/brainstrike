@@ -170,10 +170,19 @@ describe('MCP test lab package contract', () => {
   });
 
   it('keeps the living provider contract authoritative for the MCP 2026 host architecture', async () => {
-    const contract = await readFile(
+    // BST-1590 split the living contract: host architecture stays in
+    // assistant-providers.md; the verifier harness, official conformance
+    // client/driver, and evidence prose live in mcp-conformance.md. The
+    // expectations below span both, so read them together.
+    const providerContract = await readFile(
       new URL('../../../docs/agents/assistant-providers.md', import.meta.url),
       'utf8'
     );
+    const conformanceContract = await readFile(
+      new URL('../../../docs/agents/mcp-conformance.md', import.meta.url),
+      'utf8'
+    );
+    const contract = `${providerContract}\n${conformanceContract}`;
     const normalizedContract = contract.replace(/\s+/gu, ' ');
     const research = await readFile(
       new URL(
