@@ -241,34 +241,34 @@ test('PR and exhaustive lanes use the same command apart from profile and output
 
 test('living contracts publish the exact local and CI commands', () => {
   // BST-1590: conformance prose lives in mcp-conformance.md, not the provider contract.
-  const providerContract = readRepoFile('docs/agents/mcp-conformance.md');
+  const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
   for (const command of [representativeCommand, exhaustiveCommand]) {
-    assert.match(providerContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(conformanceContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(ciContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   for (const command of [officialBaselineCommand, officialCoreCommand, officialModernCommand]) {
     const exactLine = new RegExp(`^${command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'mu');
-    assert.match(providerContract, exactLine);
+    assert.match(conformanceContract, exactLine);
     assert.match(ciContract, exactLine);
   }
-  assert.match(providerContract, /Evidence schema `1\.1\.0`/u);
+  assert.match(conformanceContract, /Evidence schema `1\.1\.0`/u);
   assert.match(ciContract, /evidence-schema `1\.1\.0`/u);
-  for (const contract of [providerContract, ciContract]) {
+  for (const contract of [conformanceContract, ciContract]) {
     assert.match(contract, /protocol-lab-only/u);
   }
 });
 
 test('living contracts link official conformance evidence and require dispatch URLs in PRs', () => {
-  const providerContract = readRepoFile('docs/agents/mcp-conformance.md');
+  const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
   for (const runUrl of officialGreenRunUrls) {
-    assert.ok(providerContract.includes(runUrl), `missing run URL: ${runUrl}`);
+    assert.ok(conformanceContract.includes(runUrl), `missing run URL: ${runUrl}`);
   }
-  assert.match(providerContract, /28\/28 baseline auth/u);
-  assert.match(providerContract, /11\/11 modern auth closeout/u);
+  assert.match(conformanceContract, /28\/28 baseline auth/u);
+  assert.match(conformanceContract, /11\/11 modern auth closeout/u);
   assert.match(
     ciContract,
     /pull request touching official MCP conformance must link its workflow-dispatch run URL/u
@@ -282,7 +282,14 @@ test('the conformance contract is routed once from AGENTS.md and owns the moved 
   const providerContract = readRepoFile('docs/agents/assistant-providers.md');
   const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
-  assert.equal(agents.split('docs/agents/mcp-conformance.md').length - 1, 1);
+  const routeRows = agents
+    .split('\n')
+    .filter((row) => row.startsWith('|') && row.includes('docs/agents/mcp-conformance.md'));
+  assert.equal(
+    routeRows.length,
+    1,
+    'AGENTS.md must route mcp-conformance.md from exactly one table row'
+  );
   assert.match(conformanceContract, /^## MCP verification harness$/mu);
   assert.match(conformanceContract, /^## Official conformance evidence \(BST-1589\)$/mu);
   assert.doesNotMatch(providerContract, /^### MCP verification harness$/mu);

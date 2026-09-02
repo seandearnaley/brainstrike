@@ -95,31 +95,6 @@ official jobs live outside `test.yml`, so the `notify-main-failure` issue
 notifier does not yet cover them; whoever merges checks the workflow run on
 their own commit until BST-1591 extends notification to this workflow.
 
-#### MCP 2026 fleet working agreements (BST-1590)
-
-Standing rules for every agent on the MCP 2026 project until BST-1472 closes.
-They exist because on 2026-09-01 the same Electron install race was fixed twice
-by two agents 44 minutes apart (#2900, #2901), BST-1574 was implemented twice,
-roughly 40% of the overnight spend went to rewrite-in-place review loops and
-blind iteration against a mute verifier, `assistant-providers.md` was rewritten
-by every landing commit, and two epics were marked Done while their product
-surface was unreachable. The Linear project description carries the same list.
-
-1. **Dedupe before starting.** Search open PRs and the last 24 hours of merged
-   PRs for the same root cause before opening a branch; review an existing fix
-   instead of re-fixing it.
-2. **WIP limit of 2** on the project until BST-1472 closes; the Tasks
-   (BST-1473) and Apps (BST-1474) ladders stay frozen behind the core closeout.
-3. **Evidence is a CI artifact URL** at the exact head, linked in the PR body
-   and on the ticket. Self-reported test counts are notes, not proof.
-4. **Done means reachable.** A host-only deliverable carries an explicit
-   "host-only, product surface pending" note and does not close as Done.
-5. **PRs only.** No direct-to-main pushes.
-6. **One status update per day** on the project: gate state, pass counts,
-   blockers.
-7. **Doc contention.** Conformance and verification prose lives in
-   `docs/agents/mcp-conformance.md`, not in `assistant-providers.md`.
-
 Its combined build/run step has a seven-minute bound and its job an 11-minute
 bound (four-minute build, three-minute Electron provisioning, three-minute run,
 one minute of workflow overhead). A bounded three-minute "Provision Electron
@@ -187,6 +162,31 @@ the three-minute Electron provisioning step, and four minutes for workflow
 setup/upload. Shared typed descriptors and workflow
 contract tests pin these budgets and the required posture of all three
 official jobs.
+
+#### MCP 2026 fleet working agreements (BST-1590)
+
+Standing rules for every agent on the MCP 2026 project until BST-1472 closes.
+They exist because on 2026-09-01 the same Electron install race was fixed twice
+by two agents 44 minutes apart (#2900, #2901), BST-1574 was implemented twice,
+roughly 40% of the overnight spend went to rewrite-in-place review loops and
+blind iteration against a mute verifier, `assistant-providers.md` was rewritten
+by every landing commit, and two epics were marked Done while their product
+surface was unreachable. The Linear project description carries the same list.
+
+1. **Dedupe before starting.** Search open PRs and the last 24 hours of merged
+   PRs for the same root cause before opening a branch; review an existing fix
+   instead of re-fixing it.
+2. **WIP limit of 2** on the project until BST-1472 closes; the Tasks
+   (BST-1473) and Apps (BST-1474) ladders stay frozen behind the core closeout.
+3. **Evidence is a CI artifact URL** at the exact head, linked in the PR body
+   and on the ticket. Self-reported test counts are notes, not proof.
+4. **Done means reachable.** A host-only deliverable carries an explicit
+   "host-only, product surface pending" note and does not close as Done.
+5. **PRs only.** No direct-to-main pushes.
+6. **One status update per day** on the project: gate state, pass counts,
+   blockers.
+7. **Doc contention.** Conformance and verification prose lives in
+   `docs/agents/mcp-conformance.md`, not in `assistant-providers.md`.
 
 ### Open PR to Linear conformance (BST-521)
 
