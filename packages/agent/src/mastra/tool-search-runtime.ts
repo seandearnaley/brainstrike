@@ -170,10 +170,15 @@ function readSearchQuery(args: readonly unknown[]): string | undefined {
   return typeof query === 'string' ? query : undefined;
 }
 
+interface ParsedSearchResult extends Pick<ToolDiscoverySearchObservation, 'rankedResults'> {
+  /** Sanitized ids exactly as the model must call them, in ranked order. */
+  readonly loadedNames: readonly string[];
+}
+
 function readSearchResult(
   value: unknown,
   toolNameMap: ReadonlyMap<string, string>
-): Pick<ToolDiscoverySearchObservation, 'rankedResults'> | undefined {
+): ParsedSearchResult | undefined {
   if (!value || typeof value !== 'object') {
     return;
   }
@@ -182,6 +187,7 @@ function readSearchResult(
     return;
   }
   const rankedResults: { score: number; toolId: string }[] = [];
+  const loadedNames: string[] = [];
   for (const result of results) {
     if (!result || typeof result !== 'object') {
       return;
@@ -191,8 +197,9 @@ function readSearchResult(
       return;
     }
     rankedResults.push({ score, toolId: toolNameMap.get(name) ?? name });
+    loadedNames.push(name);
   }
-  return { rankedResults };
+  return { loadedNames, rankedResults };
 }
 
 function wrapSearchTelemetry(
@@ -248,6 +255,8 @@ function wrapSearchTelemetry(
       };
       notify(observation);
       if (searchResult.rankedResults.length === 0) {
+        // Mastra's own "No tools found matching …" copy stays: there is
+        // nothing to call, so the same-response sentence would be a lie.
         logger.info('Mastra tool discovery search missed', {
           code: 'mastra_tool_discovery_catalog_miss',
           queryLength: query.length,
@@ -261,17 +270,14 @@ function wrapSearchTelemetry(
         rankedResults: searchResult.rankedResults,
         stepNumber,
       });
-      // `result` already passed readSearchResult, so its `results` entries
-      // carry the sanitized names the model must call. Only the sentence
-      // changes; the ranked list is returned untouched.
-      const loaded = result as {
-        readonly message: string;
-        readonly results: { description: string; name: string; score: number }[];
-      };
-      return {
-        ...loaded,
-        message: describeLoadedSearchResult(loaded.results.map((entry) => entry.name)),
-      };
+      // The names come from the parse above (the same object readSearchResult
+      // validated), not from a second cast. Only the sentence changes; the
+      // ranked list is returned untouched.
+      const loadedResult = result as Extract<
+        Awaited<ReturnType<typeof execute>>,
+        { readonly results: unknown }
+      >;
+      return { ...loadedResult, message: describeLoadedSearchResult(searchResult.loadedNames) };
     },
     writable:
       executeDescriptor && 'writable' in executeDescriptor ? executeDescriptor.writable : true,

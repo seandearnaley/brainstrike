@@ -593,7 +593,7 @@ function buildToolDiscoveryInstruction(
   // exact id that are not in the model's callable list until discovered.
   const families = describeAvailableDeferredCapabilityFamilies(availableOriginalToolIds);
   const familiesClause = families.length > 0 ? `: ${families}` : '';
-  return `Some capabilities are deferred behind search_tools${familiesClause}. When a tool you need is not loaded — including one these instructions or a skill activation names — call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on your next step within this same response ("next turn" in tool results means that step, not a later user message): keep going and call them right away; never end your reply to wait for a tool to load.`;
+  return `Some capabilities are deferred behind search_tools${familiesClause}. When a tool you need is not loaded — including one these instructions or a skill activation names — call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on your next step within this same response ("next turn" in tool results means that step, not a later user message): keep going and call them right away; never end your reply to wait for a tool to load. If the search finds nothing, say so and continue with the tools you have.`;
 }
 
 /**

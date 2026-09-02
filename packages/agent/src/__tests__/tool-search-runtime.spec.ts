@@ -189,6 +189,22 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(result.message).not.toContain('next turn');
   });
 
+  it("keeps Mastra's no-match copy when the search loads nothing", async () => {
+    // Review of #2912: an unconditional rewrite would tell the model that
+    // zero tools are "callable now". The rewrite applies only to a loaded
+    // result; a miss returns Mastra's own message untouched.
+    const processor = createProcessor();
+    const step = await processor.processInputStep(createStepArgs());
+
+    const result = (await step.tools.search_tools.execute?.({
+      query: 'zzqx qqzz',
+    })) as { message: string; results: unknown[] };
+
+    expect(result.results).toEqual([]);
+    expect(result.message).toContain('No tools found');
+    expect(result.message).not.toContain('same response');
+  });
+
   it('observes the exact query and original ranked ids without schemas', async () => {
     const processor = createRankingProcessor();
     const observations: unknown[] = [];

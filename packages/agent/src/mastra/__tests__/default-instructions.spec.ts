@@ -679,6 +679,10 @@ describe('tool-discovery guidance', () => {
     expect(line).toContain('"next turn"');
     expect(line).toContain('not a later user message');
     expect(line).toContain('never end your reply to wait');
+    // Review of #2912: the clause must not be absolute — a zero-match search
+    // needs a stated exit, or "keep going and call them" invites a call to a
+    // tool that does not exist.
+    expect(line).toContain('If the search finds nothing');
   });
 });
 
