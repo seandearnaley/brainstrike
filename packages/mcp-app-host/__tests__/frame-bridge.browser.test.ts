@@ -1,9 +1,8 @@
-import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 import { chromium } from 'playwright';
-import ts from 'typescript';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const SOURCE_ROOT = path.resolve(fileURLToPath(new URL('../src/', import.meta.url)));
@@ -38,6 +37,18 @@ function appDocument(label: string): string {
 }
 
 async function createModuleServer(): Promise<{ readonly origin: string; readonly server: Server }> {
+  const bundle = await build({
+    bundle: true,
+    entryPoints: [path.join(SOURCE_ROOT, 'index.ts')],
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    write: false,
+  });
+  const moduleText = bundle.outputFiles[0]?.text;
+  if (moduleText === undefined) {
+    throw new Error('MCP Apps bridge verifier bundle is unavailable');
+  }
   const server = createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
@@ -53,23 +64,12 @@ async function createModuleServer(): Promise<{ readonly origin: string; readonly
         );
         return;
       }
-      if (!(requestUrl.pathname.startsWith('/src/') && requestUrl.pathname.endsWith('.js'))) {
+      if (requestUrl.pathname !== '/bridge.js') {
         response.writeHead(404).end();
         return;
       }
-      const relativePath = `${requestUrl.pathname.slice('/src/'.length, -'.js'.length)}.ts`;
-      const sourcePath = path.resolve(SOURCE_ROOT, relativePath);
-      if (!sourcePath.startsWith(`${SOURCE_ROOT}${path.sep}`)) {
-        response.writeHead(403).end();
-        return;
-      }
-      const source = await readFile(sourcePath, 'utf8');
-      const output = ts.transpileModule(source, {
-        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-        fileName: sourcePath,
-      }).outputText;
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
-      response.end(output);
+      response.end(moduleText);
     } catch (error: unknown) {
       response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
       response.end(error instanceof Error ? error.message : 'module server failed');
@@ -109,7 +109,7 @@ describe('real opaque-origin iframe MCP Apps bridge', () => {
     await page.goto(origin);
     await page.addScriptTag({
       content:
-        "import * as bridgeModule from '/src/index.js';globalThis.__mcpAppBridgeModule=bridgeModule;",
+        "import * as bridgeModule from '/bridge.js';globalThis.__mcpAppBridgeModule=bridgeModule;",
       type: 'module',
     });
     await page.waitForFunction(() => Reflect.has(window, '__mcpAppBridgeModule'));
@@ -155,6 +155,14 @@ describe('real opaque-origin iframe MCP Apps bridge', () => {
           onNotification: () => undefined,
           onProtocolError: (error) => errors.push(error.message),
           onRequest: async (message, context) => {
+            if (message.method === 'ui/initialize') {
+              return {
+                hostCapabilities: {},
+                hostContext: { platform: 'desktop' },
+                hostInfo: { name: 'Brainstrike', version: '1.0.0' },
+                protocolVersion: '2026-01-26',
+              };
+            }
             if (message.method !== 'tools/call' || message.params?.['name'] !== 'wait') {
               return {};
             }

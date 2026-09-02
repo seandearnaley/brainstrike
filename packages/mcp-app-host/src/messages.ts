@@ -1,3 +1,10 @@
+import {
+  CallToolRequestSchema,
+  LoggingMessageNotificationSchema,
+  PingRequestSchema,
+  ReadResourceRequestSchema,
+} from '@modelcontextprotocol/core';
+import * as McpAppsSchemas from '@modelcontextprotocol/ext-apps';
 import { MCP_APPS_SPEC_VERSION } from './capabilities.js';
 import { parseMcpAppResourceMeta } from './metadata.js';
 import { MCP_APPS_STABLE_METHODS, type McpAppStableMethod } from './stable-contract.js';
@@ -22,6 +29,53 @@ export interface McpAppMessage {
 }
 
 const STABLE_METHOD_SET = new Set<string>(MCP_APPS_STABLE_METHODS);
+
+interface CanonicalMessageSchema {
+  safeParse(value: unknown): { readonly success: boolean };
+}
+
+function requireMcpAppsSchema(name: string): CanonicalMessageSchema {
+  const schema: unknown = Reflect.get(McpAppsSchemas, name);
+  if (
+    (typeof schema !== 'object' && typeof schema !== 'function') ||
+    schema === null ||
+    typeof Reflect.get(schema, 'safeParse') !== 'function'
+  ) {
+    throw new TypeError(`Pinned MCP Apps runtime schema ${name} is unavailable`);
+  }
+  return schema as CanonicalMessageSchema;
+}
+
+const CANONICAL_MESSAGE_SCHEMAS: Readonly<Record<McpAppStableMethod, CanonicalMessageSchema>> =
+  Object.freeze({
+    'notifications/message': LoggingMessageNotificationSchema,
+    ping: PingRequestSchema,
+    'resources/read': ReadResourceRequestSchema,
+    'tools/call': CallToolRequestSchema,
+    'ui/initialize': requireMcpAppsSchema('McpUiInitializeRequestSchema'),
+    'ui/message': requireMcpAppsSchema('McpUiMessageRequestSchema'),
+    'ui/notifications/host-context-changed': requireMcpAppsSchema(
+      'McpUiHostContextChangedNotificationSchema'
+    ),
+    'ui/notifications/initialized': requireMcpAppsSchema('McpUiInitializedNotificationSchema'),
+    'ui/notifications/sandbox-proxy-ready': requireMcpAppsSchema(
+      'McpUiSandboxProxyReadyNotificationSchema'
+    ),
+    'ui/notifications/sandbox-resource-ready': requireMcpAppsSchema(
+      'McpUiSandboxResourceReadyNotificationSchema'
+    ),
+    'ui/notifications/size-changed': requireMcpAppsSchema('McpUiSizeChangedNotificationSchema'),
+    'ui/notifications/tool-cancelled': requireMcpAppsSchema('McpUiToolCancelledNotificationSchema'),
+    'ui/notifications/tool-input': requireMcpAppsSchema('McpUiToolInputNotificationSchema'),
+    'ui/notifications/tool-input-partial': requireMcpAppsSchema(
+      'McpUiToolInputPartialNotificationSchema'
+    ),
+    'ui/notifications/tool-result': requireMcpAppsSchema('McpUiToolResultNotificationSchema'),
+    'ui/open-link': requireMcpAppsSchema('McpUiOpenLinkRequestSchema'),
+    'ui/request-display-mode': requireMcpAppsSchema('McpUiRequestDisplayModeRequestSchema'),
+    'ui/resource-teardown': requireMcpAppsSchema('McpUiResourceTeardownRequestSchema'),
+    'ui/update-model-context': requireMcpAppsSchema('McpUiUpdateModelContextRequestSchema'),
+  });
 const REQUEST_METHODS = new Set<McpAppStableMethod>([
   'ui/initialize',
   'ui/open-link',
@@ -569,6 +623,18 @@ function parseStableMethod(value: unknown): McpAppStableMethod {
   return value as McpAppStableMethod;
 }
 
+function assertCanonicalMessage(
+  method: McpAppStableMethod,
+  params: unknown,
+  hasParams: boolean,
+  label: string
+): void {
+  const message = hasParams ? { method, params } : { method };
+  if (!CANONICAL_MESSAGE_SCHEMAS[method].safeParse(message).success) {
+    throw new TypeError(`${label} ${method} does not match its canonical schema`);
+  }
+}
+
 function parseRequestId(value: unknown, label: string): number | string {
   if (typeof value === 'string') {
     return value;
@@ -611,6 +677,8 @@ export function parseMcpAppMessage(
   if (record['jsonrpc'] !== '2.0') {
     throw new TypeError(`${label}.jsonrpc must be "2.0"`);
   }
+
+  assertCanonicalMessage(method, record['params'], record['params'] !== undefined, label);
 
   const params =
     record['params'] === undefined && paramsOptional

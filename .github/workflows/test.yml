@@ -805,6 +805,9 @@ jobs:
       - name: Verify packaged MCP Tasks lifecycle
         run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-tasks
 
+      - name: Verify packaged MCP Apps lifecycle
+        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps
+
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
 

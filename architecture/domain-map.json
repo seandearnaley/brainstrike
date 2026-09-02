@@ -87,6 +87,7 @@
         "@brainstrike/agent",
         "@brainstrike/assistant-service",
         "@brainstrike/mcp-app-host",
+        "@brainstrike/mcp-app-host-ui",
         "@brainstrike/mcp-tasks-extension"
       ],
       "mayDependOn": [

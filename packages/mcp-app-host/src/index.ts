@@ -26,8 +26,10 @@ export {
 } from './frame-bridge.js';
 export {
   McpAppRequestCorrelator,
+  type McpAppRequestMethod,
   type McpAppResponse,
   parseMcpAppResponse,
+  parseMcpAppResponseId,
 } from './json-rpc.js';
 export {
   type McpAppMessage,
@@ -72,3 +74,13 @@ export {
   MCP_APPS_STABLE_UI_METHODS,
   type McpAppStableMethod,
 } from './stable-contract.js';
+export {
+  type McpAppPendingApproval,
+  type McpAppPermissionDecision,
+  type McpAppPreparedToolCall,
+  McpAppToolCallAuthority,
+  type McpAppToolCallAuthorityOptions,
+  type McpAppToolCallAuthoritySnapshot,
+  type McpAppToolCallPreparationContext,
+  type McpAppToolRiskCategory,
+} from './tool-call-authority.js';

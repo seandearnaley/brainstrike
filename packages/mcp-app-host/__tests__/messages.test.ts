@@ -1,3 +1,4 @@
+import * as McpAppsSchemas from '@modelcontextprotocol/ext-apps';
 import { describe, expect, it } from 'vitest';
 import {
   MCP_APPS_STABLE_METHODS,
@@ -134,6 +135,20 @@ const STABLE_MESSAGES: readonly [McpAppMessageDirection, unknown][] = [
     },
   ],
 ];
+
+function upstreamSchema(name: string): {
+  safeParse(value: unknown): { readonly success: boolean };
+} {
+  const schema: unknown = Reflect.get(McpAppsSchemas, name);
+  if (typeof schema !== 'object' || schema === null) {
+    throw new Error(`MCP Apps test schema ${name} is unavailable`);
+  }
+  const safeParse: unknown = Reflect.get(schema, 'safeParse');
+  if (typeof safeParse !== 'function') {
+    throw new Error(`MCP Apps test schema ${name} has no safeParse method`);
+  }
+  return schema as { safeParse(value: unknown): { readonly success: boolean } };
+}
 
 describe('stable MCP Apps message allowlist', () => {
   it('pins the exact stable extension method vocabulary', () => {
@@ -342,6 +357,45 @@ describe('stable MCP Apps message allowlist', () => {
       )
     ).toThrow(/unsupported field "reason"/);
   });
+
+  it.each([
+    {
+      direction: 'app-to-host' as const,
+      message: {
+        id: 'missing-text',
+        jsonrpc: '2.0',
+        method: 'ui/message',
+        params: { content: [{ type: 'text' }], role: 'user' },
+      },
+      schema: upstreamSchema('McpUiMessageRequestSchema'),
+    },
+    {
+      direction: 'host-to-app' as const,
+      message: {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/host-context-changed',
+        params: { theme: 7 },
+      },
+      schema: upstreamSchema('McpUiHostContextChangedNotificationSchema'),
+    },
+    {
+      direction: 'host-to-app' as const,
+      message: {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/tool-result',
+        params: { content: [{ type: 'text' }] },
+      },
+      schema: upstreamSchema('McpUiToolResultNotificationSchema'),
+    },
+  ])(
+    'rejects $message.method whenever the pinned schema rejects it',
+    ({ direction, message, schema }) => {
+      expect(schema.safeParse({ method: message.method, params: message.params }).success).toBe(
+        false
+      );
+      expect(() => parseMcpAppMessage(message, direction)).toThrow(/canonical schema/);
+    }
+  );
 
   it.each([
     ['missing JSON-RPC version', { id: 1, method: 'ui/open-link', params: { url: 'x' } }],

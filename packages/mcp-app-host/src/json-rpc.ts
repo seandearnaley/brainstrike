@@ -1,3 +1,9 @@
+import {
+  CallToolResultSchema,
+  EmptyResultSchema,
+  ReadResourceResultSchema,
+} from '@modelcontextprotocol/core';
+import * as McpAppsSchemas from '@modelcontextprotocol/ext-apps';
 import { correlationKey } from './internal.js';
 import { parseMcpAppJsonRecord, parseMcpAppJsonValue, parseMcpAppRequestId } from './messages.js';
 import {
@@ -23,6 +29,46 @@ export type McpAppResponse =
 
 type McpAppRpcError = Readonly<{ code: number; data?: unknown; message: string }>;
 
+export type McpAppRequestMethod =
+  | 'ping'
+  | 'resources/read'
+  | 'tools/call'
+  | 'ui/initialize'
+  | 'ui/message'
+  | 'ui/open-link'
+  | 'ui/request-display-mode'
+  | 'ui/resource-teardown'
+  | 'ui/update-model-context';
+
+interface CanonicalResultSchema {
+  safeParse(value: unknown): { readonly success: boolean };
+}
+
+function requireMcpAppsResultSchema(name: string): CanonicalResultSchema {
+  const schema: unknown = Reflect.get(McpAppsSchemas, name);
+  if (
+    (typeof schema !== 'object' && typeof schema !== 'function') ||
+    schema === null ||
+    typeof Reflect.get(schema, 'safeParse') !== 'function'
+  ) {
+    throw new TypeError(`Pinned MCP Apps runtime result schema ${name} is unavailable`);
+  }
+  return schema as CanonicalResultSchema;
+}
+
+const CANONICAL_RESULT_SCHEMAS: Readonly<Record<McpAppRequestMethod, CanonicalResultSchema>> =
+  Object.freeze({
+    ping: EmptyResultSchema,
+    'resources/read': ReadResourceResultSchema,
+    'tools/call': CallToolResultSchema,
+    'ui/initialize': requireMcpAppsResultSchema('McpUiInitializeResultSchema'),
+    'ui/message': requireMcpAppsResultSchema('McpUiMessageResultSchema'),
+    'ui/open-link': requireMcpAppsResultSchema('McpUiOpenLinkResultSchema'),
+    'ui/request-display-mode': requireMcpAppsResultSchema('McpUiRequestDisplayModeResultSchema'),
+    'ui/resource-teardown': requireMcpAppsResultSchema('McpUiResourceTeardownResultSchema'),
+    'ui/update-model-context': EmptyResultSchema,
+  });
+
 function parseError(value: unknown, label: string): McpAppRpcError {
   const error = expectRecord(value, label);
   expectExactKeys(error, ['code', 'data', 'message'], ['code', 'message'], label);
@@ -42,7 +88,7 @@ function parseError(value: unknown, label: string): McpAppRpcError {
   });
 }
 
-export function parseMcpAppResponse(value: unknown): McpAppResponse {
+export function parseMcpAppResponse(value: unknown, method: McpAppRequestMethod): McpAppResponse {
   const label = 'MCP Apps response';
   const record = expectRecord(value, label);
   const success = Object.hasOwn(record, 'result');
@@ -67,7 +113,15 @@ export function parseMcpAppResponse(value: unknown): McpAppResponse {
         jsonrpc: '2.0' as const,
       });
   expectEncodedSize(parsed, MCP_APP_MAX_MESSAGE_BYTES, label);
+  if ('result' in parsed && !CANONICAL_RESULT_SCHEMAS[method].safeParse(parsed.result).success) {
+    throw new TypeError(`${label} ${method}.result does not match its canonical result schema`);
+  }
   return parsed;
+}
+
+export function parseMcpAppResponseId(value: unknown): number | string {
+  const record = expectRecord(value, 'MCP Apps response');
+  return parseMcpAppRequestId(record['id'], 'MCP Apps response');
 }
 
 const MAX_PENDING_REQUESTS = 256;
@@ -79,14 +133,14 @@ const MAX_PENDING_REQUESTS = 256;
 const RECENT_REQUEST_IDS = 4096;
 
 export class McpAppRequestCorrelator {
-  readonly #pending = new Set<string>();
+  readonly #pending = new Map<string, McpAppRequestMethod>();
   readonly #seen = new Set<string>();
 
   get pendingCount(): number {
     return this.#pending.size;
   }
 
-  register(value: unknown): number | string {
+  register(value: unknown, method: McpAppRequestMethod): number | string {
     const id = parseMcpAppRequestId(value, 'MCP Apps request');
     const key = correlationKey(id);
     if (this.#pending.has(key)) {
@@ -105,29 +159,33 @@ export class McpAppRequestCorrelator {
         this.#seen.delete(oldest);
       }
     }
-    this.#pending.add(key);
+    this.#pending.set(key, method);
     return id;
   }
 
   settle(value: unknown): McpAppResponse {
-    let response: McpAppResponse;
-    try {
-      response = parseMcpAppResponse(value);
-    } catch (error) {
-      // A malformed reply still consumes the request it answers: an app must
-      // not be able to wedge the channel by answering badly 256 times.
-      this.#releaseRecoverableId(value);
-      throw error;
+    const label = 'MCP Apps response';
+    const record = expectRecord(value, label);
+    if (record['id'] === null) {
+      // JSON-RPC 2.0 §5: the responder could not read the request id. Keep
+      // the payload readable for diagnostics; nothing pending can own it.
+      const failure = Object.hasOwn(record, 'error')
+        ? parseError(record['error'], `${label}.error`)
+        : undefined;
+      throw new TypeError(
+        `MCP Apps error response has no routable id: ${failure ? `${failure.code} ${failure.message}` : 'missing error'}`
+      );
     }
-    if (response.id === null) {
-      const failure = 'error' in response ? `${response.error.code} ${response.error.message}` : '';
-      throw new TypeError(`MCP Apps error response has no routable id: ${failure}`);
+    const id = parseMcpAppRequestId(record['id'], label);
+    const key = correlationKey(id);
+    const method = this.#pending.get(key);
+    if (method === undefined) {
+      throw new TypeError(`MCP Apps response id ${JSON.stringify(id)} is not pending`);
     }
-    const key = correlationKey(response.id);
-    if (!this.#pending.delete(key)) {
-      throw new TypeError(`MCP Apps response id ${JSON.stringify(response.id)} is not pending`);
-    }
-    return response;
+    // A malformed reply still consumes the request it answers: an app must
+    // not be able to wedge the channel by answering badly 256 times.
+    this.#pending.delete(key);
+    return parseMcpAppResponse(value, method);
   }
 
   /** Releases an abandoned request (timeout, abort, send failure). */
@@ -144,15 +202,5 @@ export class McpAppRequestCorrelator {
   reset(): void {
     this.#pending.clear();
     this.#seen.clear();
-  }
-
-  #releaseRecoverableId(value: unknown): void {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      return;
-    }
-    const id = (value as { readonly id?: unknown }).id;
-    if (typeof id === 'string' || (typeof id === 'number' && Number.isSafeInteger(id))) {
-      this.#pending.delete(correlationKey(id));
-    }
   }
 }

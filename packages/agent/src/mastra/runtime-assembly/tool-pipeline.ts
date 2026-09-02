@@ -41,6 +41,10 @@ import {
   type ToolExecutionDurations,
 } from '../../tools/tool-execution-durations';
 import { createMastraAgentError } from '../mastra-agent-error';
+import {
+  createMcpAppToolAdmissionCapability,
+  type McpAppToolAdmissionCapability,
+} from '../mcp-app-tool-call';
 import { createMcpRuntimeClient, type McpRuntimeClient } from '../mcp-runtime-client';
 import { collectCombinedTools } from '../mcp-tool-loader';
 import {
@@ -422,6 +426,8 @@ export interface RuntimeToolMapResult {
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   /** Pre-permission-gate map; persona subagents re-gate it independently. */
   guardedTools: ToolsInput;
+  /** Apps admission surface captured only after ordinary runtime admission. */
+  mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient: McpRuntimeClient | undefined;
   resilienceConfig: AssistantResilienceConfig;
   sanitizedLocalToolIds: ReadonlySet<string>;
@@ -517,6 +523,17 @@ export async function composeRuntimeToolMap(
     planModeActive: params.planModeActive,
     toolNameMap,
   });
+  const mcpAppToolAdmission = createMcpAppToolAdmissionCapability({
+    askTools,
+    ...(params.permissionSnapshot?.defaultRisk
+      ? { defaultRisk: params.permissionSnapshot.defaultRisk }
+      : {}),
+    ...(params.permissionSnapshot?.riskByTool
+      ? { riskByTool: params.permissionSnapshot.riskByTool }
+      : {}),
+    toolNameMap,
+    tools: gatedTools,
+  });
 
   // Provider-native web search (v1: anthropic/openai only). Runs AFTER the gate
   // so it uses the gate's authoritative decision — swap the web-search entry to
@@ -545,6 +562,7 @@ export async function composeRuntimeToolMap(
     artifactSettledTools,
     askTools,
     guardedTools,
+    mcpAppToolAdmission,
     mcpClient,
     resilienceConfig,
     sanitizedLocalToolIds,

@@ -4,7 +4,13 @@ import {
   type McpAppFrameBridgeSnapshot,
   McpAppFrameRpcError,
 } from '../src/index.js';
-import { INITIALIZE, INITIALIZED, TestFrame, TestMessageTarget } from './frame-test-fixtures.js';
+import {
+  INITIALIZE,
+  INITIALIZE_RESULT,
+  INITIALIZED,
+  TestFrame,
+  TestMessageTarget,
+} from './frame-test-fixtures.js';
 
 function expectQuiescent(snapshot: McpAppFrameBridgeSnapshot): void {
   expect(snapshot.pendingCallbacks).toBe(0);
@@ -23,7 +29,10 @@ async function completeHandshake(
   for (let turn = 0; turn < 10; turn += 1) {
     await Promise.resolve();
   }
-  expect(frame.sent.at(-1)?.message).toMatchObject({ id: 'initialize', result: {} });
+  expect(frame.sent.at(-1)?.message).toMatchObject({
+    id: 'initialize',
+    result: INITIALIZE_RESULT,
+  });
   target.dispatch(frame, INITIALIZED);
   for (let turn = 0; turn < 10; turn += 1) {
     await Promise.resolve();
@@ -49,7 +58,9 @@ function createBridge(options?: {
     isGenerationLive: options?.isGenerationLive ?? (() => true),
     onNotification: options?.onNotification ?? (async () => undefined),
     onProtocolError: options?.onProtocolError ?? (() => undefined),
-    onRequest: options?.onRequest ?? (async () => ({})),
+    onRequest:
+      options?.onRequest ??
+      (async (message) => (message.method === 'ui/initialize' ? INITIALIZE_RESULT : {})),
     timeoutMs: options?.timeoutMs ?? 1000,
   });
   bridge.connect({ generation: 1, origin: 'null', source: frame });
@@ -57,6 +68,23 @@ function createBridge(options?: {
 }
 
 describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
+  it('fails closed before posting an empty ui/initialize handler result', async () => {
+    const errors: Error[] = [];
+    const { bridge, frame, target } = createBridge({
+      onProtocolError: (error) => errors.push(error),
+      onRequest: async () => ({}),
+    });
+
+    target.dispatch(frame, INITIALIZE);
+
+    await vi.waitFor(() => expect(bridge.snapshot.phase).toBe('disconnected'));
+    expect(frame.sent).toEqual([]);
+    expect(errors.map((error) => error.message)).toEqual([
+      'MCP Apps response ui/initialize.result does not match its canonical result schema',
+    ]);
+    expectQuiescent(bridge.snapshot);
+  });
+
   it('requires the Apps handshake before stable request and notification dispatch', async () => {
     const requests: string[] = [];
     const notifications: string[] = [];
@@ -66,7 +94,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
       },
       onRequest: async (message) => {
         requests.push(message.method);
-        return {};
+        return message.method === 'ui/initialize' ? INITIALIZE_RESULT : {};
       },
     });
 
@@ -112,7 +140,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
           return {};
         }
         await new Promise<void>((resolve) => initializeCallbacks.push(resolve));
-        return {};
+        return INITIALIZE_RESULT;
       },
     });
 
@@ -146,6 +174,9 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
   it('correlates type-sensitive outbound ids and safe explicit RPC errors', async () => {
     const { bridge, frame, target } = createBridge({
       onRequest: async (message) => {
+        if (message.method === 'ui/initialize') {
+          return INITIALIZE_RESULT;
+        }
         if (message.method === 'ui/open-link') {
           throw new McpAppFrameRpcError(-32_001, 'Link denied', { policy: 'blocked' });
         }
@@ -219,7 +250,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
       onProtocolError: (error) => errors.push(error),
       onRequest: async (message) => {
         if (message.method === 'ui/initialize') {
-          return {};
+          return INITIALIZE_RESULT;
         }
         if (message.id === 'oversized-error') {
           throw new McpAppFrameRpcError(-32_001, 'Oversized error', { oversized });
@@ -311,7 +342,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
         onProtocolError: () => undefined,
         onRequest: async (message, context) => {
           if (message.method === 'ui/initialize') {
-            return {};
+            return INITIALIZE_RESULT;
           }
           return await new Promise((_, reject) => {
             context.signal.addEventListener('abort', () => reject(context.signal.reason), {
@@ -385,7 +416,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
         if (message.method === 'ping') {
           pingCalls += 1;
         }
-        return {};
+        return message.method === 'ui/initialize' ? INITIALIZE_RESULT : {};
       },
     });
     await completeHandshake(target, frame, bridge);

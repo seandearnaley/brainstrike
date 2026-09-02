@@ -218,6 +218,15 @@ export {
   MastraAgentError,
   type MastraAgentErrorCode,
 } from './mastra/mastra-agent-error';
+export type {
+  McpAppOrdinaryToolCallOptions,
+  McpAppToolAdmissionCapability,
+  McpAppToolCallTelemetry,
+} from './mastra/mcp-app-tool-call';
+export {
+  createMcpAppOrdinaryToolCallPreparer,
+  McpAppToolNotAdmittedError,
+} from './mastra/mcp-app-tool-call';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
@@ -225,6 +234,7 @@ export {
 } from './mastra/permission-policy-request';
 export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
+export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
   type ShellOutputWriter,

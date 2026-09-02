@@ -9,7 +9,11 @@ import {
 import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { createMastraAgentError } from './mastra-agent-error';
 import { measureMcpMultimodalOutput } from './mcp-multimodal-output';
-import type { McpRuntimeClient, McpToolsetsWithErrors } from './mcp-runtime-client';
+import {
+  type McpRuntimeClient,
+  type McpToolsetsWithErrors,
+  shouldRetainRawMcpCallToolResult,
+} from './mcp-runtime-client';
 import { sanitizeTools } from './tool-sanitizer';
 
 const logger = createLogger('MastraAgentMcpTools');
@@ -122,6 +126,10 @@ function wrapMcpToolOutputs(
     Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
     cloned.execute = async (...args: unknown[]): Promise<unknown> => {
       const output = await Promise.resolve(Reflect.apply(originalExecute, cloned, args));
+      const executionContext = args[1] as { abortSignal?: unknown } | undefined;
+      if (shouldRetainRawMcpCallToolResult(executionContext?.abortSignal)) {
+        return output;
+      }
       const multimodalSize = measureMcpMultimodalOutput(output);
       if (!multimodalSize) {
         return durableArtifactSettlement

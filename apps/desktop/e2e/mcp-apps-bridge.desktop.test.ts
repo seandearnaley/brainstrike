@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { build } from 'esbuild';
 import type { ElectronApplication } from 'playwright';
 import { _electron as electron } from 'playwright';
 
@@ -82,9 +83,22 @@ test('MCP Apps bridge is quiescent in genuinely packaged Electron', {
   await access(bridgeModulePath, constants.R_OK);
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1570-packaged-user-data-'));
   // The harness lives in the disposable user-data directory (never in a
-  // published dist/) and imports the bridge module by absolute file URL.
+  // published dist/). The host package has bare runtime dependencies
+  // (@modelcontextprotocol/*) that a raw browser import cannot resolve, so the
+  // built module is bundled into a single ESM file first and imported by
+  // absolute file URL.
   const harnessPath = path.join(userDataDir, 'bst-1570-packaged-verifier.html');
-  const bridgeModuleUrl = pathToFileURL(bridgeModulePath).href;
+  const bridgeBundlePath = path.join(userDataDir, 'bridge-bundle.js');
+  await build({
+    bundle: true,
+    entryPoints: [bridgeModulePath],
+    format: 'esm',
+    logLevel: 'silent',
+    outfile: bridgeBundlePath,
+    platform: 'browser',
+    target: 'chrome136',
+  });
+  const bridgeModuleUrl = pathToFileURL(bridgeBundlePath).href;
   await writeFile(
     harnessPath,
     `<!doctype html><script type='module'>import(${JSON.stringify(bridgeModuleUrl)}).then(bridgeModule=>{globalThis.__mcpAppBridgeModule=bridgeModule},error=>{globalThis.__mcpAppBridgeModuleError=error instanceof Error?error.message:String(error)})</script>`,
@@ -146,6 +160,11 @@ test('MCP Apps bridge is quiescent in genuinely packaged Electron', {
               onRequest:(message,{signal})=>{
                 if(message.method==='tools/call'&&message.params?.name==='wait'){
                   return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+                }
+                // Host replies are validated against the pinned canonical
+                // result schema for the method they answer.
+                if(message.method==='ui/initialize'){
+                  return {hostCapabilities:{},hostContext:{platform:'desktop'},hostInfo:{name:'Brainstrike',version:'1.0.0'},protocolVersion:'2026-01-26'};
                 }
                 return {};
               },

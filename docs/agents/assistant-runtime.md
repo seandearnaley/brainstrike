@@ -344,7 +344,25 @@ lives in `runtime-assembly/tool-pipeline.ts`; OpenRouter billed-cost/usage
 extraction lives in `runtime-assembly/usage-metering.ts`):
 `sanitize/discover → timeout guard → lifecycle hooks → plan/permission/suspend
 gates → provider-native swap → artifact settlement → model-output projection →
-Agent`. The final
+Agent`. The still-unregistered MCP Apps path captures its admission capability
+immediately after the plan/permission/suspend gates. Admission returns an
+opaque one-use executor bound to the exact post-gate tool entry and exact
+server/tool identity; the Apps preparer has no separate invocation, guard, or
+hook injection seam. The host authority creates a generation-bound preparation
+id before invoking the preparer and requires its paired release callback to
+settle before a denied or cancelled call completes, including a cancelled
+preparation response. It receives no separate policy, plan, enabled-tool, or
+storage decision: a tool omitted by any ordinary gate is absent and fails
+visibly. The authority-owned per-call abort signal marks that bound execution
+for raw MCP result retention, so the transport adapter and temporary preview
+wrapper preserve the complete `CallToolResult` before artifact and model
+projection. Canonical `isError: true` server results remain successful JSON-RPC
+results with exact content and metadata; thrown transport/execution failures
+alone become ordinary guarded errors. An admitted App call therefore uses the ordinary guard,
+hooks, and execution-duration telemetry exactly once. Replaying the bound
+executor fails visibly before another tool execution can start.
+
+The final
 projection uses Mastra's native `toModelOutput`, so the mapping observes the
 post-hook execution result without replacing it. A discriminated internal
 carrier takes PostToolUse context to `toModelOutput`; Mastra's official

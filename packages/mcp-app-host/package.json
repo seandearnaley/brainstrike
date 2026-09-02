@@ -2,11 +2,15 @@
   "name": "@brainstrike/mcp-app-host",
   "description": "Strict stable MCP Apps extension contracts for the Brainstrike host",
   "version": "0.1.0",
+  "dependencies": {
+    "@modelcontextprotocol/core": "catalog:",
+    "@modelcontextprotocol/ext-apps": "1.7.5"
+  },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@modelcontextprotocol/ext-apps": "1.7.5",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "esbuild": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

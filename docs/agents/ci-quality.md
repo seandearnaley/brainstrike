@@ -263,6 +263,15 @@ allowlist plus test-owned overrides; it never forwards the ambient CI environmen
 Its stdio fixtures enforce the exact SDK-default key set expected from that
 allowlist, so the packaged proof has no production-environment bypass.
 
+After packaging, that same `Native Electron Package` job runs
+`test:e2e:lane:packaged-mcp-apps`. The tagged `@packaged` spec launches the exact
+electron-builder artifact, uses the official MCP Apps transport, and verifies
+the production Apps host plus popup denial and teardown in a dedicated Electron
+sandbox WebContents. Production renderer registration remains a separate
+release gate. The ordinary unpackaged full-regression lane excludes `@packaged`;
+there is no second or advisory path that can make this artifact-dependent proof
+appear green.
+
 Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
 each `webContents.getOSProcessId()`. Electron 43 does not expose the older
 `webContents.getProcessMemoryInfo()` API on the CI runner; treating that
