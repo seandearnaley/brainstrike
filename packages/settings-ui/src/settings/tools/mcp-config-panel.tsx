@@ -23,6 +23,8 @@ function isAbsoluteFilePath(filePath: string): boolean {
 interface McpPanelState {
   editorValue: string;
   errorMessage: string | null;
+  /** True once the first document read settled; the editor is withheld until then. */
+  initialized: boolean;
   loading: boolean;
   pathDraft: string;
   savedValue: string;
@@ -48,6 +50,7 @@ type McpPanelAction =
 const initialState: McpPanelState = {
   editorValue: '',
   errorMessage: null,
+  initialized: false,
   loading: false,
   pathDraft: '',
   savedValue: '',
@@ -74,6 +77,7 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
         ...state,
         editorValue: action.content,
         errorMessage: null,
+        initialized: true,
         loading: false,
         pathDraft: action.path,
         savedValue: action.content,
@@ -86,12 +90,13 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
       return {
         ...state,
         errorMessage: action.error,
+        initialized: true,
         loading: false,
         showReloadConfirm: false,
         statusMessage: null,
       };
     case 'LOAD_DONE':
-      return { ...state, loading: false, showReloadConfirm: false };
+      return { ...state, initialized: true, loading: false, showReloadConfirm: false };
     case 'SET_STATUS':
       return { ...state, statusMessage: action.message };
     case 'SET_ERROR':
@@ -122,6 +127,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     pathDraft,
     editorValue,
     savedValue,
+    initialized,
     loading,
     statusMessage,
     errorMessage,
@@ -143,6 +149,11 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 
   const fetchAndApplyDocument = useCallback(async () => {
     const readMcpConfigText = readMcpConfigTextRef.current;
+    // Unreachable while `editorAvailable` gates both the mount effect and the
+    // render: a runtime without `readMcpConfigText` returns the "unavailable"
+    // card and never reaches the `initialized` gate. That is what keeps the
+    // gate terminal — every settled outcome below dispatches DOCUMENT_LOADED,
+    // LOAD_ERROR (any rejection shape) or LOAD_DONE.
     if (!readMcpConfigText) {
       return;
     }
@@ -327,21 +338,29 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
         pathDraft={pathDraft}
         showApplyPath={Boolean(operations.setMcpConfigPath)}
       />
-      <McpEditorCard
-        editorDescribedBy={editorDescribedBy}
-        editorValue={editorValue}
-        errorMessage={errorMessage}
-        hasUnsavedChanges={hasUnsavedChanges}
-        loading={loading}
-        onCancelReload={handleCancelReload}
-        onConfirmReload={() => void handleConfirmReload()}
-        onEditorChange={(value) => dispatch({ type: 'SET_EDITOR_VALUE', value })}
-        onEditorKeyDown={handleEditorKeyDown}
-        onReload={() => void handleReload()}
-        onSave={() => void handleSave()}
-        showReloadConfirm={showReloadConfirm}
-        statusMessage={statusMessage}
-      />
+      {initialized ? (
+        <McpEditorCard
+          editorDescribedBy={editorDescribedBy}
+          editorValue={editorValue}
+          errorMessage={errorMessage}
+          hasUnsavedChanges={hasUnsavedChanges}
+          loading={loading}
+          onCancelReload={handleCancelReload}
+          onConfirmReload={() => void handleConfirmReload()}
+          onEditorChange={(value) => dispatch({ type: 'SET_EDITOR_VALUE', value })}
+          onEditorKeyDown={handleEditorKeyDown}
+          onReload={() => void handleReload()}
+          onSave={() => void handleSave()}
+          showReloadConfirm={showReloadConfirm}
+          statusMessage={statusMessage}
+        />
+      ) : (
+        <Card>
+          <CardContent className="py-6 text-muted-foreground text-sm">
+            Loading MCP config…
+          </CardContent>
+        </Card>
+      )}
       <McpHelpCard />
     </div>
   );
