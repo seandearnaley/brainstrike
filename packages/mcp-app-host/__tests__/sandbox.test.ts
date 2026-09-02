@@ -2,11 +2,23 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildMcpAppSandboxPolicy,
   installMcpAppElectronSandboxPolicy,
+  McpAppElectronSandboxInstallationError,
   McpAppProvenanceAuthority,
   McpAppSandboxOwner,
   renderMcpAppResourceDocument,
   renderMcpAppSandboxShellDocument,
 } from '../src/index.js';
+
+type EventListener = (event: {
+  isMainFrame?: boolean;
+  preventDefault(): void;
+  url?: string;
+}) => void;
+type PermissionRequestHandler = (
+  webContents: unknown,
+  permission: unknown,
+  callback: (allowed: boolean) => void
+) => void;
 
 function createOwnedResource(html = '<!doctype html><title>App</title>') {
   const provenance = new McpAppProvenanceAuthority();
@@ -135,6 +147,33 @@ describe('MCP Apps object URL and memory ownership', () => {
     await mount.close();
     await mount.close();
     expect(revoked).toEqual(['blob:test/1']);
+    expect(owner.activeFrames).toBe(0);
+    expect(owner.retainedBytes).toBe(0);
+  });
+
+  it('retains URL and memory ownership until a failed revocation succeeds on retry', async () => {
+    let revokeAttempts = 0;
+    const owner = new McpAppSandboxOwner({
+      limits: { maxActiveFrames: 1, maxRetainedBytes: 4096 },
+      urls: {
+        createObjectURL: () => 'blob:retryable/1',
+        revokeObjectURL: () => {
+          revokeAttempts += 1;
+          if (revokeAttempts === 1) {
+            throw new Error('revoke failed');
+          }
+        },
+      },
+    });
+    const mount = owner.open(createOwnedResource());
+    const retainedBytes = owner.retainedBytes;
+
+    await expect(mount.close()).rejects.toThrow('revoke failed');
+    expect(owner.activeFrames).toBe(1);
+    expect(owner.retainedBytes).toBe(retainedBytes);
+
+    await expect(mount.close()).resolves.toBeUndefined();
+    expect(revokeAttempts).toBe(2);
     expect(owner.activeFrames).toBe(0);
     expect(owner.retainedBytes).toBe(0);
   });
@@ -284,5 +323,170 @@ describe('Electron sandbox denial hooks', () => {
     expect(sandboxSession.clearStorageData).toHaveBeenCalledOnce();
     expect(permissionChecks).not.toContain(null);
     expect(sessionListeners.get('will-download')).toBeDefined();
+  });
+
+  it('rolls back every per-WebContents listener when installation fails and keeps session denials', () => {
+    const listeners = new Map<string, EventListener>();
+    const permissionChecks: Array<() => boolean> = [];
+    const permissionRequests: PermissionRequestHandler[] = [];
+    const webContents = {
+      close: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      on: vi.fn((event: string, listener: EventListener) => listeners.set(event, listener)),
+      removeListener: vi.fn((event: string) => listeners.delete(event)),
+      setWindowOpenHandler: vi.fn(),
+    };
+    const sandboxSession = {
+      clearCache: vi.fn(async () => undefined),
+      clearStorageData: vi.fn(async () => undefined),
+      on: vi.fn((): void => {
+        throw new Error('download hook failed');
+      }),
+      removeListener: vi.fn(),
+      setPermissionCheckHandler: vi.fn((handler: () => boolean) => {
+        permissionChecks.push(handler);
+      }),
+      setPermissionRequestHandler: vi.fn((handler: PermissionRequestHandler) => {
+        permissionRequests.push(handler);
+      }),
+    };
+
+    expect(() =>
+      installMcpAppElectronSandboxPolicy({
+        partition: 'mcp-app:unit',
+        sessions: { fromPartition: () => sandboxSession },
+        webContents,
+      })
+    ).toThrow(McpAppElectronSandboxInstallationError);
+    expect(listeners.size).toBe(0);
+    expect(webContents.close).toHaveBeenCalledOnce();
+    // Session denials installed before the failure are fail-closed and stay.
+    expect(permissionChecks).toHaveLength(1);
+    expect(permissionRequests).toHaveLength(1);
+    expect(sandboxSession.removeListener).not.toHaveBeenCalled();
+
+    // A retry installs only the missing session hook.
+    sandboxSession.on.mockImplementation(() => undefined);
+    const lease = installMcpAppElectronSandboxPolicy({
+      partition: 'mcp-app:unit',
+      sessions: { fromPartition: () => sandboxSession },
+      webContents,
+    });
+    expect(permissionChecks).toHaveLength(1);
+    expect(permissionRequests).toHaveLength(1);
+    expect(sandboxSession.on).toHaveBeenCalledTimes(2);
+    return lease.close();
+  });
+
+  it('aggregates close failures, retries every owed step, and purges only once closed', async () => {
+    let closeAttempts = 0;
+    let cacheClearAttempts = 0;
+    const webContents = {
+      close: vi.fn(() => {
+        closeAttempts += 1;
+        if (closeAttempts === 1) {
+          throw new Error('web contents close failed');
+        }
+      }),
+      isDestroyed: vi.fn(() => false),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    const sandboxSession = {
+      clearCache: vi.fn(async () => {
+        cacheClearAttempts += 1;
+        if (cacheClearAttempts === 1) {
+          throw new Error('cache clear failed');
+        }
+      }),
+      clearStorageData: vi.fn(async () => undefined),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
+    };
+    const lease = installMcpAppElectronSandboxPolicy({
+      partition: 'mcp-app:unit',
+      sessions: { fromPartition: () => sandboxSession },
+      webContents,
+    });
+
+    const failure = await lease.close().catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toEqual([
+      expect.objectContaining({ message: 'web contents close failed' }),
+      expect.objectContaining({ message: 'cache clear failed' }),
+    ]);
+    expect(sandboxSession.clearCache).toHaveBeenCalledOnce();
+    expect(sandboxSession.clearStorageData).toHaveBeenCalledOnce();
+    // Per-WebContents hooks stay installed while the WebContents is still alive.
+    expect(webContents.removeListener).not.toHaveBeenCalled();
+
+    await expect(lease.close()).resolves.toBeUndefined();
+    expect(webContents.close).toHaveBeenCalledTimes(2);
+    expect(sandboxSession.clearCache).toHaveBeenCalledTimes(2);
+    expect(sandboxSession.clearStorageData).toHaveBeenCalledOnce();
+    expect(webContents.removeListener).toHaveBeenCalledTimes(4);
+    expect(sandboxSession.removeListener).not.toHaveBeenCalled();
+
+    await expect(lease.close()).resolves.toBeUndefined();
+    expect(webContents.close).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns retryable cleanup ownership when installation and WebContents close both fail', async () => {
+    const listeners = new Map<string, EventListener>();
+    let closeAttempts = 0;
+    const webContents = {
+      close: vi.fn(() => {
+        closeAttempts += 1;
+        if (closeAttempts === 1) {
+          throw new Error('web contents close failed');
+        }
+      }),
+      isDestroyed: vi.fn(() => false),
+      on: vi.fn((event: string, listener: EventListener) => listeners.set(event, listener)),
+      removeListener: vi.fn((event: string) => listeners.delete(event)),
+      setWindowOpenHandler: vi.fn(),
+    };
+    const sandboxSession = {
+      clearCache: vi.fn(async () => undefined),
+      clearStorageData: vi.fn(async () => undefined),
+      on: vi.fn(() => {
+        throw new Error('download hook failed');
+      }),
+      removeListener: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
+    };
+
+    let installationFailure: unknown;
+    try {
+      installMcpAppElectronSandboxPolicy({
+        partition: 'mcp-app:unit',
+        sessions: { fromPartition: () => sandboxSession },
+        webContents,
+      });
+    } catch (error: unknown) {
+      installationFailure = error;
+    }
+    if (!(installationFailure instanceof McpAppElectronSandboxInstallationError)) {
+      throw new Error('expected a retryable sandbox installation failure');
+    }
+    expect(installationFailure.errors).toEqual([
+      expect.objectContaining({ message: 'download hook failed' }),
+      expect.objectContaining({ message: 'web contents close failed' }),
+    ]);
+    expect(closeAttempts).toBe(1);
+    expect(listeners.size).toBe(4);
+
+    await installationFailure.cleanup.close();
+
+    expect(closeAttempts).toBe(2);
+    expect(listeners.size).toBe(0);
+    // The lease never held the session, so no purge is owed.
+    expect(sandboxSession.clearCache).not.toHaveBeenCalled();
+    expect(sandboxSession.clearStorageData).not.toHaveBeenCalled();
   });
 });
