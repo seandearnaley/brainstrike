@@ -632,22 +632,7 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
     }
     const entry = session.tasks.get(handle.taskId);
     if (request.action === 'recover') {
-      if (entry) {
-        return entry.record;
-      }
-      const recovered = await session.lifecycle.recover();
-      const registered = recovered.map((tracked) => this.register(session, tracked, undefined));
-      const liveIds = registered
-        .filter((candidate) => !TERMINAL_STATUSES.has(candidate.presentation.status))
-        .map((candidate) => candidate.record.taskId);
-      if (liveIds.length > 0) {
-        await this.ensureInteraction(session, connection, liveIds);
-      }
-      const match = registered.find((candidate) => candidate.record.taskId === handle.taskId);
-      if (!match) {
-        throw new Error(`Durable MCP task recovery returned no handle for "${handle.taskId}".`);
-      }
-      return match.record;
+      return entry ? entry.record : await this.recover(session, connection, handle.taskId);
     }
     if (!entry) {
       throw new Error(`MCP task "${handle.taskId}" is not tracked by the live session.`);
@@ -662,6 +647,41 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
       throw new Error(`MCP task record "${handle.taskId}" vanished after cancellation.`);
     }
     return cancelled;
+  }
+
+  /**
+   * Card-driven recovery of a durable handle this host does not track.
+   * Lifecycle recovery is idempotent for tasks it already polls (it hands
+   * back the existing tracked entry), and the host mirrors that by reusing
+   * its registered entry instead of registering the same id twice, so
+   * recovering one card never fails because another task is live.
+   */
+  private async recover(
+    session: TaskSession,
+    connection: McpTaskConnection,
+    taskId: string
+  ): Promise<McpTaskRecord> {
+    const recovered = await session.lifecycle.recover();
+    const liveIds: string[] = [];
+    let match: TrackedEntry | undefined;
+    for (const tracked of recovered) {
+      const id = tracked.record.taskId;
+      const existing = session.tasks.get(id);
+      const registered = existing ?? this.register(session, tracked, undefined);
+      if (existing === undefined && !TERMINAL_STATUSES.has(registered.presentation.status)) {
+        liveIds.push(id);
+      }
+      if (id === taskId) {
+        match = registered;
+      }
+    }
+    if (liveIds.length > 0) {
+      await this.ensureInteraction(session, connection, liveIds);
+    }
+    if (!match) {
+      throw new Error(`Durable MCP task recovery returned no handle for "${taskId}".`);
+    }
+    return match.record;
   }
 
   private readEnvironment(configuredServerId: ConfiguredMcpServerId) {

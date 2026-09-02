@@ -383,6 +383,60 @@ describe('McpDesktopTaskHost', () => {
     });
   });
 
+  it('recovers one card while another task on the same server is live', async () => {
+    const server = createFakeServer();
+    await host.connected(createConnection(server));
+    const live = await host.track({
+      configuredServerId: SERVER_ID,
+      result: server.created('t-live'),
+      toolName: 'long',
+    });
+    // A durable active row this host does not track (written by another
+    // runtime, or whose earlier poller was lost): only recovery can resume it.
+    const repository = new McpTaskRepository(db);
+    const untracked = await repository.create(
+      {
+        ...live.handle,
+        inputMetadata: {
+          lifecycle: {
+            createdAt: '2026-09-01T05:00:00.000Z',
+            lastUpdatedAt: '2026-09-01T05:00:00.000Z',
+            pollIntervalMs: 10,
+            ttlMs: 60_000,
+          },
+        },
+        status: 'working',
+        taskId: 't-untracked',
+      },
+      {
+        authorityEpoch: live.handle.authorityEpoch,
+        connectionGeneration: 1,
+        principalId: live.handle.principalId,
+        resource: live.handle.resource,
+        runtimeId: 'test-runtime',
+        serverId: live.handle.serverId,
+      }
+    );
+    server.set('t-untracked', { status: 'working' });
+    expect(host.snapshot().sessions[0]).toMatchObject({ tasks: 1 });
+
+    await expect(
+      host.act({ action: 'recover', handle: { ...live.handle, taskId: untracked.taskId } })
+    ).resolves.toEqual({
+      ok: true,
+      task: expect.objectContaining({ recovery: 'live', status: 'working' }),
+    });
+    expect(host.snapshot().sessions[0]).toMatchObject({ tasks: 2 });
+    expect(host.snapshot().sessions[0]?.lifecycle.activeTasks).toBe(2);
+    // The live task kept its original registration and settles normally.
+    server.set('t-live', { result: { ok: true }, status: 'completed' });
+    await expect(host.awaitSettlement(live.handle, { timeoutMs: 2000 })).resolves.toMatchObject({
+      settled: true,
+      task: expect.objectContaining({ status: 'completed' }),
+    });
+    expect(internalErrors).toEqual([]);
+  });
+
   it('marks tasks restart_required on disconnect, recovers them on reconnect, and retires the epoch on replacement', async () => {
     const server = createFakeServer();
     await host.connected(createConnection(server));
