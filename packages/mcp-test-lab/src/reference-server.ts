@@ -152,10 +152,21 @@ interface TaskState {
   lastUpdatedAt: string;
   observed: number;
   status: TaskStatus;
+  transitions: number;
 }
 
 const TASK_REQUEST_PARAMS = z.object({ taskId: z.string() }).passthrough();
 const TASK_RESULT = z.object({}).passthrough();
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, entry: unknown) =>
+    typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.entries(entry as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))
+        )
+      : entry
+  );
+}
 
 /**
  * Deterministic black-box Tasks server driven by {@link TASKS_PROFILE}: one
@@ -174,7 +185,14 @@ interface TaskStore {
 function createTasksReferenceServer(store: TaskStore): McpServer {
   const server = new McpServer(tasks.server, { capabilities: tasks.capabilities });
   const { states } = store;
-  const now = (): string => new Date().toISOString();
+  // Deterministic, profile-driven timestamps: identical runs expose identical
+  // wire behaviour, so the profile digest really covers what is observed.
+  const createdAtMs = Date.parse(tasks.task.createdAt);
+  if (Number.isNaN(createdAtMs)) {
+    throw new Error('MCP Tasks reference profile createdAt is not a valid timestamp');
+  }
+  const stamp = (transitions: number): string =>
+    new Date(createdAtMs + transitions * tasks.task.pollIntervalMs).toISOString();
   /** The detailed task: status-specific fields ride on results AND notifications. */
   const projection = (taskId: string, state: TaskState) => ({
     createdAt: state.createdAt,
@@ -205,7 +223,8 @@ function createTasksReferenceServer(store: TaskStore): McpServer {
     relatedRequestId: string | number
   ) => {
     state.status = status;
-    state.lastUpdatedAt = now();
+    state.transitions += 1;
+    state.lastUpdatedAt = stamp(state.transitions);
     await server.server.notification(
       { method: tasks.notificationMethod, params: projection(taskId, state) },
       { relatedRequestId }
@@ -215,8 +234,14 @@ function createTasksReferenceServer(store: TaskStore): McpServer {
   server.registerTool(tasks.tool.name, { description: tasks.tool.description }, async () => {
     store.sequence += 1;
     const taskId = `reference-task-${store.sequence}`;
-    const createdAt = now();
-    states.set(taskId, { createdAt, lastUpdatedAt: createdAt, observed: 0, status: 'working' });
+    const createdAt = stamp(0);
+    states.set(taskId, {
+      createdAt,
+      lastUpdatedAt: createdAt,
+      observed: 0,
+      status: 'working',
+      transitions: 0,
+    });
     return {
       content: [],
       createdAt,
@@ -251,6 +276,13 @@ function createTasksReferenceServer(store: TaskStore): McpServer {
       const inputResponses = context.mcpReq.inputResponses;
       if (state.status !== 'input_required' || inputResponses?.[tasks.input.key] === undefined) {
         throw new Error(`MCP Tasks reference task "${taskId}" is not awaiting input`);
+      }
+      // The profile defines the exact expected response; a mangled or dropped
+      // field must fail the proof, not complete the task.
+      if (canonicalJson(inputResponses[tasks.input.key]) !== canonicalJson(tasks.input.response)) {
+        throw new Error(
+          `MCP Tasks reference task "${taskId}" received an unexpected input response`
+        );
       }
       await transition(taskId, state, 'completed', context.mcpReq.id);
       return {};
@@ -289,7 +321,9 @@ export function createReferenceServer(fixture: McpLabFixture): McpServer {
     return createOfficialEverythingReferenceServer();
   }
   if (fixture === 'brainstrike-tasks-reference') {
-    return createTasksReferenceServer({ sequence: 0, states: new Map() });
+    throw new Error(
+      'MCP Tasks reference requires createReferenceServerFactory: the task store must outlive the per-request server'
+    );
   }
   return createBrainstrikeEchoReferenceServer();
 }

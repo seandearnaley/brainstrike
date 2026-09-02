@@ -42,3 +42,15 @@ describe('MCP Tasks reference profile', () => {
     expect(scenario.usesAmbientCredentials).toBe(false);
   });
 });
+
+describe('MCP Tasks reference server construction', () => {
+  it('refuses the single-request constructor so the task store always outlives a request', async () => {
+    const { createReferenceServer, createReferenceServerFactory } = await import(
+      '../src/reference-server'
+    );
+    expect(() => createReferenceServer('brainstrike-tasks-reference')).toThrow(
+      /createReferenceServerFactory/u
+    );
+    expect(typeof createReferenceServerFactory('brainstrike-tasks-reference')).toBe('function');
+  });
+});

@@ -52,7 +52,10 @@ pinned SDK `packages/core/src/schemas.ts` and must not claim full upstream
 coverage. The lab-owned reference server is driven by that profile: one tool
 returns a `task` result; the observable timeline is `working`,
 `input_required` (one elicitation input request), `completed`; input is
-delivered through `tasks/update`; a second task proves `tasks/cancel`;
+delivered through `tasks/update` and validated against the profile's exact
+expected response; task timestamps are profile-driven and deterministic, so
+identical runs expose identical wire behaviour; a second task proves
+`tasks/cancel`;
 unknown task ids are rejected (RED); every transition emits the optional
 `notifications/tasks` status notification on the stream of the request that
 caused it (`relatedRequestId`). Every response is parsed with the extension

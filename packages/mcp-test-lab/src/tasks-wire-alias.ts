@@ -112,7 +112,9 @@ export function installTasksClientWireAlias<OwnedTransport extends Transport>(
   };
   interceptInbound(transport, (message) => {
     const id = 'id' in message ? message.id : undefined;
-    if (id === undefined || !pendingToolCalls.delete(id) || !('result' in message)) {
+    // Ids are per direction: a server-initiated request may reuse a client id,
+    // so only an actual response consumes the pending marker.
+    if (id === undefined || !('result' in message) || !pendingToolCalls.delete(id)) {
       return message;
     }
     const result: unknown = message.result;

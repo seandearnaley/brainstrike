@@ -219,7 +219,9 @@ async function probeTasksCapabilities(client: Client, signal: AbortSignal): Prom
     signal
   );
   if (second.status !== 'input_required') {
-    return false;
+    throw new Error(
+      `MCP Tasks reference matrix failed: second tasks/get expected input_required, got ${second.status} (first ${first.status})`
+    );
   }
   const inputRequest = second.inputRequests[TASKS_PROFILE.input.key];
   await requestTasks(
@@ -419,7 +421,14 @@ async function runReferenceTest(
         signal
       );
     } catch (error) {
-      if (error instanceof ProtocolError) {
+      // A broken alias bridge also yields a ProtocolError (method-not-found
+      // before dispatch), so pin the handler's own rejection: the reference
+      // server's throw maps to InternalError and names the task id.
+      if (
+        error instanceof ProtocolError &&
+        error.code === ProtocolErrorCode.InternalError &&
+        error.message.includes(TASKS_PROFILE.missingTaskId)
+      ) {
         return false;
       }
       throw error;

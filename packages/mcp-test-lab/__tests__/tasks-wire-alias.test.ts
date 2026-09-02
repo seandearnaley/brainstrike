@@ -69,6 +69,23 @@ describe('MCP Tasks lab wire alias bridge', () => {
     expect(unwrapTasksToolResult(task)).toBe(task);
   });
 
+  it('does not let a server-initiated request with a colliding id consume the marker', async () => {
+    const transport = installTasksClientWireAlias(createTransport());
+    const received: JSONRPCMessage[] = [];
+    transport.onmessage = (message) => {
+      received.push(message);
+    };
+    const task = { resultType: 'task', status: 'working', taskId: 'task-1' };
+    await transport.send({ id: 5, jsonrpc: '2.0', method: 'tools/call', params: { name: 't' } });
+    transport.deliver({ id: 5, jsonrpc: '2.0', method: 'elicitation/create', params: {} });
+    transport.deliver({ id: 5, jsonrpc: '2.0', result: task });
+    expect(received[1]).toEqual({
+      id: 5,
+      jsonrpc: '2.0',
+      result: { [TASKS_LAB_RESULT_KEY]: task, content: [], resultType: 'complete' },
+    });
+  });
+
   it('releases a pending tools/call on local cancellation and on close', async () => {
     const transport = installTasksClientWireAlias(createTransport());
     const received: JSONRPCMessage[] = [];
