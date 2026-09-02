@@ -6,8 +6,8 @@ import type {
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { createLogger } from '@brainstrike/logging';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
-import { useMcpTaskBridge } from './mcp-task-bridge-context';
 import { McpTaskStatusCard } from './mcp-task-status-card';
+import { useMcpTaskBridge } from './use-mcp-task-bridge';
 
 const logger = createLogger('McpTaskToolResult');
 

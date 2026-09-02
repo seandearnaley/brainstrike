@@ -62,7 +62,6 @@ export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
   McpTaskBridgeProvider,
   type McpTaskBridgeProviderProps,
-  useMcpTaskBridge,
 } from './mcp-task-bridge-context';
 export { McpTaskStatusCard, type McpTaskStatusCardProps } from './mcp-task-status-card';
 export { McpTaskToolResult, type McpTaskToolResultProps } from './mcp-task-tool-result';
@@ -95,6 +94,7 @@ export {
   useToolApprovalGrants,
 } from './tool-approval-grant-context';
 export * from './tool-fallback';
+export { useMcpTaskBridge } from './use-mcp-task-bridge';
 export { PrChip, type WorkspaceBarForge } from './workspace-bar/pr-chip';
 export {
   WorkspaceBar,
