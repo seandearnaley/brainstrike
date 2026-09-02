@@ -11,7 +11,7 @@ export default defineConfig({
   test: {
     ...baseConfig.test,
     exclude: ['node_modules', 'dist'],
-    include: ['__tests__/**/*.browser.integration.test.ts'],
+    include: ['__tests__/**/*.browser.test.ts'],
     testTimeout: 20_000,
   },
 });

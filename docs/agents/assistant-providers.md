@@ -2170,7 +2170,7 @@ Electron's permissive defaults (a lease's close cannot fail a sibling open);
 teardown removes the per-WebContents hooks, destroys the WebContents, clears
 session cache/storage once the last lease closes, and revokes the owner URL. Real Chromium and Electron adversarial
 verifiers pin those boundaries and repeated cleanup; the Chromium verifier is
-a `*.browser.integration.test.ts` file run by the package's `test:browser`
+a `*.browser.test.ts` file run by the package's `test:browser`
 script in the Browser tests lane (Playwright image), never in the Unit lanes. Nothing registers this
 sandbox, advertises Apps, or implements app RPC, consent, or production UI.
 
