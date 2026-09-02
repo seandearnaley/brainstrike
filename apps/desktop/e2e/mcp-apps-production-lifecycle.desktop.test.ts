@@ -78,9 +78,13 @@ interface RecordedDownload {
  */
 interface SandboxSessionPolicyProbe {
   readonly appPermission: string;
+  /** `Notification.permission` + `navigator.permissions.query`, `/`-joined. */
+  readonly appPermissionState: string;
   readonly downloads: readonly RecordedDownload[];
   readonly hostPermission: string;
+  readonly hostPermissionState: string;
   readonly shellPermission: string;
+  readonly shellPermissionState: string;
 }
 
 interface PackagedHarnessApplication {
@@ -1033,6 +1037,18 @@ async function probeSandboxSessionPolicy(
   application: PackagedHarnessApplication
 ): Promise<SandboxSessionPolicyProbe> {
   const askPermission = `(typeof Notification==='undefined'?Promise.resolve('unavailable'):Notification.requestPermission().then(function(v){return v},function(e){return 'ERR:'+e.message}))`;
+  // The CHECK path, which no request ever reaches: `Notification.permission`
+  // and `navigator.permissions.query` are answered by
+  // `setPermissionCheckHandler` alone. Read BEFORE any request so the host's
+  // own grant cannot mask what the check reported.
+  const readPermissionState = `(async()=>{
+    if(typeof Notification==='undefined')return 'unavailable';
+    let queried='no-permissions-api';
+    if(navigator.permissions&&navigator.permissions.query){
+      queried=await navigator.permissions.query({name:'notifications'}).then(function(s){return s.state},function(e){return 'ERR:'+e.message});
+    }
+    return Notification.permission+'/'+queried;
+  })()`;
   const startDownload = `(function(){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['bst-1599'],{type:'application/octet-stream'}));a.download='bst-1599.bin';document.body.append(a);a.click();return 'clicked'})()`;
   const probe = await application.evaluateInMain(`(async()=>{
     const requireFromMain=process.getBuiltinModule('node:module').createRequire(process.execPath);
@@ -1050,14 +1066,27 @@ async function probeSandboxSessionPolicy(
     };
     session.defaultSession.on('will-download',record);
     try{
+      const appPermissionState=await appFrame.executeJavaScript(${JSON.stringify(readPermissionState)},true);
+      const shellPermissionState=await shell.executeJavaScript(${JSON.stringify(readPermissionState)},true);
+      const hostPermissionState=await win.webContents.mainFrame.executeJavaScript(${JSON.stringify(readPermissionState)},true);
       const appPermission=await appFrame.executeJavaScript(${JSON.stringify(askPermission)},true);
       const shellPermission=await shell.executeJavaScript(${JSON.stringify(askPermission)},true);
       const hostPermission=await win.webContents.mainFrame.executeJavaScript(${JSON.stringify(askPermission)},true);
+      // The app frame's download is started FIRST, so if the sandbox ever
+      // admitted one it reaches 'will-download' before the two that must
+      // arrive. Poll for those two rather than sleeping a fixed span: a
+      // loaded runner must not be able to turn a real pass red, and a
+      // regression that merely DELAYS a download must not read as "no
+      // download". The short settle afterwards covers a reordering.
       await appFrame.executeJavaScript(${JSON.stringify(startDownload)},true);
       await shell.executeJavaScript(${JSON.stringify(startDownload)},true);
       await win.webContents.mainFrame.executeJavaScript(${JSON.stringify(startDownload)},true);
-      await new Promise(resolve=>setTimeout(resolve,2000));
-      return{appPermission,downloads,hostPermission,shellPermission};
+      const deadline=Date.now()+30000;
+      while(downloads.length<2&&Date.now()<deadline){
+        await new Promise(resolve=>setTimeout(resolve,50));
+      }
+      await new Promise(resolve=>setTimeout(resolve,250));
+      return{appPermission,appPermissionState,downloads,hostPermission,hostPermissionState,shellPermission,shellPermissionState};
     }finally{
       session.defaultSession.off('will-download',record);
     }
@@ -1065,8 +1094,11 @@ async function probeSandboxSessionPolicy(
   if (
     !isRecord(probe) ||
     typeof probe['appPermission'] !== 'string' ||
+    typeof probe['appPermissionState'] !== 'string' ||
     typeof probe['hostPermission'] !== 'string' ||
+    typeof probe['hostPermissionState'] !== 'string' ||
     typeof probe['shellPermission'] !== 'string' ||
+    typeof probe['shellPermissionState'] !== 'string' ||
     !Array.isArray(probe['downloads'])
   ) {
     throw new Error(`BST-1599 sandbox session policy probe is malformed: ${JSON.stringify(probe)}`);
@@ -1142,7 +1174,14 @@ test('MCP Apps production host lifecycle is accessible and quiescent in packaged
     const sessionPolicy = await probeSandboxSessionPolicy(packagedApplication);
     expect(sessionPolicy.appPermission).toBe('denied');
     expect(sessionPolicy.shellPermission).toBe('denied');
-    // …and the host renderer keeps Electron's default outcome.
+    // The CHECK path is a separate handler with a separate (optional)
+    // attribution field, and APIs that check before requesting never reach
+    // the request handler — so it is measured against real Electron too, not
+    // only against the unit test's hand-rolled session.
+    expect(sessionPolicy.appPermissionState).toBe('denied/denied');
+    expect(sessionPolicy.shellPermissionState).toBe('denied/denied');
+    // …and the host renderer keeps Electron's default outcome on both paths.
+    expect(sessionPolicy.hostPermissionState).toBe('granted/granted');
     expect(sessionPolicy.hostPermission).toBe('granted');
     // The app document cannot even reach `will-download`: its sandbox is
     // exactly `allow-scripts`. The shell frame's download DOES reach the

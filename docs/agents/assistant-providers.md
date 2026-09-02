@@ -2399,21 +2399,33 @@ Permissions-Policy features; `notifications` is not one, and with no session
 handler Electron 43 GRANTS it to the opaque app document by default.
 `installMcpAppSessionPolicy` (`apps/desktop/src/mcp/apps-session-policy.ts`,
 wired from `setup-security.ts` onto `session.defaultSession`) denies every
-permission request AND check whose `details.requestingUrl` is a
-`brainstrike-mcp-app://` shell, or is `about:srcdoc` while the requesting
-WebContents hosts an `about:srcdoc` frame parented by such a shell (Electron
-exposes no frame handle and no usable origin for the opaque app document, so
-the srcdoc arm resolves the parent from the frame tree and is fail-closed —
-it can only over-deny another opaque sandbox, never the host renderer, whose
-frames are never `about:srcdoc`). `will-download` cancels any download whose
-URL chain carries a shell origin (`brainstrike-mcp-app://…` or the
-`blob:brainstrike-mcp-app://…` a shell frame minted); the app document itself
-cannot reach `will-download` because its sandbox is exactly `allow-scripts`.
-Every other requester keeps Electron's default outcome, so the host renderer,
-the hidden renderer hosts, and the browser pane's own partition
-(`browser/browser-session.ts`) are unchanged. Pinned by
+permission request AND check whose `details.requestingUrl` is an opaque-origin
+sandbox shell (`brainstrike-mcp-app://` or the Canvas shell
+`brainstrike-canvas://`), or is `about:srcdoc` while the requesting WebContents
+hosts an `about:srcdoc` frame parented by such a shell. Electron exposes no
+frame handle and no usable origin for the opaque app document, so the srcdoc
+arm resolves the parent from the frame tree and is fail-closed; both sandboxes
+are covered because Electron cannot say WHICH srcdoc frame asked, and covering
+only one would make the other's posture depend on whether an MCP App happened
+to be mounted. `details.requestingUrl` is REQUIRED on the request handler but
+OPTIONAL on the check handler (Electron omits it for cross-origin sub frames —
+exactly what the sandbox is) and APIs that check before requesting never reach
+the request handler, so an unattributable SUB-frame check is DENIED whenever
+the WebContents hosts a sandbox frame; `details.isMainFrame` keeps the host
+renderer's own checks on Electron's default. Denials log at `warn` once per
+(WebContents, arm, permission): untrusted content can read permission status in
+a tight loop, and the log is on the user's disk. `will-download` cancels any
+download whose URL chain carries an MCP App shell origin
+(`brainstrike-mcp-app://…` or the `blob:brainstrike-mcp-app://…` a shell frame
+minted); the app document itself cannot reach `will-download` because its
+sandbox is exactly `allow-scripts`, and neither can either Canvas layer, which
+is why the download arm stays MCP-App-only. Every other requester keeps
+Electron's default outcome, so the host renderer, the hidden renderer hosts,
+and the browser pane's own partition (`browser/browser-session.ts`) are
+unchanged. Pinned by
 `src/__tests__/main/mcp-apps-session-policy.test.ts` and a live probe in
-`test:e2e:lane:packaged-mcp-apps`.
+`test:e2e:lane:packaged-mcp-apps` that drives both the request and the check
+path.
 
 `McpDesktopAppHost` owns ordinary admission in main, keyed by the OWNING
 THREAD. `assistant-server.ts` registers each runtime's `mcpAppToolAdmission`

@@ -391,18 +391,40 @@ session-level policy can ever observe an app frame.
   (`src/mcp/apps-session-policy.ts`, wired from `setup-security.ts` onto
   `session.defaultSession`) closes that:
   - `setPermissionRequestHandler` / `setPermissionCheckHandler` DENY every
-    permission whose `details.requestingUrl` is a `brainstrike-mcp-app://`
-    shell, or is `about:srcdoc` while the requesting WebContents hosts an
-    `about:srcdoc` frame whose parent is such a shell. Electron reports no
-    frame handle and no usable origin for the opaque app document
-    (`requestingOrigin` is empty; `embeddingOrigin` is the TOP frame's), so
-    the srcdoc arm is resolved from the frame tree and is deliberately
-    fail-closed. It can only ever over-deny another opaque sandbox in the same
-    window (Canvas); the host renderer's frames are never `about:srcdoc` and
-    never carry the shell scheme, and nothing is denied at all while no shell
-    is mounted. Every other requester keeps Electron's default outcome, so the
-    host renderer and the hidden renderer hosts are unchanged; the browser
-    pane has its own partition and its own deny-by-default handlers.
+    permission whose `details.requestingUrl` is an opaque-origin sandbox shell
+    (`brainstrike-mcp-app://` or the Canvas shell `brainstrike-canvas://`), or
+    is `about:srcdoc` while the requesting WebContents hosts an `about:srcdoc`
+    frame whose parent is such a shell. Electron reports no frame handle and
+    no usable origin for the opaque app document (`requestingOrigin` is empty;
+    `embeddingOrigin` is the TOP frame's), so the srcdoc arm is resolved from
+    the frame tree and is deliberately fail-closed. Both sandboxes are covered
+    because Electron cannot say WHICH srcdoc frame asked: covering only one
+    would make the other's posture depend on whether an MCP App happened to be
+    mounted, and neither sandbox has any legitimate use for a permission (the
+    Permissions-Policy features are already denied by the frame `allow`
+    allowlist, so the arm's real subjects are `notifications` and
+    `openExternal`, which neither may have).
+  - `details.requestingUrl` is REQUIRED on the request handler but OPTIONAL on
+    the CHECK handler — Electron omits it "for cross-origin sub frames making
+    permission checks", which is exactly what an opaque sandbox document is,
+    and APIs that check before requesting never reach the request handler at
+    all. An unattributable SUB-frame check is therefore DENIED whenever the
+    requesting WebContents hosts a sandbox frame, mirroring the srcdoc arm; a
+    main-frame check (`details.isMainFrame`) is never the sandbox and keeps
+    Electron's default. The host renderer's frames are never `about:srcdoc`,
+    never carry a shell scheme, and its main frame always reports
+    `isMainFrame`, so the predicate cannot deny it, and nothing is denied at
+    all while no sandbox is mounted. Every other requester keeps Electron's
+    default outcome, so the host renderer and the hidden renderer hosts are
+    unchanged; the browser pane has its own partition and its own
+    deny-by-default handlers.
+  - Each denial is logged at `warn` ONCE per (WebContents, arm, permission).
+    A permission status read is synchronous, needs no user gesture, and the
+    denial is silent to the page, so an unthrottled log line would let
+    untrusted content dictate the write rate of the user's on-disk log. The
+    permission name is a closed Electron enum and there are two arms, so the
+    key space is bounded per WebContents while every distinct denial is still
+    recorded the first time it happens.
   - `will-download` cancels any download whose URL chain carries a shell
     origin — `brainstrike-mcp-app://…` or the `blob:brainstrike-mcp-app://…`
     a shell frame minted. Electron reports no frame for a download, and a blob
@@ -410,9 +432,15 @@ session-level policy can ever observe an app frame.
     renderer's own blobs are `blob:file:///…` and are untouched. The app
     document cannot reach `will-download` at all — its sandbox is exactly
     `allow-scripts`, and without `allow-downloads` Chromium blocks the
-    download first (measured, and asserted by the packaged lane).
+    download first (measured, and asserted by the packaged lane). The Canvas
+    shell needs no download arm: unlike the MCP App shell (a real origin in an
+    UNSANDBOXED iframe), it is itself `sandbox="allow-scripts"`, so Chromium
+    blocks its downloads before the session ever sees them.
   Pinned by `src/__tests__/main/mcp-apps-session-policy.test.ts` and by the
-  packaged lane's live probe (see below).
+  packaged lane's live probe, which exercises the request path
+  (`Notification.requestPermission()`) AND the check path
+  (`Notification.permission` + `navigator.permissions.query`) from the app
+  frame, the shell frame and the host renderer (see below).
 - App-originated calls use strict prepare/execute/release messages over the
   visible-UI-only `mcp:apps:*` IPC domain. Every prepare names the persisted
   thread that owns the app's tool result; main resolves only THAT thread's

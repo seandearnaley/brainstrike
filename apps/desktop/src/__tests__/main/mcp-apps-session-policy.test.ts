@@ -1,13 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({
   protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
 }));
 
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('@brainstrike/logging', () => ({
+  createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn }),
+}));
+
 import {
+  __resetMcpAppSessionPolicyForTests,
   installMcpAppSessionPolicy,
   isMcpAppSandboxDownload,
-  isMcpAppSandboxPermissionRequest,
+  isSandboxedFramePermissionRequest,
   type McpAppSessionFrame,
 } from '../../mcp/apps-session-policy';
 
@@ -33,58 +39,133 @@ const CANVAS_ONLY_FRAMES: readonly McpAppSessionFrame[] = [
   { parentUrl: CANVAS_SHELL, url: 'about:srcdoc' },
 ];
 
-describe('isMcpAppSandboxPermissionRequest', () => {
-  it('denies the shell frame by its own origin', () => {
-    expect(isMcpAppSandboxPermissionRequest({ frames: MOUNTED_FRAMES, requestingUrl: SHELL })).toBe(
-      true
-    );
+/** The main window with no sandbox of any kind mounted. */
+const HOST_ONLY_FRAMES: readonly McpAppSessionFrame[] = [{ parentUrl: undefined, url: HOST }];
+
+beforeEach(() => {
+  warn.mockClear();
+  __resetMcpAppSessionPolicyForTests();
+});
+
+describe('isSandboxedFramePermissionRequest', () => {
+  it('denies a sandbox shell frame by its own origin', () => {
+    expect(
+      isSandboxedFramePermissionRequest({
+        frames: MOUNTED_FRAMES,
+        isMainFrame: false,
+        requestingUrl: SHELL,
+      })
+    ).toBe(true);
     // Even with nothing else in the tree to corroborate it.
-    expect(isMcpAppSandboxPermissionRequest({ frames: [], requestingUrl: SHELL })).toBe(true);
+    expect(
+      isSandboxedFramePermissionRequest({ frames: [], isMainFrame: false, requestingUrl: SHELL })
+    ).toBe(true);
+    expect(
+      isSandboxedFramePermissionRequest({
+        frames: CANVAS_ONLY_FRAMES,
+        isMainFrame: false,
+        requestingUrl: CANVAS_SHELL,
+      })
+    ).toBe(true);
   });
 
   it('denies the opaque about:srcdoc app frame via its shell parent', () => {
     expect(
-      isMcpAppSandboxPermissionRequest({ frames: MOUNTED_FRAMES, requestingUrl: 'about:srcdoc' })
+      isSandboxedFramePermissionRequest({
+        frames: MOUNTED_FRAMES,
+        isMainFrame: false,
+        requestingUrl: 'about:srcdoc',
+      })
     ).toBe(true);
   });
 
+  it('denies the Canvas srcdoc sandbox with no MCP App mounted', () => {
+    expect(
+      isSandboxedFramePermissionRequest({
+        frames: CANVAS_ONLY_FRAMES,
+        isMainFrame: false,
+        requestingUrl: 'about:srcdoc',
+      })
+    ).toBe(true);
+  });
+
+  it('leaves srcdoc frames alone when no sandbox shell is mounted', () => {
+    expect(
+      isSandboxedFramePermissionRequest({
+        frames: HOST_ONLY_FRAMES,
+        isMainFrame: false,
+        requestingUrl: 'about:srcdoc',
+      })
+    ).toBe(false);
+  });
+
   it('never denies the host renderer', () => {
-    for (const frames of [MOUNTED_FRAMES, CANVAS_ONLY_FRAMES, []]) {
-      expect(isMcpAppSandboxPermissionRequest({ frames, requestingUrl: HOST })).toBe(false);
+    for (const frames of [MOUNTED_FRAMES, CANVAS_ONLY_FRAMES, HOST_ONLY_FRAMES, []]) {
       expect(
-        isMcpAppSandboxPermissionRequest({
+        isSandboxedFramePermissionRequest({ frames, isMainFrame: true, requestingUrl: HOST })
+      ).toBe(false);
+      expect(
+        isSandboxedFramePermissionRequest({
           frames,
+          isMainFrame: true,
           requestingUrl: 'http://localhost:5173/index.html',
         })
       ).toBe(false);
     }
   });
 
-  it('leaves srcdoc frames alone when no MCP App shell is mounted', () => {
+  it('denies an unattributable SUB frame check while a sandbox is mounted', () => {
+    // `setPermissionCheckHandler` types `requestingUrl` as OPTIONAL and
+    // Electron omits it for cross-origin sub frames — which is exactly what
+    // the opaque sandbox document is. Fail closed.
+    for (const requestingUrl of [undefined, '']) {
+      expect(
+        isSandboxedFramePermissionRequest({
+          frames: MOUNTED_FRAMES,
+          isMainFrame: false,
+          requestingUrl,
+        })
+      ).toBe(true);
+      expect(
+        isSandboxedFramePermissionRequest({
+          frames: CANVAS_ONLY_FRAMES,
+          isMainFrame: false,
+          requestingUrl,
+        })
+      ).toBe(true);
+    }
+  });
+
+  it('leaves an unattributable MAIN frame to Electron', () => {
     expect(
-      isMcpAppSandboxPermissionRequest({
-        frames: CANVAS_ONLY_FRAMES,
-        requestingUrl: 'about:srcdoc',
+      isSandboxedFramePermissionRequest({
+        frames: MOUNTED_FRAMES,
+        isMainFrame: true,
+        requestingUrl: undefined,
       })
     ).toBe(false);
   });
 
-  it('treats an unattributable requester as not an MCP App frame', () => {
+  it('leaves an unattributable sub frame alone when no sandbox is mounted', () => {
     expect(
-      isMcpAppSandboxPermissionRequest({ frames: MOUNTED_FRAMES, requestingUrl: undefined })
+      isSandboxedFramePermissionRequest({
+        frames: HOST_ONLY_FRAMES,
+        isMainFrame: false,
+        requestingUrl: undefined,
+      })
     ).toBe(false);
-    expect(isMcpAppSandboxPermissionRequest({ frames: MOUNTED_FRAMES, requestingUrl: '' })).toBe(
-      false
-    );
   });
 
   it('does not match a look-alike scheme prefix', () => {
-    expect(
-      isMcpAppSandboxPermissionRequest({
-        frames: MOUNTED_FRAMES,
-        requestingUrl: 'brainstrike-mcp-apple://evil/',
-      })
-    ).toBe(false);
+    for (const requestingUrl of ['brainstrike-mcp-apple://evil/', 'brainstrike-canvass://evil/']) {
+      expect(
+        isSandboxedFramePermissionRequest({
+          frames: MOUNTED_FRAMES,
+          isMainFrame: false,
+          requestingUrl,
+        })
+      ).toBe(false);
+    }
   });
 });
 
@@ -107,13 +188,29 @@ describe('isMcpAppSandboxDownload', () => {
     expect(isMcpAppSandboxDownload(['https://example.test/report.pdf'])).toBe(false);
     expect(isMcpAppSandboxDownload([])).toBe(false);
   });
+
+  it('leaves the Canvas sandbox to its frame flags', () => {
+    // The Canvas shell is itself `sandbox="allow-scripts"` (no
+    // `allow-downloads`), so Chromium blocks its downloads before
+    // `will-download` fires — unlike the MCP App shell, which is a real
+    // origin in an unsandboxed iframe.
+    expect(isMcpAppSandboxDownload([`blob:${CANVAS_SHELL}uuid`])).toBe(false);
+  });
 });
 
+type ProbePermission = 'geolocation' | 'notifications';
+
 interface CapturedSession {
-  readonly check: (requestingUrl: string | undefined) => boolean;
+  readonly check: (
+    requestingUrl: string | undefined,
+    options?: { readonly isMainFrame?: boolean; readonly permission?: ProbePermission }
+  ) => boolean;
   readonly downloads: (url: string) => boolean;
   readonly installs: { permissionRequest: number; permissionCheck: number; willDownload: number };
-  readonly request: (requestingUrl: string | undefined) => boolean;
+  readonly request: (
+    requestingUrl: string | undefined,
+    options?: { readonly permission?: ProbePermission }
+  ) => boolean;
   readonly session: Electron.Session;
 }
 
@@ -157,12 +254,12 @@ function fakeSession(frames: readonly McpAppSessionFrame[]): CapturedSession {
   } as unknown as Electron.Session;
 
   return {
-    check: (requestingUrl) => {
+    check: (requestingUrl, options) => {
       if (checkHandler === null) {
         throw new Error('permission check handler was never installed');
       }
-      return checkHandler(webContents, 'notifications', '', {
-        isMainFrame: false,
+      return checkHandler(webContents, options?.permission ?? 'notifications', '', {
+        isMainFrame: options?.isMainFrame ?? false,
         ...(requestingUrl === undefined ? {} : { requestingUrl }),
       });
     },
@@ -178,14 +275,14 @@ function fakeSession(frames: readonly McpAppSessionFrame[]): CapturedSession {
       return prevented;
     },
     installs,
-    request: (requestingUrl) => {
+    request: (requestingUrl, options) => {
       if (requestHandler === null) {
         throw new Error('permission request handler was never installed');
       }
       let granted: boolean | undefined;
       requestHandler(
         webContents,
-        'notifications',
+        options?.permission ?? 'notifications',
         (value) => {
           granted = value;
         },
@@ -211,8 +308,35 @@ describe('installMcpAppSessionPolicy', () => {
 
     expect(captured.check(SHELL)).toBe(false);
     expect(captured.check('about:srcdoc')).toBe(false);
-    expect(captured.check(HOST)).toBe(true);
-    expect(captured.check(undefined)).toBe(true);
+    expect(captured.check(HOST, { isMainFrame: true })).toBe(true);
+  });
+
+  it('denies an unattributable sub-frame permission CHECK', () => {
+    // The one handler whose attribution field Electron types as optional must
+    // not be the one that silently grants: APIs that check before requesting
+    // never reach the request handler.
+    const captured = fakeSession(MOUNTED_FRAMES);
+    installMcpAppSessionPolicy(captured.session);
+
+    expect(captured.check(undefined)).toBe(false);
+    expect(captured.check(undefined, { isMainFrame: true })).toBe(true);
+  });
+
+  it('logs each denial once per WebContents, arm and permission', () => {
+    // The handlers are driven by untrusted content in a tight loop, so the
+    // denial warn must not be an unbounded on-disk log writer.
+    const captured = fakeSession(MOUNTED_FRAMES);
+    installMcpAppSessionPolicy(captured.session);
+
+    for (let index = 0; index < 50; index += 1) {
+      expect(captured.check(SHELL)).toBe(false);
+      expect(captured.request(SHELL)).toBe(false);
+    }
+    expect(warn).toHaveBeenCalledTimes(2);
+
+    // A distinct permission is still worth its own first line.
+    expect(captured.check(SHELL, { permission: 'geolocation' })).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(3);
   });
 
   it('cancels downloads from a shell origin and passes every other download through', () => {
