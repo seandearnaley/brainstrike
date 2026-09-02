@@ -12,6 +12,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   McpConfigInfo,
+  McpConfigTextDocument,
   ToolDisplayMetadata,
   ToolExecutionResult,
   ToolStats,
@@ -2238,6 +2239,42 @@ describe('UnifiedToolsSettings', () => {
 
       expect(screen.getByTestId('mcp-config-editor')).toBeInTheDocument();
       expect(screen.getByTestId('mcp-config-path-input')).toHaveValue('/tmp/mcp.config.json');
+    });
+
+    it('withholds the MCP config editor until the initial document load settles', async () => {
+      const operations = createMockOperations();
+      let resolveRead: ((document: McpConfigTextDocument) => void) | undefined;
+      operations.readMcpConfigText = vi.fn(
+        async () =>
+          await new Promise<McpConfigTextDocument>((resolve) => {
+            resolveRead = resolve;
+          })
+      );
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(operations.readMcpConfigText).toHaveBeenCalled();
+      });
+      // Editing before the read lands loses the edit: the late load overwrites
+      // the editor value and clears the save status the user just saw.
+      expect(screen.getByTestId('mcp-config-editor-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('mcp-config-editor')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('mcp-config-save')).not.toBeInTheDocument();
+
+      await act(async () => {
+        resolveRead?.({
+          content: '{\n  "servers": []\n}',
+          created: false,
+          exists: true,
+          path: '/tmp/mcp.config.json',
+        });
+      });
+
+      expect(screen.getByTestId('mcp-config-editor')).toHaveValue('{\n  "servers": []\n}');
     });
 
     it('recommends Streamable HTTP for new remote MCP servers and labels SSE as legacy', async () => {
