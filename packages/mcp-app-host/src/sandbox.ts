@@ -197,10 +197,12 @@ export class McpAppSandboxOwner {
         if (closed) {
           return;
         }
+        // Ownership is released only after revocation succeeds, so a failed
+        // revoke stays observable and retryable instead of leaking the URL.
+        this.#urls.revokeObjectURL(shellUrl);
         closed = true;
         this.#mounts.delete(mount);
         this.#retainedBytes -= retainedBytes;
-        this.#urls.revokeObjectURL(shellUrl);
       },
       shellUrl,
     });

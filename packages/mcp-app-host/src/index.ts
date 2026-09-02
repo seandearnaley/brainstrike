@@ -9,6 +9,7 @@ export {
 } from './capabilities.js';
 export {
   installMcpAppElectronSandboxPolicy,
+  McpAppElectronSandboxInstallationError,
   type McpAppElectronSandboxLease,
   requireMcpAppSandboxPartition,
 } from './electron-sandbox.js';

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildMcpAppSandboxPolicy,
   installMcpAppElectronSandboxPolicy,
+  McpAppElectronSandboxInstallationError,
   McpAppProvenanceAuthority,
   McpAppSandboxOwner,
   renderMcpAppResourceDocument,
@@ -139,6 +140,33 @@ describe('MCP Apps object URL and memory ownership', () => {
     expect(owner.retainedBytes).toBe(0);
   });
 
+  it('retains URL and memory ownership until a failed revocation succeeds on retry', async () => {
+    let revokeAttempts = 0;
+    const owner = new McpAppSandboxOwner({
+      limits: { maxActiveFrames: 1, maxRetainedBytes: 4096 },
+      urls: {
+        createObjectURL: () => 'blob:retryable/1',
+        revokeObjectURL: () => {
+          revokeAttempts += 1;
+          if (revokeAttempts === 1) {
+            throw new Error('revoke failed');
+          }
+        },
+      },
+    });
+    const mount = owner.open(createOwnedResource());
+    const retainedBytes = owner.retainedBytes;
+
+    await expect(mount.close()).rejects.toThrow('revoke failed');
+    expect(owner.activeFrames).toBe(1);
+    expect(owner.retainedBytes).toBe(retainedBytes);
+
+    await expect(mount.close()).resolves.toBeUndefined();
+    expect(revokeAttempts).toBe(2);
+    expect(owner.activeFrames).toBe(0);
+    expect(owner.retainedBytes).toBe(0);
+  });
+
   it('fails closed on frame/memory limits and leaves failed allocations unowned', async () => {
     const owner = new McpAppSandboxOwner({
       limits: { maxActiveFrames: 1, maxRetainedBytes: 4096 },
@@ -171,118 +199,289 @@ describe('MCP Apps object URL and memory ownership', () => {
   });
 });
 
+type Listener = (event: { isMainFrame?: boolean; preventDefault(): void; url?: string }) => void;
+
+/**
+ * Models Electron: `close()` is asynchronous, so `isDestroyed()` flips and the
+ * 'destroyed' listeners fire on a later microtask unless `destroySync`.
+ */
+function createWebContents(options: { destroySync?: boolean; failCloses?: number } = {}) {
+  const listeners = new Map<string, Set<Listener>>();
+  let destroyed = false;
+  let closeAttempts = 0;
+  const emit = (event: string): void => {
+    for (const listener of [...(listeners.get(event) ?? [])]) {
+      listener({ preventDefault: () => undefined });
+    }
+  };
+  const destroy = (): void => {
+    destroyed = true;
+    emit('destroyed');
+  };
+  const webContents = {
+    close: vi.fn(() => {
+      closeAttempts += 1;
+      if (closeAttempts <= (options.failCloses ?? 0)) {
+        throw new Error('web contents close failed');
+      }
+      if (options.destroySync) {
+        destroy();
+      } else {
+        queueMicrotask(destroy);
+      }
+    }),
+    isDestroyed: vi.fn(() => destroyed),
+    on: vi.fn((event: string, listener: Listener) => {
+      listeners.set(event, (listeners.get(event) ?? new Set()).add(listener));
+    }),
+    removeListener: vi.fn((event: string, listener: Listener) => {
+      listeners.get(event)?.delete(listener);
+    }),
+    setWindowOpenHandler: vi.fn(),
+  };
+  const installed = (): string[] =>
+    [...listeners.entries()].filter(([, set]) => set.size > 0).map(([event]) => event);
+  return { closeAttempts: () => closeAttempts, emit, installed, listeners, webContents };
+}
+
+function createSession(options: { failDownloadHook?: boolean } = {}) {
+  const sessionListeners = new Map<string, Listener>();
+  const permissionChecks: Array<() => boolean> = [];
+  const permissionRequests: Array<
+    (webContents: unknown, permission: unknown, callback: (allowed: boolean) => void) => void
+  > = [];
+  const session = {
+    clearCache: vi.fn(async () => undefined),
+    clearStorageData: vi.fn(async () => undefined),
+    on: vi.fn((event: string, listener: Listener) => {
+      if (options.failDownloadHook) {
+        throw new Error('download hook failed');
+      }
+      sessionListeners.set(event, listener);
+    }),
+    removeListener: vi.fn((event: string) => sessionListeners.delete(event)),
+    setPermissionCheckHandler: vi.fn((handler: () => boolean) => {
+      permissionChecks.push(handler);
+    }),
+    setPermissionRequestHandler: vi.fn(
+      (
+        handler: (
+          webContents: unknown,
+          permission: unknown,
+          callback: (allowed: boolean) => void
+        ) => void
+      ) => {
+        permissionRequests.push(handler);
+      }
+    ),
+  };
+  return { permissionChecks, permissionRequests, session, sessionListeners };
+}
+
+function install(session: ReturnType<typeof createSession>['session'], webContents: unknown) {
+  return installMcpAppElectronSandboxPolicy({
+    partition: 'mcp-app:unit',
+    sessions: { fromPartition: () => session },
+    webContents: webContents as Parameters<
+      typeof installMcpAppElectronSandboxPolicy
+    >[0]['webContents'],
+  });
+}
+
 describe('Electron sandbox denial hooks', () => {
   it('denies navigation, popups, downloads, external opening, webviews, and permissions', async () => {
-    const listeners = new Map<
-      string,
-      (event: { isMainFrame?: boolean; preventDefault(): void; url?: string }) => void
-    >();
-    const sessionListeners = new Map<string, (event: { preventDefault(): void }) => void>();
-    const permissionRequests: Array<((callback: (allowed: boolean) => void) => void) | null> = [];
-    const permissionChecks: Array<(() => boolean) | null> = [];
-    const openHandlers: Array<() => { action: 'deny' }> = [];
-    const webContents = {
-      close: vi.fn(),
-      isDestroyed: vi.fn(() => false),
-      on: vi.fn(
-        (
-          event: string,
-          listener: (event: { isMainFrame?: boolean; preventDefault(): void; url?: string }) => void
-        ) => {
-          listeners.set(event, listener);
-        }
-      ),
-      removeListener: vi.fn((event: string) => listeners.delete(event)),
-      setWindowOpenHandler: vi.fn((handler: () => { action: 'deny' }) => {
-        openHandlers.push(handler);
-      }),
-    };
-    const sandboxSession = {
-      clearCache: vi.fn(async () => undefined),
-      clearStorageData: vi.fn(async () => undefined),
-      on: vi.fn((event: string, listener: (event: { preventDefault(): void }) => void) => {
-        sessionListeners.set(event, listener);
-      }),
-      removeListener: vi.fn((event: string) => sessionListeners.delete(event)),
-      setPermissionCheckHandler: vi.fn((handler: (() => boolean) | null) => {
-        permissionChecks.push(handler);
-      }),
-      setPermissionRequestHandler: vi.fn(
-        (
-          handler: ((_: unknown, __: unknown, callback: (allowed: boolean) => void) => void) | null
-        ) => {
-          permissionRequests.push(
-            handler === null ? null : (callback) => handler({}, 'camera', callback)
-          );
-        }
-      ),
-    };
-    const sessions = { fromPartition: vi.fn(() => sandboxSession) };
+    const wc = createWebContents();
+    const { permissionChecks, permissionRequests, session, sessionListeners } = createSession();
+    const sessions = { fromPartition: vi.fn(() => session) };
     for (const partition of ['persist:mcp-app:unit', 'default', 'mcp-app:', 'mcp-app:bad name']) {
       expect(() =>
-        installMcpAppElectronSandboxPolicy({ partition, sessions, webContents })
+        installMcpAppElectronSandboxPolicy({ partition, sessions, webContents: wc.webContents })
       ).toThrow(/dedicated non-persistent/);
     }
     expect(sessions.fromPartition).not.toHaveBeenCalled();
     const lease = installMcpAppElectronSandboxPolicy({
       partition: 'mcp-app:unit',
       sessions,
-      webContents,
+      webContents: wc.webContents,
     });
     expect(sessions.fromPartition).toHaveBeenCalledWith('mcp-app:unit', { cache: false });
 
-    expect(openHandlers[0]?.()).toEqual({ action: 'deny' });
+    expect(wc.webContents.setWindowOpenHandler).toHaveBeenCalledOnce();
+    const openHandler = wc.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as () => unknown;
+    expect(openHandler()).toEqual({ action: 'deny' });
     for (const event of ['will-attach-webview', 'will-navigate', 'will-redirect']) {
       const preventDefault = vi.fn();
-      listeners.get(event)?.({ preventDefault });
+      for (const listener of wc.listeners.get(event) ?? []) {
+        listener({ preventDefault });
+      }
       expect(preventDefault).toHaveBeenCalledOnce();
     }
     const preventFrameNavigation = vi.fn();
-    listeners.get('will-frame-navigate')?.({
-      isMainFrame: true,
-      preventDefault: preventFrameNavigation,
-      url: 'https://escape.invalid',
-    });
+    for (const listener of wc.listeners.get('will-frame-navigate') ?? []) {
+      listener({
+        isMainFrame: true,
+        preventDefault: preventFrameNavigation,
+        url: 'https://escape.invalid',
+      });
+    }
     expect(preventFrameNavigation).toHaveBeenCalledOnce();
     const allowSrcdoc = vi.fn();
-    listeners.get('will-frame-navigate')?.({
-      isMainFrame: false,
-      preventDefault: allowSrcdoc,
-      url: 'about:srcdoc',
-    });
+    for (const listener of wc.listeners.get('will-frame-navigate') ?? []) {
+      listener({ isMainFrame: false, preventDefault: allowSrcdoc, url: 'about:srcdoc' });
+    }
     expect(allowSrcdoc).not.toHaveBeenCalled();
     const preventDownload = vi.fn();
     sessionListeners.get('will-download')?.({ preventDefault: preventDownload });
     expect(preventDownload).toHaveBeenCalledOnce();
     expect(permissionChecks[0]?.()).toBe(false);
     const permissionResult = vi.fn();
-    permissionRequests[0]?.(permissionResult);
+    permissionRequests[0]?.({}, 'camera', permissionResult);
     expect(permissionResult).toHaveBeenCalledWith(false);
 
     // A second lease on the same session shares the session denials.
-    const sibling = installMcpAppElectronSandboxPolicy({
-      partition: 'mcp-app:unit',
-      sessions,
-      webContents,
-    });
-    expect(sandboxSession.setPermissionCheckHandler).toHaveBeenCalledOnce();
-    expect(sandboxSession.setPermissionRequestHandler).toHaveBeenCalledOnce();
+    const siblingWc = createWebContents();
+    const sibling = install(session, siblingWc.webContents);
+    expect(session.setPermissionCheckHandler).toHaveBeenCalledOnce();
+    expect(session.setPermissionRequestHandler).toHaveBeenCalledOnce();
 
     await lease.close();
-    expect(webContents.close).toHaveBeenCalledOnce();
-    // Closing one lease never restores Electron's permissive defaults and does
-    // not purge the storage a live sibling still uses.
-    expect(permissionChecks).not.toContain(null);
-    expect(permissionRequests).not.toContain(null);
+    expect(wc.webContents.close).toHaveBeenCalledOnce();
+    // Per-WebContents hooks are released only after destruction; session
+    // denials are never restored and a live sibling's storage is untouched.
+    expect(wc.installed()).toEqual([]);
     expect(permissionChecks.at(-1)?.()).toBe(false);
     expect(sessionListeners.get('will-download')).toBeDefined();
-    expect(sandboxSession.clearStorageData).not.toHaveBeenCalled();
+    expect(session.clearStorageData).not.toHaveBeenCalled();
 
     await sibling.close();
-    expect(listeners.size).toBe(0);
-    expect(sandboxSession.clearCache).toHaveBeenCalledOnce();
-    expect(sandboxSession.clearStorageData).toHaveBeenCalledOnce();
-    expect(permissionChecks).not.toContain(null);
+    expect(siblingWc.installed()).toEqual([]);
+    expect(session.clearCache).toHaveBeenCalledOnce();
+    expect(session.clearStorageData).toHaveBeenCalledOnce();
     expect(sessionListeners.get('will-download')).toBeDefined();
+  });
+
+  it('keeps deny listeners installed until the WebContents is destroyed', async () => {
+    const wc = createWebContents();
+    const { session } = createSession();
+    const lease = install(session, wc.webContents);
+    const closing = lease.close();
+    // close() was requested but destruction is still pending: hooks stay.
+    expect(wc.webContents.close).toHaveBeenCalledOnce();
+    expect(wc.installed()).toContain('will-navigate');
+    await closing;
+    expect(wc.installed()).toEqual([]);
+  });
+
+  it('rolls back every per-WebContents listener when installation fails and keeps session denials', async () => {
+    const wc = createWebContents({ destroySync: true });
+    const { permissionChecks, permissionRequests, session } = createSession({
+      failDownloadHook: true,
+    });
+
+    expect(() => install(session, wc.webContents)).toThrow(McpAppElectronSandboxInstallationError);
+    expect(wc.installed()).toEqual([]);
+    expect(wc.webContents.close).toHaveBeenCalledOnce();
+    // Session denials installed before the failure are fail-closed and stay.
+    expect(permissionChecks).toHaveLength(1);
+    expect(permissionRequests).toHaveLength(1);
+    expect(session.removeListener).not.toHaveBeenCalled();
+
+    // A retry installs only the missing session hook.
+    session.on.mockImplementation((event: string) => {
+      expect(event).toBe('will-download');
+    });
+    const retryWc = createWebContents();
+    const lease = install(session, retryWc.webContents);
+    expect(permissionChecks).toHaveLength(1);
+    expect(permissionRequests).toHaveLength(1);
+    expect(session.on).toHaveBeenCalledTimes(2);
+    await lease.close();
+  });
+
+  it('coalesces concurrent closes, retries every owed step, and purges in parallel once closed', async () => {
+    const wc = createWebContents({ failCloses: 1 });
+    const { session } = createSession();
+    let cacheClearAttempts = 0;
+    session.clearCache.mockImplementation(async () => {
+      cacheClearAttempts += 1;
+      if (cacheClearAttempts === 1) {
+        throw new Error('cache clear failed');
+      }
+    });
+    const lease = install(session, wc.webContents);
+
+    const first = lease.close();
+    const second = lease.close();
+    expect(second).toBe(first);
+    const failure = await first.catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toEqual([
+      expect.objectContaining({ message: 'web contents close failed' }),
+      expect.objectContaining({ message: 'cache clear failed' }),
+    ]);
+    expect(session.clearCache).toHaveBeenCalledOnce();
+    expect(session.clearStorageData).toHaveBeenCalledOnce();
+    // Per-WebContents hooks stay installed while the WebContents is still alive.
+    expect(wc.installed()).toContain('will-navigate');
+
+    await expect(lease.close()).resolves.toBeUndefined();
+    expect(wc.webContents.close).toHaveBeenCalledTimes(2);
+    expect(session.clearCache).toHaveBeenCalledTimes(2);
+    expect(session.clearStorageData).toHaveBeenCalledOnce();
+    expect(wc.installed()).toEqual([]);
+    expect(session.removeListener).not.toHaveBeenCalled();
+
+    await expect(lease.close()).resolves.toBeUndefined();
+    expect(wc.webContents.close).toHaveBeenCalledTimes(2);
+  });
+
+  it('yields a retried purge to a replacement lease that acquired the session', async () => {
+    const wc = createWebContents();
+    const { session } = createSession();
+    session.clearStorageData.mockRejectedValueOnce(new Error('storage clear failed'));
+    const lease = install(session, wc.webContents);
+    await expect(lease.close()).rejects.toThrow(/teardown failed/);
+    expect(session.clearStorageData).toHaveBeenCalledOnce();
+
+    const replacementWc = createWebContents();
+    const replacement = install(session, replacementWc.webContents);
+    await expect(lease.close()).resolves.toBeUndefined();
+    // The retried close did not purge the session the replacement now owns.
+    expect(session.clearStorageData).toHaveBeenCalledOnce();
+    expect(session.clearCache).toHaveBeenCalledOnce();
+
+    await replacement.close();
+    expect(session.clearStorageData).toHaveBeenCalledTimes(2);
+    expect(session.clearCache).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns retryable cleanup ownership when installation and WebContents close both fail', async () => {
+    const wc = createWebContents({ failCloses: 1 });
+    const { session } = createSession({ failDownloadHook: true });
+
+    let installationFailure: unknown;
+    try {
+      install(session, wc.webContents);
+    } catch (error: unknown) {
+      installationFailure = error;
+    }
+    if (!(installationFailure instanceof McpAppElectronSandboxInstallationError)) {
+      throw new Error('expected a retryable sandbox installation failure');
+    }
+    expect(installationFailure.errors).toEqual([
+      expect.objectContaining({ message: 'download hook failed' }),
+      expect.objectContaining({ message: 'web contents close failed' }),
+    ]);
+    expect(wc.closeAttempts()).toBe(1);
+    expect(wc.installed()).toHaveLength(4);
+
+    await installationFailure.cleanup.close();
+
+    expect(wc.closeAttempts()).toBe(2);
+    expect(wc.installed()).toEqual([]);
+    // The lease never held the session, so no purge is owed.
+    expect(session.clearCache).not.toHaveBeenCalled();
+    expect(session.clearStorageData).not.toHaveBeenCalled();
   });
 });

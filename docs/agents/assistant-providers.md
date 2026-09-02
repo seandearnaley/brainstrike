@@ -2205,7 +2205,15 @@ navigation, redirects, webviews, downloads, and all permission checks/requests.
 Session-scoped denials are installed once per session and never restored to
 Electron's permissive defaults (a lease's close cannot fail a sibling open);
 teardown removes the per-WebContents hooks, destroys the WebContents, clears
-session cache/storage once the last lease closes, and revokes the owner URL. Real Chromium and Electron adversarial
+session cache/storage once the last lease closes, and revokes the owner URL.
+Installation is failure-atomic: a partial hook registration closes the
+WebContents and rolls back every per-WebContents listener (session denials
+installed so far stay, and a retry installs only the missing ones); when the
+rollback itself fails, `McpAppElectronSandboxInstallationError` carries a
+`cleanup` lease that retains ownership. Teardown is retryable: each step
+records its own success, failures aggregate into one error, per-WebContents
+hooks are released only after the WebContents closes, and URL revocation keeps
+frame and retained-byte ownership until it succeeds. Real Chromium and Electron adversarial
 verifiers pin those boundaries and repeated cleanup; the Chromium verifier is
 a `*.browser.test.ts` file run by the package's `test:browser`
 script in the Browser tests lane (Playwright image), never in the Unit lanes. Nothing registers this
