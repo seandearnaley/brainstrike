@@ -1,6 +1,14 @@
 name: MCP Verification
 
 on:
+  push:
+    branches:
+      - main
+    # Docs-only merges cannot regress client conformance; skip the
+    # Electron-provisioned official jobs for them (BST-1582).
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   schedule:
     - cron: '23 8 * * *'
   workflow_dispatch:
@@ -21,6 +29,10 @@ env:
 jobs:
   verify:
     name: Exhaustive MCP verification
+    # The exhaustive lane stays schedule/manual only; the PR-lane representative
+    # profile already covers every merge (docs/agents/ci-quality.md). Only the
+    # official conformance jobs below run on main pushes (BST-1582).
+    if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
@@ -45,9 +57,8 @@ jobs:
           retention-days: 14
 
   official_auth:
-    name: Official MCP auth conformance (advisory prerelease)
+    name: Official MCP auth conformance
     runs-on: ubuntu-24.04-arm
-    continue-on-error: true
     timeout-minutes: 11
     steps:
       - name: Checkout
@@ -106,9 +117,8 @@ jobs:
           retention-days: 14
 
   official_core:
-    name: Official MCP core conformance (advisory prerelease)
+    name: Official MCP core conformance
     runs-on: ubuntu-24.04-arm
-    continue-on-error: true
     timeout-minutes: 11
     steps:
       - name: Checkout
@@ -161,9 +171,8 @@ jobs:
           retention-days: 14
 
   official_modern_auth:
-    name: Official MCP modern auth closeout (advisory prerelease)
+    name: Official MCP modern auth closeout
     runs-on: ubuntu-24.04-arm
-    continue-on-error: true
     timeout-minutes: 21
     steps:
       - name: Checkout

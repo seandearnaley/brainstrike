@@ -439,7 +439,7 @@ test('records only fixed failure discriminators for failed invocations', async (
   );
 });
 
-test('writes exact-head prerelease advisory evidence with only fixed result data', async () => {
+test('writes exact-head prerelease required evidence with only fixed result data', async () => {
   const invocations = buildOfficialClientInvocations({
     conformanceEntryPath: '/repo/conformance/dist/index.js',
     nodePath: '/runtime/node',
@@ -469,7 +469,7 @@ test('writes exact-head prerelease advisory evidence with only fixed result data
   assert.deepEqual(evidence.conformance, {
     package: '@modelcontextprotocol/conformance',
     prerelease: true,
-    required: false,
+    required: true,
     version: '0.2.0-alpha.10',
   });
   assert.equal(evidence.schemaVersion, '1.0.0');

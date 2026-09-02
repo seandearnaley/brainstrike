@@ -2439,8 +2439,11 @@ The baseline preserves BST-1560 schema `1.0.0` exactly and has no `profile` fiel
 the modern artifact uses schema `1.1.0` and records
 `profile: "modern-closeout"`. Both bind their owning ticket, exact Git head and
 clean/dirty state, verified empty ledgers, wave timings, fixed result ids, cleanup
-status, and the explicit `{ prerelease: true, required: false }` conformance
-classification. No raw auth
+status, and the explicit `{ prerelease: true, required: true }` conformance
+classification. `required` records the project's gate posture (the official
+jobs carry no `continue-on-error`; `mcp-verification-ci-contract.test.mjs`
+pins the field to that absence), not whether a given run happened in CI, so a
+local `pnpm run verify:mcp:official` writes the same value. No raw auth
 artifact directory exists. On Windows (BST-1557, a bounded child of the
 BST-1472 verifier project), the outer driver loads the existing
 `@brainstrike/windows-job-native` capability from Desktop and assigns itself to
@@ -2453,12 +2456,17 @@ is then checked and remaining descendants are terminated. Timeout, failed start,
 and cleanup failure remain visible;
 there is no process-enumeration fallback. The bundled desktop process entry
 accepts only the exact auth context rules above and otherwise emits one fixed
-stderr line. The official package remains prerelease advisory evidence, never a
-required release claim.
+stderr line. The official package is prerelease, and the evidence records it as
+such; since BST-1582 the three official conformance jobs are nonetheless
+required post-merge gates: they run on every push to `main` (plus the nightly
+schedule and manual dispatch), a failing scenario fails the workflow and turns
+`main` red, and — because they run after the merge — they detect regressions
+rather than block them. `docs/agents/ci-quality.md` owns the trigger shape,
+budget, and exit condition.
 
 The modern workflow step has a ten-minute timeout: eleven sequential 45-second
 deadlines consume at most 495 seconds, leaving 105 seconds for runner setup,
-cleanup, and evidence persistence. Its 21-minute advisory job also reserves four
+cleanup, and evidence persistence. Its 21-minute required job also reserves four
 minutes for the build, three for the bounded Electron provisioning step, and
 four for workflow setup/upload. Contract tests compare
 these values to the shared descriptor; per-scenario deadlines are not shortened.

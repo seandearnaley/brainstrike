@@ -37,13 +37,17 @@ The required `Static` job and the default local `pnpm check` plan both invoke
 `pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`.
 That representative profile is part of the required PR gate; it is not advisory
 and must not gain `continue-on-error`, an event predicate, or a second selection
-planner. `.github/workflows/mcp-verification.yml` owns only the scheduled and
+planner. `.github/workflows/mcp-verification.yml` owns the scheduled and
 manual exhaustive lane, using
 `pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`.
 The exhaustive job has a ten-minute outer bound, an eight-minute verifier-step
-bound, and uploads the exact-SHA sanitized evidence for 14 days. Its triggers
-must remain `schedule` plus `workflow_dispatch`; adding PR or push ownership
-would duplicate the required representative gate.
+bound, and uploads the exact-SHA sanitized evidence for 14 days. The workflow
+also subscribes to pushes to `main` (BST-1582), but the exhaustive `verify` job
+is predicated off that event (`if: github.event_name != 'push'`) and must
+remain `schedule` plus `workflow_dispatch` only; running it on PRs or pushes
+would duplicate the required representative gate. The push trigger exists for
+the official conformance jobs below and carries a `paths-ignore` for `docs/**`
+and `**/*.md`, because a docs-only merge cannot regress client conformance.
 
 `scripts/run-mcp-verification.mjs` is an identity guard, not a planner. It
 derives `HEAD` and porcelain workspace state and under GitHub Actions requires
@@ -61,13 +65,35 @@ explicitly set to `protocol-lab-only`; they do not fabricate Electron or CDT
 proof. Desktop-required bundles remain the bounded implementation-ticket gate
 described in `assistant-providers.md`, outside the scheduled verifier loop.
 
-The same schedule/manual workflow has a separate
-`Official MCP auth conformance (advisory prerelease)` job. It builds the
-Desktop main-process runtime dependencies and bundle through the root command.
+The same workflow — which runs on every push to `main`, on the nightly
+schedule, and on manual dispatch — has a separate `Official MCP auth
+conformance` job. It builds the Desktop main-process runtime dependencies
+and bundle through the root command.
 
 ```bash
 pnpm run verify:mcp:official
 ```
+
+Since BST-1582 the three official jobs (`official_auth`, `official_core`,
+`official_modern_auth`) are **required post-merge gates**: none carries
+`continue-on-error`, so a single failing scenario fails the workflow and turns
+`main` red visibly. "Required" here is deliberately not the ruleset sense used
+for `test.yml`'s PR checks — a `push: branches: [main]` job runs after the
+merge and can never block one; it detects, it does not block. The entry
+condition for promotion was three consecutive exact-head green runs
+(33541373505, 33545728828, 33545945643). They deliberately run on `main`
+pushes rather than in the PR lane: three Electron-provisioned jobs cost
+roughly 30 runner-minutes, and a main-push gate bounds a regression to one
+merge instead of 24 hours. The workflow-level `concurrency` group with
+`cancel-in-progress: false` serializes overlapping main-push runs rather than
+cancelling them, so an intermediate merge commit is never silently skipped.
+
+Exit condition when it goes red: the merge that turned `main` red is fixed
+forward or reverted before the next MCP-touching merge, and the failing run
+URL is attached to that merge's ticket (working agreements, BST-1590). The
+official jobs live outside `test.yml`, so the `notify-main-failure` issue
+notifier does not yet cover them; whoever merges checks the workflow run on
+their own commit until BST-1591 extends notification to this workflow.
 
 Its combined build/run step has a seven-minute bound and its job an 11-minute
 bound (four-minute build, three-minute Electron provisioning, three-minute run,
@@ -75,9 +101,10 @@ one minute of workflow overhead). A bounded three-minute "Provision Electron
 binary" step runs before the suite: the conformance children execute the desktop
 dist entry, which requires the real Electron binary, and Electron has no install
 lifecycle — provisioning once prevents parallel children racing an on-demand
-download into EEXIST extraction failures. The job is explicitly `continue-on-error`: pinned
-`@modelcontextprotocol/conformance@0.2.0-alpha.10` remains prerelease evidence,
-not a required gate. Its runner executes the closed 28-case auth matrix without
+download into EEXIST extraction failures. Pinned
+`@modelcontextprotocol/conformance@0.2.0-alpha.10` remains prerelease
+software, and the evidence records `prerelease: true` alongside
+`required: true`. Its runner executes the closed 28-case auth matrix without
 `--expected-failures` or `--output-dir`, captures child output through a
 bounded line-boundary collector, sanitizes it (ANSI stripped; URL queries,
 OAuth parameters, and structured secret assignments redacted), prints a
@@ -86,7 +113,7 @@ only, and atomically emits only sanitized fixed-id/timing evidence at
 `packages/mcp-test-lab/artifacts/official-auth-evidence.json` — captured
 child output never enters the evidence file. The workflow
 uploads that file on both green and red scenario outcomes for 14 days under an
-exact-SHA artifact name. Missing evidence remains a visible advisory-job
+exact-SHA artifact name. Missing evidence is a visible job
 failure; raw official auth request/response artifacts are never uploaded.
 The parent driver provisions and validates Desktop's Electron runtime exactly
 once before it launches either parallel protocol wave; scenario processes must
@@ -96,8 +123,8 @@ own status and never inflates scenario failures. If evidence collection or its
 atomic write fails after conformance has already failed, the job preserves both
 causes rather than replacing the primary conformance failure.
 
-BST-1583 adds the independent advisory `Official MCP core conformance
-(advisory prerelease)` job. It runs the exact alpha.10 non-auth scenarios
+BST-1583 adds the independent required `Official MCP core conformance`
+job. It runs the exact alpha.10 non-auth scenarios
 applicable to each revision: four at `2025-11-25` and seven at `2026-07-28`.
 
 ```bash
@@ -108,11 +135,11 @@ The core job has the same bounded Electron provisioning, parallel-by-protocol
 execution, sanitized diagnostics, empty expected-failure ledgers, and 11-minute
 job budget as the baseline auth profile. It uploads only
 `packages/mcp-test-lab/artifacts/official-core-evidence.json` for 14 days under
-`mcp-official-core-${{ github.sha }}`. It remains advisory until BST-1582
-promotes the reviewed official jobs to required gates.
+`mcp-official-core-${{ github.sha }}`. BST-1582 promoted it, with the two
+auth jobs, to a required gate.
 
-BST-1576 adds a second independent advisory job,
-`Official MCP modern auth closeout (advisory prerelease)`. It runs:
+BST-1576 adds a second independent job, `Official MCP modern auth closeout`.
+It runs:
 
 ```bash
 pnpm run verify:mcp:official -- --profile modern-closeout
@@ -133,7 +160,8 @@ The ten-minute step is load-bearing math: 11 × 45-second scenario deadlines is
 persistence. The 21-minute job additionally reserves the four-minute build,
 the three-minute Electron provisioning step, and four minutes for workflow
 setup/upload. Shared typed descriptors and workflow
-contract tests pin these budgets; both jobs remain advisory.
+contract tests pin these budgets and the required posture of all three
+official jobs.
 
 ### Open PR to Linear conformance (BST-521)
 

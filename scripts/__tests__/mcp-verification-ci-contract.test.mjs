@@ -7,6 +7,7 @@ import { parse as parseYaml } from 'yaml';
 import { OFFICIAL_AUTH_CONFORMANCE_PROFILES } from '../../packages/assistant-contract/src/official-auth-conformance.ts';
 
 import { buildPlan, CI_GATE_PLAN_IDS } from '../check.mjs';
+import { buildOfficialAuthEvidence } from '../run-official-mcp-client-conformance.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const readRepoFile = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -17,6 +18,7 @@ const exhaustiveCommand =
 const officialBaselineCommand = 'pnpm run verify:mcp:official';
 const officialCoreCommand = 'pnpm run verify:mcp:official -- --profile core';
 const officialModernCommand = 'pnpm run verify:mcp:official -- --profile modern-closeout';
+const officialJobIds = ['official_auth', 'official_core', 'official_modern_auth'];
 const officialGreenRunUrls = [
   'https://github.com/seandearnaley/brainstrike/actions/runs/33541373505',
   'https://github.com/seandearnaley/brainstrike/actions/runs/33545728828',
@@ -48,11 +50,29 @@ test('required PR Static and the local check consume the representative command'
   ]);
 });
 
-test('exhaustive verification is schedule and manual only with bounded artifact retention', () => {
+test('verification runs on main pushes, schedule, and manual dispatch with bounded artifact retention', () => {
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
-  assert.deepEqual(Object.keys(workflow.on).sort(), ['schedule', 'workflow_dispatch']);
+  assert.deepEqual(Object.keys(workflow.on).sort(), ['push', 'schedule', 'workflow_dispatch']);
+  // BST-1582: main pushes run only the official conformance jobs; docs-only
+  // merges cannot regress client conformance and skip the workflow entirely.
+  assert.deepEqual(workflow.on.push, {
+    branches: ['main'],
+    'paths-ignore': ['docs/**', '**/*.md'],
+  });
   assert.equal(workflow.on.schedule.length, 1);
   assert.deepEqual(workflow.permissions, { contents: 'read' });
+  // Overlapping main-push runs serialize instead of cancelling: a cancelled run
+  // would silently skip the gate for an intermediate merge commit.
+  assert.deepEqual(workflow.concurrency, {
+    'cancel-in-progress': false,
+    group: `${'$'}{{ github.workflow }}-${'$'}{{ github.ref }}`,
+  });
+  // The exhaustive lane stays schedule/manual; the PR-lane representative
+  // profile already covers every merge.
+  assert.equal(workflow.jobs.verify.if, `${'$'}{{ github.event_name != 'push' }}`);
+  for (const jobId of officialJobIds) {
+    assert.equal(workflow.jobs[jobId].if, undefined, `${jobId} must run on main pushes`);
+  }
   assert.equal(workflow.jobs.verify['timeout-minutes'], 10);
 
   const verifyStep = findStep(workflow, 'verify', 'Run exhaustive MCP verification');
@@ -73,12 +93,13 @@ test('exhaustive verification is schedule and manual only with bounded artifact 
   assert.equal(uploadStep.with['retention-days'], 14);
 });
 
-test('official prerelease auth conformance is a bounded advisory job with sanitized evidence', () => {
+test('official auth conformance is a bounded required job with sanitized evidence', () => {
   const descriptor = OFFICIAL_AUTH_CONFORMANCE_PROFILES.baseline;
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
   const job = workflow.jobs.official_auth;
   assert.ok(job);
-  assert.equal(job['continue-on-error'], true);
+  // BST-1582: the official suites are required gates; a scenario failure fails the workflow.
+  assert.equal(job['continue-on-error'], undefined);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
   const provisionStep = findStep(workflow, 'official_auth', 'Provision Electron binary');
@@ -111,12 +132,13 @@ test('official prerelease auth conformance is a bounded advisory job with saniti
   assert.doesNotMatch(source, /'--output-dir'/u);
 });
 
-test('modern-only auth closeout is an independent bounded advisory job', () => {
+test('modern-only auth closeout is an independent bounded required job', () => {
   const descriptor = OFFICIAL_AUTH_CONFORMANCE_PROFILES['modern-closeout'];
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
   const job = workflow.jobs.official_modern_auth;
   assert.ok(job);
-  assert.equal(job['continue-on-error'], true);
+  // BST-1582: the official suites are required gates; a scenario failure fails the workflow.
+  assert.equal(job['continue-on-error'], undefined);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
   const provisionStep = findStep(workflow, 'official_modern_auth', 'Provision Electron binary');
@@ -151,12 +173,13 @@ test('modern-only auth closeout is an independent bounded advisory job', () => {
   assert.equal(uploadStep.with['retention-days'], 14);
 });
 
-test('official core conformance is an independent bounded advisory job', () => {
+test('official core conformance is an independent bounded required job', () => {
   const descriptor = OFFICIAL_AUTH_CONFORMANCE_PROFILES.core;
   const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
   const job = workflow.jobs.official_core;
   assert.ok(job);
-  assert.equal(job['continue-on-error'], true);
+  // BST-1582: the official suites are required gates; a scenario failure fails the workflow.
+  assert.equal(job['continue-on-error'], undefined);
   assert.equal(job['timeout-minutes'], descriptor.jobTimeoutMinutes);
 
   const provisionStep = findStep(workflow, 'official_core', 'Provision Electron binary');
@@ -176,6 +199,29 @@ test('official core conformance is an independent bounded advisory job', () => {
   assert.equal(uploadStep.with.path, descriptor.evidencePath);
   assert.equal(uploadStep.with['if-no-files-found'], 'error');
   assert.equal(uploadStep.with['retention-days'], 14);
+});
+
+test('evidence `required` mirrors the absence of continue-on-error on every official job', () => {
+  // BST-1582: the evidence field must stay falsifiable against the workflow,
+  // not against a second copy of the same intent. Demoting a job back to
+  // advisory without touching the evidence claim fails here.
+  const workflow = parseYaml(readRepoFile('.github/workflows/mcp-verification.yml'));
+  const evidence = buildOfficialAuthEvidence({
+    completedAt: '2026-09-01T00:00:01.000Z',
+    git: { clean: true, head: 'a'.repeat(40) },
+    ledgers: {},
+    report: { failureIds: [], waves: [] },
+    startedAt: '2026-09-01T00:00:00.000Z',
+  });
+  for (const jobId of officialJobIds) {
+    const job = workflow.jobs[jobId];
+    assert.ok(job, `missing job ${jobId}`);
+    assert.equal(
+      evidence.conformance.required,
+      job['continue-on-error'] === undefined,
+      `${jobId} gate posture disagrees with the evidence \`required\` claim`
+    );
+  }
 });
 
 test('PR and exhaustive lanes use the same command apart from profile and output', () => {
