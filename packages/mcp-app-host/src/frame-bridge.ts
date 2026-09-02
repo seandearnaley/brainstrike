@@ -7,14 +7,13 @@ import {
   type McpAppFrameSessionPhase,
   type McpAppFrameSource,
 } from './frame-session.js';
-import { type McpAppResponse, parseMcpAppResponse } from './json-rpc.js';
+import { correlationKey, parsePositiveSafeInteger, toError } from './internal.js';
+import { McpAppRequestCorrelator, type McpAppResponse, parseMcpAppResponse } from './json-rpc.js';
 import type { McpAppMessage } from './messages.js';
 import { parseMcpAppJsonValue, parseMcpAppMessage } from './messages.js';
 import type { UnknownRecord } from './validation.js';
 
 const MAX_PENDING_NOTIFICATIONS = 256;
-const MAX_PENDING_REQUESTS = 256;
-const MAX_REQUEST_IDS_PER_FRAME = 4096;
 
 export type { McpAppFrameBinding, McpAppFrameEventTarget, McpAppFrameSource };
 
@@ -73,23 +72,8 @@ interface OutboundOperation {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
-function parsePositiveSafeInteger(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new TypeError(`${label} must be a positive safe integer`);
-  }
-  return value;
-}
-
 function parseTimeout(value: number | undefined): number {
   return parsePositiveSafeInteger(value ?? 10_000, 'MCP Apps bridge timeout');
-}
-
-function correlationKey(id: number | string): string {
-  return `${typeof id}:${id}`;
-}
-
-function toError(value: unknown, message: string): Error {
-  return value instanceof Error ? value : new Error(message, { cause: value });
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -171,12 +155,14 @@ export class McpAppFrameRemoteError extends Error {
 
 export class McpAppFrameBridge {
   readonly #inbound = new Map<string, InboundOperation>();
+  /** Id admission (pending cap, one-shot ids) for requests the app sends. */
+  readonly #inboundIds = new McpAppRequestCorrelator();
   readonly #notifications = new Set<NotificationOperation>();
   readonly #onNotification: McpAppFrameBridgeOptions['onNotification'];
   readonly #onRequest: McpAppFrameBridgeOptions['onRequest'];
   readonly #outbound = new Map<string, OutboundOperation>();
-  readonly #seenInboundIds = new Set<string>();
-  readonly #seenOutboundIds = new Set<string>();
+  /** Id admission and response settlement for requests the host sends. */
+  readonly #outboundIds = new McpAppRequestCorrelator();
   readonly #session: McpAppFrameSession;
   readonly #timeoutMs: number;
 
@@ -232,35 +218,29 @@ export class McpAppFrameBridge {
     this.#session.post(generation, message);
   }
 
+  /** Every precondition failure is a rejection; this method never throws synchronously. */
   sendRequest(
     value: unknown,
     options: Readonly<{ signal?: AbortSignal }> = {}
   ): Promise<Readonly<UnknownRecord>> {
-    const generation = this.#session.requireReadyGeneration();
-    const message = parseMcpAppMessage(value, 'host-to-app');
-    if (message.id === undefined) {
-      throw new TypeError('MCP Apps host request must contain an id');
-    }
+    let generation: number;
+    let message: McpAppMessage;
+    let id: number | string;
     const signal = options.signal;
-    if (signal?.aborted === true) {
-      return Promise.reject(abortReason(signal));
+    try {
+      generation = this.#session.requireReadyGeneration();
+      message = parseMcpAppMessage(value, 'host-to-app');
+      if (message.id === undefined) {
+        throw new TypeError('MCP Apps host request must contain an id');
+      }
+      if (signal?.aborted === true) {
+        throw abortReason(signal);
+      }
+      id = this.#outboundIds.register(message.id);
+    } catch (cause: unknown) {
+      return Promise.reject(cause);
     }
-    if (this.#outbound.size >= MAX_PENDING_REQUESTS) {
-      throw new TypeError(`MCP Apps bridge exceeds ${MAX_PENDING_REQUESTS} pending requests`);
-    }
-    const key = correlationKey(message.id);
-    if (this.#outbound.has(key)) {
-      throw new TypeError(`MCP Apps request id ${JSON.stringify(message.id)} is already pending`);
-    }
-    if (this.#seenOutboundIds.has(key)) {
-      throw new TypeError(`MCP Apps request id ${JSON.stringify(message.id)} was already used`);
-    }
-    if (this.#seenOutboundIds.size >= MAX_REQUEST_IDS_PER_FRAME) {
-      throw new TypeError(
-        `MCP Apps frame exceeds ${MAX_REQUEST_IDS_PER_FRAME} one-shot outbound request ids`
-      );
-    }
-    this.#seenOutboundIds.add(key);
+    const key = correlationKey(id);
 
     return new Promise((resolve, reject) => {
       const finish = (reason?: Error): void => {
@@ -269,6 +249,7 @@ export class McpAppFrameBridge {
           return;
         }
         this.#outbound.delete(key);
+        this.#outboundIds.cancel(id);
         clearTimeout(operation.timer);
         if (operation.signal !== undefined && operation.abortListener !== undefined) {
           operation.signal.removeEventListener('abort', operation.abortListener);
@@ -321,20 +302,10 @@ export class McpAppFrameBridge {
     if (message.id === undefined) {
       throw new TypeError('MCP Apps request is missing its id');
     }
-    const key = correlationKey(message.id);
-    if (this.#seenInboundIds.has(key)) {
-      throw new TypeError(`MCP Apps request id ${JSON.stringify(message.id)} was replayed`);
-    }
-    if (this.#seenInboundIds.size >= MAX_REQUEST_IDS_PER_FRAME) {
-      throw new TypeError(
-        `MCP Apps frame exceeds ${MAX_REQUEST_IDS_PER_FRAME} one-shot request ids`
-      );
-    }
-    if (this.#inbound.size >= MAX_PENDING_REQUESTS) {
-      throw new TypeError(`MCP Apps bridge exceeds ${MAX_PENDING_REQUESTS} inbound requests`);
-    }
-    this.#seenInboundIds.add(key);
-    this.#dispatchRequest(message, key, claim, message.id);
+    // One-shot ids and the pending cap are the correlator's contract: a
+    // replayed id is "already used", a live duplicate "already pending".
+    const id = this.#inboundIds.register(message.id);
+    this.#dispatchRequest(message, correlationKey(id), claim, id);
   }
 
   #dispatchRequest(
@@ -444,6 +415,7 @@ export class McpAppFrameBridge {
       return false;
     }
     this.#inbound.delete(operation.key);
+    this.#inboundIds.cancel(operation.id);
     clearTimeout(operation.timer);
     return true;
   }
@@ -508,10 +480,9 @@ export class McpAppFrameBridge {
 
   #receiveResponse(value: unknown, generation: number): void {
     this.#session.assertGeneration(generation);
-    const response = parseMcpAppResponse(value);
-    // The canonical contract lets an error response carry `id: null` when the
-    // request id was unreadable; such a reply cannot be correlated, so it is a
-    // protocol violation here rather than something to drop silently.
+    // settle() validates the reply, rejects an id-less error response (it
+    // cannot be correlated), and releases the pending id, or throws.
+    const response = this.#outboundIds.settle(value);
     if (response.id === null) {
       throw new TypeError('MCP Apps error response without a request id cannot be correlated');
     }
@@ -559,7 +530,7 @@ export class McpAppFrameBridge {
       operation.reject(reason);
     }
     this.#outbound.clear();
-    this.#seenInboundIds.clear();
-    this.#seenOutboundIds.clear();
+    this.#inboundIds.reset();
+    this.#outboundIds.reset();
   }
 }

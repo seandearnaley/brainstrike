@@ -1,3 +1,5 @@
+import { parsePositiveSafeInteger, toError } from './internal.js';
+
 const OPAQUE_FRAME_ORIGIN = 'null';
 
 export type McpAppFrameSessionPhase =
@@ -58,17 +60,6 @@ export interface McpAppFrameSessionOptions {
   readonly onMessage: (value: unknown, context: McpAppFrameSessionMessageContext) => void;
   readonly onProtocolError: (error: Error) => void;
   readonly onTeardown: (reason: Error) => void;
-}
-
-function parsePositiveSafeInteger(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new TypeError(`${label} must be a positive safe integer`);
-  }
-  return value;
-}
-
-function toError(value: unknown, message: string): Error {
-  return value instanceof Error ? value : new Error(message, { cause: value });
 }
 
 export class McpAppFrameSession {

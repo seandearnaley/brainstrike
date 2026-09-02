@@ -1,3 +1,4 @@
+import { correlationKey } from './internal.js';
 import { parseMcpAppJsonRecord, parseMcpAppJsonValue, parseMcpAppRequestId } from './messages.js';
 import {
   expectEncodedSize,
@@ -72,10 +73,6 @@ export function parseMcpAppResponse(value: unknown): McpAppResponse {
 const MAX_PENDING_REQUESTS = 256;
 const MAX_REQUEST_IDS_PER_CORRELATOR = 4096;
 
-function correlationKey(id: number | string): string {
-  return `${typeof id}:${id}`;
-}
-
 export class McpAppRequestCorrelator {
   readonly #pending = new Set<string>();
   readonly #seen = new Set<string>();
@@ -135,6 +132,12 @@ export class McpAppRequestCorrelator {
   /** Releases every pending request; used on transport close. */
   clear(): void {
     this.#pending.clear();
+  }
+
+  /** Forgets pending AND one-shot ids: a new frame binding starts a fresh id space. */
+  reset(): void {
+    this.#pending.clear();
+    this.#seen.clear();
   }
 
   #releaseRecoverableId(value: unknown): void {

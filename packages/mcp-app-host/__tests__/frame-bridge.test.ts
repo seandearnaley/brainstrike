@@ -171,7 +171,9 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
     await expect(textual).resolves.toEqual({ kind: 'text' });
     await expect(numeric).resolves.toEqual({ kind: 'number' });
 
-    let reuseError: unknown;
+    // sendRequest never throws synchronously: every precondition failure,
+    // including a one-shot id reuse, is a rejection.
+    let threw = false;
     let reused: Promise<Readonly<Record<string, unknown>>> | undefined;
     try {
       reused = bridge.sendRequest({
@@ -180,16 +182,14 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
         method: 'ui/resource-teardown',
         params: {},
       });
-    } catch (error: unknown) {
-      reuseError = error;
+    } catch {
+      threw = true;
     }
-    if (reused !== undefined) {
-      bridge.close();
-      await expect(reused).rejects.toThrow(/closed/);
-    }
-    expect(reuseError).toEqual(
-      expect.objectContaining({ message: expect.stringMatching(/already used/) })
-    );
+    expect(threw).toBe(false);
+    await expect(reused).rejects.toThrow(/already used/);
+    await expect(
+      bridge.sendRequest({ jsonrpc: '2.0', method: 'ui/resource-teardown', params: {} })
+    ).rejects.toThrow(/id/u);
 
     target.dispatch(frame, {
       id: 'denied',

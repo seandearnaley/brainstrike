@@ -183,15 +183,19 @@ test('MCP Apps bridge is quiescent in genuinely packaged Electron', async () => 
             await waitFor('bound-frame failure',()=>bridge.snapshot.phase==='disconnected');
             const afterFailure=bridge.snapshot;
 
-            bridge.connect({generation:2,origin:'null',source:second.contentWindow});
-            second.srcdoc=${JSON.stringify(input.secondHtml)};
+            // A reconnect after teardown needs a newer generation AND a fresh
+            // source (McpAppFrameSession freshness guards).
+            liveGeneration=3;
+            const reconnected=createFrame();
+            bridge.connect({generation:3,origin:'null',source:reconnected.contentWindow});
+            reconnected.srcdoc=${JSON.stringify(input.secondHtml)};
             await waitFor('reconnect handshake',()=>bridge.snapshot.phase==='ready');
             bridge.disconnect();
             const afterDisconnect=bridge.snapshot;
 
-            liveGeneration=3;
+            liveGeneration=4;
             const third=createFrame();
-            bridge.connect({generation:3,origin:'null',source:third.contentWindow});
+            bridge.connect({generation:4,origin:'null',source:third.contentWindow});
             third.srcdoc=${JSON.stringify(input.thirdHtml)};
             await waitFor('final handshake',()=>bridge.snapshot.phase==='ready');
             bridge.close();
