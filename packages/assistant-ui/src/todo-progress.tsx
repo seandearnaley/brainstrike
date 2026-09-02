@@ -11,8 +11,10 @@ import {
   type AssistantTaskStatus,
   type ManageTaskListResult,
   NATIVE_TOOL_ID,
+  readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
+import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
   SUBAGENT_TOOL_CARDS,
@@ -139,6 +141,14 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({ args, argsText,
 const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
   if (isSubagentDelegationToolName(props.toolName)) {
     return <SubagentDelegationCard {...props} />;
+  }
+  // BST-1566: a task-producing MCP tool persists the `{ kind: 'mcp-task' }`
+  // marker as its raw result. Tool names are server-defined, so the branch is
+  // on the result shape (exact-match reader), never a `by_name` entry.
+  const mcpTask =
+    props.result === undefined ? undefined : readMcpTaskToolInvocationResult(props.result);
+  if (mcpTask) {
+    return <McpTaskToolResult snapshot={mcpTask} />;
   }
   return <ToolFallback {...props} />;
 };

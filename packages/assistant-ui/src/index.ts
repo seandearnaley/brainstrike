@@ -59,7 +59,13 @@ export {
   useFollowUpQueueStore,
 } from './follow-up-queue-store';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
+export {
+  McpTaskBridgeProvider,
+  type McpTaskBridgeProviderProps,
+  useMcpTaskBridge,
+} from './mcp-task-bridge-context';
 export { McpTaskStatusCard, type McpTaskStatusCardProps } from './mcp-task-status-card';
+export { McpTaskToolResult, type McpTaskToolResultProps } from './mcp-task-tool-result';
 export {
   MessageRewindAction,
   REWIND_ACTION_LABEL,

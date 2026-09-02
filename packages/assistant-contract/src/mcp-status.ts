@@ -58,12 +58,13 @@ export const MCP_SUPPORT_MATRIX = [
     status: 'unsupported',
   },
   {
-    evidence: 'No complete durable task host is registered.',
+    evidence:
+      'Desktop main registers the Tasks wire contracts on stdio and streamable-http connections and runs the durable task host: repository handles, the sole-authority poller, mid-flight input and cancellation, and renderer status cards. Legacy sse connections register no extensions.',
     id: 'io.modelcontextprotocol/tasks',
-    implementationTicket: 'BST-1473',
+    implementationTicket: 'BST-1566',
     kind: 'extension',
     label: 'MCP Tasks',
-    status: 'unsupported',
+    status: 'supported',
   },
   {
     evidence: 'No machine-to-machine credential host is registered.',

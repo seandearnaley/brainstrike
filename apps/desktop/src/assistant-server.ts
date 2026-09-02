@@ -705,6 +705,7 @@ async function handleAssistantPost(
           logger,
           mcpConfig: undefined,
           mcpHost: getDesktopMcpHostRuntime().host,
+          mcpTaskTracking: getDesktopMcpHostRuntime().taskHost,
           messages: core.messages,
           resolveProviderApiKey,
           runId: core.runId,

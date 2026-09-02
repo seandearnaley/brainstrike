@@ -1,8 +1,10 @@
 import type {
   ExplicitHttpMcpClient,
   ExplicitHttpMcpSubscription,
+  McpClientExtensionRegistry,
   McpServerFeatureEventHandlers,
 } from '@brainstrike/agent/mcp-client';
+import { MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT } from '@brainstrike/agent/mcp-client';
 import type {
   McpHostCatalog,
   McpHostCatalogSection,
@@ -32,6 +34,8 @@ export interface McpCoreFeatureClient {
   ): Promise<unknown>;
   listTools(...args: Parameters<ExplicitHttpMcpClient['listTools']>): Promise<unknown>;
   readResource(...args: Parameters<ExplicitHttpMcpClient['readResource']>): Promise<unknown>;
+  /** Registered-extension dispatch; required when `extensionRegistry` registers Tasks. */
+  requestExtension?: ExplicitHttpMcpClient['requestExtension'];
   subscribeResource(...args: Parameters<ExplicitHttpMcpClient['subscribeResource']>): Promise<void>;
   unsubscribeResource(
     ...args: Parameters<ExplicitHttpMcpClient['unsubscribeResource']>
@@ -48,6 +52,14 @@ type CatalogListOperation = Extract<
 >;
 interface McpCoreServerFeaturesOptions {
   backoff?: Backoff;
+  /**
+   * The connection's sealed extension registry (BST-1566). When it registers
+   * MCP Tasks and the server advertises the extension, `tools/call` dispatches
+   * through the registered task-result contract: on the pinned 2026-07-28
+   * client a core `callTool` answer with `resultType: 'task'` is rejected by
+   * the SDK funnel, so a task can only arrive on the registered path.
+   */
+  extensionRegistry?: McpClientExtensionRegistry | undefined;
   onCatalogChanged?: ((catalog: McpHostCatalog) => void) | undefined;
   onInternalError?: ((code: string, cause: unknown) => void) | undefined;
   signal?: AbortSignal | undefined;
@@ -58,6 +70,13 @@ interface CloseProof {
 }
 
 const MAX_RELISTEN_ATTEMPTS = 3;
+const MCP_TASKS_EXTENSION_ID = 'io.modelcontextprotocol/tasks';
+
+function serverAdvertisesTasks(client: McpCoreFeatureClient): boolean {
+  const capabilities = client.getServerCapabilities();
+  const extensions = isRecord(capabilities) ? capabilities['extensions'] : undefined;
+  return isRecord(extensions) && Object.hasOwn(extensions, MCP_TASKS_EXTENSION_ID);
+}
 const RELISTEN_DELAYS_MS = [100, 250, 500] as const;
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -151,6 +170,7 @@ export class McpCoreServerFeatures {
   private catalog: McpHostCatalog;
   private closePromise: Promise<CloseProof> | undefined;
   private currentSubscription: ExplicitHttpMcpSubscription | undefined;
+  private readonly extensionRegistry: McpClientExtensionRegistry | undefined;
   private initialized = false;
   private listenTail: Promise<void> = Promise.resolve();
   private readonly onCatalogChanged: (catalog: McpHostCatalog) => void;
@@ -167,6 +187,7 @@ export class McpCoreServerFeatures {
     options: McpCoreServerFeaturesOptions = {}
   ) {
     this.backoff = options.backoff ?? defaultBackoff;
+    this.extensionRegistry = options.extensionRegistry;
     this.onCatalogChanged = options.onCatalogChanged ?? (() => undefined);
     this.onInternalError = options.onInternalError ?? (() => undefined);
     this.signal = options.signal
@@ -235,6 +256,62 @@ export class McpCoreServerFeatures {
     return parseMcpHostCatalog(structuredClone(this.catalog));
   }
 
+  private tasksRegistered(): boolean {
+    return (
+      this.extensionRegistry?.toClientExtensionCapabilities()?.[MCP_TASKS_EXTENSION_ID] !==
+      undefined
+    );
+  }
+
+  private invokeToolCall(
+    operation: Extract<McpHostOperation, { type: 'tools/call' }>,
+    options: McpHostInvokeOptions,
+    normalizedOptions: ReturnType<typeof requestOptions>
+  ): Promise<unknown> {
+    if (this.tasksRegistered() && serverAdvertisesTasks(this.client)) {
+      return this.callToolThroughTasks(operation, normalizedOptions);
+    }
+    return this.client.callTool(
+      {
+        ...(operation._meta === undefined ? {} : { _meta: operation._meta }),
+        ...(operation.arguments === undefined ? {} : { arguments: operation.arguments }),
+        name: operation.toolName,
+        ...(operation.task === undefined ? {} : { task: operation.task }),
+      },
+      {
+        ...(options.onProgress === undefined ? {} : { onprogress: options.onProgress }),
+        resetTimeoutOnProgress: true,
+        ...normalizedOptions,
+      }
+    );
+  }
+
+  private callToolThroughTasks(
+    operation: Extract<McpHostOperation, { type: 'tools/call' }>,
+    normalizedOptions: ReturnType<typeof requestOptions>
+  ): Promise<unknown> {
+    const { requestExtension } = this.client;
+    if (typeof requestExtension !== 'function') {
+      throw new Error(
+        `MCP tool "${operation.toolName}" needs registered-extension dispatch but the client has none.`
+      );
+    }
+    if (operation._meta !== undefined || operation.task !== undefined) {
+      throw new Error(
+        `MCP tool "${operation.toolName}" cannot carry _meta or task on the MCP Tasks call path.`
+      );
+    }
+    return requestExtension.call(
+      this.client,
+      MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+      {
+        ...(operation.arguments === undefined ? {} : { arguments: operation.arguments }),
+        name: operation.toolName,
+      },
+      normalizedOptions
+    );
+  }
+
   async invoke(operation: McpHostOperation, options: McpHostInvokeOptions): Promise<unknown> {
     const normalizedOptions = requestOptions(options, this.signal);
     if (isCatalogListOperation(operation)) {
@@ -242,19 +319,7 @@ export class McpCoreServerFeatures {
     }
     switch (operation.type) {
       case 'tools/call':
-        return this.client.callTool(
-          {
-            ...(operation._meta === undefined ? {} : { _meta: operation._meta }),
-            ...(operation.arguments === undefined ? {} : { arguments: operation.arguments }),
-            name: operation.toolName,
-            ...(operation.task === undefined ? {} : { task: operation.task }),
-          },
-          {
-            ...(options.onProgress === undefined ? {} : { onprogress: options.onProgress }),
-            resetTimeoutOnProgress: true,
-            ...normalizedOptions,
-          }
-        );
+        return this.invokeToolCall(operation, options, normalizedOptions);
       case 'resources/read':
         return this.client.readResource(
           {

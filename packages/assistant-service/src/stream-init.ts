@@ -170,11 +170,12 @@ function buildInitialStreamMemoryOptions(
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
   webExtractInlineMaxSerializedChars: number,
   authInput: ProviderAuthInput | undefined,
-  mcpHost: McpHostPort | undefined
+  hosts: { [K in 'mcpHost' | 'mcpTaskTracking']: AssistantStreamRuntimeOptions[K] | undefined }
 ): InitialStreamMemoryOptions {
   return {
     ...(authInput ? { authInput } : {}),
-    ...(mcpHost ? { mcpHost } : {}),
+    ...(hosts.mcpHost ? { mcpHost: hosts.mcpHost } : {}),
+    ...(hosts.mcpTaskTracking ? { mcpTaskTracking: hosts.mcpTaskTracking } : {}),
     ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
     ...(toolOutputArtifactStore
       ? {
@@ -748,6 +749,7 @@ export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKind
   readonly logger: ScopedLogger;
   readonly mcpConfig: McpConfig | undefined;
   readonly mcpHost?: McpHostPort;
+  readonly mcpTaskTracking?: AssistantStreamRuntimeOptions['mcpTaskTracking'];
   // Deliberately the mutable array type: this exact array is handed through
   // runUserPromptSubmitGate and resolveInitialAgentStream into
   // @brainstrike/agent's toAiSdkStyleStream, whose signature is AgentMessage[].
@@ -779,6 +781,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     authInput,
     mcpConfig,
     mcpHost,
+    mcpTaskTracking,
     signal,
     runId,
     toolApprovalAction,
@@ -1005,7 +1008,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
         resolvedToolResultBudget.domainModelResultCharBudget
       ),
       authInput,
-      mcpHost
+      { mcpHost, mcpTaskTracking }
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/

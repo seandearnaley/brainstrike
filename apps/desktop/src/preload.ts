@@ -17,6 +17,12 @@ type McpElicitationRetiredWire =
   import('@brainstrike/assistant-contract').McpElicitationRetiredWire;
 type McpElicitationSettlement = import('@brainstrike/assistant-contract').McpElicitationSettlement;
 type McpHostWatchEvent = import('@brainstrike/assistant-contract').McpHostWatchEvent;
+type McpTaskActionRequest = import('@brainstrike/assistant-contract').McpTaskActionRequest;
+type McpTaskActionResult = import('@brainstrike/assistant-contract').McpTaskActionResult;
+type McpTaskBridge = import('@brainstrike/assistant-contract').McpTaskBridge;
+type McpTaskListResult = import('@brainstrike/assistant-contract').McpTaskListResult;
+type McpTaskStatusChangedEvent =
+  import('@brainstrike/assistant-contract').McpTaskStatusChangedEvent;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -278,6 +284,9 @@ const MCP_CONFIG_CREATE_SAMPLE_CHANNEL = 'mcp:config:createSample' as const;
 const MCP_ELICITATION_REQUESTED_EVENT = 'mcp:elicitation:requested' as const;
 const MCP_ELICITATION_RETIRED_EVENT = 'mcp:elicitation:retired' as const;
 const MCP_ELICITATION_SETTLE_CHANNEL = 'mcp:elicitation:settle' as const;
+const MCP_TASK_ACT_CHANNEL = 'mcp:task:act' as const;
+const MCP_TASK_LIST_CHANNEL = 'mcp:task:list' as const;
+const MCP_TASK_STATUS_CHANGED_EVENT = 'mcp:task:status-changed' as const;
 const MCP_TOOLS_LIST_CHANNEL = 'mcp:tools:list' as const;
 const MCP_TOOLS_ENABLE_CHANNEL = 'mcp:tools:enable' as const;
 const MCP_TOOLS_DISABLE_CHANNEL = 'mcp:tools:disable' as const;
@@ -952,6 +961,19 @@ contextBridge.exposeInMainWorld('mcp', {
     ipcRenderer.invoke(MCP_CONFIG_SET_PATH_CHANNEL, configPath),
   settleElicitation: (settlement: McpElicitationSettlement) =>
     ipcRenderer.invoke(MCP_ELICITATION_SETTLE_CHANNEL, settlement),
+  // Durable MCP Tasks (BST-1566): visible UI only; hidden hosts never receive it.
+  tasks: {
+    act: (request: McpTaskActionRequest): Promise<McpTaskActionResult> =>
+      ipcRenderer.invoke(MCP_TASK_ACT_CHANNEL, request),
+    list: (): Promise<McpTaskListResult> => ipcRenderer.invoke(MCP_TASK_LIST_CHANNEL),
+    onStatusChanged: (callback: (event: McpTaskStatusChangedEvent) => void) => {
+      const listener = (_event: unknown, event: McpTaskStatusChangedEvent) => callback(event);
+      ipcRenderer.on(MCP_TASK_STATUS_CHANGED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(MCP_TASK_STATUS_CHANGED_EVENT, listener);
+      };
+    },
+  } satisfies McpTaskBridge,
   unwatch: () => ipcRenderer.invoke(MCP_CONFIG_UNWATCH_CHANNEL),
   watch: () => ipcRenderer.invoke(MCP_CONFIG_WATCH_CHANNEL),
   writeConfigText: (content: string) => ipcRenderer.invoke(MCP_CONFIG_WRITE_TEXT_CHANNEL, content),

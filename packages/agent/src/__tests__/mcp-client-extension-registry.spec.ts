@@ -1,4 +1,3 @@
-import { MCP_SUPPORT_MATRIX } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
@@ -89,12 +88,10 @@ function registerUntrusted(registry: McpClientExtensionRegistry, registration: u
 
 describe('McpClientExtensionRegistry', () => {
   it('advertises no extensions by default', () => {
-    const capabilities = new McpClientExtensionRegistry().toClientExtensionCapabilities();
-    const supportedProductIds = MCP_SUPPORT_MATRIX.filter(
-      ({ kind, status }) => kind === 'extension' && status === 'supported'
-    ).map(({ id }) => id);
-    expect(capabilities).toBeUndefined();
-    expect(supportedProductIds).toEqual(Object.keys(capabilities ?? {}));
+    // Matrix truthfulness (supported extension ids == what the production
+    // resolver advertises) is gated against createDefaultMcpExtensionRegistry
+    // in apps/desktop/src/__tests__/main/mcp-host-runtime-tasks.test.ts.
+    expect(new McpClientExtensionRegistry().toClientExtensionCapabilities()).toBeUndefined();
   });
 
   it('projects only a registered implementation with the exact version and settings', () => {

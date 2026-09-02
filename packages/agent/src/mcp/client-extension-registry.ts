@@ -63,6 +63,21 @@ export interface McpClientExtensionContract<
 
 export const REGISTERED_EXTENSION_RESULT_KEY = 'io.brainstrike/registeredExtensionResult' as const;
 
+/**
+ * Inverse of {@link McpClientExtensionRegistry.rewriteIncomingMessage}: returns
+ * the original extension result carried inside the registry's neutral
+ * `complete` envelope, or `undefined` for any value that is not that envelope.
+ */
+export function readRegisteredExtensionResult(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return;
+  }
+  if (!Object.hasOwn(value, REGISTERED_EXTENSION_RESULT_KEY)) {
+    return;
+  }
+  return Reflect.get(value, REGISTERED_EXTENSION_RESULT_KEY);
+}
+
 export interface McpClientExtensionRegistration<
   Version extends string,
   Settings extends JSONObject,

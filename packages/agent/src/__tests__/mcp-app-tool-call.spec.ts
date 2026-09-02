@@ -69,6 +69,7 @@ async function compose(options: {
           } as ToolsInput),
     mcpConfig: undefined,
     mcpHost: options.mcpHost,
+    mcpTaskTracking: undefined,
     mcpTimeoutMs: undefined,
     permissionSnapshot: policy(options.decision, options.riskCategory),
     planModeActive: options.planModeActive ?? false,

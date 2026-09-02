@@ -12,6 +12,7 @@ import type {
   McpHostServerSnapshot,
   McpHostSnapshot,
   McpHostWatchEvent,
+  McpTaskBridge,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
@@ -515,6 +516,8 @@ declare global {
       ) => () => void;
       onElicitationRetired: (callback: (retired: McpElicitationRetiredWire) => void) => () => void;
       settleElicitation: (settlement: McpElicitationSettlement) => Promise<void>;
+      /** Durable MCP Tasks bridge (BST-1566); present on the visible-UI preload only. */
+      tasks?: McpTaskBridge;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{

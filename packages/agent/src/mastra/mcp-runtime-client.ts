@@ -15,9 +15,17 @@ import type {
   ExplicitHttpMcpRequestOptions,
   ExplicitHttpMcpTool,
 } from '../mcp/explicit-http-client';
+import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
 import type { StreamChunk } from '../types';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
+import {
+  createMcpTaskToolTracking,
+  type McpTaskToolTracking,
+  projectMcpTaskToolModelOutput,
+  readMcpCreatedTaskResult,
+  settleMcpTaskToolResult,
+} from './mcp-task-tool-result';
 
 const logger = createLogger('MastraAgentMcpRuntimeClient');
 const rawCallToolResultSignals = new WeakSet<AbortSignal>();
@@ -65,11 +73,24 @@ interface OfficialSdkMcpClientLike {
 export interface CreateMcpRuntimeClientOptions {
   config: McpConfigInput | undefined;
   host?: McpHostPort;
+  /**
+   * Host-owned MCP Tasks tracking (BST-1566). Absent keeps every tool call
+   * synchronous and makes a task-creating result a hard error — never a
+   * silently unpersisted task.
+   */
+  mcpTaskTracking?: McpTaskTrackingCapability;
+  /**
+   * The tool guard ceiling the settlement wait is capped under. Required
+   * whenever `mcpTaskTracking` is present so the wait can never outlive the
+   * guard that would otherwise time the whole call out.
+   */
+  toolTimeoutMs?: number;
 }
 
 interface TransportOwnedServerClient {
   client: OfficialSdkMcpClientLike;
   server: { enabledTools?: string[]; name: string };
+  taskTracking: McpTaskToolTracking | undefined;
 }
 
 function createHostClient(
@@ -176,12 +197,14 @@ export async function createMcpRuntimeClient(
   if (servers.length === 0) {
     return;
   }
+  const taskTracking = resolveTaskTracking(options);
   const serverClients: TransportOwnedServerClient[] = [];
   try {
     for (const { generation, ...server } of servers) {
       serverClients.push({
         client: createHostClient(options.host, server.name, generation),
         server,
+        taskTracking,
       });
     }
     return new CompositeMcpRuntimeClient(serverClients);
@@ -189,6 +212,18 @@ export async function createMcpRuntimeClient(
     await Promise.allSettled(serverClients.map(({ client }) => client.close()));
     throw error;
   }
+}
+
+function resolveTaskTracking(
+  options: CreateMcpRuntimeClientOptions
+): McpTaskToolTracking | undefined {
+  if (!options.mcpTaskTracking) {
+    return;
+  }
+  if (options.toolTimeoutMs === undefined) {
+    throw new Error('MCP task tracking requires the tool guard timeout to bound settlement');
+  }
+  return createMcpTaskToolTracking(options.mcpTaskTracking, options.toolTimeoutMs);
 }
 
 class CompositeMcpRuntimeClient implements McpRuntimeClient {
@@ -246,7 +281,7 @@ function convertMcpTools(
 }
 
 function createMcpTool(
-  { client, server }: TransportOwnedServerClient,
+  { client, server, taskTracking }: TransportOwnedServerClient,
   tool: ExplicitHttpMcpTool
 ): ToolsInput[string] {
   const toolMeta = stampServerIdInMeta(tool._meta, server.name);
@@ -273,8 +308,17 @@ function createMcpTool(
       : {}),
     ...(mcp ? { mcp } : {}),
     ...(strict === undefined ? {} : { strict }),
+    // Only a tracking-capable host can ever produce the persisted task marker,
+    // so only then does the tool carry the bounded task projection; every other
+    // result keeps the generic projection (the projector returns undefined).
+    ...(taskTracking ? { toModelOutput: projectMcpTaskToolModelOutput } : {}),
     execute: async (input, context) =>
-      executeMcpTool(client, server.name, tool.name, requireToolArguments(input), context),
+      executeMcpTool(
+        { client, server, taskTracking },
+        tool.name,
+        requireToolArguments(input),
+        context
+      ),
     mcpMetadata: { serverName: server.name },
   });
 }
@@ -317,12 +361,12 @@ type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortS
 };
 
 async function executeMcpTool(
-  client: OfficialSdkMcpClientLike,
-  serverName: string,
+  { client, server, taskTracking }: TransportOwnedServerClient,
   toolName: string,
   input: Record<string, unknown>,
   context: McpExecuteContext
 ): Promise<unknown> {
+  const serverName = server.name;
   let progressWrites = Promise.resolve();
   let progressDeliveryError: unknown;
   let lastProgress = Number.NEGATIVE_INFINITY;
@@ -388,6 +432,22 @@ async function executeMcpTool(
   }
   await finishProgressDelivery();
 
+  // A created task is never a CallToolResult: it has no content to retain, no
+  // isError, and no structuredContent. It is handed to the host's task
+  // authorities and the tool settles on the bounded presentation instead.
+  const createdTask = readMcpCreatedTaskResult(result);
+  if (createdTask) {
+    return settleMcpTaskToolResult({
+      // `server.name` IS the configured server id: the host authority snapshot
+      // exposes `configuredServerId` and createMcpRuntimeClient maps it to
+      // `name` verbatim, so this matches McpTaskHandle.serverId on the host.
+      configuredServerId: serverName,
+      result: createdTask,
+      ...(context.abortSignal ? { signal: context.abortSignal } : {}),
+      toolName,
+      tracking: taskTracking,
+    });
+  }
   if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
     return result;
   }

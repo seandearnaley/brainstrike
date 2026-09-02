@@ -46,6 +46,8 @@ export interface AssistantStreamRuntimeOptions extends SerializableIndependentSt
    * serialization. Hosts inject it directly at the stream boundary.
    */
   mcpHost?: NonNullable<MastraAgentRuntimeOptions['mcpHost']>;
+  /** Trusted host task authorities (BST-1566); process-local like `mcpHost`. */
+  mcpTaskTracking?: NonNullable<MastraAgentRuntimeOptions['mcpTaskTracking']>;
 }
 
 export interface AssistantLlmHostManager {

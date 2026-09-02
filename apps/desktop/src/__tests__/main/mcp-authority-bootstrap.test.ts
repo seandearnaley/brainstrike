@@ -16,7 +16,10 @@ import {
 } from '../../ipc-mcp';
 import type { LoadedMcpConfig, ResolvedMcpConfig } from '../../mcp-loader';
 import { readMainSourceSections } from './main-source-test-helpers';
-import { createMcpElicitationPresenterStub } from './mcp-authority-test-runtime';
+import {
+  createMcpElicitationPresenterStub,
+  createMcpTaskHostStub,
+} from './mcp-authority-test-runtime';
 
 const mocks = vi.hoisted(() => ({
   getMcpConfigPath: vi.fn(async () => '/tmp/mcp.config.json'),
@@ -124,6 +127,7 @@ describe('MCP desktop authority bootstrap', () => {
       ),
     },
     replaceResolvedConfig: mocks.replaceResolvedConfig,
+    taskHost: createMcpTaskHostStub(),
   };
 
   beforeEach(async () => {

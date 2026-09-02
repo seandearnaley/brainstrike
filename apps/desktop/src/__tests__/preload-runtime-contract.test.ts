@@ -344,6 +344,9 @@ describe('preload runtime contract', () => {
       MCP_ELICITATION_SETTLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.elicitationSettle,
       MCP_STATUS_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
       MCP_STATUS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated,
+      MCP_TASK_ACT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskAct,
+      MCP_TASK_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskList,
+      MCP_TASK_STATUS_CHANGED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.taskStatusChanged,
       MCP_TOOLS_DISABLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisable,
       MCP_TOOLS_DISABLE_SERVER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisableServer,
       MCP_TOOLS_ENABLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnable,
@@ -438,6 +441,14 @@ describe('preload runtime contract', () => {
       expect(subscription).toContain(`ipcRenderer.on(${constant}, listener)`);
       expect(subscription).toContain(`ipcRenderer.removeListener(${constant}, listener)`);
     }
+    // Durable MCP Tasks bridge (BST-1566): act/list invokes plus the status push.
+    const tasksBridge = requireExposedBridgeProperty(mcpBridge, 'mcp', 'tasks');
+    expect(tasksBridge).toContain('ipcRenderer.invoke(MCP_TASK_ACT_CHANNEL, request)');
+    expect(tasksBridge).toContain('ipcRenderer.invoke(MCP_TASK_LIST_CHANNEL)');
+    expect(tasksBridge).toContain('ipcRenderer.on(MCP_TASK_STATUS_CHANGED_EVENT, listener)');
+    expect(tasksBridge).toContain(
+      'ipcRenderer.removeListener(MCP_TASK_STATUS_CHANGED_EVENT, listener)'
+    );
 
     const preloadWithoutContractDefinitions = removePreloadStringConstantDefinitions(preloadSource);
     for (const channel of Object.values(expectedConstants)) {

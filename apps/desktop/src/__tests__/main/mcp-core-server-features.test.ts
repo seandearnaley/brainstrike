@@ -1,3 +1,8 @@
+import {
+  MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+  McpClientExtensionRegistry,
+  registerMcpTasksWireContracts,
+} from '@brainstrike/agent/mcp-client';
 import type { McpHostOperation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
@@ -406,5 +411,81 @@ describe('MCP core server features', () => {
       state: 'listening',
     });
     await features.close();
+  });
+});
+
+describe('tools/call routing with MCP Tasks registered (BST-1566)', () => {
+  function createTasksRegistry() {
+    const registry = new McpClientExtensionRegistry();
+    registerMcpTasksWireContracts(registry);
+    return registry;
+  }
+
+  it('dispatches through the registered task-result contract only when the server advertises Tasks', async () => {
+    const { client } = createClient();
+    const requestExtension = vi.fn(async () => ({
+      createdAt: '2026-09-01T05:00:00.000Z',
+      lastUpdatedAt: '2026-09-01T05:00:00.000Z',
+      resultType: 'task' as const,
+      status: 'working' as const,
+      taskId: 'task-1',
+      ttlMs: null,
+    })) as unknown as NonNullable<McpCoreFeatureClient['requestExtension']>;
+    const taskClient = {
+      ...client,
+      getServerCapabilities: vi.fn(() => ({
+        extensions: { 'io.modelcontextprotocol/tasks': {} },
+        tools: { listChanged: true },
+      })),
+      requestExtension,
+    } satisfies McpCoreFeatureClient;
+    const features = createMcpCoreServerFeatures(taskClient, {
+      extensionRegistry: createTasksRegistry(),
+    });
+    await features.initialize();
+    await expect(
+      features.invoke(
+        operation({ arguments: { value: 1 }, toolName: 'long_job', type: 'tools/call' }),
+        {}
+      )
+    ).resolves.toMatchObject({ resultType: 'task', taskId: 'task-1' });
+    expect(requestExtension).toHaveBeenCalledWith(
+      MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
+      { arguments: { value: 1 }, name: 'long_job' },
+      { signal: expect.any(AbortSignal) }
+    );
+    expect(taskClient.callTool).not.toHaveBeenCalled();
+    await expect(
+      features.invoke(
+        operation({ _meta: { progressToken: 1 }, toolName: 'long_job', type: 'tools/call' }),
+        {}
+      )
+    ).rejects.toThrow(/cannot carry _meta or task on the MCP Tasks call path/u);
+    await features.close();
+  });
+
+  it('keeps the core callTool path when Tasks are registered but not advertised, or not registered', async () => {
+    for (const extensionRegistry of [createTasksRegistry(), undefined]) {
+      const { client } = createClient();
+      const requestExtension = vi.fn() as unknown as NonNullable<
+        McpCoreFeatureClient['requestExtension']
+      >;
+      const getServerCapabilities = vi.fn(() =>
+        extensionRegistry === undefined
+          ? { extensions: { 'io.modelcontextprotocol/tasks': {} }, tools: { listChanged: true } }
+          : { tools: { listChanged: true } }
+      );
+      const taskClient = {
+        ...client,
+        getServerCapabilities,
+        requestExtension,
+      } satisfies McpCoreFeatureClient;
+      const features = createMcpCoreServerFeatures(taskClient, { extensionRegistry });
+      await features.initialize();
+      await features.invoke(operation({ toolName: 'search', type: 'tools/call' }), {});
+      expect(taskClient.callTool).toHaveBeenCalledTimes(1);
+      expect(requestExtension).not.toHaveBeenCalled();
+      await features.close();
+    }
   });
 });

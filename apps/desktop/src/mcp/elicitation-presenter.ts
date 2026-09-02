@@ -111,8 +111,25 @@ interface InvocationAuthority {
     readonly configuredServerId: ConfiguredMcpServerId;
     readonly generation: number;
   };
+  readonly configuredServerId: ConfiguredMcpServerId;
   readonly id: string;
-  readonly operation: McpHostOperation;
+  readonly operation: McpElicitationOperationProjection;
+}
+/**
+ * Task-scoped elicitation origin (BST-1566). A durable MCP task raises
+ * `input_required` outside any in-flight host operation, so its presenter is
+ * bound explicitly to the task's server generation and the originating
+ * `tools/call` projection instead of the single-matching-operation registry.
+ */
+export interface McpTaskElicitationBinding {
+  readonly configuredServerId: ConfiguredMcpServerId;
+  readonly generation: number;
+  readonly operation: McpElicitationOperationProjection;
+}
+export interface McpBoundTaskElicitationPresenter {
+  readonly presenter: McpElicitationPresenter;
+  /** Idempotent; later presentations through this binding fail closed. */
+  release(): void;
 }
 export interface McpElicitationPresenterAuthorityOptions {
   readonly createPresentationId?: () => string;
@@ -239,8 +256,9 @@ export class McpElicitationPresenterAuthority {
 
   async runWithOperation<T>(operation: McpHostOperation, run: () => Promise<T>): Promise<T> {
     const authority = {
+      configuredServerId: operation.configuredServerId,
       id: `${this.processNonce}:${++this.invocationSequence}`,
-      operation,
+      operation: projectOperation(operation),
     } satisfies InvocationAuthority;
     this.invocations.add(authority);
     try {
@@ -249,6 +267,38 @@ export class McpElicitationPresenterAuthority {
       this.invocations.delete(authority);
       this.urlGrants.delete(authority);
     }
+  }
+
+  bindTaskPresenter(binding: McpTaskElicitationBinding): McpBoundTaskElicitationPresenter {
+    if (this.closed) {
+      throw new McpElicitationPresenterError('mcp-elicitation-presenter-closed');
+    }
+    const authority: InvocationAuthority = {
+      binding: { configuredServerId: binding.configuredServerId, generation: binding.generation },
+      configuredServerId: binding.configuredServerId,
+      id: `${this.processNonce}:task:${++this.invocationSequence}`,
+      operation: { ...binding.operation },
+    };
+    let released = false;
+    const resolve = (): InvocationAuthority => {
+      if (released) {
+        throw new McpElicitationPresenterError('mcp-elicitation-authority-retired');
+      }
+      return authority;
+    };
+    return {
+      presenter: {
+        confirmUrl: (request, context) => this.present(request, context, resolve),
+        form: true,
+        openExternal: (url, context) => this.openUrl(url, context, resolve),
+        presentForm: (request, context) => this.present(request, context, resolve),
+        url: true,
+      },
+      release: () => {
+        released = true;
+        this.urlGrants.delete(authority);
+      },
+    };
   }
 
   settle(input: {
@@ -332,7 +382,10 @@ export class McpElicitationPresenterAuthority {
 
   private async present(
     request: ElicitRequest,
-    context: McpClientHandlerContext
+    context: McpClientHandlerContext,
+    resolveInvocation: (context: McpClientHandlerContext) => InvocationAuthority = (
+      handlerContext
+    ) => this.resolveOperationInvocation(handlerContext)
   ): Promise<ElicitResult> {
     try {
       validateMcpElicitationRequest(request);
@@ -347,7 +400,13 @@ export class McpElicitationPresenterAuthority {
         )
       );
     }
-    const { invocation, provenance } = this.resolveAuthority(context);
+    let invocation: InvocationAuthority;
+    let provenance: McpElicitationProvenance;
+    try {
+      ({ invocation, provenance } = this.resolveAuthority(context, resolveInvocation));
+    } catch (cause) {
+      return Promise.reject(cause);
+    }
     const id = this.createPresentationId();
     const deferred = Promise.withResolvers<ElicitResult>();
     const params = request.params;
@@ -379,11 +438,17 @@ export class McpElicitationPresenterAuthority {
     return deferred.promise;
   }
 
-  private async openUrl(url: URL, context: McpClientHandlerContext): Promise<void> {
+  private async openUrl(
+    url: URL,
+    context: McpClientHandlerContext,
+    resolveInvocation: (context: McpClientHandlerContext) => InvocationAuthority = (
+      handlerContext
+    ) => this.resolveOperationInvocation(handlerContext)
+  ): Promise<void> {
     if (this.closed) {
       throw new McpElicitationPresenterError('mcp-elicitation-presenter-closed');
     }
-    const { invocation } = this.resolveAuthority(context);
+    const { invocation } = this.resolveAuthority(context, resolveInvocation);
     const grants = this.urlGrants.get(invocation);
     if (context.signal.aborted) {
       grants?.delete(context.requestId);
@@ -445,23 +510,30 @@ export class McpElicitationPresenterAuthority {
     }
   }
 
-  private resolveAuthority(context: McpClientHandlerContext): {
-    invocation: InvocationAuthority;
-    provenance: McpElicitationProvenance;
-  } {
+  private resolveOperationInvocation(context: McpClientHandlerContext): InvocationAuthority {
     const matches = [...this.invocations].filter(
-      ({ operation }) => operation.configuredServerId === context.serverName
+      ({ configuredServerId }) => configuredServerId === context.serverName
     );
     const invocation = matches.length === 1 ? matches[0] : undefined;
     if (!invocation) {
       throw new McpElicitationPresenterError('mcp-elicitation-origin-unbound');
     }
-    const operation = invocation.operation;
+    return invocation;
+  }
+
+  private resolveAuthority(
+    context: McpClientHandlerContext,
+    resolveInvocation: (context: McpClientHandlerContext) => InvocationAuthority
+  ): {
+    invocation: InvocationAuthority;
+    provenance: McpElicitationProvenance;
+  } {
+    const invocation = resolveInvocation(context);
     validateRequestId(context.requestId);
-    const server = this.options.resolveServer(operation.configuredServerId);
+    const server = this.options.resolveServer(invocation.configuredServerId);
     if (
       server?.state !== 'connected' ||
-      server.configuredServerId !== operation.configuredServerId ||
+      server.configuredServerId !== invocation.configuredServerId ||
       (invocation.binding !== undefined &&
         (invocation.binding.configuredServerId !== server.configuredServerId ||
           invocation.binding.generation !== server.generation))
@@ -481,7 +553,7 @@ export class McpElicitationPresenterAuthority {
         generation: server.generation,
         invocationId: invocation.id,
         negotiatedRevision: server.negotiated.revision,
-        operation: projectOperation(operation),
+        operation: { ...invocation.operation },
         requestId: context.requestId,
         ...(serverIdentity ? { serverIdentity } : {}),
         transport: server.transport,

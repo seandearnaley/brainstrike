@@ -1,5 +1,7 @@
+import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
+import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,16 +10,19 @@ import {
   MCP_PROGRESS_STREAM_PART_TYPE,
   mapMcpProgressStreamPart,
 } from '../mastra/mcp-runtime-client';
+import { REGISTERED_EXTENSION_RESULT_KEY } from '../mcp/client-extension-registry';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpRequestOptions,
 } from '../mcp/explicit-http-client';
+import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 
 type ExecutableTool = ToolsInput[string] & {
   execute: (input: unknown, context?: unknown) => Promise<unknown>;
   inputSchema?: unknown;
   outputSchema?: unknown;
+  toModelOutput?: (output: unknown) => unknown;
 };
 
 function requireExecutableTool(tool: ToolsInput[string] | undefined): ExecutableTool {
@@ -500,5 +505,155 @@ describe('MCP runtime client', () => {
       expect.objectContaining({ progress: 0.4 }),
       expect.objectContaining({ progress: 0.8 }),
     ]);
+  });
+
+  describe('MCP task results', () => {
+    const createdTask: CreateTaskResult = {
+      createdAt: '2026-09-01T05:00:00.000Z',
+      lastUpdatedAt: '2026-09-01T05:00:00.000Z',
+      resultType: 'task',
+      status: 'working',
+      taskId: 'task-a',
+      ttlMs: null,
+    };
+    const handle = {
+      authorityEpoch: '00000000-0000-7000-8000-000000000000',
+      principalId: 'principal-a',
+      resource: 'https://tasks.example.test',
+      serverId: 'remote',
+      taskId: 'task-a',
+    } as const;
+    const live: McpTaskPresentation = {
+      canCancel: true,
+      createdAt: '2026-09-01T05:00:00.000Z',
+      handle,
+      history: [{ at: '2026-09-01T05:00:00.000Z', status: 'working' }],
+      omittedHistoryEntries: 0,
+      recovery: 'live',
+      status: 'working',
+      statusMessage: 'Preparing export',
+      updatedAt: '2026-09-01T05:00:01.000Z',
+    };
+    const settled: McpTaskPresentation = {
+      ...live,
+      canCancel: false,
+      history: [
+        { at: '2026-09-01T05:00:00.000Z', status: 'working' },
+        { at: '2026-09-01T05:00:05.000Z', status: 'completed' },
+      ],
+      recovery: 'terminal',
+      status: 'completed',
+      statusMessage: null,
+      updatedAt: '2026-09-01T05:00:05.000Z',
+    };
+
+    function createTaskServer(result: ExplicitHttpMcpCallToolResult) {
+      return {
+        callTool: vi.fn(async (): Promise<ExplicitHttpMcpCallToolResult> => result),
+        close: vi.fn().mockResolvedValue(undefined),
+        listTools: vi
+          .fn()
+          .mockResolvedValue({ tools: [{ inputSchema: { type: 'object' }, name: 'export' }] }),
+      };
+    }
+
+    it('throws when a task result arrives on a host without task tracking', async () => {
+      const remote = createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult);
+      const { host } = createTestHost({ remote });
+      const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
+
+      await expect(tool.execute({}, { agent: { toolCallId: 'task-call' } })).rejects.toThrow(
+        'MCP tool "remote.export" returned a task but this host has no task tracking capability'
+      );
+      expect(tool.toModelOutput).toBeUndefined();
+    });
+
+    it.each([
+      { name: 'direct', result: createdTask },
+      {
+        name: 'registry-wrapped',
+        result: {
+          [REGISTERED_EXTENSION_RESULT_KEY]: createdTask,
+          content: [],
+          resultType: 'complete',
+        },
+      },
+    ])(
+      'tracks a $name task result, waits for settlement, and persists the task marker',
+      async ({ result }) => {
+        const remote = createTaskServer(result as unknown as ExplicitHttpMcpCallToolResult);
+        const mcpTaskTracking: McpTaskTrackingCapability = {
+          awaitSettlement: vi.fn(async () => ({ settled: true as const, task: settled })),
+          track: vi.fn(async () => live),
+        };
+        const { host } = createTestHost({ remote });
+        const runtimeClient = await createMcpRuntimeClient({
+          config: undefined,
+          host,
+          mcpTaskTracking,
+          toolTimeoutMs: 60_000,
+        });
+        const discovered = await runtimeClient?.listToolsetsWithErrors();
+        const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
+        const abortController = new AbortController();
+
+        await expect(
+          tool.execute(
+            {},
+            { abortSignal: abortController.signal, agent: { toolCallId: 'task-call' } }
+          )
+        ).resolves.toEqual({ kind: 'mcp-task', task: settled });
+        expect(mcpTaskTracking.track).toHaveBeenCalledWith(
+          { configuredServerId: 'remote', result: createdTask, toolName: 'export' },
+          abortController.signal
+        );
+        expect(mcpTaskTracking.awaitSettlement).toHaveBeenCalledWith(handle, {
+          signal: abortController.signal,
+          timeoutMs: 45_000,
+        });
+      }
+    );
+
+    it('returns the live task when settlement times out and projects only bounded status', async () => {
+      const remote = createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult);
+      const mcpTaskTracking: McpTaskTrackingCapability = {
+        awaitSettlement: vi.fn(async () => ({
+          reason: 'timeout' as const,
+          settled: false as const,
+          task: live,
+        })),
+        track: vi.fn(async () => live),
+      };
+      const { host } = createTestHost({ remote });
+      const runtimeClient = await createMcpRuntimeClient({
+        config: undefined,
+        host,
+        mcpTaskTracking,
+        toolTimeoutMs: 60_000,
+      });
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
+
+      const raw = await tool.execute({}, { agent: { toolCallId: 'task-call' } });
+      expect(raw).toEqual({ kind: 'mcp-task', task: live });
+      const projector = tool.toModelOutput;
+      if (typeof projector !== 'function') {
+        throw new Error('Expected a task-aware MCP model projector');
+      }
+      expect(projector(raw)).toEqual({
+        type: 'json',
+        value: {
+          history: live.history,
+          kind: 'mcp_task_status',
+          omittedHistoryEntries: 0,
+          status: 'working',
+          statusMessage: 'Preparing export',
+          updatedAt: live.updatedAt,
+        },
+      });
+      expect(projector({ content: [{ text: 'plain', type: 'text' }] })).toBeUndefined();
+    });
   });
 });

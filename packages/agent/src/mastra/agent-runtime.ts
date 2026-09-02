@@ -8,6 +8,7 @@ import type { MastraMemory } from '@mastra/core/memory';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
+import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import {
@@ -74,6 +75,13 @@ export interface MastraAgentRuntimeOptions {
   mcpConfig?: McpConfig;
   /** Host-owned MCP authority. Runtime disposal releases only its adapter lease. */
   mcpHost?: McpHostPort;
+  /**
+   * Trusted host capability that owns MCP Tasks (BST-1566): a task-creating
+   * tool result is tracked by it and the tool settles on the bounded task
+   * presentation. Absent (web, no host) keeps every MCP call synchronous and a
+   * task result becomes a hard error rather than an untracked task.
+   */
+  mcpTaskTracking?: McpTaskTrackingCapability;
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
   memory?: MastraMemory;
@@ -384,6 +392,7 @@ export async function createMastraAgentRuntime(
     model,
     mcpConfig,
     mcpHost,
+    mcpTaskTracking,
     tools: localTools,
     mcpTimeoutMs,
     permissionPolicy,
@@ -474,6 +483,7 @@ export async function createMastraAgentRuntime(
     localTools,
     mcpConfig: resolvedMcpConfig,
     mcpHost,
+    mcpTaskTracking,
     mcpTimeoutMs,
     permissionSnapshot,
     planModeActive,

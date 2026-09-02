@@ -270,6 +270,7 @@ export async function toAiSdkStyleStream(
     // see the BST-1352 threading rule on MastraAgentRuntimeOptions.authInput.
     | 'authInput'
     | 'mcpHost'
+    | 'mcpTaskTracking'
     | 'memory'
     | 'storage'
     | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'

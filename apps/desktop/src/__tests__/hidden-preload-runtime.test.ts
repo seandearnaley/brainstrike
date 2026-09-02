@@ -65,6 +65,8 @@ describe('hidden preload runtime capability manifest', () => {
     expect([...exposed.keys()].sort()).toEqual([...expectedGlobals].sort());
     expect(exposed.has('secrets')).toBe(false);
     expect(exposed.has('assistant')).toBe(false);
+    // The MCP bridge (and with it `mcp.tasks`, BST-1566) is visible-UI only.
+    expect(exposed.has('mcp')).toBe(false);
   });
 
   it('preserves the embedding host power snapshot capability', async () => {

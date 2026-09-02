@@ -1983,7 +1983,7 @@ custom-method escape hatch and does not patch the SDK dependency.
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
 | MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Disabled: the isolated sandbox is inert; no `ui://` resource reader or validated app↔host `postMessage` RPC implementation is registered | No |
-| MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Exact get/update/cancel, task-result, routing-header, and notification-lease wire contracts exist (BST-1561), but no durable task host is registered (BST-1473) | No |
+| MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Registered (BST-1566): `createDefaultMcpExtensionRegistry` installs the exact get/update/cancel, task-result, routing-header, and notification-lease wire contracts on every stdio and streamable-http connection, and `McpDesktopTaskHost` runs the durable repository/lifecycle/interaction/presentation chain per negotiated generation; the legacy `sse` transport gets no registry | Yes (stdio, streamable-http); sse: not registered |
 | OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
 
@@ -2026,9 +2026,8 @@ late stale-authority response cannot publish. The poller rejects a mismatched
 task id, terminally exposes the single canonical `maxTransportFailures`
 transport-attempt budget, honors
 changing `pollIntervalMs`, treats `ttlMs` as a lifetime backstop, and creates no
-subscription lease. This remains opt-in substrate: production registration,
-mid-flight input/cancellation interactions, renderer controls, and support
-advertisement remain disabled for later BST-1473 layers.
+subscription lease. BST-1561 through BST-1565 built this as opt-in substrate;
+BST-1566 registers it in production (see "Production Tasks host" below).
 
 BST-1509 owns the Settings/diagnostics rendering of this matrix and modern
 per-request wire proof; the registry remains its host-owned source of truth.
@@ -2039,9 +2038,8 @@ three task methods with `Mcp-Name: params.taskId`, and owns one notification
 lease per connection on both stdio and Streamable HTTP. The registry owns the
 notification method/schema, refuses reserved core notification methods, and
 releases the lease on local close, remote close, or rejected closure so retry is
-possible. It never emits `tasks/list` or the deprecated request `task.ttl` field,
-and production registration remains absent until BST-1473's interaction and
-enablement layers are complete.
+possible. It never emits `tasks/list` or the deprecated request `task.ttl` field.
+Production registration is the BST-1566 layer below.
 
 BST-1564 adds the opt-in interaction coordinator without enabling Tasks in production. It deduplicates
 task-scoped input keys and sends elicitation results through `tasks/update` only after shared MCP
@@ -2055,8 +2053,10 @@ failure surface. A `tasks/cancel` acknowledgement is not success: only observed 
 successfully; `completed` or `failed` is a non-cancellation outcome. Each observation treats
 `inputRequests` as the complete outstanding snapshot and retires omitted keys before stale responses
 can be sent. Task responses keep the merged BST-1561 discriminator ruling (an absent `resultType` is `complete` per final SEP-2322; a conflicting value is rejected). Terminal state, generation replacement, and coordinator close abort pending input and
-release resources. Sampling/roots input, renderer UX, host registration, and support advertisement
-remain disabled.
+release resources. Sampling/roots task input remains unsupported (an
+`input_required` request with any method other than `elicitation/create`
+throws); renderer UX, host registration, and support advertisement are the
+BST-1565/BST-1566 layers.
 
 BST-1565's first layer adds an opt-in presentation and control fence; it does
 not register Tasks. The browser-safe contract carries one opaque exact handle
@@ -2088,7 +2088,89 @@ same isolated user-data directory rebuilds `restart_required`, recovers through
 `cancelled`. The packaged proof also exercises lost-principal and stale-
 generation refusal, focus behavior, and zero lifecycle polls/tasks/timers,
 interaction operations/listeners, and database ownership after explicit close.
-This verifier is not a production host adapter and does not advertise Tasks.
+This verifier is not a production host adapter; production registration is
+`McpDesktopTaskHost`, below, which must never import the harness.
+
+### Production Tasks host (BST-1566)
+
+Extension registration is a host-runtime seam:
+`DesktopMcpHostRuntimeDependencies.resolveExtensionRegistry(server, context)`
+(defaulted like `resolveClientCapabilities`) runs once per connection
+generation and must return a FRESH `McpClientExtensionRegistry` each time — a
+registry seals on its first projection, so one instance can never serve two
+connections. The production default `createDefaultMcpExtensionRegistry`
+calls `registerMcpTasksWireContracts` for `stdio` and `streamable-http` and
+returns `undefined` for legacy `sse` (it never negotiates `2026-07-28`, so it
+is not advertised rather than advertised-and-refused). The registry is threaded
+into both explicit clients' `extensionRegistry` option and into
+`McpCoreServerFeatures`, which routes `tools/call` through
+`requestExtension(MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT)` whenever the registry
+registers Tasks and the server advertises the extension: on the pinned client
+a core `callTool` answer with `resultType: 'task'` is rejected by the SDK
+funnel, so a task can only arrive on the registered path. That path takes
+exactly `{ name, arguments }`; an operation carrying `_meta` or `task` throws.
+A later MCP Apps host registers onto the same fresh registry from this seam.
+`apps/desktop/src/__tests__/main/mcp-host-runtime-tasks.test.ts` pins that the
+real default resolver advertises exactly the support matrix's supported
+extension ids.
+
+`McpDesktopTaskHost` (`apps/desktop/src/mcp/task-host.ts`) implements the
+agent runtime's `McpTaskTrackingCapability` and the host runtime's connection
+observer. It is constructed by `DesktopMcpHostRuntime` (exposed as
+`runtime.taskHost`) and threaded by `apps/desktop/src/assistant-server.ts`
+through `initializeAgentStream({ mcpTaskTracking })` →
+`AssistantStreamRuntimeOptions.mcpTaskTracking` →
+`MastraAgentRuntimeOptions.mcpTaskTracking`, exactly like `mcpHost`. Per
+connected generation whose negotiated capabilities advertise
+`io.modelcontextprotocol/tasks` on `2026-07-28` it composes `McpTaskRepository`
+over the existing desktop database (`db-main.getDatabase()`, never a new
+PGlite), one `McpTaskObservationPort`, the sole-authority `McpTaskLifecycle`,
+and `McpTaskInteraction`, and runs `recover()` so every non-terminal handle of
+the live epoch resumes. A server that does not advertise Tasks opens no session
+and `track()` throws naming the missing advertisement. The actor client closes
+the task session (`stop('disconnect')`) before the transport; a replaced
+private definition retires the epoch (`stop('server-replaced')`) and a removed
+server `stop('server-removed')` before the old generation closes, while an
+enabledTools-only reload is a plain reconnect (same `configRef`, same epoch).
+
+Handle derivation (`McpTaskHandle`): `serverId` is the configured server id
+(`ResolvedMcpServer.name`, equal to the host snapshot's `configuredServerId`);
+`resource` is the canonical server URL (fragment stripped) for streamable-http
+and the reserved marker `https://stdio.mcp.brainstrike.invalid/` for stdio (the
+repository requires a canonical HTTP(S) URL and a child process has no
+protected resource); `principalId` is `none`, `bearer:<credential id>`, or
+`oauth-user:<resource>|<sorted scope key>` for streamable-http and
+`local-process` for stdio; `authorityEpoch` is minted/rebound by the
+repository. The repository's `connectionGeneration` is a host-owned
+*definition* generation that advances only when `configRef` changes (or after
+a retirement), never on the host's per-actor generation, so a transport
+reconnect rebinds the live epoch instead of orphaning its rows.
+
+`awaitSettlement(handle, { timeoutMs, signal })` resolves
+`{ settled: false, reason: 'timeout', task }` at the bound and never throws for
+a timeout; it rejects for an unknown handle, a handle outside a live session,
+a lifecycle stop, or observation exhaustion. Task-scoped `input_required`
+elicitation cannot use `runWithOperation`: the presenter's single-matching-
+operation guard has nothing to bind outside a `tools/call` and would misattribute
+provenance during a concurrent one, so the host binds each tracked task through
+`McpElicitationPresenterAuthority.bindTaskPresenter({ configuredServerId,
+generation, operation: { type: 'tools/call', target: toolName } })`, a separate
+authority that skips the operation registry, validates the live generation, and
+is released on settlement. One notification lease exists per connection and is
+fixed at subscription time, so the interaction subscribes for the ids known when
+it starts (recovered handles or the first tracked task); later tasks in the same
+generation are admitted and driven by the authoritative poller alone, logged at
+info level.
+
+Renderer seam (`apps/desktop/src/mcp/task-bridge.ts`, mirroring the
+elicitation bridge): `mcp:task:status-changed` pushes every presentation change
+to tracked visible-UI windows, `mcp:task:list` returns the bounded live
+presentation set, and `mcp:task:act` runs one card action through the
+presentation controller fence; both invokes carry the visible-UI sender policy.
+The preload exposes `window.mcp.tasks` (`McpTaskBridge`) on the visible-UI
+preload only; hidden hosts never receive the `mcp` global. The support matrix
+row for Tasks is `supported` (BST-1566) and the settings-ui matrix pin and the
+desktop truthfulness test change together with it.
 
 ### MCP client input and deprecated compatibility (BST-1470)
 
