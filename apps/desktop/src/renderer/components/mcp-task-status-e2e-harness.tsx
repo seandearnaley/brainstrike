@@ -98,6 +98,7 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
   private listenerCount = 0;
   private notificationHandler: McpTasksNotificationHandler | null = null;
   private pendingCancellation = false;
+  cancellationReleased = false;
   private readonly presentationController: McpTaskPresentationController;
   private scenario: HarnessScenario = 'live';
   private readonly subscriptionClosed = Promise.withResolvers<'graceful' | 'local' | 'remote'>();
@@ -177,7 +178,8 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     const lifecycle = PackagedTaskHarnessRuntime.createLifecycle(
       repository,
       authority,
-      observationPort
+      observationPort,
+      holder
     );
     let initialRecord = existing;
     let recovery: McpTaskPresentation['recovery'] = 'restart_required';
@@ -210,7 +212,8 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
   private static createLifecycle(
     repository: McpTaskRepository,
     authority: McpTaskAuthorityLease,
-    observationPort: McpTaskObservationPort
+    observationPort: McpTaskObservationPort,
+    holder: { readonly runtime: PackagedTaskHarnessRuntime | null }
   ): McpTaskLifecycle {
     return new McpTaskLifecycle({
       authority,
@@ -220,7 +223,9 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
           _params: Params
         ): Promise<Result> =>
           ({
-            ...taskStatus('working'),
+            // The authoritative poll reports the released cancellation; the
+            // notification below only wakes this poll.
+            ...taskStatus(holder.runtime?.cancellationReleased ? 'cancelled' : 'working'),
             resultType: 'complete',
             statusMessage: 'Packaged task is working',
           }) as Result,
@@ -262,6 +267,7 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     if (!this.pendingCancellation) {
       throw new Error('Packaged MCP task cancellation is not pending.');
     }
+    this.cancellationReleased = true;
     await this.requireNotificationHandler()(taskStatus('cancelled'));
   }
 

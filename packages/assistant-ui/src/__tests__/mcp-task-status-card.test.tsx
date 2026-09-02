@@ -222,6 +222,35 @@ describe('McpTaskStatusCard', () => {
     expect(screen.queryByText(/\.999Z/u)).toBeNull();
   });
 
+  it('keeps a newer same-handle observation over an older action outcome', async () => {
+    const pending = Promise.withResolvers<McpTaskActionResult>();
+    const control = controller(pending.promise);
+    const onTaskChange = vi.fn<(nextTask: McpTaskPresentation) => void>();
+    const user = userEvent.setup();
+    const original = task();
+    const newer = task({
+      status: 'input_required',
+      statusMessage: 'Newer observation',
+      updatedAt: '2026-09-01T05:00:09.000Z',
+    });
+    const view = render(
+      <McpTaskStatusCard controller={control.port} onTaskChange={onTaskChange} task={original} />
+    );
+    await user.click(screen.getByRole('button', { name: 'Recover task' }));
+    view.rerender(
+      <McpTaskStatusCard controller={control.port} onTaskChange={onTaskChange} task={newer} />
+    );
+
+    pending.resolve({
+      ok: true,
+      task: task({ recovery: 'live', updatedAt: '2026-09-01T05:00:03.000Z' }),
+    });
+    await waitFor(() => expect(control.act).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Recover task' })).toBeEnabled());
+    expect(onTaskChange).not.toHaveBeenCalled();
+    expect(screen.getByText('Newer observation')).toBeInTheDocument();
+  });
+
   it('does not let an action for a replaced task overwrite the new card task', async () => {
     const pending = Promise.withResolvers<McpTaskActionResult>();
     const control = controller(pending.promise);

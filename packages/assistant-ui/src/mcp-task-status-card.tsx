@@ -219,6 +219,7 @@ export function McpTaskStatusCard({
   const summaryRef = useRef<HTMLDivElement>(null);
   const taskKey = taskHandleKey(task);
   const taskKeyRef = useRef(taskKey);
+  const taskRef = useRef(task);
   const [actionState, setActionState] = useState(INITIAL_ACTION_STATE);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const tokenRef = useRef(0);
@@ -228,7 +229,8 @@ export function McpTaskStatusCard({
 
   useLayoutEffect(() => {
     taskKeyRef.current = taskKey;
-  }, [taskKey]);
+    taskRef.current = task;
+  }, [task, taskKey]);
 
   const runAction = (action: McpTaskActionRequest['action']): void => {
     if (inFlightRef.current?.taskKey === taskKey) {
@@ -250,7 +252,9 @@ export function McpTaskStatusCard({
         setPendingAction((current) => (current?.token === pending.token ? null : current));
         return;
       }
-      if (outcome.task) {
+      // A newer observation for the same handle may have arrived while the
+      // action was in flight; an older action record must not regress it.
+      if (outcome.task && outcome.task.updatedAt >= taskRef.current.updatedAt) {
         onTaskChange(outcome.task);
       }
       revisionRef.current += 1;
