@@ -1982,7 +1982,7 @@ custom-method escape hatch and does not patch the SDK dependency.
 
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
-| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Registered (BST-1572): the default desktop registry, dedicated Electron sandbox startup, generation-fenced resource reader, validated frame bridge, live-run ordinary admission authority, and visible-UI IPC consent path form one complete host | Yes (stdio, streamable-http); sse: not registered |
+| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Registered (BST-1572): the default desktop registry, dedicated Electron sandbox startup, generation-fenced resource reader, validated frame bridge, thread-keyed ordinary admission authority (live run, then run-detached host-port execution), and visible-UI IPC consent path form one complete host | Yes (stdio, streamable-http); sse: not registered |
 | MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Registered (BST-1566): `createDefaultMcpExtensionRegistry` installs the exact get/update/cancel, task-result, routing-header, and notification-lease wire contracts on every stdio and streamable-http connection, and `McpDesktopTaskHost` runs the durable repository/lifecycle/interaction/presentation chain per negotiated generation; the legacy `sse` transport gets no registry | Yes (stdio, streamable-http); sse: not registered |
 | OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
@@ -2354,34 +2354,52 @@ destruction or desktop shutdown.
 `McpDesktopAppHost` owns ordinary admission in main, keyed by the OWNING
 THREAD. `assistant-server.ts` registers each runtime's `mcpAppToolAdmission`
 as `{ runId, threadId: runtimeData.memory.threadId }` — a run without a
-persisted thread publishes nothing — and invalidates it from runtime
-disposal. `McpAppPrepareRequest.threadId` is mandatory: the shared
+persisted thread publishes nothing — and calls `invalidateAdmission` from
+runtime disposal. `McpAppPrepareRequest.threadId` is mandatory: the shared
 `ToolResultRendererProps.threadId` seam (populated in `todo-progress.tsx` from
 `ActiveThreadKeyContext`, the same id the request lifecycle sends as
 `memory.threadId`) carries the thread that owns the tool result, and
 `McpAppToolResult` renders a visible "requires a persisted thread" note instead
-of mounting when it is absent. Preparation resolves the live run of exactly
+of mounting when it is absent. Preparation resolves the admission of exactly
 that thread and requires it to admit the requested server; it never picks by
 recency, so two threads on the same server each execute under their own run's
 approval/risk state. It binds the one-use executor and release to the
 requesting WebContents plus preparation id and fails closed with
 `mcp_app_admission_unavailable` otherwise. A newer run registering for the
-same thread supersedes the older admission and releases its pending
-preparations; a later disposal of that older run leaves the newer one intact.
+same thread supersedes the older admission (live or detached) and releases its
+pending preparations; a later disposal of that older run leaves the newer one
+intact.
 
-**App-originated calls require a live run of the owning thread** (ruling,
-review of BST-1572). An admission is NOT retained past its run's `dispose()`:
-the admitted executor is the run's exact gated MCP tool entry, which calls
-`client.callTool` on the run-owned `McpRuntimeClient` that `dispose()` closes
-(`agent-runtime.ts` `dispose` → `mcpClient?.disconnect()` →
-`client.close()`), after `mastra.shutdown()`; keeping it would hand the app an
-executor over closed transports. `agent-streaming.ts` disposes the runtime
-once per TURN (not per attempt, BST-1409), so an app can call tools while its
-thread's turn is streaming or paused; after the turn ends the next prepare
-fails typed and the app surface reports it. Lifting this needs a run-detached
-execution path, not a longer-lived admission. Execution, explicit release, run
-disposal, supersession, and WebContents destruction consume the entry; stale
-and replayed preparation ids cannot execute.
+**Admission lifetime: live run → detached → superseded/retired** (BST-1572
+acceptance: the user reads the rendered app and clicks a button AFTER the
+assistant's turn ended). While the run is live, the admitted executor is the
+run's exact gated MCP tool entry (hooks, telemetry, run-owned
+`McpRuntimeClient`). Run `dispose()` closes that client, so the authority does
+NOT keep executing through it: `invalidateAdmission` releases the run's
+pending preparations and DETACHES the admission. The admission capability's
+`admit` reads only the static per-tool maps built at runtime assembly
+(`createMcpAppToolAdmissionCapability`: decision from `askTools`, risk from the
+permission snapshot, tool identity namespace-resolved through `toolNameMap` to
+the server-side name) and touches no client, so a detached prepare returns the
+same `allow`/`ask` decision and risk category — the renderer consent dialog
+still gates `ask` tools exactly as before. Detached execution is one
+process-level host-port call,
+`host.invoke({ type: 'tools/call', configuredServerId, toolName, arguments }, { signal })`
+on `getDesktopMcpHostRuntime().host` (the app's `toolName` is already the
+server-side name; `origin.serverId` is the configured server id), and the
+canonical `CallToolResult` is what the renderer posts back into the frame.
+Detached calls bypass the run's tool hooks, guard/error processors, and
+telemetry by design: there is no run. Retention is bounded: at most one
+admission per thread; a detached admission is pinned to each admitted server's
+live host generation at detach time (servers not live on the host are not
+retained; an admission with none is dropped), a `host.watch` on those servers
+drops it when a generation retires or the server disappears, and prepare
+re-checks the live snapshot generation because watch delivery is
+microtask-queued. Host close rejects the invoke (`mcp-host-closed`) rather than
+degrading. There is no app-unmount signal today, so a detached admission lives
+until supersession or generation retirement. Execution, explicit release, run
+disposal, supersession, generation retirement, and WebContents destruction
+consume preparations; stale and replayed preparation ids cannot execute.
 
 The visible-UI-only IPC domain is `mcp:apps:prepare`, `mcp:apps:execute`, and
 `mcp:apps:release`. `window.mcp.apps.readResource` resolves the server's live

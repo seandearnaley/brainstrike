@@ -358,12 +358,18 @@ the production host connection.
 - App-originated calls use strict prepare/execute/release messages over the
   visible-UI-only `mcp:apps:*` IPC domain. Every prepare names the persisted
   thread that owns the app's tool result; main resolves only THAT thread's
-  live assistant run (never the most recent run that knows the same server),
-  requires it to admit the server, and binds its ordinary post-policy
-  admission to the requesting WebContents. Missing admission (including a
-  thread with no live run, or a run whose turn already ended), malformed
-  input, replay, release, run disposal, supersession by a newer run of the
-  thread, and WebContents destruction all fail closed.
+  admission (never the most recent run that knows the same server), requires
+  it to admit the server, and binds the one-use executor to the requesting
+  WebContents. While the owning run is live the executor is the run's gated
+  tool entry; after the run's turn ends the admission is detached: the same
+  static allow/ask decision and risk category still gate the renderer consent
+  dialog, and execution is a single `tools/call` on the process-level MCP host
+  port for the exact configured server and server-side tool name, pinned to
+  the host generation live at detach time. Detached calls carry no run hooks
+  or telemetry. Missing admission (a thread with no run ever, a detached
+  admission whose server generation retired or server was removed, or a host
+  that closed), malformed input, replay, release, supersession by a newer run
+  of the thread, and WebContents destruction all fail closed.
 - `window.mcp.apps.readResource` uses the existing visible-UI-only,
   generation-fenced `mcp:content:readResource` path and returns HTML only when
   an exact `text/html;profile=mcp-app` MIME type and text body are present.

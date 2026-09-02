@@ -3,13 +3,18 @@ import {
   type McpAppToolAdmissionCapability,
 } from '@brainstrike/agent';
 import {
+  type ConfiguredMcpServerId,
   type McpAppExecuteRequest,
   type McpAppExecuteResult,
   type McpAppPrepareRequest,
   type McpAppPrepareResult,
   type McpAppReleaseRequest,
+  type McpHostPort,
+  type McpHostServerSnapshot,
+  parseConfiguredMcpServerId,
   parseMcpAppExecuteResult,
 } from '@brainstrike/assistant-contract';
+import { getDesktopMcpHostRuntime } from './host-runtime';
 
 type McpDesktopAppHostErrorCode =
   | 'mcp_app_admission_unavailable'
@@ -20,7 +25,7 @@ export class McpDesktopAppHostError extends Error {
   constructor(readonly code: McpDesktopAppHostErrorCode) {
     const detail =
       code === 'mcp_app_admission_unavailable'
-        ? 'no live run of the owning thread admits this server'
+        ? 'no live or detached admission of the owning thread admits this server'
         : code === 'mcp_app_preparation_duplicate'
           ? 'the preparation id is already registered'
           : 'the preparation is not available';
@@ -42,11 +47,36 @@ export interface McpAppAdmissionRun {
   readonly threadId: string;
 }
 
-interface AdmissionEntry {
+/** The process-level MCP connection authority a detached admission executes through. */
+export type McpAppsExecutionHostPort = Pick<McpHostPort, 'invoke' | 'snapshot' | 'watch'>;
+
+export interface McpDesktopAppHostOptions {
+  /** Resolved lazily per detach/execute so construction never boots the MCP runtime. */
+  readonly resolveHost: () => McpAppsExecutionHostPort;
+}
+
+interface LiveAdmissionEntry {
   readonly admission: McpAppToolAdmissionCapability;
   readonly runId: string;
+  readonly state: 'live';
   readonly threadId: string;
 }
+
+/**
+ * A detached admission outlives its run: the static decision/risk maps stay,
+ * execution moves to the host port, and each admitted server is pinned to the
+ * exact host generation that was live at detach time.
+ */
+interface DetachedAdmissionEntry {
+  readonly admission: McpAppToolAdmissionCapability;
+  readonly generations: ReadonlyMap<ConfiguredMcpServerId, number>;
+  readonly runId: string;
+  readonly state: 'detached';
+  readonly threadId: string;
+  readonly unwatch: () => void;
+}
+
+type AdmissionEntry = DetachedAdmissionEntry | LiveAdmissionEntry;
 
 interface PreparationEntry {
   readonly controller: AbortController;
@@ -65,16 +95,29 @@ interface SenderEntry {
 
 /**
  * Ordinary admission for app-originated tool calls. Admissions are keyed by
- * the OWNING THREAD: a prepare resolves the live run of the thread whose tool
- * result mounted the app, and only that run — never the most recent run that
+ * the OWNING THREAD: a prepare resolves the admission of the thread whose tool
+ * result mounted the app, and only that one — never the most recent run that
  * happens to know the same server. A newer run registering for the same
- * thread supersedes the older one (its preparations are released); run
- * disposal invalidates the entry, so calls need a live run of that thread.
+ * thread supersedes the older one (its preparations are released).
+ *
+ * Lifetime: live run → detached → superseded/retired. Run disposal releases
+ * the run's pending preparations and DETACHES the admission instead of
+ * dropping it: the static per-tool decision/risk maps keep gating consent,
+ * while execution moves from the run-owned client to the process-level host
+ * port (`tools/call` on the configured server). A detached admission is
+ * pinned to each server's live host generation and is dropped when that
+ * generation retires, the server disappears, or a newer run of the thread
+ * registers. Detached calls bypass the run's hooks and telemetry by design.
  */
 export class McpDesktopAppHost {
   readonly #admissionsByThread = new Map<string, AdmissionEntry>();
   readonly #preparations = new Map<string, PreparationEntry>();
+  readonly #resolveHost: () => McpAppsExecutionHostPort;
   readonly #senders = new Map<number, SenderEntry>();
+
+  constructor(options: McpDesktopAppHostOptions) {
+    this.#resolveHost = options.resolveHost;
+  }
 
   registerAdmission(run: McpAppAdmissionRun, admission: McpAppToolAdmissionCapability): void {
     const current = this.#admissionsByThread.get(run.threadId);
@@ -82,21 +125,29 @@ export class McpDesktopAppHost {
       throw new Error(`MCP Apps admission for run "${run.runId}" is already registered`);
     }
     if (current !== undefined) {
-      this.#releaseRunPreparations(current.runId);
+      this.#dropAdmission(current);
     }
     this.#admissionsByThread.set(run.threadId, {
       admission,
       runId: run.runId,
+      state: 'live',
       threadId: run.threadId,
     });
   }
 
   invalidateAdmission(run: McpAppAdmissionRun): void {
     const current = this.#admissionsByThread.get(run.threadId);
-    if (current?.runId === run.runId) {
-      this.#admissionsByThread.delete(run.threadId);
+    // A superseded run's preparations were released at supersession; a repeat
+    // dispose of an already-detached run must not release its detached calls.
+    if (current?.runId !== run.runId || current.state !== 'live') {
+      return;
     }
     this.#releaseRunPreparations(run.runId);
+    this.#admissionsByThread.delete(run.threadId);
+    const detached = this.#detach(current);
+    if (detached !== undefined) {
+      this.#admissionsByThread.set(run.threadId, detached);
+    }
   }
 
   async prepare(
@@ -107,12 +158,15 @@ export class McpDesktopAppHost {
       throw new McpDesktopAppHostError('mcp_app_preparation_duplicate');
     }
     const entry = this.#resolveAdmission(request.threadId, request.origin.serverId);
-    const prepare = createMcpAppOrdinaryToolCallPreparer({ admission: entry.admission });
-    const prepared = await prepare({
+    const call = {
       input: request.arguments,
       serverId: request.origin.serverId,
       toolName: request.toolName,
-    });
+    };
+    const prepared =
+      entry.state === 'live'
+        ? await createMcpAppOrdinaryToolCallPreparer({ admission: entry.admission })(call)
+        : this.#prepareDetached(entry, call);
     if (this.#admissionsByThread.get(entry.threadId) !== entry) {
       throw new McpDesktopAppHostError('mcp_app_admission_unavailable');
     }
@@ -167,7 +221,111 @@ export class McpDesktopAppHost {
     if (entry === undefined || !entry.admission.serverIds.includes(serverId)) {
       throw new McpDesktopAppHostError('mcp_app_admission_unavailable');
     }
+    if (entry.state === 'live') {
+      return entry;
+    }
+    // Detached: the pinned generation must still be the live one. The watch
+    // drops retired entries eagerly, but its delivery is microtask-queued, so
+    // re-check the snapshot at admission time rather than trust retention.
+    const configuredServerId = parseConfiguredMcpServerId(serverId);
+    const pinned = entry.generations.get(configuredServerId);
+    const live = findServer(this.#resolveHost().snapshot().servers, configuredServerId);
+    if (pinned === undefined || live?.generation !== pinned) {
+      this.#dropAdmission(entry);
+      throw new McpDesktopAppHostError('mcp_app_admission_unavailable');
+    }
     return entry;
+  }
+
+  /**
+   * Detach a live admission onto the host port. Only servers currently live on
+   * the host are retained (pinned to their generation); an admission with no
+   * live server is dropped outright and later prepares fail typed.
+   */
+  #detach(entry: LiveAdmissionEntry): DetachedAdmissionEntry | undefined {
+    const host = this.#resolveHost();
+    const servers = host.snapshot().servers;
+    const generations = new Map<ConfiguredMcpServerId, number>();
+    for (const serverId of entry.admission.serverIds) {
+      const configuredServerId = parseConfiguredMcpServerId(serverId);
+      const live = findServer(servers, configuredServerId);
+      if (live !== undefined) {
+        generations.set(configuredServerId, live.generation);
+      }
+    }
+    if (generations.size === 0) {
+      return;
+    }
+    let detached: DetachedAdmissionEntry | undefined;
+    const unwatch = host.watch({ configuredServerIds: [...generations.keys()] }, (event) => {
+      if (detached === undefined || this.#admissionsByThread.get(entry.threadId) !== detached) {
+        return;
+      }
+      for (const [configuredServerId, generation] of generations) {
+        if (findServer(event.servers, configuredServerId)?.generation !== generation) {
+          this.#dropAdmission(detached);
+          return;
+        }
+      }
+    });
+    detached = {
+      admission: entry.admission,
+      generations,
+      runId: entry.runId,
+      state: 'detached',
+      threadId: entry.threadId,
+      unwatch,
+    };
+    return detached;
+  }
+
+  /**
+   * Detached preparation: the admission's static maps still decide allow/ask
+   * and the risk category (`admit` touches no run client); execution is one
+   * host-port `tools/call`. The app's tool name is already the server-side
+   * name — the capability namespace-resolved `serverId.toolName` at build time.
+   */
+  #prepareDetached(
+    entry: DetachedAdmissionEntry,
+    call: Readonly<{ input: McpAppPrepareRequest['arguments']; serverId: string; toolName: string }>
+  ): Readonly<{
+    decision: 'allow' | 'ask';
+    execute: PreparationEntry['execute'];
+    riskCategory: McpAppPrepareResult['riskCategory'];
+  }> {
+    const admitted = entry.admission.admit(call);
+    const configuredServerId = parseConfiguredMcpServerId(call.serverId);
+    return {
+      decision: admitted.decision,
+      execute: async ({ signal }) => {
+        const outcome = await this.#resolveHost().invoke(
+          {
+            arguments: call.input,
+            configuredServerId,
+            toolName: call.toolName,
+            type: 'tools/call',
+          },
+          { signal }
+        );
+        if (outcome.type !== 'tools/call') {
+          throw new Error(
+            `MCP Apps detached call expected a tools/call result, received ${outcome.type}`
+          );
+        }
+        return outcome.result;
+      },
+      riskCategory: admitted.riskCategory,
+    };
+  }
+
+  #dropAdmission(entry: AdmissionEntry): void {
+    if (this.#admissionsByThread.get(entry.threadId) === entry) {
+      this.#admissionsByThread.delete(entry.threadId);
+    }
+    if (entry.state === 'detached') {
+      entry.unwatch();
+    }
+    this.#releaseRunPreparations(entry.runId);
   }
 
   #releaseRunPreparations(runId: string): void {
@@ -226,11 +384,18 @@ export class McpDesktopAppHost {
   }
 }
 
+function findServer(
+  servers: readonly McpHostServerSnapshot[],
+  configuredServerId: ConfiguredMcpServerId
+): McpHostServerSnapshot | undefined {
+  return servers.find((server) => server.configuredServerId === configuredServerId);
+}
+
 let singleton: McpDesktopAppHost | undefined;
 
 export function getMcpDesktopAppHost(): McpDesktopAppHost {
   if (singleton === undefined) {
-    singleton = new McpDesktopAppHost();
+    singleton = new McpDesktopAppHost({ resolveHost: () => getDesktopMcpHostRuntime().host });
   }
   return singleton;
 }
