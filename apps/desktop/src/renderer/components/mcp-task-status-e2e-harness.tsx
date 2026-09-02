@@ -17,7 +17,7 @@ import type {
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { McpTaskStatusCard } from '@brainstrike/assistant-ui/mcp-task-status-card';
 import type { McpTaskAuthorityLease } from '@brainstrike/db';
-import { McpTaskRepository, migrations, wasmLoader } from '@brainstrike/db';
+import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import { type ReactElement, use, useEffect, useState } from 'react';
@@ -39,7 +39,6 @@ const TASK_AUTHORITY_INPUT = {
 } as const;
 const TASK_CREATED_AT = '2026-09-01T05:00:00.000Z';
 const TASK_DATA_DIR = 'idb://bst-1565-mcp-task-restart';
-const TASK_MIGRATION_VERSIONS = [114, 115] as const;
 
 type HarnessScenario =
   | 'live'
@@ -69,16 +68,6 @@ declare global {
   interface Window {
     __brainstrikeMcpTaskHarness__?: HarnessControl;
   }
-}
-
-function taskMigrationSql(): string {
-  return TASK_MIGRATION_VERSIONS.map((version) => {
-    const migration = migrations.find((candidate) => candidate.version === version);
-    if (!(migration && typeof migration.up === 'string')) {
-      throw new Error(`MCP Tasks migration ${version} is unavailable.`);
-    }
-    return migration.up;
-  }).join('\n');
 }
 
 function taskStatus(status: 'working' | 'cancelled') {
@@ -123,7 +112,11 @@ class PackagedTaskHarnessRuntime implements McpTaskPresentationControllerPort {
     // The shared factory loads the full engine-extension set every PGlite
     // construction site must use (docs/agents/database.md).
     const db = await wasmLoader.createPGlite(TASK_DATA_DIR);
-    await db.exec(taskMigrationSql());
+    // The real migration runner over the full list: the same durability chain
+    // production uses, not a hand-picked subset of migration SQL.
+    const runner = new MigrationRunner(db);
+    await runner.initialize();
+    await runner.up(migrations);
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(TASK_AUTHORITY_INPUT);
     const scope = {

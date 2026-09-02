@@ -2080,8 +2080,8 @@ it, and the harness chunk itself exists only in a renderer built with
 `test:e2e:lane:packaged-mcp-tasks`, packages with it; release builds never do),
 so the harness, its PGlite and migration closure never ship to users. In a
 genuinely packaged Electron binary it opens the shared-factory PGlite store
-(full engine-extension set) with migrations 114 and 115, a durable authority
-lease, and the real repository. The first process
+(full engine-extension set) migrated by the real `MigrationRunner` over the
+full migration list, a durable authority lease, and the real repository. The first process
 persists a lifecycle-owned handle and closes cleanly; a second process over the
 same isolated user-data directory rebuilds `restart_required`, recovers through
 `McpTaskLifecycle`, and cancels only after `McpTaskInteraction` observes remote
