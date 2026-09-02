@@ -1,4 +1,4 @@
-import { McpTaskRepository } from '@brainstrike/db';
+import { type McpTaskRecord, McpTaskRepository } from '@brainstrike/db';
 import type { GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -91,6 +91,7 @@ describe('McpTaskLifecycle', () => {
         expect(contract).toBe(MCP_TASKS_GET_REQUEST_CONTRACT);
         expect(params).toEqual({ taskId: createdTask.taskId });
         expect(options?.signal.aborted).toBe(false);
+        expect(options?.timeout).toBe(30_000);
         return {
           createdAt: createdTask.createdAt,
           lastUpdatedAt: '2026-09-01T04:00:00.100Z',
@@ -340,6 +341,73 @@ describe('McpTaskLifecycle', () => {
       queuedPolls: 0,
       timers: 0,
     });
+  });
+
+  it('coalesces stale notifications into one immediate newer persisted poll', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(createdTask.createdAt));
+    db = await openDatabase();
+    const firstPoll = deferred<GetTaskResult>();
+    const secondPoll = deferred<GetTaskResult>();
+    const polls = [firstPoll, secondPoll];
+    const requestExtension = vi.fn(() => {
+      const poll = polls.shift();
+      if (!poll) {
+        throw new Error('Unexpected extra lifecycle poll.');
+      }
+      return poll.promise;
+    });
+    const repository = new McpTaskRepository(db);
+    const publications: McpTaskRecord[] = [];
+    const lifecycle = new McpTaskLifecycle({
+      client: { requestExtension },
+      currentGeneration: () => scope.generation,
+      onUpdate: (record) => {
+        publications.push(record);
+      },
+      repository,
+      scope,
+    });
+    const tracked = await lifecycle.track(createdTask);
+
+    await vi.advanceTimersByTimeAsync(createdTask.pollIntervalMs);
+    expect(requestExtension).toHaveBeenCalledOnce();
+    const staleNotification = {
+      ...createdTask,
+      lastUpdatedAt: '2026-09-01T04:00:00.050Z',
+      status: 'input_required' as const,
+    };
+    lifecycle.wake(staleNotification.taskId);
+    lifecycle.wake(staleNotification.taskId);
+    firstPoll.resolve({
+      ...createdTask,
+      lastUpdatedAt: '2026-09-01T04:00:00.100Z',
+      pollIntervalMs: 1000,
+      resultType: 'complete',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(requestExtension).toHaveBeenCalledTimes(2);
+    expect(publications).toMatchObject([
+      {
+        inputMetadata: { lifecycle: { lastUpdatedAt: '2026-09-01T04:00:00.100Z' } },
+        status: 'working',
+      },
+    ]);
+    secondPoll.resolve(completedTask(createdTask.taskId, '2026-09-01T04:00:00.200Z'));
+    await expect(tracked.settled).resolves.toMatchObject({ status: 'completed' });
+    expect(publications).toMatchObject([
+      {
+        inputMetadata: { lifecycle: { lastUpdatedAt: '2026-09-01T04:00:00.100Z' } },
+        status: 'working',
+      },
+      {
+        resultMetadata: { lifecycle: { lastUpdatedAt: '2026-09-01T04:00:00.200Z' } },
+        status: 'completed',
+      },
+    ]);
+    expect(JSON.stringify(publications)).not.toContain(staleNotification.lastUpdatedAt);
+    expect(() => lifecycle.wake(createdTask.taskId)).toThrow(/outside the active lifecycle/u);
   });
 
   it('fences an uncooperative in-flight poll immediately when the generation is replaced', async () => {

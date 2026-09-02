@@ -8,6 +8,7 @@ import {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
   McpTaskLifecycle,
   type McpTaskLifecycleStopReason,
+  McpTaskObservationError,
   type McpTaskPollingClient,
 } from '../mcp/tasks-lifecycle.js';
 
@@ -201,6 +202,49 @@ describe('McpTaskLifecycle exit fencing', () => {
       status: 'working',
     });
     expect(onUpdate).not.toHaveBeenCalled();
+    expectNoLifecycleLeaks(lifecycle);
+  });
+
+  it('exposes bounded transport exhaustion as the terminal observation failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(CREATED_AT));
+    db = await openDatabase();
+    const transportFailure = new Error('transport unavailable');
+    const requestExtension = vi.fn(() => Promise.reject(transportFailure));
+    const repository = new McpTaskRepository(db);
+    const onUpdate = vi.fn();
+    const lifecycle = new McpTaskLifecycle({
+      client: { requestExtension },
+      currentGeneration: () => scope.generation,
+      limits: {
+        ...DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
+        initialPollMs: 25,
+        maxBackoffMs: 100,
+        minimumPollMs: 10,
+      },
+      onUpdate,
+      repository,
+      scope,
+    });
+    const tracked = await lifecycle.track({
+      ...task('task-exhausted'),
+      pollIntervalMs: undefined,
+    });
+
+    await vi.advanceTimersByTimeAsync(175);
+
+    const failure = await tracked.settled.catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(McpTaskObservationError);
+    expect(failure).toMatchObject({
+      cause: transportFailure,
+      failures: 3,
+      taskId: 'task-exhausted',
+    });
+    expect(requestExtension).toHaveBeenCalledTimes(3);
+    expect(onUpdate).not.toHaveBeenCalled();
+    await expect(repository.get({ ...scope, taskId: 'task-exhausted' })).resolves.toMatchObject({
+      status: 'working',
+    });
     expectNoLifecycleLeaks(lifecycle);
   });
 
