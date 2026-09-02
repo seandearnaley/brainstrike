@@ -452,7 +452,7 @@ describe('tools/call routing with MCP Tasks registered (BST-1566)', () => {
     expect(requestExtension).toHaveBeenCalledWith(
       MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
       { arguments: { value: 1 }, name: 'long_job' },
-      { signal: expect.any(AbortSignal) }
+      { resetTimeoutOnProgress: true, signal: expect.any(AbortSignal) }
     );
     expect(taskClient.callTool).not.toHaveBeenCalled();
     await expect(
@@ -461,6 +461,50 @@ describe('tools/call routing with MCP Tasks registered (BST-1566)', () => {
         {}
       )
     ).rejects.toThrow(/cannot carry _meta or task on the MCP Tasks call path/u);
+    await features.close();
+  });
+
+  it('forwards progress and the progress-reset timeout on the Tasks call path exactly like the core path', async () => {
+    const { client } = createClient();
+    const requestExtensionMock = vi.fn(
+      async (_contract: unknown, _params: unknown, options: { onprogress?: unknown }) => {
+        if (typeof options.onprogress !== 'function') {
+          throw new Error('expected onprogress on the Tasks call path');
+        }
+        options.onprogress({ message: 'half', progress: 1, total: 2 });
+        return { content: [{ text: 'done', type: 'text' as const }] };
+      }
+    );
+    const taskClient = {
+      ...client,
+      getServerCapabilities: vi.fn(() => ({
+        extensions: { 'io.modelcontextprotocol/tasks': {} },
+        tools: { listChanged: true },
+      })),
+      requestExtension: requestExtensionMock as unknown as NonNullable<
+        McpCoreFeatureClient['requestExtension']
+      >,
+    } satisfies McpCoreFeatureClient;
+    const features = createMcpCoreServerFeatures(taskClient, {
+      extensionRegistry: createTasksRegistry(),
+    });
+    await features.initialize();
+    const onProgress = vi.fn();
+    const signal = new AbortController().signal;
+    await features.invoke(operation({ toolName: 'long_job', type: 'tools/call' }), {
+      onProgress,
+      signal,
+    });
+    expect(onProgress).toHaveBeenCalledWith({ message: 'half', progress: 1, total: 2 });
+    const [, , forwarded] = requestExtensionMock.mock.calls[0] as unknown as [
+      unknown,
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(forwarded).toMatchObject({ onprogress: onProgress, resetTimeoutOnProgress: true });
+    expect(forwarded['signal']).toBeInstanceOf(AbortSignal);
+    // The caller's signal is merged, not dropped, on the Tasks path.
+    expect((forwarded['signal'] as AbortSignal).aborted).toBe(false);
     await features.close();
   });
 

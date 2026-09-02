@@ -44,6 +44,8 @@ export interface McpCoreFeatureClient {
 }
 
 type Backoff = (attempt: number, signal: AbortSignal) => Promise<void>;
+/** SDK request options for one `tools/call`, shared by the core and Tasks dispatch paths. */
+type ToolCallRequestOptions = NonNullable<Parameters<ExplicitHttpMcpClient['callTool']>[1]>;
 type CatalogListOperation = Extract<
   McpHostOperation,
   {
@@ -268,8 +270,16 @@ export class McpCoreServerFeatures {
     options: McpHostInvokeOptions,
     normalizedOptions: ReturnType<typeof requestOptions>
   ): Promise<unknown> {
+    // Both dispatch paths carry the same request options: progress reaches
+    // the caller's writer and resets the request timeout whichever path the
+    // server's advertisement selects.
+    const callOptions: ToolCallRequestOptions = {
+      ...(options.onProgress === undefined ? {} : { onprogress: options.onProgress }),
+      resetTimeoutOnProgress: true,
+      ...normalizedOptions,
+    };
     if (this.tasksRegistered() && serverAdvertisesTasks(this.client)) {
-      return this.callToolThroughTasks(operation, normalizedOptions);
+      return this.callToolThroughTasks(operation, callOptions);
     }
     return this.client.callTool(
       {
@@ -278,17 +288,13 @@ export class McpCoreServerFeatures {
         name: operation.toolName,
         ...(operation.task === undefined ? {} : { task: operation.task }),
       },
-      {
-        ...(options.onProgress === undefined ? {} : { onprogress: options.onProgress }),
-        resetTimeoutOnProgress: true,
-        ...normalizedOptions,
-      }
+      callOptions
     );
   }
 
   private callToolThroughTasks(
     operation: Extract<McpHostOperation, { type: 'tools/call' }>,
-    normalizedOptions: ReturnType<typeof requestOptions>
+    callOptions: ToolCallRequestOptions
   ): Promise<unknown> {
     const { requestExtension } = this.client;
     if (typeof requestExtension !== 'function') {
@@ -308,7 +314,7 @@ export class McpCoreServerFeatures {
         ...(operation.arguments === undefined ? {} : { arguments: operation.arguments }),
         name: operation.toolName,
       },
-      normalizedOptions
+      callOptions
     );
   }
 

@@ -1,11 +1,13 @@
 import { EventEmitter } from 'node:events';
 import type { McpAppToolAdmissionCapability } from '@brainstrike/agent';
+import type { McpTaskTrackingRequest } from '@brainstrike/agent/mcp-tasks';
 import {
   type McpAppPrepareRequest,
   type McpHostOperation,
   type McpHostOperationResult,
   type McpHostServerSnapshot,
   type McpHostWatchEvent,
+  type McpTaskPresentation,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
@@ -55,6 +57,7 @@ function admission(
 ) {
   const capability: McpAppToolAdmissionCapability = {
     admit: vi.fn(() => ({ decision, execute, riskCategory })),
+    appCapableToolCount: 1,
     inadmissibleTools: [],
     serverIds: ['linear'],
   };
@@ -112,10 +115,37 @@ function fakeHost(servers: readonly McpHostServerSnapshot[] = [serverSnapshot('l
   };
 }
 
-const createHost = (host = fakeHost()) => ({
-  appHost: new McpDesktopAppHost({ resolveHost: () => host.port }),
-  host,
-});
+function createHost(host = fakeHost()) {
+  const taskHost = {
+    track: vi.fn(
+      async (request: McpTaskTrackingRequest): Promise<McpTaskPresentation> => ({
+        canCancel: true,
+        createdAt: request.result.createdAt,
+        handle: {
+          authorityEpoch: '00000000-0000-7000-8000-000000000000',
+          principalId: 'none',
+          resource: 'https://linear.example.test/mcp',
+          serverId: request.configuredServerId,
+          taskId: request.result.taskId,
+        },
+        history: [{ at: request.result.createdAt, status: 'working' }],
+        omittedHistoryEntries: 0,
+        recovery: 'live',
+        status: 'working',
+        statusMessage: null,
+        updatedAt: request.result.lastUpdatedAt,
+      })
+    ),
+  };
+  return {
+    appHost: new McpDesktopAppHost({
+      resolveHost: () => host.port,
+      resolveTaskHost: () => taskHost,
+    }),
+    host,
+    taskHost,
+  };
+}
 
 describe('McpDesktopAppHost', () => {
   it('prepares and executes one live-run ordinary call', async () => {
@@ -133,6 +163,53 @@ describe('McpDesktopAppHost', () => {
     });
     expect(ordinary.execute).toHaveBeenCalledTimes(1);
     expect(host.invoke).not.toHaveBeenCalled();
+  });
+
+  it('reserves a preparation id synchronously so a concurrent duplicate rejects and the first still executes', async () => {
+    const { appHost, host } = createHost();
+    const sender = new FakeWebContents(43);
+    const ordinary = admission('first');
+    appHost.registerAdmission({ runId: 'run-1', threadId: THREAD_A }, ordinary.capability);
+
+    const [first, second] = await Promise.allSettled([
+      appHost.prepare(sender, request('prep-dup')),
+      appHost.prepare(sender, request('prep-dup')),
+    ]);
+    expect(first).toEqual({
+      status: 'fulfilled',
+      value: { decision: 'allow', riskCategory: 'mcp' },
+    });
+    expect(second.status).toBe('rejected');
+    expect((second as PromiseRejectedResult).reason).toMatchObject({
+      code: 'mcp_app_preparation_duplicate',
+    });
+    await expect(appHost.execute(sender, { preparationId: 'prep-dup' })).resolves.toEqual({
+      result: { content: [{ text: 'first', type: 'text' }] },
+    });
+    expect(ordinary.execute).toHaveBeenCalledTimes(1);
+    // Executed preparations are released: a replay fails typed, and the id is free again.
+    await expect(appHost.execute(sender, { preparationId: 'prep-dup' })).rejects.toMatchObject({
+      code: 'mcp_app_preparation_unavailable',
+    });
+    await expect(appHost.prepare(sender, request('prep-dup'))).resolves.toEqual({
+      decision: 'allow',
+      riskCategory: 'mcp',
+    });
+    expect(host.invoke).not.toHaveBeenCalled();
+  });
+
+  it('frees a reserved preparation id when preparation itself rejects', async () => {
+    const { appHost } = createHost();
+    const sender = new FakeWebContents(44);
+    await expect(appHost.prepare(sender, request('prep-x'))).rejects.toMatchObject({
+      code: 'mcp_app_admission_unavailable',
+    });
+    const ordinary = admission();
+    appHost.registerAdmission({ runId: 'run-1', threadId: THREAD_A }, ordinary.capability);
+    await expect(appHost.prepare(sender, request('prep-x'))).resolves.toEqual({
+      decision: 'allow',
+      riskCategory: 'mcp',
+    });
   });
 
   it('rejects execute without prepare, replay, and execute after release', async () => {
@@ -260,6 +337,7 @@ describe('McpDesktopAppHost', () => {
         admit: vi.fn(() => {
           throw new Error('MCP Apps tool linear.create_issue is not admitted');
         }),
+        appCapableToolCount: 1,
         inadmissibleTools: [],
         serverIds: ['linear'],
       };
@@ -382,6 +460,68 @@ describe('McpDesktopAppHost', () => {
       await expect(
         appHost.prepare(new FakeWebContents(58), request('after'))
       ).rejects.toMatchObject({ code: 'mcp_app_admission_unavailable' });
+    });
+
+    it('hands a created task from a detached call to the task host and returns the canonical CreateTaskResult', async () => {
+      const { appHost, host, taskHost } = createHost();
+      const created = {
+        createdAt: '2026-09-01T05:00:00.000Z',
+        lastUpdatedAt: '2026-09-01T05:00:00.000Z',
+        resultType: 'task' as const,
+        status: 'working' as const,
+        taskId: 'task-detached',
+        ttlMs: null,
+      };
+      // The host port parses tools/call answers with the SDK CallToolResult
+      // schema, which defaults `content: []` onto a bare CreateTaskResult.
+      host.invoke.mockResolvedValueOnce({
+        result: { ...created, content: [] },
+        type: 'tools/call',
+      });
+      const sender = new FakeWebContents(52);
+      const ordinary = admission();
+      appHost.registerAdmission({ runId: 'run-1', threadId: THREAD_A }, ordinary.capability);
+      appHost.invalidateAdmission({ runId: 'run-1', threadId: THREAD_A });
+
+      await appHost.prepare(sender, request('prep-task'));
+      await expect(appHost.execute(sender, { preparationId: 'prep-task' })).resolves.toEqual({
+        result: { ...created, content: [] },
+      });
+      expect(taskHost.track).toHaveBeenCalledTimes(1);
+      expect(taskHost.track).toHaveBeenCalledWith(
+        {
+          configuredServerId: 'linear',
+          result: { ...created, content: [] },
+          toolName: 'create_issue',
+        },
+        expect.any(AbortSignal)
+      );
+    });
+
+    it('fails a detached call visibly when the created task cannot be tracked', async () => {
+      const { appHost, host, taskHost } = createHost();
+      host.invoke.mockResolvedValueOnce({
+        result: {
+          content: [],
+          createdAt: '2026-09-01T05:00:00.000Z',
+          lastUpdatedAt: '2026-09-01T05:00:00.000Z',
+          resultType: 'task',
+          status: 'working',
+          taskId: 'task-untracked',
+          ttlMs: null,
+        },
+        type: 'tools/call',
+      });
+      taskHost.track.mockRejectedValueOnce(new Error('no live MCP Tasks session'));
+      const sender = new FakeWebContents(53);
+      const ordinary = admission();
+      appHost.registerAdmission({ runId: 'run-1', threadId: THREAD_A }, ordinary.capability);
+      appHost.invalidateAdmission({ runId: 'run-1', threadId: THREAD_A });
+
+      await appHost.prepare(sender, request('prep-task-2'));
+      await expect(appHost.execute(sender, { preparationId: 'prep-task-2' })).rejects.toThrow(
+        'no live MCP Tasks session'
+      );
     });
 
     it('surfaces a host port that answers with the wrong operation type', async () => {
