@@ -71,7 +71,12 @@ export function parseMcpAppResponse(value: unknown): McpAppResponse {
 }
 
 const MAX_PENDING_REQUESTS = 256;
-const MAX_REQUEST_IDS_PER_CORRELATOR = 4096;
+/**
+ * Replay defence, not a session lifetime: the correlator remembers the most
+ * recent one-shot ids in a bounded ring and evicts the oldest, so a long-lived
+ * app never exhausts its id space while the pending set stays the authority.
+ */
+const RECENT_REQUEST_IDS = 4096;
 
 export class McpAppRequestCorrelator {
   readonly #pending = new Set<string>();
@@ -93,12 +98,13 @@ export class McpAppRequestCorrelator {
     if (this.#pending.size >= MAX_PENDING_REQUESTS) {
       throw new TypeError(`MCP Apps request correlation exceeds ${MAX_PENDING_REQUESTS} entries`);
     }
-    if (this.#seen.size >= MAX_REQUEST_IDS_PER_CORRELATOR) {
-      throw new TypeError(
-        `MCP Apps request correlation exceeds ${MAX_REQUEST_IDS_PER_CORRELATOR} one-shot ids`
-      );
-    }
     this.#seen.add(key);
+    if (this.#seen.size > RECENT_REQUEST_IDS) {
+      const oldest = this.#seen.values().next().value;
+      if (oldest !== undefined) {
+        this.#seen.delete(oldest);
+      }
+    }
     this.#pending.add(key);
     return id;
   }

@@ -81,6 +81,20 @@ describe('MCP Apps request correlation', () => {
     expect(() => bounded.register(256)).toThrow(/exceeds 256 entries/);
   });
 
+  it('bounds replay memory to a recent-id ring instead of a session lifetime', () => {
+    const correlation = new McpAppRequestCorrelator();
+    for (let id = 0; id < 4097; id += 1) {
+      correlation.register(id);
+      correlation.settle({ id, jsonrpc: '2.0', result: {} });
+    }
+    // The most recent ids are still refused as replays…
+    expect(() => correlation.register(4096)).toThrow(/already used/);
+    expect(() => correlation.register(1)).toThrow(/already used/);
+    // …while the oldest has been evicted, so a long session never wedges.
+    correlation.register(0);
+    expect(correlation.pendingCount).toBe(1);
+  });
+
   it('releases the slot when the answer to a pending id fails validation', () => {
     // Review of #2914: a malformed reply used to leave its id pending forever,
     // so 256 bad answers wedged the channel for the life of the instance.

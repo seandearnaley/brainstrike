@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { _electron as electron } from 'playwright';
@@ -72,19 +73,21 @@ function electronEnvironment(): Record<string, string> {
   return environment;
 }
 
-test('MCP Apps bridge is quiescent in genuinely packaged Electron', async () => {
+test('MCP Apps bridge is quiescent in genuinely packaged Electron', {
+  tag: ['@destructive', '@packaged'],
+}, async () => {
   test.setTimeout(180_000);
   const executablePath = packagedExecutablePath();
   await access(executablePath, constants.X_OK);
   await access(bridgeModulePath, constants.R_OK);
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1570-packaged-user-data-'));
-  const harnessPath = path.join(
-    path.dirname(bridgeModulePath),
-    `.bst-1570-packaged-verifier-${process.pid}-${Date.now()}.html`
-  );
+  // The harness lives in the disposable user-data directory (never in a
+  // published dist/) and imports the bridge module by absolute file URL.
+  const harnessPath = path.join(userDataDir, 'bst-1570-packaged-verifier.html');
+  const bridgeModuleUrl = pathToFileURL(bridgeModulePath).href;
   await writeFile(
     harnessPath,
-    "<!doctype html><script type='module'>import('./index.js').then(bridgeModule=>{globalThis.__mcpAppBridgeModule=bridgeModule},error=>{globalThis.__mcpAppBridgeModuleError=error instanceof Error?error.message:String(error)})</script>",
+    `<!doctype html><script type='module'>import(${JSON.stringify(bridgeModuleUrl)}).then(bridgeModule=>{globalThis.__mcpAppBridgeModule=bridgeModule},error=>{globalThis.__mcpAppBridgeModuleError=error instanceof Error?error.message:String(error)})</script>`,
     'utf8'
   );
   let electronApp: ElectronApplication | undefined;

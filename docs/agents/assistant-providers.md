@@ -2235,6 +2235,10 @@ and electron-builder-packaged Electron verifiers pin replacement, failure,
 disconnect, and close quiescence; the packaged verifier asserts
 `app.isPackaged === true`. This bridge still does not own resources or consent,
 register Apps support, or expose a production renderer surface.
+The packaged Electron verifier for the bridge runs only through
+`test:e2e:lane:packaged-mcp-apps-bridge` in the Native Electron Package job;
+its harness document lives in the disposable user-data directory and imports
+the bridge module by absolute file URL, never from a published `dist/`.
 
 Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
 `McpHostSnapshot` through `mcp:status:get` and revisioned

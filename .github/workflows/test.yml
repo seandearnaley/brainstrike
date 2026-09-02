@@ -796,6 +796,9 @@ jobs:
           test -n "${ELECTRON_DIST:-}"
           pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST"
 
+      - name: Verify packaged MCP Apps bridge
+        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge
+
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
 
