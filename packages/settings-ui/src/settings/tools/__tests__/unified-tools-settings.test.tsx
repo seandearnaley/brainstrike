@@ -1529,6 +1529,316 @@ describe('UnifiedToolsSettings', () => {
       expect(catalog).toHaveTextContent('Honored resource subscriptions (showing 5 of 7)');
       expect(catalog).not.toHaveTextContent('linear://issue/subscription-7');
       expect(catalog).toHaveTextContent('mcp-prompts-failed');
+      // Without content operations (web), no browsing affordance renders at all.
+      expect(within(catalog).queryByTestId('mcp-catalog-read-github-0')).not.toBeInTheDocument();
+      expect(within(catalog).queryByTestId('mcp-catalog-prompt-github-0')).not.toBeInTheDocument();
+      expect(within(catalog).queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    describe('user-initiated content browsing (BST-1585)', () => {
+      const authority = { configuredServerId: 'github', generation: 1 };
+      const longText = 'x'.repeat(2500);
+      const browsableCatalog = {
+        errors: {},
+        features: {
+          completion: true,
+          promptListChanged: false,
+          prompts: true,
+          resourceListChanged: false,
+          resourceSubscriptions: false,
+          resources: true,
+          toolListChanged: false,
+          tools: true,
+        },
+        prompts: {
+          prompts: [
+            {
+              arguments: [
+                { description: 'Issue identifier', name: 'identifier', required: true },
+                { name: 'tone' },
+              ],
+              name: 'issue-summary',
+              title: 'Issue summary',
+            },
+            { name: 'plain-prompt' },
+          ],
+        },
+        resources: { resources: [{ name: 'BST-1585', uri: 'linear://issue/BST-1585' }] },
+        subscription: { mode: 'none', state: 'unsupported' },
+        tools: { tools: [] },
+      };
+      const createContentOperations = (): ToolsSettingsOperations => {
+        const operations = createMockOperations();
+        operations.getTools = vi.fn().mockResolvedValue([]);
+        operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+          revision: 1,
+          servers: [{ ...connectedMcpStatus, catalog: browsableCatalog }],
+        });
+        operations.readMcpResource = vi.fn().mockResolvedValue({
+          result: {
+            contents: [
+              { mimeType: 'text/markdown', text: '# BST-1585', uri: 'linear://issue/BST-1585' },
+              { blob: 'QUFBQQ==', mimeType: 'image/png', uri: 'linear://issue/BST-1585/cover' },
+              { text: longText, uri: 'linear://issue/BST-1585/body' },
+            ],
+          },
+          type: 'resources/read',
+        });
+        operations.getMcpPrompt = vi.fn().mockResolvedValue({
+          result: {
+            description: 'Summarize an issue',
+            messages: [
+              { content: { text: 'Summarize BST-1585', type: 'text' }, role: 'user' },
+              { content: { data: 'QUFBQQ==', mimeType: 'image/png', type: 'image' }, role: 'user' },
+            ],
+          },
+          type: 'prompts/get',
+        });
+        operations.completeMcpContent = vi.fn().mockResolvedValue({
+          result: { completion: { values: ['BST-1585', 'BST-1586'] } },
+          type: 'completion/complete',
+        });
+        return operations;
+      };
+
+      it('reads a resource only on explicit user action and renders bounded content', async () => {
+        const operations = createContentOperations();
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        const read = await screen.findByRole('button', { name: 'Read BST-1585' });
+        expect(read).toHaveAttribute('data-testid', 'mcp-catalog-read-github-0');
+        expect(operations.readMcpResource).not.toHaveBeenCalled();
+        expect(screen.queryByTestId('mcp-catalog-content-github')).not.toBeInTheDocument();
+
+        fireEvent.click(read);
+        const content = await screen.findByTestId('mcp-catalog-content-github');
+        expect(operations.readMcpResource).toHaveBeenCalledTimes(1);
+        expect(operations.readMcpResource).toHaveBeenCalledWith({
+          authority,
+          uri: 'linear://issue/BST-1585',
+        });
+        expect(content).toHaveTextContent('Resource linear://issue/BST-1585');
+        expect(content).toHaveTextContent('text/markdown');
+        expect(content).toHaveTextContent('# BST-1585');
+        expect(content).toHaveTextContent('image/png');
+        expect(content).toHaveTextContent('binary content omitted (8 base64 characters)');
+        expect(content).not.toHaveTextContent('QUFBQQ==');
+        expect(content).toHaveTextContent('(truncated 500 characters)');
+        expect(content.textContent?.length ?? 0).toBeLessThan(longText.length);
+        expect(read).toBeEnabled();
+      });
+
+      it('collects prompt arguments with completion suggestions before fetching the prompt', async () => {
+        const operations = createContentOperations();
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        const plain = await screen.findByRole('button', { name: 'Use prompt plain-prompt' });
+        expect(plain).toHaveAttribute('data-testid', 'mcp-catalog-prompt-github-1');
+        fireEvent.click(plain);
+        await screen.findByTestId('mcp-catalog-content-github');
+        expect(operations.getMcpPrompt).toHaveBeenCalledWith({ authority, name: 'plain-prompt' });
+        expect(screen.queryByTestId('mcp-catalog-prompt-form-github')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Use prompt Issue summary' }));
+        const form = await screen.findByTestId('mcp-catalog-prompt-form-github');
+        expect(form).toHaveTextContent('Issue identifier');
+        const identifier = within(form).getByLabelText('identifier (required)');
+        expect(identifier).toBeRequired();
+        const tone = within(form).getByLabelText('tone');
+        expect(tone).not.toBeRequired();
+
+        fireEvent.change(identifier, { target: { value: 'BST' } });
+        await waitFor(() =>
+          expect(operations.completeMcpContent).toHaveBeenCalledWith({
+            argument: { name: 'identifier', value: 'BST' },
+            authority,
+            ref: { name: 'issue-summary', type: 'ref/prompt' },
+          })
+        );
+        await waitFor(() => expect(form.querySelectorAll('datalist option')).toHaveLength(2));
+        expect(identifier).toHaveAttribute('list');
+        expect(form.querySelector('datalist option')).toHaveAttribute('value', 'BST-1585');
+
+        fireEvent.change(tone, { target: { value: 'friendly' } });
+        await waitFor(() =>
+          expect(operations.completeMcpContent).toHaveBeenLastCalledWith({
+            argument: { name: 'tone', value: 'friendly' },
+            authority,
+            context: { arguments: { identifier: 'BST' } },
+            ref: { name: 'issue-summary', type: 'ref/prompt' },
+          })
+        );
+
+        fireEvent.submit(form);
+        await waitFor(() =>
+          expect(operations.getMcpPrompt).toHaveBeenLastCalledWith({
+            arguments: { identifier: 'BST', tone: 'friendly' },
+            authority,
+            name: 'issue-summary',
+          })
+        );
+        const content = await screen.findByTestId('mcp-catalog-content-github');
+        await waitFor(() => expect(content).toHaveTextContent('Prompt issue-summary'));
+        expect(content).toHaveTextContent('Summarize an issue');
+        expect(content).toHaveTextContent('Summarize BST-1585');
+        expect(content).toHaveTextContent('image content omitted');
+        expect(content).not.toHaveTextContent('QUFBQQ==');
+      });
+
+      it('honors required prompt arguments before issuing prompts/get', async () => {
+        const operations = createContentOperations();
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Use prompt Issue summary' }));
+        const form = await screen.findByTestId('mcp-catalog-prompt-form-github');
+        fireEvent.submit(form);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          'Prompt argument identifier is required'
+        );
+        expect(operations.getMcpPrompt).not.toHaveBeenCalled();
+      });
+
+      it('surfaces content failures without leaving the affordance stuck', async () => {
+        const operations = createContentOperations();
+        operations.readMcpResource = vi
+          .fn()
+          .mockRejectedValue(
+            new Error(
+              'MCP content server not connected (not-connected · mcp_content_server_not_connected)'
+            )
+          );
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        const read = await screen.findByRole('button', { name: 'Read BST-1585' });
+        fireEvent.click(read);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          'MCP content request failed: MCP content server not connected (not-connected · mcp_content_server_not_connected)'
+        );
+        expect(screen.queryByTestId('mcp-catalog-content-github')).not.toBeInTheDocument();
+        expect(read).toBeEnabled();
+      });
+
+      it('debounces completion, skips empty input, dedupes values, and gates on the capability', async () => {
+        const operations = createContentOperations();
+        operations.completeMcpContent = vi.fn().mockResolvedValue({
+          result: { completion: { values: ['BST-1585', 'BST-1585', 'BST-1586'] } },
+          type: 'completion/complete',
+        });
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Use prompt Issue summary' }));
+        const form = await screen.findByTestId('mcp-catalog-prompt-form-github');
+        const identifier = within(form).getByLabelText('identifier (required)');
+
+        fireEvent.change(identifier, { target: { value: 'B' } });
+        fireEvent.change(identifier, { target: { value: 'BS' } });
+        fireEvent.change(identifier, { target: { value: 'BST' } });
+        await waitFor(() => expect(operations.completeMcpContent).toHaveBeenCalledTimes(1));
+        expect(operations.completeMcpContent).toHaveBeenCalledWith(
+          expect.objectContaining({ argument: { name: 'identifier', value: 'BST' } })
+        );
+        await waitFor(() => expect(form.querySelectorAll('datalist option')).toHaveLength(2));
+
+        fireEvent.change(identifier, { target: { value: '' } });
+        await waitFor(() => expect(identifier).not.toHaveAttribute('list'));
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        expect(operations.completeMcpContent).toHaveBeenCalledTimes(1);
+      });
+
+      it('never requests completion from a server that does not advertise it', async () => {
+        const operations = createContentOperations();
+        operations.getMcpServerStatus = vi.fn().mockResolvedValue({
+          revision: 1,
+          servers: [
+            {
+              ...connectedMcpStatus,
+              catalog: {
+                ...browsableCatalog,
+                features: { ...browsableCatalog.features, completion: false },
+              },
+            },
+          ],
+        });
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Use prompt Issue summary' }));
+        const form = await screen.findByTestId('mcp-catalog-prompt-form-github');
+        const identifier = within(form).getByLabelText('identifier (required)');
+
+        fireEvent.change(identifier, { target: { value: 'BST' } });
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        expect(operations.completeMcpContent).not.toHaveBeenCalled();
+        expect(identifier).not.toHaveAttribute('list');
+        expect(form.querySelector('datalist')).toBeNull();
+      });
+
+      it('bounds rendered contents and messages to a fixed item count', async () => {
+        const operations = createContentOperations();
+        operations.readMcpResource = vi.fn().mockResolvedValue({
+          result: {
+            contents: Array.from({ length: 25 }, (_, index) => ({
+              text: `part ${index}`,
+              uri: `linear://issue/BST-1585/part-${index}`,
+            })),
+          },
+          type: 'resources/read',
+        });
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Read BST-1585' }));
+        const content = await screen.findByTestId('mcp-catalog-content-github');
+        expect(content).toHaveTextContent('Contents (showing 20 of 25)');
+        expect(content.querySelectorAll('pre')).toHaveLength(20);
+        expect(content).toHaveTextContent('part 19');
+        expect(content).not.toHaveTextContent('part 20');
+      });
+
+      it('clears the required-argument message on cancel and keeps it out of the request wrapper', async () => {
+        const operations = createContentOperations();
+        render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Use prompt Issue summary' }));
+        const form = await screen.findByTestId('mcp-catalog-prompt-form-github');
+        fireEvent.submit(form);
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('Prompt argument identifier is required');
+        expect(alert).not.toHaveTextContent('MCP content request failed');
+
+        fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('mcp-catalog-prompt-form-github')).not.toBeInTheDocument();
+      });
+
+      it('discards browsed content when the server generation changes', async () => {
+        const operations = createContentOperations();
+        operations.getMcpServerStatus = vi
+          .fn()
+          .mockResolvedValueOnce({
+            revision: 1,
+            servers: [{ ...connectedMcpStatus, catalog: browsableCatalog }],
+          })
+          .mockResolvedValue({
+            revision: 2,
+            servers: [{ ...connectedMcpStatus, catalog: browsableCatalog, generation: 2 }],
+          });
+        const view = render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Read BST-1585' }));
+        await screen.findByTestId('mcp-catalog-content-github');
+
+        await act(async () => {
+          view.rerender(
+            <UnifiedToolsSettings mcpAvailable={true} operations={{ ...operations }} />
+          );
+        });
+
+        await waitFor(() => expect(operations.getMcpServerStatus).toHaveBeenCalledTimes(2));
+        await waitFor(() =>
+          expect(screen.queryByTestId('mcp-catalog-content-github')).not.toBeInTheDocument()
+        );
+        expect(await screen.findByRole('button', { name: 'Read BST-1585' })).toBeEnabled();
+        expect(operations.readMcpResource).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('distinguishes an explicit empty host snapshot from a malformed config', async () => {

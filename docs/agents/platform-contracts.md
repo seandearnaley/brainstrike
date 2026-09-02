@@ -341,7 +341,10 @@ closed and the reset failure is visible.
 The MCP config-operation queue is non-reentrant. Tracked handlers call only
 their `*ForLifecycle` helpers, watcher callbacks stay generation-guarded outside
 the queue, and the user-paced native file picker never holds the reset barrier.
-Unwatch remains an idempotent teardown operation after admission closes.
+Unwatch remains an idempotent teardown operation after admission closes. The
+`mcp:content:*` read channels (BST-1585) follow `mcp:status:get`: they reject
+while admission is closed and wait on the lifecycle barrier, but never enter the
+queue — the content port's own authority watch retires them on replacement.
 
 Every reset runtime is attempted even when another fails. Their original
 rejections remain ordered in one `AggregateError`, while the visible message

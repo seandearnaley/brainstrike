@@ -12,6 +12,10 @@ import type {
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
+import type {
+  McpContentApplicationRequest,
+  McpContentApplicationResult,
+} from '@brainstrike/assistant-service/mcp-content-application-port';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
@@ -115,6 +119,17 @@ interface ElectronLiveQueryResults {
   rows: unknown[];
   totalCount?: number;
 }
+
+// `mcp:content:*` (BST-1585): the renderer sends the verb payload plus
+// authority; main forces the operation type per channel.
+type McpContentBridgeRequest<Type extends McpContentApplicationRequest['type']> = Omit<
+  Extract<McpContentApplicationRequest, { type: Type }>,
+  'type'
+>;
+type McpContentBridgeResult<Type extends McpContentApplicationResult['type']> = Extract<
+  McpContentApplicationResult,
+  { type: Type }
+>;
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
@@ -461,8 +476,17 @@ declare global {
       ) => (() => void) | undefined;
     };
     mcp: {
+      complete: (
+        request: McpContentBridgeRequest<'completion/complete'>
+      ) => Promise<McpContentBridgeResult<'completion/complete'>>;
       controlServer: (request: McpHostControlRequest) => Promise<McpHostServerSnapshot>;
       getConfig: () => Promise<McpConfigStatus>;
+      getPrompt: (
+        request: McpContentBridgeRequest<'prompts/get'>
+      ) => Promise<McpContentBridgeResult<'prompts/get'>>;
+      readResource: (
+        request: McpContentBridgeRequest<'resources/read'>
+      ) => Promise<McpContentBridgeResult<'resources/read'>>;
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;
       getPath: () => Promise<string>;

@@ -47,11 +47,13 @@ const fileExplorerMockState = vi.hoisted((): { current: FileExplorerMockState } 
 }));
 
 interface CapturedToolsOperations {
+  completeMcpContent?: (request: unknown) => Promise<unknown>;
   createSampleConfig: () => Promise<{ error?: string; path: string; success: boolean }>;
   disableTools: (ids: string[]) => Promise<void>;
   enableTools: (ids: string[]) => Promise<void>;
   getMcpConfigInfo: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
   getMcpConfigPath?: () => Promise<string>;
+  getMcpPrompt?: (request: unknown) => Promise<unknown>;
   getMcpServerStatus: () => Promise<McpHostSnapshot>;
   getStats: () => Promise<{
     byCategory: Record<string, number>;
@@ -64,6 +66,7 @@ interface CapturedToolsOperations {
   getTools: () => Promise<Array<{ id: string; source: string }>>;
   openMcpConfig: () => Promise<void>;
   readMcpConfigText?: () => Promise<{ content: string; path: string }>;
+  readMcpResource?: (request: unknown) => Promise<unknown>;
   refreshMcpServers: () => Promise<void>;
   resetMcpConfig: () => Promise<void>;
   resetTools: () => Promise<void>;
@@ -270,8 +273,11 @@ interface DesktopTestWindow {
     url: string;
   };
   mcp?: {
+    complete?: (request: unknown) => Promise<unknown>;
     createSampleConfig?: () => Promise<{ path: string; success: boolean }>;
     disableTools?: (ids: string[]) => Promise<void>;
+    getPrompt?: (request: unknown) => Promise<unknown>;
+    readResource?: (request: unknown) => Promise<unknown>;
     enableTools?: (ids: string[]) => Promise<void>;
     getConfig?: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
     getPath?: () => Promise<string>;
@@ -323,11 +329,19 @@ describe('desktop SettingsPageContent tool operations', () => {
     const desktopWindow = getDesktopWindow();
     desktopWindow.assistant = undefined;
     desktopWindow.mcp = {
+      complete: vi.fn(async () => ({
+        result: { completion: { values: ['BST-1585'] } },
+        type: 'completion/complete',
+      })),
       createSampleConfig: vi.fn(async () => ({ path: '/tmp/sample.json', success: true })),
       disableTools: vi.fn(async () => {}),
       enableTools: vi.fn(async () => {}),
       getConfig: vi.fn(async () => ({ exists: true, path: '/tmp/mcp.json' })),
       getPath: vi.fn(async () => '/tmp/mcp.json'),
+      getPrompt: vi.fn(async () => ({
+        result: { messages: [{ content: { text: 'Summarize', type: 'text' }, role: 'user' }] },
+        type: 'prompts/get',
+      })),
       getServerStatusSnapshot: vi.fn(async () => hostSnapshot),
       getToolStats: vi.fn(async () => ({ enabled: 1, servers: 1, total: 2 })),
       listTools: vi.fn(async () => ({
@@ -345,6 +359,10 @@ describe('desktop SettingsPageContent tool operations', () => {
       onServerStatusUpdated: vi.fn(() => vi.fn()),
       onToolsUpdated: vi.fn(() => vi.fn()),
       readConfigText: vi.fn(async () => ({ content: '{}', path: '/tmp/mcp.json' })),
+      readResource: vi.fn(async () => ({
+        result: { contents: [{ text: '# BST-1585', uri: 'linear://issue/BST-1585' }] },
+        type: 'resources/read',
+      })),
       resetTools: vi.fn(async () => {}),
       selectPath: vi.fn(async () => '/tmp/selected.json'),
       setPath: vi.fn(async (path) => ({ path: path ?? '/tmp/default.json', success: true })),
@@ -438,6 +456,59 @@ describe('desktop SettingsPageContent tool operations', () => {
     await expect(capturedOperations.setMcpConfigPath?.('/tmp/bad.json')).rejects.toThrow(
       'Failed to set MCP config path'
     );
+  });
+
+  it('forwards user-initiated MCP content browsing to the bridge verbs (BST-1585)', async () => {
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations) {
+      throw new Error('Expected tools operations to be captured');
+    }
+    const mcp = getDesktopWindow().mcp;
+    const authority = { configuredServerId: parseConfiguredMcpServerId('local'), generation: 1 };
+    const readRequest = { authority, uri: 'linear://issue/BST-1585' };
+    await expect(capturedOperations.readMcpResource?.(readRequest)).resolves.toMatchObject({
+      type: 'resources/read',
+    });
+    expect(mcp?.readResource).toHaveBeenCalledWith(readRequest);
+    const promptRequest = { arguments: { identifier: 'BST-1585' }, authority, name: 'summary' };
+    await expect(capturedOperations.getMcpPrompt?.(promptRequest)).resolves.toMatchObject({
+      type: 'prompts/get',
+    });
+    expect(mcp?.getPrompt).toHaveBeenCalledWith(promptRequest);
+    const completeRequest = {
+      argument: { name: 'identifier', value: 'BST' },
+      authority,
+      ref: { name: 'summary', type: 'ref/prompt' },
+    };
+    await expect(capturedOperations.completeMcpContent?.(completeRequest)).resolves.toMatchObject({
+      type: 'completion/complete',
+    });
+    expect(mcp?.complete).toHaveBeenCalledWith(completeRequest);
+  });
+
+  it('omits MCP content browsing operations when the bridge lacks the verbs', async () => {
+    const desktopWindow = getDesktopWindow();
+    const {
+      complete: _complete,
+      getPrompt: _getPrompt,
+      readResource: _readResource,
+      ...rest
+    } = desktopWindow.mcp ?? {};
+    desktopWindow.mcp = rest;
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations) {
+      throw new Error('Expected tools operations to be captured');
+    }
+    expect(capturedOperations).not.toHaveProperty('readMcpResource');
+    expect(capturedOperations).not.toHaveProperty('getMcpPrompt');
+    expect(capturedOperations).not.toHaveProperty('completeMcpContent');
+    expect(capturedOperations).toHaveProperty('getMcpServerStatus');
   });
 
   it('returns main-process status snapshots without inferring from tools', async () => {

@@ -23,6 +23,9 @@ import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/
 import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settings-ui/settings/system/workspace-instructions-settings-category';
 import {
   createToolsSettingsCategory,
+  type McpCompleteRequest,
+  type McpGetPromptRequest,
+  type McpReadResourceRequest,
   type ToolDisplayMetadata,
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
@@ -170,9 +173,22 @@ export default function SettingsPageContent() {
   const toolOperations = useMemo(() => {
     const onServerStatusUpdated = window.mcp?.onServerStatusUpdated;
     return {
+      // BST-1585: user-initiated MCP content browsing is capability-gated on
+      // the bridge methods; web omits them, so the Settings affordance is absent.
+      ...(window.mcp?.complete && {
+        completeMcpContent: async (request: McpCompleteRequest) =>
+          await window.mcp.complete(request),
+      }),
       ...(window.mcp?.controlServer && {
         controlMcpServer: async (request: McpHostControlRequest) =>
           await window.mcp.controlServer(request),
+      }),
+      ...(window.mcp?.getPrompt && {
+        getMcpPrompt: async (request: McpGetPromptRequest) => await window.mcp.getPrompt(request),
+      }),
+      ...(window.mcp?.readResource && {
+        readMcpResource: async (request: McpReadResourceRequest) =>
+          await window.mcp.readResource(request),
       }),
       disableTools: async (ids: string[]) => {
         const nativeToolIds = ids.filter((id) => isNativeTool(id));

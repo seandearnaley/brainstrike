@@ -336,6 +336,9 @@ describe('preload runtime contract', () => {
       MCP_CONFIG_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated,
       MCP_CONFIG_WATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWatch,
       MCP_CONFIG_WRITE_TEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWriteText,
+      MCP_CONTENT_COMPLETE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentComplete,
+      MCP_CONTENT_GET_PROMPT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentGetPrompt,
+      MCP_CONTENT_READ_RESOURCE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.contentReadResource,
       MCP_STATUS_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
       MCP_STATUS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated,
       MCP_TOOLS_DISABLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisable,
@@ -409,6 +412,18 @@ describe('preload runtime contract', () => {
     expect(statusSubscription).toContain(
       'ipcRenderer.removeListener(MCP_STATUS_UPDATED_EVENT, listener)'
     );
+    // BST-1585: content browsing crosses IPC as three verb-specific channels;
+    // the renderer never gets a raw `invoke(method, params)` escape hatch.
+    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'readResource')).toContain(
+      'ipcRenderer.invoke(MCP_CONTENT_READ_RESOURCE_CHANNEL, request)'
+    );
+    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'getPrompt')).toContain(
+      'ipcRenderer.invoke(MCP_CONTENT_GET_PROMPT_CHANNEL, request)'
+    );
+    expect(requireExposedBridgeProperty(mcpBridge, 'mcp', 'complete')).toContain(
+      'ipcRenderer.invoke(MCP_CONTENT_COMPLETE_CHANNEL, request)'
+    );
+    expect([...mcpBridge.keys()]).not.toContain('invoke');
 
     const preloadWithoutContractDefinitions = removePreloadStringConstantDefinitions(preloadSource);
     for (const channel of Object.values(expectedConstants)) {

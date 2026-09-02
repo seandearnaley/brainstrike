@@ -840,7 +840,12 @@ function ToolsPanelContent({
             <McpServerStatusRow
               controlAvailable={Boolean(operations.controlMcpServer)}
               key={server.configuredServerId}
+              {...(operations.completeMcpContent && {
+                onComplete: operations.completeMcpContent,
+              })}
               onControl={onControlMcpServer}
+              {...(operations.getMcpPrompt && { onGetPrompt: operations.getMcpPrompt })}
+              {...(operations.readMcpResource && { onReadResource: operations.readMcpResource })}
               server={server}
             />
           ))}
