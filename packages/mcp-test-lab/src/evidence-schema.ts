@@ -14,6 +14,7 @@ const MCP_EVIDENCE_FIXTURE_IDS = Object.freeze([
   'brainstrike-oauth-reference',
   'brainstrike-sdk-v2-reference',
   'brainstrike-stdio-reference',
+  'brainstrike-tasks-reference',
   'official-sdk-v2-everything-reference',
 ] as const satisfies readonly McpLabFixture[]);
 export type McpCommandPhase = 'green' | 'red' | 'verification';
@@ -415,7 +416,9 @@ function assertCanonicalScenarioClaims(schema: McpEvidenceSchema): void {
   const expectedCapabilities =
     schema.scenarioId === 'modern-reference'
       ? ['completions', 'prompts', 'resources', 'tools']
-      : ['tools'];
+      : schema.scenarioId === 'tasks-reference'
+        ? ['extensions', 'tools']
+        : ['tools'];
   if (
     schema.versions.spec !== scenario.protocol.version ||
     schema.versions.sdk.version !== scenario.reference.sdkVersion ||

@@ -25,6 +25,8 @@ describe('MCP verifier runner manifest', () => {
       'legacy-http-loopback',
       'oauth-http-loopback',
       'modern-stdio',
+      'modern-tasks-in-process',
+      'modern-tasks-loopback',
     ]);
     expect(MCP_LAB_RUNNER_CASES.map(({ id }) => id)).toEqual(MCP_LAB_RUNNER_CASE_IDS);
     expect(new Set(MCP_LAB_RUNNER_CASES.map(({ scenarioId }) => scenarioId))).toEqual(
@@ -46,6 +48,7 @@ describe('MCP verifier runner manifest', () => {
       'legacy-http-loopback',
       'oauth-http-loopback',
       'modern-stdio',
+      'modern-tasks-in-process',
     ]);
     expect(exhaustive.cases.map(({ id }) => id)).toEqual(MCP_LAB_RUNNER_CASE_IDS);
     expect(new Set(representative.cases).isSubsetOf(new Set(exhaustive.cases))).toBe(true);

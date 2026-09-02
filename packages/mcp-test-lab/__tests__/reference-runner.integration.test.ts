@@ -30,13 +30,21 @@ describe('MCP official reference runner', () => {
       'legacy-reference',
       'oauth-reference',
       'stdio-reference',
+      'tasks-reference',
     ]);
     const caseIds = [
       'modern-http-in-process',
       'legacy-http-loopback',
       'oauth-http-loopback',
       'modern-stdio',
+      'modern-tasks-in-process',
     ];
+    const redSuffix = (scenarioId: string): string => {
+      if (scenarioId === 'modern-reference') {
+        return 'intentional-tool-error';
+      }
+      return scenarioId === 'tasks-reference' ? 'missing-task-rejection' : 'missing-tool-rejection';
+    };
     for (const [index, { schema }] of bundles.entries()) {
       expect(schema.commands).toEqual([
         expect.objectContaining({
@@ -60,14 +68,14 @@ describe('MCP official reference runner', () => {
       expect(schema.commands.every(({ command }) => command === COMMAND)).toBe(true);
       expect(schema.correlationIds).toHaveLength(3);
       expect(schema.correlationIds[0]).toBe(
-        index === 0
-          ? `${caseIds[index]}-red-intentional-tool-error`
-          : `${caseIds[index]}-red-missing-tool-rejection`
+        `${caseIds[index]}-red-${redSuffix(schema.scenarioId)}`
       );
       expect(schema.negotiation.capabilities).toEqual(
         schema.scenarioId === 'modern-reference'
           ? ['completions', 'prompts', 'resources', 'tools']
-          : ['tools']
+          : schema.scenarioId === 'tasks-reference'
+            ? ['extensions', 'tools']
+            : ['tools']
       );
     }
     expect(JSON.stringify(bundles)).not.toMatch(/bearer|access[_-]?token|client[_-]?secret/i);
@@ -107,7 +115,7 @@ describe('MCP official reference runner', () => {
         command: COMMAND.replace('pr', 'exhaustive'),
         git: { commitSha: SHA, workspaceState: 'clean' },
         selection: {
-          caseIds: ['modern-http-loopback', 'legacy-http-in-process'],
+          caseIds: ['modern-http-loopback', 'legacy-http-in-process', 'modern-tasks-loopback'],
           profile: 'exhaustive',
         },
         ticket: 'BST-1496',
@@ -119,6 +127,7 @@ describe('MCP official reference runner', () => {
     expect(bundles.map(({ schema }) => schema.scenarioId)).toEqual([
       'modern-reference',
       'legacy-reference',
+      'tasks-reference',
     ]);
     expect(bundles.every(({ schema }) => schema.cleanup.verified)).toBe(true);
   }, 30_000);

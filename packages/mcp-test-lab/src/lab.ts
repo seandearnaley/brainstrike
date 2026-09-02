@@ -34,7 +34,7 @@ import {
   type McpOAuthReferenceHandler,
   type McpOAuthReferenceStateCounts,
 } from './oauth-reference.js';
-import { createReferenceServer } from './reference-server.js';
+import { createReferenceServerFactory } from './reference-server.js';
 import { getMcpLabScenario, type McpLabScenario, type McpLabScenarioId } from './scenario.js';
 import {
   createMcpLabSessionCleanup,
@@ -168,7 +168,7 @@ function recordHandlerError(
 }
 
 function createReferenceHandler(scenario: McpLabScenario): McpHttpHandler {
-  const handler = createMcpHandler(() => createReferenceServer(scenario.fixture), {
+  const handler = createMcpHandler(createReferenceServerFactory(scenario.fixture), {
     legacy: scenario.protocol.era === 'legacy' ? 'stateless' : 'reject',
   });
   if (scenario.protocol.era !== 'legacy') {

@@ -78,6 +78,7 @@ const OPERATIONS_BY_FIXTURE: Readonly<Record<McpLabFixture, readonly McpLabOpera
     'brainstrike-oauth-reference': ECHO_FIXTURE_OPERATIONS,
     'brainstrike-sdk-v2-reference': ECHO_FIXTURE_OPERATIONS,
     'brainstrike-stdio-reference': ECHO_FIXTURE_OPERATIONS,
+    'brainstrike-tasks-reference': ECHO_FIXTURE_OPERATIONS,
     'official-sdk-v2-everything-reference': OFFICIAL_EVERYTHING_FIXTURE_OPERATIONS,
   });
 

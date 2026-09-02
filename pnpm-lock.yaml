@@ -2724,6 +2724,9 @@ importers:
 
   packages/mcp-test-lab:
     dependencies:
+      '@brainstrike/mcp-tasks-extension':
+        specifier: workspace:*
+        version: link:../mcp-tasks-extension
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
         version: 2.0.0

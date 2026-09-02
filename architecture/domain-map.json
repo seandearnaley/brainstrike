@@ -87,8 +87,7 @@
         "@brainstrike/agent",
         "@brainstrike/assistant-service",
         "@brainstrike/mcp-app-host",
-        "@brainstrike/mcp-app-host-ui",
-        "@brainstrike/mcp-tasks-extension"
+        "@brainstrike/mcp-app-host-ui"
       ],
       "mayDependOn": [
         "indexing",
@@ -148,6 +147,7 @@
         "@brainstrike/indexing-contract",
         "@brainstrike/local-runtime",
         "@brainstrike/logging",
+        "@brainstrike/mcp-tasks-extension",
         "@brainstrike/storage",
         "@brainstrike/test-utils",
         "@brainstrike/tokenization",
