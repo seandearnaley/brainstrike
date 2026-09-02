@@ -21,9 +21,10 @@ import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { DbSchemaVerifier } from '@brainstrike/settings-ui/components/db-schema-verifier';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
-import { lazy, StrictMode, Suspense, useEffect } from 'react';
+import { StrictMode, Suspense, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
+import { McpTaskStatusE2eHarness } from './components/mcp-task-status-e2e-harness-lazy';
 import {
   type DesktopBridgeValidationResult,
   isElectronRendererUserAgent,
@@ -64,8 +65,6 @@ const rendererConsoleLevel = LogLevel.WARN;
 const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
-
-const McpTaskStatusE2eHarness = lazy(() => import('./components/mcp-task-status-e2e-harness'));
 
 const desktopRendererRole = resolveDesktopRendererRole(
   window.location.search,
