@@ -104,6 +104,21 @@ describe('MCP lab upstream provenance', () => {
       texts.set(file, new TextDecoder().decode(bytes));
     }
     expect(texts.get('mcp-app.html')).toBe(APPS_PROFILE.document);
+    // The profile pins BOTH resource-URI metadata keys because the pinned
+    // helper writes the legacy flat key whenever `_meta.ui.resourceUri` is set.
+    const helperUrl = `https://raw.githubusercontent.com/modelcontextprotocol/ext-apps/${MCP_LAB_EXT_APPS_SOURCE.commitSha}/${APPS_PROFILE.upstream.helper.path}`;
+    const helperResponse = await fetch(helperUrl);
+    expect(helperResponse.status).toBe(200);
+    const helperBytes = new Uint8Array(await helperResponse.arrayBuffer());
+    expect(createHash('sha256').update(helperBytes).digest('hex')).toBe(
+      APPS_PROFILE.upstream.helper.sha256
+    );
+    const helperText = new TextDecoder().decode(helperBytes);
+    expect(helperText).toContain('If _meta.ui.resourceUri is set, also set the legacy flat key');
+    expect(helperText).toContain(
+      'normalizedMeta = { ...meta, [RESOURCE_URI_META_KEY]: uiMeta.resourceUri };'
+    );
+    expect(helperText).toContain('export { RESOURCE_URI_META_KEY, RESOURCE_MIME_TYPE };');
     const serverText = texts.get('server.ts') ?? '';
     for (const anchor of [
       APPS_PROFILE.server.name,

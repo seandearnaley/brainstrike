@@ -39,6 +39,11 @@ export const APPS_PROFILE = Object.freeze({
       'mcp-app.html': '5f69cc9a85ab0fe4134bccfc86062760c2a9d6a31e1c200d1be88c82e0bce4c3',
       'server.ts': '6fb0ea689385cfb870563d5cfb06218712c62f74664278ca12b1905aa6169d8d',
     }),
+    /** The helper that performs the dual resource-URI metadata write. */
+    helper: Object.freeze({
+      path: 'src/server/index.ts',
+      sha256: 'c2061cafac0aa41271ef8a3bb5e1b65a9bd4fea9074dab8536c79057bab52480',
+    }),
   }),
 } as const);
 
