@@ -305,11 +305,6 @@ function createTasksReferenceServer(store: TaskStore): McpServer {
 }
 
 /**
- * Per-handler server factory. Every fixture but Tasks is stateless, so a
- * fresh server per request is exact; the Tasks fixture shares one task store
- * across the per-request servers the modern handler allocates.
- */
-/**
  * Derived from the pinned official ext-apps example server: one app tool whose
  * metadata links it to one `ui://` resource served with the MCP Apps MIME
  * profile. The wire shape is what `registerAppTool`/`registerAppResource`
@@ -328,20 +323,46 @@ function createAppsReferenceServer(): McpServer {
     },
     async () => {
       const time = new Date().toISOString();
-      return { content: [{ text: time, type: 'text' as const }], structuredContent: { time } };
+      return {
+        content: [{ text: time, type: 'text' as const }],
+        structuredContent: { [apps.tool.outputKey]: time },
+      };
     }
   );
   server.registerResource(
     apps.resource.name,
     apps.resource.uri,
     { mimeType: apps.resource.mimeType },
-    async () => ({
-      contents: [{ mimeType: apps.resource.mimeType, text: apps.document, uri: apps.resource.uri }],
-    })
+    async () => {
+      // Capability negotiation is part of the proof: only a client that
+      // advertised the MCP Apps host capability with this MIME profile may
+      // read the app document.
+      const extension: unknown =
+        server.server.getClientCapabilities()?.extensions?.[apps.extensionId];
+      const mimeTypes =
+        typeof extension === 'object' && extension !== null
+          ? (extension as { mimeTypes?: unknown }).mimeTypes
+          : undefined;
+      if (!(Array.isArray(mimeTypes) && mimeTypes.includes(apps.resource.mimeType))) {
+        throw new Error(
+          `MCP Apps reference resource ${apps.resource.uri} requires the ${apps.extensionId} host capability with ${apps.resource.mimeType}`
+        );
+      }
+      return {
+        contents: [
+          { mimeType: apps.resource.mimeType, text: apps.document, uri: apps.resource.uri },
+        ],
+      };
+    }
   );
   return server;
 }
 
+/**
+ * Per-handler server factory. Every fixture but Tasks is stateless, so a
+ * fresh server per request is exact; the Tasks fixture shares one task store
+ * across the per-request servers the modern handler allocates.
+ */
 export function createReferenceServerFactory(fixture: McpLabFixture): () => McpServer {
   if (fixture !== 'brainstrike-tasks-reference') {
     return () => createReferenceServer(fixture);

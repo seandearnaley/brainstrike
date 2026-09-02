@@ -113,8 +113,17 @@ describe('MCP verifier runner manifest', () => {
       runTimeoutMs: 12_000,
     });
 
-    expect(defaults).toMatchObject({ caseTimeoutMs: 10_000, runTimeoutMs: 60_000 });
+    expect(defaults).toMatchObject({ caseTimeoutMs: 10_000, runTimeoutMs: 90_000 });
     expect(selected).toMatchObject({ caseTimeoutMs: 2500, runTimeoutMs: 12_000 });
+  });
+
+  it('keeps run ceilings above the sum of sequential per-case ceilings', () => {
+    for (const profile of MCP_LAB_RUNNER_PROFILES) {
+      const timeouts = MCP_LAB_RUNNER_PROFILE_TIMEOUTS[profile];
+      expect(timeouts.runTimeoutMs).toBeGreaterThan(
+        MCP_LAB_RUNNER_PROFILE_CASE_IDS[profile].length * timeouts.caseTimeoutMs
+      );
+    }
   });
 
   it('keeps the living contract coupled to the executable profile defaults', async () => {

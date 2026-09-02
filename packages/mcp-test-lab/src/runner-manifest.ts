@@ -66,8 +66,10 @@ export const MCP_LAB_RUNNER_PROFILE_CASE_IDS = Object.freeze({
 } as const satisfies Readonly<Record<McpLabRunnerProfile, readonly McpLabRunnerCaseId[]>>);
 
 export const MCP_LAB_RUNNER_PROFILE_TIMEOUTS = Object.freeze({
-  exhaustive: Object.freeze({ caseTimeoutMs: 20_000, runTimeoutMs: 180_000 }),
-  pr: Object.freeze({ caseTimeoutMs: 10_000, runTimeoutMs: 60_000 }),
+  // Run ceilings keep headroom above the sum of per-case ceilings (cases run
+  // sequentially) so a merely slow run fails per case, never as a run timeout.
+  exhaustive: Object.freeze({ caseTimeoutMs: 20_000, runTimeoutMs: 270_000 }),
+  pr: Object.freeze({ caseTimeoutMs: 10_000, runTimeoutMs: 90_000 }),
 } as const satisfies Readonly<
   Record<McpLabRunnerProfile, { readonly caseTimeoutMs: number; readonly runTimeoutMs: number }>
 >);

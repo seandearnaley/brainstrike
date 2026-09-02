@@ -15,6 +15,8 @@ export const APPS_PROFILE = Object.freeze({
   document:
     '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <meta name="color-scheme" content="light dark">\n  <title>Get Time App</title>\n</head>\n<body>\n  <main class="main">\n    <p class="notice">Watch activity in the DevTools console!</p>\n\n    <div class="action">\n      <p><strong>Server Time:</strong> <code id="server-time">Loading...</code></p>\n      <button id="get-time-btn">Get Server Time</button>\n    </div>\n\n    <div class="action">\n      <textarea id="message-text">This is message text.</textarea>\n      <button id="send-message-btn">Send Message</button>\n    </div>\n\n    <div class="action">\n      <input type="text" id="log-text" value="This is log text.">\n      <button id="send-log-btn">Send Log</button>\n    </div>\n\n    <div class="action">\n      <input type="url" id="link-url" value="https://modelcontextprotocol.io/">\n      <button id="open-link-btn">Open Link</button>\n    </div>\n  </main>\n  <script type="module" src="/src/mcp-app.ts"></script>\n</body>\n</html>\n',
   extensionId: 'io.modelcontextprotocol/ui',
+  /** What an MCP Apps host must advertise in its client capabilities. */
+  host: Object.freeze({ mimeTypes: Object.freeze(['text/html;profile=mcp-app']) }),
   missingResourceUri: 'ui://get-time/missing.html',
   resource: Object.freeze({
     mimeType: 'text/html;profile=mcp-app',

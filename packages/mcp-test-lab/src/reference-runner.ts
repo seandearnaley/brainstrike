@@ -467,7 +467,6 @@ function isIntentionalToolError(value: unknown): boolean {
   );
 }
 
-/** RED probes assert a real server rejection; anything else is a harness bug. */
 /**
  * RED probes assert the handler's OWN rejection. Any ProtocolError is too
  * weak: a broken alias bridge or a params regression also yields one
@@ -624,6 +623,15 @@ class ReferencePhaseOwner implements McpLabRunnerPhaseOwner {
     this.client = new Client(
       { name: 'brainstrike-mcp-verifier-runner', version: '1.0.0' },
       {
+        ...(this.runnerCase.scenarioId === 'apps-reference'
+          ? {
+              capabilities: {
+                extensions: {
+                  [APPS_PROFILE.extensionId]: { mimeTypes: [...APPS_PROFILE.host.mimeTypes] },
+                },
+              },
+            }
+          : {}),
         versionNegotiation:
           protocol.era === 'legacy' ? { mode: 'legacy' } : { mode: { pin: protocol.version } },
       }

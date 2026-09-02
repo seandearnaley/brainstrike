@@ -79,6 +79,7 @@ off every client request's params onto the handler context, which is where a
 `tasks/update` handler must read them. The modern handler allocates a server
 per request, so the Tasks fixture shares one task store per handler through
 `createReferenceServerFactory`.
+
 `apps-reference` is the executable MCP Apps interoperability proof (BST-1572,
 `io.modelcontextprotocol/ui`). The pinned official example server is
 `examples/basic-server-vanillajs` at ext-apps tag `v1.7.5` (a lightweight tag:
@@ -91,9 +92,13 @@ anchor. The lab-owned reference server registers the example's app tool with
 BOTH resource-URI metadata keys the pinned `registerAppTool` writes
 (`_meta.ui.resourceUri` and `_meta["ui/resourceUri"]`) and serves the exact
 pinned document as the linked `ui://` resource with the MCP Apps MIME profile,
-without importing the ext-apps package. GREEN/verification prove listing,
-linkage, MIME, byte-exact read, and the structured tool output; RED proves a
-missing `ui://` resource is rejected. Rendering through the packaged Electron
+without importing the ext-apps package. Capability negotiation is part of the
+proof: the verifier client advertises the `io.modelcontextprotocol/ui` host
+capability with the MCP Apps MIME profile, and the fixture serves the app
+document only to a client that did (an integration test proves a generic
+client, or one advertising another MIME type, is rejected). GREEN/verification
+prove listing, linkage, MIME, byte-exact read, and the structured tool output;
+RED proves a missing `ui://` resource is rejected. Rendering through the packaged Electron
 host, sanitized manual CDT evidence, SECURITY.md/support-matrix changes, and
 production registration remain owner-gated and are not claimed here.
 
@@ -320,10 +325,10 @@ transport, fault coordinate, OAuth route, evidence guarantee, or runner before
 that branch contains its executable path and focused verifier. The private
 runner manifest owns two closed deterministic profiles over ten case ids:
 
-- `pr`: 6 cases, 10,000 ms per case, 60,000 ms per run — modern in-process
+- `pr`: 6 cases, 10,000 ms per case, 90,000 ms per run — modern in-process
   HTTP, legacy loopback HTTP, OAuth loopback HTTP, modern stdio, modern Tasks
   in-process HTTP, and modern Apps in-process HTTP.
-- `exhaustive`: 10 cases, 20,000 ms per case, 180,000 ms per run — the PR set
+- `exhaustive`: 10 cases, 20,000 ms per case, 270,000 ms per run — the PR set
   plus modern loopback, legacy in-process HTTP, modern Tasks loopback HTTP, and
   modern Apps loopback HTTP.
 
@@ -334,7 +339,8 @@ Explicit `undefined` values are malformed and never treated as omission. An
 explicit selection cannot exceed its closed profile, a case timeout stays
 within 100–60,000 ms, and a run timeout stays within 100–600,000 ms without
 falling below its case timeout. Case limits are per-case ceilings, not reserved
-runtime, so the whole-run ceiling need not equal their sum.
+runtime, so the whole-run ceiling need not equal their sum; it does stay above
+that sum so a merely slow sequential run fails per case, not as a run timeout.
 The `./runner` owner executes closed profile selections serially as genuine RED, GREEN, and
 repeat-verification phases. Every phase receives a bounded abort signal and an
 independently bounded cleanup attempt; a primary plus cleanup failure remains
