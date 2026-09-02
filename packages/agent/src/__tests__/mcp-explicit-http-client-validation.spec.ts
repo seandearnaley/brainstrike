@@ -386,12 +386,13 @@ describe('ExplicitHttpMcpClient validation', () => {
       Reflect.get(client, 'options') as object,
       'extensionDispatchLedger'
     ) as RegisteredExtensionDispatchLedger;
+    const dispatchScope = dispatchLedger.openTransportScope();
     const sdkClient = {
       getNegotiatedProtocolVersion: () => '2026-07-28',
       getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
       listen: vi.fn(async (filter: unknown) => {
-        dispatchLedger.bindSubscriptionRequest('listen:0', { notifications: filter });
-        dispatchLedger.recordSubscriptionAcknowledgement({
+        dispatchScope.bindSubscriptionRequest('listen:0', { notifications: filter });
+        dispatchScope.recordSubscriptionAcknowledgement({
           _meta: { [SUBSCRIPTION_ID_META_KEY]: 'listen:0' },
           notifications: { taskIds: ['task-http-1'] },
         });

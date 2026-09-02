@@ -26,15 +26,16 @@ function acknowledgingListen<Subscription>(
   acknowledgements: readonly unknown[],
   subscribe: (attempt: number) => Subscription
 ) {
+  const scope = ledger.openTransportScope();
   let attempt = 0;
   return vi.fn(async (filter: unknown) => {
     const index = attempt;
     attempt += 1;
     const subscriptionId = `listen:${index}`;
-    ledger.bindSubscriptionRequest(subscriptionId, { notifications: filter });
+    scope.bindSubscriptionRequest(subscriptionId, { notifications: filter });
     const acknowledgement = acknowledgements[index];
     if (acknowledgement !== undefined) {
-      ledger.recordSubscriptionAcknowledgement({
+      scope.recordSubscriptionAcknowledgement({
         _meta: { [SUBSCRIPTION_ID_META_KEY]: subscriptionId },
         notifications: acknowledgement,
       });
@@ -76,6 +77,40 @@ describe('MCP Tasks wire adapter', () => {
     const lease = await listenForMcpTasks(client, registry, ledger, ['task-1'], vi.fn());
 
     expect(setNotificationHandler).toHaveBeenCalledTimes(2);
+    expect(lease.honoredTaskIds).toEqual(['task-1']);
+    await lease.close();
+  });
+
+  it('rolls back active ownership when the acknowledgement claim throws', async () => {
+    // Review of #2928: the capture claim sat outside the rollback the rest of the
+    // function is careful about, so a throw here leaked the notification handler
+    // AND the per-connection lease, and the connection could never listen again.
+    const subscription = {
+      close: vi.fn(async () => undefined),
+      closed: new Promise<never>(() => undefined),
+      honoredFilter: {},
+    };
+    const ledger = new RegisteredExtensionDispatchLedger();
+    const capture = vi.spyOn(ledger, 'captureSubscriptionAcknowledgement');
+    capture.mockImplementationOnce(() => {
+      throw new Error('MCP subscription acknowledgement filter is already claimed');
+    });
+    const removeNotificationHandler = vi.fn();
+    const client = {
+      getNegotiatedProtocolVersion: () => '2026-07-28',
+      getServerCapabilities: () => ({ extensions: { 'io.modelcontextprotocol/tasks': {} } }),
+      listen: acknowledgingListen(ledger, [{ taskIds: ['task-1'] }], () => subscription),
+      removeNotificationHandler,
+      setNotificationHandler: vi.fn(),
+    } as unknown as Client;
+    const registry = tasksRegistry();
+
+    await expect(listenForMcpTasks(client, registry, ledger, ['task-1'], vi.fn())).rejects.toThrow(
+      /filter is already claimed/u
+    );
+    expect(removeNotificationHandler).toHaveBeenCalledTimes(1);
+
+    const lease = await listenForMcpTasks(client, registry, ledger, ['task-1'], vi.fn());
     expect(lease.honoredTaskIds).toEqual(['task-1']);
     await lease.close();
   });

@@ -257,7 +257,13 @@ export async function listenForMcpTasks(
       activeTaskSubscriptions.delete(client);
     }
   };
-  const capture = dispatchLedger.captureSubscriptionAcknowledgement(notifications);
+  let capture: McpSubscriptionAcknowledgementCapture;
+  try {
+    capture = dispatchLedger.captureSubscriptionAcknowledgement(notifications);
+  } catch (error) {
+    release();
+    throw error;
+  }
   let subscription: McpSubscription;
   try {
     subscription = await client.listen(notifications as SubscriptionFilter, options);

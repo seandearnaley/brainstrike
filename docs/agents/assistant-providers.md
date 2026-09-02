@@ -1993,22 +1993,35 @@ regression: every desktop stdio/streamable-http connection now carries a
 registry, and a core legacy `tools/call` was rejected as a header mismatch). A
 malformed or header-disagreeing REGISTERED request still throws.
 
-`RegisteredExtensionDispatchLedger` is that one per-connection dispatch state,
-and it carries the second fact only the raw-wire seam can see (BST-1596): the
-unstripped `notifications/subscriptions/acknowledged` payload for a claimed
+`RegisteredExtensionDispatchLedger` is that one dispatch state, and it carries
+the second fact only the raw-wire seam can see (BST-1596): the unstripped
+`notifications/subscriptions/acknowledged` payload for a claimed
 `subscriptions/listen` request. The SDK settles `McpSubscription.honoredFilter`
 from the CORE `SubscriptionFilter` schema, which drops every extension field, so
 an extension lease cannot otherwise learn which ids the server honored. A
 consumer claims a capture with `captureSubscriptionAcknowledgement(filter)`
 BEFORE calling `listen()`; the bridge's `send` wrapper binds that claim to the
 listen request id by filter object identity (the SDK forwards the caller's
-filter object untouched), its incoming hook records the raw payload against
-`_meta['io.modelcontextprotocol/subscriptionId']`, and transport close clears
-the ledger so a reconnect inherits nothing. The registry still refuses a
+filter object untouched), and its incoming hook records the raw payload against
+`_meta['io.modelcontextprotocol/subscriptionId']`. The registry still refuses a
 contract for `notifications/subscriptions/acknowledged` itself — the SDK
 consumes that notification before custom handlers — and this capture does NOT
 consume it. Do not add a second dispatch substrate for raw-wire observation;
 extend this ledger.
+
+Ledger LIFETIME differs by transport and the ledger is not allowed to care:
+stdio allocates one per connection, while HTTP builds its header-preserving
+fetch once per CLIENT, so the ledger that fetch queries outlives every transport
+the client installs (reconnect, session reset, auth step-up retry each build a
+new one). Ownership therefore lives in a per-transport
+`RegisteredExtensionDispatchScope` that `installRegisteredExtensionDispatch`
+opens, and transport close clears only THAT scope — never the whole ledger
+(review of #2928). A shared clear would drop a sibling transport's in-flight
+`tools/call` id, and the fetch bridge would then classify it as core traffic and
+throw a method/header mismatch, or drop a live subscription claim so the lease
+fails as `never observed on this connection`. Subscription ids are JSON-RPC
+request ids, which restart on every new connection, so they are unique only
+inside one scope; never key raw-wire state by request id at ledger scope.
 
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |

@@ -43,6 +43,8 @@ export interface McpSubscriptionAcknowledgementCapture {
 class SubscriptionAcknowledgementClaim implements McpSubscriptionAcknowledgementCapture {
   acknowledgement: unknown = undefined;
   acknowledged = false;
+  /** The scope map holding this claim once a transport bound it, for release. */
+  boundClaims: Map<string, SubscriptionAcknowledgementClaim> | undefined = undefined;
   subscriptionId: string | undefined = undefined;
 
   constructor(
@@ -79,9 +81,35 @@ function readListenFilter(params: unknown): object | undefined {
 }
 
 /**
- * Per-connection registered-extension dispatch state, shared by the transport
- * bridge (which fills it) and its readers. It carries exactly two facts, both
- * only observable at the raw-wire seam the bridge already owns:
+ * One transport's ownership slice of a {@link RegisteredExtensionDispatchLedger}.
+ * The HTTP client builds its header-preserving fetch once per CLIENT, so the
+ * ledger that fetch queries has to outlive every transport the client installs
+ * (reconnect, session reset, auth step-up retry all build a new one). Ownership
+ * therefore lives here, not on the ledger: closing a transport drops only what
+ * that transport recorded, so a sibling transport's in-flight dispatch and its
+ * bound subscription claim survive it. Subscription ids are JSON-RPC request
+ * ids, which restart on every new connection, so they are unique only per scope.
+ */
+export interface RegisteredExtensionDispatchScope {
+  /**
+   * Binds a claimed listen filter to the request id the SDK allocated for it.
+   * The SDK passes the caller's filter object through to the transport untouched,
+   * so object identity — not ordering — correlates the claim to its request id.
+   */
+  bindSubscriptionRequest(requestId: string | number, params: unknown): void;
+  /** Drops this transport's entries; nothing can answer after its close. */
+  clear(): void;
+  /** Records the raw acknowledgement payload for a bound listen request. */
+  recordSubscriptionAcknowledgement(params: unknown): void;
+  releaseDispatchedRequest(requestId: string | number): void;
+  trackDispatchedRequest(requestId: string | number): void;
+}
+
+/**
+ * Registered-extension dispatch state for one client, read by the header bridge
+ * and written through a per-transport {@link RegisteredExtensionDispatchScope}.
+ * It carries exactly two facts, both only observable at the raw-wire seam the
+ * bridge already owns:
  *
  * - the request ids currently in flight through registered dispatch, so a
  *   registered wire method that is also a core method (`tools/call`) is only
@@ -92,27 +120,22 @@ function readListenFilter(params: unknown): object | undefined {
  *   `SubscriptionFilter` before any consumer can read it.
  */
 export class RegisteredExtensionDispatchLedger {
-  private readonly dispatchedRequestIds = new Set<string | number>();
   private readonly claimsByFilter = new Map<object, SubscriptionAcknowledgementClaim>();
-  private readonly claimsBySubscriptionId = new Map<string, SubscriptionAcknowledgementClaim>();
-
-  trackDispatchedRequest(requestId: string | number): void {
-    this.dispatchedRequestIds.add(requestId);
-  }
-
-  releaseDispatchedRequest(requestId: string | number): void {
-    this.dispatchedRequestIds.delete(requestId);
-  }
+  private readonly liveDispatchedRequestIds = new Set<ReadonlySet<string | number>>();
 
   hasDispatchedRequest(requestId: string | number): boolean {
-    return this.dispatchedRequestIds.has(requestId);
+    for (const dispatchedRequestIds of this.liveDispatchedRequestIds) {
+      if (dispatchedRequestIds.has(requestId)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
    * Claims the acknowledgement of the `subscriptions/listen` request that will
-   * carry `filter` as its `params.notifications`. The SDK passes the caller's
-   * filter object through to the transport untouched, so object identity — not
-   * ordering — correlates the claim to its listen request id.
+   * carry `filter` as its `params.notifications`. Claiming precedes the send, so
+   * it is client-scoped; the transport that sends the request takes ownership.
    */
   captureSubscriptionAcknowledgement(filter: object): McpSubscriptionAcknowledgementCapture {
     if (this.claimsByFilter.has(filter)) {
@@ -121,46 +144,64 @@ export class RegisteredExtensionDispatchLedger {
     const claim = new SubscriptionAcknowledgementClaim(filter, (released) => {
       this.claimsByFilter.delete(released.filter);
       if (released.subscriptionId !== undefined) {
-        this.claimsBySubscriptionId.delete(released.subscriptionId);
+        released.boundClaims?.delete(released.subscriptionId);
       }
+      released.boundClaims = undefined;
     });
     this.claimsByFilter.set(filter, claim);
     return claim;
   }
 
-  /** Binds a claimed listen filter to the request id the SDK allocated for it. */
-  bindSubscriptionRequest(requestId: string | number, params: unknown): void {
-    const filter = readListenFilter(params);
-    if (filter === undefined) {
-      return;
-    }
-    const claim = this.claimsByFilter.get(filter);
-    if (claim === undefined) {
-      return;
-    }
-    claim.subscriptionId = String(requestId);
-    this.claimsBySubscriptionId.set(claim.subscriptionId, claim);
-  }
-
-  /** Records the raw acknowledgement payload for a bound listen request. */
-  recordSubscriptionAcknowledgement(params: unknown): void {
-    const subscriptionId = readNotificationSubscriptionId(params);
-    if (subscriptionId === undefined) {
-      return;
-    }
-    const claim = this.claimsBySubscriptionId.get(subscriptionId);
-    if (claim === undefined || claim.acknowledged) {
-      return;
-    }
-    claim.acknowledged = true;
-    claim.acknowledgement = Reflect.get(params as object, 'notifications');
-  }
-
-  /** Nothing can answer after transport close; a reconnect inherits nothing. */
-  clear(): void {
-    this.dispatchedRequestIds.clear();
-    this.claimsByFilter.clear();
-    this.claimsBySubscriptionId.clear();
+  /** Opens the ownership slice for one newly allocated transport. */
+  openTransportScope(): RegisteredExtensionDispatchScope {
+    const dispatchedRequestIds = new Set<string | number>();
+    const claimsBySubscriptionId = new Map<string, SubscriptionAcknowledgementClaim>();
+    this.liveDispatchedRequestIds.add(dispatchedRequestIds);
+    return {
+      bindSubscriptionRequest: (requestId, params) => {
+        const filter = readListenFilter(params);
+        if (filter === undefined) {
+          return;
+        }
+        const claim = this.claimsByFilter.get(filter);
+        if (claim === undefined) {
+          return;
+        }
+        claim.subscriptionId = String(requestId);
+        claim.boundClaims = claimsBySubscriptionId;
+        claimsBySubscriptionId.set(claim.subscriptionId, claim);
+      },
+      clear: () => {
+        dispatchedRequestIds.clear();
+        this.liveDispatchedRequestIds.delete(dispatchedRequestIds);
+        for (const claim of claimsBySubscriptionId.values()) {
+          this.claimsByFilter.delete(claim.filter);
+          claim.boundClaims = undefined;
+        }
+        claimsBySubscriptionId.clear();
+      },
+      recordSubscriptionAcknowledgement: (params) => {
+        const subscriptionId = readNotificationSubscriptionId(params);
+        if (subscriptionId === undefined) {
+          return;
+        }
+        const claim = claimsBySubscriptionId.get(subscriptionId);
+        if (claim === undefined || claim.acknowledged) {
+          return;
+        }
+        claim.acknowledged = true;
+        claim.acknowledgement = Reflect.get(params as object, 'notifications');
+      },
+      releaseDispatchedRequest: (requestId) => {
+        dispatchedRequestIds.delete(requestId);
+      },
+      trackDispatchedRequest: (requestId) => {
+        // Re-arm after a close so a late dispatch stays visible to the bridge
+        // rather than silently degrading to core traffic.
+        this.liveDispatchedRequestIds.add(dispatchedRequestIds);
+        dispatchedRequestIds.add(requestId);
+      },
+    };
   }
 }
 
@@ -308,6 +349,7 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
   if (registry === undefined) {
     return transport;
   }
+  const dispatchScope = dispatchLedger?.openTransportScope();
   const pendingResultTypes = new Map<string | number, string>();
   const activeMessages = new WeakSet<object>();
   let downstreamOnMessage = transport.onmessage;
@@ -327,7 +369,7 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
       'method' in incoming &&
       incoming.method === SUBSCRIPTIONS_ACKNOWLEDGED_METHOD
     ) {
-      dispatchLedger?.recordSubscriptionAcknowledgement(incoming.params);
+      dispatchScope?.recordSubscriptionAcknowledgement(incoming.params);
     }
     if (downstreamOnMessage === undefined) {
       throw new Error('MCP transport received a message before its SDK handler was registered');
@@ -361,15 +403,15 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
       pendingResultTypes
     );
     if (dispatchedId !== undefined) {
-      dispatchLedger?.trackDispatchedRequest(dispatchedId);
+      dispatchScope?.trackDispatchedRequest(dispatchedId);
     }
     if (
-      dispatchLedger !== undefined &&
+      dispatchScope !== undefined &&
       'id' in message &&
       'method' in message &&
       message.method === SUBSCRIPTIONS_LISTEN_METHOD
     ) {
-      dispatchLedger.bindSubscriptionRequest(message.id, message.params);
+      dispatchScope.bindSubscriptionRequest(message.id, message.params);
     }
     try {
       await send(outgoing, options);
@@ -380,15 +422,17 @@ export function installRegisteredExtensionDispatch<OwnedTransport extends Transp
       throw error;
     } finally {
       if (dispatchedId !== undefined) {
-        dispatchLedger?.releaseDispatchedRequest(dispatchedId);
+        dispatchScope?.releaseDispatchedRequest(dispatchedId);
       }
     }
   };
   const close = transport.close.bind(transport);
   transport.close = async () => {
     // Nothing can answer after close; a reconnect must not inherit the map.
+    // The ledger can be client-scoped (HTTP builds one fetch for every transport
+    // it installs), so drop only what THIS transport recorded.
     pendingResultTypes.clear();
-    dispatchLedger?.clear();
+    dispatchScope?.clear();
     await close();
   };
   return transport;
