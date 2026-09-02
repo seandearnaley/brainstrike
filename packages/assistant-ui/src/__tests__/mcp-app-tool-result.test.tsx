@@ -1,0 +1,323 @@
+import '@testing-library/jest-dom/vitest';
+import type { McpAppBridge, McpAppOrigin } from '@brainstrike/assistant-contract';
+import { createMcpAppToolInvocationResult } from '@brainstrike/assistant-contract';
+import { TooltipProvider } from '@brainstrike/ui';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { McpAppBridgeProvider } from '../mcp-app-bridge-context';
+import {
+  type McpAppMountedSession,
+  type McpAppRuntimePorts,
+  McpAppToolResult,
+} from '../mcp-app-tool-result';
+import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS } from '../todo-progress';
+
+const APP: McpAppOrigin = {
+  mimeType: 'text/html;profile=mcp-app',
+  resourceUri: 'ui://linear/issue-editor',
+  serverId: 'linear',
+  toolName: 'create_issue',
+};
+
+const APP_DOCUMENT = '<!doctype html><title>Issue editor</title><p>editor</p>';
+
+const INITIALIZE = Object.freeze({
+  id: 'initialize',
+  jsonrpc: '2.0',
+  method: 'ui/initialize',
+  params: {
+    appCapabilities: {},
+    appInfo: { name: 'Linear', version: '1.0.0' },
+    protocolVersion: '2026-01-26',
+  },
+});
+
+const INITIALIZED = Object.freeze({
+  jsonrpc: '2.0',
+  method: 'ui/notifications/initialized',
+  params: {},
+});
+
+interface TestMessageEvent {
+  readonly data: unknown;
+  readonly origin: string;
+  readonly source: unknown;
+}
+
+class TestMessageTarget {
+  readonly listeners = new Set<(event: TestMessageEvent) => void>();
+
+  addEventListener(_type: 'message', listener: (event: TestMessageEvent) => void): void {
+    this.listeners.add(listener);
+  }
+
+  dispatch(source: unknown, data: unknown): void {
+    for (const listener of [...this.listeners]) {
+      listener({ data, origin: 'null', source });
+    }
+  }
+
+  removeEventListener(_type: 'message', listener: (event: TestMessageEvent) => void): void {
+    this.listeners.delete(listener);
+  }
+}
+
+class TestFrame {
+  readonly sent: unknown[] = [];
+
+  postMessage(message: unknown): void {
+    this.sent.push(message);
+  }
+}
+
+interface Harness {
+  readonly bridge: McpAppBridge;
+  readonly created: string[];
+  readonly execute: ReturnType<typeof vi.fn>;
+  readonly frame: TestFrame;
+  readonly ports: McpAppRuntimePorts;
+  readonly prepare: ReturnType<typeof vi.fn>;
+  readonly release: ReturnType<typeof vi.fn>;
+  readonly revoked: string[];
+  readonly target: TestMessageTarget;
+}
+
+function harness(decision: 'allow' | 'ask' = 'ask'): Harness {
+  const created: string[] = [];
+  const revoked: string[] = [];
+  const frame = new TestFrame();
+  const target = new TestMessageTarget();
+  const prepare = vi.fn(async () => ({ decision, riskCategory: 'execute' as const }));
+  const execute = vi.fn(async () => ({ result: { content: [{ text: 'done', type: 'text' }] } }));
+  const release = vi.fn(async () => undefined);
+  const bridge: McpAppBridge = {
+    execute: execute as unknown as McpAppBridge['execute'],
+    prepare: prepare as unknown as McpAppBridge['prepare'],
+    readResource: vi.fn(async () => APP_DOCUMENT),
+    release: release as unknown as McpAppBridge['release'],
+  };
+  let sequence = 0;
+  return {
+    bridge,
+    created,
+    execute,
+    frame,
+    ports: {
+      eventTarget: target,
+      resolveFrameSource: () => frame,
+      urls: {
+        createObjectURL: () => {
+          sequence += 1;
+          const url = `blob:mcp-app/${sequence}`;
+          created.push(url);
+          return url;
+        },
+        revokeObjectURL: (url) => {
+          revoked.push(url);
+        },
+      },
+    },
+    prepare,
+    release,
+    revoked,
+    target,
+  };
+}
+
+const TOOL_CALL = {
+  args: {},
+  argsText: '{}',
+  status: { type: 'complete' as const },
+  toolCallId: 'call-1',
+  toolName: 'create_issue',
+} as unknown as Parameters<typeof McpAppToolResult>[0]['toolCall'];
+
+function renderApp(
+  test: Harness | undefined,
+  onSessionChange?: (session: McpAppMountedSession | undefined) => void
+) {
+  return render(
+    <TooltipProvider>
+      <McpAppBridgeProvider bridge={test?.bridge ?? null}>
+        <McpAppToolResult
+          app={APP}
+          toolCall={TOOL_CALL}
+          {...(onSessionChange ? { onSessionChange } : {})}
+          {...(test ? { ports: test.ports } : {})}
+        />
+      </McpAppBridgeProvider>
+    </TooltipProvider>
+  );
+}
+
+async function mountApp(test: Harness): Promise<McpAppMountedSession> {
+  let session: McpAppMountedSession | undefined;
+  const view = renderApp(test, (next) => {
+    session = next ?? session;
+  });
+  await waitFor(() => expect(screen.getByTitle('create_issue app')).toBeInTheDocument());
+  await waitFor(() => expect(session).toBeDefined());
+  if (!session) {
+    throw new Error('MCP app session never connected');
+  }
+  test.target.dispatch(test.frame, INITIALIZE);
+  await waitFor(() => expect(session?.frameBridge.snapshot.phase).toBe('awaiting-initialized'));
+  test.target.dispatch(test.frame, INITIALIZED);
+  await waitFor(() => expect(session?.frameBridge.snapshot.phase).toBe('ready'));
+  return Object.assign(session, { unmount: view.unmount });
+}
+
+describe('MCP App tool result', () => {
+  it('states that app rendering is unavailable when the host exposes no bridge', () => {
+    renderApp(undefined);
+    expect(screen.getByTestId('mcp-app-host-note')).toHaveTextContent(
+      'App rendering unavailable in this host'
+    );
+    expect(screen.queryByTitle('create_issue app')).not.toBeInTheDocument();
+  });
+
+  it('mounts the sandbox shell URL after reading the app document', async () => {
+    const test = harness();
+    await mountApp(test);
+    expect(test.bridge.readResource).toHaveBeenCalledWith(APP);
+    expect(screen.getByTitle('create_issue app')).toHaveAttribute('src', test.created[0]);
+  });
+
+  it('routes an app tools/call through consent, execution, and the frame reply', async () => {
+    const user = userEvent.setup();
+    const test = harness('ask');
+    const session = await mountApp(test);
+
+    test.target.dispatch(test.frame, {
+      id: 'tool-1',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: { title: 'Bug' }, name: 'create_issue' },
+    });
+
+    const allow = await screen.findByRole('button', { name: 'Allow create_issue once' });
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(test.prepare).toHaveBeenCalledWith({
+      arguments: { title: 'Bug' },
+      origin: APP,
+      preparationId: expect.stringContaining('mcp-app-preparation-'),
+      toolName: 'create_issue',
+    });
+    expect(test.execute).not.toHaveBeenCalled();
+
+    await user.click(allow);
+
+    await waitFor(() => expect(test.execute).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(test.frame.sent.at(-1)).toMatchObject({
+        id: 'tool-1',
+        result: { content: [{ text: 'done', type: 'text' }] },
+      })
+    );
+    expect(session.authority.snapshot.pendingCalls).toBe(0);
+  });
+
+  it('releases the preparation and never executes when consent is denied', async () => {
+    const user = userEvent.setup();
+    const test = harness('ask');
+    await mountApp(test);
+
+    test.target.dispatch(test.frame, {
+      id: 'tool-2',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'create_issue' },
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'Deny create_issue' }));
+
+    await waitFor(() => expect(test.release).toHaveBeenCalledTimes(1));
+    expect(test.execute).not.toHaveBeenCalled();
+    expect(test.release).toHaveBeenCalledWith({
+      preparationId: test.prepare.mock.calls[0]?.[0].preparationId,
+    });
+  });
+
+  it('leaks no ownership after teardown at a pending approval and remounts cleanly', async () => {
+    const test = harness('ask');
+    let torndown = false;
+    let session: McpAppMountedSession | undefined;
+    const view = renderApp(test, (next) => {
+      if (next) {
+        session = next;
+        return;
+      }
+      torndown = true;
+    });
+    await waitFor(() => expect(session).toBeDefined());
+    if (!session) {
+      throw new Error('MCP app session never connected');
+    }
+    test.target.dispatch(test.frame, INITIALIZE);
+    await waitFor(() => expect(session?.frameBridge.snapshot.phase).toBe('awaiting-initialized'));
+    test.target.dispatch(test.frame, INITIALIZED);
+    await waitFor(() => expect(session?.frameBridge.snapshot.phase).toBe('ready'));
+
+    test.target.dispatch(test.frame, {
+      id: 'tool-3',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'create_issue' },
+    });
+    await screen.findByRole('alertdialog');
+    const preparationId = test.prepare.mock.calls[0]?.[0].preparationId as string;
+
+    view.unmount();
+
+    await waitFor(() => expect(torndown).toBe(true));
+    expect(session.authority.snapshot.pendingCalls).toBe(0);
+    expect(session.authority.snapshot.pendingApprovals).toEqual([]);
+    expect(session.authority.snapshot.phase).toBe('closed');
+    expect(test.release).toHaveBeenCalledTimes(1);
+    expect(test.release).toHaveBeenCalledWith({ preparationId });
+    expect(test.execute).not.toHaveBeenCalled();
+    expect(session.frameBridge.snapshot.pendingCallbacks).toBe(0);
+    expect(session.frameBridge.snapshot.pendingInboundRequests).toBe(0);
+    expect(session.frameBridge.snapshot.pendingOutboundRequests).toBe(0);
+    expect(session.frameBridge.snapshot.timerCount).toBe(0);
+    expect(session.sandboxOwner.activeFrames).toBe(0);
+    expect(session.sandboxOwner.retainedBytes).toBe(0);
+    expect(test.revoked).toEqual([test.created[0]]);
+    expect(test.target.listeners.size).toBe(0);
+
+    const second = harness('allow');
+    await mountApp(second);
+    expect(screen.getByTitle('create_issue app')).toHaveAttribute('src', second.created[0]);
+  });
+
+  it('keeps ordinary tool results on the shared tool fallback', () => {
+    const Fallback = CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
+    render(
+      <TooltipProvider>
+        <McpAppBridgeProvider bridge={harness().bridge}>
+          <Fallback {...TOOL_CALL} result={{ ok: true }} />
+        </McpAppBridgeProvider>
+      </TooltipProvider>
+    );
+    expect(screen.queryByTitle('create_issue app')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mcp-app-host-note')).not.toBeInTheDocument();
+  });
+
+  it('routes a persisted app marker through the fallback router', async () => {
+    const test = harness('allow');
+    const Fallback = CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
+    render(
+      <TooltipProvider>
+        <McpAppBridgeProvider bridge={null}>
+          <Fallback
+            {...TOOL_CALL}
+            result={createMcpAppToolInvocationResult(APP, { content: [] })}
+          />
+        </McpAppBridgeProvider>
+      </TooltipProvider>
+    );
+    expect(await screen.findByTestId('mcp-app-host-note')).toBeInTheDocument();
+    expect(test.bridge.readResource).not.toHaveBeenCalled();
+  });
+});

@@ -11,9 +11,11 @@ import {
   type AssistantTaskStatus,
   type ManageTaskListResult,
   NATIVE_TOOL_ID,
+  readMcpAppToolInvocationResult,
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
+import { McpAppToolResult } from './mcp-app-tool-result';
 import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
@@ -141,6 +143,14 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({ args, argsText,
 const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
   if (isSubagentDelegationToolName(props.toolName)) {
     return <SubagentDelegationCard {...props} />;
+  }
+  // BST-1572: an app-producing MCP tool persists the `{ kind: 'mcp-app' }`
+  // marker as its raw result. Same exact-match reader rule as tasks below:
+  // server-defined tool names never earn a `by_name` entry.
+  const mcpApp =
+    props.result === undefined ? undefined : readMcpAppToolInvocationResult(props.result);
+  if (mcpApp) {
+    return <McpAppToolResult app={mcpApp.app} toolCall={{ ...props, result: mcpApp.result }} />;
   }
   // BST-1566: a task-producing MCP tool persists the `{ kind: 'mcp-task' }`
   // marker as its raw result. Tool names are server-defined, so the branch is

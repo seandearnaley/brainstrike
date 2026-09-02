@@ -22,6 +22,7 @@ import {
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
+import { McpAppBridgeProvider } from '@brainstrike/assistant-ui/mcp-app-bridge-context';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
@@ -33,6 +34,7 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { GitBranch, Globe, NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
+import { resolveMcpAppBridge } from '../mcp-app-bridge';
 import { resolveMcpTaskBridge } from '../mcp-task-bridge';
 // Task A's changes-page-content.tsx exports this by name (not default,
 // unlike its git/context-explorer/terminal siblings) — imported as written.
@@ -120,6 +122,10 @@ export default function RootLayoutContent() {
   // cards comes from `window.mcp.tasks` when the preload exposes it; `null`
   // keeps the cards on their persisted snapshot with a visible note. Resolved once.
   const mcpTaskBridge = useMemo(() => resolveMcpTaskBridge(), []);
+  // Capability port (BST-1572): MCP Apps hosting comes from `window.mcp.apps`
+  // when the visible-UI preload exposes it; `null` keeps app tool results on
+  // the ordinary tool card with a visible note. Resolved once.
+  const mcpAppBridge = useMemo(() => resolveMcpAppBridge(), []);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
     const items = [...navigationItems];
     if (notesAvailable) {
@@ -351,7 +357,9 @@ export default function RootLayoutContent() {
   return (
     <TokenCacheWrapper>
       <McpTaskBridgeProvider bridge={mcpTaskBridge}>
-        <RootLayout {...sharedProps} />
+        <McpAppBridgeProvider bridge={mcpAppBridge}>
+          <RootLayout {...sharedProps} />
+        </McpAppBridgeProvider>
       </McpTaskBridgeProvider>
     </TokenCacheWrapper>
   );

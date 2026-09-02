@@ -16,6 +16,7 @@ describe('@brainstrike/assistant-ui package contract', () => {
         '.',
         './context-usage-store',
         './follow-up-queue-store',
+        './mcp-app-bridge-context',
         './mcp-task-bridge-context',
         './mcp-task-status-card',
         './rewind-composer-store',
