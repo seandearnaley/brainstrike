@@ -39,14 +39,9 @@ describe('MCP Apps IPC contract', () => {
   });
 
   it('validates prepare requests and results strictly', () => {
-    expect(
-      McpAppPrepareRequestSchema.parse({
-        arguments: {},
-        origin,
-        preparationId: 'prep-1',
-        toolName: 'get-time',
-      }).decision
-    ).toBeUndefined();
+    const request = { arguments: {}, origin, preparationId: 'prep-1', toolName: 'get-time' };
+    expect(McpAppPrepareRequestSchema.parse(request)).toEqual(request);
+    expect(() => McpAppPrepareRequestSchema.parse({ ...request, decision: 'allow' })).toThrow();
     expect(() =>
       McpAppPrepareRequestSchema.parse({ arguments: {}, origin, preparationId: '', toolName: 't' })
     ).toThrow();
