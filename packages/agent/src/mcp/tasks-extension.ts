@@ -238,6 +238,8 @@ export async function listenForMcpTasks(
     }
   } catch (error) {
     release();
+    // The transport may reject `closed` on exactly this path; keep it handled.
+    void subscription.closed.catch(() => undefined);
     try {
       await subscription.close();
     } catch (closeError) {

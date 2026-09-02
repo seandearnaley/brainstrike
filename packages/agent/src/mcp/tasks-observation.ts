@@ -9,6 +9,16 @@ export interface McpTaskPollAuthority {
   readonly wake: (taskId: string) => void;
 }
 
+export interface McpTaskObservationPortOptions {
+  /**
+   * Receives every error a consumer throws while observing a task or a
+   * failure. Consumer errors are reported here, never thrown back into the
+   * authoritative poller, so a misbehaving or narrower-scoped consumer cannot
+   * settle a tracked task.
+   */
+  readonly onConsumerError: (taskId: string, error: unknown) => void;
+}
+
 export class McpTaskObservationError extends Error {
   constructor(
     readonly taskId: string,
@@ -20,9 +30,21 @@ export class McpTaskObservationError extends Error {
   }
 }
 
+/**
+ * Neutral seam between the authoritative poller and the optional interaction
+ * consumer. Publication is advisory: with no consumer attached it is a no-op
+ * (polling stays authoritative), and consumer errors go to
+ * `onConsumerError`. Only `requestPoll` is strict, because a wake with no
+ * polling authority is a wiring defect.
+ */
 export class McpTaskObservationPort {
   private authority: McpTaskPollAuthority | undefined;
   private consumer: McpTaskObservationConsumer | undefined;
+  private readonly onConsumerError: (taskId: string, error: unknown) => void;
+
+  constructor(options: McpTaskObservationPortOptions) {
+    this.onConsumerError = options.onConsumerError;
+  }
 
   attachAuthority(authority: McpTaskPollAuthority): () => void {
     if (this.authority) {
@@ -56,16 +78,26 @@ export class McpTaskObservationPort {
   }
 
   async publish(task: GetTaskResult): Promise<void> {
-    if (!this.consumer) {
-      throw new Error('MCP task observation port has no interaction consumer.');
+    const consumer = this.consumer;
+    if (!consumer) {
+      return;
     }
-    await this.consumer.observe(task);
+    try {
+      await consumer.observe(task);
+    } catch (error: unknown) {
+      this.onConsumerError(task.taskId, error);
+    }
   }
 
   publishFailure(taskId: string, error: unknown): void {
-    if (!this.consumer) {
-      throw new Error('MCP task observation port has no interaction consumer.');
+    const consumer = this.consumer;
+    if (!consumer) {
+      return;
     }
-    this.consumer.fail(taskId, error);
+    try {
+      consumer.fail(taskId, error);
+    } catch (consumerError: unknown) {
+      this.onConsumerError(taskId, consumerError);
+    }
   }
 }

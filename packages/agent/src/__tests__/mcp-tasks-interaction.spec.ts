@@ -14,6 +14,10 @@ import {
 } from '../mcp/tasks-interaction.js';
 import { McpTaskObservationError, McpTaskObservationPort } from '../mcp/tasks-observation.js';
 
+const consumerErrorSink = (taskId: string, error: unknown): void => {
+  throw new Error(`unexpected consumer error for ${taskId}: ${String(error)}`);
+};
+
 const CREATED_AT = '2026-09-01T09:00:00.000Z';
 const scope = {
   generation: 13,
@@ -78,7 +82,7 @@ interface FakeClient {
 function createClient(): FakeClient {
   let handler: McpTasksNotificationHandler | undefined;
   const closed = deferred<unknown>();
-  const observationPort = new McpTaskObservationPort();
+  const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
   const wake = vi.fn();
   observationPort.attachAuthority({ wake });
   const release = (): void => {
@@ -249,6 +253,16 @@ describe('McpTaskInteraction', () => {
       expect.anything(),
       expect.anything()
     );
+    // A server that legitimately re-requests the withdrawn key restarts the
+    // exactly-once cycle instead of poisoning the key for the task's life.
+    await fake.observationPort.publish(inputRequiredTask('task-1'));
+    await vi.waitFor(() =>
+      expect(fake.requestExtension).toHaveBeenCalledWith(
+        MCP_TASKS_UPDATE_REQUEST_CONTRACT,
+        expect.anything(),
+        expect.anything()
+      )
+    );
     await interaction.close();
   });
 
@@ -292,6 +306,21 @@ describe('McpTaskInteraction', () => {
       await interaction.close();
     }
   );
+
+  it('records a visible notification failure when the server honors no task ids', async () => {
+    const fake = createClient();
+    fake.client.listenTasks.mockImplementationOnce(async () => ({
+      close: vi.fn(async () => undefined),
+      closed: new Promise<undefined>(() => undefined),
+      honoredTaskIds: [],
+    }));
+    const interaction = createInteraction(fake);
+    await interaction.start(['task-1']);
+    expect(interaction.snapshot().subscriptionActive).toBe(false);
+    expect(interaction.notificationFailure()).toBeInstanceOf(Error);
+    expect(String(interaction.notificationFailure())).toMatch(/honored no requested task ids/u);
+    await interaction.close();
+  });
 
   it('fences an abort-ignorant input callback when the coordinator closes', async () => {
     const decision = deferred<ElicitResult>();

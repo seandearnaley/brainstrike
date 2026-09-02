@@ -109,7 +109,7 @@ function canonicalJson(value: unknown): string {
   }
   if (value && typeof value === 'object') {
     return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => (left < right ? -1 : 1))
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(',')}}`;
   }
@@ -188,6 +188,12 @@ export class McpTaskInteraction {
         throw abortReason(this.controller.signal);
       }
       if (subscription.honoredTaskIds.length === 0) {
+        // Visible degradation: polling stays authoritative, but the absent
+        // notification path is recorded rather than left indistinguishable
+        // from a healthy one.
+        this.notificationError = new Error(
+          'MCP task notification subscription honored no requested task ids.'
+        );
         notificationReady.resolve();
         await subscription.close();
         return;
@@ -296,6 +302,8 @@ export class McpTaskInteraction {
       return Promise.reject(new McpTaskCancellationOutcomeError(taskId, status));
     }
     const terminal = Promise.withResolvers<'cancelled' | 'completed' | 'failed'>();
+    // An observation failure may reject this before runCancellation awaits it.
+    void terminal.promise.catch(() => undefined);
     const promise = this.runCancellation(taskId, terminal.promise);
     const operation = { promise, terminal };
     this.cancellations.set(taskId, operation);
@@ -336,10 +344,14 @@ export class McpTaskInteraction {
     const identity = inputIdentity(taskId, inputKey);
     const fingerprint = canonicalJson(request);
     let operation = this.inputs.get(identity);
+    if (operation?.retired) {
+      // A superseded request was withdrawn by the server; re-requesting the
+      // key restarts the exactly-once cycle with a fresh operation. The
+      // retired one was already aborted and settles on its own.
+      this.inputs.delete(identity);
+      operation = undefined;
+    }
     if (operation) {
-      if (operation.retired) {
-        throw new Error(`MCP task "${taskId}" reused superseded input key "${inputKey}".`);
-      }
       if (operation.fingerprint !== fingerprint) {
         throw new Error(
           `MCP task "${taskId}" reused input key "${inputKey}" for a different request.`

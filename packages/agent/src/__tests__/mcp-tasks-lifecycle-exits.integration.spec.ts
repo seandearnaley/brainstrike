@@ -16,6 +16,10 @@ import {
 } from '../mcp/tasks-lifecycle.js';
 import { McpTaskObservationError, McpTaskObservationPort } from '../mcp/tasks-observation.js';
 
+const consumerErrorSink = (taskId: string, error: unknown): void => {
+  throw new Error(`unexpected consumer error for ${taskId}: ${String(error)}`);
+};
+
 const CREATED_AT = '2026-09-01T05:00:00.000Z';
 const authorityInput = {
   connectionGeneration: 9,
@@ -195,7 +199,7 @@ describe('McpTaskLifecycle exit fencing', () => {
     const authority = await repository.openAuthority(authorityInput);
     const onUpdate = vi.fn();
     const observe = vi.fn();
-    const observationPort = new McpTaskObservationPort();
+    const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
     observationPort.subscribe({ fail: vi.fn(), observe });
     const lifecycle = new McpTaskLifecycle({
       authority,
@@ -236,7 +240,7 @@ describe('McpTaskLifecycle exit fencing', () => {
     db = await openDatabase();
     const failure = new Error('transport lost');
     const publishFailure = vi.fn();
-    const observationPort = new McpTaskObservationPort();
+    const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
     observationPort.subscribe({ fail: publishFailure, observe: vi.fn() });
     const requestExtension = vi.fn(() => Promise.reject(failure));
     const repository = new McpTaskRepository(db);

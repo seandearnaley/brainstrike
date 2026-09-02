@@ -20,6 +20,10 @@ import {
 } from '../mcp/tasks-lifecycle.js';
 import { McpTaskObservationPort } from '../mcp/tasks-observation.js';
 
+const consumerErrorSink = (taskId: string, error: unknown): void => {
+  throw new Error(`unexpected consumer error for ${taskId}: ${String(error)}`);
+};
+
 const authorityInput = {
   connectionGeneration: 7,
   principalId: 'linear:user-42',
@@ -162,7 +166,7 @@ describe('McpTaskLifecycle', () => {
     db = await openDatabase();
     const repository = new McpTaskRepository(db);
     const authority = await repository.openAuthority(authorityInput);
-    const observationPort = new McpTaskObservationPort();
+    const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
     const observed = vi.fn(async (task: GetTaskResult) => {
       await expect(repository.get(taskIdentity(authority, task.taskId))).resolves.toMatchObject({
         status: task.status,

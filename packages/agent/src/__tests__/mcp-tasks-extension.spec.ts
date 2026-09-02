@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { McpClientExtensionRegistry } from '../mcp/client-extension-registry';
 import {
   listenForMcpTasks,
+  MCP_TASKS_GET_REQUEST_CONTRACT,
   MCP_TASKS_STATUS_NOTIFICATION_CONTRACT,
   registerMcpTasksWireContracts,
 } from '../mcp/tasks-extension';
@@ -103,5 +104,25 @@ describe('MCP Tasks wire adapter', () => {
     );
     await second.close();
     expect(removeNotificationHandler).toHaveBeenCalledTimes(2);
+  });
+
+  it('fills only an absent complete discriminator and rejects a conflicting server value', async () => {
+    const complete = {
+      createdAt: '2026-08-31T20:00:00Z',
+      lastUpdatedAt: '2026-08-31T20:00:01Z',
+      status: 'working',
+      taskId: 'task-1',
+      ttlMs: null,
+    };
+    const accepted =
+      await MCP_TASKS_GET_REQUEST_CONTRACT.resultSchema['~standard'].validate(complete);
+    const rejected = await MCP_TASKS_GET_REQUEST_CONTRACT.resultSchema['~standard'].validate({
+      ...complete,
+      resultType: 'task',
+    });
+
+    expect(accepted.issues).toBeUndefined();
+    expect(accepted.value).toMatchObject({ resultType: 'complete', taskId: 'task-1' });
+    expect(rejected.issues).toBeDefined();
   });
 });
