@@ -353,8 +353,19 @@ async function describeAssistantState(
   page: Page,
   modelProvider: Awaited<ReturnType<typeof startModelProviderShim>>
 ): Promise<string> {
-  const cards = await page.getByTestId('tool-fallback').all();
-  const cardTexts = await Promise.all(cards.map(async (card) => await card.innerText()));
+  // `.all()` resolves `nth(i)` lazily, so a transcript re-render between the
+  // enumeration and the reads can leave an index unmatched; an unguarded
+  // `innerText()` would then auto-wait the whole action timeout and reject,
+  // stalling the very error path this function exists to keep fast.
+  const cards = await page
+    .getByTestId('tool-fallback')
+    .all()
+    .catch(() => []);
+  const cardTexts = await Promise.all(
+    cards.map((card) =>
+      card.innerText().catch((error: unknown) => `<unavailable: ${String(error)}>`)
+    )
+  );
   const region = await page
     .getByRole('region', { name: 'Assistant chat' })
     .innerText()

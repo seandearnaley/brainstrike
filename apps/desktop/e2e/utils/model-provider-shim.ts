@@ -309,6 +309,9 @@ export async function startModelProviderShim(
 
   const server: Server = createServer((request, response) => {
     requestCount += 1;
+    // Captured here, not read inside the async body: the body settles later, by
+    // which time concurrent requests may have advanced the counter.
+    const requestOrdinal = requestCount;
     if (request.method !== 'POST' || request.url !== '/chat/completions') {
       response.writeHead(404).end();
       return;
@@ -320,7 +323,7 @@ export async function startModelProviderShim(
         const turn = resolveTurn(script, toolResultCount);
         transcript.push({
           decision: 'finalText' in turn ? 'final-text' : `tool:${turn.call.name}`,
-          requestIndex: transcript.length,
+          requestIndex: requestOrdinal,
           roles: messageRoles(messages),
           toolResultCount,
         });
