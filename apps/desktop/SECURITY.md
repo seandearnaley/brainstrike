@@ -343,9 +343,11 @@ the production host connection.
 ## MCP Apps sandbox and consent (BST-1572)
 
 - App documents run only in the dedicated non-persistent `mcp-app:thread`
-  Electron session partition. Startup applies the sandbox policy to
-  WebContents whose explicit partition starts with `mcp-app:` and never to the
-  default/main-window session.
+  Electron session partition. Startup subscribes to `web-contents-created`
+  and applies the sandbox policy to WebContents whose session is that
+  partition, resolving the partition lazily on first use (never at boot) and
+  never to the default/main-window session, which is rejected by identity
+  before any resolution.
 - The policy denies permissions, downloads, popups, webviews, top-level
   navigation, redirects, and frame navigation other than the reviewed
   `about:srcdoc` child-frame case. Final lease teardown destroys the
@@ -354,10 +356,14 @@ the production host connection.
   session would deny host-owned behavior and clear unrelated application
   state.
 - App-originated calls use strict prepare/execute/release messages over the
-  visible-UI-only `mcp:apps:*` IPC domain. Main resolves only a live assistant
-  run's ordinary post-policy admission and binds it to the requesting
-  WebContents. Missing admission, malformed input, replay, release, run
-  disposal, and WebContents destruction all fail closed.
+  visible-UI-only `mcp:apps:*` IPC domain. Every prepare names the persisted
+  thread that owns the app's tool result; main resolves only THAT thread's
+  live assistant run (never the most recent run that knows the same server),
+  requires it to admit the server, and binds its ordinary post-policy
+  admission to the requesting WebContents. Missing admission (including a
+  thread with no live run, or a run whose turn already ended), malformed
+  input, replay, release, run disposal, supersession by a newer run of the
+  thread, and WebContents destruction all fail closed.
 - `window.mcp.apps.readResource` uses the existing visible-UI-only,
   generation-fenced `mcp:content:readResource` path and returns HTML only when
   an exact `text/html;profile=mcp-app` MIME type and text body are present.

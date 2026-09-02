@@ -697,7 +697,14 @@ async function handleAssistantPost(
       authInput,
       executionSignal: executionAbortController.signal,
       initializeStream: async (core) => {
-        const admissionRunId = core.runId;
+        // Apps admission is keyed by the OWNING THREAD (review finding on
+        // BST-1572): an app mounted in thread A must never execute under a
+        // later run of thread B that knows the same server. A run without a
+        // persisted thread publishes no admission (no key to correlate on).
+        const admissionRun =
+          core.runId && core.runtimeData?.memory?.threadId
+            ? { runId: core.runId, threadId: core.runtimeData.memory.threadId }
+            : undefined;
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
           authInput: core.authInput,
@@ -706,13 +713,13 @@ async function handleAssistantPost(
           getDatabase,
           logger,
           mcpConfig: undefined,
-          ...(admissionRunId
+          ...(admissionRun
             ? {
                 mcpAppAdmission: {
                   register: (admission) => {
                     const appHost = getMcpDesktopAppHost();
-                    appHost.registerAdmission(admissionRunId, admission);
-                    return () => appHost.invalidateAdmission(admissionRunId);
+                    appHost.registerAdmission(admissionRun, admission);
+                    return () => appHost.invalidateAdmission(admissionRun);
                   },
                 },
               }

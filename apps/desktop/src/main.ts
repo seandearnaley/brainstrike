@@ -1653,7 +1653,9 @@ if (singleInstanceLockAcquired) {
       closeMcpAppsSandboxStartup = installMcpAppsSandboxStartup({
         app,
         onTeardownError: (error) => logger.error('MCP Apps sandbox teardown failed', { error }),
-        sessions: session,
+        // Lazy: the `session` module is first touched when a WebContents
+        // appears, so boot never resolves a partition (review of BST-1572).
+        resolveSessions: () => session,
       });
 
       const launchMode = resolveDesktopRendererLaunchMode({

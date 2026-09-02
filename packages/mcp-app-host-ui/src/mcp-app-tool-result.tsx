@@ -109,7 +109,7 @@ interface AppSession {
  * `prepare`/`execute`/`release` are the host bridge's admission contract: the
  * renderer never talks to the MCP server itself.
  */
-function createAppSession(app: McpAppOrigin, bridge: McpAppBridge): AppSession {
+function createAppSession(app: McpAppOrigin, threadId: string, bridge: McpAppBridge): AppSession {
   const provenance = new McpAppProvenanceAuthority();
   const generation = provenance.openGeneration({ generation: 1, serverId: app.serverId });
   const tool = provenance.registerTool(generation, {
@@ -125,6 +125,7 @@ function createAppSession(app: McpAppOrigin, bridge: McpAppBridge): AppSession {
           arguments: call.input,
           origin: app,
           preparationId: context.id,
+          threadId,
           toolName: call.toolName,
         })
       );
@@ -176,15 +177,17 @@ function LiveMcpApp({
   bridge,
   onSessionChange,
   ports,
+  threadId,
 }: {
   readonly app: McpAppOrigin;
   readonly bridge: McpAppBridge;
   readonly hostVersion?: string;
   readonly onSessionChange?: (session: McpAppMountedSession | undefined) => void;
   readonly ports?: McpAppRuntimePorts;
+  readonly threadId: string;
 }): ReactElement {
   const runtimePorts = useMemo(() => ports ?? createDefaultRuntimePorts(), [ports]);
-  const [session] = useState(() => createAppSession(app, bridge));
+  const [session] = useState(() => createAppSession(app, threadId, bridge));
   // ONE state cell: the surface phase and the shell URL always move together,
   // so no render ever shows a ready surface without its frame (or the reverse).
   const [view, setView] = useState<McpAppView>({ state: { phase: 'loading' } });
@@ -319,14 +322,16 @@ function LiveMcpApp({
 }
 
 /**
- * Renders an MCP App tool result (BST-1572). With no host bridge the ordinary
- * result is rendered through {@link ToolFallback} plus a visible note — the
- * host's inability to run apps is stated, never silently swallowed.
+ * Renders an MCP App tool result (BST-1572). With no host bridge, or no
+ * persisted thread to correlate admission through, the ordinary result is
+ * rendered through {@link ToolFallback} plus a visible note — the host's
+ * inability to run apps is stated, never silently swallowed.
  */
 export function McpAppToolResult({
   hostVersion,
   onSessionChange,
   ports,
+  threadId,
   ...toolCall
 }: McpAppToolResultProps): ReactElement {
   const bridge = useMcpAppBridge();
@@ -335,7 +340,7 @@ export function McpAppToolResult({
     return <ToolFallback {...toolCall} />;
   }
   const app = marker.app;
-  if (bridge === null) {
+  if (bridge === null || threadId === undefined) {
     return (
       <div className="my-1">
         <ToolFallback {...toolCall} result={marker.result} />
@@ -344,17 +349,21 @@ export function McpAppToolResult({
           data-testid="mcp-app-host-note"
           role="note"
         >
-          App rendering unavailable in this host
+          {bridge === null
+            ? 'App rendering unavailable in this host'
+            : 'App rendering requires a persisted thread'}
         </p>
       </div>
     );
   }
-  // A different app origin is a different mount: nothing carries over.
+  // A different app origin, or a different owning thread, is a different
+  // mount: nothing carries over.
   return (
     <LiveMcpApp
       app={app}
       bridge={bridge}
-      key={`${app.serverId} ${app.toolName} ${app.resourceUri}`}
+      key={`${threadId} ${app.serverId} ${app.toolName} ${app.resourceUri}`}
+      threadId={threadId}
       {...(hostVersion === undefined ? {} : { hostVersion })}
       {...(onSessionChange === undefined ? {} : { onSessionChange })}
       {...(ports === undefined ? {} : { ports })}

@@ -2339,22 +2339,49 @@ stdio or streamable-http generation; legacy `sse` receives no registry.
 Initialize advertises exactly
 `{ mimeTypes: ['text/html;profile=mcp-app'] }`.
 
-Electron main installs the Apps policy from `apps-sandbox-startup.ts` after
-`app.whenReady()`. The `web-contents-created` hook selects only WebContents
-whose explicit partition starts with `mcp-app:`; production uses
-`mcp-app:thread`. The host renderer stays on the default session and MUST NOT
+Electron main subscribes the Apps policy from `apps-sandbox-startup.ts` after
+`app.whenReady()`. Boot creates NO session: the `web-contents-created` hook
+first rejects any WebContents on `session.defaultSession` by identity, then
+resolves the `mcp-app:thread` partition lazily (memoized, `cache: false`) the
+first time a non-default WebContents appears, and installs
+`installMcpAppElectronSandboxPolicy` exactly once per WebContents whose
+session IS that partition. Boot-time electron doubles therefore need no
+`fromPartition`. The host renderer stays on the default session and MUST NOT
 receive this policy: it would deny host-owned frame behavior and clear
 unrelated cache/storage on teardown. Sandbox leases release on WebContents
 destruction or desktop shutdown.
 
-`McpDesktopAppHost` owns ordinary admission in main. Each assistant runtime
-publishes its `mcpAppToolAdmission` only for that live run and invalidates it
-from runtime disposal. Preparation chooses the newest live run that owns the
-requested server, binds its one-use executor and release to the requesting
-WebContents plus preparation id, and fails closed with
-`mcp_app_admission_unavailable` when no live run owns the server. Execution,
-explicit release, run disposal, and WebContents destruction consume the entry;
-stale and replayed preparation ids cannot execute.
+`McpDesktopAppHost` owns ordinary admission in main, keyed by the OWNING
+THREAD. `assistant-server.ts` registers each runtime's `mcpAppToolAdmission`
+as `{ runId, threadId: runtimeData.memory.threadId }` — a run without a
+persisted thread publishes nothing — and invalidates it from runtime
+disposal. `McpAppPrepareRequest.threadId` is mandatory: the shared
+`ToolResultRendererProps.threadId` seam (populated in `todo-progress.tsx` from
+`ActiveThreadKeyContext`, the same id the request lifecycle sends as
+`memory.threadId`) carries the thread that owns the tool result, and
+`McpAppToolResult` renders a visible "requires a persisted thread" note instead
+of mounting when it is absent. Preparation resolves the live run of exactly
+that thread and requires it to admit the requested server; it never picks by
+recency, so two threads on the same server each execute under their own run's
+approval/risk state. It binds the one-use executor and release to the
+requesting WebContents plus preparation id and fails closed with
+`mcp_app_admission_unavailable` otherwise. A newer run registering for the
+same thread supersedes the older admission and releases its pending
+preparations; a later disposal of that older run leaves the newer one intact.
+
+**App-originated calls require a live run of the owning thread** (ruling,
+review of BST-1572). An admission is NOT retained past its run's `dispose()`:
+the admitted executor is the run's exact gated MCP tool entry, which calls
+`client.callTool` on the run-owned `McpRuntimeClient` that `dispose()` closes
+(`agent-runtime.ts` `dispose` → `mcpClient?.disconnect()` →
+`client.close()`), after `mastra.shutdown()`; keeping it would hand the app an
+executor over closed transports. `agent-streaming.ts` disposes the runtime
+once per TURN (not per attempt, BST-1409), so an app can call tools while its
+thread's turn is streaming or paused; after the turn ends the next prepare
+fails typed and the app surface reports it. Lifting this needs a run-detached
+execution path, not a longer-lived admission. Execution, explicit release, run
+disposal, supersession, and WebContents destruction consume the entry; stale
+and replayed preparation ids cannot execute.
 
 The visible-UI-only IPC domain is `mcp:apps:prepare`, `mcp:apps:execute`, and
 `mcp:apps:release`. `window.mcp.apps.readResource` resolves the server's live

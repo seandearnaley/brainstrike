@@ -1,8 +1,15 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { type ComponentProps, type ComponentType, createContext, use } from 'react';
 
-/** Everything the chain-of-thought tool fallback receives for one tool part. */
-export type ToolResultRendererProps = ComponentProps<ToolCallMessagePartComponent>;
+/**
+ * Everything the chain-of-thought tool fallback receives for one tool part,
+ * plus the persisted thread that owns the part (`undefined` when the panel is
+ * not bound to a persisted thread). A host surface that acts on the part's
+ * behalf after the turn ended (MCP Apps) needs this to reach the right run.
+ */
+export type ToolResultRendererProps = ComponentProps<ToolCallMessagePartComponent> & {
+  readonly threadId: string | undefined;
+};
 
 /**
  * A host-provided renderer for one shape of raw tool result.

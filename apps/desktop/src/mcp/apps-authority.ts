@@ -20,7 +20,7 @@ export class McpDesktopAppHostError extends Error {
   constructor(readonly code: McpDesktopAppHostErrorCode) {
     const detail =
       code === 'mcp_app_admission_unavailable'
-        ? 'no live run admission is available'
+        ? 'no live run of the owning thread admits this server'
         : code === 'mcp_app_preparation_duplicate'
           ? 'the preparation id is already registered'
           : 'the preparation is not available';
@@ -36,10 +36,16 @@ export interface McpAppRequestingWebContents {
   removeListener(event: 'destroyed', listener: () => void): unknown;
 }
 
+/** The live assistant run publishing an admission: its run id and the thread it serves. */
+export interface McpAppAdmissionRun {
+  readonly runId: string;
+  readonly threadId: string;
+}
+
 interface AdmissionEntry {
   readonly admission: McpAppToolAdmissionCapability;
   readonly runId: string;
-  readonly sequence: number;
+  readonly threadId: string;
 }
 
 interface PreparationEntry {
@@ -57,27 +63,40 @@ interface SenderEntry {
   readonly webContents: McpAppRequestingWebContents;
 }
 
+/**
+ * Ordinary admission for app-originated tool calls. Admissions are keyed by
+ * the OWNING THREAD: a prepare resolves the live run of the thread whose tool
+ * result mounted the app, and only that run — never the most recent run that
+ * happens to know the same server. A newer run registering for the same
+ * thread supersedes the older one (its preparations are released); run
+ * disposal invalidates the entry, so calls need a live run of that thread.
+ */
 export class McpDesktopAppHost {
-  readonly #admissions = new Map<string, AdmissionEntry>();
-  #admissionSequence = 0;
+  readonly #admissionsByThread = new Map<string, AdmissionEntry>();
   readonly #preparations = new Map<string, PreparationEntry>();
   readonly #senders = new Map<number, SenderEntry>();
 
-  registerAdmission(runId: string, admission: McpAppToolAdmissionCapability): void {
-    if (this.#admissions.has(runId)) {
-      throw new Error(`MCP Apps admission for run "${runId}" is already registered`);
+  registerAdmission(run: McpAppAdmissionRun, admission: McpAppToolAdmissionCapability): void {
+    const current = this.#admissionsByThread.get(run.threadId);
+    if (current?.runId === run.runId) {
+      throw new Error(`MCP Apps admission for run "${run.runId}" is already registered`);
     }
-    this.#admissionSequence += 1;
-    this.#admissions.set(runId, { admission, runId, sequence: this.#admissionSequence });
+    if (current !== undefined) {
+      this.#releaseRunPreparations(current.runId);
+    }
+    this.#admissionsByThread.set(run.threadId, {
+      admission,
+      runId: run.runId,
+      threadId: run.threadId,
+    });
   }
 
-  invalidateAdmission(runId: string): void {
-    this.#admissions.delete(runId);
-    for (const [preparationId, entry] of this.#preparations) {
-      if (entry.runId === runId) {
-        this.#releasePreparation(preparationId, entry);
-      }
+  invalidateAdmission(run: McpAppAdmissionRun): void {
+    const current = this.#admissionsByThread.get(run.threadId);
+    if (current?.runId === run.runId) {
+      this.#admissionsByThread.delete(run.threadId);
     }
+    this.#releaseRunPreparations(run.runId);
   }
 
   async prepare(
@@ -87,14 +106,14 @@ export class McpDesktopAppHost {
     if (this.#preparations.has(request.preparationId)) {
       throw new McpDesktopAppHostError('mcp_app_preparation_duplicate');
     }
-    const entry = this.#resolveAdmission(request.origin.serverId);
+    const entry = this.#resolveAdmission(request.threadId, request.origin.serverId);
     const prepare = createMcpAppOrdinaryToolCallPreparer({ admission: entry.admission });
     const prepared = await prepare({
       input: request.arguments,
       serverId: request.origin.serverId,
       toolName: request.toolName,
     });
-    if (this.#admissions.get(entry.runId) !== entry) {
+    if (this.#admissionsByThread.get(entry.threadId) !== entry) {
       throw new McpDesktopAppHostError('mcp_app_admission_unavailable');
     }
     if (webContents.isDestroyed()) {
@@ -143,15 +162,20 @@ export class McpDesktopAppHost {
     this.#releasePreparation(request.preparationId, entry);
   }
 
-  #resolveAdmission(serverId: string): AdmissionEntry {
-    const candidates = Array.from(this.#admissions.values())
-      .filter(({ admission }) => admission.serverIds.includes(serverId))
-      .sort((left, right) => right.sequence - left.sequence);
-    const entry = candidates[0];
-    if (entry === undefined) {
+  #resolveAdmission(threadId: string, serverId: string): AdmissionEntry {
+    const entry = this.#admissionsByThread.get(threadId);
+    if (entry === undefined || !entry.admission.serverIds.includes(serverId)) {
       throw new McpDesktopAppHostError('mcp_app_admission_unavailable');
     }
     return entry;
+  }
+
+  #releaseRunPreparations(runId: string): void {
+    for (const [preparationId, entry] of this.#preparations) {
+      if (entry.runId === runId) {
+        this.#releasePreparation(preparationId, entry);
+      }
+    }
   }
 
   #sender(webContents: McpAppRequestingWebContents): SenderEntry {

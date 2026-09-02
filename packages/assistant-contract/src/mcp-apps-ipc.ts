@@ -33,6 +33,12 @@ export const McpAppPrepareRequestSchema = z.strictObject({
   arguments: JsonObjectSchema,
   origin: McpAppOriginSchema,
   preparationId: PreparationIdSchema,
+  /**
+   * The persisted thread whose tool result mounted the app. Admission resolves
+   * the live run of exactly this thread, never another thread's run that
+   * happens to know the same server.
+   */
+  threadId: IdentifierSchema,
   /** The tool the app is calling; may differ from the tool that opened it. */
   toolName: IdentifierSchema,
 });

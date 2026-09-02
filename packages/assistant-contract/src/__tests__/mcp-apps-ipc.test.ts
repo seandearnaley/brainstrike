@@ -39,12 +39,22 @@ describe('MCP Apps IPC contract', () => {
   });
 
   it('validates prepare requests and results strictly', () => {
-    const request = { arguments: {}, origin, preparationId: 'prep-1', toolName: 'get-time' };
+    const request = {
+      arguments: {},
+      origin,
+      preparationId: 'prep-1',
+      threadId: 'thread-a',
+      toolName: 'get-time',
+    };
     expect(McpAppPrepareRequestSchema.parse(request)).toEqual(request);
     expect(() => McpAppPrepareRequestSchema.parse({ ...request, decision: 'allow' })).toThrow();
-    expect(() =>
-      McpAppPrepareRequestSchema.parse({ arguments: {}, origin, preparationId: '', toolName: 't' })
-    ).toThrow();
+    expect(() => McpAppPrepareRequestSchema.parse({ ...request, preparationId: '' })).toThrow();
+    // The owning thread is mandatory: admission is resolved per thread.
+    expect(() => McpAppPrepareRequestSchema.parse({ ...request, threadId: '' })).toThrow();
+    expect(() => {
+      const { threadId: _omitted, ...withoutThread } = request;
+      McpAppPrepareRequestSchema.parse(withoutThread);
+    }).toThrow();
     expect(parseMcpAppPrepareResult({ decision: 'ask', riskCategory: 'ordinary' })).toEqual({
       decision: 'ask',
       riskCategory: 'ordinary',

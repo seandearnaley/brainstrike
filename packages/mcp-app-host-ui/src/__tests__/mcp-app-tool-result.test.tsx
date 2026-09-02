@@ -132,6 +132,7 @@ const TOOL_CALL = {
   argsText: '{}',
   result: APP_RESULT,
   status: { type: 'complete' as const },
+  threadId: 'thread-a',
   toolCallId: 'call-1',
   toolName: 'create_issue',
 } as unknown as Parameters<typeof McpAppToolResult>[0];
@@ -179,6 +180,22 @@ describe('MCP App tool result', () => {
     expect(screen.queryByTitle('create_issue app')).not.toBeInTheDocument();
   });
 
+  it('states that app rendering needs a persisted thread when no thread owns the part', () => {
+    const test = harness();
+    render(
+      <TooltipProvider>
+        <McpAppBridgeProvider bridge={test.bridge}>
+          <McpAppToolResult {...TOOL_CALL} ports={test.ports} threadId={undefined} />
+        </McpAppBridgeProvider>
+      </TooltipProvider>
+    );
+    expect(screen.getByTestId('mcp-app-host-note')).toHaveTextContent(
+      'App rendering requires a persisted thread'
+    );
+    expect(screen.queryByTitle('create_issue app')).not.toBeInTheDocument();
+    expect(test.prepare).not.toHaveBeenCalled();
+  });
+
   it('mounts the sandbox shell URL after reading the app document', async () => {
     const test = harness();
     await mountApp(test);
@@ -204,6 +221,7 @@ describe('MCP App tool result', () => {
       arguments: { title: 'Bug' },
       origin: APP,
       preparationId: expect.stringContaining('mcp-app-preparation-'),
+      threadId: 'thread-a',
       toolName: 'create_issue',
     });
     expect(test.execute).not.toHaveBeenCalled();

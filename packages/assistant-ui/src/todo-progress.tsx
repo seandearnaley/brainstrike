@@ -14,6 +14,8 @@ import {
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
+import { use } from 'react';
+import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,
@@ -144,6 +146,9 @@ const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
   // a surface supplies the descriptor, so nothing host-specific is imported
   // here. Claimed by result SHAPE, never by a `by_name` entry.
   const renderers = useToolResultRenderers();
+  // The persisted thread owning this part; a host renderer acting on the
+  // part's behalf (MCP Apps) correlates admission through it.
+  const threadId = use(ActiveThreadKeyContext);
   if (isSubagentDelegationToolName(props.toolName)) {
     return <SubagentDelegationCard {...props} />;
   }
@@ -152,7 +157,7 @@ const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
       ? undefined
       : renderers.find((candidate) => candidate.matches(props.result));
   if (renderer) {
-    return <renderer.Component {...props} />;
+    return <renderer.Component {...props} threadId={threadId} />;
   }
   // BST-1566: a task-producing MCP tool persists the `{ kind: 'mcp-task' }`
   // marker as its raw result. Tool names are server-defined, so the branch is
