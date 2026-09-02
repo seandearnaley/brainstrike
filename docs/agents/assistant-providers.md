@@ -2132,6 +2132,24 @@ layer (BST-1570) bounds raw `postMessage` payloads before parsing. These inert
 parsers do not register Apps support or provide resource, sandbox, frame, or
 consent behavior.
 
+BST-1568 adds the next disabled contract layer: one in-memory provenance
+authority issues opaque handles for an authenticated server identity and its
+monotonic connection generation. Tool `_meta.ui`, effective app/model
+visibility, associated resource, tool input, and tool result remain attached to
+that authority-owned generation. A replacement generation retires every prior
+handle; duplicate tool names and concurrent type-sensitive request IDs fail
+closed within the generation. `retireGeneration` is the explicit teardown for a server that disconnects
+without a replacement; it keeps the latest generation number so a reconnect
+must open a strictly greater one. A resource's `_meta` is read like a tool's:
+`ui` is parsed when present and namespaced sibling keys are ignored. A settled
+tool result carries the audience that issued the call. Resource resolution requires the owning tool and
+generation,
+the exact associated `ui://` URI and Apps MIME type, exactly one non-empty text
+or canonical base64 body, fatal UTF-8 decoding, and at most 1 MiB decoded HTML.
+Result settlement is one-shot. This authority does not infer ownership from a
+URI or tool name and does not register Apps, fetch resources, render content,
+or implement a frame, sandbox, consent, or approval path.
+
 Desktop Settings consumes the singleton `DesktopMcpHostRuntime`'s browser-safe
 `McpHostSnapshot` through `mcp:status:get` and revisioned
 `mcp:status:updated` events. Renderer state accepts only strictly newer
