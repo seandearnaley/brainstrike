@@ -161,6 +161,11 @@ test('MCP Apps bridge is quiescent in genuinely packaged Electron', {
                 if(message.method==='tools/call'&&message.params?.name==='wait'){
                   return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
                 }
+                // Host replies are validated against the pinned canonical
+                // result schema for the method they answer.
+                if(message.method==='ui/initialize'){
+                  return {hostCapabilities:{},hostContext:{platform:'desktop'},hostInfo:{name:'Brainstrike',version:'1.0.0'},protocolVersion:'2026-01-26'};
+                }
                 return {};
               },
               timeoutMs:1000,
