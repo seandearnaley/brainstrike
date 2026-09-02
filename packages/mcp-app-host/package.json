@@ -31,7 +31,7 @@
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:browser": "vitest run --config vitest.browser.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
