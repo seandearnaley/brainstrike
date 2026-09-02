@@ -10,6 +10,7 @@ const MCP_TASK_STATUSES = [
 ] as const;
 type McpTaskStatus = (typeof MCP_TASK_STATUSES)[number];
 const TERMINAL_STATUSES = new Set<McpTaskStatus>(['cancelled', 'completed', 'failed']);
+export const MAX_ACTIVE_MCP_TASKS_PER_SCOPE = 256;
 
 type JsonValue = boolean | null | number | string | JsonValue[] | JsonObject;
 export interface JsonObject {
@@ -28,6 +29,8 @@ export interface McpTaskIdentity {
 export interface McpTaskWriteFence {
   readonly currentGeneration: number;
 }
+
+export type McpTaskScope = Omit<McpTaskIdentity, 'taskId'>;
 
 export interface McpTaskRecord extends McpTaskIdentity {
   readonly createdAt: Date;
@@ -85,8 +88,13 @@ function requireText(value: unknown, field: string, maxBytes: number): string {
 }
 
 function requireIdentity(identity: McpTaskIdentity): void {
-  requireText(identity.serverId, 'serverId', 512);
-  const resource = requireText(identity.resource, 'resource', 2048);
+  requireScope(identity);
+  requireText(identity.taskId, 'taskId', 1024);
+}
+
+function requireScope(scope: McpTaskScope): void {
+  requireText(scope.serverId, 'serverId', 512);
+  const resource = requireText(scope.resource, 'resource', 2048);
   const url = new URL(resource);
   if (
     !['http:', 'https:'].includes(url.protocol) ||
@@ -98,9 +106,8 @@ function requireIdentity(identity: McpTaskIdentity): void {
   ) {
     throw new TypeError('MCP task resource must be a canonical HTTP(S) URL without a fragment.');
   }
-  requireText(identity.principalId, 'principalId', 512);
-  requireText(identity.taskId, 'taskId', 1024);
-  if (!(Number.isSafeInteger(identity.generation) && identity.generation >= 0)) {
+  requireText(scope.principalId, 'principalId', 512);
+  if (!(Number.isSafeInteger(scope.generation) && scope.generation >= 0)) {
     throw new TypeError('MCP task generation must be a non-negative safe integer.');
   }
 }
@@ -291,6 +298,34 @@ export class McpTaskRepository {
       identityParams(identity)
     );
     return result.rows[0] === undefined ? null : mapRow(result.rows[0]);
+  }
+
+  /**
+   * Bounded by construction like every other query here: the row count is
+   * the number of pollers `recover()` fans out, so it is capped at
+   * {@link MAX_ACTIVE_MCP_TASKS_PER_SCOPE} in deterministic
+   * `created_at, task_id` order (the partial resume index covers the scope).
+   */
+  async listActive(
+    scope: McpTaskScope,
+    options: { readonly limit?: number } = {}
+  ): Promise<readonly McpTaskRecord[]> {
+    requireScope(scope);
+    const limit = options.limit ?? MAX_ACTIVE_MCP_TASKS_PER_SCOPE;
+    if (!(Number.isSafeInteger(limit) && limit > 0 && limit <= MAX_ACTIVE_MCP_TASKS_PER_SCOPE)) {
+      throw new TypeError(
+        `MCP task listActive limit must be an integer from 1 to ${MAX_ACTIVE_MCP_TASKS_PER_SCOPE}.`
+      );
+    }
+    const result = await this.db.query(
+      `SELECT * FROM ${TABLE}
+       WHERE server_id = $1 AND resource = $2 AND principal_id = $3
+         AND generation = $4 AND terminal_at IS NULL
+       ORDER BY created_at ASC, task_id ASC
+       LIMIT $5`,
+      [scope.serverId, scope.resource, scope.principalId, scope.generation, limit]
+    );
+    return result.rows.map(mapRow);
   }
 
   async update(

@@ -88,10 +88,12 @@ export type {
 } from './interfaces.js';
 export {
   type CreateMcpTaskInput,
+  MAX_ACTIVE_MCP_TASKS_PER_SCOPE,
   type McpTaskDatabase,
   type McpTaskIdentity,
   type McpTaskRecord,
   McpTaskRepository,
+  type McpTaskScope,
   type McpTaskStatus,
   type McpTaskWriteFence,
   type UpdateMcpTaskInput,

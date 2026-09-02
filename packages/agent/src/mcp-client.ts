@@ -88,3 +88,15 @@ export {
   type McpTasksNotificationLease,
   registerMcpTasksWireContracts,
 } from './mcp/tasks-extension';
+export {
+  DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
+  McpTaskLifecycle,
+  type McpTaskLifecycleLimits,
+  type McpTaskLifecycleOptions,
+  McpTaskLifecycleStoppedError,
+  type McpTaskLifecycleStopReason,
+  McpTaskObservationError,
+  type McpTaskPollingClient,
+  type McpTaskRequestOptions,
+  type McpTrackedTask,
+} from './mcp/tasks-lifecycle';

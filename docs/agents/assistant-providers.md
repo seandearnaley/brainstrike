@@ -1988,22 +1988,35 @@ custom-method escape hatch and does not patch the SDK dependency.
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
 
 Migration 114 and `McpTaskRepository` provide the factory-reset-covered,
-principal/resource/generation-bound Tasks persistence substrate. This does not
-advertise the extension; polling, input, cancellation, and wire registration
-remain owned by later BST-1473 layers.
+principal/resource/generation-bound Tasks persistence substrate.
+`McpTaskLifecycle` persists each returned handle and its server timing before
+exposing it, resumes only the exact live scope, polls `tasks/get` under bounded
+concurrency/backoff/lifetime, and persists before publishing every update.
+It is the sole ordered poll authority. Optional task notifications carry no
+state into persistence or interaction; they only wake and coalesce an immediate
+lifecycle poll. Interaction consumes lifecycle updates only after persistence
+and never starts a second poll fleet.
+Server replacement, removal, disconnect, reset, restart, lifecycle close, and
+caller cancellation abort timers, queued permits, and in-flight requests; a
+late stale-generation response cannot publish. The poller rejects a mismatched
+task id, terminally exposes bounded transport-attempt exhaustion, honors
+changing `pollIntervalMs`, treats `ttlMs` as a lifetime backstop, and creates no
+subscription lease. This remains opt-in substrate: production registration,
+mid-flight input/cancellation interactions, renderer controls, and support
+advertisement remain disabled for later BST-1473 layers.
 
 BST-1509 owns the Settings/diagnostics rendering of this matrix and modern
 per-request wire proof; the registry remains its host-owned source of truth.
 
-BST-1561's Tasks adapter is opt-in testable substrate only. It requires exact
+BST-1561 through BST-1563 are opt-in testable substrate only. The wire adapter requires exact
 client and server `io.modelcontextprotocol/tasks` advertisement, routes all
 three task methods with `Mcp-Name: params.taskId`, and owns one notification
 lease per connection on both stdio and Streamable HTTP. The registry owns the
 notification method/schema, refuses reserved core notification methods, and
 releases the lease on local close, remote close, or rejected closure so retry is
 possible. It never emits `tasks/list` or the deprecated request `task.ttl` field,
-and production registration remains absent until BST-1473's durable task
-lifecycle is complete.
+and production registration remains absent until BST-1473's interaction and
+enablement layers are complete.
 
 ### MCP client input and deprecated compatibility (BST-1470)
 
