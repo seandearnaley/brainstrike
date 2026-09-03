@@ -20,6 +20,7 @@ import {
 } from '@brainstrike/ui';
 import { Circle, MoreVertical, RefreshCw, Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { describeMcpToolsAvailability, type McpToolsAvailability } from './mcp-tools-availability';
 
 /**
  * MCP connection status types.
@@ -54,6 +55,13 @@ export interface ToolGroupAccordionProps {
   onRefreshConnection?: () => void;
   /** Source of the tools ('native' or 'mcp') */
   source: 'native' | 'mcp';
+  /**
+   * Whether a CONNECTED server's tool list actually loaded (BST-1603). A
+   * connected server that enumerated nothing gets the same warning colour as a
+   * connecting one, because it is in the same position from the user's seat:
+   * present, but contributing no tools to a run.
+   */
+  toolsAvailability?: McpToolsAvailability;
   /** Total number of tools in the group */
   totalCount: number;
 }
@@ -61,10 +69,28 @@ export interface ToolGroupAccordionProps {
 /**
  * Get the CSS classes for the connection status indicator.
  */
-function getStatusIndicatorClasses(status: McpConnectionStatus): string {
+function getStatusIndicatorClasses(
+  status: McpConnectionStatus,
+  toolsAvailability: McpToolsAvailability | undefined
+): string {
   switch (status) {
     case 'connected':
-      return 'fill-green-500 text-green-500';
+      // Green means "this server is contributing tools", NOT merely "the
+      // handshake succeeded" (BST-1603). Those two came apart silently before:
+      // a server that connected and failed to enumerate showed the same green
+      // dot as a healthy one, which is why the row could not be trusted.
+      //
+      // The degraded state uses the SEMANTIC warning token, deliberately NOT
+      // the `fill-yellow-500` below: that yellow already means
+      // connecting/authorizing, and a user who cannot tell "still working,
+      // wait" from "settled, and it will never contribute tools" has lost the
+      // only actionable distinction this indicator exists to draw (PR #2945
+      // review). `warning` is also the accessible choice — raw `yellow-500`
+      // measures 1.87:1 against the settings surface, under the 3:1 non-text
+      // floor (BST-1619).
+      return toolsAvailability === 'tools-unavailable'
+        ? 'fill-warning text-warning'
+        : 'fill-green-500 text-green-500';
     case 'connecting':
     case 'authorizing':
     case 'authentication-required':
@@ -111,12 +137,20 @@ export function ToolGroupAccordion({
   onEnableAll,
   onDisableAll,
   connectionStatus,
+  toolsAvailability,
   errorMessage,
   onRefreshConnection,
   onOpenConfigFile,
 }: ToolGroupAccordionProps): ReactNode {
   const isMcp = source === 'mcp';
   const badgeVariant = getBadgeVariant(enabledCount, totalCount);
+  // Colour alone is not a signal — invisible to screen readers and to anyone
+  // with a colour-vision deficiency. It also gives E2E a non-colour hook, which
+  // matters here: asserting a fill class is exactly as fragile as the "row says
+  // Connected" signal this change exists to replace (PR #2945 review).
+  const toolsAvailabilityLabel = toolsAvailability
+    ? describeMcpToolsAvailability(toolsAvailability)
+    : undefined;
 
   return (
     <AccordionItem data-testid={`tool-group-${id}`} value={id}>
@@ -129,9 +163,19 @@ export function ToolGroupAccordion({
             {/* MCP Connection Status Indicator */}
             {isMcp && connectionStatus && (
               <Circle
-                className={`h-2 w-2 ${getStatusIndicatorClasses(connectionStatus)}`}
+                aria-hidden={toolsAvailabilityLabel ? undefined : true}
+                aria-label={
+                  toolsAvailabilityLabel ? `Connected, ${toolsAvailabilityLabel}` : undefined
+                }
+                className={`h-2 w-2 ${getStatusIndicatorClasses(connectionStatus, toolsAvailability)}`}
                 data-testid="mcp-status-indicator"
-              />
+                data-tools-availability={toolsAvailability ?? 'unknown'}
+                role={toolsAvailabilityLabel ? 'img' : undefined}
+              >
+                <title>
+                  {toolsAvailabilityLabel ? `Connected, ${toolsAvailabilityLabel}` : ''}
+                </title>
+              </Circle>
             )}
 
             {/* Group Label and Description */}

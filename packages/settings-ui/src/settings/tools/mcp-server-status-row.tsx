@@ -15,6 +15,10 @@ import {
 } from '@brainstrike/ui';
 import { useRef, useState } from 'react';
 import { McpServerCatalog, type McpServerCatalogContentActions } from './mcp-support-status';
+import {
+  describeMcpToolsAvailability,
+  resolveMcpToolsAvailability,
+} from './mcp-tools-availability';
 import type { McpServerInfo } from './types';
 
 const MCP_CONTROL_LABELS = {
@@ -55,6 +59,28 @@ function credentialStateLabel(state: 'malformed' | 'missing' | 'stored' | 'unrea
     case 'unreadable':
       return 'unreadable';
   }
+}
+
+/**
+ * "Connected" is a transport fact, not a statement that `tools/list` returned
+ * (BST-1603). Without this line the row shows one green state for a server that
+ * loaded its tools and for one that silently contributed none to every run.
+ */
+function McpToolsAvailabilityNotice({ server }: { readonly server: McpServerInfo }) {
+  const label = describeMcpToolsAvailability(resolveMcpToolsAvailability(server));
+  if (!label) {
+    return null;
+  }
+  return (
+    // `text-warning`, the repo's semantic warning token (--bs-warning, deep
+    // amber, 4.66:1 against the light muted surface) — NOT a raw palette shade.
+    // Measured live in the settings dialog, `text-yellow-500` is 1.87:1 there
+    // and WCAG AA wants 4.5:1 for small text. The token also carries its own
+    // dark-mode value, so no shade is being guessed.
+    <div className="text-warning text-xs">
+      connected · {label} — this server enumerated no tools for this run
+    </div>
+  );
 }
 
 function McpAuthStatus({ server }: { readonly server: McpServerInfo }) {
@@ -228,6 +254,7 @@ export function McpServerStatusRow({
               (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
             }`}
           </div>
+          <McpToolsAvailabilityNotice server={server} />
           {server.catalog && (
             <McpServerCatalog
               catalog={server.catalog}
