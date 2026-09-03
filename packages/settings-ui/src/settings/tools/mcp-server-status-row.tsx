@@ -15,6 +15,10 @@ import {
 } from '@brainstrike/ui';
 import { useRef, useState } from 'react';
 import { McpServerCatalog, type McpServerCatalogContentActions } from './mcp-support-status';
+import {
+  describeMcpToolsAvailability,
+  resolveMcpToolsAvailability,
+} from './mcp-tools-availability';
 import type { McpServerInfo } from './types';
 
 const MCP_CONTROL_LABELS = {
@@ -55,6 +59,23 @@ function credentialStateLabel(state: 'malformed' | 'missing' | 'stored' | 'unrea
     case 'unreadable':
       return 'unreadable';
   }
+}
+
+/**
+ * "Connected" is a transport fact, not a statement that `tools/list` returned
+ * (BST-1603). Without this line the row shows one green state for a server that
+ * loaded its tools and for one that silently contributed none to every run.
+ */
+function McpToolsAvailabilityNotice({ server }: { readonly server: McpServerInfo }) {
+  const label = describeMcpToolsAvailability(resolveMcpToolsAvailability(server));
+  if (!label) {
+    return null;
+  }
+  return (
+    <div className="text-xs text-yellow-500">
+      connected · {label} — this server contributes no tools to a run until it enumerates
+    </div>
+  );
 }
 
 function McpAuthStatus({ server }: { readonly server: McpServerInfo }) {
@@ -228,6 +249,7 @@ export function McpServerStatusRow({
               (server.negotiated.advertisedCapabilityIds ? 'none' : 'unavailable')
             }`}
           </div>
+          <McpToolsAvailabilityNotice server={server} />
           {server.catalog && (
             <McpServerCatalog
               catalog={server.catalog}
