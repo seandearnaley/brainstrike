@@ -1250,6 +1250,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
   resetLocalDatabase,
+  resetPersistentStorageAfterDataDeletion: () => storage.clear(),
   resumeAfterReset: (outcome) =>
     resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime(), outcome),
   runtimes: [

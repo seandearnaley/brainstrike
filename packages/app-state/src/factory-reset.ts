@@ -145,7 +145,10 @@ async function clearElectronStorage(): Promise<ClearPersistentUiStateFailure[]> 
   };
   const failures: ClearPersistentUiStateFailure[] = [];
 
-  // Clear renderer storage (electron-storage.json)
+  // Clear renderer-owned records in electron-storage.json. Desktop main's
+  // resetLocal handler owns the full userData wipe, including main-owned root
+  // and vault ledgers; the renderer storage bridge deliberately preserves
+  // those authority keys outside that main-owned reset (BST-1401).
   if (w.electronAPI?.storage?.clear) {
     try {
       await w.electronAPI.storage.clear();
@@ -589,7 +592,8 @@ async function clearCacheStorage(): Promise<void> {
  * Layers cleared without exceptions:
  * - localStorage: All Zustand stores (embedding prefs, panel layout, etc.)
  * - sessionStorage: Any transient state (future-proofed)
- * - Electron storage: renderer storage adapter (electron-storage.json)
+ * - Electron storage: renderer-owned records in electron-storage.json; desktop
+ *   main's resetLocal handler owns the complete userData wipe
  * - Electron secrets: API keys and provider configurations (brainstrike-secrets.json)
  * - Electron settings: panel layouts, logging preferences (brainstrike-settings.json)
  * - IndexedDB: All databases enumerated and deleted (unless skipIndexedDb=true)

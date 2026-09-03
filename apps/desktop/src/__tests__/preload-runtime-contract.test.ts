@@ -20,6 +20,7 @@ import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/de
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from '../platform/desktop-storage-authority';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
 
 function readPreloadSource(): string {
@@ -42,6 +43,48 @@ function removePreloadStringConstantDefinitions(source: string): string {
     /const\s+[A-Z0-9_]+_(?:CHANNEL|EVENT)\s*=\s*['"][^'"]+['"]\s+as\s+const;/g,
     ''
   );
+}
+
+function extractPreloadStringSet(source: string, constantName: string): string[] {
+  const sourceFile = ts.createSourceFile(
+    'preload.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  let values: string[] | undefined;
+  const visit = (node: ts.Node): void => {
+    if (!(ts.isVariableDeclaration(node) && ts.isIdentifier(node.name))) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    if (node.name.text !== constantName) {
+      return;
+    }
+    if (values !== undefined) {
+      throw new Error(`Multiple preload constants named ${constantName}.`);
+    }
+    const initializer = node.initializer;
+    const argument =
+      initializer && ts.isNewExpression(initializer) ? initializer.arguments?.[0] : undefined;
+    if (!(argument && ts.isArrayLiteralExpression(argument))) {
+      throw new Error(
+        `Preload constant ${constantName} must be constructed from an array literal.`
+      );
+    }
+    values = argument.elements.map((element) => {
+      if (!ts.isStringLiteral(element)) {
+        throw new Error(`Preload constant ${constantName} contains a non-string entry.`);
+      }
+      return element.text;
+    });
+  };
+  visit(sourceFile);
+  if (values === undefined) {
+    throw new Error(`Missing preload string set ${constantName}.`);
+  }
+  return values;
 }
 
 /**
@@ -165,6 +208,12 @@ describe('preload runtime contract', () => {
     expect(preloadSource).toContain(
       "const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot'"
     );
+  });
+
+  it('keeps the E2E seed routing keys in exact parity with MAIN authority', () => {
+    expect(
+      extractPreloadStringSet(readPreloadSource(), 'MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E')
+    ).toEqual([...MAIN_OWNED_DESKTOP_STORAGE_KEYS]);
   });
 
   it('keeps preload logging literals in parity with the platform logging contract', () => {
@@ -384,10 +433,13 @@ describe('preload runtime contract', () => {
       SHELL_OPEN_EXTERNAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.shell.openExternal,
       SHELL_OPEN_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.shell.openPath,
       SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.shell.showItemInFolder,
+      STORAGE_CLEAR_ALL_FOR_E2E_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.clearAllForE2e,
       STORAGE_CLEAR_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.clear,
       STORAGE_GET_ALL_KEYS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getAllKeys,
       STORAGE_GET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getItem,
       STORAGE_REMOVE_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.removeItem,
+      STORAGE_SEED_MAIN_OWNED_FOR_E2E_CHANNEL:
+        DESKTOP_PRELOAD_IPC_CHANNELS.storage.seedMainOwnedForE2e,
       STORAGE_SET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.setItem,
       WORKSPACE_FACTORY_RESET_GENERATION_EVENT:
         DESKTOP_PRELOAD_IPC_CHANNELS.workspace.factoryResetGeneration,

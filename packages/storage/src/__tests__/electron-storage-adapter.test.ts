@@ -78,6 +78,22 @@ describe('ElectronStorageAdapter', () => {
     expect(await adapter.getAllKeys()).toEqual([]);
   });
 
+  it('should atomically clear every key except an explicit preserved set', async () => {
+    await adapter.setItem('renderer-preference', 'value');
+    await adapter.setItem('rootsList', 'main-owned');
+    await adapter.setItem('notesVaultRoots', 'main-owned');
+
+    await adapter.clearExcept(['rootsList', 'notesVaultRoots']);
+
+    expect(await adapter.getItem('renderer-preference')).toBeNull();
+    expect(await adapter.getItem('rootsList')).toBe('main-owned');
+    expect(await adapter.getItem('notesVaultRoots')).toBe('main-owned');
+    expect(JSON.parse(await fsPromises.readFile(storageFile, 'utf8'))).toEqual({
+      notesVaultRoots: 'main-owned',
+      rootsList: 'main-owned',
+    });
+  });
+
   it('should return all keys', async () => {
     await adapter.setItem('key1', 'value1');
     await adapter.setItem('key2', 'value2');
@@ -219,6 +235,16 @@ describe('ElectronStorageAdapter', () => {
     await expect(corruptedAdapter.getAllKeys()).resolves.toEqual([]);
     await expect(fsPromises.readFile(storageFile, 'utf8')).resolves.toBe('{}');
     await expect(corruptedAdapter.setItem('recovered', 'value')).resolves.toBeUndefined();
+  });
+
+  it('should refuse clearExcept when protected records could not be loaded', async () => {
+    await adapter.getAllKeys();
+    const invalidContent = '{"rootsList":"main-owned","invalid":42}';
+    await fsPromises.writeFile(storageFile, invalidContent, 'utf8');
+    const invalidAdapter = new ElectronStorageAdapter(path.basename(storageFile));
+
+    await expect(invalidAdapter.clearExcept(['rootsList'])).rejects.toThrow(StorageFileLoadError);
+    await expect(fsPromises.readFile(storageFile, 'utf8')).resolves.toBe(invalidContent);
   });
 
   it('should create storage directory if it does not exist', async () => {

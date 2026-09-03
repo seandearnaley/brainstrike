@@ -40,6 +40,7 @@ const {
   embeddingHostResetMock,
   embeddingHostStopMock,
   embeddingHostDestroyAndRestartMock,
+  storageClearMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = {
@@ -110,6 +111,7 @@ const {
   const isCorruptionErrorMock = vi.fn((_error: unknown) => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
+  const storageClearMock = vi.fn(async () => undefined);
   const closeDatabaseMock = vi.fn();
   const resetDesktopApplicationDataMock = vi.fn(async () => ({
     deletedPaths: [],
@@ -195,6 +197,7 @@ const {
     parseManagedCacheInvalidationsArgsMock,
     resetDesktopApplicationDataMock,
     resetLocalDatabaseMock,
+    storageClearMock,
   };
 });
 
@@ -223,6 +226,7 @@ export {
   parseManagedCacheInvalidationsArgsMock,
   resetDesktopApplicationDataMock,
   resetLocalDatabaseMock,
+  storageClearMock,
 };
 
 vi.mock('@brainstrike/db', async () => {
@@ -411,7 +415,7 @@ vi.mock('@brainstrike/file-system/electron', () => {
 vi.mock('@brainstrike/storage/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
+    Object.assign(this, { clear: storageClearMock });
   });
   return { ElectronStorageAdapter: MockAdapter };
 });

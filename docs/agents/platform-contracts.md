@@ -278,11 +278,31 @@ so a caller who wants to know what happened to the managed directory has to
 read it themselves, not read the reset result.
 - `lastFolderPath` — presentation-only.
 
+The renderer-facing `storage:*` bridge cannot mutate any of the root/vault
+authority keys above (BST-1401). `setItem` and `removeItem` reject them by exact
+key, `setItem` rejects non-string IPC values before persistence, and `clear`
+enumerates and removes only renderer-owned records. That selective clear fails
+closed when the durable file could not be loaded; it never recovers corruption
+by erasing authority records it could not preserve. The full
+desktop factory-reset handler remains the sole whole-profile wipe; it deletes
+the userData entries in main after the reset barrier closes, then calls
+`storage.clear()` before replacing the renderer. That post-deletion clear is
+required even though the file is gone: the main-process adapter is long-lived,
+so its in-memory cache must be emptied before a replacement renderer can read
+or later repersist stale authority records. E2E root-ledger
+seeding and the E2E reset harness's full clear use separate channels that main
+registers only in explicit Electron test mode, so production tests do not
+require a production bypass. Preload and main use the same `--test-mode` /
+`ELECTRON_IS_E2E_TEST=true` predicate, and a source-AST contract pins preload's
+copied seed-key set to main's authoritative tuple.
+
 That coverage is pinned by
 `apps/desktop/src/__tests__/main/desktop-factory-reset-storage-ledgers.test.ts`,
 which seeds a REAL `electron-storage.json` (all of the keys above, including
 both `.corrupt` quarantines) into a REAL temp userData dir and asserts the file
-is gone and `logs` is the only surviving entry.
+is gone and `logs` is the only surviving entry. The ordering contract for the
+main-process cache clear is pinned by
+`apps/desktop/src/__tests__/desktop-reset-platform.test.ts`.
 
 Renderer module-scoped state, `roots/root-registration-events.ts` (BST-1400):
 a per-key registration GENERATION counter (`seqByKey`) the await-root-

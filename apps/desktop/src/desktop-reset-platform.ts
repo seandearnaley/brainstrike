@@ -24,6 +24,9 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly errorLogFilePaths?: readonly string[];
   readonly logger: DesktopResetLogger;
   readonly resetLocalDatabase: () => Promise<void>;
+  /** Clears the long-lived main-process storage cache after userData has been
+   * deleted, before a replacement renderer can read or repersist stale data. */
+  readonly resetPersistentStorageAfterDataDeletion: () => Promise<void>;
   readonly resumeAfterReset?: (outcome: 'failed' | 'succeeded') => Promise<void>;
   readonly runtimes: readonly DesktopResetRuntime[];
   readonly runWithDatabaseResetBarrier: (work: () => Promise<void>) => Promise<void>;
@@ -131,6 +134,7 @@ export function createDesktopFactoryResetHandler({
   errorLogFilePaths,
   logger,
   resetLocalDatabase,
+  resetPersistentStorageAfterDataDeletion,
   resumeAfterReset,
   runtimes,
   runWithDatabaseResetBarrier,
@@ -167,6 +171,7 @@ export function createDesktopFactoryResetHandler({
         userDataPath,
       });
       resetDataSucceeded = true;
+      await resetPersistentStorageAfterDataDeletion();
       await completeSuccessfulReset();
       rendererReplacementSucceeded = true;
     } catch (error) {

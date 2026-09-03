@@ -51,6 +51,7 @@ interface FakeStore {
 function createStorage(): ElectronStorageAdapter {
   return {
     clear: vi.fn(async () => undefined),
+    clearExcept: vi.fn(async () => undefined),
     getAllKeys: vi.fn(async () => ['alpha']),
     getItem: vi.fn(async (key: string) => `value:${key}`),
     removeItem: vi.fn(async () => undefined),
@@ -100,8 +101,91 @@ describe('storage preferences IPC domain', () => {
     expect(storage.getItem).toHaveBeenCalledWith('alpha');
     expect(storage.setItem).toHaveBeenCalledWith('alpha', 'beta');
     expect(storage.removeItem).toHaveBeenCalledWith('alpha');
-    expect(storage.clear).toHaveBeenCalled();
+    expect(storage.clear).not.toHaveBeenCalled();
     expect(storage.getAllKeys).toHaveBeenCalled();
+    expect(storage.clearExcept).toHaveBeenCalledWith([
+      'lastFolderPath',
+      'notesVaultRoots',
+      'recentRootsList',
+      'recentRootsList.corrupt',
+      'rootsList',
+      'rootsList.corrupt',
+    ]);
+  });
+
+  it.each([
+    'rootsList',
+    'rootsList.corrupt',
+    'recentRootsList',
+    'recentRootsList.corrupt',
+    'notesVaultRoots',
+    'lastFolderPath',
+  ])('refuses renderer writes and removals for main-owned key %s', async (key) => {
+    const setItem = handlers.get('storage:setItem');
+    const removeItem = handlers.get('storage:removeItem');
+
+    await expect(setItem?.({} as IpcMainInvokeEvent, key, 'value')).rejects.toThrow(
+      `Storage key "${key}" is main-owned`
+    );
+    await expect(removeItem?.({} as IpcMainInvokeEvent, key)).rejects.toThrow(
+      `Storage key "${key}" is main-owned`
+    );
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(storage.removeItem).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-string renderer values at the IPC boundary', async () => {
+    const setItem = handlers.get('storage:setItem');
+
+    await expect(
+      setItem?.({} as IpcMainInvokeEvent, 'assistant-preferences.v1', { invalid: true })
+    ).rejects.toThrow('Storage value must be a string');
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('clears renderer-owned keys without deleting main-owned ledgers', async () => {
+    const clear = handlers.get('storage:clear');
+
+    await clear?.({} as IpcMainInvokeEvent);
+
+    expect(storage.clear).not.toHaveBeenCalled();
+    expect(storage.clearExcept).toHaveBeenCalledWith([
+      'lastFolderPath',
+      'notesVaultRoots',
+      'recentRootsList',
+      'recentRootsList.corrupt',
+      'rootsList',
+      'rootsList.corrupt',
+    ]);
+  });
+
+  it('does not register storage test helpers outside Electron E2E mode', () => {
+    expect(handlers.has('storage:seedMainOwnedForE2e')).toBe(false);
+    expect(handlers.has('storage:clearAllForE2e')).toBe(false);
+  });
+
+  it('registers bounded storage helpers only in Electron E2E mode', async () => {
+    vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
+    try {
+      registerStoragePreferencesIpcHandlers({
+        getStore: () => store as never,
+        storage,
+      });
+      const seedMainOwned = handlers.get('storage:seedMainOwnedForE2e');
+      const clearAll = handlers.get('storage:clearAllForE2e');
+
+      await seedMainOwned?.({} as IpcMainInvokeEvent, 'rootsList', '[{"path":"/test"}]');
+      expect(storage.setItem).toHaveBeenCalledWith('rootsList', '[{"path":"/test"}]');
+
+      await expect(
+        seedMainOwned?.({} as IpcMainInvokeEvent, 'assistant-preferences.v1', '{}')
+      ).rejects.toThrow('E2E main-owned storage seed requires a main-owned key');
+
+      await clearAll?.({} as IpcMainInvokeEvent);
+      expect(storage.clear).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('persists only valid panel layout payloads', async () => {

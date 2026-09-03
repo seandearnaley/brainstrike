@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resetDesktopApplicationDataMock = vi.hoisted(() => vi.fn());
 const completeSuccessfulResetMock = vi.hoisted(() => vi.fn(async () => undefined));
+const resetPersistentStorageAfterDataDeletionMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock('../desktop-factory-reset', () => ({
   resetDesktopApplicationData: resetDesktopApplicationDataMock,
@@ -15,6 +16,36 @@ describe('createDesktopFactoryResetHandler', () => {
       pendingDeletionPaths: [],
       preservedPaths: [],
     });
+  });
+
+  it('resets main-process storage after deleting application data and before replacing the renderer', async () => {
+    const invocationOrder: string[] = [];
+    resetDesktopApplicationDataMock.mockImplementationOnce(async () => {
+      invocationOrder.push('application-data');
+      return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
+    });
+    const resetPersistentStorageAfterDataDeletion = vi.fn(async () => {
+      invocationOrder.push('main-storage');
+    });
+    const completeSuccessfulReset = vi.fn(async () => {
+      invocationOrder.push('renderer-replacement');
+    });
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      completeSuccessfulReset,
+      logger: { error: vi.fn() },
+      resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion,
+      runtimes: [],
+      runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
+    });
+
+    await expect(handleReset()).resolves.toEqual({ success: true });
+    expect(invocationOrder).toEqual(['application-data', 'main-storage', 'renderer-replacement']);
   });
 
   it('stops every hidden/background runtime before draining and resetting the database profile', async () => {
@@ -34,6 +65,7 @@ describe('createDesktopFactoryResetHandler', () => {
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { error: vi.fn() },
       resetLocalDatabase,
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runtimes: [
         { name: 'embedding-host', stop: embeddingHostStop },
         { name: 'chunking-host', stop: chunkingHostStop },
@@ -106,6 +138,7 @@ describe('createDesktopFactoryResetHandler', () => {
       errorLogFilePaths,
       logger: { error: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
         await work();
@@ -133,6 +166,7 @@ describe('createDesktopFactoryResetHandler', () => {
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runtimes: [{ name: 'llm-host', stop: vi.fn(async () => undefined) }],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
@@ -165,6 +199,7 @@ describe('createDesktopFactoryResetHandler', () => {
       completeSuccessfulReset,
       logger: { error: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
@@ -196,6 +231,7 @@ describe('createDesktopFactoryResetHandler', () => {
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { error: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
@@ -227,6 +263,7 @@ describe('createDesktopFactoryResetHandler', () => {
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { error: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
@@ -257,6 +294,7 @@ describe('createDesktopFactoryResetHandler', () => {
         completeSuccessfulReset: completeSuccessfulResetMock,
         logger,
         resetLocalDatabase: vi.fn(async () => undefined),
+        resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
         resumeAfterReset,
         runtimes: [],
         runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
@@ -290,6 +328,7 @@ describe('createDesktopFactoryResetHandler', () => {
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
@@ -318,6 +357,7 @@ describe('createDesktopFactoryResetHandler', () => {
       }),
       logger: { error: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
@@ -355,6 +395,7 @@ describe('createDesktopFactoryResetHandler', () => {
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runtimes: [
         { name: 'embedding-host', stop: embeddingHostStop },
         { name: 'chunking-host', stop: chunkingHostStop },

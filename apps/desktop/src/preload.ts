@@ -101,10 +101,23 @@ const PROVIDER_AUTH_START_CHANNEL = 'provider-auth:start' as const;
 const PROVIDER_AUTH_STATUS_CHANNEL = 'provider-auth:status' as const;
 const SETTINGS_CLEAR_ALL_CHANNEL = 'settings:clearAll' as const;
 const STORAGE_CLEAR_CHANNEL = 'storage:clear' as const;
+const STORAGE_CLEAR_ALL_FOR_E2E_CHANNEL = 'storage:clearAllForE2e' as const;
 const STORAGE_GET_ALL_KEYS_CHANNEL = 'storage:getAllKeys' as const;
 const STORAGE_GET_ITEM_CHANNEL = 'storage:getItem' as const;
 const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
+const STORAGE_SEED_MAIN_OWNED_FOR_E2E_CHANNEL = 'storage:seedMainOwnedForE2e' as const;
 const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
+// Preload runs as a standalone CommonJS bundle, so it cannot require a sibling
+// TypeScript module in source-level preload tests. This set only selects the
+// E2E-only seed channel; MAIN validates the exact authoritative allowlist again.
+const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set([
+  'lastFolderPath',
+  'notesVaultRoots',
+  'recentRootsList',
+  'recentRootsList.corrupt',
+  'rootsList',
+  'rootsList.corrupt',
+]);
 const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
 const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
@@ -840,12 +853,21 @@ if (shouldExposeBridge('electronAPI')) {
     saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
       ipcRenderer.invoke(LAYOUT_SAVE_CHANNEL, state),
     storage: {
-      clear: () => ipcRenderer.invoke(STORAGE_CLEAR_CHANNEL),
+      clear: () =>
+        ipcRenderer.invoke(
+          DESKTOP_TEST_MODE ? STORAGE_CLEAR_ALL_FOR_E2E_CHANNEL : STORAGE_CLEAR_CHANNEL
+        ),
       getAllKeys: () => ipcRenderer.invoke(STORAGE_GET_ALL_KEYS_CHANNEL),
       getItem: (key: string) => ipcRenderer.invoke(STORAGE_GET_ITEM_CHANNEL, key),
       removeItem: (key: string) => ipcRenderer.invoke(STORAGE_REMOVE_ITEM_CHANNEL, key),
       setItem: (key: string, value: string) =>
-        ipcRenderer.invoke(STORAGE_SET_ITEM_CHANNEL, key, value),
+        ipcRenderer.invoke(
+          DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
+            ? STORAGE_SEED_MAIN_OWNED_FOR_E2E_CHANNEL
+            : STORAGE_SET_ITEM_CHANNEL,
+          key,
+          value
+        ),
     },
   });
 }

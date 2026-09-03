@@ -249,9 +249,11 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   storage: {
     clear: 'storage:clear',
+    clearAllForE2e: 'storage:clearAllForE2e',
     getAllKeys: 'storage:getAllKeys',
     getItem: 'storage:getItem',
     removeItem: 'storage:removeItem',
+    seedMainOwnedForE2e: 'storage:seedMainOwnedForE2e',
     setItem: 'storage:setItem',
   },
   terminal: {
