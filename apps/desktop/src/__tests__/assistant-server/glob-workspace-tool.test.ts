@@ -339,6 +339,24 @@ describe('runGlobWorkspace — ignore handling', () => {
     expect(paths(result)).toEqual(['/src/real.md']);
   });
 
+  it('lets the opened root re-include a directory excluded by a parent .gitignore (BST-1434)', async () => {
+    const repo = await makeWorkspace([
+      '.gitignore',
+      'workspace/.gitignore',
+      'workspace/cache/one.md',
+    ]);
+    await fsPromises.mkdir(path.join(repo, '.git'), { recursive: true });
+    await fsPromises.writeFile(path.join(repo, '.gitignore'), 'workspace/cache/\n', 'utf8');
+    await fsPromises.writeFile(path.join(repo, 'workspace', '.gitignore'), '!cache/\n', 'utf8');
+
+    const result = await runGlobWorkspace(
+      { pattern: '**/*.md' },
+      singleRoot(path.join(repo, 'workspace'))
+    );
+
+    expect(paths(result)).toEqual(['/cache/one.md']);
+  });
+
   it('honours .ignore — hide from search, keep in git (BST-1431)', async () => {
     const root = await makeWorkspace(['.ignore', 'fixtures/big.md', 'docs/real.md']);
     await fsPromises.writeFile(path.join(root, '.ignore'), 'fixtures/\n', 'utf8');

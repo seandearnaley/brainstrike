@@ -107,7 +107,7 @@ catalog:
   glob: ^13.0.6
   happy-dom: ^20.11.2
   idb: ^8.0.3
-  ignore: ^7.0.5
+  ignore: 7.0.5
   jsdom: 30.0.1
   jszip: ^3.10.1
   knip: ^6.32.2

@@ -87,6 +87,8 @@ interface CompiledScope {
   readonly hard: Ignore | undefined;
   /** See {@link ScopePushOptions.pathPrefix}. */
   readonly pathPrefix: string;
+  /** Path depth cached once so hot queries never re-split the scope prefix. */
+  readonly pathPrefixDepth: number;
 }
 
 export interface WorkspaceIgnoreMatcher {
@@ -193,6 +195,7 @@ function compileScope(
     directory,
     hard: compileGroup(sources, HARD_LAYERS),
     pathPrefix,
+    pathPrefixDepth: pathPrefix.split('/').filter(Boolean).length,
   };
 }
 
@@ -204,36 +207,187 @@ function relativeToScope(scopeDirectory: string, relativePath: string): string |
   return relativePath.startsWith(prefix) ? relativePath.slice(prefix.length) : undefined;
 }
 
+interface PathNode {
+  readonly candidate: string;
+  readonly stateKey: string;
+}
+
+type IgnoreTestResult = ReturnType<Ignore['test']>;
+
+// `ignore.test()` memoizes inherited verdicts, which are intentionally unusable
+// for cross-scope resolution. Mirror that cache at the direct-rule boundary so
+// sibling entries do not re-run the same ancestor regexes during a walk. The
+// matcher owns immutable, fully compiled rules, and the WeakMap releases each
+// candidate cache with its compiled scope.
+const directTestCache = new WeakMap<Ignore, Map<string, IgnoreTestResult>>();
+
 /**
- * Fold ONE scope's verdict over the verdict so far, returning the new verdict.
- *
- * A scope that does not contain the path, or declares nothing, leaves `ignored`
- * untouched — absence of a rule is not a verdict.
+ * `ignore.test()` deliberately returns an excluded parent's cached verdict for
+ * every descendant. Cross-scope resolution needs the rule manager's direct
+ * path verdict instead so that a deeper scope can re-include the parent while a
+ * leaf-specific rule in the outer scope still wins at the leaf. This structural
+ * dependency is pinned to ignore@7.0.5 in the workspace catalog; throw if that
+ * contract moves instead of silently reverting to inherited verdicts.
  */
-function applyScope(
+function directTest(matcher: Ignore, candidate: string): IgnoreTestResult {
+  let matcherCache = directTestCache.get(matcher);
+  const cached = matcherCache?.get(candidate);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const ruleManager = (
+    matcher as unknown as {
+      readonly _rules?: {
+        readonly test?: (
+          path: string,
+          checkUnignored: boolean,
+          mode: 'regex'
+        ) => ReturnType<Ignore['test']>;
+      };
+    }
+  )._rules;
+  if (typeof ruleManager?.test !== 'function') {
+    throw new Error(
+      'ignore@7.0.5 direct rule evaluation is unavailable; refusing to apply incomplete cross-scope ignore semantics.'
+    );
+  }
+  const result = ruleManager.test(candidate, true, 'regex');
+  if (matcherCache === undefined) {
+    matcherCache = new Map<string, IgnoreTestResult>();
+    directTestCache.set(matcher, matcherCache);
+  }
+  matcherCache.set(candidate, result);
+  return result;
+}
+
+function longestPathPrefix(scopes: readonly CompiledScope[]): string {
+  let longest = '';
+  let longestDepth = 0;
+  for (const scope of scopes) {
+    if (scope.pathPrefixDepth > longestDepth) {
+      longest = scope.pathPrefix;
+      longestDepth = scope.pathPrefixDepth;
+    }
+  }
+  return longest;
+}
+
+function scopeBasePath(rootPrefix: string, scope: CompiledScope): string {
+  if (scope.pathPrefix === '') {
+    return [rootPrefix, scope.directory].filter(Boolean).join('/');
+  }
+  if (rootPrefix === scope.pathPrefix) {
+    return '';
+  }
+  const suffix = `/${scope.pathPrefix}`;
+  if (!rootPrefix.endsWith(suffix)) {
+    throw new Error(
+      `Ignore scope prefix "${scope.pathPrefix}" is not a suffix of opened-root prefix "${rootPrefix}".`
+    );
+  }
+  return rootPrefix.slice(0, -suffix.length);
+}
+
+/** Address each containing component in the coordinate space of its ignore file. */
+function pathNodesForScope(
   scope: CompiledScope,
   relativePath: string,
   asDirectory: boolean,
-  ignoredSoFar: boolean,
-  hardOnly: boolean
-): boolean {
+  rootPrefix: string
+): readonly PathNode[] {
   const scoped = relativeToScope(scope.directory, relativePath);
-  if (scoped === undefined || scoped === '') {
-    return ignoredSoFar;
+  if (scoped === undefined) {
+    return [];
   }
-  const prefixed = scope.pathPrefix === '' ? scoped : `${scope.pathPrefix}/${scoped}`;
-  // `ignore` needs the trailing slash to apply directory-only patterns.
-  const candidate = asDirectory ? `${prefixed}/` : prefixed;
-  // Exactly ONE group per pass — see `isIgnored` for why the groups cannot be
-  // interleaved scope by scope.
-  const result = (hardOnly ? scope.hard : scope.bypassable)?.test(candidate);
-  if (result?.ignored) {
-    return true;
+  const candidatePath = [scope.pathPrefix, scoped].filter(Boolean).join('/');
+  if (candidatePath === '') {
+    return [];
   }
-  if (result?.unignored) {
+  const candidateSegments = candidatePath.split('/');
+  const basePath = scopeBasePath(rootPrefix, scope);
+  return candidateSegments.map((_, index) => {
+    const candidate = candidateSegments.slice(0, index + 1).join('/');
+    const final = index === candidateSegments.length - 1;
+    return {
+      candidate: !final || asDirectory ? `${candidate}/` : candidate,
+      stateKey: [basePath, candidate].filter(Boolean).join('/'),
+    };
+  });
+}
+
+function applyNodeResult(
+  result: ReturnType<Ignore['test']>,
+  stateKey: string,
+  states: Map<string, boolean>
+): void {
+  if (result.unignored) {
+    states.set(stateKey, false);
+    return;
+  }
+  if (result.ignored) {
+    states.set(stateKey, true);
+  }
+}
+
+/**
+ * Apply one precedence group across every scope and path component.
+ *
+ * Direct per-node verdicts preserve distinct containing-directory states. That
+ * lets a deeper scope re-include one directory without erasing an excluded
+ * ancestor, a leaf-specific exclusion, or a later match of one unanchored rule.
+ * No pattern syntax is inspected or rewritten; `ignore` remains the semantic
+ * authority (BST-1434).
+ */
+function applyGroup(
+  scopes: readonly CompiledScope[],
+  relativePath: string,
+  asDirectory: boolean,
+  states: Map<string, boolean>,
+  rootPrefix: string,
+  hardOnly: boolean
+): void {
+  for (const scope of scopes) {
+    const matcher = hardOnly ? scope.hard : scope.bypassable;
+    if (matcher === undefined) {
+      continue;
+    }
+    for (const node of pathNodesForScope(scope, relativePath, asDirectory, rootPrefix)) {
+      applyNodeResult(directTest(matcher, node.candidate), node.stateKey, states);
+    }
+  }
+}
+
+function applyResult(current: boolean, result: ReturnType<Ignore['test']>): boolean {
+  if (result.unignored) {
     return false;
   }
-  return ignoredSoFar;
+  return result.ignored || current;
+}
+
+function singleRootScopeVerdict(
+  scope: CompiledScope,
+  relativePath: string,
+  asDirectory: boolean,
+  hardOnly: boolean
+): boolean {
+  const segments = relativePath.split('/');
+  let candidatePath = '';
+  for (const [index, segment] of segments.entries()) {
+    candidatePath = candidatePath === '' ? segment : `${candidatePath}/${segment}`;
+    const final = index === segments.length - 1;
+    const candidate = !final || asDirectory ? `${candidatePath}/` : candidatePath;
+    let ignored = false;
+    if (!(hardOnly || scope.bypassable === undefined)) {
+      ignored = applyResult(ignored, directTest(scope.bypassable, candidate));
+    }
+    if (scope.hard !== undefined) {
+      ignored = applyResult(ignored, directTest(scope.hard, candidate));
+    }
+    if (ignored) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function createWorkspaceIgnoreMatcher(
@@ -243,7 +397,17 @@ export function createWorkspaceIgnoreMatcher(
   const scopes: CompiledScope[] = [];
 
   const isIgnored = (relativePath: string, asDirectory: boolean, hardOnly = false): boolean => {
-    let ignored = false;
+    const onlyScope = scopes.length === 1 ? scopes[0] : undefined;
+    if (
+      onlyScope !== undefined &&
+      onlyScope.directory === '' &&
+      onlyScope.pathPrefix === '' &&
+      relativePath !== ''
+    ) {
+      return singleRootScopeVerdict(onlyScope, relativePath, asDirectory, hardOnly);
+    }
+    const rootPrefix = longestPathPrefix(scopes);
+    const states = new Map<string, boolean>();
     // TWO passes, not one interleaved walk, and the split is the whole point.
     //
     // Within a group, outermost scope first: a deeper file is more specific
@@ -254,14 +418,10 @@ export function createWorkspaceIgnoreMatcher(
     // then a nested `.gitignore` carrying `!key.ts`, and the negation wins.
     // Anyone who can add a nested gitignore could then defeat the boundary.
     if (!hardOnly) {
-      for (const scope of scopes) {
-        ignored = applyScope(scope, relativePath, asDirectory, ignored, false);
-      }
+      applyGroup(scopes, relativePath, asDirectory, states, rootPrefix, false);
     }
-    for (const scope of scopes) {
-      ignored = applyScope(scope, relativePath, asDirectory, ignored, true);
-    }
-    return ignored;
+    applyGroup(scopes, relativePath, asDirectory, states, rootPrefix, true);
+    return [...states.values()].some(Boolean);
   };
 
   return {

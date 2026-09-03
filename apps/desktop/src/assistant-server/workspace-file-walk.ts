@@ -196,11 +196,12 @@ interface RootIgnoreChain {
  * `/repo/.gitignore` was tested against the `vendor/x.ts` the walk produces and
  * matched nothing, so git ignored the file and we listed it.
  *
- * KNOWN LIMIT: a `!` re-include in a DEEPER file cannot overturn a
- * directory-only pattern from a shallower one across this boundary, because the
- * two are separate matchers and the negation yields no verdict for the file
- * form. Same-base layers avoid this by compiling into one matcher; parents
- * cannot, since their patterns are anchored elsewhere. Tracked as BST-1434.
+ * Cross-boundary `!` re-includes are resolved by the shared matcher's
+ * path-addressable component evaluator (BST-1434). Parent sources still keep
+ * separate matchers because their patterns are anchored elsewhere; the matcher
+ * asks the parser about each directory component so a deeper directory
+ * negation can overturn the inherited directory verdict without rewriting any
+ * ignore syntax.
  */
 async function readRootIgnoreChain(
   canonicalRootPath: string,
@@ -831,7 +832,8 @@ export async function walkWorkspaceRoot(options: WalkRootOptions): Promise<WalkR
   // team ships one. `readRootIgnoreChain` itself gates the git-config
   // subprocesses, so a walk that opted out still pays only stats (BST-1435).
   const chain = await readRootIgnoreChain(canonicalRootPath, options.respectGitignore === true);
-  // Outermost first, so a deeper parent overrides a shallower one.
+  // Outermost first, so a deeper parent overrides a shallower one. The shared
+  // matcher resolves the resulting path component by component (BST-1434).
   for (const scope of chain.prefixed) {
     ctx.ignores?.push('', scope.sources, { pathPrefix: scope.pathPrefix });
   }

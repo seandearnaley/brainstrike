@@ -79,6 +79,18 @@ describe('createAgentIgnoreGuard', () => {
     expect(await guard.ignoresFile('vendor/a.ts')).toBe(false);
   });
 
+  it('matches the walk when an opened-root agent file re-includes a parent exclusion (BST-1434)', async () => {
+    const repo = await makeWorkspace({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.llmignore': 'workspace/secrets/\n',
+      'workspace/.brainstrikeignore': '!secrets/\n',
+      'workspace/secrets/a.ts': '',
+    });
+    const guard = createAgentIgnoreGuard(path.join(repo, 'workspace'));
+
+    expect(await guard.ignoresFile('secrets/a.ts')).toBe(false);
+  });
+
   it('reports nothing ignored when no agent ignore file exists', async () => {
     const root = await makeWorkspace({ 'src/a.ts': '' });
     const guard = createAgentIgnoreGuard(root);
