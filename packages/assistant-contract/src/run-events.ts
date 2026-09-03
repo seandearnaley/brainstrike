@@ -19,6 +19,32 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'memory.semantic.started',
   'memory.working.loaded',
   'memory.working.updated',
+  // One MCP server — or the whole client — contributed ZERO tools to this run
+  // (BST-1602): discovery lost its timeout race, or that server's `listTools`
+  // failed. The run still answers, with a materially reduced tool surface.
+  //
+  // Deliberately NOT `tool.failed`: no tool ran and none failed. The tool never
+  // entered the map at all, so `search_tools` reports "0 results" and the
+  // model's follow-up call fails fast — a `tool.failed` spelling would invent a
+  // failed call in the Task Ledger and double-count the one the model does
+  // make. Deliberately NOT `run.failed`: the turn is healthy and completes.
+  //
+  // Standalone breadcrumb, like the `worktree.*` kinds: no `.started`
+  // counterpart and no terminal, so it never leaves a row spinning. Status is
+  // `'failed'` rather than the `worktree.*` `'info'` — those record operations
+  // that SUCCEEDED, this records a configured capability that did not load.
+  //
+  // It is in `isAlwaysVisibleRunEvent`, and that is load-bearing rather than
+  // incidental: run-event rows are hidden at default detail, so without the
+  // allowlist entry this kind would reproduce the silent degradation it exists
+  // to report. It passes that allowlist's own test — nothing else cards this
+  // fact. An ordinary tool failure is excluded there because its ToolFallback
+  // card reports it; a skipped server has no card at all, and the "Tool
+  // execution failed." card the user does see belongs to the model's doomed
+  // follow-up call and names the wrong cause. Carrying no `toolCallId`, it needs
+  // no exemption from the card-suppression rule (unlike that allowlist's two
+  // `tool.*` entries).
+  'mcp.tools.unavailable',
   // Forge (pull request) observations (BST-1391, W4). These are the ONLY run
   // events not produced by the agent stream: the main-process ForgeService
   // observes them out of band and the renderer appends them to the thread's

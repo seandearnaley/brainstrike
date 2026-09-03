@@ -224,6 +224,14 @@ describe('isAlwaysVisibleRunEvent', () => {
     expect(isAlwaysVisibleRunEvent(event('tool.approval.requested', 'running'))).toBe(true);
   });
 
+  it('forces a skipped MCP server to stay visible (BST-1602)', () => {
+    // The cleanest case in this list: the tool never entered the run's map, so
+    // NOTHING cards it. The "Tool execution failed." card the user does see
+    // belongs to the model's follow-up call on the missing tool and names the
+    // wrong cause.
+    expect(isAlwaysVisibleRunEvent(event('mcp.tools.unavailable', 'failed'))).toBe(true);
+  });
+
   it('does not force background bookkeeping or already-carded tool failures', () => {
     // tool.failed already surfaces on its ToolFallback card — never double-report.
     expect(isAlwaysVisibleRunEvent(event('tool.failed', 'failed'))).toBe(false);

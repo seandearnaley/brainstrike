@@ -30,7 +30,7 @@ describe('MCP host runtime adapter core', () => {
     } satisfies McpHostPort;
 
     const client = await createMcpRuntimeClient({ config: { servers: [] }, host });
-    const tools = await collectCombinedTools({
+    const { tools } = await collectCombinedTools({
       mcpClient: client,
       mcpConfig: undefined,
       sanitizedLocalTools: undefined,
@@ -94,7 +94,7 @@ describe('MCP host runtime adapter core', () => {
     } satisfies McpHostPort;
 
     const client = await createMcpRuntimeClient({ config: undefined, host });
-    const tools = await collectCombinedTools({
+    const { tools } = await collectCombinedTools({
       mcpClient: client,
       mcpConfig: undefined,
       sanitizedLocalTools: undefined,

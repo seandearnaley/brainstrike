@@ -32,6 +32,7 @@ import {
   mcpHost,
   mcpInstances,
   resetMastraStreamHarness,
+  setMcpDiscoveryFailure,
   setMcpToolsets,
   setMockMessageList,
   setMockStreamParts,
@@ -2787,5 +2788,69 @@ describe('resolveRuntimeConfiguration', () => {
     // Should throw missing provider error since undefined runtimeData means no provider
     expect(thrown).toBeInstanceOf(MastraAgentError);
     expect((thrown as MastraAgentError | undefined)?.code).toBe('mastra_agent_missing_provider');
+  });
+});
+
+describe('MCP discovery skip rows (BST-1602)', () => {
+  beforeEach(() => {
+    resetMastraStreamHarness();
+  });
+
+  function configureFailingMcpServer(): void {
+    setMcpToolsets({
+      broken: { 'remote tool': { description: 'remote', id: 'remote tool' } },
+    });
+    setMcpDiscoveryFailure('broken', 'Connection closed');
+  }
+
+  async function streamOneTurn() {
+    return await streamMastraAgent(
+      [{ id: 'user-mcp-skip', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+      {
+        mcpHost,
+        runtime: { apiKey: 'key', provider: 'openai' },
+        storage: { id: 'storage-with-workflows' } as never,
+      }
+    );
+  }
+
+  it('leads the fresh turn with an always-visible mcp.tools.unavailable row', async () => {
+    configureFailingMcpServer();
+
+    const iterator = await streamOneTurn();
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const skipRows = chunks.filter(
+      (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'mcp.tools.unavailable'
+    );
+    expect(skipRows).toHaveLength(1);
+    expect(skipRows[0]).toMatchObject({
+      event: {
+        detail: 'broken skipped for this request — Connection closed',
+        status: 'failed',
+      },
+    });
+  });
+
+  it('still disposes the runtime when the consumer stops ON the skip row', async () => {
+    // The BST-1602 regression this guards (PR #2938 review): while the rows
+    // were yielded by a WRAPPER around `runTurnAttempts`, a consumer that took
+    // a skip row and stopped left the turn generator unstarted, so its
+    // `finally` — and `runtime.dispose()` — never ran, while `firstAttempt` was
+    // already a live stream. `.return()` on an unstarted generator does not run
+    // its body, so the rows have to live INSIDE that generator.
+    configureFailingMcpServer();
+
+    const iterator = await streamOneTurn();
+    for await (const chunk of iterator) {
+      expect((chunk as { event?: { kind?: string } }).event?.kind).toBe('mcp.tools.unavailable');
+      break;
+    }
+
+    expect(mastraInstances).toHaveLength(1);
+    expect(mastraInstances[0]?.shutdownCalls).toBe(1);
   });
 });

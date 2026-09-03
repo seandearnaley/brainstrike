@@ -46,6 +46,7 @@ import {
   createMcpAppToolAdmissionCapability,
   type McpAppToolAdmissionCapability,
 } from '../mcp-app-tool-call';
+import type { McpDiscoverySkip } from '../mcp-discovery-diagnostics';
 import { createMcpRuntimeClient, type McpRuntimeClient } from '../mcp-runtime-client';
 import { collectCombinedTools } from '../mcp-tool-loader';
 import {
@@ -432,6 +433,12 @@ export interface RuntimeToolMapResult {
   /** Apps admission surface captured only after ordinary runtime admission. */
   mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient: McpRuntimeClient | undefined;
+  /**
+   * Every MCP server that contributed ZERO tools to this run (BST-1602). Empty
+   * when discovery was healthy. Carried, never swallowed: the run answers with
+   * a materially reduced tool surface and the user is owed that fact.
+   */
+  mcpDiscoverySkips: readonly McpDiscoverySkip[];
   resilienceConfig: AssistantResilienceConfig;
   sanitizedLocalToolIds: ReadonlySet<string>;
   /** Real per-call execution time, written by the guard wrapper. */
@@ -478,7 +485,7 @@ export async function composeRuntimeToolMap(
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localToolsWithSkills, toolNameMap);
   const sanitizedLocalToolIds = new Set(Object.keys(sanitizedLocalTools ?? {}));
-  const combinedTools = await collectCombinedTools({
+  const { mcpDiscoverySkips, tools: combinedTools } = await collectCombinedTools({
     durableArtifactSettlement: Boolean(params.toolOutputArtifactStore),
     mcpClient,
     // The injected host snapshot is the sole server/configuration authority.
@@ -575,6 +582,7 @@ export async function composeRuntimeToolMap(
     guardedTools,
     mcpAppToolAdmission,
     mcpClient,
+    mcpDiscoverySkips,
     resilienceConfig,
     sanitizedLocalToolIds,
     toolExecutionDurations,
