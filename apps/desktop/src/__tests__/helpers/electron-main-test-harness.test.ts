@@ -180,6 +180,32 @@ describe('electron main test harness', () => {
       expect(pinned.webContents.id).toBe(99);
     });
 
+    // `events` and `send.mock.calls` are two views of the same traffic, so a
+    // reset that clears one alone leaves a window answering
+    // `toHaveBeenCalledTimes` and `payloadsFor` differently.
+    it('reset() clears both the events log and the mock call log', () => {
+      const window = createRecordingWindow();
+      window.webContents.send('mcp:tools:updated', {});
+
+      window.reset();
+
+      expect(window.events).toEqual([]);
+      expect(window.send).not.toHaveBeenCalled();
+      expect(window.payloadsFor('mcp:tools:updated')).toEqual([]);
+    });
+
+    it('reset() clears in place, so an alias taken earlier stays live', () => {
+      const window = createRecordingWindow();
+      const events = window.events;
+      window.webContents.send('a', 1);
+
+      window.reset();
+      window.webContents.send('b', 2);
+
+      expect(events).toEqual([{ channel: 'b', payload: 2 }]);
+      expect(window.send).toHaveBeenCalledExactlyOnceWith('b', 2);
+    });
+
     it('keeps each window’s recording independent', () => {
       const first = createRecordingWindow();
       const second = createRecordingWindow();

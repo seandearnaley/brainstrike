@@ -245,6 +245,15 @@ export interface RecordingWindow {
   isDestroyed(): boolean;
   /** Payloads delivered on `channel`, in call order. */
   payloadsFor(channel: string): unknown[];
+  /**
+   * Clears BOTH records of the traffic — the `events` log and the mock's own
+   * call log. They are two views of the same sends, so clearing one alone
+   * (`vi.clearAllMocks()` empties the call log but not `events`;
+   * `events.length = 0` does the reverse) leaves a window that answers
+   * `toHaveBeenCalledTimes` and `payloadsFor` differently. Clears in place, so
+   * an alias taken earlier (`const sentEvents = window.events`) stays valid.
+   */
+  reset(): void;
   /** Same mock as `webContents.send`, hoisted for terser assertions. */
   readonly send: RendererSendMock;
   readonly webContents: {
@@ -297,6 +306,10 @@ export function createRecordingWindow(
     isDestroyed: () => destroyed,
     payloadsFor: (channel: string) =>
       events.filter((event) => event.channel === channel).map((event) => event.payload),
+    reset: () => {
+      events.length = 0;
+      send.mockClear();
+    },
     send,
     webContents: {
       id: webContentsId,
