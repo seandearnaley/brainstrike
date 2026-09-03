@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { globSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -29,54 +29,104 @@ const SIDEBAR_TOKENS = [
   'sidebar-ring',
 ];
 
-/** Files that mount sidebar-tokened utilities in the running app. */
-const CALL_SITES = [
-  'packages/ui/src/navigation-sidebar.tsx',
-  'packages/app-shell/src/account-menu.tsx',
-];
+/** Every component that could mount a sidebar-tokened utility. */
+const CALL_SITE_GLOBS = ['packages/*/src/**/*.tsx', 'apps/*/src/**/*.tsx'];
 
-/** Utility prefixes that resolve against the `--color-*` namespace, longest first. */
+/**
+ * Utility prefixes that resolve against the `--color-*` namespace. Ordered
+ * longest-first so side-scoped forms (`border-b-`) win over their base
+ * (`border-`) — `border-b-sidebar-border` is a real utility that sets
+ * border-bottom-color, and matching it as `border-` would leave the nonsense
+ * token `b-sidebar-border`.
+ */
 const COLOR_UTILITY_PREFIXES = [
+  'border-x-',
+  'border-y-',
+  'border-t-',
+  'border-r-',
+  'border-b-',
+  'border-l-',
+  'border-s-',
+  'border-e-',
+  'divide-x-',
+  'divide-y-',
   'ring-offset-',
   'ring-',
   'bg-',
   'text-',
   'border-',
+  'divide-',
   'from-',
   'via-',
   'to-',
   'fill-',
   'stroke-',
-  'divide-',
   'outline-',
   'shadow-',
   'accent-',
   'caret-',
   'decoration-',
+  'placeholder-',
 ];
+
+/** Anything word-ish containing a lowercase `sidebar`, with variants and opacity. */
+const SIDEBAR_CANDIDATE = /[\w-]+(?::[\w-]+)*[\w-]*sidebar[\w-]*(?:\/\d+)?/g;
+
+/** Returned when a match is not a `--color-*` utility at all. */
+const NOT_A_COLOR_UTILITY = Symbol('not-a-color-utility');
 
 /**
  * Reduces a utility class as written in JSX (`hover:border-sidebar-ring/40`) to
- * the theme token it reads (`sidebar-ring`). Returns undefined when the class is
- * not a sidebar color utility.
+ * the theme token it reads (`sidebar-ring`), after dropping variants and any
+ * opacity suffix. Returns NOT_A_COLOR_UTILITY for matches that never reach a
+ * colour prefix — import paths (`../navigation-sidebar`), identifiers
+ * (`sidebarOpen`), data attributes (`data-sidebar-state`).
+ *
+ * The token is returned verbatim, including nonsense: deciding whether it is a
+ * real sidebar token is the caller's job, so an unrecognised shape cannot be
+ * mistaken for "not a sidebar utility" and silently dropped.
  */
 function tokenForUtility(utilityClass) {
-  // Drop variants (`hover:`, `focus-visible:`, `before:`) and any opacity suffix.
-  const base = utilityClass.split(':').at(-1)?.split('/')[0];
-  if (!base) {
-    return '';
-  }
+  const base = utilityClass.split(':').at(-1).split('/')[0];
   const prefix = COLOR_UTILITY_PREFIXES.find((candidate) => base.startsWith(candidate));
-  if (!prefix) {
-    return '';
-  }
-  const token = base.slice(prefix.length);
-  return token === 'sidebar' || token.startsWith('sidebar-') ? token : '';
+  return prefix ? base.slice(prefix.length) : NOT_A_COLOR_UTILITY;
 }
 
-function sidebarUtilitiesIn(source) {
-  const matches = source.match(/[\w-]+(?::[\w-]+)*(?::)?[\w-]*sidebar[\w-]*(?:\/\d+)?/g) ?? [];
-  return [...new Set(matches.filter((candidate) => tokenForUtility(candidate)))];
+/**
+ * Collects the sidebar colour utilities in one file.
+ *
+ * NO SILENT FALLBACKS: a match that reaches a colour prefix but does not yield a
+ * `sidebar`/`sidebar-*` token means this parser does not understand a class that
+ * really is a sidebar utility. Dropping it would let an unmapped token render no
+ * CSS while this suite stayed green — precisely the failure the suite exists to
+ * catch — so it throws instead.
+ */
+function sidebarUtilitiesIn(source, path) {
+  const found = [];
+  for (const candidate of new Set(source.match(SIDEBAR_CANDIDATE) ?? [])) {
+    const token = tokenForUtility(candidate);
+    if (token === NOT_A_COLOR_UTILITY) {
+      continue;
+    }
+    if (token !== 'sidebar' && !token.startsWith('sidebar-')) {
+      throw new Error(
+        `${path}: cannot resolve "${candidate}" to a theme token (parsed "${token}"). ` +
+          'It reaches a --color-* utility prefix and contains "sidebar", so it is a sidebar ' +
+          'colour utility whose prefix is missing from COLOR_UTILITY_PREFIXES. Add it there — ' +
+          'skipping it would let an unmapped token emit no CSS while this suite stayed green.'
+      );
+    }
+    found.push({ candidate, path, token });
+  }
+  return found;
+}
+
+function collectSidebarUtilities() {
+  return CALL_SITE_GLOBS.flatMap((pattern) =>
+    globSync(pattern, { cwd: REPOSITORY_ROOT }).flatMap((path) =>
+      sidebarUtilitiesIn(read(path), path)
+    )
+  );
 }
 
 describe('sidebar theme contract', () => {
@@ -102,22 +152,45 @@ describe('sidebar theme contract', () => {
     }
   });
 
-  it('backs every sidebar utility used in the app with a registered token', () => {
-    const used = CALL_SITES.flatMap((path) => sidebarUtilitiesIn(read(path)));
-    assert.ok(used.length > 0, 'expected sidebar utilities at the known call sites');
+  it('backs every sidebar utility used in any component with a registered token', () => {
+    const used = collectSidebarUtilities();
+    assert.ok(
+      used.length > 0,
+      `expected to find sidebar utilities under ${CALL_SITE_GLOBS.join(', ')}; an empty scan means the globs stopped matching, not that the app is clean`
+    );
 
-    for (const utilityClass of new Set(used)) {
-      const token = tokenForUtility(utilityClass);
+    for (const { candidate, path, token } of used) {
       assert.ok(
         SIDEBAR_TOKENS.includes(token),
-        `"${utilityClass}" reads --color-${token}, which is not a declared sidebar token`
+        `${path}: "${candidate}" reads --color-${token}, which is not a declared sidebar token`
       );
-      for (const [path, theme] of APP_THEMES) {
+      // Redundant by construction — the assertion above plus the registration
+      // test already cover this, and with a stricter regex. Kept only because it
+      // names the offending class and file, which those two cannot.
+      for (const [themePath, theme] of APP_THEMES) {
         assert.ok(
           theme.includes(`--color-${token}:`),
-          `"${utilityClass}" is mounted in the app but ${path} defines no --color-${token}`
+          `${path}: "${candidate}" is mounted in the app but ${themePath} defines no --color-${token}`
         );
       }
     }
+  });
+
+  it('resolves side-scoped colour utilities instead of mangling them', () => {
+    assert.equal(tokenForUtility('border-b-sidebar-border'), 'sidebar-border');
+    assert.equal(tokenForUtility('hover:border-t-sidebar-ring/40'), 'sidebar-ring');
+    assert.equal(tokenForUtility('focus-visible:ring-offset-sidebar'), 'sidebar');
+    assert.equal(tokenForUtility('../navigation-sidebar'), NOT_A_COLOR_UTILITY);
+  });
+
+  it('throws instead of skipping a sidebar utility it cannot parse', () => {
+    assert.throws(
+      () => sidebarUtilitiesIn('<div className="bg-gradient-sidebar-primary" />', 'fake.tsx'),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes('bg-gradient-sidebar-primary') &&
+        error.message.includes('fake.tsx'),
+      'an unparseable sidebar colour utility must fail loudly, naming the class and its file'
+    );
   });
 });
