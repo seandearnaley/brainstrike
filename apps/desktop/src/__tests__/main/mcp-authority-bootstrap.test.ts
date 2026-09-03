@@ -15,6 +15,11 @@ import {
   resumeMcpRuntimeAfterFactoryReset,
 } from '../../ipc-mcp';
 import type { LoadedMcpConfig, ResolvedMcpConfig } from '../../mcp-loader';
+import {
+  createRecordingWindow,
+  type RecordedRendererEvent,
+  type RecordingWindow,
+} from '../helpers/electron-main-test-harness';
 import { readMainSourceSections } from './main-source-test-helpers';
 import {
   createMcpElicitationPresenterStub,
@@ -103,7 +108,8 @@ const listResult = (
 
 describe('MCP desktop authority bootstrap', () => {
   let handlers: Map<string, RegisteredHandler>;
-  let sentEvents: Array<{ channel: string; payload: unknown }>;
+  let rendererWindow: RecordingWindow;
+  let sentEvents: RecordedRendererEvent[];
   let watchCallback: WatchCallback | undefined;
   let watcherCloses: ReturnType<typeof vi.fn>[];
 
@@ -138,19 +144,15 @@ describe('MCP desktop authority bootstrap', () => {
     vi.clearAllMocks();
     mcpToolRegistry.clear();
     handlers = new Map();
-    sentEvents = [];
     watchCallback = undefined;
     watcherCloses = [];
-    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-      {
-        isDestroyed: () => false,
-        webContents: {
-          send: (channel: string, payload: unknown) => {
-            sentEvents.push({ channel, payload });
-          },
-        },
-      },
-    ] as never);
+    // The listing has to hold a window for every `sentEvents` assertion below
+    // to mean anything — main broadcasts by iterating `getAllWindows()`, so
+    // against the empty default the `not.toContainEqual` checks in particular
+    // would hold whether or not anything was published (BST-1622).
+    rendererWindow = createRecordingWindow();
+    sentEvents = rendererWindow.events;
+    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow] as never);
     vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
       handlers.set(channel, handler as RegisteredHandler);
     });
@@ -267,7 +269,7 @@ describe('MCP desktop authority bootstrap', () => {
     const replaceCalls = mocks.replaceResolvedConfig.mock.calls.length;
     const clearCalls = vi.mocked(mcpToolRegistry.clear).mock.calls.length;
     const registerCalls = vi.mocked(mcpToolRegistry.register).mock.calls.length;
-    sentEvents = [];
+    rendererWindow.reset();
     if (!watchCallback) {
       throw new Error('Expected config watcher callback');
     }
@@ -288,7 +290,7 @@ describe('MCP desktop authority bootstrap', () => {
     const replacement = Promise.withResolvers<McpHostSnapshot>();
     mocks.replaceResolvedConfig.mockReturnValueOnce(replacement.promise);
     const clearCalls = vi.mocked(mcpToolRegistry.clear).mock.calls.length;
-    sentEvents = [];
+    rendererWindow.reset();
     if (!watchCallback) {
       throw new Error('Expected config watcher callback');
     }
@@ -417,7 +419,7 @@ describe('MCP desktop authority bootstrap', () => {
     await resetMcpRuntimeForFactoryReset(runtime);
     const restore = Promise.withResolvers<McpHostSnapshot>();
     mocks.replaceResolvedConfig.mockReturnValueOnce(restore.promise);
-    sentEvents = [];
+    rendererWindow.reset();
 
     const resume = resumeMcpRuntimeAfterFactoryReset(runtime, 'failed');
     await vi.waitFor(() =>
