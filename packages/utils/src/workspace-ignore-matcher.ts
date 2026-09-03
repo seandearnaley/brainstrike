@@ -87,6 +87,8 @@ interface CompiledScope {
   readonly hard: Ignore | undefined;
   /** See {@link ScopePushOptions.pathPrefix}. */
   readonly pathPrefix: string;
+  /** Path depth cached once so hot queries never re-split the scope prefix. */
+  readonly pathPrefixDepth: number;
 }
 
 export interface WorkspaceIgnoreMatcher {
@@ -193,6 +195,7 @@ function compileScope(
     directory,
     hard: compileGroup(sources, HARD_LAYERS),
     pathPrefix,
+    pathPrefixDepth: pathPrefix.split('/').filter(Boolean).length,
   };
 }
 
@@ -205,7 +208,6 @@ function relativeToScope(scopeDirectory: string, relativePath: string): string |
 }
 
 interface PathNode {
-  readonly asDirectory: boolean;
   readonly candidate: string;
   readonly stateKey: string;
 }
@@ -228,7 +230,8 @@ const directTestCache = new WeakMap<Ignore, Map<string, IgnoreTestResult>>();
  * contract moves instead of silently reverting to inherited verdicts.
  */
 function directTest(matcher: Ignore, candidate: string): IgnoreTestResult {
-  const cached = directTestCache.get(matcher)?.get(candidate);
+  let matcherCache = directTestCache.get(matcher);
+  const cached = matcherCache?.get(candidate);
   if (cached !== undefined) {
     return cached;
   }
@@ -249,20 +252,24 @@ function directTest(matcher: Ignore, candidate: string): IgnoreTestResult {
     );
   }
   const result = ruleManager.test(candidate, true, 'regex');
-  const matcherCache = directTestCache.get(matcher) ?? new Map<string, IgnoreTestResult>();
+  if (matcherCache === undefined) {
+    matcherCache = new Map<string, IgnoreTestResult>();
+    directTestCache.set(matcher, matcherCache);
+  }
   matcherCache.set(candidate, result);
-  directTestCache.set(matcher, matcherCache);
   return result;
 }
 
 function longestPathPrefix(scopes: readonly CompiledScope[]): string {
-  return scopes.reduce(
-    (longest, scope) =>
-      scope.pathPrefix.split('/').filter(Boolean).length > longest.split('/').filter(Boolean).length
-        ? scope.pathPrefix
-        : longest,
-    ''
-  );
+  let longest = '';
+  let longestDepth = 0;
+  for (const scope of scopes) {
+    if (scope.pathPrefixDepth > longestDepth) {
+      longest = scope.pathPrefix;
+      longestDepth = scope.pathPrefixDepth;
+    }
+  }
+  return longest;
 }
 
 function scopeBasePath(rootPrefix: string, scope: CompiledScope): string {
@@ -302,7 +309,6 @@ function pathNodesForScope(
     const candidate = candidateSegments.slice(0, index + 1).join('/');
     const final = index === candidateSegments.length - 1;
     return {
-      asDirectory: !final || asDirectory,
       candidate: !final || asDirectory ? `${candidate}/` : candidate,
       stateKey: [basePath, candidate].filter(Boolean).join('/'),
     };
