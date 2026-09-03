@@ -56,6 +56,7 @@ import {
   type McpOAuthStore,
   readMcpOAuthAuthProjection,
 } from './oauth-client-provider';
+import { openExternalWithElectron } from './open-external';
 import {
   McpServerActor,
   type McpServerActorClient,
@@ -131,38 +132,6 @@ function createDefaultOAuthStore(): McpOAuthStore {
   });
 }
 
-interface ElectronShell {
-  openExternal(url: string): Promise<void>;
-}
-
-function isElectronShell(value: unknown): value is ElectronShell {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof Reflect.get(value, 'openExternal') === 'function'
-  );
-}
-
-export async function openExternalWithElectron(
-  url: string,
-  loadElectron: () => Promise<unknown> = async () => await import('electron')
-): Promise<void> {
-  const electron = await loadElectron();
-  if (typeof electron !== 'object' || electron === null) {
-    throw new Error('Electron shell module is unavailable.');
-  }
-  const direct = Reflect.get(electron, 'shell');
-  const defaultExport = Reflect.get(electron, 'default');
-  const nested =
-    typeof defaultExport === 'object' && defaultExport !== null
-      ? Reflect.get(defaultExport, 'shell')
-      : undefined;
-  const shell = isElectronShell(direct) ? direct : nested;
-  if (!isElectronShell(shell)) {
-    throw new Error('Electron shell module is unavailable.');
-  }
-  await shell.openExternal(url);
-}
 interface PrivateConfigEntry {
   auth: McpHostAuthSnapshot;
   configRef: string;

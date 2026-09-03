@@ -89,8 +89,12 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
   const tokenRequests: URLSearchParams[] = [];
   const codes = new Map<string, { challenge: string; clientId: string; redirectUri: string }>();
   const tokens = new Map<string, { scope: string }>();
+  // Refresh tokens are bound to the client they were issued to, like a real
+  // authorization server: a re-registered client cannot redeem them.
+  const refreshTokens = new Map<string, { clientId: string }>();
   let nextCode = 0;
   let nextToken = 0;
+  let nextRefreshToken = 0;
   let refreshCountValue = 0;
   let tokenCountValue = 0;
   let forceRefresh = false;
@@ -142,7 +146,7 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
       dcrRequests.push(body);
       json(response, 201, {
         application_type: 'native',
-        client_id: options.registeredClientId ?? 'dcr-client',
+        client_id: options.registeredClientId ?? `dcr-client-${dcrRequests.length}`,
         grant_types: ['authorization_code', 'refresh_token'],
         redirect_uris: body['redirect_uris'],
         response_types: ['code'],
@@ -207,23 +211,34 @@ async function startFakeOAuthServer(options: FakeOAuthServerOptions): Promise<Fa
         }
         const token = `${options.tokenPrefix ?? 'access'}-${++nextToken}`;
         tokens.set(token, { scope: params.get('scope') ?? 'read offline_access' });
+        const issuedRefreshToken = `refresh-token-${++nextRefreshToken}`;
+        refreshTokens.set(issuedRefreshToken, { clientId: record.clientId });
         json(response, 200, {
           access_token: token,
           expires_in: 3600,
-          refresh_token: 'refresh-token',
+          refresh_token: issuedRefreshToken,
           scope: params.get('scope') ?? 'read offline_access',
           token_type: 'Bearer',
         });
         return;
       }
       if (grantType === 'refresh_token') {
+        const presented = params.get('refresh_token');
+        const grant = presented ? refreshTokens.get(presented) : undefined;
+        if (!grant || params.get('client_id') !== grant.clientId) {
+          json(response, 400, { error: 'invalid_grant' });
+          return;
+        }
         refreshCountValue += 1;
         const token = `${options.tokenPrefix ?? 'refreshed'}-${++nextToken}`;
         tokens.set(token, { scope: params.get('scope') ?? 'read offline_access' });
+        const rotated = `rotated-refresh-token-${++nextRefreshToken}`;
+        refreshTokens.set(rotated, { clientId: grant.clientId });
+        refreshTokens.delete(presented ?? '');
         json(response, 200, {
           access_token: token,
           expires_in: 3600,
-          refresh_token: 'rotated-refresh-token',
+          refresh_token: rotated,
           scope: params.get('scope') ?? 'read offline_access',
           token_type: 'Bearer',
         });
@@ -389,6 +404,80 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       failures: [],
       loopbackPortsClosed: 1,
     });
+  });
+
+  it('reconnects a relaunched production host without re-registering or re-authorizing', async () => {
+    const server = await startFakeOAuthServer({ clientRegistration: 'dcr' });
+    const configured = resolvedOAuthServer(server.url);
+    const store = createInMemoryMcpOAuthStore();
+    const launch = (openExternal: (authorizationUrl: string) => Promise<void>) =>
+      trackRuntime(createDesktopMcpHostRuntime({ oauthStore: store, openExternal }));
+    const first = launch(followAuthorizationRedirect);
+    await first.replaceResolvedConfig({ servers: [configured] });
+    await expect(
+      first.host.control({ action: 'connect', configuredServerId: configured.name })
+    ).resolves.toMatchObject({ state: 'connected' });
+    await first.host.close();
+    expect(server.dcrRequests).toHaveLength(1);
+
+    // Relaunch over the same encrypted records with a stale access token: the
+    // host must recover through a refresh, not a second authorization.
+    server.forceRefresh();
+    const relaunched = launch(async () => {
+      throw new Error('browser must not open after a relaunch');
+    });
+    await relaunched.replaceResolvedConfig({ servers: [configured] });
+
+    await expect(
+      relaunched.host.control({ action: 'connect', configuredServerId: configured.name })
+    ).resolves.toMatchObject({ state: 'connected' });
+    expect(server.dcrRequests).toHaveLength(1);
+    expect(server.authorizationRequests).toHaveLength(1);
+    expect(server.refreshCount()).toBe(1);
+    await relaunched.host.close();
+  });
+
+  it('reports authentication-required when a relaunch cannot rebind its loopback port', async () => {
+    const server = await startFakeOAuthServer({ clientRegistration: 'dcr' });
+    const configured = resolvedOAuthServer(server.url);
+    const store = createInMemoryMcpOAuthStore();
+    const first = trackRuntime(
+      createDesktopMcpHostRuntime({ oauthStore: store, openExternal: followAuthorizationRedirect })
+    );
+    await first.replaceResolvedConfig({ servers: [configured] });
+    await first.host.control({ action: 'connect', configuredServerId: configured.name });
+    await first.host.close();
+    const registeredRedirectUri = String(
+      (server.dcrRequests[0]?.['redirect_uris'] as readonly string[] | undefined)?.[0]
+    );
+
+    const squatter = createServer();
+    await new Promise<void>((resolve, reject) => {
+      squatter.once('error', reject);
+      squatter.listen(Number(new URL(registeredRedirectUri).port), '127.0.0.1', () => resolve());
+    });
+    cleanupTasks.push(
+      async () => await new Promise<void>((resolve) => squatter.close(() => resolve()))
+    );
+    server.forceRefresh();
+    const relaunched = trackRuntime(
+      createDesktopMcpHostRuntime({
+        oauthStore: store,
+        openExternal: async () => {
+          throw new Error('a relaunch must not open the browser on its own');
+        },
+      })
+    );
+    await relaunched.replaceResolvedConfig({ servers: [configured] });
+
+    await expect(
+      relaunched.host.control({ action: 'connect', configuredServerId: configured.name })
+    ).rejects.toMatchObject({ category: 'authentication', code: 'mcp-authentication-required' });
+    expect(relaunched.host.snapshot().servers[0]).toMatchObject({
+      auth: { credentialState: 'stored', type: 'oauth-user' },
+      state: 'authentication-required',
+    });
+    await relaunched.host.close();
   });
 
   it('completes one request-time scope step-up through the production host', async () => {
@@ -999,7 +1088,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     await provider.close();
   });
 
-  it('reuses persisted tokens after provider recreation without opening the browser', async () => {
+  it('reuses its registration and tokens after a relaunch without opening the browser', async () => {
     const server = await startFakeOAuthServer({ clientRegistration: 'dcr' });
     const store = createInMemoryMcpOAuthStore();
     const createProvider = (openExternal: (authorizationUrl: string) => Promise<void>) =>
@@ -1019,18 +1108,29 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     });
     const initial = await createClient(first, server.url);
     await completeAuthorization(first, initial.client, initial.transport);
+    const firstRedirectUrl = first.redirectUrl;
     await first.close();
     const authorizationCount = server.authorizationRequests.length;
     const second = await createProvider(async () => {
       throw new Error('browser must not open for a persisted MCP OAuth session');
     });
+    // The relaunched provider rebinds the persisted loopback port, so the
+    // registered redirect URI still resolves and the registration survives.
+    expect(second.redirectUrl).toBe(firstRedirectUrl);
     expect(await second.discoveryState?.()).toBeDefined();
     await expect(second.saveResourceUrl?.(server.url.href)).resolves.toBeUndefined();
     await expect(
       second.clientInformation({ issuer: new URL('/', server.url).href })
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ client_id: 'dcr-client-1' });
+    expect(second.requiresReauthorization()).toBe(false);
     const resumed = await createClient(second, server.url);
     await expect(resumed.client.connect(resumed.transport)).resolves.toBeUndefined();
+    // An expired access token must recover through a refresh under the SAME
+    // client, never through a re-registration and a second browser round trip.
+    server.forceRefresh();
+    await expect(resumed.client.listTools()).resolves.toEqual({ tools: [] });
+    expect(server.dcrRequests).toHaveLength(1);
+    expect(server.refreshCount()).toBe(1);
     expect(server.authorizationRequests).toHaveLength(authorizationCount);
     await resumed.client.close();
     await second.close();

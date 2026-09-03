@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { McpHostOAuthAuthSnapshot } from '@brainstrike/assistant-contract';
 import {
   checkResourceAllowed,
@@ -15,19 +14,29 @@ import {
 } from '@modelcontextprotocol/client';
 import {
   persistedClientSupportsRedirect,
+  reportLoopbackListenerBound,
   reportStaleDynamicClientRegistration,
 } from './oauth-client-registration';
+import {
+  DEFAULT_CALLBACK_PATH,
+  type LoopbackCallback,
+  startLoopbackCallback,
+} from './oauth-loopback-callback';
 
-const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
-const MAX_CALLBACK_URL_BYTES = 16 * 1024;
-const AUTHORIZATION_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
-const LOOPBACK_HOST = '127.0.0.1';
 const MAX_DATE_EPOCH_MS = 8_640_000_000_000_000;
+const MIN_LOOPBACK_PORT = 1;
+const MAX_LOOPBACK_PORT = 65_535;
 export interface McpOAuthPersistedState {
   clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   discoveryState?: OAuthDiscoveryState;
   lastSuccessfulConnectionAt?: number;
+  /**
+   * TCP port the loopback callback listener was bound to when this record was
+   * written. Rebinding it on the next launch keeps the dynamic-registration
+   * redirect URI byte-identical, so the registration survives a restart.
+   */
+  loopbackPort?: number;
   resourceUrl?: string;
   tokens?: StoredOAuthTokens;
   updatedAt: number;
@@ -119,6 +128,12 @@ function normalizeOAuthScopes(scopes: readonly string[] | undefined): readonly s
   return Object.freeze([...scopes]);
 }
 
+function byOAuthRecordRecency(left: McpOAuthPersistedState, right: McpOAuthPersistedState): number {
+  const successfulConnectionDelta =
+    (right.lastSuccessfulConnectionAt ?? -1) - (left.lastSuccessfulConnectionAt ?? -1);
+  return successfulConnectionDelta || right.updatedAt - left.updatedAt;
+}
+
 function latestOAuthRecord(
   records: Readonly<Record<string, McpOAuthPersistedState>>,
   preferredIssuer?: string
@@ -129,12 +144,24 @@ function latestOAuthRecord(
       return [preferredIssuer, preferred];
     }
   }
-  const sorted = Object.entries(records).sort((left, right) => {
-    const successfulConnectionDelta =
-      (right[1].lastSuccessfulConnectionAt ?? -1) - (left[1].lastSuccessfulConnectionAt ?? -1);
-    return successfulConnectionDelta || right[1].updatedAt - left[1].updatedAt;
-  });
+  const sorted = Object.entries(records).sort((left, right) =>
+    byOAuthRecordRecency(left[1], right[1])
+  );
   return sorted.find(([, record]) => record.tokens !== undefined) ?? sorted[0];
+}
+
+/**
+ * Every record for one store identity is written by the same provider, so they
+ * share a loopback port; the most recent one wins if a legacy record predates
+ * port persistence.
+ */
+function persistedLoopbackPort(
+  records: Readonly<Record<string, McpOAuthPersistedState>>
+): number | undefined {
+  return Object.values(records)
+    .sort(byOAuthRecordRecency)
+    .map((record) => record.loopbackPort)
+    .find((port) => port !== undefined);
 }
 
 function parseGrantedScopes(scope: string | undefined): readonly string[] | undefined {
@@ -233,6 +260,21 @@ function validatePersistedRecord(value: unknown): void {
       !Number.isSafeInteger(lastSuccessfulConnectionAt) ||
       lastSuccessfulConnectionAt < 0 ||
       lastSuccessfulConnectionAt > MAX_DATE_EPOCH_MS)
+  ) {
+    throw new Error('MCP OAuth persisted state is malformed.');
+  }
+  validatePersistedLoopbackPort(value['loopbackPort']);
+}
+
+function validatePersistedLoopbackPort(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    value < MIN_LOOPBACK_PORT ||
+    value > MAX_LOOPBACK_PORT
   ) {
     throw new Error('MCP OAuth persisted state is malformed.');
   }
@@ -393,137 +435,10 @@ export function createInMemoryMcpOAuthStore(): McpOAuthStore {
   };
 }
 
-interface LoopbackCallback {
-  arm(expectedState: string): Promise<void>;
-  cancel(): void;
-  readonly close: () => Promise<void>;
-  readonly redirectUrl: string;
-  wait(): Promise<URLSearchParams>;
-}
-
-interface PendingCallback {
-  readonly reject: (error: Error) => void;
-  readonly resolve: (params: URLSearchParams) => void;
-}
-
-function applyCallbackHeaders(response: ServerResponse): void {
-  response.setHeader('cache-control', 'no-store');
-  response.setHeader('content-security-policy', "default-src 'none'");
-  response.setHeader('referrer-policy', 'no-referrer');
-  response.setHeader('x-content-type-options', 'nosniff');
-}
-
-async function startLoopbackCallback(pathname: string): Promise<LoopbackCallback> {
-  let port = 0;
-  let expectedState: string | undefined;
-  let pending: PendingCallback | undefined;
-  let pendingTimeout: ReturnType<typeof setTimeout> | undefined;
-  let settled = false;
-  let closed = false;
-  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-    applyCallbackHeaders(response);
-    const host = request.headers.host;
-    if (host !== `${LOOPBACK_HOST}:${port}` && host !== `localhost:${port}`) {
-      response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Invalid Host');
-      return;
-    }
-    const url = new URL(request.url ?? '/', `http://${LOOPBACK_HOST}`);
-    if (request.method !== 'GET' || url.pathname !== pathname) {
-      response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('Not found');
-      return;
-    }
-    if (Buffer.byteLength(url.href, 'utf8') > MAX_CALLBACK_URL_BYTES) {
-      response
-        .writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
-        .end('Invalid callback');
-      return;
-    }
-    if (expectedState === undefined || url.searchParams.get('state') !== expectedState) {
-      response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Invalid state');
-      return;
-    }
-    response.writeHead(url.searchParams.has('code') ? 200 : 400, {
-      'content-type': 'text/plain; charset=utf-8',
-    });
-    response.end(url.searchParams.has('code') ? 'Authorization received' : 'Authorization failed');
-    if (settled) {
-      return;
-    }
-    settled = true;
-    const current = pending;
-    pending = undefined;
-    if (pendingTimeout) {
-      clearTimeout(pendingTimeout);
-      pendingTimeout = undefined;
-    }
-    current?.resolve(new URLSearchParams(url.searchParams));
-  });
-
-  const teardown = async (): Promise<void> => {
-    if (closed) {
-      return;
-    }
-    closed = true;
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
-      server.closeAllConnections();
-    });
-  };
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, LOOPBACK_HOST, () => resolve());
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') {
-    await teardown();
-    throw new Error('MCP OAuth loopback server did not expose a bound port.');
-  }
-  port = address.port;
-
-  return {
-    arm: async (state) => {
-      if (expectedState !== undefined && !settled) {
-        throw new Error('MCP OAuth loopback callback is already armed.');
-      }
-      expectedState = state;
-      settled = false;
-    },
-    cancel: () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      const current = pending;
-      pending = undefined;
-      if (pendingTimeout) {
-        clearTimeout(pendingTimeout);
-        pendingTimeout = undefined;
-      }
-      current?.reject(new Error('MCP OAuth authorization was cancelled.'));
-    },
-    close: teardown,
-    redirectUrl: `http://${LOOPBACK_HOST}:${port}${pathname}`,
-    wait: () =>
-      new Promise<URLSearchParams>((resolve, reject) => {
-        if (settled) {
-          reject(new Error('MCP OAuth callback wait is not active.'));
-          return;
-        }
-        pending = { reject, resolve };
-        pendingTimeout = setTimeout(() => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          pending = undefined;
-          pendingTimeout = undefined;
-          reject(new Error('MCP OAuth authorization callback timed out.'));
-          void teardown();
-        }, AUTHORIZATION_CALLBACK_TIMEOUT_MS);
-      }),
-  };
-}
-
+/**
+ * Reads persisted state before binding the listener: the stored loopback port is
+ * an input to the bind, so the two cannot run concurrently.
+ */
 async function loadOAuthStartupState(
   store: McpOAuthStore,
   identity: McpOAuthStoreIdentity
@@ -531,30 +446,12 @@ async function loadOAuthStartupState(
   callback: LoopbackCallback;
   persistedRecords: Readonly<Record<string, McpOAuthPersistedState>>;
 }> {
-  const [recordsResult, callbackResult] = await Promise.allSettled([
-    store.read(identity),
-    startLoopbackCallback(DEFAULT_CALLBACK_PATH),
-  ]);
-  if (recordsResult.status === 'fulfilled' && callbackResult.status === 'fulfilled') {
-    return { callback: callbackResult.value, persistedRecords: recordsResult.value };
-  }
-  const failures: unknown[] = [];
-  if (recordsResult.status === 'rejected') {
-    failures.push(recordsResult.reason);
-  }
-  if (callbackResult.status === 'rejected') {
-    failures.push(callbackResult.reason);
-  } else {
-    try {
-      await callbackResult.value.close();
-    } catch (cause) {
-      failures.push(cause);
-    }
-  }
-  if (failures.length === 1) {
-    throw failures[0];
-  }
-  throw new AggregateError(failures, 'MCP OAuth provider startup failed');
+  const persistedRecords = await store.read(identity);
+  const callback = await startLoopbackCallback(
+    DEFAULT_CALLBACK_PATH,
+    persistedLoopbackPort(persistedRecords)
+  );
+  return { callback, persistedRecords };
 }
 
 export interface McpOAuthClientProviderOptions {
@@ -577,6 +474,13 @@ export interface McpOAuthClientProvider extends OAuthClientProvider {
   readonly fetch: FetchLike;
   recordSuccessfulConnection(): Promise<void>;
   readonly redirectUrl: string;
+  /**
+   * True once this provider discarded a stored dynamic client registration that
+   * could not redirect to the current loopback listener. The stored grant is
+   * then unusable and the server needs an explicit reconnect, so a connection
+   * failure after this point is an authentication state, not a transport fault.
+   */
+  requiresReauthorization(): boolean;
   takePendingAuthorizationCallback(signal: AbortSignal): Promise<URLSearchParams> | undefined;
 }
 
@@ -599,6 +503,13 @@ export async function createMcpOAuthClientProvider(
   const resourceUrl = identity.resourceUrl;
   const { callback, persistedRecords } = await loadOAuthStartupState(options.store, identity);
   const records = new Map<string, McpOAuthPersistedState>(Object.entries(persistedRecords));
+  const loopbackPort = callback.port;
+  reportLoopbackListenerBound({
+    port: loopbackPort,
+    reusedPersistedPort: persistedLoopbackPort(persistedRecords) === loopbackPort,
+    server: options.serverId,
+  });
+  let staleRegistrationDiscarded = false;
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
   const staleDiscoveryByIssuer = new Map<string, OAuthDiscoveryState | undefined>();
@@ -632,14 +543,14 @@ export async function createMcpOAuthClientProvider(
     if (existing) {
       return existing;
     }
-    const created = { updatedAt: Date.now() } satisfies McpOAuthPersistedState;
+    const created = { loopbackPort, updatedAt: Date.now() } satisfies McpOAuthPersistedState;
     records.set(currentIssuer, created);
     return created;
   };
 
   const replaceCurrentRecord = (patch: Partial<McpOAuthPersistedState>): McpOAuthPersistedState => {
     const record = currentRecord();
-    const next = { ...record, ...patch, updatedAt: Date.now() };
+    const next = { ...record, ...patch, loopbackPort, updatedAt: Date.now() };
     records.set(currentIssuer as string, next);
     return next;
   };
@@ -647,7 +558,7 @@ export async function createMcpOAuthClientProvider(
   const clearCurrentRecordField = (
     field: 'clientInformation' | 'codeVerifier' | 'discoveryState' | 'tokens'
   ): void => {
-    const next = { ...currentRecord(), updatedAt: Date.now() };
+    const next = { ...currentRecord(), loopbackPort, updatedAt: Date.now() };
     delete next[field];
     records.set(currentIssuer as string, next);
   };
@@ -740,6 +651,7 @@ export async function createMcpOAuthClientProvider(
     await writeTail;
     records.clear();
     staleDiscoveryByIssuer.clear();
+    staleRegistrationDiscarded = false;
     currentIssuer = undefined;
     currentState = undefined;
     authorizationCallback = undefined;
@@ -781,7 +693,9 @@ export async function createMcpOAuthClientProvider(
         return stored;
       }
       if (stored) {
-        // A DCR for an earlier ephemeral loopback port cannot redirect here and must be replaced.
+        // A DCR bound to a different loopback port cannot redirect here and must
+        // be replaced, which costs the user an explicit reconnect.
+        staleRegistrationDiscarded = true;
         reportStaleDynamicClientRegistration(currentIssuer);
         clearCurrentRecordField('clientInformation');
         await persistCurrentRecord();
@@ -879,6 +793,9 @@ export async function createMcpOAuthClientProvider(
       await options.openExternal(authorizationUrl.toString());
     },
     redirectUrl: callback.redirectUrl,
+    requiresReauthorization() {
+      return staleRegistrationDiscarded;
+    },
     async resourceUrl() {
       return currentIssuer === undefined
         ? resourceUrl

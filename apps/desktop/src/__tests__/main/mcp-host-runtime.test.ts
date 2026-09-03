@@ -3,11 +3,7 @@ import type { McpHostCloseReport, McpHostConfig } from '@brainstrike/assistant-c
 import { parseConfiguredMcpServerId, parseMcpHostConfig } from '@brainstrike/assistant-contract';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  createDesktopMcpHostRuntime,
-  getDesktopMcpHostRuntime,
-  openExternalWithElectron,
-} from '../../mcp/host-runtime';
+import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { McpHostService } from '../../mcp/host-service';
 import {
   createInMemoryMcpOAuthStore,
@@ -16,6 +12,7 @@ import {
   type McpOAuthClientProvider,
   type McpOAuthStore,
 } from '../../mcp/oauth-client-provider';
+import { openExternalWithElectron } from '../../mcp/open-external';
 import type { McpServerActorClientFactory } from '../../mcp/server-actor';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../../mcp-loader';
 

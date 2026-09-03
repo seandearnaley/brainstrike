@@ -13,7 +13,7 @@ import type { McpHostCloseReport } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { ResolvedMcpServer } from '../mcp-loader';
 import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features';
-import { classifyMcpLifecycleFailure } from './lifecycle-errors';
+import { classifyMcpConnectFailure } from './lifecycle-errors';
 import type { McpOAuthClientProvider, McpOAuthCloseProof } from './oauth-client-provider';
 import {
   type McpServerActorClient,
@@ -125,7 +125,10 @@ async function closeAfterConnectFailure(
     diagnostics?.flush();
     reportStdioFailureDiagnostics(server, generation, diagnostics);
   }
-  const failure = classifyMcpLifecycleFailure(cause, diagnostics?.snapshot());
+  const failure = classifyMcpConnectFailure(cause, diagnostics?.snapshot(), {
+    requiresReauthorization: provider?.requiresReauthorization() === true,
+    server: server.name,
+  });
   if (cleanupFailures.length > 0) {
     throw new McpServerActorClientCleanupError(
       [failure, ...cleanupFailures],

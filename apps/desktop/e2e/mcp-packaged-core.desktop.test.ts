@@ -285,6 +285,20 @@ async function verifyDiagnosticFailure(page: Page, controlDirectory: string): Pr
   );
   await expect(serverRow(page, 'diagnostic-stdio')).not.toContainText('bst-1577-secret');
 }
+const LOOPBACK_BOUND_MESSAGE = 'MCP OAuth loopback callback listener bound';
+const STALE_REGISTRATION_MESSAGE = 'Discarding stale MCP OAuth dynamic client registration';
+
+/**
+ * BST-1597: an ephemeral loopback port changed the registered redirect URI on
+ * every launch, so each relaunch discarded the dynamic client registration and
+ * surfaced a connection failure next to healthy-looking credentials. The port is
+ * persisted per configured server, so the rebound listener must keep the same
+ * port and never report a discard.
+ */
+async function readOAuthLoopbackBindings(userDataDir: string): Promise<Record<string, unknown>[]> {
+  const records = await findLogRecords(userDataDir, 'brainstrike.log', LOOPBACK_BOUND_MESSAGE);
+  return records.filter((record) => record['server'] === 'oauth');
+}
 async function connectOAuthThroughNativeBrowser(
   page: Page,
   cancellationFixture: PackagedFixture
@@ -751,6 +765,9 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     expect(firstCloseReport['clientsClosed']).toBeGreaterThanOrEqual(6);
     expect(firstCloseReport['callbacksClosed']).toBe(Number(firstCloseReport['clientsClosed']) + 1);
     expect(firstShutdown).toMatchObject({ legacyClientsClosed: true });
+    const bindingsBeforeRestart = await readOAuthLoopbackBindings(userDataDir);
+    const firstLaunchLoopbackPort = bindingsBeforeRestart.at(-1)?.['port'];
+    expect(typeof firstLaunchLoopbackPort).toBe('number');
     await disarmDiagnosticFaults(diagnosticControlDirectory, diagnosticControlPath);
     restarted = await launchPackagedDesktop({ environment, userDataDir });
     deferCleanup(async () => {
@@ -766,6 +783,26 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const beforeResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
     await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
     await expect(serverRow(restarted.window, 'oauth')).toContainText('OAuth credentials stored');
+    await restarted.window.getByRole('button', { exact: true, name: 'Connect oauth' }).click();
+    await waitForServerState(restarted.window, 'oauth', /Connected/i);
+    const restartedBindings = await readOAuthLoopbackBindings(userDataDir);
+    expect(restartedBindings.length).toBeGreaterThan(bindingsBeforeRestart.length);
+    // The log file is cumulative, so only the records this launch appended say
+    // anything about rebinding the persisted port.
+    const bindingsAfterRestart = restartedBindings.slice(bindingsBeforeRestart.length);
+    expect(bindingsAfterRestart.map((record) => record['port'])).toEqual(
+      bindingsAfterRestart.map(() => firstLaunchLoopbackPort)
+    );
+    expect(bindingsAfterRestart.at(-1)).toMatchObject({ reusedPersistedPort: true });
+    expect(
+      parseJsonLines(
+        await readFile(path.join(userDataDir, 'logs', 'brainstrike.log'), 'utf8')
+      ).filter(
+        (record) =>
+          record['msg'] === STALE_REGISTRATION_MESSAGE ||
+          record['message'] === STALE_REGISTRATION_MESSAGE
+      )
+    ).toEqual([]);
     await new HomePage(restarted.window).openSettings();
     await new SettingsPage(restarted.window).openCategory(/Factory Reset/i, 'factory-reset');
     await restarted.window.evaluate(() => {
@@ -785,13 +822,15 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const resetEvidence = (
       await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime reset cleanup completed')
     ).at(-1);
+    // Counts include the oauth server this phase reconnected: one more client,
+    // its provider's extra callback, and the loopback port that provider owns.
     expect(resetEvidence).toMatchObject({
       hostCloseReport: {
-        callbacksClosed: 4,
+        callbacksClosed: 6,
         childProcessesClosed: 2,
-        clientsClosed: 4,
+        clientsClosed: 5,
         failures: [],
-        loopbackPortsClosed: 0,
+        loopbackPortsClosed: 1,
         probesClosed: 0,
         subscriptionsClosed: 0,
       },

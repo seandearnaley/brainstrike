@@ -1,3 +1,4 @@
+import { createServer } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createInMemoryMcpOAuthStore,
@@ -100,6 +101,9 @@ describe('MCP OAuth credential boundary', () => {
     await store.write(identity, {
       issuer: { lastSuccessfulConnectionAt: 8_640_000_000_000_001, updatedAt: 1 },
     });
+    await expect(store.read(identity)).rejects.toThrow('persisted state is malformed');
+
+    await store.write(identity, { issuer: { loopbackPort: 70_000, updatedAt: 1 } });
     await expect(store.read(identity)).rejects.toThrow('persisted state is malformed');
   });
 
@@ -395,6 +399,159 @@ describe('MCP OAuth credential boundary', () => {
       expect(provider.authSnapshot().requestedScopes).toEqual([]);
     } finally {
       await provider.close();
+    }
+  });
+
+  it('rebinds the persisted loopback port so a relaunch keeps its dynamic client registration', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const issuer = 'https://auth.example.test';
+    const first = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    let firstRedirectUrl: string;
+    try {
+      firstRedirectUrl = first.redirectUrl;
+      if (!first.saveClientInformation) {
+        throw new Error('OAuth provider did not expose client-information persistence.');
+      }
+      await first.saveClientInformation(
+        { client_id: 'registered-client', redirect_uris: [first.redirectUrl] },
+        { issuer }
+      );
+    } finally {
+      await first.close();
+    }
+    expect((await store.read(identity))[issuer]?.loopbackPort).toBe(
+      Number(new URL(firstRedirectUrl).port)
+    );
+
+    const relaunched = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    try {
+      expect(relaunched.redirectUrl).toBe(firstRedirectUrl);
+      await expect(relaunched.clientInformation({ issuer })).resolves.toMatchObject({
+        client_id: 'registered-client',
+      });
+      expect(relaunched.requiresReauthorization()).toBe(false);
+    } finally {
+      await relaunched.close();
+    }
+  });
+
+  it('demands reauthorization when another process already owns the persisted loopback port', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const issuer = 'https://auth.example.test';
+    const first = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    let takenPort: number;
+    try {
+      takenPort = Number(new URL(first.redirectUrl).port);
+      if (!first.saveClientInformation) {
+        throw new Error('OAuth provider did not expose client-information persistence.');
+      }
+      await first.saveClientInformation(
+        { client_id: 'registered-client', redirect_uris: [first.redirectUrl] },
+        { issuer }
+      );
+    } finally {
+      await first.close();
+    }
+
+    const squatter = createServer();
+    await new Promise<void>((resolve, reject) => {
+      squatter.once('error', reject);
+      squatter.listen(takenPort, '127.0.0.1', () => resolve());
+    });
+    try {
+      const relaunched = await createMcpOAuthClientProvider({
+        openExternal: async () => undefined,
+        serverId: identity.serverId,
+        serverUrl: identity.resourceUrl,
+        store,
+      });
+      try {
+        expect(Number(new URL(relaunched.redirectUrl).port)).not.toBe(takenPort);
+        expect(relaunched.requiresReauthorization()).toBe(false);
+        await expect(relaunched.clientInformation({ issuer })).resolves.toBeUndefined();
+        expect(relaunched.requiresReauthorization()).toBe(true);
+        expect((await store.read(identity))[issuer]?.clientInformation).toBeUndefined();
+      } finally {
+        await relaunched.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
+  });
+
+  /**
+   * The latch outlives the replacement write on purpose: a fresh registration
+   * whose authorization never completed leaves the stored grant unusable, so
+   * this provider must still report that a reconnect is required. Recovery is
+   * observed by the NEXT attempt's provider, which re-reads the store
+   * (BST-1597 review).
+   */
+  it('keeps demanding reauthorization until a later provider re-reads the replacement', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const issuer = 'https://auth.example.test';
+    await store.write(identity, {
+      [issuer]: {
+        clientInformation: {
+          client_id: 'stale-client',
+          redirect_uris: ['http://127.0.0.1:65000/mcp/oauth/callback'],
+        },
+        updatedAt: 1,
+      },
+    });
+    const discarding = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    let recoveredRedirectUrl: string;
+    try {
+      if (!discarding.saveClientInformation) {
+        throw new Error('OAuth provider did not expose client-information persistence.');
+      }
+      recoveredRedirectUrl = discarding.redirectUrl;
+      await expect(discarding.clientInformation({ issuer })).resolves.toBeUndefined();
+      expect(discarding.requiresReauthorization()).toBe(true);
+
+      await discarding.saveClientInformation(
+        { client_id: 'replacement-client', redirect_uris: [discarding.redirectUrl] },
+        { issuer }
+      );
+
+      expect(discarding.requiresReauthorization()).toBe(true);
+    } finally {
+      await discarding.close();
+    }
+
+    const recovered = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    try {
+      expect(recovered.redirectUrl).toBe(recoveredRedirectUrl);
+      await expect(recovered.clientInformation({ issuer })).resolves.toMatchObject({
+        client_id: 'replacement-client',
+      });
+      expect(recovered.requiresReauthorization()).toBe(false);
+    } finally {
+      await recovered.close();
     }
   });
 
