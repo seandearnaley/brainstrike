@@ -20,6 +20,7 @@ import {
   resetDatabaseIpcHandlerMocks,
   resetDesktopApplicationDataMock,
   resetLocalDatabaseMock,
+  storageClearMock,
 } from './ipc-handlers-db-test-fixture';
 
 function setBrowserWindows(...senders: unknown[]): void {
@@ -1101,6 +1102,7 @@ describe('database IPC handlers', () => {
       preservedPaths: [],
     });
     await expect(handler({} as unknown)).resolves.toEqual({ success: true });
+    expect(storageClearMock).toHaveBeenCalledOnce();
     expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
       expect.objectContaining({
         resetDatabaseProfile: expect.any(Function),
