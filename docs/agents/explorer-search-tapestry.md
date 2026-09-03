@@ -631,12 +631,15 @@ their own directory, so `workspace/vendor/` must be tested against
 them into the root scope silently broke every slash-containing parent pattern.
 Prefix rather than pattern-rewriting, because rebasing gitignore text means
 reimplementing its syntax. The matcher evaluates every reachable directory
-component plus the leaf through those scoped parsers (BST-1434), so a deeper
-`!cache/` can overturn an inherited directory-only exclusion even across the
-parent/opened-root boundary. Positive directory rules are recorded only at the
-first component where the parser reports that exact rule; otherwise the same
-rule's inherited leaf verdict would survive after the directory was re-included.
-Leaf-only negations still cannot bypass an ignored parent directory.
+component plus the leaf through those scoped parsers (BST-1434), keeping each
+containing component in one path-keyed state map. Cross-scope evaluation uses
+`ignore@7.0.5`'s direct rule-manager verdict because public `test()` deliberately
+returns an ignored parent's cached result for descendants; silently accepting a
+different dependency shape is forbidden. This preserves separately excluded
+ancestors, descendant-specific rules hidden behind a parent match, and repeated
+unanchored matches after a deeper scope re-includes only the first directory.
+The ordinary single-root case retains the public `test()` fast path. Leaf-only
+negations still cannot bypass an ignored parent directory.
 
 **`.git/info/exclude` is resolved through `git rev-parse --git-path`**, not
 `<repo>/.git/info/exclude`. In a linked worktree or submodule `.git` is a FILE,

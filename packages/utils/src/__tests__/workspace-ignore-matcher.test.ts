@@ -118,6 +118,37 @@ describe('createWorkspaceIgnoreMatcher', () => {
     expect(matcher.ignoresDirectory('cache')).toBe(false);
     expect(matcher.ignoresFile('cache/one.md')).toBe(true);
   });
+
+  it('recovers a descendant exclusion hidden behind a re-included parent', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push(
+      '',
+      { llmignore: 'workspace/cache/\nworkspace/cache/secret.md\n' },
+      { pathPrefix: 'workspace' }
+    );
+    matcher.push('', { brainstrikeignore: '!cache/\n' });
+
+    expect(matcher.ignoresFile('cache/one.md')).toBe(false);
+    expect(matcher.ignoresFile('cache/secret.md')).toBe(true);
+  });
+
+  it('keeps every excluded ancestor represented across prefixed parent scopes', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push('', { gitignore: 'packages/\n' }, { pathPrefix: 'packages/web' });
+    matcher.push('', { gitignore: '!web/\n' }, { pathPrefix: 'web' });
+    matcher.push('', {});
+
+    expect(matcher.ignoresFile('index.ts')).toBe(true);
+  });
+
+  it('retains repeated unanchored matches below an anchored root re-include', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push('', { gitignore: 'cache/\n' }, { pathPrefix: 'workspace' });
+    matcher.push('', { gitignore: '!/cache/\n' });
+
+    expect(matcher.ignoresFile('cache/one.md')).toBe(false);
+    expect(matcher.ignoresFile('cache/inner/cache/one.md')).toBe(true);
+  });
 });
 
 describe('createWorkspaceIgnoreMatcher — source precedence', () => {
