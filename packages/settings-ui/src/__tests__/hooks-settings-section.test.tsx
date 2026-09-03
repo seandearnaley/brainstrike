@@ -20,9 +20,21 @@ interface ProjectHooksReview {
 
 const roots = [{ absPath: '/ws/a', displayName: 'Workspace A', rootId: 'root-a' }];
 
+/**
+ * The production bridge is `ipcRenderer.invoke` — a real IPC round-trip that
+ * can NEVER settle within the caller's microtask checkpoint. Resolving on a
+ * macrotask delivers that runtime shape: a row is guaranteed to render its
+ * in-flight "Checking…" state at least once before the review lands, which is
+ * exactly the interleaving CI hits and a `Promise.resolve()` fixture hides.
+ */
 function mockBridge(review: ProjectHooksReview): void {
   (window as Window & { hooks?: unknown }).hooks = {
-    getProjectHooksForReview: vi.fn(() => Promise.resolve(review)),
+    getProjectHooksForReview: vi.fn(
+      () =>
+        new Promise<ProjectHooksReview>((resolve) => {
+          setTimeout(() => resolve(review), 0);
+        })
+    ),
   };
 }
 
@@ -147,6 +159,11 @@ describe('HooksSettingsSection', () => {
     // placeholder; a neutral "Checking…" state is shown instead.
     expect(await screen.findByText(/Checking/)).not.toBeNull();
     expect(screen.queryByText('Untrusted')).toBeNull();
+    // …and no action control either. A disabled placeholder Approve would swallow
+    // a press (React drops click listeners on disabled buttons) and would make
+    // `findByTestId('hooks-approve-*')` resolve on a row that cannot yet act.
+    expect(screen.queryByTestId('hooks-approve-root-a')).toBeNull();
+    expect(screen.queryByTestId('hooks-revoke-root-a')).toBeNull();
 
     resolveReview({
       content: '{}',
