@@ -467,15 +467,33 @@ describe('ExplicitHttpMcpClient validation', () => {
     }
   );
 
-  it('rejects Streamable-HTTP-only scope step-up options on SSE', () => {
+  it.each([
+    ['onInsufficientScope', { onInsufficientScope: 'reauthorize' } as const],
+    ['maxStepUpRetries', { maxStepUpRetries: 2 } as const],
+  ])('rejects the Streamable-HTTP-only scope step-up option %s on SSE', (_label, option) => {
     expect(
       () =>
         new ExplicitHttpMcpClient({
+          ...option,
           name: 'sse-step-up-canary',
-          onInsufficientScope: 'reauthorize',
           transport: 'sse',
           url: 'https://example.test/sse',
         })
-    ).toThrow('scope step-up options require Streamable HTTP');
+    ).toThrow('MCP OAuth scope step-up options require Streamable HTTP transport');
+  });
+
+  it('rejects an interactive OAuth callback source on SSE', () => {
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          authorizationCallbackSource: { takePendingAuthorizationCallback: () => undefined },
+          authorizationCallbackTimeoutMs: 60_000,
+          name: 'sse-interactive-oauth-canary',
+          transport: 'sse',
+          url: 'https://example.test/sse',
+        })
+    ).toThrow(
+      'MCP client "sse-interactive-oauth-canary": interactive OAuth completion requires Streamable HTTP transport'
+    );
   });
 });

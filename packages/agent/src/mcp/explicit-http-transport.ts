@@ -4,6 +4,12 @@
  * between Streamable HTTP and legacy HTTP+SSE — and only Streamable HTTP
  * carries the registered-extension dispatch and result-type compatibility
  * bridges.
+ *
+ * Interactive OAuth completion and OAuth scope step-up are Streamable-HTTP-only.
+ * They are not narrowed away here: `normalizeExplicitHttpClientOptions` rejects
+ * both combinations for `sse` (via `createInteractiveOAuthCompletion` and
+ * `normalizeOAuthStepUpOptions`), so `interactiveOAuth`, `maxStepUpRetries` and
+ * `onInsufficientScope` are provably undefined by the time the SSE branch runs.
  */
 import {
   type Client,
