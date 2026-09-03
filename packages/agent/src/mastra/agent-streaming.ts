@@ -104,6 +104,7 @@ import {
   resolveTripwire,
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
+import { prependMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
 import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
@@ -2624,7 +2625,11 @@ async function createStreamIteratorFromRuntime(
   params: StreamIterationParams
 ): Promise<StreamIterator> {
   const { runtime, runtimeData } = params;
-  return runTurnAttempts({
+  // `firstAttempt` is still awaited HERE, before the generator below is built,
+  // so a construction failure rejects the promise `streamMastraAgent` returns
+  // rather than throwing mid-stream (see runTurnAttempts' `firstAttempt`
+  // contract and the renderer safety net in docs/agents/assistant-runtime.md).
+  const attempts = runTurnAttempts({
     firstAttempt: await createInitialTurnAttempt(params, undefined),
     makeContinuation: (input) =>
       createInitialTurnAttempt(
@@ -2637,6 +2642,11 @@ async function createStreamIteratorFromRuntime(
     runtime,
     runtimeData,
   });
+  // BST-1602: a run whose MCP server contributed nothing says so. This is the
+  // FRESH-TURN seam, which is exactly the scope the rows want — the resume legs
+  // call `runTurnAttempts` directly, so they rebuild the runtime, re-run
+  // discovery, and still emit nothing.
+  return prependMcpDiscoverySkipChunks(runtime.mcpDiscoverySkips, attempts);
 }
 
 async function createInitialTurnAttempt(
