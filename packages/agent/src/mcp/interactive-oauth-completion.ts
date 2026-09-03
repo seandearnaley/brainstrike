@@ -759,6 +759,14 @@ export function createInteractiveOAuthCompletion(
 ): InteractiveOAuthCompletion | undefined {
   const { authProvider, authorizationCallbackSource: callbackSource, transport } = options;
   if (callbackSource === undefined) {
+    // The timeout is only ever read below, so without a callback source it can
+    // never take effect on any transport. Refuse it rather than accept an
+    // option that silently does nothing.
+    if (options.authorizationCallbackTimeoutMs !== undefined) {
+      throw new Error(
+        `MCP client "${clientName}": authorizationCallbackTimeoutMs requires authorizationCallbackSource`
+      );
+    }
     return;
   }
   if (transport !== 'streamable-http') {

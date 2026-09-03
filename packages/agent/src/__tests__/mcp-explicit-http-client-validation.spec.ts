@@ -496,4 +496,25 @@ describe('ExplicitHttpMcpClient validation', () => {
       'MCP client "sse-interactive-oauth-canary": interactive OAuth completion requires Streamable HTTP transport'
     );
   });
+
+  // The timeout is read only while building the interactive completion, which a
+  // missing callback source skips, so on its own it could never take effect on
+  // any transport. Pinned on both so the guard cannot be narrowed to SSE.
+  it.each([{ transport: 'sse' } as const, { transport: 'streamable-http' } as const])(
+    'rejects an interactive OAuth callback timeout without a callback source on $transport',
+    ({ transport }) => {
+      expect(
+        () =>
+          new ExplicitHttpMcpClient({
+            authorizationCallbackTimeoutMs: 60_000,
+            name: 'orphan-callback-timeout-canary',
+            protocol: transport === 'sse' ? 'legacy' : undefined,
+            transport,
+            url: 'https://example.test/mcp',
+          })
+      ).toThrow(
+        'MCP client "orphan-callback-timeout-canary": authorizationCallbackTimeoutMs requires authorizationCallbackSource'
+      );
+    }
+  );
 });
