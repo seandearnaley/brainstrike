@@ -23,11 +23,13 @@ import {
 import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { controlDestructiveMcpLifecycle, notifyMcpStatusUpdated } from './mcp/lifecycle-control';
 import {
+  applyToolPreferenceMutation,
   type DiscoveredServerTools,
   discoverToolsFromConfig,
   loadToolPreferencesForProjection,
-  saveToolPreferencesIfNeeded,
   type ToolPreferenceProjection,
+  type ToolPreferenceWriteIntent,
+  withToolPreferencesFileLock,
 } from './mcp/tool-discovery';
 import type { McpDiscoveredTool } from './mcp/types';
 import {
@@ -256,7 +258,13 @@ async function applyConfigChange(
   }
   const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
   const preferences: ToolPreferenceProjection =
-    toolIds.size > 0 ? await loadToolPreferencesForProjection(toolIds) : { status: 'not-read' };
+    toolIds.size > 0
+      ? // Same lock the toggle write takes: this pass read-modify-writes the
+        // same file from a queue that does not serialise against it.
+        await withToolPreferencesFileLock(
+          async () => await loadToolPreferencesForProjection(toolIds)
+        )
+      : { status: 'not-read' };
   if (
     !mcpLifecycleOpen ||
     lifecycleEpoch !== mcpLifecycleEpoch ||
@@ -647,21 +655,39 @@ export function registerMcpIpcHandlers({
   const registry = createDesktopIpcRegistry({ ipcMain });
   const detachBridges = attachMcpBridges(runtime, registry);
   const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
-  const updateToolPreferences = async (mutation: () => void): Promise<void> => {
+  const updateToolPreferences = async (
+    mutation: () => void,
+    intent: ToolPreferenceWriteIntent = 'merge'
+  ): Promise<void> => {
     const expectedAuthorityEpoch = latestAuthorityEpoch;
-    // Refuse before mutating: writing now would flush the fail-closed registry
-    // over the user's only (unreadable) copy of their preferences.
-    requireToolPreferencesWritable();
+    // A `replace` is a reset: the user is discarding stored choices, so there
+    // is nothing to protect and the latched fault must NOT gate it. Gating it
+    // would leave a user with a corrupt file no in-app remediation at all
+    // (BST-1623 review; BST-1620 records that nothing else recovers in-session).
+    if (intent === 'merge') {
+      // Refuse before mutating: writing now would flush the fail-closed registry
+      // over the user's only (unreadable) copy of their preferences.
+      requireToolPreferencesWritable();
+    }
     await trackConfigOperation(async () => {
       if (expectedAuthorityEpoch !== latestAuthorityEpoch) {
         throw new Error('MCP tool registry changed before the deferred mutation executed');
       }
-      requireToolPreferencesWritable();
-      mutation();
-      // Persist BEFORE telling the renderer. Pushing first made a failed write
-      // paint the toggle in its new position and only then raise the error
-      // banner -- a success signal for a change that never reached disk.
-      await saveToolPreferencesIfNeeded();
+      if (intent === 'merge') {
+        requireToolPreferencesWritable();
+      }
+      // Mutates and persists together, refusing BEFORE the mutation so a
+      // rejected write cannot leave the live registry changed. Persist BEFORE
+      // telling the renderer: pushing first made a failed write paint the
+      // toggle in its new position and only then raise the error banner -- a
+      // success signal for a change that never reached disk.
+      await applyToolPreferenceMutation(mutation, intent);
+      if (intent === 'replace') {
+        // The reset just wrote a readable file, so the session fault is no
+        // longer true. Leaving it latched would make the recovery useless:
+        // the file is fine and every later toggle still throws until restart.
+        toolPreferencesFault = null;
+      }
       notifyMcpToolsUpdated();
     });
   };
@@ -893,7 +919,7 @@ export function registerMcpIpcHandlers({
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsReset,
-    async (): Promise<void> => await updateToolPreferences(() => mcpToolRegistry.reset())
+    async (): Promise<void> => await updateToolPreferences(() => mcpToolRegistry.reset(), 'replace')
   );
 
   registry.registerInvoke('mcp', DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsGetStats, async () => ({

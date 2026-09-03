@@ -84,7 +84,22 @@ const {
     };
   });
 
-  const savePreferences = vi.fn();
+  // Signature mirrors the real `saveToolPreferences`: without the parameter
+  // types `mock.calls` narrows to an empty tuple and every payload assertion
+  // below stops type-checking.
+  const savePreferences = vi.fn(
+    async (
+      _userDataDir: string,
+      _preferences: {
+        disabledTools: string[];
+        enabledTools: string[];
+        lastUpdated: number;
+        version: number;
+      }
+    ): Promise<void> => {
+      order.push('save-preferences');
+    }
+  );
 
   const loadConfig = vi.fn(async () => ({
     config: {
@@ -100,7 +115,9 @@ const {
     path: '/mock/config.json',
   }));
 
-  const watchConfig = vi.fn(async () => ({ close: vi.fn() }));
+  const watchConfig = vi.fn(async (_onChange: (config: unknown) => Promise<void> | void) => ({
+    close: vi.fn(),
+  }));
   const getConfigPath = vi.fn(async () => '/mock/path');
   const setCustomConfigPath = vi.fn(async () => {});
 
@@ -631,8 +648,12 @@ describe('ipc-mcp tool preference loading', () => {
     };
     expect(stats.preferencesFault).toMatchObject({ kind: 'invalid' });
 
-    const reset = getIpcHandler<[]>('mcp:tools:reset');
-    await expect(reset({})).rejects.toThrow(/tool-preferences\.json/);
+    // Probed with a toggle, not a reset: reset is deliberately exempt from the
+    // fault (it is the remediation), so it would no longer witness the latch.
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
+    await expect(disable({}, ['mock-server.tool.enable'])).rejects.toThrow(
+      /tool-preferences\.json/
+    );
     expect(saveToolPreferencesMock).not.toHaveBeenCalled();
   });
 
@@ -766,7 +787,107 @@ describe('ipc-mcp tool preference loading', () => {
     expect(saveToolPreferencesMock).not.toHaveBeenCalled();
   });
 
-  it('resets only the tools Settings can show, leaving an undiscovered server alone', async () => {
+  it('discards every stored id on reset, including undiscovered servers', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    saveToolPreferencesMock.mockClear();
+    loadToolPreferencesMock.mockClear();
+
+    // Reset replaces rather than merges. An earlier revision of this PR had it
+    // preserve an undiscovered server's choices by symmetry with the toggle;
+    // that was wrong. "Reset" is an explicit, labelled discard, not incidental
+    // loss from an unrelated failure -- the thing BST-1621 protects against --
+    // and a half-reset that silently leaves entries behind is the surprising
+    // behaviour. It is also what makes reset a reliable remediation.
+    await getIpcHandler<[]>('mcp:tools:reset')({});
+
+    expect(loadToolPreferencesMock).not.toHaveBeenCalled();
+    const written = saveToolPreferencesMock.mock.calls[0]?.[1] as {
+      disabledTools: string[];
+      enabledTools: string[];
+    };
+    // Only this run's registry reaches disk -- nothing is carried over.
+    expect(written.enabledTools).toEqual(['mock-server.tool.enable']);
+    expect(written.disabledTools).toEqual(['mock-server.tool.disable']);
+  });
+
+  /**
+   * BST-1623 review round. Reset is the ONLY in-app remediation for a corrupt
+   * preferences file, so the refusal must not cover it: refusing to overwrite a
+   * file we cannot read is coherent for a toggle (we would be guessing at what
+   * we preserve) and is precisely what a reset is asking for. Reset therefore
+   * replaces rather than merges, never reads, and is not gated on the fault.
+   */
+
+  it('lets reset discard a corrupt preferences file instead of trapping the user', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'Unexpected end of JSON input',
+      status: 'invalid' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+    saveToolPreferencesMock.mockClear();
+    loadToolPreferencesMock.mockClear();
+
+    await getIpcHandler<[]>('mcp:tools:reset')({});
+
+    // Replace, not merge: nothing is preserved, so nothing is read.
+    expect(loadToolPreferencesMock).not.toHaveBeenCalled();
+    expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the latched fault once reset has written a readable file', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'Unexpected end of JSON input',
+      status: 'invalid' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    await getIpcHandler<[]>('mcp:tools:reset')({});
+
+    // Recovery is only real if it also un-latches: otherwise the file is now
+    // fine and every later toggle still throws until the app restarts.
+    await expectNoLatchedPreferencesFault();
+    saveToolPreferencesMock.mockClear();
+    await getIpcHandler<[string[]]>('mcp:tools:disable')({}, ['mock-server.tool.enable']);
+    expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mutate the live registry when the write is refused', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+    await expectNoLatchedPreferencesFault();
+    saveToolPreferencesMock.mockClear();
+    disableToolsMock.mockClear();
+
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'Unexpected end of JSON input',
+      status: 'invalid' as const,
+    });
+
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
+    await expect(disable({}, ['mock-server.tool.enable'])).rejects.toThrow(
+      /tool-preferences\.json/
+    );
+
+    // An operation reported as unsaved must not still change live tool
+    // availability -- `filterEnabledServerTools` reads this registry for
+    // assistant runs, so a mutated-but-unpersisted registry is BST-1615's
+    // "the UI says it worked" defect one layer up.
+    expect(disableToolsMock).not.toHaveBeenCalled();
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+  });
+
+  it('stamps the version this build writes, not the one it read', async () => {
     registerMcpIpcHandlers({ runtime: authority.runtime });
     await waitForPreferencesCall();
     saveToolPreferencesMock.mockClear();
@@ -774,25 +895,75 @@ describe('ipc-mcp tool preference loading', () => {
     loadToolPreferencesMock.mockResolvedValueOnce({
       path: 'mock-user-data/mcp/tool-preferences.json',
       preferences: {
-        disabledTools: ['mock-server.tool.disable', 'slow-server.dangerous_write'],
+        disabledTools: ['mock-server.tool.disable'],
+        enabledTools: ['mock-server.tool.enable'],
+        lastUpdated: 0,
+        version: 2,
+      },
+      status: 'loaded' as const,
+    });
+
+    await getIpcHandler<[string[]]>('mcp:tools:disable')({}, ['mock-server.tool.enable']);
+
+    // The body serialised is always this build's shape. Echoing a newer stamp
+    // would mark v1-shaped data as already migrated.
+    const written = saveToolPreferencesMock.mock.calls[0]?.[1] as { version: number };
+    expect(written.version).toBe(1);
+  });
+
+  it('serialises a toggle against the config-watch write path', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+
+    // The watcher path runs under `trackConfigChange`, which only records into
+    // `mcpLifecycleBarrier`; the toggle runs under `trackConfigOperation`,
+    // which serialises on `mcpConfigOperationTail`. Different queues, so
+    // without a lock over the file the two read-modify-writes interleave and
+    // the toggle's write resurrects whatever the projection just pruned.
+    const onConfigChange = watchMcpConfigMock.mock.calls[0]?.[0] as
+      | ((config: unknown) => Promise<void> | void)
+      | undefined;
+    if (!onConfigChange) {
+      throw new Error('config watcher callback not registered');
+    }
+
+    const discoveriesBefore = listToolsMock.mock.calls.length;
+    const toggleRead = Promise.withResolvers<Awaited<ReturnType<typeof loadToolPreferencesMock>>>();
+    loadToolPreferencesMock.mockClear();
+    loadToolPreferencesMock.mockReturnValueOnce(toggleRead.promise);
+
+    const toggle = getIpcHandler<[string[]]>('mcp:tools:disable')({}, ['mock-server.tool.enable']);
+    await vi.waitFor(() => expect(loadToolPreferencesMock).toHaveBeenCalledTimes(1));
+
+    const watched = onConfigChange({
+      config: { servers: [{ command: 'bin/mock', name: 'mock-server', transport: 'stdio' }] },
+      exists: true,
+      path: '/mock/config.json',
+    });
+
+    // Wait until the watcher pass has finished discovery, so the only thing
+    // left between it and the file is the lock. Unlocked, it reads here --
+    // which is the interleaving that loses the toggle's update.
+    await vi.waitFor(() =>
+      expect(listToolsMock.mock.calls.length).toBeGreaterThan(discoveriesBefore)
+    );
+    expect(loadToolPreferencesMock).toHaveBeenCalledTimes(1);
+
+    toggleRead.resolve({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      preferences: {
+        disabledTools: ['mock-server.tool.disable', 'retired-server.tool'],
         enabledTools: ['mock-server.tool.enable'],
         lastUpdated: 0,
         version: 1,
       },
       status: 'loaded' as const,
     });
+    await toggle;
+    await watched;
 
-    // `mcp:tools:reset` shares the merged write. The Settings list only renders
-    // discovered tools, so a reset cannot be consent to discard the choices of
-    // a server that is not in it.
-    await getIpcHandler<[]>('mcp:tools:reset')({});
-
-    expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1);
-    const written = saveToolPreferencesMock.mock.calls[0]?.[1] as {
-      disabledTools: string[];
-      enabledTools: string[];
-    };
-    expect(written.disabledTools).toContain('slow-server.dangerous_write');
+    // ...and only once the toggle's write completes does the watcher read.
+    expect(loadToolPreferencesMock.mock.calls.length).toBeGreaterThan(1);
   });
 
   it('does not resurrect entries a retirement pass removed from the file', async () => {
