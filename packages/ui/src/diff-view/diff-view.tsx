@@ -894,6 +894,10 @@ export function DiffView({
               </span>
             </span>
           ) : null}
+          {/* Tint is deliberately raw amber-500/15, not bg-warning/15: the
+              warning token is a deep amber that darkens the surface toward the
+              text, so text-warning composites to 4.64:1 here but 4.24:1 on
+              bg-warning/15. Re-measure these badges if --bs-warning is retuned. */}
           {presentation.kind === 'hunks-only' ? (
             <span
               className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
