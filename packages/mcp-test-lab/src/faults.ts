@@ -6,141 +6,28 @@ import {
   registerMcpLabFaultPlanClaim,
 } from './fault-plan-claim.js';
 import type { McpLabFaultPlan } from './fault-plan-types.js';
+import {
+  isExecutableProtocolMethod,
+  type McpLabOperationMethod,
+  type McpLabProtocolEra,
+  type McpLabProtocolMethod,
+  type McpLabProtocolPhase,
+  OPERATIONS_BY_FIXTURE,
+  PROTOCOL_METHODS_BY_PHASE,
+  protocolPhaseForMethod,
+} from './fault-vocabulary.js';
 import { getMcpLabScenario, type McpLabFixture, type McpLabScenario } from './scenario.js';
 
-const PROTOCOL_METHODS_BY_PHASE = {
-  authorization: [
-    'oauth/protected-resource',
-    'oauth/authorization-server',
-    'oauth/register',
-    'oauth/authorize',
-    'oauth/token',
-  ],
-  'child-process': ['child/spawn', 'child/stderr', 'child/exit'],
-  initialization: ['initialize', 'notifications/initialized', 'ping', 'server/discover'],
-  operation: [
-    'completion/complete',
-    'elicitation/create',
-    'logging/setLevel',
-    'prompts/get',
-    'prompts/list',
-    'resources/list',
-    'resources/read',
-    'resources/subscribe',
-    'resources/templates/list',
-    'resources/unsubscribe',
-    'roots/list',
-    'sampling/createMessage',
-    'tasks/cancel',
-    'tasks/get',
-    'tasks/list',
-    'tasks/result',
-    'tools/call',
-    'tools/list',
-  ],
-  shutdown: ['transport/close'],
-  subscription: [
-    'subscriptions/listen',
-    'notifications/cancelled',
-    'notifications/elicitation/complete',
-    'notifications/message',
-    'notifications/progress',
-    'notifications/prompts/list_changed',
-    'notifications/resources/list_changed',
-    'notifications/resources/updated',
-    'notifications/roots/list_changed',
-    'notifications/subscriptions/acknowledged',
-    'notifications/tasks/status',
-    'notifications/tools/list_changed',
-  ],
-  transport: ['http/request', 'http/response', 'node/dispatch'],
-} as const;
-
-export type McpLabProtocolPhase = keyof typeof PROTOCOL_METHODS_BY_PHASE;
-export type McpLabProtocolMethod = (typeof PROTOCOL_METHODS_BY_PHASE)[McpLabProtocolPhase][number];
-export type McpLabOperationMethod = (typeof PROTOCOL_METHODS_BY_PHASE)['operation'][number];
-
-const ECHO_FIXTURE_OPERATIONS = Object.freeze([
-  'tools/call',
-  'tools/list',
-] as const satisfies readonly McpLabOperationMethod[]);
-const OFFICIAL_EVERYTHING_FIXTURE_OPERATIONS = Object.freeze([
-  'completion/complete',
-  'prompts/get',
-  'prompts/list',
-  'resources/list',
-  'resources/read',
-  'tools/call',
-  'tools/list',
-] as const satisfies readonly McpLabOperationMethod[]);
-const APPS_FIXTURE_OPERATIONS = Object.freeze([
-  'resources/list',
-  'resources/read',
-  'tools/call',
-  'tools/list',
-] as const satisfies readonly McpLabOperationMethod[]);
-const OPERATIONS_BY_FIXTURE: Readonly<Record<McpLabFixture, readonly McpLabOperationMethod[]>> =
-  Object.freeze({
-    'brainstrike-apps-reference': APPS_FIXTURE_OPERATIONS,
-    'brainstrike-oauth-reference': ECHO_FIXTURE_OPERATIONS,
-    'brainstrike-sdk-v2-reference': ECHO_FIXTURE_OPERATIONS,
-    'brainstrike-stdio-reference': ECHO_FIXTURE_OPERATIONS,
-    'brainstrike-tasks-reference': ECHO_FIXTURE_OPERATIONS,
-    'official-sdk-v2-everything-reference': OFFICIAL_EVERYTHING_FIXTURE_OPERATIONS,
-  });
-
-// Exact client-to-server coordinates implemented by the reference fixtures.
-// The complete pinned SDK era registry remains a separate compatibility gate below.
-const EXECUTABLE_PROTOCOL_METHODS_BY_ERA = Object.freeze({
-  legacy: new Set<McpLabProtocolMethod>([
-    'initialize',
-    'notifications/cancelled',
-    'notifications/initialized',
-    'notifications/progress',
-    'notifications/roots/list_changed',
-    'ping',
-    'tools/call',
-    'tools/list',
-  ]),
-  modern: new Set<McpLabProtocolMethod>([
-    'completion/complete',
-    'notifications/cancelled',
-    'notifications/progress',
-    'prompts/get',
-    'prompts/list',
-    'resources/list',
-    'resources/read',
-    'server/discover',
-    'subscriptions/listen',
-    'tools/call',
-    'tools/list',
-  ]),
-});
-
-export function protocolPhaseForMethod(method: string): McpLabProtocolPhase | undefined {
-  if ((PROTOCOL_METHODS_BY_PHASE.authorization as readonly string[]).includes(method)) {
-    return 'authorization';
-  }
-  if ((PROTOCOL_METHODS_BY_PHASE['child-process'] as readonly string[]).includes(method)) {
-    return 'child-process';
-  }
-  if ((PROTOCOL_METHODS_BY_PHASE.initialization as readonly string[]).includes(method)) {
-    return 'initialization';
-  }
-  if ((PROTOCOL_METHODS_BY_PHASE.operation as readonly string[]).includes(method)) {
-    return 'operation';
-  }
-  if ((PROTOCOL_METHODS_BY_PHASE.shutdown as readonly string[]).includes(method)) {
-    return 'shutdown';
-  }
-  if ((PROTOCOL_METHODS_BY_PHASE.subscription as readonly string[]).includes(method)) {
-    return 'subscription';
-  }
-  if ((PROTOCOL_METHODS_BY_PHASE.transport as readonly string[]).includes(method)) {
-    return 'transport';
-  }
-  return;
-}
+// The protocol vocabulary lives in `fault-vocabulary.ts`; re-exported here so
+// every existing importer keeps its single `./faults.js` entry point.
+export {
+  isExecutableProtocolMethod,
+  type McpLabOperationMethod,
+  type McpLabProtocolEra,
+  type McpLabProtocolMethod,
+  type McpLabProtocolPhase,
+  protocolPhaseForMethod,
+};
 
 export interface McpLabDelayFault {
   readonly delayMs: number;
@@ -258,7 +145,6 @@ export interface McpLabFaultObservation extends McpLabFaultConsumption {
 export type { McpLabFaultExecutionState } from './fault-execution.js';
 
 export type McpLabTransportKind = 'http-in-process' | 'http-loopback' | 'stdio';
-export type McpLabProtocolEra = 'legacy' | 'modern';
 export type McpLabAuthentication = 'none' | 'oauth';
 export type McpLabExecution = 'in-process' | 'loopback' | undefined;
 
@@ -274,13 +160,6 @@ export function isMcpLabFaultPlan(value: unknown): value is McpLabFaultPlan {
 
 export function isMcpLabCorrelationId(value: unknown): value is string {
   return typeof value === 'string' && MCP_LAB_CORRELATION_ID_PATTERN.test(value);
-}
-
-export function isExecutableProtocolMethod(
-  method: string,
-  era: McpLabProtocolEra
-): method is McpLabProtocolMethod {
-  return EXECUTABLE_PROTOCOL_METHODS_BY_ERA[era].has(method as McpLabProtocolMethod);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

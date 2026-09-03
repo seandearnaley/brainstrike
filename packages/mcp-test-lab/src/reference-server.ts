@@ -1,4 +1,5 @@
 import {
+  completable,
   type ElicitRequestFormParams,
   inputRequired,
   inputResponse,
@@ -10,6 +11,37 @@ import { OFFICIAL_EVERYTHING_PROFILE as profile } from './official-everything-pr
 import type { McpLabFixture } from './scenario.js';
 import { TASKS_PROFILE as tasks } from './tasks-profile.js';
 import { installTasksServerWireAlias, TASKS_WIRE_ALIASES } from './tasks-wire-alias.js';
+
+/**
+ * Content surface of the Brainstrike echo fixture (BST-1592): one readable
+ * resource and one argument-taking prompt, so `resources/read`, `prompts/get`,
+ * and `completion/complete` (`ref/prompt`) are provable end to end against a
+ * Brainstrike-owned fixture rather than the pinned official everything profile.
+ *
+ * `resources`/`prompts` capabilities are inferred by the SDK from
+ * `registerResource`/`registerPrompt`; `completions` is inferred only from a
+ * `completable()` argument, which also installs the SDK's own
+ * `completion/complete` dispatcher (a hand-written handler for that method
+ * would collide with it).
+ */
+export const ECHO_REFERENCE_CONTENT = Object.freeze({
+  prompt: Object.freeze({
+    argument: 'subject',
+    completions: Object.freeze(['bst-1592-alpha', 'bst-1592-beta']),
+    description: 'Ask the assistant to echo one reference subject.',
+    message: (subject: string) => `Echo the reference subject "${subject}" back to me.`,
+    name: 'echo_prompt',
+    title: 'Echo reference prompt',
+  }),
+  resource: Object.freeze({
+    description: 'Static notes served by the Brainstrike echo reference server.',
+    mimeType: 'text/markdown',
+    name: 'echo-reference-notes',
+    text: '# Echo reference notes\n\nbst-1592-resource-body\n',
+    title: 'Echo reference notes',
+    uri: 'brainstrike://reference/echo-notes',
+  }),
+});
 
 function createBrainstrikeEchoReferenceServer(): McpServer {
   const server = new McpServer({
@@ -79,6 +111,36 @@ function createBrainstrikeEchoReferenceServer(): McpServer {
         structuredContent: { confirmed, text: echoed },
       };
     }
+  );
+  const { prompt, resource } = ECHO_REFERENCE_CONTENT;
+  server.registerResource(
+    resource.name,
+    resource.uri,
+    { description: resource.description, mimeType: resource.mimeType, title: resource.title },
+    async () => ({
+      contents: [{ mimeType: resource.mimeType, text: resource.text, uri: resource.uri }],
+    })
+  );
+  server.registerPrompt(
+    prompt.name,
+    {
+      argsSchema: z.object({
+        [prompt.argument]: completable(
+          z.string().describe('The subject the assistant should echo.'),
+          (value) => prompt.completions.filter((option) => option.startsWith(value))
+        ),
+      }),
+      description: prompt.description,
+      title: prompt.title,
+    },
+    async (args) => ({
+      messages: [
+        {
+          content: { text: prompt.message(String(args[prompt.argument])), type: 'text' },
+          role: 'user',
+        },
+      ],
+    })
   );
   return server;
 }

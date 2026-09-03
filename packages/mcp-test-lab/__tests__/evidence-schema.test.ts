@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   MCP_EVIDENCE_SCHEMA_VERSION,
   McpEvidenceValidationError,
+  mcpEvidenceCapabilitiesFor,
   parseMcpEvidenceSchema,
 } from '../src/evidence-schema';
 import { getMcpLabScenario } from '../src/scenario';
@@ -243,7 +244,7 @@ describe('parseMcpEvidenceSchema', () => {
     const legacy = evidenceFixture();
     legacy.negotiation.era = 'legacy';
     legacy.negotiation.revision = '2025-11-25';
-    legacy.negotiation.capabilities = ['tools'];
+    legacy.negotiation.capabilities = [...mcpEvidenceCapabilitiesFor('legacy-reference')];
     legacy.scenarioId = 'legacy-reference';
     legacy.versions.spec = '2025-11-25';
     const legacyScenario = getMcpLabScenario('legacy-reference');

@@ -1,6 +1,6 @@
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, vi } from 'vitest';
-import { deleteRootDataFromDb } from '../root-layout-content';
+import { deleteRootDataFromDb } from '../delete-root-data';
 
 function makeDb(queryImpl: (sql: string, params?: unknown[]) => unknown): {
   db: DbHandle;

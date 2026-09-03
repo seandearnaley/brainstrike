@@ -414,19 +414,38 @@ function cdtEndpoint(input: unknown, path: string): string {
   return value;
 }
 
+/**
+ * The capabilities each fixture negotiates, keyed by FIXTURE rather than
+ * scenario: the fixture's registrations are what the SDK infers capabilities
+ * from, and two scenarios (legacy + OAuth) share the Brainstrike echo server.
+ * Since BST-1592 that server also registers one resource and one completable
+ * prompt, so it advertises `completions`/`prompts`/`resources`; the spawned
+ * stdio fixture is a separate echo-only server and still advertises `tools`.
+ */
+const CAPABILITIES_BY_FIXTURE: Readonly<Record<McpLabFixture, readonly string[]>> = Object.freeze({
+  'brainstrike-apps-reference': ['resources', 'tools'],
+  'brainstrike-oauth-reference': ['completions', 'prompts', 'resources', 'tools'],
+  'brainstrike-sdk-v2-reference': ['completions', 'prompts', 'resources', 'tools'],
+  'brainstrike-stdio-reference': ['tools'],
+  'brainstrike-tasks-reference': ['extensions', 'tools'],
+  'official-sdk-v2-everything-reference': ['completions', 'prompts', 'resources', 'tools'],
+});
+
+/**
+ * The capabilities a scenario's fixture must negotiate. Exported so the live
+ * runner integration test and the synthetic runner fixtures assert against ONE
+ * map rather than three copies of the same ternary.
+ */
+export function mcpEvidenceCapabilitiesFor(scenarioId: McpLabScenarioId): readonly string[] {
+  return CAPABILITIES_BY_FIXTURE[getMcpLabScenario(scenarioId).fixture];
+}
+
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry) => right.includes(entry));
 }
 function assertCanonicalScenarioClaims(schema: McpEvidenceSchema): void {
   const scenario = getMcpLabScenario(schema.scenarioId);
-  const expectedCapabilities =
-    schema.scenarioId === 'modern-reference'
-      ? ['completions', 'prompts', 'resources', 'tools']
-      : schema.scenarioId === 'tasks-reference'
-        ? ['extensions', 'tools']
-        : schema.scenarioId === 'apps-reference'
-          ? ['resources', 'tools']
-          : ['tools'];
+  const expectedCapabilities = mcpEvidenceCapabilitiesFor(schema.scenarioId);
   if (
     schema.versions.spec !== scenario.protocol.version ||
     schema.versions.sdk.version !== scenario.reference.sdkVersion ||

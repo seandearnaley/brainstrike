@@ -11,7 +11,7 @@ import {
   type RewindContextValue,
   RewindProvider,
 } from '@brainstrike/assistant-ui';
-import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import {
   RootDataDeletionProvider,
@@ -67,11 +67,13 @@ import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { deleteRootDataFromDb } from './delete-root-data';
 import {
   type RendererDiagnosticSurface,
   rendererLongTaskTelemetry,
 } from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
+import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
@@ -86,43 +88,6 @@ interface DebouncedPanelLayoutState {
   readonly showLeftPanel: boolean;
   readonly showRightPanel: boolean;
   readonly sizes: [number, number, number];
-}
-
-/**
- * Reads the affected-row count from a DML query result across driver shapes:
- * PGlite populates `affectedRows`; node-pg-style bridges use `rowCount`.
- * Returns `null` when neither is present so callers can distinguish
- * "positively zero rows" from "the driver did not report a count" and avoid a
- * false abort on a bridge that strips the field.
- */
-function readAffectedRows(result: unknown): number | null {
-  const shaped = result as { affectedRows?: unknown; rowCount?: unknown };
-  if (typeof shaped.affectedRows === 'number') {
-    return shaped.affectedRows;
-  }
-  if (typeof shaped.rowCount === 'number') {
-    return shaped.rowCount;
-  }
-  return null;
-}
-
-/**
- * Deletes a root's `roots` row (cascading file_records + chunks via migration
- * 039's ON DELETE CASCADE). `roots.id` is a uuidv7, but the disconnect flow
- * passes a path as the id for legacy/unregistered roots (the sidebar falls
- * back to `handle.path` when `rootIdByPath` has no entry), so the row must be
- * matched by `id` OR `path` — `path` is uniquely indexed. A delete that
- * positively affects zero rows THROWS: the seam's contract is "never a silent
- * no-op", so an unconfirmed delete must abort the disconnect rather than let
- * the user believe data was removed while UUID-keyed rows survive.
- */
-export async function deleteRootDataFromDb(db: DbHandle, rootIdOrPath: string): Promise<void> {
-  const result = await db.query('DELETE FROM roots WHERE id = $1 OR path = $1', [rootIdOrPath]);
-  if (readAffectedRows(result) === 0) {
-    throw new Error(
-      `Root data deletion matched no rows for "${rootIdOrPath}" — refusing to report a silent success.`
-    );
-  }
 }
 
 function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
@@ -772,6 +737,11 @@ export function RootLayoutContent({
                     pushes server input requests here regardless of route, and the
                     host renders nothing when the preload bridge is absent. */}
                   <McpElicitationHost />
+                  {/* Composer MCP prompt selection is app-wide (BST-1592): the
+                    "/" menu's execute hands the selection here from wherever the
+                    composer is mounted, and the host renders nothing when the
+                    preload bridge is absent. */}
+                  <McpPromptComposerHost />
                   {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
                   <KeepMountedRoute
