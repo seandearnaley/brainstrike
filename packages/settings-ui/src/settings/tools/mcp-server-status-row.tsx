@@ -72,13 +72,14 @@ function McpToolsAvailabilityNotice({ server }: { readonly server: McpServerInfo
     return null;
   }
   return (
-    // `text-muted-foreground`, NOT a yellow: measured live in the settings
-    // dialog, `text-yellow-500` is 1.87:1 against that surface — WCAG AA wants
-    // 4.5:1 for small text. The DOT carries the warning; this line explains it,
-    // and a semantic token also stays correct in dark mode without guessing a
-    // shade. (`text-warning` is not a generated utility despite `--warning`
-    // existing — it renders as inherited body colour.)
-    <div className="text-muted-foreground text-xs">
+    // `text-warning`, the repo's semantic warning token (--bs-warning, deep
+    // amber, 4.66:1 against the light muted surface) — NOT a raw palette shade.
+    // Measured live in the settings dialog, `text-yellow-500` is 1.87:1 there,
+    // and WCAG AA wants 4.5:1 for small text. The dot keeps the yellow because
+    // it is a non-text indicator sharing the existing status vocabulary; this
+    // line is prose and has to be readable. The token also carries its own dark
+    // -mode value, so no shade is being guessed here.
+    <div className="text-warning text-xs">
       connected · {label} — this server contributes no tools to a run until it enumerates
     </div>
   );
