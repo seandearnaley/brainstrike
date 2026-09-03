@@ -62,7 +62,38 @@ import {
 } from './unexpected-close-observer';
 
 export type { ExplicitHttpMcpClientOptions } from './explicit-http-client-options';
-export * from './explicit-http-client-types';
+// Named rather than `export *`: this keeps the package surface exactly what
+// this module exported before the split. The types module additionally
+// declares list/manual/normal call-option aliases that were module-private
+// here, and they stay internal.
+export type {
+  ExplicitHttpMcpCallToolParams,
+  ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpCompleteParams,
+  ExplicitHttpMcpCompleteResult,
+  ExplicitHttpMcpFetch,
+  ExplicitHttpMcpGetPromptParams,
+  ExplicitHttpMcpGetPromptResult,
+  ExplicitHttpMcpInputRequiredResult,
+  ExplicitHttpMcpLifecycle,
+  ExplicitHttpMcpListPromptsParams,
+  ExplicitHttpMcpListPromptsResult,
+  ExplicitHttpMcpListResourcesParams,
+  ExplicitHttpMcpListResourcesResult,
+  ExplicitHttpMcpListResourceTemplatesParams,
+  ExplicitHttpMcpListResourceTemplatesResult,
+  ExplicitHttpMcpListToolsParams,
+  ExplicitHttpMcpListToolsResult,
+  ExplicitHttpMcpReadResourceParams,
+  ExplicitHttpMcpReadResourceResult,
+  ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpSubscription,
+  ExplicitHttpMcpSubscriptionFilter,
+  ExplicitHttpMcpTool,
+  ExplicitHttpMcpTransport,
+  ExplicitHttpMcpUnexpectedCloseObserver,
+  NegotiatedProtocolFacts,
+} from './explicit-http-client-types';
 
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
 
