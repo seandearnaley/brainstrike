@@ -156,10 +156,14 @@ describe('MCP desktop authority bootstrap', () => {
     });
     mocks.loadMcpConfig.mockResolvedValue({ exists: false, path: '/tmp/mcp.config.json' });
     vi.mocked(loadToolPreferences).mockResolvedValue({
-      disabledTools: [],
-      enabledTools: [],
-      lastUpdated: 0,
-      version: 1,
+      path: '/tmp/mcp/tool-preferences.json',
+      preferences: {
+        disabledTools: [],
+        enabledTools: [],
+        lastUpdated: 0,
+        version: 1,
+      },
+      status: 'loaded',
     });
     mocks.replaceResolvedConfig.mockImplementation(async (config: ResolvedMcpConfig) =>
       snapshot(config.servers.length, config.servers)

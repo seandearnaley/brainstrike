@@ -404,6 +404,25 @@ describe('UnifiedToolsSettings', () => {
       });
     });
 
+    it('surfaces an unreadable tool-preferences file instead of presenting the reset list as normal (BST-1615)', async () => {
+      const operations = createMockOperations();
+      operations.getStats = vi.fn().mockResolvedValue({
+        ...mockStats,
+        preferencesFault: {
+          kind: 'unreadable',
+          message:
+            'MCP tool preferences could not be loaded from /u/mcp/tool-preferences.json — the file could not be read (EACCES: permission denied).',
+          path: '/u/mcp/tool-preferences.json',
+        },
+      });
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/tool-preferences\.json/)).toBeInTheDocument();
+      });
+    });
+
     it('shows an error fallback when a tool group crashes and retries on demand', async () => {
       const operations = createMockOperations();
       ToolGroupAccordionMock.mockImplementation(() => {

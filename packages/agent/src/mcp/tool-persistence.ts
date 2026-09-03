@@ -30,46 +30,87 @@ export interface ToolPreferences {
 }
 
 /**
- * Load tool preferences from disk
+ * Outcome of reading the tool-preferences file.
+ *
+ * Absence and failure are deliberately different values (BST-1615). A missing
+ * file is the ordinary first run and callers may proceed with defaults. An
+ * `invalid` or `unreadable` file means the user's saved choices exist but could
+ * not be read; treating that as "no preferences" silently re-enables every tool
+ * they had turned off.
+ */
+export type ToolPreferencesLoadResult =
+  | { status: 'loaded'; path: string; preferences: ToolPreferences }
+  | { status: 'absent'; path: string }
+  | { status: 'invalid'; path: string; reason: string }
+  | { status: 'unreadable'; path: string; reason: string };
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Load tool preferences from disk.
+ *
+ * Never throws, and never collapses the three outcomes into one value: see
+ * {@link ToolPreferencesLoadResult}.
  */
 export async function loadToolPreferences(
   userDataDir: string,
   fs: FileSystemAdapter = defaultFs
-): Promise<ToolPreferences | undefined> {
+): Promise<ToolPreferencesLoadResult> {
   const prefsPath = getToolPreferencesPath(userDataDir, fs);
 
+  let content: string;
   try {
-    const content = await fs.readFile(prefsPath, 'utf-8');
-    const parsed = JSON.parse(content) as unknown;
-
-    if (!isValidToolPreferences(parsed)) {
-      logger.warn('invalid tool preferences file', {
-        code: 'invalid_preferences',
-        path: prefsPath,
-      });
-      return;
-    }
-
-    logger.info('tool preferences loaded', {
-      code: 'preferences_loaded',
-      disabledCount: parsed.disabledTools.length,
-      enabledCount: parsed.enabledTools.length,
-    });
-
-    return parsed;
+    content = await fs.readFile(prefsPath, 'utf-8');
   } catch (error) {
     const err = error as { code?: string };
     if (err.code === 'ENOENT') {
       logger.info('no tool preferences found', { code: 'no_preferences' });
-      return;
+      return { path: prefsPath, status: 'absent' };
     }
 
+    const reason = describeError(error);
     logger.error('failed to load tool preferences', {
       code: 'load_preferences_failed',
-      error: error instanceof Error ? error.message : String(error),
+      error: reason,
+      path: prefsPath,
     });
+    return { path: prefsPath, reason, status: 'unreadable' };
   }
-  return;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content) as unknown;
+  } catch (error) {
+    const reason = describeError(error);
+    logger.error('tool preferences file is not valid JSON', {
+      code: 'invalid_preferences',
+      error: reason,
+      path: prefsPath,
+    });
+    return { path: prefsPath, reason, status: 'invalid' };
+  }
+
+  if (!isValidToolPreferences(parsed)) {
+    logger.error('invalid tool preferences file', {
+      code: 'invalid_preferences',
+      path: prefsPath,
+    });
+    return {
+      path: prefsPath,
+      reason: 'file does not match the tool preferences schema',
+      status: 'invalid',
+    };
+  }
+
+  logger.info('tool preferences loaded', {
+    code: 'preferences_loaded',
+    disabledCount: parsed.disabledTools.length,
+    enabledCount: parsed.enabledTools.length,
+  });
+
+  return { path: prefsPath, preferences: parsed, status: 'loaded' };
 }
 
 /**

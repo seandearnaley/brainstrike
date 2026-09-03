@@ -319,6 +319,7 @@ export {
   loadToolPreferences,
   saveToolPreferences,
   type ToolPreferences,
+  type ToolPreferencesLoadResult,
 } from './mcp/tool-persistence';
 export {
   type McpToolMetadata,

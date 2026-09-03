@@ -550,6 +550,12 @@ declare global {
         total: number;
         enabled: number;
         disabled: number;
+        /** Set when the tool-preferences file exists but could not be read (BST-1615). */
+        preferencesFault?: {
+          kind: 'invalid' | 'unreadable';
+          message: string;
+          path: string;
+        };
         servers: number;
       }>;
       onToolsUpdated: (

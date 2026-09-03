@@ -21,11 +21,13 @@ import {
 import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { controlDestructiveMcpLifecycle, notifyMcpStatusUpdated } from './mcp/lifecycle-control';
 import {
+  type DiscoveredServerTools,
   discoverToolsFromConfig,
   loadToolPreferencesForProjection,
   saveToolPreferencesIfNeeded,
+  type ToolPreferenceProjection,
 } from './mcp/tool-discovery';
-import type { McpDiscoveredTool } from './mcp/types';
+import type { McpDiscoveredTool, McpToolPreferencesFault } from './mcp/types';
 import {
   getDefaultMcpConfigTemplate,
   getMcpConfigPath,
@@ -60,6 +62,7 @@ interface McpFactoryResetSnapshot {
   readonly config: LoadedMcpConfig | null;
   readonly extensionPreferences: McpExtensionEnablement;
   readonly selectedConfigPath: string | null;
+  readonly toolPreferencesFault: McpToolPreferencesFault | null;
   readonly tools: ReturnType<typeof mcpToolRegistry.getAllTools>;
 }
 let pendingFactoryResetSnapshot: McpFactoryResetSnapshot | null = null;
@@ -69,6 +72,30 @@ let pendingFactoryResetSnapshot: McpFactoryResetSnapshot | null = null;
  * fails loudly instead of pretending to persist.
  */
 let settingsStoreAccess: McpExtensionPreferencesStoreAccess = () => null;
+
+/**
+ * Set when the tool-preferences file exists but could not be read (BST-1615).
+ *
+ * While it is set the projection refuses to auto-enable anything and every
+ * preference write is refused, so the user's only copy of the file survives for
+ * recovery. It is reported to the renderer through the tool stats payload.
+ */
+let toolPreferencesFault: McpToolPreferencesFault | null = null;
+
+function buildToolPreferencesFaultMessage(fault: {
+  kind: 'invalid' | 'unreadable';
+  path: string;
+  reason: string;
+}): string {
+  const cause = fault.kind === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
+  return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved until that file is repaired or removed; your saved choices were left on disk untouched.`;
+}
+
+function requireToolPreferencesWritable(): void {
+  if (toolPreferencesFault) {
+    throw new Error(toolPreferencesFault.message);
+  }
+}
 const logger = createLogger('DesktopMcpIpc');
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 const mcpContentLifecycle = { barrier: () => mcpLifecycleBarrier, isOpen: () => mcpLifecycleOpen };
@@ -118,6 +145,50 @@ function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
     }));
   }
   return status;
+}
+
+/**
+ * Rebuild the tool registry from a discovery pass and the preference projection.
+ *
+ * Split out of `applyConfigChange` to keep that function within its complexity
+ * budget; it also isolates the one place that decides what an unreadable
+ * preferences file means for tool state (BST-1615).
+ */
+function rebuildToolRegistry(
+  discoveries: DiscoveredServerTools[],
+  toolIds: ReadonlySet<string>,
+  preferences: ToolPreferenceProjection
+): void {
+  mcpToolRegistry.clear();
+  for (const discovery of discoveries) {
+    mcpToolRegistry.register(
+      discovery.server.name,
+      discovery.tools,
+      discovery.server.enabledTools ? { enabledTools: discovery.server.enabledTools } : undefined
+    );
+  }
+
+  if (preferences.status === 'unavailable') {
+    // The user's choices exist but are unreadable. `register` defaults an unseen
+    // tool to enabled, so proceeding would grant back every tool they disabled.
+    // Fail closed instead, and refuse writes until the file is repaired.
+    toolPreferencesFault = {
+      kind: preferences.kind,
+      message: buildToolPreferencesFaultMessage(preferences),
+      path: preferences.path,
+    };
+    mcpToolRegistry.disableTools([...toolIds]);
+    return;
+  }
+
+  toolPreferencesFault = null;
+  // Apply valid preferences
+  if (preferences.disabledTools.length > 0) {
+    mcpToolRegistry.disableTools(preferences.disabledTools);
+  }
+  if (preferences.enabledTools.length > 0) {
+    mcpToolRegistry.enableTools(preferences.enabledTools);
+  }
 }
 
 /**
@@ -172,10 +243,10 @@ async function applyConfigChange(
     return;
   }
   const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
-  const preferences =
+  const preferences: ToolPreferenceProjection =
     toolIds.size > 0
       ? await loadToolPreferencesForProjection(toolIds)
-      : { disabledTools: [], enabledTools: [] };
+      : { disabledTools: [], enabledTools: [], status: 'available' };
   if (
     !mcpLifecycleOpen ||
     lifecycleEpoch !== mcpLifecycleEpoch ||
@@ -184,21 +255,7 @@ async function applyConfigChange(
     return;
   }
 
-  mcpToolRegistry.clear();
-  for (const discovery of discoveries) {
-    mcpToolRegistry.register(
-      discovery.server.name,
-      discovery.tools,
-      discovery.server.enabledTools ? { enabledTools: discovery.server.enabledTools } : undefined
-    );
-  }
-  // Apply valid preferences
-  if (preferences.disabledTools.length > 0) {
-    mcpToolRegistry.disableTools(preferences.disabledTools);
-  }
-  if (preferences.enabledTools.length > 0) {
-    mcpToolRegistry.enableTools(preferences.enabledTools);
-  }
+  rebuildToolRegistry(discoveries, toolIds, preferences);
   notifyMcpToolsUpdated();
 }
 
@@ -421,6 +478,7 @@ function beginMcpRuntimeCleanup(): { epoch: number; failures: unknown[] } {
 function purgeMcpRuntimeProjection(): void {
   last = null;
   lastUserSelectedConfigPath = null;
+  toolPreferencesFault = null;
   mcpToolRegistry.clear();
 }
 
@@ -430,6 +488,9 @@ function captureMcpFactoryResetSnapshot(runtime: McpAuthorityRuntime): McpFactor
     config: last === null ? null : structuredClone(last),
     extensionPreferences: { ...runtime.mcpExtensionPreferences },
     selectedConfigPath: lastUserSelectedConfigPath,
+    // Restored with the rest of the projection: an abandoned reset must not
+    // leave writes unblocked while the preferences file is still unreadable.
+    toolPreferencesFault,
     tools: getSerializableTools(),
   };
 }
@@ -443,6 +504,7 @@ async function restoreMcpFactoryResetSnapshot(
   lastCommittedResolvedConfig = structuredClone(snapshot.authorityConfig);
   last = snapshot.config;
   lastUserSelectedConfigPath = snapshot.selectedConfigPath;
+  toolPreferencesFault = snapshot.toolPreferencesFault;
   mcpToolRegistry.clear();
   const disabledToolIds: string[] = [];
   for (const [serverName, tools] of Object.entries(snapshot.tools)) {
@@ -577,10 +639,14 @@ export function registerMcpIpcHandlers({
   const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
   const updateToolPreferences = async (mutation: () => void): Promise<void> => {
     const expectedAuthorityEpoch = latestAuthorityEpoch;
+    // Refuse before mutating: writing now would flush the fail-closed registry
+    // over the user's only (unreadable) copy of their preferences.
+    requireToolPreferencesWritable();
     await trackConfigOperation(async () => {
       if (expectedAuthorityEpoch !== latestAuthorityEpoch) {
         throw new Error('MCP tool registry changed before the deferred mutation executed');
       }
+      requireToolPreferencesWritable();
       mutation();
       notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
@@ -817,9 +883,10 @@ export function registerMcpIpcHandlers({
     async (): Promise<void> => await updateToolPreferences(() => mcpToolRegistry.reset())
   );
 
-  registry.registerInvoke('mcp', DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsGetStats, async () =>
-    mcpToolRegistry.getStats()
-  );
+  registry.registerInvoke('mcp', DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsGetStats, async () => ({
+    ...mcpToolRegistry.getStats(),
+    ...(toolPreferencesFault ? { preferencesFault: toolPreferencesFault } : {}),
+  }));
 
   registerMcpContentIpc(registry, runtime, mcpContentLifecycle);
 

@@ -260,6 +260,11 @@ function useToolsDataManager({
       const [toolsData, stats] = await Promise.all([operations.getTools(), operations.getStats()]);
       statsRef.current = stats;
       dispatch({ tools: toolsData, type: 'SET_TOOLS' });
+      // BST-1615: the list below is a fail-closed default, not the user's saved
+      // choices. Saying nothing would read as "you never disabled anything".
+      if (stats.preferencesFault) {
+        dispatch({ error: stats.preferencesFault.message, type: 'SET_ERROR' });
+      }
     } catch (err) {
       dispatch({
         error: err instanceof Error ? err.message : 'Failed to load tools',

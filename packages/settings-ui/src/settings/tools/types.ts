@@ -48,7 +48,24 @@ export interface ToolStats {
   disabled: number;
   enabled: number;
   mcpServers: number;
+  /**
+   * Set when the saved MCP tool preferences exist but could not be read
+   * (BST-1615). The tool list on screen is then a fail-closed default rather
+   * than the user's choices, so the panel must say so instead of presenting it
+   * as normal state. Platforms without persisted MCP preferences omit it.
+   */
+  preferencesFault?: ToolPreferencesFault;
   total: number;
+}
+
+/**
+ * An unreadable saved-preferences file, surfaced to the user.
+ */
+export interface ToolPreferencesFault {
+  kind: 'invalid' | 'unreadable';
+  /** User-facing sentence naming the file and what to do about it. */
+  message: string;
+  path: string;
 }
 
 interface BaseToolsLiveQueryConfig {
