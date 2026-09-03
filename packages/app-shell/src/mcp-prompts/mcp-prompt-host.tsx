@@ -6,7 +6,9 @@
  * watch on the pinned server generation, the composer write-back, and the
  * visible failure surface. Renders nothing until the user selects a prompt, and
  * nothing at all when the desktop bridge is absent (web) — a capability gate,
- * never an `isElectron()` check.
+ * never an `isElectron()` check. A bridge that is PRESENT but partial is a
+ * packaging defect rather than an unsupported runtime, so this host (always
+ * mounted) reports it instead of letting the capability vanish silently.
  *
  * Prompts WITHOUT arguments stage straight into the composer draft (selecting
  * them from the menu is already the explicit user action, and the Settings
@@ -23,7 +25,11 @@ import { resolveMcpPromptBridge } from './mcp-prompt-bridge';
 import { isMcpPromptEntryLive, type McpPromptEntry } from './mcp-prompt-catalog';
 import { McpPromptDialog } from './mcp-prompt-dialog';
 import { type McpPromptSelection, useMcpPromptSelectionStore } from './mcp-prompt-selection-store';
-import { applyComposerTriggerSplit, buildMcpPromptInsertion } from './mcp-prompt-text';
+import {
+  applyComposerTriggerSplit,
+  buildMcpPromptInsertion,
+  isComposerDraftUntouched,
+} from './mcp-prompt-text';
 
 const logger = createLogger('McpPromptComposerHost');
 
@@ -35,10 +41,16 @@ function failureMessage(cause: unknown): string {
   return cause instanceof Error && cause.message ? cause.message : 'MCP prompt request failed';
 }
 
+/** The live composer draft for one thread, as recorded by the composer bridge. */
+function liveDraftText(threadId: string): string {
+  return useAssistantComposerCommandStore.getState().draftTextByThreadId[threadId] ?? '';
+}
+
 export function McpPromptComposerHost() {
   // Capability detection reads a preload bridge that exists before React
   // mounts, so resolve it once for the component's lifetime.
-  const [bridge] = useState(resolveMcpPromptBridge);
+  const [resolution] = useState(resolveMcpPromptBridge);
+  const bridge = resolution.status === 'ready' ? resolution.bridge : null;
   const selection = useMcpPromptSelectionStore((state) => state.selection);
   const clear = useMcpPromptSelectionStore((state) => state.clear);
   const { toast } = useToast();
@@ -49,6 +61,24 @@ export function McpPromptComposerHost() {
     retiredSelection !== null && retiredSelection === selection
       ? retirementMessage(retiredSelection.entry)
       : null;
+
+  // A partial `window.mcp` disables the affordance exactly like web does, so
+  // without this the user would watch the capability disappear with no
+  // actionable error (AGENTS.md: broken capabilities surface visibly, they do
+  // not degrade quietly). Announced ONCE per window: the resolution is read
+  // before React mounts and never changes.
+  const announcedMalformedRef = useRef(false);
+  useEffect(() => {
+    if (resolution.status !== 'malformed' || announcedMalformedRef.current) {
+      return;
+    }
+    announcedMalformedRef.current = true;
+    toast({
+      description: `This build's MCP bridge is missing ${resolution.missing.join(', ')}, so MCP server prompts cannot be offered in the composer. Reinstall or update Brainstrike; MCP servers themselves are unaffected.`,
+      title: 'MCP prompts unavailable',
+      variant: 'destructive',
+    });
+  }, [resolution, toast]);
 
   // The pinned generation is watched only while a selection is open: outside
   // that window the host costs nothing. The content port re-checks authority
@@ -99,15 +129,40 @@ export function McpPromptComposerHost() {
         },
         name: entry.promptName,
       });
+      // The dialog is dismissible mid-request (Escape / outside click) and a
+      // modal that cannot be closed is worse UX than one that can, so the ABORT
+      // is allowed and honoured HERE instead: `selection` is captured in this
+      // closure, so without re-reading the store a dismissed request would still
+      // land its text in the composer. Covers a replacing second selection too.
+      if (useMcpPromptSelectionStore.getState().selection !== selection) {
+        logger.info('Discarding an MCP prompt result whose selection was dismissed', {
+          prompt: entry.commandId,
+        });
+        return;
+      }
       const insertion = buildMcpPromptInsertion(response.result);
       if (insertion.text.trim().length === 0) {
         throw new Error(
           `Prompt “${entry.title}” returned no text content, so there is nothing to stage.`
         );
       }
+      // The composer stays editable across the round trip, so the selection-time
+      // split can be stale: replacing with it would silently discard whatever
+      // the user typed (or the fresh draft they started after sending). When the
+      // draft has moved on, the prompt is APPENDED to the live draft instead —
+      // the prompt still arrives, and no user text is lost.
+      const untouched = isComposerDraftUntouched(
+        { draftText: selection.draftText, split },
+        liveDraftText(threadId)
+      );
+      if (!untouched) {
+        logger.info('Composer draft changed while a prompt was loading; appending instead', {
+          prompt: entry.commandId,
+        });
+      }
       useAssistantComposerCommandStore.getState().enqueue({
-        mode: 'replace',
-        text: applyComposerTriggerSplit(split, insertion.text),
+        mode: untouched ? 'replace' : 'append',
+        text: untouched ? applyComposerTriggerSplit(split, insertion.text) : insertion.text,
         threadId,
       });
       if (insertion.omitted.length > 0) {

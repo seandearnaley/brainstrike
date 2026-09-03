@@ -25,7 +25,11 @@ export interface McpPromptArgumentDescriptor {
 
 export interface McpPromptEntry {
   readonly arguments: readonly McpPromptArgumentDescriptor[];
-  /** `mcp:<configuredServerId>:<promptName>` — unique across connected servers. */
+  /**
+   * `mcp:<configuredServerId>:<promptName>` — unique across connected servers.
+   * Both components have `:` and `\` escaped so the id stays injective; see
+   * `escapeCommandIdComponent`.
+   */
   readonly commandId: string;
   /** Whether the server advertises `completion/complete` for argument suggestions. */
   readonly completionSupported: boolean;
@@ -61,11 +65,32 @@ function toArgumentDescriptors(prompt: CatalogPrompt): readonly McpPromptArgumen
   }));
 }
 
+/**
+ * Escape the `:` delimiter (and the escape character itself) inside one command
+ * id component.
+ *
+ * `mcp:<server>:<prompt>` is unique only if the delimiter cannot occur INSIDE a
+ * component, and both components may carry one: `ConfiguredMcpServerIdSchema`
+ * rejects only empty/reserved/whitespace-padded ids and Unicode control or
+ * format characters, and a prompt name is whatever the server published. Plain
+ * concatenation is therefore not injective — server `a` + prompt `b:c` and
+ * server `a:b` + prompt `c` both produce `mcp:a:b:c`, so `selectMcpPromptEntries`
+ * would treat one as a duplicate of the other and DROP a valid prompt, defeating
+ * the cross-server disambiguation the id exists for.
+ *
+ * Escaping rather than percent/length encoding because the id is user-visible:
+ * the popover matches on it and the user types it. Every ordinary id (no `:`, no
+ * `\`) is byte-identical after this, and the menu LABEL keeps the raw values.
+ */
+function escapeCommandIdComponent(value: string): string {
+  return value.replace(/[\\:]/gu, (character) => `\\${character}`);
+}
+
 function toEntry(server: ConnectedServer, prompt: CatalogPrompt): McpPromptEntry {
   const title = displayTitle(prompt.title, prompt.name);
   return {
     arguments: toArgumentDescriptors(prompt),
-    commandId: `${MCP_PROMPT_COMMAND_PREFIX}:${server.configuredServerId}:${prompt.name}`,
+    commandId: `${MCP_PROMPT_COMMAND_PREFIX}:${escapeCommandIdComponent(server.configuredServerId)}:${escapeCommandIdComponent(prompt.name)}`,
     completionSupported: server.catalog?.features.completion === true,
     configuredServerId: server.configuredServerId,
     ...(prompt.description === undefined ? {} : { description: prompt.description }),
@@ -84,7 +109,8 @@ function toEntry(server: ConnectedServer, prompt: CatalogPrompt): McpPromptEntry
  * both carry the configured server id: the user always sees WHICH server a
  * prompt came from. A single server listing one name twice would collide, so
  * the first occurrence wins and the duplicate is dropped rather than producing
- * two identical, indistinguishable rows.
+ * two identical, indistinguishable rows. That drop is only ever a REAL duplicate
+ * because `escapeCommandIdComponent` keeps `<server, prompt>` → id injective.
  */
 export function selectMcpPromptEntries(snapshot: McpHostSnapshot): readonly McpPromptEntry[] {
   const entries: McpPromptEntry[] = [];

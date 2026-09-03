@@ -4,9 +4,11 @@
  * `/commands`, and Agent Skills already flow through. No parallel autocomplete
  * surface is introduced.
  *
- * Desktop-only by construction: `resolveMcpPromptBridge()` returns `null`
+ * Desktop-only by construction: `resolveMcpPromptBridge()` reports `unsupported`
  * without the visible-UI preload, so web offers nothing (capability gating,
- * never `isElectron()`).
+ * never `isElectron()`). A present-but-partial bridge is a DEFECT, not an
+ * unsupported runtime: it also offers nothing here, and `McpPromptComposerHost`
+ * says so out loud.
  *
  * Selecting an entry NEVER sends and never enters model context on its own: it
  * hands the selection to `McpPromptComposerHost`, which fetches `prompts/get`
@@ -57,6 +59,7 @@ function selectPrompt(
   }
   const draftText = useAssistantComposerCommandStore.getState().draftTextByThreadId[threadId] ?? '';
   useMcpPromptSelectionStore.getState().select({
+    draftText,
     entry,
     split: splitComposerTrigger(draftText, entry.commandId),
     threadId,
@@ -71,18 +74,28 @@ function selectPrompt(
  */
 export function useMcpPromptSlashCommands(threadId: string | undefined): readonly SlashCommand[] {
   // Capability detection reads a preload bridge that exists before React
-  // mounts, so resolve it once for the component's lifetime.
-  const [bridge] = useState(resolveMcpPromptBridge);
+  // mounts, so resolve it once for the component's lifetime. A malformed bridge
+  // is surfaced by `McpPromptComposerHost` (always mounted); this hook only has
+  // to offer nothing.
+  const [resolution] = useState(resolveMcpPromptBridge);
+  const bridge = resolution.status === 'ready' ? resolution.bridge : null;
   const [snapshot, setSnapshot] = useState<McpHostSnapshot>(EMPTY_SNAPSHOT);
   const { toast } = useToast();
 
-  // Monotonic generation guard: the initial snapshot read races the pushed
-  // watch events, so only the LATEST request may apply (last-requested-wins).
+  // TWO independent channels feed this state: the initial snapshot read and the
+  // pushed watch events. The effect generation separates effect RUNS but says
+  // nothing about their ordering, so an initial reply issued at revision 4 can
+  // still land after a pushed revision 5 and restore the pre-update list until
+  // some unrelated push arrives. `McpHostSnapshot.revision` is the monotonic
+  // token that closes it: an older snapshot is dropped, never applied.
   const generationRef = useRef(0);
+  const appliedRevisionRef = useRef(-1);
   const applySnapshot = useCallback((next: McpHostSnapshot, generation: number) => {
-    if (generation === generationRef.current) {
-      setSnapshot(next);
+    if (generation !== generationRef.current || next.revision < appliedRevisionRef.current) {
+      return;
     }
+    appliedRevisionRef.current = next.revision;
+    setSnapshot(next);
   }, []);
 
   useEffect(() => {
@@ -90,6 +103,9 @@ export function useMcpPromptSlashCommands(threadId: string | undefined): readonl
       return;
     }
     generationRef.current += 1;
+    // A new generation watches a fresh host: revisions are only comparable
+    // within one, so the applied watermark resets with it.
+    appliedRevisionRef.current = -1;
     const generation = generationRef.current;
     const dispose = bridge.onServerStatusUpdated((event) => {
       applySnapshot({ revision: event.revision, servers: event.servers }, generation);

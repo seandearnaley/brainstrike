@@ -16,6 +16,13 @@ import type { McpPromptEntry } from './mcp-prompt-catalog';
 import type { ComposerTriggerSplit } from './mcp-prompt-text';
 
 export interface McpPromptSelection {
+  /**
+   * The live draft as it stood when the prompt was picked. `prompts/get` is a
+   * round trip and the composer stays editable across it, so the host compares
+   * this against the live draft before replacing anything — see
+   * `isComposerDraftUntouched`.
+   */
+  readonly draftText: string;
   readonly entry: McpPromptEntry;
   /** The live draft split around the typed trigger, captured before it is stripped. */
   readonly split: ComposerTriggerSplit;

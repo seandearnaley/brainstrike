@@ -153,6 +153,14 @@ export function McpPromptDialog({
   };
 
   return (
+    // `onOpenChange` is deliberately NOT gated on `submitting`: Escape and an
+    // outside click stay available while `prompts/get` is in flight, because a
+    // modal the user cannot dismiss is worse than one they can. The abort is
+    // honoured where it matters — `McpPromptComposerHost.stage()` re-reads the
+    // selection after the await and refuses to stage a dismissed request — so
+    // closing here can never leave the prompt text in the composer anyway. The
+    // Cancel BUTTON stays disabled while submitting so the footer does not
+    // advertise an action whose in-flight request it cannot recall.
     <Dialog onOpenChange={() => onCancel()} open={true}>
       <DialogContent
         aria-busy={submitting || undefined}

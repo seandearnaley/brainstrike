@@ -135,6 +135,27 @@ describe('selectMcpPromptEntries', () => {
     expect(withoutCompletion?.completionSupported).toBe(false);
   });
 
+  it('keeps the id injective when a server id or prompt name contains the delimiter', () => {
+    // `ConfiguredMcpServerIdSchema` permits `:`, and a prompt name is whatever the
+    // server published, so plain concatenation collided: server `a` + prompt
+    // `b:c` and server `a:b` + prompt `c` both produced `mcp:a:b:c` and the
+    // `seen` set dropped one VALID prompt.
+    const entries = selectMcpPromptEntries(
+      snapshot([connected('a', [{ name: 'b:c' }]), connected('a:b', [{ name: 'c' }])])
+    );
+
+    expect(entries.map((entry) => entry.commandId)).toEqual(['mcp:a:b\\:c', 'mcp:a\\:b:c']);
+    expect(new Set(entries.map((entry) => entry.commandId)).size).toBe(2);
+    // The LABEL keeps the raw values — escaping is an id concern only.
+    expect(entries.map((entry) => entry.label)).toEqual(['b:c · a', 'c · a:b']);
+  });
+
+  it('leaves an ordinary id byte-identical (nothing to escape)', () => {
+    const entries = selectMcpPromptEntries(snapshot([connected('alpha', [{ name: 'review' }])]));
+
+    expect(entries[0]?.commandId).toBe('mcp:alpha:review');
+  });
+
   it('drops a duplicate prompt name within one server rather than listing two identical rows', () => {
     const entries = selectMcpPromptEntries(
       snapshot([

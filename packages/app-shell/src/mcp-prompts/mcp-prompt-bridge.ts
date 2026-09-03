@@ -4,8 +4,8 @@
  *
  * Desktop-only by construction: the visible-UI preload exposes the
  * `mcp:content:*` bridge plus the revisioned host status channels; web has no
- * preload, so `resolveMcpPromptBridge()` returns `null` and the affordance is
- * never constructed. There is no `isElectron()` branch anywhere.
+ * preload, so `resolveMcpPromptBridge()` reports `unsupported` and the
+ * affordance is never constructed. There is no `isElectron()` branch anywhere.
  *
  * Lives beside the hook/host so the component modules export only components
  * (react-refresh) and so the required-member set can be pinned by tests.
@@ -75,30 +75,47 @@ export const MCP_PROMPT_BRIDGE_REQUIRED_METHODS = Object.keys(
 ) as readonly (keyof McpPromptBridge)[];
 
 /**
- * Resolve the prompt members of `window.mcp`, or `null` when the bridge is
- * absent (web) or malformed (a present-but-broken bridge logs an error and
- * stays absent — no silent degradation).
+ * Why the affordance is or is not available. "This runtime has no prompt bridge"
+ * and "this runtime has a BROKEN prompt bridge" are different states and must
+ * not share a code path: the first is web (and any host packaged without the
+ * content members), a legitimately unsupported capability that stays quiet; the
+ * second is a preload/packaging defect, which AGENTS.md requires to surface
+ * visibly rather than degrade into something indistinguishable from web.
  */
-export function resolveMcpPromptBridge(): McpPromptBridge | null {
+export type McpPromptBridgeResolution =
+  | { readonly bridge: McpPromptBridge; readonly status: 'ready' }
+  | { readonly missing: readonly (keyof McpPromptBridge)[]; readonly status: 'malformed' }
+  | { readonly status: 'unsupported' };
+
+/**
+ * Resolve the prompt members of `window.mcp`.
+ *
+ * `unsupported` when there is no bridge at all (web/SSR) or when the host
+ * exposes `window.mcp` with NONE of the content members (a preload manifest that
+ * legitimately carries only the config members). `malformed` when SOME but not
+ * all are present — a partial bridge can never be used, and the caller must say
+ * so out loud instead of silently presenting web's empty surface.
+ */
+export function resolveMcpPromptBridge(): McpPromptBridgeResolution {
   if (typeof window === 'undefined') {
-    return null;
+    return { status: 'unsupported' };
   }
   const candidate = (window as Window & { mcp?: Partial<McpPromptBridge> }).mcp;
   if (!candidate) {
-    return null;
+    return { status: 'unsupported' };
   }
   const missing = MCP_PROMPT_BRIDGE_REQUIRED_METHODS.filter(
     (method) => typeof candidate[method] !== 'function'
   );
   if (missing.length === MCP_PROMPT_BRIDGE_REQUIRED_METHODS.length) {
     // No content bridge at all (a host that exposes only the config members).
-    return null;
+    return { status: 'unsupported' };
   }
   if (missing.length > 0) {
     logger.error('window.mcp prompt bridge is malformed; composer MCP prompts disabled', {
       missing,
     });
-    return null;
+    return { missing, status: 'malformed' };
   }
-  return candidate as McpPromptBridge;
+  return { bridge: candidate as McpPromptBridge, status: 'ready' };
 }

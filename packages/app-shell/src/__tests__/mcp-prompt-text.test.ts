@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyComposerTriggerSplit,
   buildMcpPromptInsertion,
+  isComposerDraftUntouched,
   splitComposerTrigger,
 } from '../mcp-prompts/mcp-prompt-text';
 
@@ -96,6 +97,32 @@ describe('splitComposerTrigger', () => {
     });
   });
 
+  it('uses the LAST trigger when the earlier one is on another LINE', () => {
+    // `.` never matches `\n`, so a `(?!.*\/mcp:)` lookahead only ever rejected a
+    // later trigger on the SAME line: this split around the first line and left
+    // the token the user actually typed in the draft.
+    expect(splitComposerTrigger('/mcp:a:one\nnote /mcp:a:t', 'mcp:a:two')).toEqual({
+      prefix: '/mcp:a:one\nnote ',
+      suffix: '',
+    });
+  });
+
+  it('splits around a NON-prefix token the substring-matching popover accepted', () => {
+    // The pinned adapter matches `/echo` against the id, label, and description
+    // by substring, so the typed token need not start with `/mcp:`.
+    expect(splitComposerTrigger('note /echo trailing', 'mcp:legacy:echo_reference')).toEqual({
+      prefix: 'note ',
+      suffix: ' trailing',
+    });
+  });
+
+  it('never mistakes a URL path for a trigger', () => {
+    expect(splitComposerTrigger('see https://host/x/y', 'mcp:alpha:review')).toEqual({
+      prefix: 'see https://host/x/y',
+      suffix: '',
+    });
+  });
+
   it('appends when no trigger is present', () => {
     expect(splitComposerTrigger('plain draft', 'mcp:alpha:review')).toEqual({
       prefix: 'plain draft',
@@ -119,5 +146,30 @@ describe('applyComposerTriggerSplit', () => {
 
   it('leaves an empty capture untouched', () => {
     expect(applyComposerTriggerSplit({ prefix: '', suffix: '' }, 'BODY')).toBe('BODY');
+  });
+});
+
+describe('isComposerDraftUntouched', () => {
+  const captured = {
+    draftText: 'before /mcp:a:one after',
+    split: { prefix: 'before ', suffix: ' after' },
+  };
+
+  it('accepts the draft as it stood when the prompt was picked', () => {
+    expect(isComposerDraftUntouched(captured, 'before /mcp:a:one after')).toBe(true);
+  });
+
+  it('accepts the draft the popover leaves once it strips the trigger', () => {
+    // `setText(before + (after.startsWith(' ') ? after.slice(1) : after))`.
+    expect(isComposerDraftUntouched(captured, 'before after')).toBe(true);
+    expect(isComposerDraftUntouched(captured, 'before  after')).toBe(true);
+  });
+
+  it('rejects a draft the user has typed into since selecting', () => {
+    expect(isComposerDraftUntouched(captured, 'before after and more')).toBe(false);
+  });
+
+  it('rejects the empty draft left by sending the message', () => {
+    expect(isComposerDraftUntouched(captured, '')).toBe(false);
   });
 });

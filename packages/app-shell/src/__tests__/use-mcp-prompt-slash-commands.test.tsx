@@ -87,6 +87,9 @@ describe('useMcpPromptSlashCommands', () => {
     expect(result.current).toEqual([]);
   });
 
+  // A partial bridge stays SILENT here on purpose: `McpPromptComposerHost` is
+  // always mounted and owns the one visible report, so the composer surface
+  // cannot double-toast it.
   it('offers nothing when the bridge is present but incomplete', async () => {
     (window as unknown as { mcp?: unknown }).mcp = { getPrompt: vi.fn() };
     const { result } = renderHook(() => useMcpPromptSlashCommands('thread-1'));
@@ -119,6 +122,45 @@ describe('useMcpPromptSlashCommands', () => {
     expect(result.current).toEqual([]);
   });
 
+  it('drops an initial snapshot older than a pushed update that already applied', async () => {
+    // Two independent channels feed the same state. The effect GENERATION
+    // separates effect runs but says nothing about their ordering, so an
+    // initial read issued at revision 4 could still land after a pushed
+    // revision 5 and restore the pre-update prompt list.
+    const servers = [connectedServer('alpha', [{ name: 'review' }])];
+    let resolveInitial: ((snapshot: McpHostSnapshot) => void) | undefined;
+    (window as unknown as { mcp?: unknown }).mcp = {
+      complete: vi.fn(),
+      getPrompt: vi.fn(),
+      getServerStatusSnapshot: vi.fn(
+        () =>
+          new Promise<McpHostSnapshot>((resolve) => {
+            resolveInitial = resolve;
+          })
+      ),
+      onServerStatusUpdated: (listener: StatusListener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const { result } = renderHook(() => useMcpPromptSlashCommands('thread-1'));
+    await waitFor(() => expect(listeners.size).toBe(1));
+
+    act(() => {
+      for (const listener of listeners) {
+        listener({ revision: 5, servers: [] });
+      }
+    });
+    expect(result.current).toEqual([]);
+
+    await act(async () => {
+      resolveInitial?.({ revision: 4, servers } as unknown as McpHostSnapshot);
+      await Promise.resolve();
+    });
+
+    expect(result.current).toEqual([]);
+  });
+
   it('hands the selection and the captured draft split to the host', async () => {
     installBridge([connectedServer('alpha', [{ name: 'review' }])]);
     useAssistantComposerCommandStore
@@ -133,6 +175,9 @@ describe('useMcpPromptSlashCommands', () => {
     expect(selection?.threadId).toBe('thread-1');
     expect(selection?.entry.commandId).toBe('mcp:alpha:review');
     expect(selection?.split).toEqual({ prefix: 'context ', suffix: ' tail' });
+    // The pre-strip draft travels with the selection so the host can tell a
+    // draft the user has since edited from one it may still replace.
+    expect(selection?.draftText).toBe('context /mcp:alpha:review tail');
     expect(useAssistantComposerCommandStore.getState().commandsByThreadId).toEqual({});
   });
 

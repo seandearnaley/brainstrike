@@ -31,10 +31,34 @@ export interface ComposerTriggerSplit {
 }
 
 /**
- * The LAST `/mcp:<partial>` token in the draft — the trigger as it stands when
- * the popover matched by fuzzy search before the id was fully typed.
+ * Every whitespace-delimited `/token` in the draft, in order.
+ *
+ * The pinned popover's `matchesQuery` is a SUBSTRING test over the command id,
+ * label, and description, so the typed token is not necessarily a prefix of the
+ * chosen id: typing `/echo` can match `mcp:legacy:echo_reference`. Anchoring the
+ * partial match on a literal `/mcp:` therefore missed the token the user
+ * actually typed and left it in the staged draft. A generic `/token` covers both
+ * shapes, and the leading-boundary group keeps a URL path (`https://host/x`)
+ * from being mistaken for a trigger.
+ *
+ * `g` + `matchAll` rather than a lookahead: `.` never matches `\n`, so a
+ * `(?!.*…)` "no later trigger" lookahead only ever rejected a later trigger on
+ * the SAME line and a multi-line draft split around the wrong one.
  */
-const PARTIAL_TRIGGER_PATTERN = /\/mcp:\S*(?!.*\/mcp:)/u;
+const TRIGGER_TOKEN_PATTERN = /(?:^|\s)(\/\S*)/gu;
+
+/** The LAST `/token` in the draft, or `null` when the draft carries none. */
+function findLastTriggerToken(draftText: string): { index: number; text: string } | null {
+  let last: { index: number; text: string } | null = null;
+  for (const match of draftText.matchAll(TRIGGER_TOKEN_PATTERN)) {
+    const token = match[1];
+    if (token === undefined) {
+      continue;
+    }
+    last = { index: match.index + match[0].length - token.length, text: token };
+  }
+  return last;
+}
 
 function describeOmitted(message: PromptMessage, index: number): string {
   return `message ${index + 1} (${message.role}): ${message.content.type} content`;
@@ -71,9 +95,9 @@ export function buildMcpPromptInsertion(result: GetPromptResult): McpPromptInser
  * the user wrote before and after it. The popover can be invoked mid-draft, so
  * consuming to end-of-string would silently delete trailing words.
  *
- * The trigger may be the full `/${commandId}` token or the partial prefix that
- * was typed when the popover matched by fuzzy search; with neither present the
- * insertion appends to the draft.
+ * The trigger may be the full `/${commandId}` token or — because the popover
+ * matches by SUBSTRING, not by prefix — whatever `/token` the user actually
+ * typed; with neither present the insertion appends to the draft.
  */
 export function splitComposerTrigger(draftText: string, commandId: string): ComposerTriggerSplit {
   const fullTrigger = `/${commandId}`;
@@ -84,14 +108,44 @@ export function splitComposerTrigger(draftText: string, commandId: string): Comp
       suffix: draftText.slice(fullIndex + fullTrigger.length),
     };
   }
-  const partialMatch = PARTIAL_TRIGGER_PATTERN.exec(draftText);
-  if (partialMatch) {
+  const token = findLastTriggerToken(draftText);
+  if (token) {
     return {
-      prefix: draftText.slice(0, partialMatch.index),
-      suffix: draftText.slice(partialMatch.index + partialMatch[0].length),
+      prefix: draftText.slice(0, token.index),
+      suffix: draftText.slice(token.index + token.text.length),
     };
   }
   return { prefix: draftText, suffix: '' };
+}
+
+/**
+ * Whether the live draft is still the one `split` was computed against.
+ *
+ * `prompts/get` is a round trip and the composer stays editable throughout, so
+ * by the time the result lands the user may have typed more, or sent and
+ * started a fresh draft. Replacing the draft with the SELECTION-time split would
+ * silently discard that text, so the caller reconciles first and appends
+ * instead of replacing whenever this returns `false`.
+ *
+ * Two texts count as untouched because which one is live depends only on
+ * whether React has flushed the popover's own strip, never on the user:
+ * the draft as it stood when the prompt was picked (the trigger still in it),
+ * and the draft the pinned popover leaves behind — it applies
+ * `setText(before + (after.startsWith(' ') ? after.slice(1) : after))` before it
+ * calls `execute`, and the app records that through an effect.
+ */
+export function isComposerDraftUntouched(
+  captured: { readonly draftText: string; readonly split: ComposerTriggerSplit },
+  liveDraftText: string
+): boolean {
+  if (liveDraftText === captured.draftText) {
+    return true;
+  }
+  const { prefix, suffix } = captured.split;
+  if (liveDraftText === `${prefix}${suffix}`) {
+    return true;
+  }
+  return suffix.startsWith(' ') && liveDraftText === `${prefix}${suffix.slice(1)}`;
 }
 
 /**

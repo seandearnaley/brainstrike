@@ -3016,10 +3016,22 @@ projection of the revisioned host snapshot (`mcp-prompts/mcp-prompt-catalog.ts`)
 server that advertises `features.prompts` and listed the prompt is offered, ordered by configured
 server id then prompt name. Two servers may expose the same prompt name, so both the command id
 (`mcp:<configuredServerId>:<promptName>`) and the menu label (`<title> · <configuredServerId>`)
-carry the configured server id. Desktop-only by construction: `resolveMcpPromptBridge()` requires
-all four `window.mcp` members (`complete`, `getPrompt`, `getServerStatusSnapshot`,
-`onServerStatusUpdated`) and a partial bridge disables the surface with an error rather than
-degrading; web has no preload and offers nothing.
+carry the configured server id — with `:` and `\` ESCAPED in both components, because a
+configured server id and a server-authored prompt name may each contain the delimiter and plain
+concatenation is then not injective (server `a` + prompt `b:c` and server `a:b` + prompt `c` both
+produce `mcp:a:b:c`, and the duplicate-drop would discard one valid prompt). Every ordinary id is
+byte-identical after escaping and the LABEL keeps the raw values. The two snapshot channels (the
+initial `getServerStatusSnapshot()` read and the pushed `onServerStatusUpdated` events) are ordered
+by `McpHostSnapshot.revision`, not just by the effect generation: a late-resolving older snapshot is
+DROPPED, so a slow initial read can never restore a list a newer push already replaced.
+
+Desktop-only by construction: `resolveMcpPromptBridge()` requires all four `window.mcp` members
+(`complete`, `getPrompt`, `getServerStatusSnapshot`, `onServerStatusUpdated`) and returns a
+three-state resolution. `unsupported` (no `window.mcp`, or a host exposing NONE of the content
+members) is a legitimately absent capability and stays quiet — that is web. `malformed` (SOME but
+not all members) is a preload/packaging defect: `McpPromptComposerHost`, which is always mounted,
+names the missing members in a destructive toast, so the capability can never vanish into something
+indistinguishable from web. The two states never share a code path.
 
 Selecting a prompt performs NO request. `execute` captures the live draft split around the typed
 trigger (the adapter strips it afterwards, and the popover can be invoked mid-draft, so trailing
@@ -3031,9 +3043,27 @@ an argument-taking prompt opens `McpPromptDialog`, whose inputs call `completion
 submit issues `prompts/get`. The pinned generation is watched for the lifetime of the selection, so
 a server that disconnects mid-selection blocks submission with a visible message instead of
 retargeting another generation — the visible half of a failure the content port would reject anyway.
-The result lands in the composer DRAFT via `assistant-composer-command-store` (`mode: 'replace'`),
-never auto-sent and never eager model context: the same contract as user-defined `/commands` and
-Agent Skills. A single user text message stages verbatim; anything else is role-labelled, and
+The result lands in the composer DRAFT via `assistant-composer-command-store`, never auto-sent and
+never eager model context: the same contract as user-defined `/commands` and Agent Skills. Two
+things are re-checked AFTER the `prompts/get` await, because the composer stays live across it.
+First, the pending selection: the dialog is deliberately still dismissible mid-request (Escape and
+outside click reach `onOpenChange`; a modal that cannot be closed is worse UX than one that can), so
+`stage()` re-reads the selection store and discards a result whose selection was dismissed or
+replaced — the abort is honoured where the write happens, not by disabling the escape hatch. Second,
+the draft: `mode: 'replace'` uses the SELECTION-time split only while the live draft is still the one
+that split was computed against — either the draft as it stood when the prompt was picked, or the
+draft the popover leaves after its own `setText(before + (after.startsWith(' ') ? after.slice(1) :
+after))` strip. Once the user has typed (or sent and started a fresh draft) the prompt is APPENDED to
+the live draft instead, so a slow prompt can never silently overwrite what they wrote.
+
+The typed trigger is located as the LAST whitespace-delimited `/token` in the draft, not as a
+`/mcp:`-prefixed one: the pinned adapter's `matchesQuery` is a SUBSTRING test over id, label, and
+description, so `/echo` legitimately selects `mcp:legacy:echo_reference`, and a `/mcp:`-anchored
+match left that token in the staged draft. The leading-boundary group keeps a URL path from being
+mistaken for a trigger, and scanning all matches (rather than a `(?!.*…)` lookahead, whose `.` never
+matches `\n`) makes the "last trigger wins" rule hold across LINES.
+
+A single user text message stages verbatim; anything else is role-labelled, and
 image/audio/resource parts are REPORTED in a toast rather than dropped, with a prompt carrying no
 text at all failing visibly.
 
