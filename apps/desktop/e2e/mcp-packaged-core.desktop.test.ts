@@ -343,7 +343,53 @@ async function readLifecycleDiagnostics(page: Page): Promise<{ hostPid: number; 
     return { hostPid, reset };
   });
 }
-async function executeAssistantTool(page: Page): Promise<void> {
+/**
+ * Every read here is BOUNDED. `.catch()` converts a rejection but never
+ * shortens the wait that produced it, and this project sets no `actionTimeout`
+ * (Playwright's default is 0 — no timeout), so an unmatched locator would
+ * auto-wait the whole 420s test budget before its catch handler ever ran. An
+ * explicit timeout is the only thing that makes these reads unstallable.
+ */
+const DIAGNOSTIC_READ_TIMEOUT_MS = 2000;
+/**
+ * Dump every observable boundary for a proof that took an unexpected branch:
+ * the shim's decided turns (why the model said what it said), the assistant
+ * transcript, and each tool card's own text. Read-only — it can never hang the
+ * error path it exists to explain.
+ */
+async function describeAssistantState(
+  page: Page,
+  modelProvider: Awaited<ReturnType<typeof startModelProviderShim>>
+): Promise<string> {
+  // `.all()` resolves `nth(i)` lazily, so a transcript re-render between the
+  // enumeration and the reads can leave an index unmatched; an unguarded
+  // `innerText()` would then auto-wait the whole action timeout and reject,
+  // stalling the very error path this function exists to keep fast.
+  const cards = await page
+    .getByTestId('tool-fallback')
+    .all()
+    .catch(() => []);
+  const cardTexts = await Promise.all(
+    cards.map((card) =>
+      card
+        .innerText({ timeout: DIAGNOSTIC_READ_TIMEOUT_MS })
+        .catch((error: unknown) => `<unavailable: ${String(error)}>`)
+    )
+  );
+  const region = await page
+    .getByRole('region', { name: 'Assistant chat' })
+    .innerText({ timeout: DIAGNOSTIC_READ_TIMEOUT_MS })
+    .catch((error: unknown) => `<unavailable: ${String(error)}>`);
+  return [
+    `provider turns: ${JSON.stringify(modelProvider.transcript())}`,
+    `tool cards (${cardTexts.length}): ${JSON.stringify(cardTexts)}`,
+    `assistant region: ${region}`,
+  ].join('\n');
+}
+async function executeAssistantTool(
+  page: Page,
+  modelProvider: Awaited<ReturnType<typeof startModelProviderShim>>
+): Promise<void> {
   await page.keyboard.press('Escape');
   await configureAssistantProvider(page, {
     compositeModelKey: 'openrouter::openai/gpt-5.4',
@@ -356,14 +402,23 @@ async function executeAssistantTool(page: Page): Promise<void> {
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
   const approval = page.getByTestId('assistant-tool-approval-notice');
   const completed = page.getByText('Packaged MCP tool completed.').first();
-  const outcome = await Promise.race([
-    approval.waitFor({ state: 'visible', timeout: 45_000 }).then(() => 'approval' as const),
-    completed.waitFor({ state: 'visible', timeout: 45_000 }).then(() => 'completed' as const),
-  ]);
+  const approvalVisible = approval
+    .waitFor({ state: 'visible', timeout: 45_000 })
+    .then(() => 'approval' as const);
+  const completedVisible = completed
+    .waitFor({ state: 'visible', timeout: 45_000 })
+    .then(() => 'completed' as const);
+  // The racer that loses keeps waiting out its own budget and then rejects
+  // (timeout, or "target closed" once the proof has moved on). Mark both as
+  // handled so a decided race can never also surface an unhandled rejection as
+  // a second, test-less error. `Promise.race` still settles on whichever
+  // promise settles FIRST, so a genuine "neither appeared" still fails here.
+  approvalVisible.catch(() => undefined);
+  completedVisible.catch(() => undefined);
+  const outcome = await Promise.race([approvalVisible, completedVisible]);
   if (outcome === 'completed') {
-    await page.getByRole('button', { exact: true, name: 'Expand details' }).click();
     throw new Error(
-      `MCP tool bypassed approval or failed before suspension: ${await page.getByRole('region', { name: 'Assistant chat' }).innerText()}`
+      `MCP tool bypassed approval or failed before suspension:\n${await describeAssistantState(page, modelProvider)}`
     );
   }
   await approval.getByRole('button', { name: /Approve/u }).click();
@@ -590,7 +645,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const permission = first.window.getByRole('combobox', { name: 'MCP permission' });
     await permission.selectOption('ask');
     await expect(permission).toHaveValue('ask');
-    await executeAssistantTool(first.window);
+    await executeAssistantTool(first.window, modelProvider);
     await executeElicitationTool(first.window, modelProvider);
     await closePackagedDesktop(first);
     first = undefined;

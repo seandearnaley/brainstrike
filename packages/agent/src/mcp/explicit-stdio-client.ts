@@ -1,4 +1,4 @@
-import { Client, type ClientOptions, type JSONObject } from '@modelcontextprotocol/client';
+import type { Client, ClientOptions, JSONObject } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
   composeMcpTransportCapabilities,
@@ -16,7 +16,7 @@ import {
   normalizeMcpListMaxPages,
   normalizeMcpRequestOptions,
 } from './client-policy';
-import { type McpProtocol, toMcpVersionNegotiation } from './config';
+import type { McpProtocol } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
@@ -42,6 +42,13 @@ import type {
   NegotiatedProtocolFacts,
 } from './explicit-http-client';
 import {
+  createExplicitMcpSdkClient,
+  type McpCatalogKind,
+  type McpClientInfo,
+  resolveMcpClientInfo,
+  validateNonEmptyMcpOption,
+} from './explicit-mcp-client-core';
+import {
   installRegisteredExtensionDispatch,
   RegisteredExtensionDispatchLedger,
 } from './registered-extension-dispatch';
@@ -61,7 +68,6 @@ import {
 } from './tasks-extension';
 import { notifyUnexpectedClose } from './unexpected-close-observer';
 
-const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit stdio MCP client is closed';
 const DISCONNECTED_DURING_CONNECT_ERROR_MESSAGE =
   'MCP stdio connection closed during initialization';
@@ -106,10 +112,7 @@ export interface ExplicitStdioMcpClientOptions {
   args?: readonly string[];
   cachePartition?: ClientOptions['cachePartition'];
   clientCapabilities?: McpClientCapabilityOptions;
-  clientInfo?: {
-    name: string;
-    version: string;
-  };
+  clientInfo?: McpClientInfo;
   command: string;
   defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   env?: Readonly<Record<string, string>>;
@@ -140,16 +143,11 @@ interface ActiveConnection {
   transport: StdioClientTransport;
 }
 
-type McpCatalogKind = 'prompts' | 'resource-templates' | 'resources' | 'tools';
-
 interface NormalizedClientOptions {
   args?: string[];
   cachePartition?: ClientOptions['cachePartition'];
   capabilityRuntime: McpClientCapabilityRuntime;
-  clientInfo: {
-    name: string;
-    version: string;
-  };
+  clientInfo: McpClientInfo;
   command: string;
   defaultCacheTtlMs?: ClientOptions['defaultCacheTtlMs'];
   env?: Record<string, string>;
@@ -169,21 +167,9 @@ function closedClientError(): Error {
   return new Error(CLOSED_ERROR_MESSAGE);
 }
 
-function validateNonEmpty(value: string, field: string): string {
-  if (value.trim().length === 0) {
-    throw new Error(`${field} must not be empty`);
-  }
-  return value;
-}
-
 function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedClientOptions {
-  const name = validateNonEmpty(options.name, 'MCP client name');
-  const clientInfo = options.clientInfo ?? {
-    name: `brainstrike-${name}`,
-    version: DEFAULT_CLIENT_VERSION,
-  };
-  validateNonEmpty(clientInfo.name, 'MCP client info name');
-  validateNonEmpty(clientInfo.version, 'MCP client info version');
+  const name = validateNonEmptyMcpOption(options.name, 'MCP client name');
+  const clientInfo = resolveMcpClientInfo(name, options.clientInfo);
   const protocol = options.protocol ?? 'legacy';
   if (options.userPacedAuth && protocol !== 'legacy') {
     throw new Error('MCP user-paced stdio authorization requires legacy protocol policy');
@@ -199,9 +185,9 @@ function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedCli
   });
   return {
     capabilityRuntime: capabilityConfiguration.runtime,
-    clientInfo: { ...clientInfo },
+    clientInfo,
     ...(cachePartition === undefined ? {} : { cachePartition }),
-    command: validateNonEmpty(options.command, 'MCP stdio command'),
+    command: validateNonEmptyMcpOption(options.command, 'MCP stdio command'),
     ...(options.defaultCacheTtlMs === undefined
       ? {}
       : { defaultCacheTtlMs: options.defaultCacheTtlMs }),
@@ -590,28 +576,10 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   private createConnection(): ActiveConnection {
-    const extensions = this.options.extensionRegistry?.toClientExtensionCapabilities();
-    const capabilities = {
-      ...this.options.capabilityRuntime.capabilities,
-      ...(extensions ? { extensions } : {}),
-    };
-    const clientOptions = {
-      capabilities,
-      enforceStrictCapabilities: true,
-      inputRequired: this.options.inputRequired,
-      listMaxPages: this.options.listMaxPages,
-      versionNegotiation: toMcpVersionNegotiation(this.options.protocol),
-      ...(this.options.cachePartition === undefined
-        ? {}
-        : { cachePartition: this.options.cachePartition }),
-      ...(this.options.defaultCacheTtlMs === undefined
-        ? {}
-        : { defaultCacheTtlMs: this.options.defaultCacheTtlMs }),
-      responseCacheStore: this.options.responseCacheStore,
-    } satisfies ClientOptions;
-    const client = new Client(this.options.clientInfo, clientOptions);
-    const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
-    this.featureEvents.install(client);
+    const { capabilityLease, client } = createExplicitMcpSdkClient(
+      this.options,
+      this.featureEvents
+    );
     const extensionDispatchLedger = new RegisteredExtensionDispatchLedger();
     const stdioTransport = new StdioClientTransport({
       command: this.options.command,
