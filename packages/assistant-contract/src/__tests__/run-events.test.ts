@@ -55,4 +55,16 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
     const worktreeKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('worktree.'));
     expect(worktreeKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
   });
+
+  it('declares the MCP discovery skip kind (BST-1602)', () => {
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('mcp.tools.unavailable');
+  });
+
+  it('keeps the MCP discovery skip kind OUT of the `.started` lifecycle namespace', () => {
+    // A standalone breadcrumb: no tool ran and no phase began, so it declares
+    // no terminal and must never be paired against one.
+    const mcpKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('mcp.'));
+    expect(mcpKinds).toEqual(['mcp.tools.unavailable']);
+    expect(mcpKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
+  });
 });

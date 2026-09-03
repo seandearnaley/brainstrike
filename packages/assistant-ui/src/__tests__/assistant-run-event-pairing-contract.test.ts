@@ -136,6 +136,14 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'memory.semantic.completed',
     'memory.working.loaded',
     'memory.working.updated',
+    // BST-1602's MCP discovery skip. Emitted `status: 'failed'`
+    // (`makeMcpDiscoverySkipChunks` in
+    // packages/agent/src/mastra/mcp-discovery-diagnostics.ts), never
+    // `'running'`: the server contributed zero tools and nothing is in flight,
+    // so there is no span to close out. A standalone breadcrumb that stays
+    // VISIBLE rather than paired — pinned by 'forces a skipped MCP server to
+    // stay visible (BST-1602)' in assistant-run-timeline.test.tsx.
+    'mcp.tools.unavailable',
     // BST-1391's forge PR events. `use-forge-run-events.ts` emits these with
     // `status: 'info' | 'completed' | 'failed'` (see `describe()`), NEVER
     // `'running'` — a PR observation is a standalone breadcrumb appended out

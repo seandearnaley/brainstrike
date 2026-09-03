@@ -65,6 +65,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `tool.*` kind carrying the paused call's `toolCallId` and the mapper always
  * emits a `tool-call` part for that id, so without the exemption it would be
  * suppressed as "already carded" at every detail level.
+ *
+ * `mcp.tools.unavailable` (BST-1602) is included for the same reason and is the
+ * cleanest case in this list: an MCP server contributed ZERO tools to the run,
+ * so NOTHING cards it — the tool never entered the map, which is why
+ * `search_tools` reports "0 results". The "Tool execution failed." card the user
+ * does see belongs to the model's follow-up call on that missing tool and
+ * reports the wrong cause. Like `run.failed`/`run.cancelled` it carries no
+ * `toolCallId` and is not `tool.*`, so it needs no card-suppression exemption.
+ * Membership here is load-bearing, not decorative: rows are hidden at default
+ * detail, so a kind added to the contract alone would still report nothing to
+ * the user it exists for.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   const event = readAssistantRunEvent(data);
@@ -72,6 +83,7 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     return false;
   }
   return (
+    event.kind === 'mcp.tools.unavailable' ||
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||
     event.kind === 'tool.approval.requested' ||
