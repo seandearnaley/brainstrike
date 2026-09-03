@@ -1,4 +1,5 @@
 import type { McpHostDiagnostic, McpStableErrorCategory } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import {
   ProtocolError,
   SdkError,
@@ -7,6 +8,8 @@ import {
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
 import { McpBearerCredentialFailure } from './bearer-credential';
+
+const logger = createLogger('McpLifecycleErrors');
 
 export type McpLifecycleFailureCode =
   | 'mcp-auth-callback-timeout'
@@ -145,4 +148,28 @@ export function classifyMcpLifecycleFailure(
     return new McpLifecycleFailure('connection', 'mcp-child-exited', { cause });
   }
   return new McpLifecycleFailure('connection', 'mcp-connection-failed', { cause });
+}
+
+/**
+ * A discarded dynamic client registration means the stored grant can no longer
+ * be used, which the product already models as `authentication-required` with a
+ * Connect affordance. Reporting it as a connection fault instead strands the
+ * server row on a terminal error beside healthy-looking credentials (BST-1597).
+ */
+export function classifyMcpConnectFailure(
+  cause: unknown,
+  diagnostics: readonly McpHostDiagnostic[] | undefined,
+  options: { readonly requiresReauthorization: boolean; readonly server: string }
+): McpLifecycleFailure {
+  const classified = classifyMcpLifecycleFailure(cause, diagnostics);
+  if (classified.code === 'mcp-authentication-required' || !options.requiresReauthorization) {
+    return classified;
+  }
+  logger.warn('MCP OAuth connection failed after its client registration was discarded', {
+    remedy: 'reconnect-required',
+    server: options.server,
+  });
+  return new McpLifecycleFailure('authentication', 'mcp-authentication-required', {
+    cause: classified,
+  });
 }

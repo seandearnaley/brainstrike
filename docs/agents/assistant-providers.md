@@ -3276,12 +3276,43 @@ the protocol algorithms to the installed `@modelcontextprotocol/client@2.0.0`
 implementation: RFC 9728/RFC 8414/OIDC discovery, RFC 9207 issuer checks,
 CIMD/pre-registration/DCR selection, PKCE, RFC 8707 resource binding, refresh,
 one 401 retry, and 403 insufficient-scope step-up. The provider supplies an
-ephemeral `127.0.0.1` callback listener, the validated external-browser handoff,
+stable `127.0.0.1` callback listener, the validated external-browser handoff,
 encrypted state persistence, and a generation-tagged refresh fetch seam. The
 provider fetch must be passed to the SDK transport for refresh coalescing and
 disconnect fencing to apply. The later UX ticket owns the explicit
 Authenticate/Reauthorize action and the startup `authentication_required`
 projection; no background connection may open a browser implicitly.
+
+**Stable loopback port (BST-1597, do not relitigate).** The dynamic client
+registration records `redirect_uris: [http://127.0.0.1:<port>/mcp/oauth/callback]`,
+and `persistedClientSupportsRedirect` compares that URI by exact href. An
+ephemeral port therefore invalidated the registration on **every** relaunch, for
+**every** DCR server, which then burned the authorization allowance and reported
+`mcp-connection-failed` beside stored credentials. The bound port is persisted
+per store identity (configured server + canonical resource + requested scope
+set) as `loopbackPort` on that identity's records, and the next launch rebinds
+it before the provider is constructed — so `loadOAuthStartupState` reads the
+store BEFORE it listens, never concurrently. Per-identity rather than one
+app-wide port because several OAuth servers can be connected at once and each
+needs its own live listener; the port lives with the registration it belongs to,
+inside the same encrypted store, so disconnect and factory reset already clear
+it and no new persistence surface exists. The loopback comparison is
+deliberately NOT relaxed for a differing port: RFC 8252 §7.3 is a SHOULD on the
+authorization server, and trading a deterministic re-registration for an
+`invalid_redirect_uri` the code cannot recover from would be a silent
+degradation. A port another process now owns falls back to a fresh one, reports
+`reportUnavailableLoopbackPort`, and accepts that a re-registration follows.
+
+Discarding a registration means the stored grant is unusable, so the provider
+raises `requiresReauthorization()` and `closeAfterConnectFailure` reclassifies
+the connect fault as `mcp-authentication-required` — the actor's
+`authentication-required` state with a Connect affordance — instead of a
+terminal connection failure. Both reasons are logged, never absorbed. Every
+provider start logs `MCP OAuth loopback callback listener bound` with its port
+and `reusedPersistedPort`; the packaged relaunch proof in
+`apps/desktop/e2e/mcp-packaged-core.desktop.test.ts` asserts the restarted
+launch rebinds the same port, reconnects, and emits no
+`Discarding stale MCP OAuth dynamic client registration` record.
 
 The `2026-07-28` authorization-server migration contract requires a challenged
 bearer request to rediscover protected-resource metadata before selecting the next

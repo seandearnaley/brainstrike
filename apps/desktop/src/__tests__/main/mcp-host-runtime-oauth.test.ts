@@ -4,6 +4,7 @@ import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
+  createMcpOAuthStoreIdentity,
   type McpOAuthClientProvider,
 } from '../../mcp/oauth-client-provider';
 import type { ResolvedMcpServer } from '../../mcp-loader';
@@ -44,6 +45,15 @@ function failingTransportClient() {
     unsubscribeResource: vi.fn(async () => undefined),
     watchServerFeatures: vi.fn(() => vi.fn()),
   };
+}
+
+const staleIssuer = 'https://auth.linear.example';
+
+function requireOAuthProvider(value: unknown): McpOAuthClientProvider {
+  if (!(value && typeof value === 'object' && 'requiresReauthorization' in value)) {
+    throw new Error('MCP host did not pass an OAuth client provider to the transport.');
+  }
+  return value as McpOAuthClientProvider;
 }
 
 afterEach(async () => {
@@ -89,5 +99,46 @@ describe('DesktopMcpHostRuntime OAuth cleanup', () => {
     });
     expect(provider?.close).toHaveBeenCalledOnce();
     await runtime.host.close();
+  });
+});
+
+describe('DesktopMcpHostRuntime OAuth reauthorization', () => {
+  it('reports a discarded client registration as authentication-required, not a connection fault', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    // A record persisted before loopback ports were stable: its dynamic client
+    // registration points at a redirect URI this launch can no longer serve.
+    await store.write(createMcpOAuthStoreIdentity(oauthServer.name, oauthServer.url), {
+      [staleIssuer]: {
+        clientInformation: {
+          client_id: 'stale-client',
+          redirect_uris: ['http://127.0.0.1:65000/mcp/oauth/callback'],
+        },
+        tokens: { access_token: 'stored-access', token_type: 'Bearer' },
+        updatedAt: 1,
+      },
+    });
+    const onInternalError = vi.fn();
+    runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: (options) => ({
+        ...failingTransportClient(),
+        close: vi.fn(async () => undefined),
+        connect: vi.fn(async () => {
+          // The SDK reads client information while recovering from a 401.
+          await requireOAuthProvider(options.authProvider).clientInformation({
+            issuer: staleIssuer,
+          });
+          throw new Error('connect failed');
+        }),
+      }),
+      oauthStore: store,
+      onInternalError,
+      openExternal: vi.fn(async () => undefined),
+    });
+    await runtime.replaceResolvedConfig({ servers: [oauthServer] });
+
+    await expect(
+      runtime.host.control({ action: 'connect', configuredServerId: oauthServer.name })
+    ).rejects.toMatchObject({ category: 'authentication', code: 'mcp-authentication-required' });
+    expect(runtime.host.snapshot().servers[0]?.state).toBe('authentication-required');
   });
 });
