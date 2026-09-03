@@ -101,6 +101,23 @@ describe('createWorkspaceIgnoreMatcher', () => {
     expect(matcher.ignoresDirectory('cache')).toBe(false);
     expect(matcher.ignoresFile('cache/one.md')).toBe(false);
   });
+
+  it('does not let a leaf-only negation bypass an excluded parent directory', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push('', { gitignore: 'workspace/cache/\n' }, { pathPrefix: 'workspace' });
+    matcher.push('', { gitignore: '!cache/keep.md\n' });
+
+    expect(matcher.ignoresFile('cache/keep.md')).toBe(true);
+  });
+
+  it('keeps a descendant-specific exclusion after its parent directory is re-included', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push('', { gitignore: 'workspace/cache/**\n' }, { pathPrefix: 'workspace' });
+    matcher.push('', { gitignore: '!cache/\n' });
+
+    expect(matcher.ignoresDirectory('cache')).toBe(false);
+    expect(matcher.ignoresFile('cache/one.md')).toBe(true);
+  });
 });
 
 describe('createWorkspaceIgnoreMatcher — source precedence', () => {
