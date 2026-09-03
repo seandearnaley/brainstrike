@@ -34,6 +34,7 @@ import {
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
+import type { McpDiscoverySkip } from './mcp-discovery-diagnostics';
 import type { McpRuntimeClient } from './mcp-runtime-client';
 import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
@@ -162,6 +163,17 @@ export interface MastraAgentRuntime {
   /** App-originated admission captured from this runtime's admitted tool map. */
   mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient?: McpRuntimeClient;
+  /**
+   * Every MCP server that contributed ZERO tools to this run (BST-1602) —
+   * discovery lost its timeout race, or that server's `listTools` failed. Empty
+   * when discovery was healthy or no MCP client existed.
+   *
+   * REQUIRED, never optional: an empty array means "discovery was healthy",
+   * which must stay distinguishable from "nobody looked". Consumed by the fresh
+   * turn's stream prelude, which mints one `mcp.tools.unavailable` run event per
+   * entry. Content-free, like {@link tokenDiagnostics} and {@link toolDiscovery}.
+   */
+  mcpDiscoverySkips: readonly McpDiscoverySkip[];
   /**
    * Whether a permission-policy snapshot was enforced when this runtime built its
    * tool map. It DISAMBIGUATES an empty {@link askTools}: empty because a policy
@@ -492,6 +504,7 @@ export async function createMastraAgentRuntime(
     guardedTools,
     mcpAppToolAdmission,
     mcpClient,
+    mcpDiscoverySkips,
     resilienceConfig,
     sanitizedLocalToolIds,
     toolExecutionDurations,
@@ -676,6 +689,7 @@ export async function createMastraAgentRuntime(
     },
     instructionBreakdown,
     mcpAppToolAdmission,
+    mcpDiscoverySkips,
     // Present iff a policy snapshot gated this run's tool map — the signal the
     // resume gate uses to tell all-allowed (empty askTools) from a genuine
     // global-approval run (see resolveResumeApprovalGate / MastraAgentRuntime).

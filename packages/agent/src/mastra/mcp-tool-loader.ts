@@ -8,6 +8,7 @@ import {
 } from '../mcp/tool-registry';
 import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { createMastraAgentError } from './mastra-agent-error';
+import { boundMcpDiscoveryReason, type McpDiscoverySkip } from './mcp-discovery-diagnostics';
 import { measureMcpMultimodalOutput } from './mcp-multimodal-output';
 import {
   type McpRuntimeClient,
@@ -34,6 +35,16 @@ export interface CollectCombinedToolsOptions {
   toolNameMap: Map<string, string>;
 }
 
+export interface CollectCombinedToolsResult {
+  /** Empty when every configured server contributed its tools. */
+  readonly mcpDiscoverySkips: readonly McpDiscoverySkip[];
+  readonly tools: ToolsInput;
+}
+
+type McpDiscoveryOutcome =
+  | { readonly kind: 'discovered'; readonly value: McpToolsetsWithErrors }
+  | { readonly kind: 'skipped'; readonly skip: McpDiscoverySkip };
+
 type McpToolsets = Record<string, ToolsInput>;
 
 export async function collectCombinedTools({
@@ -44,25 +55,30 @@ export async function collectCombinedTools({
   scaledDefaultTokens,
   toolNameMap,
   timeoutOverrideMs,
-}: CollectCombinedToolsOptions): Promise<ToolsInput> {
+}: CollectCombinedToolsOptions): Promise<CollectCombinedToolsResult> {
   const combined: ToolsInput = sanitizedLocalTools ? { ...sanitizedLocalTools } : {};
 
   if (!mcpClient) {
-    return combined;
+    return { mcpDiscoverySkips: [], tools: combined };
   }
 
   const serverList = mcpConfig ? mcpConfig.servers : mcpClient.configuredServers;
   const namedServers = serverList.filter((server) => server?.name);
   if (namedServers.length === 0) {
-    return combined;
+    return { mcpDiscoverySkips: [], tools: combined };
   }
 
   const timeoutMs = resolveMcpTimeoutMs(timeoutOverrideMs);
-  const discovered = await fetchMcpToolsetsWithTimeout(mcpClient, timeoutMs);
-  if (!discovered) {
-    return combined;
+  const outcome = await fetchMcpToolsetsWithTimeout(
+    mcpClient,
+    timeoutMs,
+    namedServers.map((server) => server.name)
+  );
+  if (outcome.kind === 'skipped') {
+    return { mcpDiscoverySkips: [outcome.skip], tools: combined };
   }
-  logMcpToolsetErrors(discovered.errors, timeoutMs);
+  const discovered = outcome.value;
+  const mcpDiscoverySkips = collectMcpToolsetErrors(discovered.errors, timeoutMs);
 
   const isSingleServer = namedServers.length === 1;
   const configuredServerNames = new Set(namedServers.map((server) => server.name));
@@ -90,7 +106,7 @@ export async function collectCombinedTools({
     }
   }
 
-  return combined;
+  return { mcpDiscoverySkips, tools: combined };
 }
 
 type ExecutableTool = ToolsInput[string] & {
@@ -357,10 +373,11 @@ function resolveMcpTimeoutMs(value: number | undefined): number {
 
 async function fetchMcpToolsetsWithTimeout(
   mcpClient: McpRuntimeClient,
-  timeoutMs: number
-): Promise<McpToolsetsWithErrors | undefined> {
+  timeoutMs: number,
+  serverNames: readonly string[]
+): Promise<McpDiscoveryOutcome> {
   try {
-    return await Promise.race([
+    const value = await Promise.race([
       mcpClient.listToolsetsWithErrors(),
       new Promise<never>((_resolve, reject) => {
         const timer = setTimeout(
@@ -375,45 +392,40 @@ async function fetchMcpToolsetsWithTimeout(
         (timer as { unref?: () => void }).unref?.();
       }),
     ]);
+    return { kind: 'discovered', value };
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    logMcpDiscoverySkip('MCP tool discovery skipped', {
+    const reason = boundMcpDiscoveryReason(err);
+    // WARN, unconditionally. The deleted `pickMcpDiscoveryLogMethod` demoted
+    // exactly the two likeliest reasons reaching this catch ("Connection closed"
+    // and `mcp_tool_discovery_timeout`) to `debug`, so at LOG_LEVEL=info a run
+    // that lost EVERY MCP tool left no record at all (BST-1602). The reason
+    // string is never inspected here: which failure it was is the caller's
+    // business, and sniffing it is what made the failure invisible.
+    logger.warn('MCP tool discovery skipped', {
       code: 'mcp_tools_unavailable',
       reason,
+      serverNames,
       timeoutMs,
     });
+    return {
+      kind: 'skipped',
+      skip: { reason, scope: 'client', serverNames: [...serverNames], timeoutMs },
+    };
   }
-  return;
 }
 
-function logMcpToolsetErrors(errors: Record<string, string>, timeoutMs: number): void {
-  for (const [serverName, reason] of Object.entries(errors)) {
-    logMcpDiscoverySkip('MCP server tool discovery skipped', {
+function collectMcpToolsetErrors(
+  errors: Record<string, string>,
+  timeoutMs: number
+): readonly McpDiscoverySkip[] {
+  return Object.entries(errors).map(([serverName, rawReason]) => {
+    const reason = boundMcpDiscoveryReason(rawReason);
+    logger.warn('MCP server tool discovery skipped', {
       code: 'mcp_server_tools_unavailable',
       reason,
       serverName,
       timeoutMs,
     });
-  }
-}
-
-function logMcpDiscoverySkip(
-  message: string,
-  details: {
-    availableServerNames?: string[];
-    code: string;
-    reason: string;
-    serverName?: string;
-    timeoutMs: number;
-  }
-): void {
-  const logMethod = pickMcpDiscoveryLogMethod(details.reason);
-  logMethod(message, details);
-}
-
-function pickMcpDiscoveryLogMethod(reason: string): (...args: unknown[]) => void {
-  if (reason.includes('Connection closed') || reason.includes('mcp_tool_discovery_timeout')) {
-    return logger.debug.bind(logger);
-  }
-  return logger.warn.bind(logger);
+    return { reason, scope: 'server' as const, serverName, timeoutMs };
+  });
 }
