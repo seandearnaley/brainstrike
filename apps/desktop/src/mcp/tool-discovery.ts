@@ -169,6 +169,57 @@ export async function saveToolPreferencesIfNeeded(): Promise<void> {
 }
 
 /**
+ * Every configured server that could own `toolId`.
+ *
+ * A tool id is `${server.name}.${tool.name}` and BOTH halves may contain dots,
+ * so ownership is not decidable from the id alone: `foo.bar.write` is either
+ * server `foo` with tool `bar.write` or server `foo.bar` with tool `write`.
+ * This returns the candidates rather than guessing between them, so the caller
+ * can see the difference between "one configured server owns this", "several
+ * might" and "none can".
+ */
+function findOwningServerCandidates(
+  toolId: string,
+  configuredServerNames: ReadonlySet<string>
+): string[] {
+  const candidates: string[] = [];
+  for (const serverName of configuredServerNames) {
+    if (toolId.startsWith(`${serverName}.`)) {
+      candidates.push(serverName);
+    }
+  }
+  return candidates;
+}
+
+/**
+ * True when `toolId` must survive this pass.
+ *
+ * Two independent reasons, and either is sufficient:
+ *
+ * 1. It is live in the registry right now. An id we can see this run is not
+ *    retired, whatever the config says about prefixes. Without this the write
+ *    could erase a preference the same pass just applied, and
+ *    `ToolRegistry.register` would hand the tool back enabled next run — the
+ *    exact failure this function exists to prevent. It also makes the retained
+ *    set a superset of the applied set by construction, rather than by the
+ *    coincidence that tool ids are built from `config.servers[].name`.
+ * 2. Some configured server could own it. Where ownership is ambiguous (several
+ *    candidates, thanks to dots on both sides) we retain: retiring on an
+ *    ownership we cannot establish is data loss, and over-retaining costs a few
+ *    stale strings. Only an id no configured server can claim is retired.
+ */
+function isRetainedPreferenceId(
+  toolId: string,
+  registeredIds: ReadonlySet<string>,
+  configuredServerNames: ReadonlySet<string>
+): boolean {
+  if (registeredIds.has(toolId)) {
+    return true;
+  }
+  return findOwningServerCandidates(toolId, configuredServerNames).length > 0;
+}
+
+/**
  * The tool-preference projection to apply after discovery.
  *
  * `unavailable` means the preferences file exists but could not be read. The
@@ -188,8 +239,28 @@ export type ToolPreferenceProjection =
    */
   | { status: 'not-read' };
 
+/**
+ * Projects saved tool preferences onto the tools discovered this run.
+ *
+ * Three rules, in precedence order:
+ *
+ * 1. A file we could not read is settled first (BST-1615): return
+ *    `unavailable` and write nothing at all. The retirement question below
+ *    never arises over a file whose contents we do not know.
+ * 2. What we *apply* is scoped to `registeredIds`, because a preference can
+ *    only be projected onto a tool that exists in the registry right now.
+ * 3. What we *keep on disk* is scoped to `configuredServerNames` (BST-1621). A
+ *    server that timed out, failed `tools/list`, or is still spawning under
+ *    `npx` is absent from `registeredIds` through no fault of the user, and
+ *    BST-1603 measured that happening routinely. Pruning on that signal
+ *    silently deleted the user's choices and handed the tools back enabled on
+ *    the next successful run, since `ToolRegistry.register` treats an unseen
+ *    tool as enabled. Only removal from the MCP config retires an id; with no
+ *    configured servers we have no authority to retire anything.
+ */
 export async function loadToolPreferencesForProjection(
-  registeredIds: ReadonlySet<string>
+  registeredIds: ReadonlySet<string>,
+  configuredServerNames: ReadonlySet<string>
 ): Promise<ToolPreferenceProjection> {
   const userDataDir = app.getPath('userData');
   const result = await loadToolPreferences(userDataDir);
@@ -213,35 +284,45 @@ export async function loadToolPreferencesForProjection(
   }
 
   const preferences: ToolPreferences = result.preferences;
-  const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
-  const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
+  const projection: ToolPreferenceProjection = {
+    disabledTools: preferences.disabledTools.filter((id: string) => registeredIds.has(id)),
+    enabledTools: preferences.enabledTools.filter((id: string) => registeredIds.has(id)),
+    status: 'available',
+  };
 
-  const staleCount =
+  if (configuredServerNames.size === 0) {
+    return projection;
+  }
+
+  const isRetained = (id: string): boolean =>
+    isRetainedPreferenceId(id, registeredIds, configuredServerNames);
+  const keptEnabled = preferences.enabledTools.filter(isRetained);
+  const keptDisabled = preferences.disabledTools.filter(isRetained);
+  const retiredCount =
     preferences.enabledTools.length -
-    validEnabled.length +
-    preferences.disabledTools.length -
-    validDisabled.length;
+    keptEnabled.length +
+    (preferences.disabledTools.length - keptDisabled.length);
 
-  if (staleCount > 0) {
-    logger.warn('Discarded stale MCP tool preference ids', {
-      registeredCount: registeredIds.size,
-      staleCount,
+  if (retiredCount > 0) {
+    logger.warn('Discarded MCP tool preference ids for servers removed from config', {
+      configuredServerCount: configuredServerNames.size,
+      retiredCount,
     });
 
     try {
       await saveToolPreferences(userDataDir, {
-        disabledTools: validDisabled,
-        enabledTools: validEnabled,
+        disabledTools: keptDisabled,
+        enabledTools: keptEnabled,
         lastUpdated: Date.now(),
         version: preferences.version,
       });
     } catch (saveError) {
       // Best-effort housekeeping over an already-readable file: the projection
-      // below is still exactly what the user chose, so a failed rewrite only
-      // means the stale ids survive to the next load.
+      // is still exactly what the user chose, so a failed rewrite only means
+      // the retired ids survive to the next load.
       logger.warn('Failed to persist cleaned tool preferences', { error: saveError });
     }
   }
 
-  return { disabledTools: validDisabled, enabledTools: validEnabled, status: 'available' };
+  return projection;
 }

@@ -246,6 +246,9 @@ function getIpcHandler<T extends unknown[]>(
   return handler;
 }
 
+/** Undoes a persistent `listToolsMock` implementation installed by a test. */
+let restoreListTools: (() => void) | null = null;
+
 describe('ipc-mcp tool preference loading', () => {
   beforeEach(() => {
     callOrder.length = 0;
@@ -255,6 +258,8 @@ describe('ipc-mcp tool preference loading', () => {
 
   afterEach(async () => {
     await resumeMcpRuntimeAfterFactoryReset(authority.runtime);
+    restoreListTools?.();
+    restoreListTools = null;
     callOrder.length = 0;
   });
 
@@ -659,5 +664,132 @@ describe('ipc-mcp tool preference loading', () => {
     };
 
     expect(stats.preferencesFault).toBeUndefined();
+  });
+
+  /**
+   * BST-1621. The projection pass used to prune every stored preference id that
+   * was missing from *this run's* discovery and rewrite the file with the
+   * survivors. A server that times out, fails `tools/list`, or is still
+   * spawning under `npx` is missing from that set, so its saved preferences
+   * were deleted -- and came back enabled on the next successful run, because
+   * `ToolRegistry.register` treats an unseen tool as enabled. Retirement is now
+   * keyed on the MCP config, which is the only authority that distinguishes
+   * "the user removed this server" from "this server did not answer today".
+   *
+   * Orthogonal to the BST-1615 fault path above: there the file cannot be read
+   * and no write happens at all, so the question below never arises. Here the
+   * file reads perfectly and gets rewritten with real data removed.
+   */
+
+  function configureTwoServers(): void {
+    loadMcpConfigMock.mockResolvedValueOnce({
+      config: {
+        servers: [
+          { command: 'bin/mock', name: 'mock-server', transport: 'stdio' },
+          { args: ['-y', 'slow'], command: 'npx', name: 'slow-server', transport: 'stdio' },
+        ],
+      },
+      exists: true,
+      path: '/mock/config.json',
+    } as unknown as Awaited<ReturnType<typeof loadMcpConfigMock>>);
+  }
+
+  /**
+   * Discovery answers for `mock-server` and always times out for `slow-server`.
+   *
+   * Keyed on the server name rather than chained `mockImplementationOnce` calls,
+   * which would hard-code "discovery calls listTools exactly twice". A retry, a
+   * reconnect or a second config pass would spill past the chain onto the suite
+   * default, `slow-server` would quietly start succeeding, and every test built
+   * on a failed discovery would keep passing for the wrong reason.
+   *
+   * The implementation is persistent, so it is undone in `afterEach`:
+   * `vi.clearAllMocks()` clears calls but NOT implementations, and this suite
+   * has no `mockReset`/`restoreMocks` behind it -- leaving it installed would
+   * leak `slow-server` failures into every later test in the file.
+   */
+  function failSlowServerDiscovery(): void {
+    const previous = listToolsMock.getMockImplementation();
+    restoreListTools = () => {
+      if (previous) {
+        listToolsMock.mockImplementation(previous);
+      }
+    };
+    listToolsMock.mockImplementation(async (serverName: string) => {
+      if (serverName === 'slow-server') {
+        throw new Error('MCP request timed out after 5000ms');
+      }
+      return {
+        'mock-server.tool.disable': { description: 'Disabled tool' },
+        'mock-server.tool.enable': { description: 'Enabled tool' },
+      };
+    });
+  }
+
+  function storedPreferences(preferences: {
+    disabledTools: string[];
+    enabledTools: string[];
+  }): void {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      preferences: { ...preferences, lastUpdated: 0, version: 1 },
+      status: 'loaded' as const,
+    });
+  }
+
+  it('keeps preferences for a configured server that failed discovery', async () => {
+    configureTwoServers();
+    failSlowServerDiscovery();
+    storedPreferences({
+      disabledTools: ['mock-server.tool.disable', 'slow-server.dangerous_write'],
+      enabledTools: ['mock-server.tool.enable'],
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    // Nothing was retired, so the file must not be rewritten at all.
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+    // The projection still only covers tools that actually exist this run.
+    expect(disableToolsMock).toHaveBeenCalledWith(['mock-server.tool.disable']);
+    expect(enableToolsMock).toHaveBeenCalledWith(['mock-server.tool.enable']);
+  });
+
+  it('does not rewrite the preferences file when every stored id is still configured', async () => {
+    configureTwoServers();
+    failSlowServerDiscovery();
+    storedPreferences({
+      disabledTools: ['slow-server.a', 'slow-server.b'],
+      enabledTools: ['slow-server.c'],
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+  });
+
+  it('prunes preferences only for a server removed from the MCP config', async () => {
+    configureTwoServers();
+    failSlowServerDiscovery();
+    storedPreferences({
+      disabledTools: ['slow-server.dangerous_write', 'retired-server.gone'],
+      enabledTools: ['mock-server.tool.enable', 'retired-server.also_gone'],
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    await vi.waitFor(() => expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1));
+    expect(saveToolPreferencesMock).toHaveBeenCalledWith('mock-user-data', {
+      // The undiscovered but still-configured server keeps its preference.
+      disabledTools: ['slow-server.dangerous_write'],
+      enabledTools: ['mock-server.tool.enable'],
+      lastUpdated: expect.any(Number),
+      version: 1,
+    });
   });
 });

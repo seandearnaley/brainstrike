@@ -255,8 +255,24 @@ async function applyConfigChange(
     return;
   }
   const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
+  // The full configured set, not the discovered subset: a server that failed
+  // discovery is still configured, and only config removal retires its saved
+  // preferences (BST-1621).
+  const configuredServerNames = new Set(config.servers.map((server) => server.name));
+  // Removing the LAST server therefore prunes nothing: no tools are discovered,
+  // so the projection is skipped and that server's preferences stay on disk.
+  // Deliberate, not an oversight. `cfg.exists` would let us tell an explicitly
+  // empty config from an absent one and run a retire-everything pass -- but a
+  // pass whose entire input is "the config is empty" is a mass delete keyed on
+  // the one signal a config-load bug, a partial write, or a mid-edit save all
+  // produce, which is the failure this ticket exists to stop. The cost of not
+  // pruning is a few stale strings; the cost of pruning wrongly is every saved
+  // choice the user has. Re-adding a removed server restoring its prior
+  // preferences is also the friendlier outcome of the two.
   const preferences: ToolPreferenceProjection =
-    toolIds.size > 0 ? await loadToolPreferencesForProjection(toolIds) : { status: 'not-read' };
+    toolIds.size > 0
+      ? await loadToolPreferencesForProjection(toolIds, configuredServerNames)
+      : { status: 'not-read' };
   if (
     !mcpLifecycleOpen ||
     lifecycleEpoch !== mcpLifecycleEpoch ||
