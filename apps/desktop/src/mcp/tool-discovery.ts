@@ -144,23 +144,86 @@ function getFlattenedTools(): Array<{ id: string; enabled: boolean }> {
 }
 
 /**
- * Persist the registry's current enabled/disabled split.
+ * The stored tool states this run's registry is overlaid onto, in file order.
+ *
+ * `disabledTools` is applied after `enabledTools` so an id listed in both wins
+ * as disabled: the schema permits the overlap and re-enabling a tool the user
+ * turned off is the harmful direction to guess in.
+ */
+function readStoredToolStates(preferences: ToolPreferences): Map<string, boolean> {
+  const states = new Map<string, boolean>();
+  for (const id of preferences.enabledTools) {
+    states.set(id, true);
+  }
+  for (const id of preferences.disabledTools) {
+    states.set(id, false);
+  }
+  return states;
+}
+
+/**
+ * Merge the registry's current enabled/disabled split into the stored file.
+ *
+ * This MERGES rather than replaces (BST-1623). `getAllTools()` holds only the
+ * tools discovered on *this* run, so serialising it as the whole file dropped
+ * the saved choices of every server whose discovery failed — one toggle wiped
+ * a slow or erroring server's preferences, the same absence-vs-failure
+ * conflation BST-1621 fixed in the load path. Ids absent from this run are
+ * carried through untouched; retiring one stays keyed on removal from the MCP
+ * config, never on a failed discovery.
+ *
+ * `mcp:tools:reset` shares this write, so a reset now resets exactly the tools
+ * the Settings list shows — the discovered ones — and leaves an undiscovered
+ * server's stored choices alone. That is deliberate: the list cannot show those
+ * tools, so a reset cannot be the user consenting to discard them.
+ *
+ * Refuses the write when the stored file cannot be read (BST-1615): a merge
+ * into an unreadable file degrades into exactly the replace this fixes, over
+ * the user's only copy. That is not the latched session fault
+ * `requireToolPreferencesWritable` covers — the projection pass can have read
+ * the file cleanly and the file broken afterwards — so it is read fresh here.
  *
  * Throws on failure (BST-1615). The caller is a user-initiated settings write:
  * swallowing the error here made the IPC resolve successfully while nothing
  * reached disk, so the toggle silently reverted on the next launch.
  */
 export async function saveToolPreferencesIfNeeded(): Promise<void> {
-  const tools = getFlattenedTools();
-  const enabledTools = tools.filter((t) => t.enabled).map((t) => t.id);
-  const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
+  const userDataDir = app.getPath('userData');
+  const stored = await loadToolPreferences(userDataDir);
+
+  if (stored.status === 'invalid' || stored.status === 'unreadable') {
+    logger.error('MCP tool preferences could not be read; refusing to overwrite them', {
+      kind: stored.status,
+      path: stored.path,
+      reason: stored.reason,
+    });
+    const cause =
+      stored.status === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
+    throw new Error(
+      `MCP tool preferences could not be read from ${stored.path} — ${cause} (${stored.reason}). Your tool change was not saved; the file is left untouched so your saved choices can be recovered. Repair or remove that file and restart the app.`
+    );
+  }
+
+  const states =
+    stored.status === 'loaded'
+      ? readStoredToolStates(stored.preferences)
+      : new Map<string, boolean>();
+  for (const tool of getFlattenedTools()) {
+    states.set(tool.id, tool.enabled);
+  }
+
+  const enabledTools: string[] = [];
+  const disabledTools: string[] = [];
+  for (const [id, enabled] of states) {
+    (enabled ? enabledTools : disabledTools).push(id);
+  }
 
   try {
-    await saveToolPreferences(app.getPath('userData'), {
+    await saveToolPreferences(userDataDir, {
       disabledTools,
       enabledTools,
       lastUpdated: Date.now(),
-      version: 1,
+      version: stored.status === 'loaded' ? stored.preferences.version : 1,
     });
   } catch (error) {
     logger.error('Failed to save tool preferences', { error });
