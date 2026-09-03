@@ -105,7 +105,7 @@ export const mcpHost: McpHostPort = {
   // Required by McpHostPort. No agent test drives server control through this
   // harness, so it throws rather than returning an empty snapshot that would
   // read as "control succeeded, zero servers".
-  control: () => {
+  control: async () => {
     throw new Error('mastra-stream-harness does not mock MCP server control');
   },
   invoke: async (operation) => {

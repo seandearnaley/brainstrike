@@ -1,10 +1,6 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": [
-      "vitest/globals",
-      "node"
-    ],
     "skipLibCheck": true,
     "strictNullChecks": true,
     "noEmit": true,
@@ -27,7 +23,6 @@
     "src/__tests__/data-stream-stall.spec.ts",
     "src/__tests__/data-stream-text-continuity.spec.ts",
     "src/__tests__/fence-spawn.spec.ts",
-    "src/__tests__/fixtures/mastra-stream-harness.ts",
     "src/__tests__/mastra-memory-persistence.integration.spec.ts",
     "src/__tests__/mastra-stream-termination.spec.ts",
     "src/__tests__/mastra-streaming.spec.ts",
