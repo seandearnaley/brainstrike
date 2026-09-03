@@ -5,6 +5,8 @@ import {
   MCP_EXTENSIONS_ENABLED,
   type McpExtensionEnablement,
   type McpHostSnapshot,
+  type McpToolPreferencesFault,
+  type McpToolPreferencesFaultKind,
   parseMcpHostControlRequest,
 } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
@@ -27,7 +29,7 @@ import {
   saveToolPreferencesIfNeeded,
   type ToolPreferenceProjection,
 } from './mcp/tool-discovery';
-import type { McpDiscoveredTool, McpToolPreferencesFault } from './mcp/types';
+import type { McpDiscoveredTool } from './mcp/types';
 import {
   getDefaultMcpConfigTemplate,
   getMcpConfigPath,
@@ -83,12 +85,15 @@ let settingsStoreAccess: McpExtensionPreferencesStoreAccess = () => null;
 let toolPreferencesFault: McpToolPreferencesFault | null = null;
 
 function buildToolPreferencesFaultMessage(fault: {
-  kind: 'invalid' | 'unreadable';
+  kind: McpToolPreferencesFaultKind;
   path: string;
   reason: string;
 }): string {
   const cause = fault.kind === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
-  return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved until that file is repaired or removed; your saved choices were left on disk untouched.`;
+  // The fault latches for the session: nothing watches this file and the guard
+  // does not re-read it, so the instruction has to say restart or it promises a
+  // recovery that will not happen (BST-1615, follow-up BST-1616).
+  return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved, so your saved choices are left on disk untouched. Repair or remove that file and restart the app to recover them.`;
 }
 
 function requireToolPreferencesWritable(): void {
@@ -168,6 +173,13 @@ function rebuildToolRegistry(
     );
   }
 
+  if (preferences.status === 'not-read') {
+    // Nothing was discovered, so the preferences file was never opened. Leaving
+    // any latched fault alone is the whole point: clearing it here would hide
+    // the banner and re-open writes over a file still known to be broken.
+    return;
+  }
+
   if (preferences.status === 'unavailable') {
     // The user's choices exist but are unreadable. `register` defaults an unseen
     // tool to enabled, so proceeding would grant back every tool they disabled.
@@ -244,9 +256,7 @@ async function applyConfigChange(
   }
   const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
   const preferences: ToolPreferenceProjection =
-    toolIds.size > 0
-      ? await loadToolPreferencesForProjection(toolIds)
-      : { disabledTools: [], enabledTools: [], status: 'available' };
+    toolIds.size > 0 ? await loadToolPreferencesForProjection(toolIds) : { status: 'not-read' };
   if (
     !mcpLifecycleOpen ||
     lifecycleEpoch !== mcpLifecycleEpoch ||
@@ -648,8 +658,11 @@ export function registerMcpIpcHandlers({
       }
       requireToolPreferencesWritable();
       mutation();
-      notifyMcpToolsUpdated();
+      // Persist BEFORE telling the renderer. Pushing first made a failed write
+      // paint the toggle in its new position and only then raise the error
+      // banner -- a success signal for a change that never reached disk.
       await saveToolPreferencesIfNeeded();
+      notifyMcpToolsUpdated();
     });
   };
 

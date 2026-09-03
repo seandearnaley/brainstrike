@@ -10,18 +10,6 @@ export interface McpDiscoveredTool {
   inputSchema?: unknown;
 }
 
-/**
- * Reported alongside the MCP tool stats when the tool-preferences file exists
- * but could not be read (BST-1615), so Settings can say so instead of showing a
- * silently reset tool list.
- */
-export interface McpToolPreferencesFault {
-  kind: 'invalid' | 'unreadable';
-  /** User-facing sentence naming the file and what to do about it. */
-  message: string;
-  path: string;
-}
-
 export function connectedStatus(
   source: NegotiatedProtocolFacts,
   base: McpStatusBase

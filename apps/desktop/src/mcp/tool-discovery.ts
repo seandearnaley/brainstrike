@@ -13,6 +13,7 @@ import {
 import {
   type McpHostPort,
   type McpHostSnapshot,
+  type McpToolPreferencesFaultKind,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
@@ -177,7 +178,15 @@ export async function saveToolPreferencesIfNeeded(): Promise<void> {
  */
 export type ToolPreferenceProjection =
   | { status: 'available'; disabledTools: string[]; enabledTools: string[] }
-  | { status: 'unavailable'; kind: 'invalid' | 'unreadable'; path: string; reason: string };
+  | { status: 'unavailable'; kind: McpToolPreferencesFaultKind; path: string; reason: string }
+  /**
+   * No tools were discovered, so the preferences file was not read this pass.
+   * Never returned by `loadToolPreferencesForProjection` — only synthesized by
+   * the caller. It is NOT a synonym for `available`: a pass that never opened
+   * the file cannot clear a latched fault, or a config load that discovers no
+   * tools would un-block writes over a file still known to be broken.
+   */
+  | { status: 'not-read' };
 
 export async function loadToolPreferencesForProjection(
   registeredIds: ReadonlySet<string>

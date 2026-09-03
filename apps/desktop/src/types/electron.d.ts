@@ -15,6 +15,7 @@ import type {
   McpHostSnapshot,
   McpHostWatchEvent,
   McpTaskBridge,
+  McpToolPreferencesFault,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
@@ -551,11 +552,7 @@ declare global {
         enabled: number;
         disabled: number;
         /** Set when the tool-preferences file exists but could not be read (BST-1615). */
-        preferencesFault?: {
-          kind: 'invalid' | 'unreadable';
-          message: string;
-          path: string;
-        };
+        preferencesFault?: McpToolPreferencesFault;
         servers: number;
       }>;
       onToolsUpdated: (

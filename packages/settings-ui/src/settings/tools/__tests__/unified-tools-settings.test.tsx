@@ -860,6 +860,40 @@ describe('UnifiedToolsSettings', () => {
       });
     });
 
+    it('surfaces a failed bulk Enable All instead of dropping the rejection (BST-1615)', async () => {
+      const operations = createMockOperations();
+      operations.enableTools = vi.fn().mockRejectedValue(new Error('ENOSPC: no space left'));
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('enable-all-native')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('enable-all-native'));
+
+      await waitFor(() => {
+        expect(screen.getByText('ENOSPC: no space left')).toBeInTheDocument();
+      });
+    });
+
+    it('surfaces a failed bulk Disable All instead of dropping the rejection (BST-1615)', async () => {
+      const operations = createMockOperations();
+      operations.disableTools = vi.fn().mockRejectedValue(new Error('EACCES: permission denied'));
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('disable-all-native')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('disable-all-native'));
+
+      await waitFor(() => {
+        expect(screen.getByText('EACCES: permission denied')).toBeInTheDocument();
+      });
+    });
+
     it('disables all native tools when Disable All is clicked', async () => {
       const operations = createMockOperations();
 

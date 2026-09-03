@@ -516,22 +516,41 @@ export function UnifiedToolsSettings({
     }
   }, [handleMcpConfigUpdated, operations]);
 
+  // The accordion invokes these through `() => void` props, so a rejection here
+  // is dropped on the floor. They must surface the same way handleToggleTool
+  // does, or a failed write stays invisible for the bulk controls (BST-1615).
   const handleEnableGroup = useCallback(
     async (group: ToolGroup) => {
-      await operations.enableTools(group.tools.map((t) => t.id));
-      await refreshTools();
+      try {
+        await operations.enableTools(group.tools.map((t) => t.id));
+        await refreshTools();
+      } catch (err) {
+        dispatch({
+          error: err instanceof Error ? err.message : 'Failed to enable tools',
+          type: 'SET_ERROR',
+        });
+        return;
+      }
       onToolsChanged?.();
     },
-    [operations, onToolsChanged, refreshTools]
+    [dispatch, operations, onToolsChanged, refreshTools]
   );
 
   const handleDisableGroup = useCallback(
     async (group: ToolGroup) => {
-      await operations.disableTools(group.tools.map((t) => t.id));
-      await refreshTools();
+      try {
+        await operations.disableTools(group.tools.map((t) => t.id));
+        await refreshTools();
+      } catch (err) {
+        dispatch({
+          error: err instanceof Error ? err.message : 'Failed to disable tools',
+          type: 'SET_ERROR',
+        });
+        return;
+      }
       onToolsChanged?.();
     },
-    [operations, onToolsChanged, refreshTools]
+    [dispatch, operations, onToolsChanged, refreshTools]
   );
 
   const handleExpandTool = useCallback(

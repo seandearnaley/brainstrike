@@ -9,6 +9,7 @@ import type {
   McpHostOperationResult,
   McpHostServerSnapshot,
   McpHostSnapshot,
+  McpToolPreferencesFault,
 } from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 
@@ -54,18 +55,8 @@ export interface ToolStats {
    * than the user's choices, so the panel must say so instead of presenting it
    * as normal state. Platforms without persisted MCP preferences omit it.
    */
-  preferencesFault?: ToolPreferencesFault;
+  preferencesFault?: McpToolPreferencesFault;
   total: number;
-}
-
-/**
- * An unreadable saved-preferences file, surfaced to the user.
- */
-export interface ToolPreferencesFault {
-  kind: 'invalid' | 'unreadable';
-  /** User-facing sentence naming the file and what to do about it. */
-  message: string;
-  path: string;
 }
 
 interface BaseToolsLiveQueryConfig {
