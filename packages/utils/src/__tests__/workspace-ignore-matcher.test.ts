@@ -92,6 +92,15 @@ describe('createWorkspaceIgnoreMatcher', () => {
     expect(matcher.ignoresFile('packages/web/keep.generated.ts')).toBe(false);
     expect(matcher.ignoresFile('packages/web/other.generated.ts')).toBe(true);
   });
+
+  it('lets an opened-root scope re-include a directory excluded above that root (BST-1434)', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push('', { gitignore: 'workspace/cache/\n' }, { pathPrefix: 'workspace' });
+    matcher.push('', { gitignore: '!cache/\n' });
+
+    expect(matcher.ignoresDirectory('cache')).toBe(false);
+    expect(matcher.ignoresFile('cache/one.md')).toBe(false);
+  });
 });
 
 describe('createWorkspaceIgnoreMatcher — source precedence', () => {
