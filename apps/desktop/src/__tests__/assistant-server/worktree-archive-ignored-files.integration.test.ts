@@ -38,8 +38,9 @@ describe('WorktreeService ignored-file archive confirmation (real git + real PGl
       name: 'ignored-confirmation',
       rootId: 'r-1',
     });
+    expect(created.ok).toBe(true);
     if (!created.ok) {
-      return;
+      throw new Error(created.error);
     }
     const { worktree } = created.value;
     writeFileSync(path.join(worktree.path, '.env'), 'SECRET=test\n');
@@ -80,8 +81,13 @@ describe('WorktreeService ignored-file archive confirmation (real git + real PGl
     expect(existsSync(worktree.path)).toBe(true);
 
     const currentPreview = await service.inspectArchive({ worktreeId: worktree.id });
+    expect(currentPreview.ok).toBe(true);
     if (!(currentPreview.ok && currentPreview.value.confirmationToken)) {
-      return;
+      throw new Error(
+        currentPreview.ok
+          ? 'Expected the changed ignored-file set to require confirmation.'
+          : currentPreview.error
+      );
     }
     const archived = await service.archive({
       confirmIgnoredEntries: currentPreview.value.confirmationToken,
