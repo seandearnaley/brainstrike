@@ -404,6 +404,25 @@ describe('UnifiedToolsSettings', () => {
       });
     });
 
+    it('surfaces an unreadable tool-preferences file instead of presenting the reset list as normal (BST-1615)', async () => {
+      const operations = createMockOperations();
+      operations.getStats = vi.fn().mockResolvedValue({
+        ...mockStats,
+        preferencesFault: {
+          kind: 'unreadable',
+          message:
+            'MCP tool preferences could not be loaded from /u/mcp/tool-preferences.json — the file could not be read (EACCES: permission denied).',
+          path: '/u/mcp/tool-preferences.json',
+        },
+      });
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/tool-preferences\.json/)).toBeInTheDocument();
+      });
+    });
+
     it('shows an error fallback when a tool group crashes and retries on demand', async () => {
       const operations = createMockOperations();
       ToolGroupAccordionMock.mockImplementation(() => {
@@ -838,6 +857,40 @@ describe('UnifiedToolsSettings', () => {
           'brainstrike.hybridSearch',
           'brainstrike.vectorSearch',
         ]);
+      });
+    });
+
+    it('surfaces a failed bulk Enable All instead of dropping the rejection (BST-1615)', async () => {
+      const operations = createMockOperations();
+      operations.enableTools = vi.fn().mockRejectedValue(new Error('ENOSPC: no space left'));
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('enable-all-native')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('enable-all-native'));
+
+      await waitFor(() => {
+        expect(screen.getByText('ENOSPC: no space left')).toBeInTheDocument();
+      });
+    });
+
+    it('surfaces a failed bulk Disable All instead of dropping the rejection (BST-1615)', async () => {
+      const operations = createMockOperations();
+      operations.disableTools = vi.fn().mockRejectedValue(new Error('EACCES: permission denied'));
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('disable-all-native')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('disable-all-native'));
+
+      await waitFor(() => {
+        expect(screen.getByText('EACCES: permission denied')).toBeInTheDocument();
       });
     });
 

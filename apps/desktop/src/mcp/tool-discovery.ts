@@ -13,6 +13,7 @@ import {
 import {
   type McpHostPort,
   type McpHostSnapshot,
+  type McpToolPreferencesFaultKind,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
@@ -142,12 +143,19 @@ function getFlattenedTools(): Array<{ id: string; enabled: boolean }> {
   return Object.values(allTools).filter(Array.isArray).flat();
 }
 
+/**
+ * Persist the registry's current enabled/disabled split.
+ *
+ * Throws on failure (BST-1615). The caller is a user-initiated settings write:
+ * swallowing the error here made the IPC resolve successfully while nothing
+ * reached disk, so the toggle silently reverted on the next launch.
+ */
 export async function saveToolPreferencesIfNeeded(): Promise<void> {
-  try {
-    const tools = getFlattenedTools();
-    const enabledTools = tools.filter((t) => t.enabled).map((t) => t.id);
-    const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
+  const tools = getFlattenedTools();
+  const enabledTools = tools.filter((t) => t.enabled).map((t) => t.id);
+  const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
 
+  try {
     await saveToolPreferences(app.getPath('userData'), {
       disabledTools,
       enabledTools,
@@ -156,48 +164,84 @@ export async function saveToolPreferencesIfNeeded(): Promise<void> {
     });
   } catch (error) {
     logger.error('Failed to save tool preferences', { error });
+    throw error;
   }
 }
 
+/**
+ * The tool-preference projection to apply after discovery.
+ *
+ * `unavailable` means the preferences file exists but could not be read. The
+ * caller must NOT fall back to "no preferences": an unseen tool registers as
+ * enabled, so that fallback re-enables everything the user had turned off, and
+ * the next toggle would flush that reset over their only copy of the file.
+ */
+export type ToolPreferenceProjection =
+  | { status: 'available'; disabledTools: string[]; enabledTools: string[] }
+  | { status: 'unavailable'; kind: McpToolPreferencesFaultKind; path: string; reason: string }
+  /**
+   * No tools were discovered, so the preferences file was not read this pass.
+   * Never returned by `loadToolPreferencesForProjection` — only synthesized by
+   * the caller. It is NOT a synonym for `available`: a pass that never opened
+   * the file cannot clear a latched fault, or a config load that discovers no
+   * tools would un-block writes over a file still known to be broken.
+   */
+  | { status: 'not-read' };
+
 export async function loadToolPreferencesForProjection(
   registeredIds: ReadonlySet<string>
-): Promise<Pick<ToolPreferences, 'disabledTools' | 'enabledTools'>> {
-  try {
-    const preferences = await loadToolPreferences(app.getPath('userData'));
-    if (!preferences) {
-      return { disabledTools: [], enabledTools: [] };
-    }
+): Promise<ToolPreferenceProjection> {
+  const userDataDir = app.getPath('userData');
+  const result = await loadToolPreferences(userDataDir);
 
-    const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
-    const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
-
-    const staleCount =
-      preferences.enabledTools.length -
-      validEnabled.length +
-      preferences.disabledTools.length -
-      validDisabled.length;
-
-    if (staleCount > 0) {
-      logger.warn('Discarded stale MCP tool preference ids', {
-        registeredCount: registeredIds.size,
-        staleCount,
-      });
-
-      try {
-        await saveToolPreferences(app.getPath('userData'), {
-          disabledTools: validDisabled,
-          enabledTools: validEnabled,
-          lastUpdated: Date.now(),
-          version: preferences.version,
-        });
-      } catch (saveError) {
-        logger.warn('Failed to persist cleaned tool preferences', { error: saveError });
-      }
-    }
-
-    return { disabledTools: validDisabled, enabledTools: validEnabled };
-  } catch (error) {
-    logger.error('Failed to load tool preferences', { error });
-    return { disabledTools: [], enabledTools: [] };
+  if (result.status === 'invalid' || result.status === 'unreadable') {
+    logger.error('MCP tool preferences could not be read; refusing to reset tool state', {
+      kind: result.status,
+      path: result.path,
+      reason: result.reason,
+    });
+    return {
+      kind: result.status,
+      path: result.path,
+      reason: result.reason,
+      status: 'unavailable',
+    };
   }
+
+  if (result.status === 'absent') {
+    return { disabledTools: [], enabledTools: [], status: 'available' };
+  }
+
+  const preferences: ToolPreferences = result.preferences;
+  const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
+  const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
+
+  const staleCount =
+    preferences.enabledTools.length -
+    validEnabled.length +
+    preferences.disabledTools.length -
+    validDisabled.length;
+
+  if (staleCount > 0) {
+    logger.warn('Discarded stale MCP tool preference ids', {
+      registeredCount: registeredIds.size,
+      staleCount,
+    });
+
+    try {
+      await saveToolPreferences(userDataDir, {
+        disabledTools: validDisabled,
+        enabledTools: validEnabled,
+        lastUpdated: Date.now(),
+        version: preferences.version,
+      });
+    } catch (saveError) {
+      // Best-effort housekeeping over an already-readable file: the projection
+      // below is still exactly what the user chose, so a failed rewrite only
+      // means the stale ids survive to the next load.
+      logger.warn('Failed to persist cleaned tool preferences', { error: saveError });
+    }
+  }
+
+  return { disabledTools: validDisabled, enabledTools: validEnabled, status: 'available' };
 }

@@ -29,8 +29,8 @@ describe('tool-persistence', () => {
     await rm(userDataDir, { force: true, recursive: true });
   });
 
-  it('returns undefined when preference file does not exist', async () => {
-    await expect(loadToolPreferences(userDataDir)).resolves.toBeUndefined();
+  it('reports absent when the preference file does not exist', async () => {
+    await expect(loadToolPreferences(userDataDir)).resolves.toMatchObject({ status: 'absent' });
   });
 
   it('saves and loads preferences from disk', async () => {
@@ -40,22 +40,22 @@ describe('tool-persistence', () => {
     await saveToolPreferences(userDataDir, preferences);
     const loaded = await loadToolPreferences(userDataDir);
 
-    expect(loaded).toEqual({
-      ...preferences,
-      lastUpdated: 1_700_000_000_000,
+    expect(loaded).toMatchObject({
+      preferences: { ...preferences, lastUpdated: 1_700_000_000_000 },
+      status: 'loaded',
     });
     nowSpy.mockRestore();
   });
 
-  it('returns undefined for malformed JSON', async () => {
+  it('reports invalid for malformed JSON', async () => {
     const prefsPath = join(userDataDir, 'mcp', 'tool-preferences.json');
     await mkdir(join(userDataDir, 'mcp'), { recursive: true });
     await writeFile(prefsPath, '{"enabledTools":', 'utf-8');
 
-    await expect(loadToolPreferences(userDataDir)).resolves.toBeUndefined();
+    await expect(loadToolPreferences(userDataDir)).resolves.toMatchObject({ status: 'invalid' });
   });
 
-  it('returns undefined for invalid schema', async () => {
+  it('reports invalid for a schema-violating file', async () => {
     const prefsPath = join(userDataDir, 'mcp', 'tool-preferences.json');
     await mkdir(join(userDataDir, 'mcp'), { recursive: true });
     await writeFile(
@@ -69,14 +69,14 @@ describe('tool-persistence', () => {
       'utf-8'
     );
 
-    await expect(loadToolPreferences(userDataDir)).resolves.toBeUndefined();
+    await expect(loadToolPreferences(userDataDir)).resolves.toMatchObject({ status: 'invalid' });
   });
 
-  it('returns undefined when read fails with a non-ENOENT error', async () => {
+  it('reports unreadable when the read fails with a non-ENOENT error', async () => {
     const fileRoot = join(userDataDir, 'not-a-directory');
     await writeFile(fileRoot, 'blocked', 'utf-8');
 
-    await expect(loadToolPreferences(fileRoot)).resolves.toBeUndefined();
+    await expect(loadToolPreferences(fileRoot)).resolves.toMatchObject({ status: 'unreadable' });
   });
 
   it('throws when save fails due to invalid directory path', async () => {

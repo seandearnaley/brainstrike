@@ -263,6 +263,9 @@ export default function SettingsPageContent() {
           disabled: nativeCount + mcpCount - totalEnabled,
           enabled: totalEnabled,
           mcpServers: mcpStats?.servers ?? 0,
+          // BST-1615: an unreadable tool-preferences file is reported here so
+          // Settings says so, rather than showing a silently reset tool list.
+          ...(mcpStats?.preferencesFault ? { preferencesFault: mcpStats.preferencesFault } : {}),
           total: nativeCount + mcpCount,
         };
       },
