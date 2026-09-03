@@ -6,6 +6,7 @@ import type {
   EditDiagnostic,
   InspectLocation,
   LspInspectionResult,
+  LspQueryFailure,
   LspUnavailableReason,
 } from './lsp-diagnostics';
 import {
@@ -117,6 +118,20 @@ function isDiagnostic(value: unknown): value is EditDiagnostic {
   );
 }
 
+function isQueryFailure(value: unknown): value is LspQueryFailure {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value['message'] === 'string' &&
+    (value['query'] === 'definition' ||
+      value['query'] === 'diagnostics' ||
+      value['query'] === 'hover' ||
+      value['query'] === 'implementation') &&
+    (value['reason'] === 'timeout' || value['reason'] === 'error')
+  );
+}
+
 function isInspectLocation(value: unknown): value is InspectLocation {
   if (!isRecord(value)) {
     return false;
@@ -130,7 +145,7 @@ function isInspectLocation(value: unknown): value is InspectLocation {
 
 function hasOptionalArray(
   value: Record<string, unknown>,
-  key: 'definition' | 'diagnostics' | 'implementation',
+  key: 'definition' | 'diagnostics' | 'implementation' | 'queryFailures',
   predicate: (item: unknown) => boolean
 ): boolean {
   const collection = value[key];
@@ -149,7 +164,8 @@ function parseLspInspectResult(output: unknown): LspInspectResult {
       isOptionalString(output['hover']) &&
       hasOptionalArray(output, 'definition', isInspectLocation) &&
       hasOptionalArray(output, 'diagnostics', isDiagnostic) &&
-      hasOptionalArray(output, 'implementation', isInspectLocation)
+      hasOptionalArray(output, 'implementation', isInspectLocation) &&
+      hasOptionalArray(output, 'queryFailures', isQueryFailure)
     )
   ) {
     throw new ToolProjectionInputRejectedError(
@@ -310,7 +326,24 @@ function lspHeader(result: LspInspectResult): string {
   if (!result.available) {
     return `${base} | reason=${result.reason}`;
   }
-  return result.language ? `${base} | language=${singleLine(result.language)}` : base;
+  const withLanguage = result.language ? `${base} | language=${singleLine(result.language)}` : base;
+  const failures = result.queryFailures ?? [];
+  if (failures.length === 0) {
+    return withLanguage;
+  }
+  // BST-1614: name the unanswered groups IN THE HEADER, not only in the
+  // detail lines below — the header is the one line the budget can never
+  // drop, so "definition is absent" can't be read as "there is none".
+  return `${withLanguage} | unanswered=${failures.map((failure) => failure.query).join(',')}`;
+}
+
+/** One unanswered leg, phrased so the omission above cannot read as "none". */
+function formatQueryFailure(failure: LspQueryFailure): string {
+  return `query_unanswered: ${failure.query} | reason=${failure.reason} | ${clipEnd(
+    failure.message,
+    MAX_DIAGNOSTIC_CHARS,
+    'query-failure-message'
+  )}`;
 }
 
 function buildLspProjectionLines(result: LspInspectResult): LspProjectionLine[] {
@@ -355,6 +388,9 @@ export function projectLspInspectModelOutput(
   }
 
   const hover = result.hover ? `hover: ${clipEnd(result.hover, MAX_HOVER_CHARS, 'hover')}` : null;
+  // Failure lines are MANDATORY (like `hover`), never budget-droppable
+  // candidates: dropping them restores the exact ambiguity this fixes.
+  const failureLines = (result.queryFailures ?? []).map(formatQueryFailure);
   const candidates = buildLspProjectionLines(result);
   const totals: Record<LspCollectionKind, number> = {
     definitions: result.definition?.length ?? 0,
@@ -374,6 +410,7 @@ export function projectLspInspectModelOutput(
     const lines = [
       header,
       ...(hover ? [hover] : []),
+      ...failureLines,
       ...keptLines,
       candidate.value,
       ...(omitted ? [omitted] : []),
@@ -386,7 +423,13 @@ export function projectLspInspectModelOutput(
   }
 
   const omitted = omissionSummary(totals, kept);
-  const lines = [header, ...(hover ? [hover] : []), ...keptLines, ...(omitted ? [omitted] : [])];
+  const lines = [
+    header,
+    ...(hover ? [hover] : []),
+    ...failureLines,
+    ...keptLines,
+    ...(omitted ? [omitted] : []),
+  ];
   assertProjectionFits('lspInspect', lines, domainModelResultCharBudget);
   return makeTextModelOutput(lines);
 }

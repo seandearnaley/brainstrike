@@ -212,6 +212,50 @@ describe('workspace inspection model projections', () => {
     );
   });
 
+  it('names unanswered lspInspect queries in the header and a mandatory line (BST-1614)', () => {
+    const projected = projectLspInspectModelOutput({
+      available: true,
+      hover: 'const computeTotal: (a: number) => number',
+      language: 'typescript',
+      path: '/src/caller.ts',
+      queryFailures: [
+        {
+          message:
+            'The definition query timed out after 4000ms; definition locations are UNKNOWN for this symbol — do not conclude it has no definition or is dead code.',
+          query: 'definition',
+          reason: 'timeout',
+        },
+        {
+          message:
+            'The implementation query failed (connection closed); implementations are UNKNOWN for this symbol — do not conclude the interface or type has none.',
+          query: 'implementation',
+          reason: 'error',
+        },
+      ],
+      rootName: 'brainstrike',
+    });
+
+    // The header is the one line the budget can never drop.
+    expect(projected.value).toContain('| unanswered=definition,implementation');
+    expect(projected.value).toContain('query_unanswered: definition | reason=timeout |');
+    expect(projected.value).toContain('query_unanswered: implementation | reason=error |');
+    expect(projected.value).toContain('do not conclude it has no definition');
+    // A partial failure still projects the groups that DID answer.
+    expect(projected.value).toContain('hover: const computeTotal:');
+  });
+
+  it('leaves the header clean when every lspInspect query answered', () => {
+    const projected = projectLspInspectModelOutput({
+      available: true,
+      language: 'typescript',
+      path: '/src/caller.ts',
+      rootName: 'brainstrike',
+    });
+
+    expect(projected.value).not.toContain('unanswered=');
+    expect(projected.value).not.toContain('query_unanswered:');
+  });
+
   it('throws visibly for malformed or incoherent producer results', () => {
     expect(() =>
       projectFindWorkspaceSymbolModelOutput({
@@ -228,6 +272,15 @@ describe('workspace inspection model projections', () => {
         available: true,
         definition: [{ line: 0, path: '/src/a.ts' }],
         path: '/src/caller.ts',
+        rootName: 'brainstrike',
+      })
+    ).toThrow('lspInspect model projection received a malformed result');
+
+    expect(() =>
+      projectLspInspectModelOutput({
+        available: true,
+        path: '/src/caller.ts',
+        queryFailures: [{ message: 'nope', query: 'definition', reason: 'cancelled' }],
         rootName: 'brainstrike',
       })
     ).toThrow('lspInspect model projection received a malformed result');
