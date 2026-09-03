@@ -4205,6 +4205,57 @@ same namespace `manageCanvas`/`manageTaskList` register under), not two,
 because they operate on the same client-local capability surface a model
 should discover together.
 
+### MCP discovery skip reporting (BST-1602)
+
+`collectCombinedTools` returns `{ mcpDiscoverySkips, tools }`. A skip is DATA;
+the loader never decides how loudly it is reported. That coupling was the bug:
+`pickMcpDiscoveryLogMethod` sniffed the failure reason and demoted exactly the
+two likeliest failures — a message containing `"Connection closed"` and
+`mcp_tool_discovery_timeout` — to `logger.debug`, so at `LOG_LEVEL=info` a run
+that lost EVERY MCP tool left no record at all. The heuristic is deleted. Every
+skip logs at `warn`, unconditionally, and the reason string is never inspected.
+
+Two scopes, one row per ACTUAL failure:
+
+- `scope: 'client'` — `listToolsetsWithErrors()` rejected or lost the timeout
+  race, so every configured server contributed nothing. ONE skip, naming every
+  server in `serverNames`. Fanning it out per server would report N failures
+  where one race was lost.
+- `scope: 'server'` — that one server's `listTools` failed (its entry in
+  `McpToolsetsWithErrors.errors`). One skip per failing server.
+
+`reason` is truncated to `MAX_MCP_DISCOVERY_REASON_CHARS` (200) by
+`boundMcpDiscoveryReason` before it becomes run-event metadata:
+`sanitizeAssistantRunEventMetadata` redacts by KEY, not by value, and an HTTP
+transport error can carry a URL.
+
+The skips ride `MastraAgentRuntime.mcpDiscoverySkips` — REQUIRED, never
+optional, so an empty array means "discovery was healthy" and stays
+distinguishable from "nobody looked". `prependMcpDiscoverySkipChunks` mints one
+`mcp.tools.unavailable` run event per skip from
+`createStreamIteratorFromRuntime` — the initial-turn seam, and therefore fresh
+turns only. The approval- and suspend-resume legs route through
+`runTurnAttempts` directly; a resume rebuilds the runtime and re-runs discovery,
+so without that scoping the same rows would be re-emitted on every approval.
+The rows precede `run.started` because discovery genuinely happens first, during
+runtime construction, and the thread-run row is created by
+`repository.createThreadRun` rather than by `run.started`. The durable/timeline
+half of the contract is in `docs/agents/assistant-persistence.md`.
+
+Why the run still answers rather than throwing: one flaky MCP server would
+otherwise break every chat turn, including turns that never needed that server.
+The reduced tool surface is reported, not hidden — which is what the
+no-silent-fallbacks rule requires ("throw OR surface visibly").
+
+NOT changed by BST-1602, and still open: `DEFAULT_MCP_TIMEOUT_MS` is 5000, and
+although `mcpTimeoutMs` is threaded end to end
+(`MastraAgentRuntimeOptions` -> `composeRuntimeToolMap` ->
+`collectCombinedTools.timeoutOverrideMs`), NO production caller supplies it —
+the only two call sites are an e2e helper and a spec, both passing `undefined`.
+So 5s is always the effective production ceiling, including on cold stdio server
+startup. Revisit once the run-event rows show how often the race is actually
+lost.
+
 ### Tool discovery contract (LIVE for hosted Mastra catalog search)
 
 `packages/assistant-contract/src/tool-discovery.ts` is the authoritative
