@@ -44,6 +44,33 @@ export interface LspQueryFailure {
   reason: 'timeout' | 'error';
 }
 
+/**
+ * Ceiling on the transport-error text embedded in a failure message.
+ *
+ * `queryFailures` is a RETURNED value, not only a projected one: the model
+ * projection clips and single-lines whatever it renders, but any other
+ * consumer of `LspInspectionResult` gets these strings raw. A rejected
+ * JSON-RPC request can carry a large `data` payload, so neither
+ * `error.message` nor `String(error)` is bounded in practice — every sibling
+ * string in this file has an explicit ceiling and this one needs the same.
+ */
+const MAX_QUERY_FAILURE_DETAIL_CHARS = 200;
+
+/**
+ * Bound a transport-error detail and collapse it to ONE line, so it can be
+ * embedded in a single-line failure record without breaking its shape.
+ */
+export function boundQueryFailureDetail(value: string): string {
+  const collapsed = value.replace(/\s+/gu, ' ').trim();
+  const codePoints = Array.from(collapsed);
+  if (codePoints.length <= MAX_QUERY_FAILURE_DETAIL_CHARS) {
+    return collapsed;
+  }
+  return `${codePoints.slice(0, MAX_QUERY_FAILURE_DETAIL_CHARS).join('')}…[${
+    codePoints.length - MAX_QUERY_FAILURE_DETAIL_CHARS
+  } detail chars omitted]`;
+}
+
 /** One unanswered leg as the connection reports it (message built here). */
 export interface RawQueryFailure {
   detail?: string;

@@ -24,6 +24,8 @@ const { warnSpy, wire } = vi.hoisted(() => {
     notificationHandlers: new Map<string, (params: unknown) => void>(),
     /** Diagnostics published in response to didOpen (null = never publishes). */
     publish: null as { diagnostics: unknown[]; uri: string } | null,
+    /** Delay before that publish lands, in ms of the fake clock (0 = sync). */
+    publishDelayMs: 0,
     /** Per-method responder; a never-settling promise models a timeout. */
     respond: (_method: string): Promise<unknown> => Promise.resolve(null),
   };
@@ -84,7 +86,16 @@ vi.mock('vscode-jsonrpc/node', () => ({
         (method === 'textDocument/didOpen' || method === 'textDocument/didChange') &&
         wire.publish
       ) {
-        wire.notificationHandlers.get('textDocument/publishDiagnostics')?.(wire.publish);
+        const deliver = () => {
+          if (wire.publish) {
+            wire.notificationHandlers.get('textDocument/publishDiagnostics')?.(wire.publish);
+          }
+        };
+        if (wire.publishDelayMs > 0) {
+          setTimeout(deliver, wire.publishDelayMs);
+        } else {
+          deliver();
+        }
       }
       return Promise.resolve();
     },
@@ -124,6 +135,9 @@ function responder(behaviour: Record<string, 'hang' | 'throw' | unknown>) {
     if (entry === 'throw') {
       return Promise.reject(new Error('connection closed mid-request'));
     }
+    if (entry instanceof Error) {
+      return Promise.reject(entry);
+    }
     return Promise.resolve(entry ?? null);
   };
 }
@@ -151,6 +165,7 @@ describe('lspInspect per-query failures are distinguishable from empty results',
     vi.useFakeTimers();
     warnSpy.mockClear();
     wire.notificationHandlers.clear();
+    wire.publishDelayMs = 0;
     // A real (non-empty) publish so the diagnostics leg settles immediately and
     // only the query under test is slow/broken.
     wire.publish = {
@@ -247,6 +262,125 @@ describe('lspInspect per-query failures are distinguishable from empty results',
       'definition:timeout',
       'implementation:error',
     ]);
+  });
+
+  it('marks the diagnostics leg unanswered when an empty publish lands too late to settle', async () => {
+    // DIAGNOSTIC_TIMEOUT_MS is 6s and DIAGNOSTIC_SETTLE_MS is 700ms. An empty
+    // publish at 5.9s puts an entry in the map but leaves no room for the
+    // settle window, so "clean" was never established. Inferring the answer
+    // from map PRESENCE afterwards reports it as a verified-clean line.
+    wire.publish = { diagnostics: [], uri: FILE_URI };
+    wire.publishDelayMs = 5900;
+    wire.respond = responder({
+      initialize: { capabilities: {} },
+      'textDocument/definition': [LOCATION],
+      'textDocument/hover': null,
+      'textDocument/implementation': [],
+    });
+
+    const result = await inspect();
+
+    expect(result.available).toBe(true);
+    expect(result.diagnostics).toBeUndefined();
+    expect(result.queryFailures).toEqual([
+      expect.objectContaining({ query: 'diagnostics', reason: 'timeout' }),
+    ]);
+  });
+
+  it('does not let a publish arriving DURING the semantic queries fake a settled result', async () => {
+    // The line diagnostics were already captured (empty) before the queries
+    // ran. A publish landing while hover/definition/implementation are still
+    // in flight must not retroactively mark the leg answered.
+    wire.publish = {
+      diagnostics: [
+        {
+          message: 'late arrival',
+          range: { start: { character: 13, line: 0 } },
+          severity: 1,
+          source: 'ts',
+        },
+      ],
+      uri: FILE_URI,
+    };
+    wire.publishDelayMs = 7000;
+    wire.respond = responder({
+      initialize: { capabilities: {} },
+      'textDocument/definition': 'hang',
+      'textDocument/hover': null,
+      'textDocument/implementation': [],
+    });
+
+    const result = await inspect();
+
+    expect(result.available).toBe(true);
+    expect(result.diagnostics).toBeUndefined();
+    expect(result.queryFailures?.map((failure) => `${failure.query}:${failure.reason}`)).toEqual([
+      'diagnostics:timeout',
+      'definition:timeout',
+    ]);
+  });
+
+  it('marks a TIMED-OUT hover as unanswered while siblings still answer', async () => {
+    // Hover is the leg where the collapse is least mechanical: a successful
+    // query legitimately yields `value: undefined`, so "answered, no hover"
+    // and "never answered" both end with no `hover` key.
+    wire.respond = responder({
+      initialize: { capabilities: {} },
+      'textDocument/definition': [LOCATION],
+      'textDocument/hover': 'hang',
+      'textDocument/implementation': [],
+    });
+
+    const result = await inspect();
+
+    expect(result.available).toBe(true);
+    expect(result.hover).toBeUndefined();
+    expect(result.definition?.length).toBe(1);
+    expect(result.queryFailures).toEqual([
+      expect.objectContaining({ query: 'hover', reason: 'timeout' }),
+    ]);
+  });
+
+  it('records NO failure when hover answers with no hover text', async () => {
+    // The hover analogue of the honest-empty control: same absent `hover` key,
+    // opposite meaning, and the two must stay distinguishable.
+    wire.respond = responder({
+      initialize: { capabilities: {} },
+      'textDocument/definition': [LOCATION],
+      'textDocument/hover': { contents: '   ' },
+      'textDocument/implementation': [],
+    });
+
+    const result = await inspect();
+
+    expect(result.available).toBe(true);
+    expect(result.hover).toBeUndefined();
+    expect(result.queryFailures).toBeUndefined();
+  });
+
+  it('bounds and single-lines a huge transport-error detail in the RETURNED record', async () => {
+    // queryFailures is a returned value, not only a projected one: the model
+    // projection clips what it renders, but any other consumer gets this
+    // string raw. A rejected JSON-RPC request can carry a large `data`
+    // payload, so the ceiling has to live at the producer.
+    wire.respond = responder({
+      initialize: { capabilities: {} },
+      'textDocument/definition': [LOCATION],
+      'textDocument/hover': null,
+      'textDocument/implementation': new Error(
+        `boom\n${'payload '.repeat(5000)}\n\ttrailing detail`
+      ),
+    });
+
+    const result = await inspect();
+
+    const failure = result.queryFailures?.[0];
+    expect(failure?.query).toBe('implementation');
+    expect(failure?.reason).toBe('error');
+    // One line, so the `query_unanswered: … | reason=… | …` record shape holds.
+    expect(failure?.message).not.toMatch(/[\n\r]/u);
+    expect(failure?.message.length).toBeLessThan(400);
+    expect(failure?.message).toContain('detail chars omitted');
   });
 
   it('marks the diagnostics leg unanswered when the server never publishes', async () => {

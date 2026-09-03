@@ -388,9 +388,28 @@ export function projectLspInspectModelOutput(
   }
 
   const hover = result.hover ? `hover: ${clipEnd(result.hover, MAX_HOVER_CHARS, 'hover')}` : null;
-  // Failure lines are MANDATORY (like `hover`), never budget-droppable
-  // candidates: dropping them restores the exact ambiguity this fixes.
-  const failureLines = (result.queryFailures ?? []).map(formatQueryFailure);
+  // The prelude sits above the droppable result lines, in PRIORITY order: an
+  // unanswered-query line prevents a WRONG conclusion, while hover is only
+  // informational, so failures outrank it under budget pressure.
+  //
+  // Nothing here is unconditional. `domainModelResultCharBudget` is per-run
+  // (resolveScaledToolResultBudget clamps the domain allowance to 500..3000
+  // tokens, so a small context window floors it at 2000 chars), and a maximal
+  // header + hover + three failure lines runs to roughly 4.2k. Forcing them in
+  // would make the closing assertProjectionFits THROW — turning a degraded but
+  // useful inspection into a failed tool call, exactly when the language
+  // server is already misbehaving. The header keeps `unanswered=<queries>`
+  // whatever gets dropped, so the "absent group is not verified-empty" signal
+  // never depends on a line that fits.
+  const prelude: string[] = [];
+  for (const line of [
+    ...(result.queryFailures ?? []).map(formatQueryFailure),
+    ...(hover ? [hover] : []),
+  ]) {
+    if (decodedChars([header, ...prelude, line]) <= domainModelResultCharBudget) {
+      prelude.push(line);
+    }
+  }
   const candidates = buildLspProjectionLines(result);
   const totals: Record<LspCollectionKind, number> = {
     definitions: result.definition?.length ?? 0,
@@ -409,8 +428,7 @@ export function projectLspInspectModelOutput(
     const omitted = omissionSummary(totals, candidateKept);
     const lines = [
       header,
-      ...(hover ? [hover] : []),
-      ...failureLines,
+      ...prelude,
       ...keptLines,
       candidate.value,
       ...(omitted ? [omitted] : []),
@@ -423,13 +441,10 @@ export function projectLspInspectModelOutput(
   }
 
   const omitted = omissionSummary(totals, kept);
-  const lines = [
-    header,
-    ...(hover ? [hover] : []),
-    ...failureLines,
-    ...keptLines,
-    ...(omitted ? [omitted] : []),
-  ];
+  const lines = [header, ...prelude, ...keptLines, ...(omitted ? [omitted] : [])];
+  // The header is the only unconditional line, and it is self-bounding (root
+  // and path are clipped), so this assertion can no longer be tripped by a
+  // degraded inspection — it stays as a genuine invariant check.
   assertProjectionFits('lspInspect', lines, domainModelResultCharBudget);
   return makeTextModelOutput(lines);
 }

@@ -1691,20 +1691,44 @@ capability-gated, no `isElectron()`).
   `null`. Every leg that did not answer lands in `LspInspectionResult.queryFailures`
   as `{query, reason:'timeout'|'error', message}`, where `query` is named for the RESULT FIELD it fills (`hover` / `diagnostics` /
   `definition` / `implementation`) and `message` says what is UNKNOWN and what
-  not to conclude ("do not conclude it has no definition or is dead code"). The
-  diagnostics leg is covered by the same rule via the `diagnostics` map miss —
-  `syncDocument` clears the prior publish, so no entry means the server never
-  answered for THIS content, exactly the distinction `getEditDiagnostics`
-  already draws with `hasPublishedFor`. Three invariants, all test-pinned:
+  not to conclude ("do not conclude it has no definition or is dead code").
+  `detail` text from a rejected request is bounded and collapsed to one line by
+  `boundQueryFailureDetail` AT THE PRODUCER: `queryFailures` is a RETURNED
+  value, and a consumer other than the projection gets these strings raw.
+  Four invariants, all test-pinned:
   (1) a partial failure NEVER flips `available` to false — a hover that worked
   is still returned alongside the failures; (2) the failures are logged with
   `logger.warn`, visible at the DEFAULT `INFO` level, so a human chasing a
   wrong "no definition" claim finds the cause without enabling debug logging;
-  (3) the model projection puts `| unanswered=<queries>` in the HEADER and the
-  `query_unanswered:` detail lines in the MANDATORY block beside `hover` — never
-  among the budget-droppable candidates, since dropping them restores the exact
-  ambiguity. Do not reintroduce a bare `catch { return []; }` on either query,
-  and do not give `withTimeout` a fallback that a real answer could equal.
+  (3) `| unanswered=<queries>` goes in the projection HEADER, which is the only
+  unconditional line and is self-bounding, so the "absent group is not
+  verified-empty" signal never depends on a line that fits; (4) the
+  `query_unanswered:` detail lines sit in a PRIORITY-ORDERED prelude above the
+  droppable result lines — ahead of `hover`, because they prevent a wrong
+  conclusion while hover is only informational — but the prelude is itself
+  fit-aware. `domainModelResultCharBudget` is per-run (`resolveScaledToolResult
+  Budget` clamps the domain allowance to 500..3000 tokens, so a small context
+  window floors it at 2000 chars) and a maximal header + three failure lines +
+  clipped hover measures 4338 chars, so forcing them in would make the closing
+  `assertProjectionFits` THROW — failing the tool call outright exactly when
+  the language server is already misbehaving. Do not make any prelude line
+  unconditional. Do not reintroduce a bare `catch { return []; }` on either
+  query, and do not give `withTimeout` a fallback that a real answer could
+  equal.
+- **Diagnostics settlement is RETURNED, never inferred from the map
+  (BST-1614).** `waitForDiagnostics` resolves to a `DiagnosticsWait` —
+  `{settled:true, diagnostics}` only for a non-empty publish or an empty one
+  that survived the FULL `DIAGNOSTIC_SETTLE_MS` window, `{settled:false}`
+  otherwise — and both `diagnose`/`getEditDiagnostics` and `inspect` read that
+  value. The old `hasPublishedFor` map probe is gone, and re-adding one is a
+  regression: the diagnostics map is mutable and shared, so (a) a preliminary
+  empty publish landing near the 6s deadline leaves an entry behind while the
+  settle window never completes, and (b) a publish arriving during the up-to-4s
+  semantic queries repopulates it after `inspect` already captured the line
+  diagnostics. Either way a post-hoc `has()` reports a never-settled leg as
+  ANSWERED, resurrecting the false "this line is clean" verdict inside the very
+  leg added to prevent it. Both paths are pinned in
+  `lsp-inspect-query-failures.test.ts`.
   Pinned by
   `apps/desktop/src/__tests__/assistant-server/lsp-inspect-query-failures.test.ts`
   (fake JSON-RPC wire: per-query timeout, throw, and the mixed case) plus the

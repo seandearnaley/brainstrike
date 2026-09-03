@@ -244,6 +244,46 @@ describe('workspace inspection model projections', () => {
     expect(projected.value).toContain('hover: const computeTotal:');
   });
 
+  it('never throws when the unanswered-query lines alone exceed a scaled-down budget', () => {
+    // domainModelResultCharBudget is per-run: resolveScaledToolResultBudget
+    // clamps the domain allowance to 500..3000 tokens, so the FLOOR a small
+    // context window produces is 2000 chars. Header + a max-length hover +
+    // three failure lines is ~4.2k, so the non-droppable block alone blows a
+    // floor budget — and these lines exist precisely to keep a degraded
+    // inspection readable, so they must never be what sinks it.
+    const raw = {
+      available: true,
+      hover: 'hover text '.repeat(400),
+      language: 'typescript',
+      path: `/src/${'deep/'.repeat(150)}caller.ts`,
+      queryFailures: [
+        {
+          message: `diagnostics unknown ${'d'.repeat(900)}`,
+          query: 'diagnostics',
+          reason: 'timeout',
+        },
+        {
+          message: `definition unknown ${'f'.repeat(900)}`,
+          query: 'definition',
+          reason: 'timeout',
+        },
+        {
+          message: `implementation unknown ${'i'.repeat(900)}`,
+          query: 'implementation',
+          reason: 'error',
+        },
+      ],
+      rootName: 'brainstrike',
+    };
+
+    const projected = projectLspInspectModelOutput(raw, 2000);
+
+    // The header carries the unanswered fact even when every detail line is
+    // dropped, so the "absent group is not verified-empty" signal survives.
+    expect(projected.value).toContain('unanswered=diagnostics,definition,implementation');
+    expect(serializedChars(projected)).toBeLessThanOrEqual(2000);
+  });
+
   it('leaves the header clean when every lspInspect query answered', () => {
     const projected = projectLspInspectModelOutput({
       available: true,

@@ -49,6 +49,7 @@ import type {
   PublishDiagnosticsParams,
 } from 'vscode-languageserver-protocol/node';
 import {
+  boundQueryFailureDetail,
   clipHover,
   DIAGNOSTIC_TIMEOUT_MS,
   type InspectLocation,
@@ -276,8 +277,29 @@ type QueryOutcome<T> =
   | { detail?: string; ok: false; reason: 'timeout' | 'error' }
   | { ok: true; value: T };
 
+/**
+ * Outcome of waiting for a document's diagnostics (BST-1614).
+ *
+ * `settled:true` means the server ANSWERED for this content: either a
+ * non-empty publish, or an empty one that survived the full
+ * `DIAGNOSTIC_SETTLE_MS` window. Everything else is `settled:false` — the
+ * "clean" verdict was never established.
+ *
+ * This is returned rather than inferred afterwards from the diagnostics map on
+ * purpose. The map is MUTABLE and shared: a preliminary empty publish landing
+ * near the deadline leaves an entry behind without the settle window ever
+ * completing, and a publish arriving during the (up to 4s) semantic queries
+ * repopulates it after the line diagnostics were already captured. In both
+ * cases a later `has()` check reports a never-settled leg as answered, which
+ * is precisely the "empty means two things" defect this file is fixing. Do not
+ * reintroduce a post-hoc map read to decide settlement.
+ */
+type DiagnosticsWait = { diagnostics: RawDiagnostic[]; settled: true } | { settled: false };
+
+/** Transport-error text for a failure record: bounded and single-lined at the
+ * producer, so no consumer of `queryFailures` receives an unbounded string. */
 function errorDetail(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return boundQueryFailureDetail(error instanceof Error ? error.message : String(error));
 }
 
 /**
@@ -526,7 +548,7 @@ class LspServerConnection {
     absolutePath: string,
     content: string,
     languageId: string
-  ): Promise<RawDiagnostic[]> {
+  ): Promise<DiagnosticsWait> {
     await this.ensureInitialized();
     this.syncDocument(absolutePath, content, languageId);
     return this.waitForDiagnostics(diagnosticsKey(absolutePath));
@@ -558,7 +580,7 @@ class LspServerConnection {
     // Let the server analyse the freshly-opened document before querying
     // (the same settle rationale as diagnostics — queries on an un-indexed
     // file return empty).
-    const lineDiagnostics = await this.waitForDiagnostics(diagnosticsKey(absolutePath));
+    const diagnosticsWait = await this.waitForDiagnostics(diagnosticsKey(absolutePath));
     const [hover, definition, implementation] = await Promise.all([
       this.queryHover(uri, position),
       this.queryLocations(LSP.definition, uri, position),
@@ -574,11 +596,11 @@ class LspServerConnection {
         ...(hover.detail ? { detail: hover.detail } : {}),
       });
     }
-    // A diagnostics MISS is the same ambiguity one level up: syncDocument
-    // cleared the prior publish, so no entry at all means the server never
-    // answered for THIS content — not that the line is clean. (getEditDiagnostics
-    // already makes exactly this distinction via hasPublishedFor.)
-    if (!this.diagnostics.has(diagnosticsKey(absolutePath))) {
+    // The diagnostics leg is the same ambiguity one level up. Read the outcome
+    // CAPTURED before the queries ran — re-reading the map here would let a
+    // publish that arrived mid-query (or a never-settled empty one) pass as a
+    // verified-clean line.
+    if (!diagnosticsWait.settled) {
       failures.push({ query: 'diagnostics', reason: 'timeout' });
     }
     if (!definition.ok) {
@@ -597,7 +619,7 @@ class LspServerConnection {
     }
     return {
       definition: definition.ok ? definition.value : [],
-      diagnostics: lineDiagnostics.filter(
+      diagnostics: (diagnosticsWait.settled ? diagnosticsWait.diagnostics : []).filter(
         (entry) => (entry.range?.start?.line ?? -1) === position.line
       ),
       failures,
@@ -650,33 +672,29 @@ class LspServerConnection {
     }
   }
 
-  private async waitForDiagnostics(key: string): Promise<RawDiagnostic[]> {
+  private async waitForDiagnostics(key: string): Promise<DiagnosticsWait> {
     const deadline = Date.now() + DIAGNOSTIC_TIMEOUT_MS;
     let firstEmptyAt: number | undefined;
     while (Date.now() < deadline && !this.disposed) {
       const current = this.diagnostics.get(key);
       if (current !== undefined) {
         if (current.length > 0) {
-          return current;
+          return { diagnostics: current, settled: true };
         }
         // Empty publish: give the server a settle window to upgrade it to a
         // real result before trusting the "clean" verdict.
         if (firstEmptyAt === undefined) {
           firstEmptyAt = Date.now();
         } else if (Date.now() - firstEmptyAt >= DIAGNOSTIC_SETTLE_MS) {
-          return [];
+          return { diagnostics: [], settled: true };
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 40));
     }
-    // Timed out before any publish (or while settling) — return whatever we
-    // have; the caller distinguishes "no publish at all" via the map miss.
-    return this.diagnostics.get(key) ?? [];
-  }
-
-  /** Whether any publish (even empty) was seen for this document. */
-  hasPublishedFor(absolutePath: string): boolean {
-    return this.diagnostics.has(diagnosticsKey(absolutePath));
+    // Deadline (or disposal) won. An empty publish may well be sitting in the
+    // map, but its settle window never completed, so "clean" was never
+    // established — that is NOT an answer.
+    return { settled: false };
   }
 
   dispose(): Promise<void> {
@@ -825,9 +843,11 @@ export async function getEditDiagnostics(
     // each other's diagnostics through the shared per-connection state.
     return await withDiagnoseLock(diagnosticsKey(args.absolutePath), async () => {
       const connection = await acquireLspServer(args.rootId, args.rootPath, server);
-      const raw = await connection.diagnose(args.absolutePath, args.content, language);
-      if (!connection.hasPublishedFor(args.absolutePath)) {
-        // No publish arrived within the budget — honest timeout note.
+      const wait = await connection.diagnose(args.absolutePath, args.content, language);
+      if (!wait.settled) {
+        // No publish settled within the budget — honest timeout note. This
+        // covers a publish that never arrived AND an empty one whose settle
+        // window was cut short by the deadline; neither established "clean".
         return {
           available: false,
           language,
@@ -835,7 +855,7 @@ export async function getEditDiagnostics(
           reason: 'timeout',
         };
       }
-      const bounded = boundDiagnostics(raw);
+      const bounded = boundDiagnostics(wait.diagnostics);
       return {
         available: true,
         diagnosticCount: bounded.total,
