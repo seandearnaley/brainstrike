@@ -2713,6 +2713,16 @@ Remote transport rules:
   `StreamableHTTPClientTransport`.
 - `sse` is the deprecated HTTP+SSE compatibility transport. It constructs only
   `SSEClientTransport`, even when its URL ends in `/mcp`.
+- Interactive OAuth completion (`authorizationCallbackSource`) and OAuth scope
+  step-up (`maxStepUpRetries`, `onInsufficientScope`) are Streamable-HTTP-only.
+  Configuring any of them with `transport: "sse"` throws at client construction
+  naming the unsupported combination; the SSE transport never silently drops
+  them. Adding either capability to legacy HTTP+SSE is out of scope (BST-1605).
+- `authorizationCallbackTimeoutMs` only ever applies while building the
+  interactive completion, which a missing `authorizationCallbackSource` skips,
+  so passing it alone throws on EVERY transport rather than being accepted and
+  ignored. The guard is not SSE-specific: the same orphan option on
+  `streamable-http` is refused for the same reason.
 - There is NO automatic Streamable HTTP → SSE fallback. The MCP specification
   describes that fallback as an OPTIONAL compatibility strategy for ambiguous
   URLs; Brainstrike removes the ambiguity by requiring the user to select the
