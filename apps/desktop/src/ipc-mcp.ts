@@ -172,9 +172,13 @@ async function applyConfigChange(
     return;
   }
   const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
+  // The full configured set, not the discovered subset: a server that failed
+  // discovery is still configured, and only config removal retires its saved
+  // preferences (BST-1621).
+  const configuredServerNames = new Set(config.servers.map((server) => server.name));
   const preferences =
     toolIds.size > 0
-      ? await loadToolPreferencesForProjection(toolIds)
+      ? await loadToolPreferencesForProjection(toolIds, configuredServerNames)
       : { disabledTools: [], enabledTools: [] };
   if (
     !mcpLifecycleOpen ||

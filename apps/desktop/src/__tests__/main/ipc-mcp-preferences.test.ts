@@ -389,4 +389,108 @@ describe('ipc-mcp tool preference loading', () => {
     );
     expect(disableToolsMock).not.toHaveBeenCalledWith(['retired.tool']);
   });
+
+  /**
+   * BST-1621. The projection pass used to prune every stored preference id that
+   * was missing from *this run's* discovery and rewrite the file with the
+   * survivors. A server that times out, fails `tools/list`, or is still
+   * spawning under `npx` is missing from that set, so its saved preferences
+   * were deleted -- and came back enabled on the next successful run, because
+   * `ToolRegistry.register` treats an unseen tool as enabled. Retirement is now
+   * keyed on the MCP config, which is the only authority that distinguishes
+   * "the user removed this server" from "this server did not answer today".
+   *
+   * These stay in this describe deliberately: a second describe over the same
+   * ipc-mcp singleton leaves in-flight config reloads running into the next
+   * test.
+   */
+
+  function configureTwoServers(): void {
+    loadMcpConfigMock.mockResolvedValueOnce({
+      config: {
+        servers: [
+          { command: 'bin/mock', name: 'mock-server', transport: 'stdio' },
+          { args: ['-y', 'slow'], command: 'npx', name: 'slow-server', transport: 'stdio' },
+        ],
+      },
+      exists: true,
+      path: '/mock/config.json',
+    } as unknown as Awaited<ReturnType<typeof loadMcpConfigMock>>);
+  }
+
+  /** Discovery answers for `mock-server` and times out for `slow-server`. */
+  function failSlowServerDiscovery(): void {
+    const perServer = async (serverName: string) => {
+      if (serverName === 'slow-server') {
+        throw new Error('MCP request timed out after 5000ms');
+      }
+      return {
+        'mock-server.tool.disable': { description: 'Disabled tool' },
+        'mock-server.tool.enable': { description: 'Enabled tool' },
+      };
+    };
+    listToolsMock.mockImplementationOnce(perServer).mockImplementationOnce(perServer);
+  }
+
+  it('keeps preferences for a configured server that failed discovery', async () => {
+    configureTwoServers();
+    failSlowServerDiscovery();
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      disabledTools: ['mock-server.tool.disable', 'slow-server.dangerous_write'],
+      enabledTools: ['mock-server.tool.enable'],
+      lastUpdated: 0,
+      version: 1,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    // Nothing was retired, so the file must not be rewritten at all.
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+    // The projection still only covers tools that actually exist this run.
+    expect(disableToolsMock).toHaveBeenCalledWith(['mock-server.tool.disable']);
+    expect(enableToolsMock).toHaveBeenCalledWith(['mock-server.tool.enable']);
+  });
+
+  it('does not rewrite the preferences file when every stored id is still configured', async () => {
+    configureTwoServers();
+    failSlowServerDiscovery();
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      disabledTools: ['slow-server.a', 'slow-server.b'],
+      enabledTools: ['slow-server.c'],
+      lastUpdated: 0,
+      version: 1,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+  });
+
+  it('prunes preferences only for a server removed from the MCP config', async () => {
+    configureTwoServers();
+    failSlowServerDiscovery();
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      disabledTools: ['slow-server.dangerous_write', 'retired-server.gone'],
+      enabledTools: ['mock-server.tool.enable', 'retired-server.also_gone'],
+      lastUpdated: 0,
+      version: 1,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    await vi.waitFor(() => expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1));
+    expect(saveToolPreferencesMock).toHaveBeenCalledWith('mock-user-data', {
+      // The undiscovered but still-configured server keeps its preference.
+      disabledTools: ['slow-server.dangerous_write'],
+      enabledTools: ['mock-server.tool.enable'],
+      lastUpdated: expect.any(Number),
+      version: 1,
+    });
+  });
 });

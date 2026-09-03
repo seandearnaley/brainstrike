@@ -159,8 +159,44 @@ export async function saveToolPreferencesIfNeeded(): Promise<void> {
   }
 }
 
+/**
+ * True when `toolId` belongs to a server that is still in the MCP config.
+ *
+ * Tool ids are `${server.name}.${tool.name}` and a server name may itself
+ * contain dots, so this matches on the `${name}.` prefix rather than splitting.
+ */
+function isFromConfiguredServer(
+  toolId: string,
+  configuredServerNames: ReadonlySet<string>
+): boolean {
+  for (const serverName of configuredServerNames) {
+    if (toolId.startsWith(`${serverName}.`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Projects saved tool preferences onto the tools discovered this run.
+ *
+ * Two sets, deliberately kept apart (BST-1621):
+ *
+ * - What we *apply* is scoped to `registeredIds`, because a preference can only
+ *   be projected onto a tool that exists in the registry right now.
+ * - What we *keep on disk* is scoped to `configuredServerNames`. A server that
+ *   timed out, failed `tools/list`, or is still spawning under `npx` is absent
+ *   from `registeredIds` through no fault of the user, and BST-1603 measured
+ *   that happening routinely. Pruning on that signal silently deleted the
+ *   user's choices and handed the tools back enabled on the next successful
+ *   run, since `ToolRegistry.register` treats an unseen tool as enabled.
+ *
+ * Only removal from the MCP config retires an id. With no configured servers we
+ * have no authority to retire anything, so nothing is pruned.
+ */
 export async function loadToolPreferencesForProjection(
-  registeredIds: ReadonlySet<string>
+  registeredIds: ReadonlySet<string>,
+  configuredServerNames: ReadonlySet<string>
 ): Promise<Pick<ToolPreferences, 'disabledTools' | 'enabledTools'>> {
   try {
     const preferences = await loadToolPreferences(app.getPath('userData'));
@@ -168,25 +204,36 @@ export async function loadToolPreferencesForProjection(
       return { disabledTools: [], enabledTools: [] };
     }
 
-    const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
-    const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
+    const projection = {
+      disabledTools: preferences.disabledTools.filter((id: string) => registeredIds.has(id)),
+      enabledTools: preferences.enabledTools.filter((id: string) => registeredIds.has(id)),
+    };
 
-    const staleCount =
+    if (configuredServerNames.size === 0) {
+      return projection;
+    }
+
+    const keptEnabled = preferences.enabledTools.filter((id: string) =>
+      isFromConfiguredServer(id, configuredServerNames)
+    );
+    const keptDisabled = preferences.disabledTools.filter((id: string) =>
+      isFromConfiguredServer(id, configuredServerNames)
+    );
+    const retiredCount =
       preferences.enabledTools.length -
-      validEnabled.length +
-      preferences.disabledTools.length -
-      validDisabled.length;
+      keptEnabled.length +
+      (preferences.disabledTools.length - keptDisabled.length);
 
-    if (staleCount > 0) {
-      logger.warn('Discarded stale MCP tool preference ids', {
-        registeredCount: registeredIds.size,
-        staleCount,
+    if (retiredCount > 0) {
+      logger.warn('Discarded MCP tool preference ids for servers removed from config', {
+        configuredServerCount: configuredServerNames.size,
+        retiredCount,
       });
 
       try {
         await saveToolPreferences(app.getPath('userData'), {
-          disabledTools: validDisabled,
-          enabledTools: validEnabled,
+          disabledTools: keptDisabled,
+          enabledTools: keptEnabled,
           lastUpdated: Date.now(),
           version: preferences.version,
         });
@@ -195,7 +242,7 @@ export async function loadToolPreferencesForProjection(
       }
     }
 
-    return { disabledTools: validDisabled, enabledTools: validEnabled };
+    return projection;
   } catch (error) {
     logger.error('Failed to load tool preferences', { error });
     return { disabledTools: [], enabledTools: [] };
