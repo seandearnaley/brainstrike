@@ -1,4 +1,6 @@
 import {
+  MCP_EXTENSION_KEYS,
+  MCP_EXTENSION_LABEL_BY_KEY,
   type McpHostControlRequest,
   resolveMcpHostControlActions,
 } from '@brainstrike/assistant-contract';
@@ -102,6 +104,32 @@ function McpAuthStatus({ server }: { readonly server: McpServerInfo }) {
   );
 }
 
+/**
+ * The EFFECTIVE registered-extension state for THIS server (BST-1604): the
+ * global dial AND the server's own `extensions` override, as decided by the
+ * connection generation. Absent on snapshots that predate the field.
+ */
+function McpExtensionStatus({ server }: { readonly server: McpServerInfo }) {
+  const { extensions } = server;
+  if (!extensions) {
+    return null;
+  }
+  const extensionAttributes = Object.fromEntries(
+    MCP_EXTENSION_KEYS.map((key) => [`data-extension-${key}`, extensions[key] ? 'on' : 'off'])
+  );
+  return (
+    <div
+      className="mt-1 text-muted-foreground text-xs"
+      data-testid={`mcp-extensions-${server.configuredServerId}`}
+      {...extensionAttributes}
+    >
+      {MCP_EXTENSION_KEYS.map(
+        (key) => `${MCP_EXTENSION_LABEL_BY_KEY[key]}: ${extensions[key] ? 'advertised' : 'off'}`
+      ).join(' · ')}
+    </div>
+  );
+}
+
 export function McpServerStatusRow({
   controlAvailable,
   onComplete,
@@ -187,6 +215,7 @@ export function McpServerStatusRow({
         </span>
       </div>
       <McpAuthStatus server={server} />
+      <McpExtensionStatus server={server} />
       {server.state === 'connected' && (
         <>
           <div className="text-muted-foreground text-xs">

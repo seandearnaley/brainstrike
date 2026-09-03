@@ -10,7 +10,11 @@ import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/
 import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
-import type { McpHostControlRequest, McpHostWatchEvent } from '@brainstrike/assistant-contract';
+import type {
+  McpExtensionEnablement,
+  McpHostControlRequest,
+  McpHostWatchEvent,
+} from '@brainstrike/assistant-contract';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -183,8 +187,20 @@ export default function SettingsPageContent() {
         controlMcpServer: async (request: McpHostControlRequest) =>
           await window.mcp.controlServer(request),
       }),
+      ...(window.mcp?.getExtensionPreferences && {
+        getMcpExtensionPreferences: async () => await window.mcp.getExtensionPreferences(),
+      }),
       ...(window.mcp?.getPrompt && {
         getMcpPrompt: async (request: McpGetPromptRequest) => await window.mcp.getPrompt(request),
+      }),
+      ...(window.mcp?.setExtensionPreferences && {
+        setMcpExtensionPreferences: async (preferences: McpExtensionEnablement) =>
+          await window.mcp.setExtensionPreferences(preferences),
+      }),
+      ...(window.mcp?.onExtensionPreferencesUpdated && {
+        subscribeMcpExtensionPreferences: (
+          listener: (preferences: McpExtensionEnablement) => void
+        ) => window.mcp.onExtensionPreferencesUpdated(listener),
       }),
       ...(window.mcp?.readResource && {
         readMcpResource: async (request: McpReadResourceRequest) =>

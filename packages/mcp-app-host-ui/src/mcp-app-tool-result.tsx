@@ -19,6 +19,7 @@ import {
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { type McpAppHostState, McpAppHostSurface } from './mcp-app-host-surface';
 import { useMcpAppBridge } from './use-mcp-app-bridge';
+import { useMcpAppsEnabled } from './use-mcp-apps-enablement';
 
 const logger = createLogger('McpAppToolResult');
 
@@ -365,11 +366,14 @@ export function McpAppToolResult({
 }: McpAppToolResultProps): ReactElement {
   const bridge = useMcpAppBridge();
   const marker = readMcpAppToolInvocationResult(toolCall.result);
+  // Hooks run before the marker guard so the enablement subscription is
+  // unconditional; a non-app result still short-circuits below.
+  const appsEnabled = useMcpAppsEnabled(marker?.app.serverId ?? '');
   if (marker === undefined) {
     return <ToolFallback {...toolCall} />;
   }
   const app = marker.app;
-  if (bridge === null || threadId === undefined) {
+  if (bridge === null || threadId === undefined || !appsEnabled) {
     return (
       <div className="my-1">
         <ToolFallback {...toolCall} result={marker.result} />
@@ -380,7 +384,9 @@ export function McpAppToolResult({
         >
           {bridge === null
             ? 'App rendering unavailable in this host'
-            : 'App rendering requires a persisted thread'}
+            : threadId === undefined
+              ? 'App rendering requires a persisted thread'
+              : 'MCP Apps are turned off for this server'}
         </p>
       </div>
     );

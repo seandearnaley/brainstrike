@@ -3,6 +3,7 @@ import { ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpElicitationPresenterStub,
+  createMcpExtensionPreferencesStub,
   createMcpTaskHostStub,
 } from './mcp-authority-test-runtime';
 
@@ -67,6 +68,7 @@ describe('terminal MCP shutdown cleanup', () => {
         watch: vi.fn(() => vi.fn()),
       },
       replaceResolvedConfig: vi.fn(async () => ({ revision: 0, servers: [] })),
+      ...createMcpExtensionPreferencesStub(),
 
       taskHost: createMcpTaskHostStub(),
     };
@@ -90,6 +92,7 @@ describe('terminal MCP shutdown cleanup', () => {
         close: vi.fn(async () => ({ ...cleanCloseReport, failures: [hostFailure] })),
       },
       replaceResolvedConfig: vi.fn(),
+      ...createMcpExtensionPreferencesStub(),
     };
     const { cleanupMcpRuntimeForShutdown } = await import('../../ipc-mcp');
 

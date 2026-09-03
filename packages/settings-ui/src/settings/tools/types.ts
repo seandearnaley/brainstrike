@@ -4,6 +4,7 @@
 
 import type {
   ConfiguredMcpServerId,
+  McpExtensionEnablement,
   McpHostControlRequest,
   McpHostOperationResult,
   McpHostServerSnapshot,
@@ -146,6 +147,8 @@ export interface ToolsSettingsOperations {
   getMcpConfigInfo?: () => Promise<McpConfigInfo | null>;
   /** Get current MCP config path */
   getMcpConfigPath?: () => Promise<string>;
+  /** Read the global registered-extension dials (desktop only, BST-1604). */
+  getMcpExtensionPreferences?: () => Promise<McpExtensionEnablement>;
   /** Fetch one prompt body for explicit user browsing (desktop only, never eager model context). */
   getMcpPrompt?: (request: McpGetPromptRequest) => Promise<McpGetPromptResult>;
   /**
@@ -171,8 +174,16 @@ export interface ToolsSettingsOperations {
   resetTools: () => Promise<void>;
   /** Set MCP config path (or reset to default when null) */
   setMcpConfigPath?: (configPath: string | null) => Promise<void>;
+  /** Write the global registered-extension dials, resolving to the stored state (desktop only). */
+  setMcpExtensionPreferences?: (
+    preferences: McpExtensionEnablement
+  ) => Promise<McpExtensionEnablement>;
   /** Subscribe to MCP config status changes (desktop only). */
   subscribeMcpConfig?: (listener: (info: McpConfigInfo) => void) => () => void;
+  /** Subscribe to global registered-extension dial changes (desktop only). */
+  subscribeMcpExtensionPreferences?: (
+    listener: (preferences: McpExtensionEnablement) => void
+  ) => () => void;
   /** Subscribe to revisioned MCP host status (desktop only). */
   subscribeMcpServerStatus?: (listener: (snapshot: McpHostSnapshot) => void) => () => void;
   /** Subscribe to MCP tool projection changes (desktop only). */

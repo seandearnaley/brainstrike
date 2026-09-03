@@ -9,6 +9,7 @@ import type {
   McpElicitationPresentationWire,
   McpElicitationRetiredWire,
   McpElicitationSettlement,
+  McpExtensionEnablement,
   McpHostControlRequest,
   McpHostServerSnapshot,
   McpHostSnapshot,
@@ -497,6 +498,14 @@ declare global {
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;
       getPath: () => Promise<string>;
+      /** Global registered-extension dials (BST-1604). */
+      getExtensionPreferences: () => Promise<McpExtensionEnablement>;
+      setExtensionPreferences: (
+        preferences: McpExtensionEnablement
+      ) => Promise<McpExtensionEnablement>;
+      onExtensionPreferencesUpdated: (
+        callback: (preferences: McpExtensionEnablement) => void
+      ) => () => void;
       getServerStatusSnapshot: () => Promise<McpHostSnapshot>;
       setPath: (configPath: string | null) => Promise<{ success: boolean; path: string }>;
       readConfigText: () => Promise<{

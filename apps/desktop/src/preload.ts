@@ -10,6 +10,7 @@ type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRe
 type McpConfigStatus = import('./ipc-mcp').McpConfigStatus;
 type McpContentIpcResponse = import('./mcp/content-ipc').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
+type McpExtensionEnablement = import('@brainstrike/assistant-contract').McpExtensionEnablement;
 type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
 type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
 type McpAppShellPrepareRequest =
@@ -281,6 +282,9 @@ const MCP_CONFIG_GET_CHANNEL = 'mcp:config:get' as const;
 const MCP_STATUS_GET_CHANNEL = 'mcp:status:get' as const;
 const MCP_LIFECYCLE_CONTROL_CHANNEL = 'mcp:lifecycle:control' as const;
 const MCP_STATUS_UPDATED_EVENT = 'mcp:status:updated' as const;
+const MCP_EXTENSIONS_GET_CHANNEL = 'mcp:extensions:get' as const;
+const MCP_EXTENSIONS_SET_CHANNEL = 'mcp:extensions:set' as const;
+const MCP_EXTENSIONS_UPDATED_EVENT = 'mcp:extensions:updated' as const;
 const MCP_CONFIG_UPDATED_EVENT = 'mcp:config:updated' as const;
 const MCP_CONFIG_WATCH_CHANNEL = 'mcp:config:watch' as const;
 const MCP_CONFIG_UNWATCH_CHANNEL = 'mcp:config:unwatch' as const;
@@ -937,6 +941,8 @@ contextBridge.exposeInMainWorld('mcp', {
     ipcRenderer.invoke(MCP_TOOLS_ENABLE_SERVER_CHANNEL, serverName),
   enableTools: (toolIds: string[]) => ipcRenderer.invoke(MCP_TOOLS_ENABLE_CHANNEL, toolIds),
   getConfig: () => ipcRenderer.invoke(MCP_CONFIG_GET_CHANNEL),
+  getExtensionPreferences: (): Promise<McpExtensionEnablement> =>
+    ipcRenderer.invoke(MCP_EXTENSIONS_GET_CHANNEL),
   getPath: () => ipcRenderer.invoke(MCP_CONFIG_GET_PATH_CHANNEL),
   getPrompt: (request: unknown) =>
     unwrapMcpContent(ipcRenderer.invoke(MCP_CONTENT_GET_PROMPT_CHANNEL, request)),
@@ -965,6 +971,14 @@ contextBridge.exposeInMainWorld('mcp', {
     ipcRenderer.on(MCP_ELICITATION_RETIRED_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(MCP_ELICITATION_RETIRED_EVENT, listener);
+    };
+  },
+  onExtensionPreferencesUpdated: (callback: (preferences: McpExtensionEnablement) => void) => {
+    const listener = (_event: unknown, preferences: McpExtensionEnablement) =>
+      callback(preferences);
+    ipcRenderer.on(MCP_EXTENSIONS_UPDATED_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(MCP_EXTENSIONS_UPDATED_EVENT, listener);
     };
   },
   onServerStatusUpdated: (callback: (event: McpHostWatchEvent) => void) => {
@@ -1013,6 +1027,8 @@ contextBridge.exposeInMainWorld('mcp', {
     unwrapMcpContent(ipcRenderer.invoke(MCP_CONTENT_READ_RESOURCE_CHANNEL, request)),
   resetTools: () => ipcRenderer.invoke(MCP_TOOLS_RESET_CHANNEL),
   selectPath: () => ipcRenderer.invoke(MCP_CONFIG_SELECT_PATH_CHANNEL),
+  setExtensionPreferences: (preferences: McpExtensionEnablement): Promise<McpExtensionEnablement> =>
+    ipcRenderer.invoke(MCP_EXTENSIONS_SET_CHANNEL, preferences),
   setPath: (configPath: string | null) =>
     ipcRenderer.invoke(MCP_CONFIG_SET_PATH_CHANNEL, configPath),
   settleElicitation: (settlement: McpElicitationSettlement) =>

@@ -42,6 +42,18 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     //   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/workspace"]
     // },
 
+    // Optional per-server opt-out for the registered MCP extensions. Both ship
+    // ON; either key may be omitted. Turning one off here stops THIS server
+    // from being told the client supports it, without changing any other
+    // server. The Settings switch is the global equivalent.
+    // {
+    //   "transport": "stdio",
+    //   "name": "no-apps-no-tasks",
+    //   "protocol": "2026-07-28",
+    //   "command": "/absolute/path/to/server",
+    //   "extensions": { "apps": false, "tasks": false }
+    // },
+
     // Native Linear OAuth (hard read-only endpoint; safest default).
     // {
     //   "transport": "streamable-http",

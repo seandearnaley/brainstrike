@@ -8,43 +8,51 @@ import {
   type ExplicitStdioMcpClientOptions,
   type McpClientCapabilityOptions,
   type McpClientExtensionRegistry,
-  type NegotiatedProtocolFacts,
 } from '@brainstrike/agent/mcp-client';
 import {
   type ConfiguredMcpServerId,
+  MCP_EXTENSIONS_ENABLED,
+  type McpExtensionEnablement,
   type McpHostAuthSnapshot,
   type McpHostCloseReport,
   type McpHostConfig,
   type McpHostPort,
   type McpHostSnapshot,
   parseConfiguredMcpServerId,
+  parseMcpExtensionEnablement,
   parseMcpHostConfig,
   parseMcpHostControlRequest,
   parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
+import { applyMcpExtensionPreferences } from '@brainstrike/assistant-contract/mcp-config';
 import { createLogger } from '@brainstrike/logging';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
 import {
   createSecretsMcpBearerCredentialAuthority,
   type McpBearerCredentialAuthority,
 } from './bearer-credential';
-import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features';
 import { McpElicitationPresenterAuthority } from './elicitation-presenter';
+import {
+  connectClient,
+  type ExplicitClient,
+  reportStdioFailureDiagnostics,
+  type TransportActorClient,
+} from './host-connection';
 import {
   createDefaultMcpExtensionRegistry,
   createDefaultTaskDatabaseOpener,
   requireTaskConnectionClient,
+  resolveMcpServerExtensions,
 } from './host-extensions';
 import { McpHostRevisionPublisher } from './host-revision-publisher';
 import { McpHostService } from './host-service';
-import { classifyMcpConnectFailure, McpLifecycleFailure } from './lifecycle-errors';
+import { McpLifecycleFailure } from './lifecycle-errors';
 import {
   createLazySafeStorageMcpOAuthStore,
   createMcpOAuthClientProvider,
   createMcpOAuthStoreIdentity,
   type McpOAuthClientProvider,
   type McpOAuthClientProviderOptions,
-  type McpOAuthCloseProof,
   type McpOAuthStore,
   readMcpOAuthAuthProjection,
 } from './oauth-client-provider';
@@ -57,35 +65,18 @@ import {
 } from './server-actor';
 import { McpStdioDiagnosticCollector } from './stdio-diagnostics';
 import {
+  MCP_TASKS_EXTENSION_ID,
   McpDesktopTaskHost,
   type McpDesktopTaskHostPort,
   type McpTaskConnection,
   type McpTaskConnectionObserver,
 } from './task-host';
-import { connectedStatus } from './types';
+
+export type { ExplicitClient } from './host-connection';
 
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type ConfiguredServer = McpHostConfig['servers'][number];
 const MCP_OAUTH_MAX_STEP_UP_RETRIES = 3;
-export interface ExplicitClient extends NegotiatedProtocolFacts {
-  callTool: McpCoreFeatureClient['callTool'];
-  close: ExplicitHttpMcpClient['close'];
-  complete: McpCoreFeatureClient['complete'];
-  connect: ExplicitHttpMcpClient['connect'];
-  getPrompt: McpCoreFeatureClient['getPrompt'];
-  listen: McpCoreFeatureClient['listen'];
-  /** Present on both production clients; required whenever an extension registry is attached. */
-  listenTasks?: ExplicitHttpMcpClient['listenTasks'];
-  listPrompts: McpCoreFeatureClient['listPrompts'];
-  listResources: McpCoreFeatureClient['listResources'];
-  listResourceTemplates: McpCoreFeatureClient['listResourceTemplates'];
-  listTools: McpCoreFeatureClient['listTools'];
-  readResource: McpCoreFeatureClient['readResource'];
-  requestExtension?: ExplicitHttpMcpClient['requestExtension'];
-  subscribeResource: McpCoreFeatureClient['subscribeResource'];
-  unsubscribeResource: McpCoreFeatureClient['unsubscribeResource'];
-  watchServerFeatures: McpCoreFeatureClient['watchServerFeatures'];
-}
 export interface DesktopMcpHostRuntimeDependencies {
   bearerCredentialAuthority?: McpBearerCredentialAuthority;
   createActorClient?: (
@@ -168,225 +159,6 @@ class ConfigRefError extends Error {
 const logger = createLogger('DesktopMcpHostRuntime');
 const samePrivateConfig = (left: ResolvedMcpServer, right: ResolvedMcpServer): boolean =>
   isDeepStrictEqual({ ...left, enabledTools: undefined }, { ...right, enabledTools: undefined });
-const successfulCloseReport = (
-  transport: ResolvedMcpServer['transport'],
-  requestsSettled: number,
-  subscriptionsClosed: number,
-  oauthProof?: McpOAuthCloseProof
-): McpHostCloseReport =>
-  Object.freeze({
-    callbacksClosed: 1 + (oauthProof?.callbacksClosed ?? 0),
-    childProcessesClosed: transport === 'stdio' ? 1 : 0,
-    clientsClosed: 1,
-    failures: Object.freeze([]),
-    loopbackPortsClosed: oauthProof?.loopbackPortsClosed ?? 0,
-    probesClosed: 0,
-    requestsSettled,
-    subscriptionsClosed,
-  });
-
-async function closeClientResources(
-  client: ExplicitClient,
-  provider?: McpOAuthClientProvider
-): Promise<McpOAuthCloseProof | undefined> {
-  const failures: unknown[] = [];
-  let oauthProof: McpOAuthCloseProof | undefined;
-  try {
-    await client.close();
-  } catch (cause) {
-    failures.push(cause);
-  }
-  try {
-    oauthProof = await provider?.close();
-  } catch (cause) {
-    failures.push(cause);
-  }
-  if (failures.length === 1) {
-    throw failures[0];
-  }
-  if (failures.length > 1) {
-    throw new AggregateError(failures, 'MCP client resources failed to close');
-  }
-  return oauthProof;
-}
-
-async function closeAfterFailure(
-  client: ExplicitClient,
-  cause: unknown,
-  provider?: McpOAuthClientProvider
-): Promise<never> {
-  try {
-    await closeClientResources(client, provider);
-  } catch (cleanupCause) {
-    throw new McpServerActorClientCleanupError(
-      [cause, cleanupCause],
-      'MCP client operation failed and cleanup also failed'
-    );
-  }
-  throw cause;
-}
-
-async function closeAfterConnectFailure(
-  client: ExplicitClient,
-  cause: unknown,
-  server: ResolvedMcpServer,
-  generation: number,
-  diagnostics?: McpStdioDiagnosticCollector,
-  provider?: McpOAuthClientProvider
-): Promise<never> {
-  const cleanupFailures: unknown[] = [];
-  try {
-    await closeClientResources(client, provider);
-  } catch (cleanupCause) {
-    cleanupFailures.push(cleanupCause);
-  } finally {
-    // A child can close the protocol stream before Node drains its final
-    // stderr chunks. Flush after transport cleanup so both the user-facing
-    // classification and durable report use the same complete diagnostics.
-    diagnostics?.flush();
-    reportStdioFailureDiagnostics(server, generation, diagnostics);
-  }
-  const failure = classifyMcpConnectFailure(cause, diagnostics?.snapshot(), {
-    requiresReauthorization: provider?.requiresReauthorization() === true,
-    server: server.name,
-  });
-  if (cleanupFailures.length > 0) {
-    throw new McpServerActorClientCleanupError(
-      [failure, ...cleanupFailures],
-      'MCP client operation failed and cleanup also failed'
-    );
-  }
-  throw failure;
-}
-
-interface TransportActorClient extends McpServerActorClient {
-  readonly transportClient: ExplicitClient;
-}
-
-async function connectClient(
-  client: ExplicitClient,
-  server: ResolvedMcpServer,
-  context: ActorContext,
-  onInternalError: (code: string, cause: unknown) => void,
-  extensionRegistry: McpClientExtensionRegistry | undefined,
-  diagnostics?: McpStdioDiagnosticCollector,
-  provider?: McpOAuthClientProvider,
-  onConnected?: () => Promise<void>
-): Promise<TransportActorClient> {
-  try {
-    await client.connect({
-      signal: context.signal,
-      ...(server.startup === 'automatic' ? { timeout: 10_000 } : {}),
-    });
-    await onConnected?.();
-  } catch (cause) {
-    return await closeAfterConnectFailure(
-      client,
-      cause,
-      server,
-      context.generation,
-      diagnostics,
-      provider
-    );
-  }
-  diagnostics?.flush();
-  const status = connectedStatus(client, {
-    configuredProtocol: server.protocol,
-    name: server.name,
-    transport: server.transport,
-  });
-  if (status.state !== 'connected') {
-    return await closeAfterFailure(
-      client,
-      new Error(
-        status.state === 'error' ? status.error : 'Connected MCP client has no negotiated status'
-      ),
-      provider
-    );
-  }
-  const catalogListeners = new Set<(catalog: ReturnType<typeof features.snapshot>) => void>();
-  const features = createMcpCoreServerFeatures(client, {
-    extensionRegistry,
-    onCatalogChanged: (catalog) => {
-      for (const listener of catalogListeners) {
-        listener(catalog);
-      }
-    },
-    onInternalError,
-    signal: context.signal,
-  });
-  try {
-    await features.initialize();
-  } catch (cause) {
-    return await closeAfterFailure(client, cause, provider);
-  }
-  let requestsSettled = 0;
-  return {
-    catalog: () => features.snapshot(),
-    async close() {
-      try {
-        const errors: unknown[] = [];
-        let oauthProof: McpOAuthCloseProof | undefined;
-        let subscriptionsClosed = 0;
-        try {
-          subscriptionsClosed = (await features.close()).subscriptionsClosed;
-        } catch (cause) {
-          errors.push(cause);
-        }
-        catalogListeners.clear();
-        try {
-          oauthProof = await closeClientResources(client, provider);
-        } catch (cause) {
-          errors.push(cause);
-        }
-        if (errors.length === 1) {
-          throw errors[0];
-        }
-        if (errors.length > 1) {
-          throw new AggregateError(errors, 'Closing MCP core features and client failed');
-        }
-        return successfulCloseReport(
-          server.transport,
-          requestsSettled,
-          subscriptionsClosed,
-          oauthProof
-        );
-      } finally {
-        diagnostics?.flush();
-      }
-    },
-    async invoke(operation, options) {
-      try {
-        return await features.invoke(operation, options);
-      } finally {
-        requestsSettled += 1;
-      }
-    },
-    negotiated: status.negotiated,
-    transportClient: client,
-    watchCatalog(listener) {
-      catalogListeners.add(listener);
-      return () => catalogListeners.delete(listener);
-    },
-  };
-}
-
-function reportStdioFailureDiagnostics(
-  server: ResolvedMcpServer,
-  generation: number,
-  diagnostics?: McpStdioDiagnosticCollector
-): void {
-  const report = diagnostics?.takeFailureReport();
-  if (!report) {
-    return;
-  }
-  logger.warn('MCP stdio failure diagnostics', {
-    diagnostics: report.diagnostics,
-    generation,
-    omittedDiagnostics: report.omittedDiagnostics,
-    server: server.name,
-  });
-}
 
 export class DesktopMcpHostRuntime {
   private readonly bearerCredentialAuthority: McpBearerCredentialAuthority;
@@ -400,6 +172,10 @@ export class DesktopMcpHostRuntime {
   readonly elicitationPresenter: McpElicitationPresenterAuthority;
   private replacementTail: Promise<void> = Promise.resolve();
   private stagedByRef: Map<string, PrivateConfigEntry> | undefined;
+  /** Global registered-extension dials (BST-1604); both start enabled. */
+  private extensionPreferences: McpExtensionEnablement = MCP_EXTENSIONS_ENABLED;
+  /** Last configuration COMMITTED here, before the global dials are folded in. */
+  private declaredConfig: ResolvedMcpConfig = { servers: [] };
   private readonly createActorClient: NonNullable<
     DesktopMcpHostRuntimeDependencies['createActorClient']
   >;
@@ -475,6 +251,7 @@ export class DesktopMcpHostRuntime {
           configuredProtocol: input.config.configuredProtocol,
           configuredServerId: input.config.configuredServerId,
           ...(input.config.enabledTools ? { enabledTools: input.config.enabledTools } : {}),
+          ...(input.config.extensions ? { extensions: input.config.extensions } : {}),
           factory: (context) =>
             dependencies.createActorClient
               ? this.createActorClient(server, context)
@@ -536,35 +313,68 @@ export class DesktopMcpHostRuntime {
 
   replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
     const snapshot = structuredClone(config);
-    return this.enqueueReplacement(async () => {
-      // Preparation (auth projection) can reject; nothing is retired until it
-      // succeeds, so a rejected replacement leaves the old actor AND its
-      // Tasks session exactly as they were.
-      const staged = await this.stageResolvedConfig(snapshot);
-      const retirements: Promise<void>[] = [];
-      for (const [configuredServerId, current] of this.currentById) {
-        const next = snapshot.servers.find(({ name }) => name === configuredServerId);
-        if (!(next && isDeepStrictEqual(current.server, next))) {
-          this.retirePresentations(configuredServerId);
-        }
-        // Task authority epochs retire only when the private definition
-        // changes or the server disappears; an enabledTools-only reload is a
-        // reconnect that rebinds the live epoch. Each server's session is
-        // independent, so retirements run concurrently.
-        if (!next) {
-          retirements.push(this.taskHost.retired(configuredServerId, 'server-removed'));
-        } else if (!samePrivateConfig(current.server, next)) {
-          retirements.push(this.taskHost.retired(configuredServerId, 'server-replaced'));
-        }
+    return this.enqueueReplacement(() =>
+      this.applyConfiguration(snapshot, this.extensionPreferences)
+    );
+  }
+
+  /** Effective global dials the next connection generation would advertise. */
+  get mcpExtensionPreferences(): McpExtensionEnablement {
+    return this.extensionPreferences;
+  }
+
+  /**
+   * Global extension off switch (BST-1604). The dials are folded into every
+   * server's private definition, so a flipped dial changes each affected
+   * server's config ref and the replacement runs the ordinary
+   * server-definition path: the Tasks epoch is retired as `server-replaced`
+   * and the connection generation advances. Servers whose effective state is
+   * unchanged keep their ref, their generation, and their live epoch.
+   */
+  setMcpExtensionPreferences(preferences: McpExtensionEnablement): Promise<McpHostSnapshot> {
+    // Parsed inside the queued replacement (like `replaceConfig`): a malformed
+    // preference rejects that replacement and leaves the live dials alone.
+    return this.enqueueReplacement(
+      async () =>
+        await this.applyConfiguration(this.declaredConfig, parseMcpExtensionEnablement(preferences))
+    );
+  }
+
+  private async applyConfiguration(
+    declared: ResolvedMcpConfig,
+    preferences: McpExtensionEnablement
+  ): Promise<McpHostSnapshot> {
+    const snapshot = applyMcpExtensionPreferences(declared, preferences);
+    // Preparation (auth projection) can reject; nothing is retired until it
+    // succeeds, so a rejected replacement leaves the old actor AND its
+    // Tasks session exactly as they were.
+    const staged = await this.stageResolvedConfig(snapshot);
+    const retirements: Promise<void>[] = [];
+    for (const [configuredServerId, current] of this.currentById) {
+      const next = snapshot.servers.find(({ name }) => name === configuredServerId);
+      if (!(next && isDeepStrictEqual(current.server, next))) {
+        this.retirePresentations(configuredServerId);
       }
-      const retirementFailures = (await Promise.allSettled(retirements)).flatMap((result) =>
-        result.status === 'rejected' ? [result.reason] : []
-      );
-      if (retirementFailures.length > 0) {
-        throw new AggregateError(retirementFailures, 'MCP Tasks epoch retirement failed');
+      // Task authority epochs retire only when the private definition
+      // changes or the server disappears; an enabledTools-only reload is a
+      // reconnect that rebinds the live epoch. Each server's session is
+      // independent, so retirements run concurrently.
+      if (!next) {
+        retirements.push(this.taskHost.retired(configuredServerId, 'server-removed'));
+      } else if (!samePrivateConfig(current.server, next)) {
+        retirements.push(this.taskHost.retired(configuredServerId, 'server-replaced'));
       }
-      return await this.commitResolvedConfig(staged);
-    });
+    }
+    const retirementFailures = (await Promise.allSettled(retirements)).flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (retirementFailures.length > 0) {
+      throw new AggregateError(retirementFailures, 'MCP Tasks epoch retirement failed');
+    }
+    const committed = await this.commitResolvedConfig(staged);
+    this.declaredConfig = declared;
+    this.extensionPreferences = preferences;
+    return committed;
   }
 
   private retirePresentations(configuredServerId: ConfiguredMcpServerId): void {
@@ -614,6 +424,9 @@ export class DesktopMcpHostRuntime {
           configuredProtocol: server.protocol,
           configuredServerId,
           ...(server.enabledTools ? { enabledTools: server.enabledTools } : {}),
+          // The EFFECTIVE state this generation advertises, transport rule
+          // included — never the compiled-in default (BST-1604).
+          extensions: resolveMcpServerExtensions(server),
           startup: server.startup,
           transport: { configRef, type: server.transport },
         };
@@ -753,7 +566,11 @@ export class DesktopMcpHostRuntime {
       updateAuth,
       extensionRegistry
     );
-    if (!extensionRegistry) {
+    // A registry that carries Apps but not Tasks opens no task session: the
+    // task host requires the Tasks contracts to be registered and would throw.
+    // With Tasks off the connection behaves exactly like one to a server that
+    // never advertised it — `track()` still fails loudly at the tool path.
+    if (!extensionRegistry?.toClientExtensionCapabilities()?.[MCP_TASKS_EXTENSION_ID]) {
       return actorClient;
     }
     if (configRef === undefined) {

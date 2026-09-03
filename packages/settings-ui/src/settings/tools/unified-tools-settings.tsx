@@ -6,7 +6,10 @@
  * dense tool rows, and integrated MCP status display.
  */
 
-import type { McpHostControlRequest } from '@brainstrike/assistant-contract';
+import type {
+  McpExtensionEnablement,
+  McpHostControlRequest,
+} from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
@@ -21,10 +24,11 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { McpConfigPanel } from './mcp-config-panel';
+import { McpExtensionSettings } from './mcp-extension-settings';
 import { McpServerStatusRow } from './mcp-server-status-row';
 import { McpSupportMatrix } from './mcp-support-status';
 import { TokenBudgetSummary } from './token-budget-summary';
@@ -782,6 +786,13 @@ function ToolsPanelContent({
   toolGroups,
   totalCount,
 }: ToolsPanelContentProps) {
+  // The global registered-extension dials (BST-1604) are owned by the switch
+  // section but mirrored here, so the support matrix above it can report the
+  // EFFECTIVE state instead of the compiled-in default.
+  const [mcpExtensionPreferences, applyMcpExtensionPreferences] = useState<
+    McpExtensionEnablement | undefined
+  >(undefined);
+  const { getMcpExtensionPreferences, setMcpExtensionPreferences } = operations;
   return (
     <div className="space-y-4">
       {budgetData && (
@@ -822,7 +833,16 @@ function ToolsPanelContent({
         </div>
       )}
 
-      {showMcpSupport && <McpSupportMatrix />}
+      {showMcpSupport && <McpSupportMatrix extensionPreferences={mcpExtensionPreferences} />}
+
+      {showMcpSupport && getMcpExtensionPreferences && setMcpExtensionPreferences && (
+        <McpExtensionSettings
+          getPreferences={getMcpExtensionPreferences}
+          onPreferencesChange={applyMcpExtensionPreferences}
+          setPreferences={setMcpExtensionPreferences}
+          subscribe={operations.subscribeMcpExtensionPreferences}
+        />
+      )}
 
       {mcpRevision >= 0 && mcpServers.length === 0 && !mcpConfigInfo?.error && (
         <div className="text-muted-foreground text-sm" data-testid="mcp-server-status-empty">
