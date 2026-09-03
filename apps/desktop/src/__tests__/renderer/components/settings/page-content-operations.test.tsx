@@ -1,4 +1,5 @@
 import {
+  type McpExtensionEnablement,
   type McpHostSnapshot,
   type McpHostWatchEvent,
   parseConfiguredMcpServerId,
@@ -53,6 +54,7 @@ interface CapturedToolsOperations {
   enableTools: (ids: string[]) => Promise<void>;
   getMcpConfigInfo: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
   getMcpConfigPath?: () => Promise<string>;
+  getMcpExtensionPreferences?: () => Promise<McpExtensionEnablement>;
   getMcpPrompt?: (request: unknown) => Promise<unknown>;
   getMcpServerStatus: () => Promise<McpHostSnapshot>;
   getStats: () => Promise<{
@@ -71,8 +73,14 @@ interface CapturedToolsOperations {
   resetMcpConfig: () => Promise<void>;
   resetTools: () => Promise<void>;
   setMcpConfigPath?: (configPath: string | null) => Promise<void>;
+  setMcpExtensionPreferences?: (
+    preferences: McpExtensionEnablement
+  ) => Promise<McpExtensionEnablement>;
   subscribeMcpConfig: (
     listener: (config: { error?: string; exists: boolean; path: string }) => void
+  ) => () => void;
+  subscribeMcpExtensionPreferences?: (
+    listener: (preferences: McpExtensionEnablement) => void
   ) => () => void;
   subscribeMcpServerStatus?: (listener: (event: McpHostWatchEvent) => void) => () => void;
   subscribeMcpTools: (listener: () => void) => () => void;
@@ -101,6 +109,11 @@ const hostSnapshot = {
     },
   ],
 } as const satisfies McpHostSnapshot;
+
+const extensionPreferences = {
+  apps: true,
+  tasks: true,
+} as const satisfies McpExtensionEnablement;
 
 vi.mock('@brainstrike/agent/tool-metadata', () => ({
   DESKTOP_NATIVE_TOOL_IDS: ['native-read'],
@@ -280,6 +293,7 @@ interface DesktopTestWindow {
     readResource?: (request: unknown) => Promise<unknown>;
     enableTools?: (ids: string[]) => Promise<void>;
     getConfig?: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
+    getExtensionPreferences?: () => Promise<McpExtensionEnablement>;
     getPath?: () => Promise<string>;
     getServerStatusSnapshot?: () => Promise<McpHostSnapshot>;
     getToolStats?: () => Promise<{ enabled: number; servers: number; total: number }>;
@@ -295,6 +309,9 @@ interface DesktopTestWindow {
         }>
       >
     >;
+    onExtensionPreferencesUpdated?: (
+      listener: (preferences: McpExtensionEnablement) => void
+    ) => (() => void) | undefined;
     onServerStatusUpdated?: (
       listener: (snapshot: McpHostSnapshot) => void
     ) => (() => void) | undefined;
@@ -305,6 +322,9 @@ interface DesktopTestWindow {
     readConfigText?: () => Promise<{ content: string; path: string } | null>;
     resetTools?: () => Promise<void>;
     selectPath?: () => Promise<string | null>;
+    setExtensionPreferences?: (
+      preferences: McpExtensionEnablement
+    ) => Promise<McpExtensionEnablement>;
     setPath?: (path: string | null) => Promise<{ path: string; success: boolean }>;
     writeConfigText?: (
       content: string
@@ -337,6 +357,7 @@ describe('desktop SettingsPageContent tool operations', () => {
       disableTools: vi.fn(async () => {}),
       enableTools: vi.fn(async () => {}),
       getConfig: vi.fn(async () => ({ exists: true, path: '/tmp/mcp.json' })),
+      getExtensionPreferences: vi.fn(async () => extensionPreferences),
       getPath: vi.fn(async () => '/tmp/mcp.json'),
       getPrompt: vi.fn(async () => ({
         result: { messages: [{ content: { text: 'Summarize', type: 'text' }, role: 'user' }] },
@@ -356,6 +377,7 @@ describe('desktop SettingsPageContent tool operations', () => {
         ],
       })),
       onConfigUpdated: vi.fn(() => vi.fn()),
+      onExtensionPreferencesUpdated: vi.fn(() => vi.fn()),
       onServerStatusUpdated: vi.fn(() => vi.fn()),
       onToolsUpdated: vi.fn(() => vi.fn()),
       readConfigText: vi.fn(async () => ({ content: '{}', path: '/tmp/mcp.json' })),
@@ -365,6 +387,7 @@ describe('desktop SettingsPageContent tool operations', () => {
       })),
       resetTools: vi.fn(async () => {}),
       selectPath: vi.fn(async () => '/tmp/selected.json'),
+      setExtensionPreferences: vi.fn(async (preferences: McpExtensionEnablement) => preferences),
       setPath: vi.fn(async (path) => ({ path: path ?? '/tmp/default.json', success: true })),
       writeConfigText: vi.fn(async () => ({ path: '/tmp/mcp.json', success: true })),
     };
@@ -581,6 +604,74 @@ describe('desktop SettingsPageContent tool operations', () => {
     await expect(capturedOperations.getMcpServerStatus()).rejects.toThrow(
       'MCP bridge is missing getServerStatusSnapshot'
     );
+  });
+
+  it('exposes the global MCP extension dials backed by the preload bridge', async () => {
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations) {
+      throw new Error('Expected tools operations to be captured');
+    }
+    const mcp = getDesktopWindow().mcp;
+    const getExtensionPreferences = mcp?.getExtensionPreferences;
+    const setExtensionPreferences = mcp?.setExtensionPreferences;
+    const onExtensionPreferencesUpdated = mcp?.onExtensionPreferencesUpdated;
+    if (!(getExtensionPreferences && setExtensionPreferences && onExtensionPreferencesUpdated)) {
+      throw new Error('Expected MCP extension preference bridge to be available');
+    }
+
+    const getMcpExtensionPreferences = capturedOperations.getMcpExtensionPreferences;
+    if (!getMcpExtensionPreferences) {
+      throw new Error('Expected getMcpExtensionPreferences to be exposed');
+    }
+    await expect(getMcpExtensionPreferences()).resolves.toEqual(extensionPreferences);
+    expect(getExtensionPreferences).toHaveBeenCalledOnce();
+
+    const setMcpExtensionPreferences = capturedOperations.setMcpExtensionPreferences;
+    if (!setMcpExtensionPreferences) {
+      throw new Error('Expected setMcpExtensionPreferences to be exposed');
+    }
+    await expect(setMcpExtensionPreferences({ apps: false, tasks: true })).resolves.toEqual({
+      apps: false,
+      tasks: true,
+    });
+    expect(setExtensionPreferences).toHaveBeenCalledWith({ apps: false, tasks: true });
+
+    const subscribeMcpExtensionPreferences = capturedOperations.subscribeMcpExtensionPreferences;
+    if (!subscribeMcpExtensionPreferences) {
+      throw new Error('Expected subscribeMcpExtensionPreferences to be exposed');
+    }
+    const disposer = vi.fn();
+    vi.mocked(onExtensionPreferencesUpdated).mockReturnValueOnce(disposer);
+    const listener = vi.fn();
+    const unsubscribe = subscribeMcpExtensionPreferences(listener);
+    expect(onExtensionPreferencesUpdated).toHaveBeenCalledWith(listener);
+    const forwarded = vi.mocked(onExtensionPreferencesUpdated).mock.calls[0]?.[0];
+    forwarded?.({ apps: false, tasks: false });
+    expect(listener).toHaveBeenCalledWith({ apps: false, tasks: false });
+    unsubscribe();
+    expect(disposer).toHaveBeenCalledOnce();
+  });
+
+  it('omits the MCP extension dial operations when the bridge lacks the verbs', async () => {
+    const desktopWindow = getDesktopWindow();
+    const {
+      getExtensionPreferences: _get,
+      onExtensionPreferencesUpdated: _subscribe,
+      setExtensionPreferences: _set,
+      ...rest
+    } = desktopWindow.mcp ?? {};
+    desktopWindow.mcp = rest;
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+
+    expect(capturedOperations).not.toHaveProperty('getMcpExtensionPreferences');
+    expect(capturedOperations).not.toHaveProperty('setMcpExtensionPreferences');
+    expect(capturedOperations).not.toHaveProperty('subscribeMcpExtensionPreferences');
   });
 
   it('omits the live status operation when the preload subscription is unavailable', async () => {

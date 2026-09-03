@@ -1,4 +1,11 @@
-import { type ConfiguredMcpServerId, MCP_SUPPORT_MATRIX } from '@brainstrike/assistant-contract';
+import {
+  type ConfiguredMcpServerId,
+  MCP_EXTENSION_ID_BY_KEY,
+  MCP_EXTENSION_KEYS,
+  MCP_SUPPORT_MATRIX,
+  type McpExtensionEnablement,
+  type McpExtensionKey,
+} from '@brainstrike/assistant-contract';
 import { Button, Input, Label } from '@brainstrike/ui';
 import { useEffect, useRef, useState } from 'react';
 import type {
@@ -574,7 +581,28 @@ export function McpServerCatalog({
   );
 }
 
-export function McpSupportMatrix() {
+const SUPPORT_STATUS_LABELS = {
+  disabled: 'Disabled',
+  supported: 'Supported',
+  unsupported: 'Unsupported',
+} as const satisfies Record<'disabled' | (typeof MCP_SUPPORT_MATRIX)[number]['status'], string>;
+
+/** Reverse of `MCP_EXTENSION_ID_BY_KEY`, so a matrix row can find its dial. */
+const EXTENSION_KEY_BY_ID: Readonly<Record<string, McpExtensionKey>> = Object.freeze(
+  Object.fromEntries(MCP_EXTENSION_KEYS.map((key) => [MCP_EXTENSION_ID_BY_KEY[key], key]))
+);
+
+/**
+ * The matrix reports compiled-in product support. When the caller supplies the
+ * global registered-extension dials (BST-1604), an extension the user turned off
+ * reports `Disabled` instead — the row would otherwise claim a capability the
+ * next connection will not advertise. Absent the prop, behaviour is unchanged.
+ */
+export function McpSupportMatrix({
+  extensionPreferences,
+}: {
+  readonly extensionPreferences?: McpExtensionEnablement | undefined;
+}) {
   return (
     <section
       aria-labelledby="mcp-support-title"
@@ -590,36 +618,49 @@ export function McpSupportMatrix() {
         </p>
       </div>
       <div className="space-y-2">
-        {MCP_SUPPORT_MATRIX.map((entry) => (
-          <div
-            className="rounded-md border px-3 py-2 text-sm"
-            data-implementation-ticket={entry.implementationTicket ?? ''}
-            data-status={entry.status}
-            data-testid={`mcp-support-row-${entry.id}`}
-            key={entry.id}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-medium">{entry.label}</span>
-              <span
-                className={
-                  entry.status === 'supported'
-                    ? 'text-emerald-700 dark:text-emerald-300'
-                    : 'text-muted-foreground'
-                }
-                data-testid={`mcp-support-status-${entry.id}`}
-              >
-                {entry.status === 'supported' ? 'Supported' : 'Unsupported'}
-              </span>
+        {MCP_SUPPORT_MATRIX.map((entry) => {
+          const extensionKey = EXTENSION_KEY_BY_ID[entry.id];
+          const turnedOff =
+            extensionKey !== undefined &&
+            extensionPreferences !== undefined &&
+            !extensionPreferences[extensionKey];
+          const status = turnedOff ? 'disabled' : entry.status;
+          return (
+            <div
+              className="rounded-md border px-3 py-2 text-sm"
+              data-implementation-ticket={entry.implementationTicket ?? ''}
+              data-status={status}
+              data-testid={`mcp-support-row-${entry.id}`}
+              key={entry.id}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">{entry.label}</span>
+                <span
+                  className={
+                    status === 'supported'
+                      ? 'text-emerald-700 dark:text-emerald-300'
+                      : 'text-muted-foreground'
+                  }
+                  data-testid={`mcp-support-status-${entry.id}`}
+                >
+                  {SUPPORT_STATUS_LABELS[status]}
+                </span>
+              </div>
+              <div className="break-all font-mono text-muted-foreground text-xs">{entry.id}</div>
+              {turnedOff && (
+                <p className="text-muted-foreground text-xs">
+                  Turned off in settings — not advertised on new connections.
+                </p>
+              )}
+              <p className="text-muted-foreground text-xs">{entry.evidence}</p>
+              {'requirements' in entry && (
+                <p className="text-muted-foreground text-xs">
+                  Graduation gates: {entry.requirements.join(', ')}.
+                </p>
+              )}
             </div>
-            <div className="break-all font-mono text-muted-foreground text-xs">{entry.id}</div>
-            <p className="text-muted-foreground text-xs">{entry.evidence}</p>
-            {'requirements' in entry && (
-              <p className="text-muted-foreground text-xs">
-                Graduation gates: {entry.requirements.join(', ')}.
-              </p>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

@@ -1,5 +1,6 @@
 import type {
   ConfiguredMcpServerId,
+  McpExtensionEnablement,
   McpHostAuthSnapshot,
   McpHostCatalog,
   McpHostCloseReport,
@@ -48,6 +49,8 @@ interface McpServerActorOptions extends Pick<ClientContext, 'configuredServerId'
   clearCredentials?: () => Promise<void>;
   configuredProtocol: '2026-07-28' | 'auto' | 'legacy';
   enabledTools?: readonly string[];
+  /** Effective registered-extension state for this generation (BST-1604). */
+  extensions?: McpExtensionEnablement;
   factory: McpServerActorClientFactory;
   onAuthorityRetired?(): void;
   /**
@@ -373,6 +376,7 @@ export class McpServerActor {
       configuredProtocol: this.options.configuredProtocol,
       configuredServerId: this.options.configuredServerId,
       ...(this.options.enabledTools ? { enabledTools: this.options.enabledTools } : {}),
+      ...(this.options.extensions ? { extensions: this.options.extensions } : {}),
       ...(this.diagnostics.length > 0 ? { diagnostics: this.diagnostics } : {}),
       generation: this.options.generation,
       ...this.status,

@@ -77,6 +77,30 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ id: request.id, jsonrpc: '2.0', result: { resultType: 'complete' } });
     continue;
   }
+  if (request.method === 'tools/list') {
+    send({
+      id: request.id,
+      jsonrpc: '2.0',
+      result: {
+        cacheScope: 'private',
+        resultType: 'complete',
+        tools: [
+          {
+            description: 'Complete immediately',
+            inputSchema: { additionalProperties: false, type: 'object' },
+            name: 'sync-tool',
+          },
+          {
+            description: 'Defer the call to a task',
+            inputSchema: { additionalProperties: false, type: 'object' },
+            name: 'deferred-tool',
+          },
+        ],
+        ttlMs: 0,
+      },
+    });
+    continue;
+  }
   if (request.method === 'tools/call') {
     send({
       id: request.id,

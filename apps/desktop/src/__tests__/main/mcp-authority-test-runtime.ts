@@ -1,5 +1,7 @@
 import {
   type ConfiguredMcpServerId,
+  MCP_EXTENSIONS_ENABLED,
+  type McpExtensionEnablement,
   type McpHostOperation,
   type McpHostOperationResult,
   type McpHostPort,
@@ -24,6 +26,22 @@ export function createMcpElicitationPresenterStub(): McpElicitationBridgeRuntime
     attach: vi.fn(() => vi.fn()),
     observeFinalized: vi.fn(() => vi.fn()),
     settle: vi.fn(),
+  };
+}
+
+/** Global extension dials stand-in (BST-1604) for the IPC handler suites. */
+export function createMcpExtensionPreferencesStub() {
+  let preferences: McpExtensionEnablement = MCP_EXTENSIONS_ENABLED;
+  return {
+    get mcpExtensionPreferences(): McpExtensionEnablement {
+      return preferences;
+    },
+    setMcpExtensionPreferences: vi.fn(
+      async (next: McpExtensionEnablement): Promise<McpHostSnapshot> => {
+        preferences = next;
+        return { revision: 0, servers: [] };
+      }
+    ),
   };
 }
 
@@ -91,6 +109,12 @@ export function createMcpAuthorityTestRuntime(
 
   const elicitationPresenter = createMcpElicitationPresenterStub();
   const taskHost = createMcpTaskHostStub();
+  let extensionPreferences: McpExtensionEnablement = MCP_EXTENSIONS_ENABLED;
+  const setMcpExtensionPreferences = vi.fn(async (preferences: McpExtensionEnablement) => {
+    extensionPreferences = preferences;
+    current = { ...current, revision: current.revision + 1 };
+    return current;
+  });
 
   return {
     elicitationPresenter,
@@ -99,9 +123,14 @@ export function createMcpAuthorityTestRuntime(
     runtime: {
       elicitationPresenter,
       host,
+      get mcpExtensionPreferences() {
+        return extensionPreferences;
+      },
       replaceResolvedConfig,
+      setMcpExtensionPreferences,
       taskHost,
     },
+    setMcpExtensionPreferences,
     taskHost,
   };
 }

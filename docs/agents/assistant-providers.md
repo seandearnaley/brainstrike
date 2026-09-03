@@ -2025,8 +2025,8 @@ inside one scope; never key raw-wire state by request id at ledger scope.
 
 | Client extension | Canonical contract/settings | Brainstrike host surface | Advertised |
 | --- | --- | --- | --- |
-| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Registered (BST-1572): the default desktop registry, dedicated Electron sandbox startup, generation-fenced resource reader, validated frame bridge, thread-keyed ordinary admission authority (live run, then run-detached host-port execution), and visible-UI IPC consent path form one complete host | Yes (stdio, streamable-http); sse: not registered |
-| MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Registered (BST-1566): `createDefaultMcpExtensionRegistry` installs the exact get/update/cancel, task-result, routing-header, and notification-lease wire contracts on every stdio and streamable-http connection, and `McpDesktopTaskHost` runs the durable repository/lifecycle/interaction/presentation chain per negotiated generation; the legacy `sse` transport gets no registry | Yes (stdio, streamable-http); sse: not registered |
+| MCP Apps (`io.modelcontextprotocol/ui`) | Stable spec `2026-01-26`; `mimeTypes` is required and its currently defined value is `text/html;profile=mcp-app` | Registered (BST-1572): the default desktop registry, dedicated Electron sandbox startup, generation-fenced resource reader, validated frame bridge, thread-keyed ordinary admission authority (live run, then run-detached host-port execution), and visible-UI IPC consent path form one complete host | Yes by default (stdio, streamable-http); off when either dial says so (BST-1604); sse: not registered |
+| MCP Tasks (`io.modelcontextprotocol/tasks`) | Empty capability settings; task results, polling, mid-flight input, durable handles, cancellation, and optional subscription notifications are one complete contract | Registered (BST-1566): `createDefaultMcpExtensionRegistry` installs the exact get/update/cancel, task-result, routing-header, and notification-lease wire contracts on every stdio and streamable-http connection, and `McpDesktopTaskHost` runs the durable repository/lifecycle/interaction/presentation chain per negotiated generation; the legacy `sse` transport gets no registry | Yes by default (stdio, streamable-http); off when either dial says so (BST-1604); sse: not registered |
 | OAuth Client Credentials (`io.modelcontextprotocol/oauth-client-credentials`) | Empty capability settings plus complete client-secret or private-key JWT token acquisition and refresh | Disabled: Brainstrike's product path is interactive user authorization, so no machine-to-machine credential host is registered | No |
 | Enterprise-Managed Authorization (`io.modelcontextprotocol/enterprise-managed-authorization`) | Empty capability settings plus the complete enterprise IdP/ID-JAG exchange | Disabled: Brainstrike has no managed-enterprise authorization product surface or registered implementation | No |
 
@@ -2209,7 +2209,68 @@ replacement, and, over a real spawned stdio child,
 A later MCP Apps host registers onto the same fresh registry from this seam.
 `apps/desktop/src/__tests__/main/mcp-host-runtime-tasks.test.ts` pins that the
 real default resolver advertises exactly the support matrix's supported
-extension ids.
+extension ids, AND that each dial's off state advertises exactly the remainder.
+
+#### Registered extension off switch (BST-1604)
+
+Both registered extensions ship ON; two dials can turn one off without a new
+build, and the effective state is `global AND per-server`:
+
+- **Per-server**: an optional `extensions: { apps?: boolean, tasks?: boolean }`
+  object in the MCP configuration document, alongside `transport` / `protocol`
+  / `auth` / `startup`. An omitted key is enabled; an unknown key or a
+  non-boolean value is a config validation error, never a coerced default.
+- **Global**: `McpExtensionEnablement` persisted by main under
+  `mcpExtensionPreferences.v1` in the `brainstrike-settings` electron-store
+  (`apps/desktop/src/mcp/extension-preferences.ts`), reached from the renderer
+  over `mcp:extensions:get` / `mcp:extensions:set` and pushed back on
+  `mcp:extensions:updated`. A write persists BEFORE it reaches the live host,
+  so a rejected write never leaves the process advertising a state the next
+  launch would not reproduce. A stored value that cannot be parsed is
+  `unreadable` and fails CLOSED — both extensions off — because the stored
+  value is the only record of a deliberate opt-out.
+
+`DesktopMcpHostRuntime` folds the global dials into every server's PRIVATE
+definition (`applyMcpExtensionPreferences`) before staging, so a flipped dial
+changes the affected servers' `configRef` and the replacement runs the ordinary
+server-definition path: `taskHost.retired(id, 'server-replaced')` retires the
+epoch before the old generation closes, the presenter authority is retired, and
+`McpHostService` mints a new generation. A server whose effective state is
+unchanged keeps its ref, its generation, and its live epoch — the dial advances
+generations only for AFFECTED servers. `setMcpExtensionPreferences` goes through
+the same replacement queue as `replaceResolvedConfig` and parses inside it, so a
+malformed preference rejects that replacement and leaves the live dials alone.
+Nothing mutates a live registry: the registry still seals before a connection
+advertises, and the decision is made once per generation.
+
+Disabling is absence, not degradation. With an extension off, `initialize`
+carries no `capabilities.extensions` entry for it; with BOTH off the client is
+constructed with no registry at all, so `capabilities.extensions` is omitted
+entirely and every registered wire method fails before transport dispatch. An
+Apps-only registry opens NO task session (`bindTaskHost` is gated on the sealed
+Tasks capability), so `McpDesktopTaskHost.track()` still throws naming the
+missing advertisement exactly as it does for a server that never advertised it —
+that throw is the contract and must not be softened. `sse` remains unregistered
+regardless of either dial.
+
+The host snapshot carries the EFFECTIVE per-server state
+(`McpHostServerSnapshot.extensions`, transport rule included), which is what the
+settings support matrix and the per-server diagnostics render — never the
+compiled-in default. The visible renderer subscribes to that snapshot
+(`apps/desktop/src/renderer/use-mcp-apps-enablement.ts`) and feeds
+`McpAppsEnablementProvider`, so turning Apps off unmounts every mounted app for
+that server through its ordinary teardown (frame bridge close, tool-call
+authority close, generation retirement, sandbox shell release) and the run-
+detached admissions drop on the generation change the same replacement caused.
+Factory reset clears the stored dials and returns the runtime to the shipped
+default; a failed reset restores the captured dials with the rest of the
+snapshot. Pinned by
+`apps/desktop/src/__tests__/main/mcp-extension-preferences.test.ts`,
+`ipc-mcp-extensions.test.ts`, `mcp-host-runtime-tasks.test.ts`,
+`packages/mcp-app-host-ui/src/__tests__/mcp-app-tool-result.test.tsx`, and the
+real-wire absence proofs in
+`packages/agent/src/__tests__/mcp-modern-stdio-extension.integration.spec.ts`
+and `mcp-modern-http-extension.integration.spec.ts`.
 
 `McpDesktopTaskHost` (`apps/desktop/src/mcp/task-host.ts`) implements the
 agent runtime's `McpTaskTrackingCapability` and the host runtime's connection

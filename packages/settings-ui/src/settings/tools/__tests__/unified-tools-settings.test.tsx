@@ -874,6 +874,45 @@ describe('UnifiedToolsSettings', () => {
       });
     });
 
+    it('omits the extension switches when the runtime exposes no extension dials', async () => {
+      const operations = createMockOperations();
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-support-matrix')).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('mcp-extension-settings')).not.toBeInTheDocument();
+      expect(screen.getByTestId('mcp-support-status-io.modelcontextprotocol/ui')).toHaveTextContent(
+        'Supported'
+      );
+    });
+
+    it('renders the extension switches and feeds the support matrix the effective state', async () => {
+      const operations = createMockOperations();
+      operations.getMcpExtensionPreferences = vi.fn().mockResolvedValue({
+        apps: false,
+        tasks: true,
+      });
+      operations.setMcpExtensionPreferences = vi
+        .fn()
+        .mockImplementation(async (preferences) => preferences);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-extension-settings')).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('mcp-support-status-io.modelcontextprotocol/ui')
+        ).toHaveTextContent('Disabled');
+      });
+      expect(
+        screen.getByTestId('mcp-support-status-io.modelcontextprotocol/tasks')
+      ).toHaveTextContent('Supported');
+    });
+
     it('does not show MCP config alert when mcpAvailable is false', async () => {
       const operations = createMockOperations();
       operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: false, path: '/test' });
