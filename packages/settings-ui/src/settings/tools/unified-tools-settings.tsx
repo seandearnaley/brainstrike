@@ -261,6 +261,11 @@ function useToolsDataManager({
       const [toolsData, stats] = await Promise.all([operations.getTools(), operations.getStats()]);
       statsRef.current = stats;
       dispatch({ tools: toolsData, type: 'SET_TOOLS' });
+      // BST-1615: the list below is a fail-closed default, not the user's saved
+      // choices. Saying nothing would read as "you never disabled anything".
+      if (stats.preferencesFault) {
+        dispatch({ error: stats.preferencesFault.message, type: 'SET_ERROR' });
+      }
     } catch (err) {
       dispatch({
         error: err instanceof Error ? err.message : 'Failed to load tools',
@@ -512,22 +517,41 @@ export function UnifiedToolsSettings({
     }
   }, [handleMcpConfigUpdated, operations]);
 
+  // The accordion invokes these through `() => void` props, so a rejection here
+  // is dropped on the floor. They must surface the same way handleToggleTool
+  // does, or a failed write stays invisible for the bulk controls (BST-1615).
   const handleEnableGroup = useCallback(
     async (group: ToolGroup) => {
-      await operations.enableTools(group.tools.map((t) => t.id));
-      await refreshTools();
+      try {
+        await operations.enableTools(group.tools.map((t) => t.id));
+        await refreshTools();
+      } catch (err) {
+        dispatch({
+          error: err instanceof Error ? err.message : 'Failed to enable tools',
+          type: 'SET_ERROR',
+        });
+        return;
+      }
       onToolsChanged?.();
     },
-    [operations, onToolsChanged, refreshTools]
+    [dispatch, operations, onToolsChanged, refreshTools]
   );
 
   const handleDisableGroup = useCallback(
     async (group: ToolGroup) => {
-      await operations.disableTools(group.tools.map((t) => t.id));
-      await refreshTools();
+      try {
+        await operations.disableTools(group.tools.map((t) => t.id));
+        await refreshTools();
+      } catch (err) {
+        dispatch({
+          error: err instanceof Error ? err.message : 'Failed to disable tools',
+          type: 'SET_ERROR',
+        });
+        return;
+      }
       onToolsChanged?.();
     },
-    [operations, onToolsChanged, refreshTools]
+    [dispatch, operations, onToolsChanged, refreshTools]
   );
 
   const handleExpandTool = useCallback(

@@ -21,6 +21,8 @@ const {
   ipcHandleMock,
   showOpenDialogMock,
   getPathMock,
+  getAllWindowsMock,
+  sentToolEvents,
 } = vi.hoisted(() => {
   const order: string[] = [];
 
@@ -51,13 +53,34 @@ const {
   const disableServerTools = vi.fn();
   const reset = vi.fn();
 
-  const loadPreferences = vi.fn(async () => {
+  // Structural copy of ToolPreferencesLoadResult: vi.hoisted runs before imports,
+  // so the real type is not reachable here.
+  type LoadResult =
+    | {
+        status: 'loaded';
+        path: string;
+        preferences: {
+          disabledTools: string[];
+          enabledTools: string[];
+          lastUpdated: number;
+          version: number;
+        };
+      }
+    | { status: 'absent'; path: string }
+    | { status: 'invalid'; path: string; reason: string }
+    | { status: 'unreadable'; path: string; reason: string };
+
+  const loadPreferences = vi.fn(async (): Promise<LoadResult> => {
     order.push('load-preferences');
     return {
-      disabledTools: ['mock-server.tool.disable'],
-      enabledTools: ['mock-server.tool.enable'],
-      lastUpdated: 0,
-      version: 1,
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      preferences: {
+        disabledTools: ['mock-server.tool.disable'],
+        enabledTools: ['mock-server.tool.enable'],
+        lastUpdated: 0,
+        version: 1,
+      },
+      status: 'loaded',
     };
   });
 
@@ -93,6 +116,20 @@ const {
     }
   );
 
+  const sentToolEvents: unknown[] = [];
+  const getAllWindows = vi.fn(() => [
+    {
+      isDestroyed: () => false,
+      webContents: {
+        send: (channel: string, payload: unknown) => {
+          if (channel === 'mcp:tools:updated') {
+            sentToolEvents.push(payload);
+          }
+        },
+      },
+    },
+  ]);
+
   const ipcHandle = vi.fn();
   const showOpenDialog = vi.fn();
   const getPath = vi.fn(() => 'mock-user-data');
@@ -104,6 +141,7 @@ const {
     enableServerToolsMock: enableServerTools,
     enableToolsMock: enable,
     getAllToolsMock: getAllTools,
+    getAllWindowsMock: getAllWindows,
     getEnabledToolsMock: getEnabledTools,
     getMcpConfigPathMock: getConfigPath,
     getPathMock: getPath,
@@ -115,6 +153,7 @@ const {
     registerToolsMock: register,
     resetToolsMock: reset,
     saveToolPreferencesMock: savePreferences,
+    sentToolEvents,
     setCustomMcpConfigPathMock: setCustomConfigPath,
     showOpenDialogMock: showOpenDialog,
     watchMcpConfigMock: watchConfig,
@@ -153,7 +192,7 @@ vi.mock('../../mcp-loader', () => ({
 vi.mock('electron', () => ({
   __esModule: true,
   app: { getPath: getPathMock },
-  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  BrowserWindow: { getAllWindows: getAllWindowsMock },
   dialog: { showOpenDialog: showOpenDialogMock },
   ipcMain: { handle: ipcHandleMock },
 }));
@@ -194,9 +233,23 @@ async function waitForPreferencesCall(): Promise<void> {
   }
 }
 
+function getIpcHandler<T extends unknown[]>(
+  channel: string
+): (event: unknown, ...args: T) => Promise<unknown> {
+  const registration = ipcHandleMock.mock.calls.find(([name]) => name === channel);
+  const handler = registration?.[1] as
+    | ((event: unknown, ...args: T) => Promise<unknown>)
+    | undefined;
+  if (!handler) {
+    throw new Error(`handler not registered for ${channel}`);
+  }
+  return handler;
+}
+
 describe('ipc-mcp tool preference loading', () => {
   beforeEach(() => {
     callOrder.length = 0;
+    sentToolEvents.length = 0;
     vi.clearAllMocks();
   });
 
@@ -284,10 +337,14 @@ describe('ipc-mcp tool preference loading', () => {
 
   it('discards legacy sanitized preference ids instead of applying them', async () => {
     loadToolPreferencesMock.mockResolvedValueOnce({
-      disabledTools: ['filesystem_list_directory'],
-      enabledTools: ['filesystem_read_file'],
-      lastUpdated: 0,
-      version: 1,
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      preferences: {
+        disabledTools: ['filesystem_list_directory'],
+        enabledTools: ['filesystem_read_file'],
+        lastUpdated: 0,
+        version: 1,
+      },
+      status: 'loaded' as const,
     });
     getAllToolsMock.mockReturnValueOnce({
       filesystem: [
@@ -313,10 +370,14 @@ describe('ipc-mcp tool preference loading', () => {
 
   it('still applies valid preferences when persisting cleaned ids fails', async () => {
     loadToolPreferencesMock.mockResolvedValueOnce({
-      disabledTools: ['mock-server.tool.disable', 'filesystem_list_directory'],
-      enabledTools: ['mock-server.tool.enable', 'filesystem_read_file'],
-      lastUpdated: 0,
-      version: 1,
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      preferences: {
+        disabledTools: ['mock-server.tool.disable', 'filesystem_list_directory'],
+        enabledTools: ['mock-server.tool.enable', 'filesystem_read_file'],
+        lastUpdated: 0,
+        version: 1,
+      },
+      status: 'loaded' as const,
     });
     saveToolPreferencesMock.mockRejectedValueOnce(new Error('disk full'));
     getAllToolsMock.mockReturnValueOnce({
@@ -391,6 +452,216 @@ describe('ipc-mcp tool preference loading', () => {
   });
 
   /**
+   * BST-1615. Two halves of the same persistence path used to fail silently: a
+   * failed write resolved the IPC successfully, and an unreadable preferences
+   * file was indistinguishable from "first run", which re-enabled every tool
+   * the user had turned off and then made that reset permanent on the next
+   * toggle. These stay in this describe deliberately -- a second describe over
+   * the same ipc-mcp singleton leaves in-flight config reloads running into the
+   * next test.
+   */
+
+  it('rejects the toggle IPC when the preference write fails', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    saveToolPreferencesMock.mockRejectedValueOnce(new Error('ENOSPC: no space left on device'));
+
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
+
+    await expect(disable({}, ['mock-server.tool.disable'])).rejects.toThrow(
+      'ENOSPC: no space left on device'
+    );
+  });
+
+  it('does not tell the renderer the toggle landed when the write fails', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    saveToolPreferencesMock.mockRejectedValueOnce(new Error('ENOSPC: no space left on device'));
+    sentToolEvents.length = 0;
+
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
+
+    await expect(disable({}, ['mock-server.tool.disable'])).rejects.toThrow('ENOSPC');
+    expect(sentToolEvents).toHaveLength(0);
+  });
+
+  it('tells the renderer the toggle landed once the write succeeds', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    sentToolEvents.length = 0;
+
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
+
+    await disable({}, ['mock-server.tool.disable']);
+    expect(sentToolEvents).toHaveLength(1);
+  });
+
+  it('does not enable previously disabled tools when the preferences file is invalid', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'Unexpected end of JSON input',
+      status: 'invalid' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    expect(enableToolsMock).not.toHaveBeenCalled();
+    expect(disableToolsMock).toHaveBeenCalledWith(
+      expect.arrayContaining(['mock-server.tool.disable', 'mock-server.tool.enable'])
+    );
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+  });
+
+  it('does not enable previously disabled tools when the preferences file is unreadable', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'EACCES: permission denied',
+      status: 'unreadable' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    expect(enableToolsMock).not.toHaveBeenCalled();
+    expect(disableToolsMock).toHaveBeenCalledWith(
+      expect.arrayContaining(['mock-server.tool.disable', 'mock-server.tool.enable'])
+    );
+  });
+
+  it('applies no projection but keeps tools enabled when the file is merely absent', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      status: 'absent' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    expect(enableToolsMock).not.toHaveBeenCalled();
+    expect(disableToolsMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses to overwrite an unreadable preferences file on the next toggle', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'EACCES: permission denied',
+      status: 'unreadable' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+    saveToolPreferencesMock.mockClear();
+
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
+
+    await expect(disable({}, ['mock-server.tool.enable'])).rejects.toThrow(
+      /tool-preferences\.json/
+    );
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps refusing preference writes across an abandoned factory reset', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'EACCES: permission denied',
+      status: 'unreadable' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    await resetMcpRuntimeForFactoryReset(authority.runtime);
+    // 'failed' is the abandoned reset: the projection is restored from the
+    // snapshot rather than rebuilt, so the fault has to travel with it.
+    await resumeMcpRuntimeAfterFactoryReset(authority.runtime, 'failed');
+    saveToolPreferencesMock.mockClear();
+
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
+
+    await expect(disable({}, ['mock-server.tool.enable'])).rejects.toThrow(
+      /tool-preferences\.json/
+    );
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a latched fault when a later config load discovers no tools', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'Unexpected end of JSON input',
+      status: 'invalid' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    // The user removes the last server (or every server fails to connect), so
+    // the next projection pass reads no preferences file at all. The fault is
+    // still true on disk and must not be un-latched by a pass that never
+    // re-read the file.
+    loadMcpConfigMock.mockResolvedValueOnce({
+      config: { servers: [] },
+      exists: true,
+      path: '/mock/config.json',
+    } as unknown as Awaited<ReturnType<typeof loadMcpConfigMock>>);
+    const setPath = getIpcHandler<[null]>('mcp:config:setPath');
+    await setPath({}, null);
+    saveToolPreferencesMock.mockClear();
+
+    const stats = (await getIpcHandler('mcp:tools:getStats')({})) as {
+      preferencesFault?: { kind: string };
+    };
+    expect(stats.preferencesFault).toMatchObject({ kind: 'invalid' });
+
+    const reset = getIpcHandler<[]>('mcp:tools:reset');
+    await expect(reset({})).rejects.toThrow(/tool-preferences\.json/);
+    expect(saveToolPreferencesMock).not.toHaveBeenCalled();
+  });
+
+  it('reports the preference fault through the tool stats payload', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      reason: 'Unexpected end of JSON input',
+      status: 'invalid' as const,
+    });
+
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    const stats = (await getIpcHandler('mcp:tools:getStats')({})) as {
+      preferencesFault?: { kind: string; message: string; path: string };
+    };
+
+    expect(stats.preferencesFault).toMatchObject({
+      kind: 'invalid',
+      path: 'mock-user-data/mcp/tool-preferences.json',
+    });
+    expect(stats.preferencesFault?.message).toContain('tool-preferences.json');
+    // The fault latches for the session, so the copy must not promise a
+    // recovery that repairing the file alone will not deliver.
+    expect(stats.preferencesFault?.message).toContain('restart the app');
+  });
+
+  it('reports no preference fault once the file loads cleanly', async () => {
+    registerMcpIpcHandlers({ runtime: authority.runtime });
+    await waitForPreferencesCall();
+    await vi.waitFor(() => expect(registerToolsMock).toHaveBeenCalled());
+
+    const stats = (await getIpcHandler('mcp:tools:getStats')({})) as {
+      preferencesFault?: unknown;
+    };
+
+    expect(stats.preferencesFault).toBeUndefined();
+  });
+
+  /**
    * BST-1621. The projection pass used to prune every stored preference id that
    * was missing from *this run's* discovery and rewrite the file with the
    * survivors. A server that times out, fails `tools/list`, or is still
@@ -400,9 +671,9 @@ describe('ipc-mcp tool preference loading', () => {
    * keyed on the MCP config, which is the only authority that distinguishes
    * "the user removed this server" from "this server did not answer today".
    *
-   * These stay in this describe deliberately: a second describe over the same
-   * ipc-mcp singleton leaves in-flight config reloads running into the next
-   * test.
+   * Orthogonal to the BST-1615 fault path above: there the file cannot be read
+   * and no write happens at all, so the question below never arises. Here the
+   * file reads perfectly and gets rewritten with real data removed.
    */
 
   function configureTwoServers(): void {
@@ -432,14 +703,23 @@ describe('ipc-mcp tool preference loading', () => {
     listToolsMock.mockImplementationOnce(perServer).mockImplementationOnce(perServer);
   }
 
+  function storedPreferences(preferences: {
+    disabledTools: string[];
+    enabledTools: string[];
+  }): void {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      path: 'mock-user-data/mcp/tool-preferences.json',
+      preferences: { ...preferences, lastUpdated: 0, version: 1 },
+      status: 'loaded' as const,
+    });
+  }
+
   it('keeps preferences for a configured server that failed discovery', async () => {
     configureTwoServers();
     failSlowServerDiscovery();
-    loadToolPreferencesMock.mockResolvedValueOnce({
+    storedPreferences({
       disabledTools: ['mock-server.tool.disable', 'slow-server.dangerous_write'],
       enabledTools: ['mock-server.tool.enable'],
-      lastUpdated: 0,
-      version: 1,
     });
 
     registerMcpIpcHandlers({ runtime: authority.runtime });
@@ -456,11 +736,9 @@ describe('ipc-mcp tool preference loading', () => {
   it('does not rewrite the preferences file when every stored id is still configured', async () => {
     configureTwoServers();
     failSlowServerDiscovery();
-    loadToolPreferencesMock.mockResolvedValueOnce({
+    storedPreferences({
       disabledTools: ['slow-server.a', 'slow-server.b'],
       enabledTools: ['slow-server.c'],
-      lastUpdated: 0,
-      version: 1,
     });
 
     registerMcpIpcHandlers({ runtime: authority.runtime });
@@ -473,11 +751,9 @@ describe('ipc-mcp tool preference loading', () => {
   it('prunes preferences only for a server removed from the MCP config', async () => {
     configureTwoServers();
     failSlowServerDiscovery();
-    loadToolPreferencesMock.mockResolvedValueOnce({
+    storedPreferences({
       disabledTools: ['slow-server.dangerous_write', 'retired-server.gone'],
       enabledTools: ['mock-server.tool.enable', 'retired-server.also_gone'],
-      lastUpdated: 0,
-      version: 1,
     });
 
     registerMcpIpcHandlers({ runtime: authority.runtime });

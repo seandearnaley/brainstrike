@@ -9,6 +9,7 @@ import type {
   McpHostOperationResult,
   McpHostServerSnapshot,
   McpHostSnapshot,
+  McpToolPreferencesFault,
 } from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 
@@ -48,6 +49,13 @@ export interface ToolStats {
   disabled: number;
   enabled: number;
   mcpServers: number;
+  /**
+   * Set when the saved MCP tool preferences exist but could not be read
+   * (BST-1615). The tool list on screen is then a fail-closed default rather
+   * than the user's choices, so the panel must say so instead of presenting it
+   * as normal state. Platforms without persisted MCP preferences omit it.
+   */
+  preferencesFault?: McpToolPreferencesFault;
   total: number;
 }
 

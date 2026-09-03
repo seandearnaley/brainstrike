@@ -13,6 +13,7 @@ import {
 import {
   type McpHostPort,
   type McpHostSnapshot,
+  type McpToolPreferencesFaultKind,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
@@ -142,12 +143,19 @@ function getFlattenedTools(): Array<{ id: string; enabled: boolean }> {
   return Object.values(allTools).filter(Array.isArray).flat();
 }
 
+/**
+ * Persist the registry's current enabled/disabled split.
+ *
+ * Throws on failure (BST-1615). The caller is a user-initiated settings write:
+ * swallowing the error here made the IPC resolve successfully while nothing
+ * reached disk, so the toggle silently reverted on the next launch.
+ */
 export async function saveToolPreferencesIfNeeded(): Promise<void> {
-  try {
-    const tools = getFlattenedTools();
-    const enabledTools = tools.filter((t) => t.enabled).map((t) => t.id);
-    const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
+  const tools = getFlattenedTools();
+  const enabledTools = tools.filter((t) => t.enabled).map((t) => t.id);
+  const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
 
+  try {
     await saveToolPreferences(app.getPath('userData'), {
       disabledTools,
       enabledTools,
@@ -156,6 +164,7 @@ export async function saveToolPreferencesIfNeeded(): Promise<void> {
     });
   } catch (error) {
     logger.error('Failed to save tool preferences', { error });
+    throw error;
   }
 }
 
@@ -178,73 +187,111 @@ function isFromConfiguredServer(
 }
 
 /**
+ * The tool-preference projection to apply after discovery.
+ *
+ * `unavailable` means the preferences file exists but could not be read. The
+ * caller must NOT fall back to "no preferences": an unseen tool registers as
+ * enabled, so that fallback re-enables everything the user had turned off, and
+ * the next toggle would flush that reset over their only copy of the file.
+ */
+export type ToolPreferenceProjection =
+  | { status: 'available'; disabledTools: string[]; enabledTools: string[] }
+  | { status: 'unavailable'; kind: McpToolPreferencesFaultKind; path: string; reason: string }
+  /**
+   * No tools were discovered, so the preferences file was not read this pass.
+   * Never returned by `loadToolPreferencesForProjection` — only synthesized by
+   * the caller. It is NOT a synonym for `available`: a pass that never opened
+   * the file cannot clear a latched fault, or a config load that discovers no
+   * tools would un-block writes over a file still known to be broken.
+   */
+  | { status: 'not-read' };
+
+/**
  * Projects saved tool preferences onto the tools discovered this run.
  *
- * Two sets, deliberately kept apart (BST-1621):
+ * Three rules, in precedence order:
  *
- * - What we *apply* is scoped to `registeredIds`, because a preference can only
- *   be projected onto a tool that exists in the registry right now.
- * - What we *keep on disk* is scoped to `configuredServerNames`. A server that
- *   timed out, failed `tools/list`, or is still spawning under `npx` is absent
- *   from `registeredIds` through no fault of the user, and BST-1603 measured
- *   that happening routinely. Pruning on that signal silently deleted the
- *   user's choices and handed the tools back enabled on the next successful
- *   run, since `ToolRegistry.register` treats an unseen tool as enabled.
- *
- * Only removal from the MCP config retires an id. With no configured servers we
- * have no authority to retire anything, so nothing is pruned.
+ * 1. A file we could not read is settled first (BST-1615): return
+ *    `unavailable` and write nothing at all. The retirement question below
+ *    never arises over a file whose contents we do not know.
+ * 2. What we *apply* is scoped to `registeredIds`, because a preference can
+ *    only be projected onto a tool that exists in the registry right now.
+ * 3. What we *keep on disk* is scoped to `configuredServerNames` (BST-1621). A
+ *    server that timed out, failed `tools/list`, or is still spawning under
+ *    `npx` is absent from `registeredIds` through no fault of the user, and
+ *    BST-1603 measured that happening routinely. Pruning on that signal
+ *    silently deleted the user's choices and handed the tools back enabled on
+ *    the next successful run, since `ToolRegistry.register` treats an unseen
+ *    tool as enabled. Only removal from the MCP config retires an id; with no
+ *    configured servers we have no authority to retire anything.
  */
 export async function loadToolPreferencesForProjection(
   registeredIds: ReadonlySet<string>,
   configuredServerNames: ReadonlySet<string>
-): Promise<Pick<ToolPreferences, 'disabledTools' | 'enabledTools'>> {
-  try {
-    const preferences = await loadToolPreferences(app.getPath('userData'));
-    if (!preferences) {
-      return { disabledTools: [], enabledTools: [] };
-    }
+): Promise<ToolPreferenceProjection> {
+  const userDataDir = app.getPath('userData');
+  const result = await loadToolPreferences(userDataDir);
 
-    const projection = {
-      disabledTools: preferences.disabledTools.filter((id: string) => registeredIds.has(id)),
-      enabledTools: preferences.enabledTools.filter((id: string) => registeredIds.has(id)),
+  if (result.status === 'invalid' || result.status === 'unreadable') {
+    logger.error('MCP tool preferences could not be read; refusing to reset tool state', {
+      kind: result.status,
+      path: result.path,
+      reason: result.reason,
+    });
+    return {
+      kind: result.status,
+      path: result.path,
+      reason: result.reason,
+      status: 'unavailable',
     };
-
-    if (configuredServerNames.size === 0) {
-      return projection;
-    }
-
-    const keptEnabled = preferences.enabledTools.filter((id: string) =>
-      isFromConfiguredServer(id, configuredServerNames)
-    );
-    const keptDisabled = preferences.disabledTools.filter((id: string) =>
-      isFromConfiguredServer(id, configuredServerNames)
-    );
-    const retiredCount =
-      preferences.enabledTools.length -
-      keptEnabled.length +
-      (preferences.disabledTools.length - keptDisabled.length);
-
-    if (retiredCount > 0) {
-      logger.warn('Discarded MCP tool preference ids for servers removed from config', {
-        configuredServerCount: configuredServerNames.size,
-        retiredCount,
-      });
-
-      try {
-        await saveToolPreferences(app.getPath('userData'), {
-          disabledTools: keptDisabled,
-          enabledTools: keptEnabled,
-          lastUpdated: Date.now(),
-          version: preferences.version,
-        });
-      } catch (saveError) {
-        logger.warn('Failed to persist cleaned tool preferences', { error: saveError });
-      }
-    }
-
-    return projection;
-  } catch (error) {
-    logger.error('Failed to load tool preferences', { error });
-    return { disabledTools: [], enabledTools: [] };
   }
+
+  if (result.status === 'absent') {
+    return { disabledTools: [], enabledTools: [], status: 'available' };
+  }
+
+  const preferences: ToolPreferences = result.preferences;
+  const projection: ToolPreferenceProjection = {
+    disabledTools: preferences.disabledTools.filter((id: string) => registeredIds.has(id)),
+    enabledTools: preferences.enabledTools.filter((id: string) => registeredIds.has(id)),
+    status: 'available',
+  };
+
+  if (configuredServerNames.size === 0) {
+    return projection;
+  }
+
+  const keptEnabled = preferences.enabledTools.filter((id: string) =>
+    isFromConfiguredServer(id, configuredServerNames)
+  );
+  const keptDisabled = preferences.disabledTools.filter((id: string) =>
+    isFromConfiguredServer(id, configuredServerNames)
+  );
+  const retiredCount =
+    preferences.enabledTools.length -
+    keptEnabled.length +
+    (preferences.disabledTools.length - keptDisabled.length);
+
+  if (retiredCount > 0) {
+    logger.warn('Discarded MCP tool preference ids for servers removed from config', {
+      configuredServerCount: configuredServerNames.size,
+      retiredCount,
+    });
+
+    try {
+      await saveToolPreferences(userDataDir, {
+        disabledTools: keptDisabled,
+        enabledTools: keptEnabled,
+        lastUpdated: Date.now(),
+        version: preferences.version,
+      });
+    } catch (saveError) {
+      // Best-effort housekeeping over an already-readable file: the projection
+      // is still exactly what the user chose, so a failed rewrite only means
+      // the retired ids survive to the next load.
+      logger.warn('Failed to persist cleaned tool preferences', { error: saveError });
+    }
+  }
+
+  return projection;
 }
