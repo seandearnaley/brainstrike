@@ -7,7 +7,11 @@ import {
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
-import { classifyMcpLifecycleFailure, McpLifecycleFailure } from '../../mcp/lifecycle-errors';
+import {
+  classifyMcpConnectFailure,
+  classifyMcpLifecycleFailure,
+  McpLifecycleFailure,
+} from '../../mcp/lifecycle-errors';
 
 describe('classifyMcpLifecycleFailure', () => {
   it.each([
@@ -64,5 +68,71 @@ describe('classifyMcpLifecycleFailure', () => {
     expect(failure).toBeInstanceOf(McpLifecycleFailure);
     expect([failure.category, failure.code]).toEqual(expected);
     expect(failure.message).not.toContain(cause.message);
+  });
+});
+
+describe('classifyMcpConnectFailure', () => {
+  const server = 'team.linear.prod';
+
+  it('routes a bare connection fault to authentication-required after a discarded registration', () => {
+    const failure = classifyMcpConnectFailure(new Error('connect failed'), undefined, {
+      requiresReauthorization: true,
+      server,
+    });
+
+    expect([failure.category, failure.code]).toEqual([
+      'authentication',
+      'mcp-authentication-required',
+    ]);
+    expect(failure.cause).toMatchObject({ code: 'mcp-connection-failed' });
+  });
+
+  it('leaves a bare connection fault alone when no registration was discarded', () => {
+    const failure = classifyMcpConnectFailure(new Error('connect failed'), undefined, {
+      requiresReauthorization: false,
+      server,
+    });
+
+    expect([failure.category, failure.code]).toEqual(['connection', 'mcp-connection-failed']);
+  });
+
+  /**
+   * A discarded registration must not erase an already-actionable diagnosis:
+   * replacing `mcp-browser-open-failed` with another Connect button hides the
+   * only fault the user can act on (BST-1597 review).
+   */
+  it.each([
+    [
+      Object.assign(new Error('open failed'), { code: 'browser_open_failed' }),
+      ['authentication', 'mcp-browser-open-failed'],
+    ],
+    [
+      Object.assign(new Error('callback expired'), { code: 'callback_timeout' }),
+      ['authentication', 'mcp-auth-callback-timeout'],
+    ],
+    [
+      new SdkHttpError(SdkErrorCode.ClientHttpForbidden, 'forbidden', { status: 403 }),
+      ['authorization', 'mcp-server-rejected'],
+    ],
+    [
+      new ProtocolError(ProtocolErrorCode.InternalError, 'server rejected request'),
+      ['operation', 'mcp-server-rejected'],
+    ],
+    [
+      new SdkError(SdkErrorCode.RequestTimeout, 'request timed out'),
+      ['protocol', 'mcp-protocol-timeout'],
+    ],
+    [
+      new SdkError(SdkErrorCode.ConnectionClosed, 'connection closed'),
+      ['connection', 'mcp-child-exited'],
+    ],
+    [new UnauthorizedError(), ['authentication', 'mcp-authentication-required']],
+  ] as const)('preserves classification %# after a discarded registration', (cause, expected) => {
+    const failure = classifyMcpConnectFailure(cause, undefined, {
+      requiresReauthorization: true,
+      server,
+    });
+
+    expect([failure.category, failure.code]).toEqual(expected);
   });
 });

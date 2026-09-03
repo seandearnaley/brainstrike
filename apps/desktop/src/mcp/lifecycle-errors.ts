@@ -155,6 +155,12 @@ export function classifyMcpLifecycleFailure(
  * be used, which the product already models as `authentication-required` with a
  * Connect affordance. Reporting it as a connection fault instead strands the
  * server row on a terminal error beside healthy-looking credentials (BST-1597).
+ *
+ * Only the generic `mcp-connection-failed` fallback is rewritten. Every other
+ * classification reachable here — `mcp-browser-open-failed`,
+ * `mcp-auth-callback-timeout`, `mcp-server-rejected`, `mcp-protocol-timeout`,
+ * `mcp-child-exited` — already names an actionable fault, and replacing it with
+ * a second Connect button would hide the only thing the user can act on.
  */
 export function classifyMcpConnectFailure(
   cause: unknown,
@@ -162,7 +168,7 @@ export function classifyMcpConnectFailure(
   options: { readonly requiresReauthorization: boolean; readonly server: string }
 ): McpLifecycleFailure {
   const classified = classifyMcpLifecycleFailure(cause, diagnostics);
-  if (classified.code === 'mcp-authentication-required' || !options.requiresReauthorization) {
+  if (!(options.requiresReauthorization && classified.code === 'mcp-connection-failed')) {
     return classified;
   }
   logger.warn('MCP OAuth connection failed after its client registration was discarded', {

@@ -494,6 +494,67 @@ describe('MCP OAuth credential boundary', () => {
     }
   });
 
+  /**
+   * The latch outlives the replacement write on purpose: a fresh registration
+   * whose authorization never completed leaves the stored grant unusable, so
+   * this provider must still report that a reconnect is required. Recovery is
+   * observed by the NEXT attempt's provider, which re-reads the store
+   * (BST-1597 review).
+   */
+  it('keeps demanding reauthorization until a later provider re-reads the replacement', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    const issuer = 'https://auth.example.test';
+    await store.write(identity, {
+      [issuer]: {
+        clientInformation: {
+          client_id: 'stale-client',
+          redirect_uris: ['http://127.0.0.1:65000/mcp/oauth/callback'],
+        },
+        updatedAt: 1,
+      },
+    });
+    const discarding = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    let recoveredRedirectUrl: string;
+    try {
+      if (!discarding.saveClientInformation) {
+        throw new Error('OAuth provider did not expose client-information persistence.');
+      }
+      recoveredRedirectUrl = discarding.redirectUrl;
+      await expect(discarding.clientInformation({ issuer })).resolves.toBeUndefined();
+      expect(discarding.requiresReauthorization()).toBe(true);
+
+      await discarding.saveClientInformation(
+        { client_id: 'replacement-client', redirect_uris: [discarding.redirectUrl] },
+        { issuer }
+      );
+
+      expect(discarding.requiresReauthorization()).toBe(true);
+    } finally {
+      await discarding.close();
+    }
+
+    const recovered = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store,
+    });
+    try {
+      expect(recovered.redirectUrl).toBe(recoveredRedirectUrl);
+      await expect(recovered.clientInformation({ issuer })).resolves.toMatchObject({
+        client_id: 'replacement-client',
+      });
+      expect(recovered.requiresReauthorization()).toBe(false);
+    } finally {
+      await recovered.close();
+    }
+  });
+
   it('rejects client metadata documents that are not valid HTTPS URLs', async () => {
     await expect(
       createMcpOAuthClientProvider({

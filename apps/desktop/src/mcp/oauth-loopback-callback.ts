@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { reportUnavailableLoopbackPort } from './oauth-client-registration';
+import {
+  reportLoopbackListenerFault,
+  reportUnavailableLoopbackPort,
+} from './oauth-client-registration';
 
 export const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
 const MAX_CALLBACK_URL_BYTES = 16 * 1024;
@@ -116,6 +119,12 @@ export async function startLoopbackCallback(
     });
   };
   await bindLoopback(server, preferredPort);
+  // `bindLoopback` must not leave its bind-time rejector attached — it would
+  // survive as a stale rejector across the retry — which leaves the bound server
+  // with zero `'error'` listeners. Node throws an unhandled `'error'` event, so
+  // a later accept-path fault would crash Electron main instead of failing this
+  // OAuth callback. Reported, never silently absorbed and never rethrown.
+  server.on('error', (cause: Error) => reportLoopbackListenerFault(port, cause));
   const address = server.address();
   if (!address || typeof address === 'string') {
     await teardown();

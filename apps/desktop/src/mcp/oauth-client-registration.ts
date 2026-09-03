@@ -52,6 +52,20 @@ export function reportUnavailableLoopbackPort(port: number, cause: unknown): voi
 }
 
 /**
+ * A listener that fails after it is bound (accept-path faults such as EMFILE or
+ * ENFILE) has no request to fail and no promise left to reject. Node throws an
+ * unhandled `'error'` event, which in Electron main is a process crash rather
+ * than a failed OAuth callback, so the fault is reported here instead.
+ */
+export function reportLoopbackListenerFault(port: number, cause: unknown): void {
+  logger.warn('MCP OAuth loopback callback listener failed after binding', {
+    cause,
+    port,
+    reason: 'loopback-listener-error',
+  });
+}
+
+/**
  * Restart evidence: the packaged relaunch proof reads these records to assert
  * the listener rebinds the persisted port instead of drifting to a new one.
  */

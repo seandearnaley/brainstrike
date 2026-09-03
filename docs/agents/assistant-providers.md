@@ -3302,17 +3302,36 @@ authorization server, and trading a deterministic re-registration for an
 `invalid_redirect_uri` the code cannot recover from would be a silent
 degradation. A port another process now owns falls back to a fresh one, reports
 `reportUnavailableLoopbackPort`, and accepts that a re-registration follows.
+The bind-time `'error'` rejector is removed once the listener binds, so a
+permanent replacement handler takes its place: a bound `http.Server` with no
+`'error'` listener turns a later accept-path fault (EMFILE/ENFILE) into an
+unhandled `'error'` event, which in Electron main is a process crash rather than
+a failed OAuth callback. The fault is reported through
+`reportLoopbackListenerFault`, never absorbed silently and never rethrown.
 
 Discarding a registration means the stored grant is unusable, so the provider
 raises `requiresReauthorization()` and `closeAfterConnectFailure` reclassifies
 the connect fault as `mcp-authentication-required` — the actor's
 `authentication-required` state with a Connect affordance — instead of a
-terminal connection failure. Both reasons are logged, never absorbed. Every
-provider start logs `MCP OAuth loopback callback listener bound` with its port
-and `reusedPersistedPort`; the packaged relaunch proof in
+terminal connection failure. That rewrite is deliberately narrow: ONLY the
+generic `mcp-connection-failed` fallback is rewritten, because
+`mcp-browser-open-failed`, `mcp-auth-callback-timeout`, `mcp-server-rejected`,
+`mcp-protocol-timeout` and `mcp-child-exited` already name an actionable fault
+and a second Connect button in their place hides the only thing the user can act
+on. The latch itself is deliberately NOT cleared when `saveClientInformation`
+writes the replacement registration: a registration whose authorization never
+completed still leaves the stored grant unusable, which is exactly the relaunch
+case the integration proof pins. It cannot strand a later unrelated fault
+either, because the provider is constructed inside the per-attempt client
+factory and closed with the attempt that failed — the next connect builds a
+fresh provider that re-reads the store, finds a redirect-compatible
+registration, and never raises the latch at all. Both reasons are logged, never
+absorbed. Every provider start logs
+`MCP OAuth loopback callback listener bound` with its port and
+`reusedPersistedPort`; the packaged relaunch proof in
 `apps/desktop/e2e/mcp-packaged-core.desktop.test.ts` asserts the restarted
-launch rebinds the same port, reconnects, and emits no
-`Discarding stale MCP OAuth dynamic client registration` record.
+launch rebinds the same port in the records IT appended, reconnects, and emits
+no `Discarding stale MCP OAuth dynamic client registration` record.
 
 The `2026-07-28` authorization-server migration contract requires a challenged
 bearer request to rediscover protected-resource metadata before selecting the next

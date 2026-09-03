@@ -787,10 +787,13 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     await waitForServerState(restarted.window, 'oauth', /Connected/i);
     const restartedBindings = await readOAuthLoopbackBindings(userDataDir);
     expect(restartedBindings.length).toBeGreaterThan(bindingsBeforeRestart.length);
-    expect(restartedBindings.map((record) => record['port'])).toEqual(
-      restartedBindings.map(() => firstLaunchLoopbackPort)
+    // The log file is cumulative, so only the records this launch appended say
+    // anything about rebinding the persisted port.
+    const bindingsAfterRestart = restartedBindings.slice(bindingsBeforeRestart.length);
+    expect(bindingsAfterRestart.map((record) => record['port'])).toEqual(
+      bindingsAfterRestart.map(() => firstLaunchLoopbackPort)
     );
-    expect(restartedBindings.at(-1)).toMatchObject({ reusedPersistedPort: true });
+    expect(bindingsAfterRestart.at(-1)).toMatchObject({ reusedPersistedPort: true });
     expect(
       parseJsonLines(
         await readFile(path.join(userDataDir, 'logs', 'brainstrike.log'), 'utf8')
@@ -819,13 +822,15 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const resetEvidence = (
       await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime reset cleanup completed')
     ).at(-1);
+    // Counts include the oauth server this phase reconnected: one more client,
+    // its provider's extra callback, and the loopback port that provider owns.
     expect(resetEvidence).toMatchObject({
       hostCloseReport: {
-        callbacksClosed: 4,
+        callbacksClosed: 6,
         childProcessesClosed: 2,
-        clientsClosed: 4,
+        clientsClosed: 5,
         failures: [],
-        loopbackPortsClosed: 0,
+        loopbackPortsClosed: 1,
         probesClosed: 0,
         subscriptionsClosed: 0,
       },
