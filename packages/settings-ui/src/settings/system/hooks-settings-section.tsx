@@ -217,6 +217,15 @@ export function HooksSettingsSection({
                 !review.parseError &&
                 Boolean(review.sha256) &&
                 Boolean(dbRootId);
+              // While the review is in flight the row has NO actionable state, so
+              // it renders no action control — same reasoning as the neutral
+              // "Checking…" badge. A placeholder Approve button here would be a
+              // control that silently does nothing when pressed: React drops click
+              // listeners on disabled buttons, so the press is swallowed rather
+              // than queued, and the row then settles into an enabled Approve that
+              // looks as though it was never touched.
+              const showRevoke = status === 'trusted';
+              const showApprove = status !== 'trusted' && status !== 'checking';
               return (
                 <li
                   className="flex items-center justify-between gap-4 rounded-md border p-3"
@@ -234,7 +243,7 @@ export function HooksSettingsSection({
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
-                    {status === 'trusted' ? (
+                    {showRevoke ? (
                       <Button
                         data-testid={`hooks-revoke-${root.rootId}`}
                         onClick={() => {
@@ -247,7 +256,8 @@ export function HooksSettingsSection({
                       >
                         Revoke
                       </Button>
-                    ) : (
+                    ) : null}
+                    {showApprove ? (
                       <Button
                         data-testid={`hooks-approve-${root.rootId}`}
                         disabled={!canApprove}
@@ -260,7 +270,7 @@ export function HooksSettingsSection({
                       >
                         Approve
                       </Button>
-                    )}
+                    ) : null}
                   </div>
                 </li>
               );
