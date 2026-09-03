@@ -169,21 +169,54 @@ export async function saveToolPreferencesIfNeeded(): Promise<void> {
 }
 
 /**
- * True when `toolId` belongs to a server that is still in the MCP config.
+ * Every configured server that could own `toolId`.
  *
- * Tool ids are `${server.name}.${tool.name}` and a server name may itself
- * contain dots, so this matches on the `${name}.` prefix rather than splitting.
+ * A tool id is `${server.name}.${tool.name}` and BOTH halves may contain dots,
+ * so ownership is not decidable from the id alone: `foo.bar.write` is either
+ * server `foo` with tool `bar.write` or server `foo.bar` with tool `write`.
+ * This returns the candidates rather than guessing between them, so the caller
+ * can see the difference between "one configured server owns this", "several
+ * might" and "none can".
  */
-function isFromConfiguredServer(
+function findOwningServerCandidates(
   toolId: string,
   configuredServerNames: ReadonlySet<string>
-): boolean {
+): string[] {
+  const candidates: string[] = [];
   for (const serverName of configuredServerNames) {
     if (toolId.startsWith(`${serverName}.`)) {
-      return true;
+      candidates.push(serverName);
     }
   }
-  return false;
+  return candidates;
+}
+
+/**
+ * True when `toolId` must survive this pass.
+ *
+ * Two independent reasons, and either is sufficient:
+ *
+ * 1. It is live in the registry right now. An id we can see this run is not
+ *    retired, whatever the config says about prefixes. Without this the write
+ *    could erase a preference the same pass just applied, and
+ *    `ToolRegistry.register` would hand the tool back enabled next run — the
+ *    exact failure this function exists to prevent. It also makes the retained
+ *    set a superset of the applied set by construction, rather than by the
+ *    coincidence that tool ids are built from `config.servers[].name`.
+ * 2. Some configured server could own it. Where ownership is ambiguous (several
+ *    candidates, thanks to dots on both sides) we retain: retiring on an
+ *    ownership we cannot establish is data loss, and over-retaining costs a few
+ *    stale strings. Only an id no configured server can claim is retired.
+ */
+function isRetainedPreferenceId(
+  toolId: string,
+  registeredIds: ReadonlySet<string>,
+  configuredServerNames: ReadonlySet<string>
+): boolean {
+  if (registeredIds.has(toolId)) {
+    return true;
+  }
+  return findOwningServerCandidates(toolId, configuredServerNames).length > 0;
 }
 
 /**
@@ -261,12 +294,10 @@ export async function loadToolPreferencesForProjection(
     return projection;
   }
 
-  const keptEnabled = preferences.enabledTools.filter((id: string) =>
-    isFromConfiguredServer(id, configuredServerNames)
-  );
-  const keptDisabled = preferences.disabledTools.filter((id: string) =>
-    isFromConfiguredServer(id, configuredServerNames)
-  );
+  const isRetained = (id: string): boolean =>
+    isRetainedPreferenceId(id, registeredIds, configuredServerNames);
+  const keptEnabled = preferences.enabledTools.filter(isRetained);
+  const keptDisabled = preferences.disabledTools.filter(isRetained);
   const retiredCount =
     preferences.enabledTools.length -
     keptEnabled.length +

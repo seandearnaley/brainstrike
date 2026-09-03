@@ -246,6 +246,9 @@ function getIpcHandler<T extends unknown[]>(
   return handler;
 }
 
+/** Undoes a persistent `listToolsMock` implementation installed by a test. */
+let restoreListTools: (() => void) | null = null;
+
 describe('ipc-mcp tool preference loading', () => {
   beforeEach(() => {
     callOrder.length = 0;
@@ -255,6 +258,8 @@ describe('ipc-mcp tool preference loading', () => {
 
   afterEach(async () => {
     await resumeMcpRuntimeAfterFactoryReset(authority.runtime);
+    restoreListTools?.();
+    restoreListTools = null;
     callOrder.length = 0;
   });
 
@@ -689,9 +694,28 @@ describe('ipc-mcp tool preference loading', () => {
     } as unknown as Awaited<ReturnType<typeof loadMcpConfigMock>>);
   }
 
-  /** Discovery answers for `mock-server` and times out for `slow-server`. */
+  /**
+   * Discovery answers for `mock-server` and always times out for `slow-server`.
+   *
+   * Keyed on the server name rather than chained `mockImplementationOnce` calls,
+   * which would hard-code "discovery calls listTools exactly twice". A retry, a
+   * reconnect or a second config pass would spill past the chain onto the suite
+   * default, `slow-server` would quietly start succeeding, and every test built
+   * on a failed discovery would keep passing for the wrong reason.
+   *
+   * The implementation is persistent, so it is undone in `afterEach`:
+   * `vi.clearAllMocks()` clears calls but NOT implementations, and this suite
+   * has no `mockReset`/`restoreMocks` behind it -- leaving it installed would
+   * leak `slow-server` failures into every later test in the file.
+   */
   function failSlowServerDiscovery(): void {
-    const perServer = async (serverName: string) => {
+    const previous = listToolsMock.getMockImplementation();
+    restoreListTools = () => {
+      if (previous) {
+        listToolsMock.mockImplementation(previous);
+      }
+    };
+    listToolsMock.mockImplementation(async (serverName: string) => {
       if (serverName === 'slow-server') {
         throw new Error('MCP request timed out after 5000ms');
       }
@@ -699,8 +723,7 @@ describe('ipc-mcp tool preference loading', () => {
         'mock-server.tool.disable': { description: 'Disabled tool' },
         'mock-server.tool.enable': { description: 'Enabled tool' },
       };
-    };
-    listToolsMock.mockImplementationOnce(perServer).mockImplementationOnce(perServer);
+    });
   }
 
   function storedPreferences(preferences: {
