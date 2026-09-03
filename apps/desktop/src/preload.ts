@@ -1,7 +1,5 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
-const { isMainOwnedDesktopStorageKey } =
-  require('./platform/desktop-storage-authority') as typeof import('./platform/desktop-storage-authority');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 type EmbeddingTelemetrySnapshot =
   import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
@@ -108,6 +106,17 @@ const STORAGE_GET_ITEM_CHANNEL = 'storage:getItem' as const;
 const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
 const STORAGE_SEED_MAIN_OWNED_FOR_E2E_CHANNEL = 'storage:seedMainOwnedForE2e' as const;
 const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
+// Preload runs as a standalone CommonJS bundle, so it cannot require a sibling
+// TypeScript module in source-level preload tests. This set only selects the
+// E2E-only seed channel; MAIN validates the exact authoritative allowlist again.
+const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set([
+  'lastFolderPath',
+  'notesVaultRoots',
+  'recentRootsList',
+  'recentRootsList.corrupt',
+  'rootsList',
+  'rootsList.corrupt',
+]);
 const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
 const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
@@ -849,7 +858,7 @@ if (shouldExposeBridge('electronAPI')) {
       removeItem: (key: string) => ipcRenderer.invoke(STORAGE_REMOVE_ITEM_CHANNEL, key),
       setItem: (key: string, value: string) =>
         ipcRenderer.invoke(
-          DESKTOP_TEST_MODE && isMainOwnedDesktopStorageKey(key)
+          DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
             ? STORAGE_SEED_MAIN_OWNED_FOR_E2E_CHANNEL
             : STORAGE_SET_ITEM_CHANNEL,
           key,
