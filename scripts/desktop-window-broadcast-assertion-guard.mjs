@@ -10,19 +10,33 @@
 // worse, its `.not.` twin — passes whether or not the production code sends
 // anything. The test reports a green it never earned.
 //
-// This guard is STATIC on purpose: the property is decidable from the source of
-// a single test file, so it costs nothing at runtime and cannot itself go
-// vacuous the way the assertions it protects did.
+// WHY A REAL PARSE RATHER THAN A SCANNER (review of #2951). The first version of
+// this guard matched tokens, read the ~90 characters after them, and hand-rolled
+// its own comment/string tracking. Both choices produced bugs of exactly the
+// kind this guard exists to prevent:
+//   * `expect(...getAllWindows()).toEqual([])` — an ASSERTION — was read as an
+//     empty STUB, and a real non-empty stub (`mockReturnValue(windows as never)`)
+//     was read as empty because an unrelated `[]` sat 60 characters later. A
+//     guard that fails a correct file trains people to add waivers, and a waiver
+//     list that grows on noise is how a guard stops meaning anything.
+//   * a quote inside a regex literal (`/['"]/`) desynchronised the scanner for
+//     the REST OF THE FILE, so every later verdict was unreliable in either
+//     direction, with no bail-out.
+// Both classes disappear once the parser owns lexing and the questions become
+// structural — "is this node a stub assignment?", "does this expect() subject
+// reference a send?" — instead of "what characters follow this token?". This is
+// the AST-guard pattern already established in scripts/ (see
+// provider-registry-ast-helpers.mjs and assistant-run-id-producer-guard.mjs).
 //
 // Shape of the rule. A file is a violation when BOTH hold:
-//   1. every `getAllWindows` stub in it yields an EMPTY array (a file with no
-//      stub at all, or with any stub whose contents this guard cannot read, is
-//      left alone — the conservative direction, since a false accusation here
-//      costs more than a miss), and
-//   2. it asserts on a renderer send — either `expect(...webContents.send...)`
-//      directly, or `expect(<recorder>)` where `<recorder>` is an identifier the
-//      file installs as a window's `webContents.send` (or the array such a
-//      recorder pushes into).
+//   1. it contains at least one window-listing STUB and every one of them
+//      resolves to an EMPTY array (a stub whose value is not statically
+//      readable resolves to 'unknown' and exempts the file — the conservative
+//      direction, since a false accusation costs more than a miss), and
+//   2. it asserts on a renderer send — `expect(...webContents.send...)`, or
+//      `expect(<recorder>)` where `<recorder>` names a window's send mock, the
+//      array that mock records into, or a recording window's send-bearing
+//      members.
 //
 // Exemptions are a named allowlist, not an inferred escape hatch: a test whose
 // windows reach it through a mocked `BrowserWindow` CONSTRUCTOR observes sends
@@ -33,6 +47,8 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import ts from 'typescript';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP_TEST_ROOT = path.join('apps', 'desktop', 'src', '__tests__');
@@ -59,187 +75,403 @@ export const EMPTY_WINDOW_SEND_ASSERTION_WAIVERS = new Map([
   ],
 ]);
 
-/**
- * Removes line and block comments so a file that only MENTIONS getAllWindows in
- * prose (mcp-elicitation-bridge.test.ts does exactly that, to record that the
- * bridge deliberately does not enumerate it) is not read as stubbing it.
- * String and template literals are tracked so a `//` inside a URL survives.
- */
-export function stripCommentsAndStrings(source) {
-  let out = '';
-  let index = 0;
-  let quote = null;
-  while (index < source.length) {
-    const char = source[index];
-    if (quote) {
-      if (char === '\\') {
-        out += '  ';
-        index += 2;
-        continue;
-      }
-      if (char === quote) {
-        quote = null;
-      }
-      out += char === '\n' ? '\n' : ' ';
-      index += 1;
-      continue;
-    }
-    if (char === "'" || char === '"' || char === '`') {
-      quote = char;
-      out += char;
-      index += 1;
-      continue;
-    }
-    if (char === '/' && source[index + 1] === '/') {
-      while (index < source.length && source[index] !== '\n') {
-        out += ' ';
-        index += 1;
-      }
-      continue;
-    }
-    if (char === '/' && source[index + 1] === '*') {
-      const end = source.indexOf('*/', index + 2);
-      const stop = end === -1 ? source.length : end + 2;
-      for (; index < stop; index += 1) {
-        out += source[index] === '\n' ? '\n' : ' ';
-      }
-      continue;
-    }
-    out += char;
-    index += 1;
-  }
-  return out;
+export function parseTestSource(source, fileName) {
+  return ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
 }
 
-function lineNumberAt(source, offset) {
-  let line = 1;
-  for (let index = 0; index < offset && index < source.length; index += 1) {
-    if (source[index] === '\n') {
-      line += 1;
-    }
+function lineOf(sourceFile, node) {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+/** Strip `as`/`satisfies`/parens/non-null wrappers down to the real expression. */
+function unwrap(node) {
+  let current = node;
+  while (
+    current &&
+    (ts.isAsExpression(current) ||
+      ts.isSatisfiesExpression(current) ||
+      ts.isParenthesizedExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isTypeAssertionExpression(current))
+  ) {
+    current = current.expression;
   }
-  return line;
+  return current;
+}
+
+// The listing property is `getAllWindows`; the mock VARIABLES tests bind it to
+// are conventionally `getAllWindowsMock` and friends.
+const LISTING_MOCK_NAME = /^getAllWindows/;
+
+const MOCK_VALUE_SETTERS = new Set([
+  'mockImplementation',
+  'mockImplementationOnce',
+  'mockReturnValue',
+  'mockReturnValueOnce',
+]);
+
+function nameTextOf(node) {
+  if (node && (ts.isIdentifier(node) || ts.isStringLiteral(node))) {
+    return node.text;
+  }
+  return;
+}
+
+/** Does this expression denote the window-listing mock, so `.mockReturnValue` on it is a stub? */
+function denotesListingMock(node) {
+  let found = false;
+  const visit = (current) => {
+    if (found) {
+      return;
+    }
+    if (ts.isIdentifier(current) && LISTING_MOCK_NAME.test(current.text)) {
+      found = true;
+      return;
+    }
+    if (ts.isPropertyAccessExpression(current) && LISTING_MOCK_NAME.test(current.name.text)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function isViFnCall(node) {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === 'fn'
+  );
+}
+
+/** The single `return <expr>` of a block body, ignoring nested functions. */
+function singleReturnExpression(block) {
+  const returns = [];
+  const visit = (node) => {
+    if (
+      ts.isFunctionDeclaration(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isArrowFunction(node)
+    ) {
+      return;
+    }
+    if (ts.isReturnStatement(node)) {
+      returns.push(node.expression);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(block, visit);
+  return returns.length === 1 ? returns[0] : undefined;
 }
 
 /**
- * Reads the argument text of the `expect(` starting at `openParenIndex` by
- * balancing parentheses, so a multi-line subject is classified from the whole
- * subject rather than from whichever fragment happens to share a line.
+ * Resolves what a stub hands back: 'empty', 'non-empty', or 'unknown' when the
+ * value is not a statically readable array literal (an identifier, a promise, a
+ * helper call). 'unknown' exempts the file — deliberately, because guessing here
+ * is what produced false accusations before.
  */
-function readBalanced(source, openParenIndex) {
-  let depth = 0;
-  for (let index = openParenIndex; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === '(') {
-      depth += 1;
-    } else if (char === ')') {
-      depth -= 1;
-      if (depth === 0) {
-        return source.slice(openParenIndex + 1, index);
-      }
-    }
+export function resolveListingValue(node, depth = 0) {
+  const expr = unwrap(node);
+  if (!expr || depth > 6) {
+    return 'unknown';
   }
-  return source.slice(openParenIndex + 1);
+  if (ts.isArrayLiteralExpression(expr)) {
+    return expr.elements.length === 0 ? 'empty' : 'non-empty';
+  }
+  if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
+    if (!ts.isBlock(expr.body)) {
+      return resolveListingValue(expr.body, depth + 1);
+    }
+    const returned = singleReturnExpression(expr.body);
+    return returned ? resolveListingValue(returned, depth + 1) : 'unknown';
+  }
+  if (isViFnCall(expr)) {
+    return expr.arguments.length > 0
+      ? resolveListingValue(expr.arguments[0], depth + 1)
+      : 'unknown';
+  }
+  return 'unknown';
 }
 
-const WINDOW_LISTING_PATTERN = /\bgetAllWindows\w*\b/g;
-// How far past a `getAllWindows` occurrence to look for the array literal it is
-// given. Wide enough for `vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([`
-// and its `mockImplementation(() => [` twin, narrow enough not to swallow an
-// unrelated array on a following statement.
-const LISTING_VALUE_LOOKAHEAD = 90;
-
 /**
- * Classifies each `getAllWindows` occurrence as 'empty', 'non-empty' or
- * 'unknown' (an alias binding, or an assertion ON the mock, where the guard
- * cannot see the value).
+ * Every window-listing STUB in the file, structurally identified. An ordinary
+ * reference — a call, an assertion on the mock — is not a stub and does not
+ * appear here at all, so it can neither be mistaken for an empty listing nor
+ * exempt the file by looking 'unknown'.
+ *
+ * @param {string} source
+ * @param {string} [fileName]
  */
-export function classifyWindowListingStubs(code) {
+export function classifyWindowListingStubs(source, fileName = 'test.ts') {
+  const sourceFile = parseTestSource(source, fileName);
   const stubs = [];
-  WINDOW_LISTING_PATTERN.lastIndex = 0;
-  let match = WINDOW_LISTING_PATTERN.exec(code);
-  while (match !== null) {
-    const window = code.slice(match.index, match.index + LISTING_VALUE_LOOKAHEAD);
-    const bracket = window.indexOf('[');
-    let kind = 'unknown';
-    if (bracket !== -1) {
-      kind = /^\[\s*\]/.test(window.slice(bracket)) ? 'empty' : 'non-empty';
+  const record = (node, valueNode) => {
+    stubs.push({ kind: resolveListingValue(valueNode), lineNumber: lineOf(sourceFile, node) });
+  };
+
+  const visit = (node) => {
+    // `{ getAllWindows: <value> }` — the vi.mock factory and Object.assign forms.
+    if (ts.isPropertyAssignment(node) && LISTING_MOCK_NAME.test(nameTextOf(node.name) ?? '')) {
+      record(node, node.initializer);
     }
-    stubs.push({ kind, lineNumber: lineNumberAt(code, match.index) });
-    match = WINDOW_LISTING_PATTERN.exec(code);
-  }
+    // `{ getAllWindows }` — the value lives elsewhere.
+    else if (ts.isShorthandPropertyAssignment(node) && LISTING_MOCK_NAME.test(node.name.text)) {
+      record(node, undefined);
+    }
+    // `(BrowserWindow as any).getAllWindows = <value>`
+    else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isPropertyAccessExpression(node.left) &&
+      LISTING_MOCK_NAME.test(node.left.name.text)
+    ) {
+      record(node, node.right);
+    }
+    // `const getAllWindowsMock = vi.fn(() => [])`
+    else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      LISTING_MOCK_NAME.test(node.name.text) &&
+      node.initializer
+    ) {
+      record(node, node.initializer);
+    }
+    // `vi.mocked(BrowserWindow.getAllWindows).mockReturnValue(<value>)`
+    else if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      MOCK_VALUE_SETTERS.has(node.expression.name.text) &&
+      denotesListingMock(node.expression.expression)
+    ) {
+      record(node, node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return stubs;
 }
 
-// `webContents: { send: recordSend }`
-const NAMED_RECORDER_PATTERN = /webContents\s*:\s*\{\s*send\s*:\s*([A-Za-z_$][\w$]*)\s*[,}]/g;
-// `send: (channel, payload) => { sentEvents.push(...) }` — assertions then read
-// the ARRAY, never the function, so the array name counts as a recorder too.
-const RECORDER_SINK_PATTERN =
-  /send\s*:\s*\([^)]*\)\s*=>\s*\{[\s\S]{0,240}?([A-Za-z_$][\w$]*)\.push\(/g;
-// The shared helper this guard points violators at. A file that adopts it must
-// stay just as visible here as the hand-rolled literal it replaced — otherwise
-// the fix for one vacuous assertion would blind the guard to the next.
-const HELPER_WINDOW_PATTERN =
-  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*createRecordingWindow\s*\(/g;
-// `const send = rendererWindow.send;` / `sentEvents = rendererWindow.events;`
-const RECORDER_ALIAS_PATTERN =
-  /(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)(?:\.[\w$]+)*\s*;/g;
+const RECORDING_WINDOW_FACTORY = 'createRecordingWindow';
+// Members of a recording window that carry what the renderer was told. An
+// assertion on any OTHER member (`isDestroyed()`, `id`) is not a send assertion:
+// treating the whole window object as a recorder is what made the first draft
+// reject valid tests.
+const SEND_BEARING_MEMBERS = new Set(['events', 'payloadsFor', 'send', 'webContents']);
 
-/** Identifiers a file installs as (or reads back from) a window's `webContents.send`. */
-export function collectSendRecorderNames(code) {
-  const names = new Set();
-  if (/webContents\s*:\s*\{\s*send\s*[,}]/.test(code)) {
-    names.add('send');
-  }
-  for (const pattern of [NAMED_RECORDER_PATTERN, RECORDER_SINK_PATTERN, HELPER_WINDOW_PATTERN]) {
-    pattern.lastIndex = 0;
-    let match = pattern.exec(code);
-    while (match !== null) {
-      names.add(match[1]);
-      match = pattern.exec(code);
+function webContentsSendProperties(objectLiteral) {
+  const found = [];
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property) || nameTextOf(property.name) !== 'webContents') {
+      continue;
     }
-  }
-  // Close over aliases (`const send = rendererWindow.send;`) to a fixpoint, so a
-  // file that renames the recorder once — or twice — is still seen.
-  for (let pass = 0; pass < 4; pass += 1) {
-    const before = names.size;
-    RECORDER_ALIAS_PATTERN.lastIndex = 0;
-    let alias = RECORDER_ALIAS_PATTERN.exec(code);
-    while (alias !== null) {
-      if (names.has(alias[2])) {
-        names.add(alias[1]);
+    const webContents = unwrap(property.initializer);
+    if (!ts.isObjectLiteralExpression(webContents)) {
+      continue;
+    }
+    for (const inner of webContents.properties) {
+      if (nameTextOf(inner.name) === 'send') {
+        found.push(inner);
       }
-      alias = RECORDER_ALIAS_PATTERN.exec(code);
     }
-    if (names.size === before) {
+  }
+  return found;
+}
+
+/** The array a `send: (channel, payload) => { X.push(...) }` recorder records into. */
+function pushSinkOf(fnNode) {
+  const fn = unwrap(fnNode);
+  if (!(fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)))) {
+    return;
+  }
+  let sink;
+  const visit = (node) => {
+    if (sink) {
+      return;
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'push' &&
+      ts.isIdentifier(node.expression.expression)
+    ) {
+      sink = node.expression.expression.text;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(fn);
+  return sink;
+}
+
+/**
+ * Names a file binds to a window's send machinery.
+ *
+ * `objects` are recording windows — an assertion counts only when it touches a
+ * SEND-BEARING member of one. `values` are the send mock itself, or the array it
+ * records into, which assertions name directly.
+ */
+export function collectSendRecorders(source, fileName = 'test.ts') {
+  const sourceFile = parseTestSource(source, fileName);
+  const objects = new Set();
+  const values = new Set();
+
+  const seed = (node) => {
+    if (ts.isObjectLiteralExpression(node)) {
+      for (const sendProperty of webContentsSendProperties(node)) {
+        if (ts.isShorthandPropertyAssignment(sendProperty)) {
+          values.add(sendProperty.name.text);
+          continue;
+        }
+        if (!ts.isPropertyAssignment(sendProperty)) {
+          continue;
+        }
+        const value = unwrap(sendProperty.initializer);
+        if (ts.isIdentifier(value)) {
+          values.add(value.text);
+          continue;
+        }
+        const sink = pushSinkOf(value);
+        if (sink) {
+          values.add(sink);
+        }
+      }
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const initializer = unwrap(node.initializer);
+      const isFactoryCall =
+        ts.isCallExpression(initializer) &&
+        ts.isIdentifier(initializer.expression) &&
+        initializer.expression.text === RECORDING_WINDOW_FACTORY;
+      const isSendBearingLiteral =
+        ts.isObjectLiteralExpression(initializer) &&
+        webContentsSendProperties(initializer).length > 0;
+      if (isFactoryCall || isSendBearingLiteral) {
+        objects.add(node.name.text);
+      }
+    }
+    ts.forEachChild(node, seed);
+  };
+  seed(sourceFile);
+
+  // Close over renames (`const send = rendererWindow.send;`,
+  // `sentEvents = rendererWindow.events;`) to a fixpoint, so a file that renames
+  // the recorder once — or twice — is still seen.
+  for (let pass = 0; pass < 5; pass += 1) {
+    const before = objects.size + values.size;
+    const alias = (targetName, valueNode) => {
+      const value = unwrap(valueNode);
+      if (!(value && targetName)) {
+        return;
+      }
+      if (ts.isIdentifier(value)) {
+        if (objects.has(value.text)) {
+          objects.add(targetName);
+        } else if (values.has(value.text)) {
+          values.add(targetName);
+        }
+        return;
+      }
+      if (
+        ts.isPropertyAccessExpression(value) &&
+        ts.isIdentifier(value.expression) &&
+        objects.has(value.expression.text) &&
+        SEND_BEARING_MEMBERS.has(value.name.text)
+      ) {
+        values.add(targetName);
+      }
+    };
+    const visit = (node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+        alias(node.name.text, node.initializer);
+      } else if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(node.left)
+      ) {
+        alias(node.left.text, node.right);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    if (objects.size + values.size === before) {
       break;
     }
   }
-  return names;
+
+  return { objects, values };
+}
+
+function subjectAssertsRendererSend(subject, recorders) {
+  let matched = false;
+  const visit = (node) => {
+    if (matched) {
+      return;
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      const target = unwrap(node.expression);
+      // `<anything>.webContents.send`
+      if (
+        node.name.text === 'send' &&
+        ts.isPropertyAccessExpression(target) &&
+        target.name.text === 'webContents'
+      ) {
+        matched = true;
+        return;
+      }
+      // `<recordingWindow>.send | .events | .payloadsFor | .webContents`
+      if (
+        ts.isIdentifier(target) &&
+        recorders.objects.has(target.text) &&
+        SEND_BEARING_MEMBERS.has(node.name.text)
+      ) {
+        matched = true;
+        return;
+      }
+      // The property NAME is never a standalone recorder reference, so walk the
+      // object side only — this is what keeps `expect(window.isDestroyed())`
+      // from reading as a send assertion.
+      visit(node.expression);
+      return;
+    }
+    if (ts.isIdentifier(node) && recorders.values.has(node.text)) {
+      matched = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(subject);
+  return matched;
 }
 
 /** Assertions whose subject is a renderer send. */
-export function findRendererSendAssertions(code) {
-  const recorderNames = collectSendRecorderNames(code);
+export function findRendererSendAssertions(source, fileName = 'test.ts') {
+  const sourceFile = parseTestSource(source, fileName);
+  const recorders = collectSendRecorders(source, fileName);
   const assertions = [];
-  const expectPattern = /\bexpect\s*\(/g;
-  let match = expectPattern.exec(code);
-  while (match !== null) {
-    const openParen = code.indexOf('(', match.index);
-    const subject = readBalanced(code, openParen);
-    const direct = subject.includes('webContents') && /\bsend\b/.test(subject);
-    const viaRecorder = [...recorderNames].some((name) =>
-      new RegExp(`(^|[^\\w$.])${name}(\\b|$)`).test(subject)
-    );
-    if (direct || viaRecorder) {
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'expect' &&
+      node.arguments.length > 0 &&
+      subjectAssertsRendererSend(node.arguments[0], recorders)
+    ) {
       assertions.push({
-        lineNumber: lineNumberAt(code, match.index),
-        subject: subject.trim().replace(/\s+/g, ' ').slice(0, 120),
+        lineNumber: lineOf(sourceFile, node),
+        subject: node.arguments[0].getText(sourceFile).replace(/\s+/g, ' ').slice(0, 120),
       });
     }
-    match = expectPattern.exec(code);
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return assertions;
 }
 
@@ -277,17 +509,13 @@ export async function findVacuousWindowBroadcastAssertions(options = {}) {
 
   for (const absolute of files.sort()) {
     const relative = path.relative(root, absolute).split(path.sep).join('/');
-    const code = stripCommentsAndStrings(await readFile(absolute, 'utf8'));
-    const stubs = classifyWindowListingStubs(code);
-    if (stubs.length === 0) {
-      continue;
-    }
-    const emptyOnly =
-      stubs.some((stub) => stub.kind === 'empty') && stubs.every((stub) => stub.kind === 'empty');
+    const source = await readFile(absolute, 'utf8');
+    const stubs = classifyWindowListingStubs(source, relative);
+    const emptyOnly = stubs.length > 0 && stubs.every((stub) => stub.kind === 'empty');
     if (!emptyOnly) {
       continue;
     }
-    const assertions = findRendererSendAssertions(code);
+    const assertions = findRendererSendAssertions(source, relative);
     if (assertions.length === 0) {
       continue;
     }
