@@ -116,7 +116,7 @@ export function FileContentErrorScreen({
 export function InaccessibleFileScreen({ content }: { readonly content: string }): ReactElement {
   return (
     <div className="h-full overflow-auto p-4">
-      <p className="text-amber-600 dark:text-amber-400">{content}</p>
+      <p className="text-warning">{content}</p>
       <p className="mt-2 text-muted-foreground text-sm">
         To access this file, please open the folder again using the folder icon button. This is a
         security measure of your browser.

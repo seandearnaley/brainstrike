@@ -896,7 +896,7 @@ export function DiffView({
           ) : null}
           {presentation.kind === 'hunks-only' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
               data-testid="diff-over-cap-note"
             >
               {presentation.sideNote}
@@ -904,7 +904,7 @@ export function DiffView({
           ) : null}
           {oversizeNote === 'sliced' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
               data-testid="diff-sliced-note"
             >
               File too large to diff in full — showing changed regions with surrounding context
@@ -916,7 +916,7 @@ export function DiffView({
               silently-degraded stand-in for the sliced view. */}
           {oversizeNote === 'unsliceable' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
               data-testid="diff-too-large-note"
             >
               File too large to diff inline — showing content without change highlighting
@@ -924,7 +924,7 @@ export function DiffView({
           ) : null}
           {truncatedNoteVisible ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
               data-testid="diff-truncated-note"
             >
               diff truncated

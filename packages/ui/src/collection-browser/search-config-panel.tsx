@@ -271,7 +271,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
             Metric
             {metricMismatch && (
               <span
-                className="ml-1 text-amber-500"
+                className="ml-1 text-warning"
                 title={`Collection uses ${collectionDistanceMetric}`}
               >
                 ⚠
@@ -298,11 +298,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
         </div>
       </div>
 
-      {isLargeLimit && (
-        <p className="text-[10px] text-amber-600 dark:text-amber-400">
-          Large result sets rank slower.
-        </p>
-      )}
+      {isLargeLimit && <p className="text-[10px] text-warning">Large result sets rank slower.</p>}
     </div>
   );
 });

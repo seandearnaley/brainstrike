@@ -12,7 +12,7 @@ export function FrontmatterBlock({ result }: { readonly result: FrontmatterResul
         className="mb-4 rounded-md border border-amber-500/40 bg-muted/50 p-3 text-xs"
         data-testid="markdown-frontmatter-error"
       >
-        <p className="mb-1 font-medium text-amber-600 dark:text-amber-400">
+        <p className="mb-1 font-medium text-warning">
           Invalid frontmatter{result.error ? `: ${result.error}` : ''}
         </p>
         <pre className="overflow-x-auto text-muted-foreground">{result.raw}</pre>

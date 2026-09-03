@@ -265,7 +265,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
               </p>
             ) : null}
             {outputOmitted ? (
-              <p className="border-border border-b px-3 py-1.5 text-amber-600 text-xs dark:text-amber-400">
+              <p className="border-border border-b px-3 py-1.5 text-warning text-xs">
                 Older output is no longer available in this view.
               </p>
             ) : null}

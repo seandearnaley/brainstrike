@@ -188,7 +188,7 @@ export function MarkdownSurface({
     >
       <div className={cn('prose prose-sm dark:prose-invert mx-auto max-w-3xl px-6 py-4')}>
         {truncated ? (
-          <p className="rounded-md border border-amber-500/40 bg-muted/50 p-2 text-amber-600 text-xs dark:text-amber-400">
+          <p className="rounded-md border border-amber-500/40 bg-muted/50 p-2 text-warning text-xs">
             Document truncated for display. Switch to Source to confirm the cutoff.
           </p>
         ) : null}
