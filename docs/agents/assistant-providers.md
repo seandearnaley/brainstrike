@@ -4224,19 +4224,44 @@ Two scopes, one row per ACTUAL failure:
 - `scope: 'server'` — that one server's `listTools` failed (its entry in
   `McpToolsetsWithErrors.errors`). One skip per failing server.
 
-`reason` is truncated to `MAX_MCP_DISCOVERY_REASON_CHARS` (200) by
-`boundMcpDiscoveryReason` before it becomes run-event metadata:
-`sanitizeAssistantRunEventMetadata` redacts by KEY, not by value, and an HTTP
-transport error can carry a URL.
+`boundMcpDiscoveryReason` does TWO jobs before the reason becomes run-event
+metadata, in this order. It REDACTS URL userinfo and query strings, then BOUNDS
+the total length to `MAX_MCP_DISCOVERY_REASON_CHARS` (200, ellipsis included),
+slicing by code point so a surrogate pair is never split. Truncation is not
+redaction: `sanitizeAssistantRunEventMetadata` redacts by KEY, not by value, and
+`fetch failed: 401 for https://host/mcp?api_key=…` is comfortably under the
+bound. Before BST-1602 the reason reached at most a `debug` log line; it is now
+persisted AND rendered in an always-visible row, so the redaction is what makes
+that safe.
+
+`McpDiscoverySkip` is a DISCRIMINATED UNION, not one shape with two optional
+name fields: the optional form let a `scope: 'server'` skip with no `serverName`
+type-check and render `"undefined skipped for this request"` into a durable row.
+
+Per-server errors are filtered to the run's own `namedServers`. A row claiming a
+server "was skipped for this request" must be true of THIS request, and
+`listToolsetsWithErrors()` is client-wide.
 
 The skips ride `MastraAgentRuntime.mcpDiscoverySkips` — REQUIRED, never
 optional, so an empty array means "discovery was healthy" and stays
-distinguishable from "nobody looked". `prependMcpDiscoverySkipChunks` mints one
-`mcp.tools.unavailable` run event per skip from
-`createStreamIteratorFromRuntime` — the initial-turn seam, and therefore fresh
-turns only. The approval- and suspend-resume legs route through
-`runTurnAttempts` directly; a resume rebuilds the runtime and re-runs discovery,
-so without that scoping the same rows would be re-emitted on every approval.
+distinguishable from "nobody looked". `makeMcpDiscoverySkipChunks` mints one
+`mcp.tools.unavailable` run event per skip, and `runTurnAttempts` yields them
+from its REQUIRED `preludeChunks` parameter. Only the initial-turn seam
+(`createStreamIteratorFromRuntime`) passes a non-empty value, so the rows are
+fresh-turn only; the approval- and suspend-resume legs pass `[]` explicitly,
+because a resume rebuilds the runtime and re-runs discovery and would otherwise
+duplicate the rows on every approval.
+
+**The rows must be yielded INSIDE `runTurnAttempts`, never by a wrapper around
+it.** That generator's `finally` calls `runtime.dispose()`, and a generator's
+`finally` only runs once its body has STARTED. A wrapper that yielded the rows
+first could be cancelled before delegating — the "user hits stop immediately"
+case, on a run that already had a degraded MCP surface — leaving the turn
+generator unstarted while `firstAttempt` is already a live provider stream, so
+the runtime, MCP client and abort listeners all leaked. Wrapper-side cleanup
+cannot fix this: `.return()` on an unstarted generator does not run its body
+either. Regression test: 'still disposes the runtime when the consumer stops ON
+the skip row' in `mastra-streaming.spec.ts`.
 The rows precede `run.started` because discovery genuinely happens first, during
 runtime construction, and the thread-run row is created by
 `repository.createThreadRun` rather than by `run.started`. The durable/timeline

@@ -1644,7 +1644,8 @@ describe('mcp-tool-loader', () => {
         toolNameMap: new Map(),
       });
 
-      expect(result.mcpDiscoverySkips[0]?.reason).toBe(`${'x'.repeat(200)}\u2026`);
+      // 199 + the ellipsis: the bound is a TOTAL, ellipsis included.
+      expect(result.mcpDiscoverySkips[0]?.reason).toBe(`${'x'.repeat(199)}\u2026`);
     });
   });
 });

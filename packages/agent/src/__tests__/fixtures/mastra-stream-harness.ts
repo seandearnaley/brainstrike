@@ -65,6 +65,7 @@ export const mcpInstances: unknown[] = [];
 export const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
 
 let mcpToolsets: MockMcpToolsets = {};
+let mcpDiscoveryFailures: Record<string, string> = {};
 let mockMessageList: unknown;
 let streamFailure: { call: number; error: Error } | undefined;
 let streamPartDelayMs = 0;
@@ -103,6 +104,10 @@ export const mcpHost: McpHostPort = {
       throw new Error(`unknown MCP server: ${operation.configuredServerId}`);
     }
     if (operation.type === 'tools/list') {
+      const discoveryFailure = mcpDiscoveryFailures[operation.configuredServerId];
+      if (discoveryFailure) {
+        throw new Error(discoveryFailure);
+      }
       return {
         result: {
           tools: Object.entries(toolset).map(([name, tool]) => ({
@@ -199,6 +204,17 @@ export function setMcpToolsets(toolsets: MockMcpToolsets): void {
   mcpToolsets = toolsets;
 }
 
+/**
+ * Make one configured server's `tools/list` throw (BST-1602). The server stays
+ * in `snapshot()` — it IS configured — but contributes nothing, which is
+ * exactly the per-server discovery failure `collectCombinedTools` reports as a
+ * `scope: 'server'` skip. Its own seam rather than a borrowed throw: see the
+ * setStreamPartFailure note above.
+ */
+export function setMcpDiscoveryFailure(serverName: string, message: string): void {
+  mcpDiscoveryFailures = { ...mcpDiscoveryFailures, [serverName]: message };
+}
+
 export function setSuspendedRuns(runs: MockSuspendedRun[]): void {
   suspendedRuns = runs;
 }
@@ -253,6 +269,7 @@ export function resetMastraStreamHarness(): void {
   agentInstances.length = 0;
   mastraInstances.length = 0;
   mcpInstances.length = 0;
+  mcpDiscoveryFailures = {};
   // Every field goes through its setter, including this reset. The header
   // above advertises each as module-private behind an explicit setter; a
   // direct assignment here would silently bypass any validation or logging a

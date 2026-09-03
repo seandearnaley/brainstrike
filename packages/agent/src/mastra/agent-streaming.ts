@@ -104,7 +104,7 @@ import {
   resolveTripwire,
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
-import { prependMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
+import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
 import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
@@ -1742,13 +1742,31 @@ async function* runTurnAttempts(params: {
     continuationMessages: readonly MastraDBMessage[] | undefined;
   }) => Promise<TurnAttempt>;
   maxAttempts: number;
+  /**
+   * Chunks yielded before the turn, from INSIDE this generator's disposal
+   * `try`. REQUIRED so every call site states its scope explicitly; the resume
+   * legs pass `[]`.
+   *
+   * They cannot live in a wrapper around this generator. A wrapper cancelled
+   * mid-prelude would never delegate here, so this body — and the `finally`
+   * that calls `runtime.dispose()` — would never run, while `firstAttempt` is
+   * ALREADY a live stream (it is awaited eagerly by the caller). `.return()` on
+   * an unstarted generator does not run its body, so wrapper-side cleanup
+   * cannot fix it either (PR #2938 review).
+   */
+  preludeChunks: readonly StreamChunk[];
   runtime: MastraAgentRuntime;
   runtimeData: RuntimeData | undefined;
 }): AsyncIterableIterator<StreamChunk> {
-  const { firstAttempt, makeContinuation, maxAttempts, runtime, runtimeData } = params;
+  const { firstAttempt, makeContinuation, maxAttempts, preludeChunks, runtime, runtimeData } =
+    params;
   let activeAttempt: TurnAttempt | undefined = firstAttempt;
   let lastStalledAttempt: TurnAttempt | undefined;
   try {
+    // First, and inside the `finally` above's scope — see `preludeChunks`.
+    for (const chunk of preludeChunks) {
+      yield chunk;
+    }
     let continuationMessages: readonly MastraDBMessage[] | undefined;
     let carriedLifecycleState: ToolLifecycleState | undefined;
     let pending: TurnAttempt | undefined = firstAttempt;
@@ -2629,7 +2647,7 @@ async function createStreamIteratorFromRuntime(
   // so a construction failure rejects the promise `streamMastraAgent` returns
   // rather than throwing mid-stream (see runTurnAttempts' `firstAttempt`
   // contract and the renderer safety net in docs/agents/assistant-runtime.md).
-  const attempts = runTurnAttempts({
+  return runTurnAttempts({
     firstAttempt: await createInitialTurnAttempt(params, undefined),
     makeContinuation: (input) =>
       createInitialTurnAttempt(
@@ -2639,14 +2657,14 @@ async function createStreamIteratorFromRuntime(
         false
       ),
     maxAttempts: runtime.resilienceConfig.streamStallAttempts,
+    // BST-1602: a run whose MCP server contributed nothing says so. This is the
+    // FRESH-TURN seam, which is exactly the scope the rows want — the resume
+    // legs call `runTurnAttempts` directly, rebuild the runtime, re-run
+    // discovery, and still emit nothing.
+    preludeChunks: makeMcpDiscoverySkipChunks(runtime.mcpDiscoverySkips),
     runtime,
     runtimeData,
   });
-  // BST-1602: a run whose MCP server contributed nothing says so. This is the
-  // FRESH-TURN seam, which is exactly the scope the rows want — the resume legs
-  // call `runTurnAttempts` directly, so they rebuild the runtime, re-run
-  // discovery, and still emit nothing.
-  return prependMcpDiscoverySkipChunks(runtime.mcpDiscoverySkips, attempts);
 }
 
 async function createInitialTurnAttempt(
@@ -2913,6 +2931,10 @@ async function createToolApprovalIteratorFromRuntime(
     // Unreachable at maxAttempts 1; present so the runner has one shape.
     makeContinuation: () => createToolApprovalTurnAttempt(params),
     maxAttempts: 1,
+    // No MCP discovery rows on a resume leg (BST-1602). This runtime was
+    // rebuilt and re-ran discovery, but the user already saw the rows on the
+    // fresh turn; re-emitting them would duplicate on every approval.
+    preludeChunks: [],
     runtime: params.runtime,
     runtimeData: params.runtimeData,
   });
@@ -3496,6 +3518,10 @@ async function createToolResumeIteratorFromRuntime(
     // Unreachable at maxAttempts 1; present so the runner has one shape.
     makeContinuation: () => createToolResumeTurnAttempt(params),
     maxAttempts: 1,
+    // No MCP discovery rows on a resume leg (BST-1602). This runtime was
+    // rebuilt and re-ran discovery, but the user already saw the rows on the
+    // fresh turn; re-emitting them would duplicate on every approval.
+    preludeChunks: [],
     runtime: params.runtime,
     runtimeData: params.runtimeData,
   });

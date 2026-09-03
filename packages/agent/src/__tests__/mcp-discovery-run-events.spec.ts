@@ -1,27 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  boundMcpDiscoveryReason,
+  MAX_MCP_DISCOVERY_REASON_CHARS,
   type McpDiscoverySkip,
   makeMcpDiscoverySkipChunks,
-  prependMcpDiscoverySkipChunks,
 } from '../mastra/mcp-discovery-diagnostics';
-import type { StreamChunk } from '../types';
-
-async function* oneFinishChunk(): AsyncIterableIterator<StreamChunk> {
-  yield {
-    finishReason: 'stop',
-    path: [],
-    type: 'message-finish',
-    usage: { completionTokens: 0, promptTokens: 0 },
-  } as StreamChunk;
-}
-
-async function collect(stream: AsyncIterableIterator<StreamChunk>): Promise<StreamChunk[]> {
-  const chunks: StreamChunk[] = [];
-  for await (const chunk of stream) {
-    chunks.push(chunk);
-  }
-  return chunks;
-}
 
 describe('makeMcpDiscoverySkipChunks', () => {
   it('mints nothing when discovery was healthy', () => {
@@ -94,24 +77,47 @@ describe('makeMcpDiscoverySkipChunks', () => {
   });
 });
 
-describe('prependMcpDiscoverySkipChunks', () => {
-  it('prepends the skip rows ahead of the turn stream', async () => {
-    const chunks = await collect(
-      prependMcpDiscoverySkipChunks(
-        [{ reason: 'boom', scope: 'server', serverName: 'alpha', timeoutMs: 5000 }],
-        oneFinishChunk()
-      )
+describe('boundMcpDiscoveryReason', () => {
+  it('strips credentials from a URL query string before persisting', () => {
+    // Truncation is NOT redaction: this message is well under the bound, so a
+    // length cap alone would persist the key verbatim into a durable,
+    // always-visible row (PR #2938 review).
+    const reason = boundMcpDiscoveryReason(
+      new Error('fetch failed: 401 for https://host/mcp?api_key=SECRET123&x=1')
     );
 
-    expect(chunks).toHaveLength(2);
-    expect(chunks[0]).toMatchObject({ type: 'run-event' });
-    expect(chunks[1]).toMatchObject({ type: 'message-finish' });
+    expect(reason).toBe('fetch failed: 401 for https://host/mcp?[redacted]');
+    expect(reason).not.toContain('SECRET123');
   });
 
-  it('passes the turn stream through untouched when there are no skips', async () => {
-    const chunks = await collect(prependMcpDiscoverySkipChunks([], oneFinishChunk()));
+  it('strips credentials from URL userinfo', () => {
+    const reason = boundMcpDiscoveryReason(new Error('connect https://alice:hunter2@host/mcp'));
 
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0]).toMatchObject({ type: 'message-finish' });
+    expect(reason).toBe('connect https://[redacted]@host/mcp');
+    expect(reason).not.toContain('hunter2');
+  });
+
+  it('leaves an ordinary message with a question mark alone', () => {
+    // The query-string rule is URL-anchored on purpose — a bare `?` in prose
+    // must not be treated as credentials.
+    expect(boundMcpDiscoveryReason(new Error('Connection closed. Did the server start?'))).toBe(
+      'Connection closed. Did the server start?'
+    );
+  });
+
+  it('bounds total length INCLUDING the ellipsis', () => {
+    const reason = boundMcpDiscoveryReason(new Error('x'.repeat(500)));
+
+    expect(Array.from(reason)).toHaveLength(MAX_MCP_DISCOVERY_REASON_CHARS);
+    expect(reason.endsWith('…')).toBe(true);
+  });
+
+  it('never splits a surrogate pair into a lone surrogate', () => {
+    // `slice` cuts UTF-16 code units; an emoji straddling the bound would leave
+    // half a pair in durable JSON.
+    const reason = boundMcpDiscoveryReason(new Error('😀'.repeat(300)));
+
+    expect(Array.from(reason)).toHaveLength(MAX_MCP_DISCOVERY_REASON_CHARS);
+    expect(reason.isWellFormed()).toBe(true);
   });
 });

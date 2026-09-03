@@ -78,10 +78,13 @@ export async function collectCombinedTools({
     return { mcpDiscoverySkips: [outcome.skip], tools: combined };
   }
   const discovered = outcome.value;
-  const mcpDiscoverySkips = collectMcpToolsetErrors(discovered.errors, timeoutMs);
-
   const isSingleServer = namedServers.length === 1;
   const configuredServerNames = new Set(namedServers.map((server) => server.name));
+  const mcpDiscoverySkips = collectMcpToolsetErrors(
+    discovered.errors,
+    timeoutMs,
+    configuredServerNames
+  );
   const assignedToolsetNames = new Set<string>();
 
   for (const server of namedServers) {
@@ -414,18 +417,29 @@ async function fetchMcpToolsetsWithTimeout(
   }
 }
 
+/**
+ * `listToolsetsWithErrors()` is CLIENT-wide, but the run's server set is
+ * `namedServers` — which comes from `mcpConfig.servers` when one is supplied.
+ * Scope the report to the servers this run actually asked for (PR #2938
+ * review): a row saying a server "was skipped for this request" must be true of
+ * THIS request, and every production path today happens to make the two sets
+ * equal, which is a coincidence of two call sites rather than a guarantee.
+ */
 function collectMcpToolsetErrors(
   errors: Record<string, string>,
-  timeoutMs: number
+  timeoutMs: number,
+  configuredServerNames: ReadonlySet<string>
 ): readonly McpDiscoverySkip[] {
-  return Object.entries(errors).map(([serverName, rawReason]) => {
-    const reason = boundMcpDiscoveryReason(rawReason);
-    logger.warn('MCP server tool discovery skipped', {
-      code: 'mcp_server_tools_unavailable',
-      reason,
-      serverName,
-      timeoutMs,
+  return Object.entries(errors)
+    .filter(([serverName]) => configuredServerNames.has(serverName))
+    .map(([serverName, rawReason]) => {
+      const reason = boundMcpDiscoveryReason(rawReason);
+      logger.warn('MCP server tool discovery skipped', {
+        code: 'mcp_server_tools_unavailable',
+        reason,
+        serverName,
+        timeoutMs,
+      });
+      return { reason, scope: 'server' as const, serverName, timeoutMs };
     });
-    return { reason, scope: 'server' as const, serverName, timeoutMs };
-  });
 }

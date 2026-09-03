@@ -10,10 +10,17 @@
  * other streaming concern depends on, so giving it an import of the MCP loader
  * would invert that dependency.
  */
+import type { AssistantRunEventMetadata } from '../run-events';
 import type { StreamChunk } from '../types';
 import { makeRunDetailEventChunk } from './stream-run-event-chunks';
 
 /**
+ * A discriminated union, not one shape with two optional name fields (PR #2938
+ * review). The optional form let `{ scope: 'server' }` with no `serverName`
+ * type-check, and the chunk builder then rendered `"undefined skipped for this
+ * request"` into a DURABLE, always-visible row. Each variant now carries
+ * exactly the names its branch reads, so both branches are total.
+ *
  * `'client'` — discovery itself failed (rejected, or lost the timeout race), so
  * EVERY configured server contributed nothing. One lost race is ONE fact, so a
  * client-scope skip names every affected server in `serverNames` rather than
@@ -22,34 +29,88 @@ import { makeRunDetailEventChunk } from './stream-run-event-chunks';
  *
  * `'server'` — exactly that one server's `listTools` failed.
  */
-export type McpDiscoverySkipScope = 'client' | 'server';
+export type McpDiscoverySkip =
+  | {
+      readonly reason: string;
+      readonly scope: 'client';
+      /** Every server this RUN configured (never the client's wider set). */
+      readonly serverNames: readonly string[];
+      readonly timeoutMs: number;
+    }
+  | {
+      readonly reason: string;
+      readonly scope: 'server';
+      readonly serverName: string;
+      readonly timeoutMs: number;
+    };
 
-export interface McpDiscoverySkip {
-  readonly reason: string;
-  readonly scope: McpDiscoverySkipScope;
-  /** Present iff `scope === 'server'`. */
-  readonly serverName?: string;
-  /** Present iff `scope === 'client'`; every configured server name. */
-  readonly serverNames?: readonly string[];
-  readonly timeoutMs: number;
-}
-
+/** Total length of a bounded reason, INCLUDING the ellipsis it may end with. */
 export const MAX_MCP_DISCOVERY_REASON_CHARS = 200;
 
+const REDACTED = '[redacted]';
+/** `https://user:pass@host` — credentials in the URL's userinfo section. */
+const URL_USERINFO = /(https?:\/\/)[^/\s@]+@/gi;
+/** `https://host/mcp?api_key=…` — credentials in a URL query string. */
+const URL_QUERY = /(https?:\/\/[^\s?]+)\?\S*/gi;
+
 /**
- * Bound the reason before it becomes durable run-event metadata.
- * `sanitizeAssistantRunEventMetadata` redacts by KEY, not by value, and an HTTP
- * transport error can carry a URL, so an unbounded provider string would be
- * persisted verbatim.
+ * Prepare a provider failure message for DURABLE run-event metadata and for the
+ * always-visible timeline `detail`.
+ *
+ * Two separate jobs, and the ordering matters:
+ *
+ * 1. REDACT. `sanitizeAssistantRunEventMetadata` redacts by KEY, not by value,
+ *    so nothing downstream inspects this string. Before BST-1602 the reason
+ *    reached at most a `debug` log line; it is now persisted and rendered, so a
+ *    transport error like `fetch failed: 401 for https://host/mcp?api_key=…`
+ *    would be a real disclosure. Truncation does NOT prevent that — such a
+ *    message is comfortably under the bound (PR #2938 review) — so URL
+ *    userinfo and query strings are stripped first.
+ * 2. BOUND. Only then cap the length, to keep the row small.
+ *
+ * Sliced by CODE POINT, not UTF-16 code unit: `slice` can split a surrogate
+ * pair and put a lone surrogate into durable JSON.
  */
 export function boundMcpDiscoveryReason(value: unknown): string {
   const raw = value instanceof Error ? value.message : String(value);
-  return raw.length <= MAX_MCP_DISCOVERY_REASON_CHARS
-    ? raw
-    : `${raw.slice(0, MAX_MCP_DISCOVERY_REASON_CHARS)}…`;
+  const redacted = raw.replace(URL_USERINFO, `$1${REDACTED}@`).replace(URL_QUERY, `$1?${REDACTED}`);
+  const points = Array.from(redacted);
+  if (points.length <= MAX_MCP_DISCOVERY_REASON_CHARS) {
+    return redacted;
+  }
+  return `${points.slice(0, MAX_MCP_DISCOVERY_REASON_CHARS - 1).join('')}…`;
 }
 
 const MCP_DISCOVERY_SKIP_RUN_EVENT_KIND = 'mcp.tools.unavailable' as const;
+
+function describeSkip(skip: McpDiscoverySkip): {
+  label: string;
+  metadata: AssistantRunEventMetadata;
+  names: string;
+} {
+  if (skip.scope === 'client') {
+    return {
+      label: 'MCP tools unavailable',
+      metadata: {
+        reason: skip.reason,
+        scope: 'client',
+        serverNames: [...skip.serverNames],
+        timeoutMs: skip.timeoutMs,
+      },
+      names: skip.serverNames.join(', '),
+    };
+  }
+  return {
+    label: 'MCP server tools unavailable',
+    metadata: {
+      reason: skip.reason,
+      scope: 'server',
+      serverName: skip.serverName,
+      timeoutMs: skip.timeoutMs,
+    },
+    names: skip.serverName,
+  };
+}
 
 /**
  * One row per ACTUAL failure, always `status: 'failed'`.
@@ -61,48 +122,24 @@ const MCP_DISCOVERY_SKIP_RUN_EVENT_KIND = 'mcp.tools.unavailable' as const;
  * Never `'info'` either: the `worktree.*` breadcrumbs use `'info'` for
  * operations that SUCCEEDED, and this records a configured capability that did
  * not load.
+ *
+ * The caller yields these INSIDE the turn generator that owns runtime disposal
+ * (see `runTurnAttempts`) — never from a wrapper around it. A wrapper that
+ * yielded them first could be cancelled before delegating, leaving the turn
+ * generator unstarted and its `finally` — and so `runtime.dispose()` — never
+ * run (PR #2938 review). Note that `.return()` on an unstarted generator does
+ * NOT run its body, so no wrapper-side cleanup can fix that; the rows have to
+ * live inside the generator whose disposal they depend on.
  */
 export function makeMcpDiscoverySkipChunks(skips: readonly McpDiscoverySkip[]): StreamChunk[] {
   return skips.map((skip) => {
-    const isClientScope = skip.scope === 'client';
-    const names = isClientScope ? (skip.serverNames ?? []).join(', ') : skip.serverName;
+    const { label, metadata, names } = describeSkip(skip);
     return makeRunDetailEventChunk(
       MCP_DISCOVERY_SKIP_RUN_EVENT_KIND,
       'failed',
-      isClientScope ? 'MCP tools unavailable' : 'MCP server tools unavailable',
+      label,
       `${names} skipped for this request — ${skip.reason}`,
-      {
-        reason: skip.reason,
-        scope: skip.scope,
-        timeoutMs: skip.timeoutMs,
-        ...(skip.serverName === undefined ? {} : { serverName: skip.serverName }),
-        ...(skip.serverNames === undefined ? {} : { serverNames: [...skip.serverNames] }),
-      }
+      metadata
     );
   });
-}
-
-/**
- * Yield the skip rows, then the turn.
- *
- * Called ONLY from the initial-turn seam (`createStreamIteratorFromRuntime`), so
- * the approval- and suspend-resume legs — which route through `runTurnAttempts`
- * directly — stay quiet. That scoping is load-bearing: a resume rebuilds the
- * runtime and re-runs discovery, so without it the same rows would be re-emitted
- * on every approval, which is the duplication hazard `withoutDuplicateRunStarted`
- * already exists for.
- *
- * The rows precede `run.started` because discovery genuinely happened first,
- * during runtime construction. The thread-run row is created by
- * `repository.createThreadRun` rather than by `run.started`, so they have a run
- * to attach to, and no consumer indexes on `run.started` being first.
- */
-export async function* prependMcpDiscoverySkipChunks(
-  skips: readonly McpDiscoverySkip[],
-  turn: AsyncIterableIterator<StreamChunk>
-): AsyncIterableIterator<StreamChunk> {
-  for (const chunk of makeMcpDiscoverySkipChunks(skips)) {
-    yield chunk;
-  }
-  yield* turn;
 }
