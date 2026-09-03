@@ -8,6 +8,7 @@ import {
   setCustomMcpConfigPath,
   watchMcpConfig,
 } from '../../mcp-loader';
+import { createRecordingWindow } from '../helpers/electron-main-test-harness';
 import { createMcpAuthorityTestRuntime } from './mcp-authority-test-runtime';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -235,13 +236,16 @@ describe('MCP reset review closure', () => {
     });
     await mcpIpc.resetMcpRuntimeForFactoryReset(authority.runtime);
 
-    const send = vi.fn();
+    // A window has to be IN the listing for the assertions below to mean
+    // anything: `notifyMcpConfigUpdated` broadcasts by iterating
+    // `getAllWindows()`, so against the empty default this test's
+    // `not.toHaveBeenCalled()` would hold no matter what resume published
+    // (BST-1622).
+    const rendererWindow = createRecordingWindow();
     vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-      {
-        isDestroyed: () => false,
-        webContents: { send },
-      } as unknown as BrowserWindow,
+      rendererWindow as unknown as BrowserWindow,
     ]);
+    const send = rendererWindow.send;
     const resumedWatcher = { close: vi.fn() };
     const watcherReady = Promise.withResolvers<typeof resumedWatcher>();
     vi.mocked(watchMcpConfig).mockClear();
