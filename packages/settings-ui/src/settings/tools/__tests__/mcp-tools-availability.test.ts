@@ -5,7 +5,37 @@ import {
 } from '../mcp-tools-availability';
 import type { McpServerInfo } from '../types';
 
-function connected(catalog?: unknown): McpServerInfo {
+type ConnectedServer = Extract<McpServerInfo, { state: 'connected' }>;
+type ServerCatalog = ConnectedServer['catalog'];
+
+/**
+ * Typed as the REAL catalog type rather than `unknown` + a double cast (PR
+ * #2945 review). `resolveMcpToolsAvailability` dereferences
+ * `catalog.errors.tools` without optional chaining on `errors`, and this
+ * fixture is the only place that safety claim is exercised — an `unknown`
+ * fixture would let the real shape loosen `errors` to optional while every test
+ * here kept passing and the row threw on a live server.
+ */
+function catalog(over: Partial<NonNullable<ServerCatalog>> = {}): ServerCatalog {
+  return {
+    errors: {},
+    features: {
+      completion: false,
+      promptListChanged: false,
+      prompts: false,
+      resourceListChanged: false,
+      resourceSubscriptions: false,
+      resources: false,
+      toolListChanged: false,
+      tools: true,
+    },
+    subscription: { state: 'unsupported' },
+    tools: { tools: [] },
+    ...over,
+  } as NonNullable<ServerCatalog>;
+}
+
+function connected(over: Partial<ConnectedServer> = {}): McpServerInfo {
   return {
     configuredProtocol: 'legacy',
     configuredServerId: 'alpha',
@@ -13,66 +43,78 @@ function connected(catalog?: unknown): McpServerInfo {
     negotiated: { era: '2026-07-28', revision: 1 },
     state: 'connected',
     transport: 'stdio',
-    ...(catalog === undefined ? {} : { catalog }),
-  } as unknown as McpServerInfo;
-}
-
-function catalog(over: Record<string, unknown> = {}): unknown {
-  return {
-    errors: {},
-    features: { tools: true },
-    subscription: { state: 'unsupported' },
-    tools: { tools: [] },
     ...over,
-  };
+  } as ConnectedServer;
 }
 
 describe('resolveMcpToolsAvailability', () => {
-  it('reports available when the tool list loaded', () => {
-    expect(resolveMcpToolsAvailability(connected(catalog()))).toBe('available');
-  });
-
-  it('reports catalog-unavailable for a connected server with no catalog', () => {
-    // The exact case BST-1603 names: the row says Connected, and nothing at all
-    // is known about the toolset.
-    expect(resolveMcpToolsAvailability(connected())).toBe('catalog-unavailable');
-  });
-
-  it('reports tools-unavailable when the tools section errored', () => {
+  it('reports tools-unavailable ONLY when the tools section errored', () => {
+    // A positive, settled failure signal — it cannot be produced by a query
+    // that has not finished, which is what makes it safe to report.
     expect(
       resolveMcpToolsAvailability(
-        connected(catalog({ errors: { tools: { code: 'boom', message: 'Connection closed' } } }))
+        connected({
+          catalog: catalog({
+            errors: { tools: { category: 'protocol', code: 'boom', message: 'Connection closed' } },
+          }),
+        })
       )
     ).toBe('tools-unavailable');
   });
 
-  it('reports tools-unavailable when the tools section is simply absent', () => {
-    expect(resolveMcpToolsAvailability(connected(catalog({ tools: undefined })))).toBe(
-      'tools-unavailable'
+  it('reports available when the tool list loaded', () => {
+    expect(resolveMcpToolsAvailability(connected({ catalog: catalog() }))).toBe('available');
+  });
+
+  it('does NOT flag a connected server whose catalog has not arrived yet', () => {
+    // The regression this function was rewritten for (PR #2945 review).
+    // `McpServerActor` publishes `connected` as soon as the handshake completes
+    // and fills the catalog in later via `watchCatalog`, so "no catalog" is the
+    // normal state of EVERY healthy server on EVERY launch. Flagging it would
+    // flash yellow on servers that are enumerating fine.
+    expect(resolveMcpToolsAvailability(connected())).toBe('available');
+  });
+
+  it('does NOT flag a tools-capable server whose tools section is merely absent', () => {
+    // Same reason: absence is indistinguishable from in-flight. Only an ERROR
+    // proves the query settled.
+    expect(resolveMcpToolsAvailability(connected({ catalog: catalog({ tools: undefined }) }))).toBe(
+      'available'
     );
   });
 
   it('does NOT flag a server that advertises no tools capability', () => {
-    // A prompts-only or resources-only server is healthy. Flagging it would
-    // make the new indicator noise and train users to ignore it.
+    // A prompts-only or resources-only server is healthy.
     expect(
       resolveMcpToolsAvailability(
-        connected(catalog({ features: { tools: false }, tools: undefined }))
+        connected({
+          catalog: catalog({
+            features: {
+              completion: false,
+              promptListChanged: false,
+              prompts: true,
+              resourceListChanged: false,
+              resourceSubscriptions: false,
+              resources: false,
+              toolListChanged: false,
+              tools: false,
+            },
+            tools: undefined,
+          }),
+        })
       )
     ).toBe('available');
   });
 
   it('leaves non-connected states alone', () => {
-    // Only `connected` can mislead; error and pending states already render
-    // honestly through their own indicator.
     const erroring = {
       configuredProtocol: 'legacy',
       configuredServerId: 'alpha',
-      error: { code: 'x', message: 'nope' },
+      error: { category: 'protocol', code: 'x', message: 'nope' },
       generation: 1,
       state: 'error',
       transport: 'stdio',
-    } as unknown as McpServerInfo;
+    } as Extract<McpServerInfo, { state: 'error' }>;
 
     expect(resolveMcpToolsAvailability(erroring)).toBe('available');
   });
@@ -83,8 +125,7 @@ describe('describeMcpToolsAvailability', () => {
     expect(describeMcpToolsAvailability('available')).toBeUndefined();
   });
 
-  it('labels the two degraded cases distinctly', () => {
-    expect(describeMcpToolsAvailability('catalog-unavailable')).toBe('catalog unavailable');
+  it('labels the degraded case', () => {
     expect(describeMcpToolsAvailability('tools-unavailable')).toBe('tools unavailable');
   });
 });
