@@ -45,6 +45,7 @@ describe('MCP stdio child that exits mid-handshake', () => {
 
   test('fails the server row without an unhandled rejection or a hung shutdown', async () => {
     const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'desktop-mcp-handshake-exit-'));
+    const pidFile = path.join(directory, 'pid');
     const configuredServerId = parseConfiguredMcpServerId('stdio.handshake-exit');
     const runtime = createDesktopMcpHostRuntime();
     try {
@@ -56,7 +57,7 @@ describe('MCP stdio child that exits mid-handshake', () => {
             env: {
               BRAINSTRIKE_STDIO_HANDSHAKE_EXIT_CODE: '7',
               BRAINSTRIKE_STDIO_HANDSHAKE_EXIT_DELAY_MS: '750',
-              BRAINSTRIKE_STDIO_HANDSHAKE_PID_FILE: path.join(directory, 'pid'),
+              BRAINSTRIKE_STDIO_HANDSHAKE_PID_FILE: pidFile,
               BRAINSTRIKE_STDIO_HANDSHAKE_SEVER_AFTER_RESPONSES: '1',
             },
             name: configuredServerId,
@@ -92,6 +93,13 @@ describe('MCP stdio child that exits mid-handshake', () => {
       const closeStartedAt = Date.now();
       await expect(runtime.host.close()).resolves.toMatchObject({ failures: [] });
       expect(Date.now() - closeStartedAt).toBeLessThan(GRACEFUL_SHUTDOWN_BUDGET_MS);
+      // …and the child it owned is gone, not left behind by a client the actor
+      // dropped when it rethrew the recorded failure.
+      const childPid = await fsp.readFile(pidFile, 'utf8');
+      expect(childPid).toMatch(/^[1-9]\d*\n$/u);
+      expect(() => process.kill(Number.parseInt(childPid, 10), 0)).toThrow(
+        expect.objectContaining({ code: 'ESRCH' })
+      );
     } finally {
       await runtime.host.close().catch(() => undefined);
       await fsp.rm(directory, { force: true, recursive: true });

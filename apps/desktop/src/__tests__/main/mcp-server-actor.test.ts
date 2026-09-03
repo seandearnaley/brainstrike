@@ -440,6 +440,29 @@ describe('McpServerActor', () => {
     expect(subject.snapshot()).toMatchObject({ error: { code: 'mcp-transport-closed' } });
     await failure(subject.invoke(LIST), 'mcp_generation_retired');
   });
+
+  it('adopts a client whose transport closed mid-handshake so close still reaps it', async () => {
+    const closed = vi.fn(async () => report);
+    const subject = actor((context) => {
+      // BST-1600: a stdio child that exits while the handshake is still running
+      // records the lifecycle failure BEFORE the client factory returns.
+      context.onUnexpectedClose();
+      return client(undefined, closed);
+    });
+
+    await failure(subject.invoke(LIST), 'mcp-transport-closed');
+    // `change` is an unconditional single writer, so a successful handshake
+    // must not publish `connected` over the recorded failure.
+    expect(subject.snapshot()).toMatchObject({
+      error: { code: 'mcp-transport-closed' },
+      state: 'error',
+    });
+    // Ownership precedes the rethrow: the client the factory returned is the
+    // actor's, so close reaps it instead of orphaning the child behind it.
+    await expect(subject.close()).resolves.toEqual(report);
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
   it('sanitizes and memoizes every actor boundary failure', async () => {
     const raw = new Error('credential-value-must-never-cross');
     const factoryActor = actor(() => Promise.reject(raw));

@@ -2930,6 +2930,16 @@ the client past main's 5s `SIGNAL_SHUTDOWN_TIMEOUT_MS` — while
 rejection in Electron main. Closure now rejects those writes visibly, so the
 failure classifies like any other. Never wrap this in a swallowing catch, and
 never assume a stdio `send` promise settles on its own.
+WHERE the closure fires is itself an invariant. `invalidateConnection` severs
+first, before its `disconnected` short-circuit, because `client.onclose` fires
+only from the child's process `close` event — the pipe really is gone by then.
+`closeConnection` severs LAST, after its teardown `allSettled`: severing first
+would poison the connection's own farewell traffic (the SDK answers a capability
+request the lease aborts through the transport it captured at request time) and
+would blame a dead pipe for a still-live child's ordinary backpressure. After
+`transport.close()` the parent's write end is ended and the child killed, so the
+severed-pipe cause reads accurately on every path. No teardown step awaits a
+send, so the later sever cannot deadlock.
 Actor state is single-writer and generation-bound. A failure remains the latest
 snapshot through teardown; observer exceptions are isolated and diagnosed, not
 allowed to corrupt invocation or cleanup. Because `change` is that unconditional

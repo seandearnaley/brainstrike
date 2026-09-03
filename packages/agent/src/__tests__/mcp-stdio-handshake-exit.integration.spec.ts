@@ -52,6 +52,16 @@ async function createHandshakeExitFixture(): Promise<HandshakeExitFixture> {
   };
 }
 
+/**
+ * The session child writes this file before it serves; the disposable
+ * version-negotiation sibling writes it first and is overwritten.
+ */
+async function readFixturePid(pidFile: string): Promise<number> {
+  const raw = await fsp.readFile(pidFile, 'utf8');
+  expect(raw).toMatch(/^[1-9]\d*\n$/u);
+  return Number.parseInt(raw, 10);
+}
+
 async function settleWithin<T>(work: Promise<T>, label: string): Promise<T | string> {
   return await Promise.race([
     work.then(
@@ -94,6 +104,7 @@ describe('stdio child that dies mid-handshake', () => {
       await expect(client.listTools()).resolves.toMatchObject({
         tools: [expect.objectContaining({ name: 'handshake_probe' })],
       });
+      const childPid = await readFixturePid(fixture.pidFile);
 
       const outcome = await settleWithin(
         client.listen({ toolsListChanged: true }, { timeout: 10_000 }),
@@ -106,6 +117,11 @@ describe('stdio child that dies mid-handshake', () => {
       // The failure is surfaced and settled, never hung and never swallowed
       // into a silent no-subscription success.
       expect(outcome).toMatch(/^listen:rejected:/u);
+
+      // Terminal closure reaps the child instead of orphaning it behind a write
+      // that can never drain.
+      await client.close();
+      expect(() => process.kill(childPid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
     } finally {
       await client.close().catch(() => undefined);
       await fsp.rm(fixture.directory, { force: true, recursive: true });

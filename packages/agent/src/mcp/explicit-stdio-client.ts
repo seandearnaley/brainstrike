@@ -563,12 +563,20 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   private async closeConnection(connection: ActiveConnection): Promise<void> {
-    connection.failInFlightSends(new Error(SEVERED_SEND_ERROR_MESSAGE));
     const results = await Promise.allSettled([
       connection.capabilityLease.close(),
       connection.transport.close(),
       connection.client.close(),
     ]);
+    // Only AFTER teardown. Severing first would poison this connection's own
+    // farewell traffic — the SDK answers a capability request the lease aborts
+    // through the transport it captured at request time — and would attribute a
+    // still-live child's ordinary backpressure to a dead pipe. By this point
+    // `transport.close()` has ended the parent's write end (and killed the
+    // child if it did not exit), so any write still waiting on `'drain'` truly
+    // can never be written and the cause below reads accurately. Teardown never
+    // awaits a send, so nothing here can deadlock behind the move.
+    connection.failInFlightSends(new Error(SEVERED_SEND_ERROR_MESSAGE));
     connection.removeStderrListener();
     const errors = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []

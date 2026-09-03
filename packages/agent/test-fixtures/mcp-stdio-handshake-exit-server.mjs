@@ -53,14 +53,35 @@ function severStdin() {
   closeSync(0);
 }
 
+// The fault must land BETWEEN JSON-RPC messages, never inside one: a sever
+// mid-frame would fail the spec on a truncated frame instead of on the
+// assertion under test. `serializeMessage` terminates every frame with a
+// newline, so only a chunk that ends in one completes a message.
+function completesFrame(chunk) {
+  if (typeof chunk === 'string') {
+    return chunk.endsWith('\n');
+  }
+  if (ArrayBuffer.isView(chunk)) {
+    return chunk.byteLength > 0 && chunk.at(-1) === 0x0a;
+  }
+  throw new Error(`Unsupported stdout chunk type: ${typeof chunk}`);
+}
+
 let responsesWritten = 0;
 const write = process.stdout.write.bind(process.stdout);
 process.stdout.write = (chunk, ...rest) => {
   const result = write(chunk, ...rest);
+  if (!completesFrame(chunk)) {
+    return result;
+  }
   responsesWritten += 1;
   if (responsesWritten === severAfterResponses) {
-    severStdin();
+    // Arm the exit BEFORE severing. Severing is the step that could throw
+    // (`closeSync` on a descriptor libuv may already own); doing it first would
+    // lose the exit path and leave the child alive, which is not the scenario
+    // the spec asserts.
     setTimeout(() => process.exit(exitCode), exitDelayMs);
+    severStdin();
   }
   return result;
 };
