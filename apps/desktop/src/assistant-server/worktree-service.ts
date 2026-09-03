@@ -564,23 +564,24 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     if (!(await worktreePathExists(row.path))) {
       return await archiveMissingWorktree(row, params.runId);
     }
-    const safety = await inspectArchiveRow(row);
-    if (!safety.ok) {
-      return safety;
-    }
     const snapshot = await captureArchiveSnapshot({ cwd: row.path, run: deps.run, worktree: row });
     if (!snapshot.ok) {
       return snapshot;
     }
-    const blocker = resolveArchiveBlocker(safety.value, params.force === true);
+    // Bind confirmation to the post-snapshot ignored path set that is about to be removed.
+    const currentSafety = await inspectArchiveRow(row);
+    if (!currentSafety.ok) {
+      return currentSafety;
+    }
+    const blocker = resolveArchiveBlocker(currentSafety.value, params.force === true);
     if (blocker !== null) {
       return { error: blocker, ok: false };
     }
     if (
-      safety.value.ignoredEntryCount > 0 &&
-      params.confirmIgnoredEntries !== safety.value.ignoredEntriesConfirmationToken
+      currentSafety.value.ignoredEntryCount > 0 &&
+      params.confirmIgnoredEntries !== currentSafety.value.ignoredEntriesConfirmationToken
     ) {
-      return { error: ignoredEntriesArchiveBlocker(safety.value), ok: false };
+      return { error: ignoredEntriesArchiveBlocker(currentSafety.value), ok: false };
     }
     const removed = await removeArchivedWorktree(row, params.force === true);
     if (!removed.ok) {
