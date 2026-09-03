@@ -638,8 +638,11 @@ returns an ignored parent's cached result for descendants; silently accepting a
 different dependency shape is forbidden. This preserves separately excluded
 ancestors, descendant-specific rules hidden behind a parent match, and repeated
 unanchored matches after a deeper scope re-includes only the first directory.
-The ordinary single-root case retains the public `test()` fast path. Leaf-only
-negations still cannot bypass an ignored parent directory.
+The ordinary single-root case avoids the path-keyed map but still evaluates each
+component directly so its cross-group semantics cannot differ from the scoped
+path. Direct verdicts are memoized per immutable compiled matcher, recovering
+the ancestor-query cache that public `test()` would otherwise provide.
+Leaf-only negations still cannot bypass an ignored parent directory.
 
 **`.git/info/exclude` is resolved through `git rev-parse --git-path`**, not
 `<repo>/.git/info/exclude`. In a linked worktree or submodule `.git` is a FILE,

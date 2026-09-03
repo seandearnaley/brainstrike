@@ -210,6 +210,15 @@ interface PathNode {
   readonly stateKey: string;
 }
 
+type IgnoreTestResult = ReturnType<Ignore['test']>;
+
+// `ignore.test()` memoizes inherited verdicts, which are intentionally unusable
+// for cross-scope resolution. Mirror that cache at the direct-rule boundary so
+// sibling entries do not re-run the same ancestor regexes during a walk. The
+// matcher owns immutable, fully compiled rules, and the WeakMap releases each
+// candidate cache with its compiled scope.
+const directTestCache = new WeakMap<Ignore, Map<string, IgnoreTestResult>>();
+
 /**
  * `ignore.test()` deliberately returns an excluded parent's cached verdict for
  * every descendant. Cross-scope resolution needs the rule manager's direct
@@ -218,7 +227,11 @@ interface PathNode {
  * dependency is pinned to ignore@7.0.5 in the workspace catalog; throw if that
  * contract moves instead of silently reverting to inherited verdicts.
  */
-function directTest(matcher: Ignore, candidate: string): ReturnType<Ignore['test']> {
+function directTest(matcher: Ignore, candidate: string): IgnoreTestResult {
+  const cached = directTestCache.get(matcher)?.get(candidate);
+  if (cached !== undefined) {
+    return cached;
+  }
   const ruleManager = (
     matcher as unknown as {
       readonly _rules?: {
@@ -235,7 +248,11 @@ function directTest(matcher: Ignore, candidate: string): ReturnType<Ignore['test
       'ignore@7.0.5 direct rule evaluation is unavailable; refusing to apply incomplete cross-scope ignore semantics.'
     );
   }
-  return ruleManager.test(candidate, true, 'regex');
+  const result = ruleManager.test(candidate, true, 'regex');
+  const matcherCache = directTestCache.get(matcher) ?? new Map<string, IgnoreTestResult>();
+  matcherCache.set(candidate, result);
+  directTestCache.set(matcher, matcherCache);
+  return result;
 }
 
 function longestPathPrefix(scopes: readonly CompiledScope[]): string {
@@ -347,15 +364,24 @@ function singleRootScopeVerdict(
   asDirectory: boolean,
   hardOnly: boolean
 ): boolean {
-  const candidate = asDirectory ? `${relativePath}/` : relativePath;
-  let ignored = false;
-  if (!(hardOnly || scope.bypassable === undefined)) {
-    ignored = applyResult(ignored, scope.bypassable.test(candidate));
+  const segments = relativePath.split('/');
+  let candidatePath = '';
+  for (const [index, segment] of segments.entries()) {
+    candidatePath = candidatePath === '' ? segment : `${candidatePath}/${segment}`;
+    const final = index === segments.length - 1;
+    const candidate = !final || asDirectory ? `${candidatePath}/` : candidatePath;
+    let ignored = false;
+    if (!(hardOnly || scope.bypassable === undefined)) {
+      ignored = applyResult(ignored, directTest(scope.bypassable, candidate));
+    }
+    if (scope.hard !== undefined) {
+      ignored = applyResult(ignored, directTest(scope.hard, candidate));
+    }
+    if (ignored) {
+      return true;
+    }
   }
-  if (scope.hard !== undefined) {
-    ignored = applyResult(ignored, scope.hard.test(candidate));
-  }
-  return ignored;
+  return false;
 }
 
 export function createWorkspaceIgnoreMatcher(

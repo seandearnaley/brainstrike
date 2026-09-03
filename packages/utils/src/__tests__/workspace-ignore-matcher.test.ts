@@ -149,6 +149,20 @@ describe('createWorkspaceIgnoreMatcher', () => {
     expect(matcher.ignoresFile('cache/one.md')).toBe(false);
     expect(matcher.ignoresFile('cache/inner/cache/one.md')).toBe(true);
   });
+
+  it('does not change cross-group semantics when an unrelated scope is pushed', () => {
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push('', {
+      brainstrikeignore: '!cache/keep.md\n',
+      gitignore: 'cache/\n',
+    });
+
+    expect(matcher.ignoresFile('cache/keep.md')).toBe(true);
+
+    matcher.push('unrelated', {});
+
+    expect(matcher.ignoresFile('cache/keep.md')).toBe(true);
+  });
 });
 
 describe('createWorkspaceIgnoreMatcher — source precedence', () => {
