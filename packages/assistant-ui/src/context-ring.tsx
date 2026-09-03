@@ -30,7 +30,7 @@ function ringColorClass(state: ContextRingState): string {
     case 'critical':
       return 'text-destructive';
     case 'warning':
-      return 'text-amber-500 dark:text-amber-400';
+      return 'text-warning';
     default:
       return 'text-muted-foreground';
   }

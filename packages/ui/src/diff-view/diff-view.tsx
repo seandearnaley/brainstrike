@@ -894,9 +894,13 @@ export function DiffView({
               </span>
             </span>
           ) : null}
+          {/* Tint is deliberately raw amber-500/15, not bg-warning/15: the
+              warning token is a deep amber that darkens the surface toward the
+              text, so text-warning composites to 4.64:1 here but 4.24:1 on
+              bg-warning/15. Re-measure these badges if --bs-warning is retuned. */}
           {presentation.kind === 'hunks-only' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
               data-testid="diff-over-cap-note"
             >
               {presentation.sideNote}
@@ -904,7 +908,7 @@ export function DiffView({
           ) : null}
           {oversizeNote === 'sliced' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
               data-testid="diff-sliced-note"
             >
               File too large to diff in full — showing changed regions with surrounding context
@@ -916,7 +920,7 @@ export function DiffView({
               silently-degraded stand-in for the sliced view. */}
           {oversizeNote === 'unsliceable' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
               data-testid="diff-too-large-note"
             >
               File too large to diff inline — showing content without change highlighting
@@ -924,7 +928,7 @@ export function DiffView({
           ) : null}
           {truncatedNoteVisible ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
               data-testid="diff-truncated-note"
             >
               diff truncated

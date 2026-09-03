@@ -91,10 +91,7 @@ function SkillRow(props: {
           </p>
         ) : null}
         {(entry.warnings ?? []).map((warning) => (
-          <p
-            className="flex items-center gap-1 text-amber-600 text-xs dark:text-amber-500"
-            key={warning}
-          >
+          <p className="flex items-center gap-1 text-warning text-xs" key={warning}>
             <AlertTriangle className="size-3 shrink-0" />
             {warning}
           </p>

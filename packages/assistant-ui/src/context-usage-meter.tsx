@@ -318,7 +318,7 @@ export const ContextUsageMeter = ({
                 state === 'critical'
                   ? 'text-destructive'
                   : state === 'warning'
-                    ? 'text-amber-600 dark:text-amber-400'
+                    ? 'text-warning'
                     : 'text-muted-foreground'
               )}
             >

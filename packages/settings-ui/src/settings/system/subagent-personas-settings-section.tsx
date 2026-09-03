@@ -196,7 +196,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
           <div className="space-y-1" data-testid="subagent-personas-incomplete">
             {incompleteDirs.map((entry) => (
               <p
-                className="flex items-center gap-1 text-amber-600 text-sm dark:text-amber-500"
+                className="flex items-center gap-1 text-sm text-warning"
                 key={`${entry.reason}:${entry.dir}`}
               >
                 <AlertTriangle className="size-3.5 shrink-0" />
