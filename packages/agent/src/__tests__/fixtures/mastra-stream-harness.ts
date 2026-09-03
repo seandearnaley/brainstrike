@@ -26,7 +26,11 @@
  * per-file); a spec wires them up by returning the exported mock modules below.
  */
 import { ReadableStream } from 'node:stream/web';
-import { type McpHostPort, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import {
+  type McpHostJsonValue,
+  type McpHostPort,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import { expect } from 'vitest';
 import { MastraAgentError, type MastraAgentErrorCode } from '../../mastra/mastra-agent-error';
 
@@ -57,7 +61,7 @@ export interface MockSuspendedRun {
 
 export type MockMcpToolsets = Record<
   string,
-  Record<string, { _meta?: Record<string, unknown>; description: string; id: string }>
+  Record<string, { _meta?: Record<string, McpHostJsonValue>; description: string; id: string }>
 >;
 
 export const agentInstances: MockMastraAgentInstance[] = [];
@@ -98,6 +102,12 @@ export const mcpHost: McpHostPort = {
     requestsSettled: 0,
     subscriptionsClosed: 0,
   }),
+  // Required by McpHostPort. No agent test drives server control through this
+  // harness, so it throws rather than returning an empty snapshot that would
+  // read as "control succeeded, zero servers".
+  control: async () => {
+    throw new Error('mastra-stream-harness does not mock MCP server control');
+  },
   invoke: async (operation) => {
     const toolset = mcpToolsets[operation.configuredServerId];
     if (!toolset) {
@@ -113,17 +123,27 @@ export const mcpHost: McpHostPort = {
           tools: Object.entries(toolset).map(([name, tool]) => ({
             ...(tool._meta ? { _meta: tool._meta } : {}),
             description: tool.description,
-            inputSchema: { additionalProperties: true, type: 'object' },
+            inputSchema: { additionalProperties: true, type: 'object' as const },
             name,
           })),
         },
         type: operation.type,
       };
     }
-    return {
-      result: { content: [{ text: 'mock MCP output', type: 'text' }] },
-      type: operation.type,
-    };
+    if (operation.type === 'tools/call') {
+      return {
+        result: { content: [{ text: 'mock MCP output', type: 'text' as const }] },
+        type: operation.type,
+      };
+    }
+    // Every other operation THROWS rather than returning a tool-call-shaped
+    // result. The previous `type: operation.type` spread claimed to answer
+    // prompts/*, resources/* and completion/complete with `content`, which the
+    // McpHostOperationResult discriminated union does not allow — a fixture
+    // silently returning the wrong shape for an operation it does not model.
+    // No agent test drives those through this harness; the HTTP-client protocol
+    // specs use their own fetch mocks.
+    throw new Error(`mastra-stream-harness does not mock MCP operation: ${operation.type}`);
   },
   replaceConfig: async () => ({ revision: 0, servers: [] }),
   snapshot: () => ({
