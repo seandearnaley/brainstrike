@@ -1,3 +1,4 @@
+import type { McpExtensionEnablement } from '@brainstrike/assistant-contract';
 import type { LoggingPreferences } from '@brainstrike/logging';
 import type { PanelPersistenceState } from '@brainstrike/ui';
 
@@ -17,6 +18,10 @@ export interface DesktopWindowState {
 export interface DesktopSettingsStoreSchema {
   loggingPreferences?: {
     v1: LoggingPreferences;
+  };
+  /** Global MCP registered-extension off switch (BST-1604). */
+  mcpExtensionPreferences?: {
+    v1: McpExtensionEnablement;
   };
   panelLayout?: {
     v1: PanelPersistenceState;

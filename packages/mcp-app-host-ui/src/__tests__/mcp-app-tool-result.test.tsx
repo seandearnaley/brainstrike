@@ -13,6 +13,7 @@ import {
   McpAppToolResult,
 } from '../mcp-app-tool-result';
 import { mcpAppToolResultRenderer } from '../mcp-app-tool-result-renderer';
+import { McpAppsEnablementProvider } from '../mcp-apps-enablement-context';
 
 const APP: McpAppOrigin = {
   mimeType: 'text/html;profile=mcp-app',
@@ -204,6 +205,55 @@ describe('MCP App tool result', () => {
     );
     expect(screen.queryByTitle('create_issue app')).not.toBeInTheDocument();
     expect(test.prepare).not.toHaveBeenCalled();
+  });
+
+  it('tears the mounted app down when MCP Apps are turned off for its server (BST-1604)', async () => {
+    const test = harness();
+    let session: McpAppMountedSession | undefined;
+    const tree = (appsEnabled: boolean): ReactElement => (
+      <TooltipProvider>
+        <McpAppsEnablementProvider isEnabled={() => appsEnabled}>
+          <McpAppBridgeProvider bridge={test.bridge}>
+            <McpAppToolResult
+              {...TOOL_CALL}
+              onSessionChange={(next) => {
+                session = next ?? session;
+              }}
+              ports={test.ports}
+            />
+          </McpAppBridgeProvider>
+        </McpAppsEnablementProvider>
+      </TooltipProvider>
+    );
+    const view = render(tree(true));
+    await waitFor(() => expect(screen.getByTitle('create_issue app')).toBeInTheDocument());
+    await waitFor(() => expect(session).toBeDefined());
+    expect(test.created).toHaveLength(1);
+
+    view.rerender(tree(false));
+
+    expect(screen.queryByTitle('create_issue app')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mcp-app-host-note')).toHaveTextContent(
+      'MCP Apps are turned off for this server'
+    );
+    // The ordinary unmount teardown ran: the served shell was released and the
+    // frame bridge and tool-call authority were closed.
+    await waitFor(() => expect(test.revoked).toEqual(test.created));
+    expect(session?.frameBridge.snapshot.phase).toBe('closed');
+  });
+
+  it('keeps the app mounted while its own server stays enabled (BST-1604)', async () => {
+    const test = harness();
+    render(
+      <TooltipProvider>
+        <McpAppsEnablementProvider isEnabled={(serverId) => serverId !== 'other'}>
+          <McpAppBridgeProvider bridge={test.bridge}>
+            <McpAppToolResult {...TOOL_CALL} ports={test.ports} />
+          </McpAppBridgeProvider>
+        </McpAppsEnablementProvider>
+      </TooltipProvider>
+    );
+    await waitFor(() => expect(screen.getByTitle('create_issue app')).toBeInTheDocument());
   });
 
   it('mounts the host-served brainstrike-mcp-app: shell URL after reading the app document', async () => {

@@ -10,6 +10,7 @@ import type {
   ReadResourceResultSchema,
 } from '@modelcontextprotocol/core';
 import { z } from 'zod';
+import { type McpExtensionEnablement, McpExtensionEnablementSchema } from './mcp-extensions.js';
 import type {
   McpConfiguredProtocol,
   McpConnectionState,
@@ -126,6 +127,8 @@ interface McpHostServerSnapshotBase {
   configuredServerId: ConfiguredMcpServerId;
   diagnostics?: readonly McpHostDiagnostic[];
   enabledTools?: readonly string[];
+  /** Effective registered-extension state for this generation (BST-1604). */
+  extensions?: McpExtensionEnablement;
   generation: number;
   transport: McpStatusTransport;
 }
@@ -370,6 +373,7 @@ const McpConfiguredServerSchema = z
     configuredProtocol: McpConfiguredProtocolSchema,
     configuredServerId: ConfiguredMcpServerIdSchema,
     enabledTools: z.array(z.string()).optional(),
+    extensions: McpExtensionEnablementSchema.optional(),
     startup: McpStartupPolicySchema,
     transport: TransportSchema,
   })

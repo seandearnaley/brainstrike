@@ -22,12 +22,13 @@ const http = (patch: Partial<HttpServer> = {}): HttpServer => ({
   url: 'https://tasks.example.test/mcp',
   ...patch,
 });
-const stdio = (): StdioServer => ({
+const stdio = (patch: Partial<StdioServer> = {}): StdioServer => ({
   command: '/usr/local/bin/tasks',
   name: parseConfiguredMcpServerId('local.tasks'),
   protocol: '2026-07-28',
   startup: 'automatic',
   transport: 'stdio',
+  ...patch,
 });
 const resolved = (...servers: ResolvedMcpServer[]): ResolvedMcpConfig => ({ servers });
 /** Actors connect lazily; a config load alone never opens a transport. */
@@ -112,6 +113,38 @@ describe('createDefaultMcpExtensionRegistry', () => {
       createDefaultMcpExtensionRegistry({ ...http(), protocol: 'legacy', transport: 'sse' })
     ).toBeUndefined();
   });
+
+  it.each([stdio(), http()])(
+    'advertises only the enabled extensions on $transport (BST-1604)',
+    (server) => {
+      const appsOnly = createDefaultMcpExtensionRegistry({
+        ...server,
+        extensions: { apps: true, tasks: false },
+      });
+      expect(Object.keys(appsOnly?.toClientExtensionCapabilities() ?? {})).toEqual([
+        'io.modelcontextprotocol/ui',
+      ]);
+      const tasksOnly = createDefaultMcpExtensionRegistry({
+        ...server,
+        extensions: { apps: false, tasks: true },
+      });
+      expect(Object.keys(tasksOnly?.toClientExtensionCapabilities() ?? {})).toEqual([
+        'io.modelcontextprotocol/tasks',
+      ]);
+    }
+  );
+
+  it.each([stdio(), http()])(
+    'registers no registry at all when both dials are off on $transport (BST-1604)',
+    (server) => {
+      expect(
+        createDefaultMcpExtensionRegistry({
+          ...server,
+          extensions: { apps: false, tasks: false },
+        })
+      ).toBeUndefined();
+    }
+  );
 
   it('returns a fresh registry per call because a registry seals on first projection', () => {
     const first = createDefaultMcpExtensionRegistry(stdio());
@@ -220,6 +253,64 @@ describe('DesktopMcpHostRuntime task host binding', () => {
     expect(runtime.host.snapshot().servers[0]).toMatchObject({ generation: 1 });
     await runtime.host.close();
     expect(events.filter((event) => event.startsWith('retired'))).toEqual([]);
+  });
+
+  it('opens no task session when Tasks is off but Apps is still advertised (BST-1604)', async () => {
+    const explicitClient = transportClient();
+    const { events, taskHost } = createTaskHost();
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: () => explicitClient,
+      taskHost,
+    });
+    await loadAndConnect(runtime, http({ extensions: { apps: true, tasks: false } }));
+    // The connection is live and advertises Apps, but the durable task host
+    // was never handed the generation: `track()` fails exactly as it does for
+    // a server that never advertised Tasks.
+    expect(taskHost.connected).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+    await runtime.host.close();
+    expect(events).toEqual(['close']);
+  });
+
+  it('retires the Tasks epoch and advances the generation when the global dial flips (BST-1604)', async () => {
+    const explicitClient = transportClient();
+    const { connections, events, taskHost } = createTaskHost();
+    const runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: () => explicitClient,
+      createStdioTransportClient: () => explicitClient,
+      taskHost,
+    });
+    // `local.tasks` already opted out per server; only `team.tasks.prod` is affected.
+    await loadAndConnect(runtime, http(), stdio({ extensions: { apps: true, tasks: false } }));
+    expect(runtime.mcpExtensionPreferences).toEqual({ apps: true, tasks: true });
+    expect(connections).toHaveLength(1);
+    const stdioGeneration = runtime.host
+      .snapshot()
+      .servers.find(({ configuredServerId }) => configuredServerId === stdio().name)?.generation;
+
+    await runtime.setMcpExtensionPreferences({ apps: true, tasks: false });
+    expect(runtime.mcpExtensionPreferences).toEqual({ apps: true, tasks: false });
+    expect(events).toEqual([
+      `connected:${http().name}:1`,
+      `retired:${http().name}:server-replaced`,
+      `disconnected:${http().name}:1`,
+    ]);
+    const servers = runtime.host.snapshot().servers;
+    expect(
+      servers.find(({ configuredServerId }) => configuredServerId === http().name)
+    ).toMatchObject({ extensions: { apps: true, tasks: false }, generation: 2 });
+    // A server whose EFFECTIVE state did not change keeps its generation.
+    expect(
+      servers.find(({ configuredServerId }) => configuredServerId === stdio().name)
+    ).toMatchObject({ extensions: { apps: true, tasks: false }, generation: stdioGeneration });
+    await runtime.host.close();
+  });
+
+  it('rejects a malformed global preference instead of degrading (BST-1604)', async () => {
+    const runtime = createDesktopMcpHostRuntime({ taskHost: createTaskHost().taskHost });
+    await expect(runtime.setMcpExtensionPreferences({ apps: 'no' } as never)).rejects.toThrow();
+    expect(runtime.mcpExtensionPreferences).toEqual({ apps: true, tasks: true });
+    await runtime.host.close();
   });
 
   it('does not bind the task host when no registry is resolved', async () => {

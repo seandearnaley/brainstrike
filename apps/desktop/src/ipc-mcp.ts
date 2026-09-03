@@ -1,14 +1,10 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { mcpToolRegistry } from '@brainstrike/agent';
 import {
-  loadToolPreferences,
-  mcpToolRegistry,
-  saveToolPreferences,
-  type ToolPreferences,
-} from '@brainstrike/agent';
-import {
+  MCP_EXTENSIONS_ENABLED,
+  type McpExtensionEnablement,
   type McpHostSnapshot,
-  parseConfiguredMcpServerId,
   parseMcpHostControlRequest,
 } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
@@ -16,15 +12,25 @@ import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { attachMcpBridges, type McpBridgesRuntime } from './mcp/bridges';
 import { registerMcpContentIpc } from './mcp/content-ipc';
+import {
+  clearStoredMcpExtensionPreferences,
+  type McpExtensionPreferencesStoreAccess,
+  readStoredMcpExtensionPreferences,
+  writeStoredMcpExtensionPreferences,
+} from './mcp/extension-preferences';
 import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { controlDestructiveMcpLifecycle, notifyMcpStatusUpdated } from './mcp/lifecycle-control';
+import {
+  discoverToolsFromConfig,
+  loadToolPreferencesForProjection,
+  saveToolPreferencesIfNeeded,
+} from './mcp/tool-discovery';
 import type { McpDiscoveredTool } from './mcp/types';
 import {
   getDefaultMcpConfigTemplate,
   getMcpConfigPath,
   type LoadedMcpConfig,
   loadMcpConfig,
-  type McpServer,
   type ResolvedMcpServer,
   readMcpConfigText,
   setCustomMcpConfigPath,
@@ -52,19 +58,28 @@ let lastCommittedResolvedConfig: NonNullable<LoadedMcpConfig['config']> = { serv
 interface McpFactoryResetSnapshot {
   readonly authorityConfig: NonNullable<LoadedMcpConfig['config']>;
   readonly config: LoadedMcpConfig | null;
+  readonly extensionPreferences: McpExtensionEnablement;
   readonly selectedConfigPath: string | null;
   readonly tools: ReturnType<typeof mcpToolRegistry.getAllTools>;
 }
 let pendingFactoryResetSnapshot: McpFactoryResetSnapshot | null = null;
+/**
+ * Desktop settings store access for the global extension dials. Registration
+ * supplies it; without one the dials stay at their shipped default and a write
+ * fails loudly instead of pretending to persist.
+ */
+let settingsStoreAccess: McpExtensionPreferencesStoreAccess = () => null;
 const logger = createLogger('DesktopMcpIpc');
-const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
-const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 const mcpContentLifecycle = { barrier: () => mcpLifecycleBarrier, isOpen: () => mcpLifecycleOpen };
 export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
 export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
 export const MCP_STATUS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusUpdated;
-type McpAuthorityRuntime = Pick<DesktopMcpHostRuntime, 'host' | 'replaceResolvedConfig'>;
+export const MCP_EXTENSIONS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.extensionsUpdated;
+type McpAuthorityRuntime = Pick<
+  DesktopMcpHostRuntime,
+  'host' | 'mcpExtensionPreferences' | 'replaceResolvedConfig' | 'setMcpExtensionPreferences'
+>;
 type McpIpcRuntime = McpAuthorityRuntime & McpBridgesRuntime;
 
 export interface McpConfigStatus {
@@ -103,23 +118,6 @@ function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
     }));
   }
   return status;
-}
-
-function normalizeUrl(url: string | undefined): string {
-  return (url ?? '').trim().replace(/\/+$/u, '');
-}
-
-function isPlaceholderServer(server: McpServer): boolean {
-  if (server.transport === 'stdio') {
-    const args = server.args ?? [];
-    // Backward-compatibility guard for legacy sample configs created before we switched
-    // to commented examples. Match exact sentinel values to avoid false positives.
-    return args.some((arg) => arg.trim() === LEGACY_PLACEHOLDER_STDIO_ARG);
-  }
-  if (server.transport === 'sse') {
-    return normalizeUrl(server.url) === normalizeUrl(LEGACY_PLACEHOLDER_SSE_URL);
-  }
-  return false;
 }
 
 /**
@@ -262,6 +260,15 @@ async function reloadMcpConfigForLifecycle(
   const loadEpoch = ++latestLoadEpoch;
   const config = await loadMcpConfig();
   await applyConfigChange(runtime, config, loadEpoch, lifecycleEpoch);
+}
+
+function notifyMcpExtensionPreferences(preferences: McpExtensionEnablement): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    window.webContents.send(MCP_EXTENSIONS_UPDATED_EVENT, preferences);
+  }
 }
 
 function notifyMcpConfigUpdated(config: LoadedMcpConfig): void {
@@ -417,10 +424,11 @@ function purgeMcpRuntimeProjection(): void {
   mcpToolRegistry.clear();
 }
 
-function captureMcpFactoryResetSnapshot(): McpFactoryResetSnapshot {
+function captureMcpFactoryResetSnapshot(runtime: McpAuthorityRuntime): McpFactoryResetSnapshot {
   return {
     authorityConfig: structuredClone(lastCommittedResolvedConfig),
     config: last === null ? null : structuredClone(last),
+    extensionPreferences: { ...runtime.mcpExtensionPreferences },
     selectedConfigPath: lastUserSelectedConfigPath,
     tools: getSerializableTools(),
   };
@@ -430,6 +438,7 @@ async function restoreMcpFactoryResetSnapshot(
   runtime: McpAuthorityRuntime,
   snapshot: McpFactoryResetSnapshot
 ): Promise<void> {
+  await runtime.setMcpExtensionPreferences(snapshot.extensionPreferences);
   await runtime.replaceResolvedConfig(snapshot.authorityConfig);
   lastCommittedResolvedConfig = structuredClone(snapshot.authorityConfig);
   last = snapshot.config;
@@ -490,10 +499,15 @@ export async function resetMcpRuntimeForFactoryReset(
   await mcpLifecycleBarrier;
   // A retry can begin while a failed resume still owns the original snapshot.
   // Preserve that authority instead of replacing it with the already-purged state.
-  pendingFactoryResetSnapshot ??= captureMcpFactoryResetSnapshot();
+  pendingFactoryResetSnapshot ??= captureMcpFactoryResetSnapshot(runtime);
   try {
     await runtime.replaceResolvedConfig({ servers: [] });
     lastCommittedResolvedConfig = { servers: [] };
+    // The stored opt-out is desktop settings state: a reset returns the dials
+    // to the shipped default, and the in-memory runtime value with them.
+    clearStoredMcpExtensionPreferences(settingsStoreAccess);
+    await runtime.setMcpExtensionPreferences(MCP_EXTENSIONS_ENABLED);
+    notifyMcpExtensionPreferences(MCP_EXTENSIONS_ENABLED);
   } catch (error) {
     failures.push(error);
   }
@@ -548,8 +562,16 @@ export async function resumeMcpRuntimeAfterFactoryReset(
   }
 }
 
-export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }): () => void {
+export function registerMcpIpcHandlers({
+  runtime,
+  settingsStore,
+}: {
+  runtime: McpIpcRuntime;
+  /** Desktop settings store access; omitted only by harnesses without one. */
+  settingsStore?: McpExtensionPreferencesStoreAccess;
+}): () => void {
   logger.debug('Registering MCP IPC handlers');
+  settingsStoreAccess = settingsStore ?? (() => null);
   const registry = createDesktopIpcRegistry({ ipcMain });
   const detachBridges = attachMcpBridges(runtime, registry);
   const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
@@ -580,6 +602,27 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.statusGet,
     (): Promise<McpHostSnapshot> =>
       mcpLifecycleBarrier.then(() => structuredClone(runtime.host.snapshot()))
+  );
+
+  registry.registerInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.extensionsGet,
+    (): Promise<McpExtensionEnablement> =>
+      mcpLifecycleBarrier.then(() => ({ ...runtime.mcpExtensionPreferences }))
+  );
+
+  registry.registerInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.extensionsSet,
+    async (_event, request: unknown): Promise<McpExtensionEnablement> =>
+      await trackConfigOperation(async () => {
+        // Persist FIRST: a rejected write must not leave the live host
+        // advertising a state the next launch would not reproduce.
+        const persisted = writeStoredMcpExtensionPreferences(settingsStoreAccess, request);
+        await runtime.setMcpExtensionPreferences(persisted);
+        notifyMcpExtensionPreferences(persisted);
+        return persisted;
+      })
   );
 
   registry.registerInvoke(
@@ -823,6 +866,15 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
 
   // Discover tools when config changes; saved preferences are applied after discovery completes
   const startup = trackConfigOperation(async (lifecycleEpoch) => {
+    const stored = readStoredMcpExtensionPreferences(settingsStoreAccess);
+    if (stored.state === 'unreadable') {
+      // Fail closed: the stored value is the only record of a deliberate
+      // opt-out, so an unreadable one advertises nothing until it is rewritten.
+      logger.error('MCP extension preferences are unreadable; advertising no extensions', {
+        error: stored.cause,
+      });
+    }
+    await runtime.setMcpExtensionPreferences(stored.preferences);
     await restartConfigWatcherForLifecycle(runtime, lifecycleEpoch);
     await reloadMcpConfigForLifecycle(runtime, lifecycleEpoch);
   });
@@ -840,165 +892,4 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
     stopStatusWatch();
     registry.unregisterAll();
   };
-}
-
-interface DiscoveredServerTools {
-  server: ResolvedMcpServer;
-  tools: Record<string, McpDiscoveredTool>;
-}
-
-async function discoverToolsFromConfig(
-  runtime: McpAuthorityRuntime,
-  config: NonNullable<LoadedMcpConfig['config']>,
-  committed: McpHostSnapshot
-): Promise<DiscoveredServerTools[]> {
-  if (!config || config.servers.length === 0) {
-    logger.debug('No MCP servers configured, skipping tool discovery');
-    return [];
-  }
-
-  const committedIds = new Set(committed.servers.map((server) => server.configuredServerId));
-  const committedById = new Map(
-    committed.servers.map((server) => [server.configuredServerId, server] as const)
-  );
-  const actionableServers = config.servers.filter(
-    (server) =>
-      committedIds.has(parseConfiguredMcpServerId(server.name)) &&
-      committedById.get(parseConfiguredMcpServerId(server.name))?.state !==
-        'authentication-required' &&
-      !isPlaceholderServer(server)
-  );
-  const skippedPlaceholderServers = config.servers
-    .filter((server) => isPlaceholderServer(server))
-    .map((server) => server.name);
-
-  if (skippedPlaceholderServers.length > 0) {
-    logger.warn('Skipping placeholder MCP servers from discovery', {
-      skippedServers: skippedPlaceholderServers,
-    });
-  }
-
-  if (actionableServers.length === 0) {
-    logger.debug('No actionable MCP servers configured after filtering placeholders');
-    return [];
-  }
-
-  logger.info('Starting tool discovery', {
-    serverCount: actionableServers.length,
-    servers: actionableServers.map((server) => server.name),
-  });
-
-  const discoveries = await Promise.all(
-    actionableServers.map(async (server): Promise<DiscoveredServerTools | undefined> => {
-      const configuredServerId = parseConfiguredMcpServerId(server.name);
-      try {
-        const result = await runtime.host.invoke({
-          configuredServerId,
-          type: 'tools/list',
-        });
-        if (result.type !== 'tools/list') {
-          throw new Error('MCP host returned a non-tools result for tools/list discovery');
-        }
-        const toolNames = new Set<string>();
-        const tools: Record<string, McpDiscoveredTool> = Object.fromEntries(
-          result.result.tools.map((tool) => {
-            if (toolNames.has(tool.name)) {
-              throw new Error(`MCP server returned duplicate tool '${tool.name}'`);
-            }
-            toolNames.add(tool.name);
-            return [
-              `${server.name}.${tool.name}`,
-              {
-                ...(tool.description ? { description: tool.description } : {}),
-                ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
-              },
-            ];
-          })
-        );
-        return { server, tools };
-      } catch (error) {
-        logger.warn('MCP server discovery failed; skipping server', {
-          error: error instanceof Error ? error.message : String(error),
-          server: server.name,
-        });
-        return undefined;
-      }
-    })
-  ).then((results) =>
-    results.filter((discovery): discovery is DiscoveredServerTools => discovery !== undefined)
-  );
-
-  logger.info('Tool discovery complete', {
-    servers: discoveries.length,
-    tools: discoveries.reduce((count, discovery) => count + Object.keys(discovery.tools).length, 0),
-  });
-  return discoveries;
-}
-
-/**
- * Flattens the registry's grouped tools into a single array.
- */
-function getFlattenedTools(): Array<{ id: string; enabled: boolean }> {
-  const allTools = mcpToolRegistry.getAllTools();
-  return Object.values(allTools).filter(Array.isArray).flat();
-}
-
-async function saveToolPreferencesIfNeeded(): Promise<void> {
-  try {
-    const tools = getFlattenedTools();
-    const enabledTools = tools.filter((t) => t.enabled).map((t) => t.id);
-    const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
-
-    await saveToolPreferences(app.getPath('userData'), {
-      disabledTools,
-      enabledTools,
-      lastUpdated: Date.now(),
-      version: 1,
-    });
-  } catch (error) {
-    logger.error('Failed to save tool preferences', { error });
-  }
-}
-
-async function loadToolPreferencesForProjection(
-  registeredIds: ReadonlySet<string>
-): Promise<Pick<ToolPreferences, 'disabledTools' | 'enabledTools'>> {
-  try {
-    const preferences = await loadToolPreferences(app.getPath('userData'));
-    if (!preferences) {
-      return { disabledTools: [], enabledTools: [] };
-    }
-
-    const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
-    const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
-
-    const staleCount =
-      preferences.enabledTools.length -
-      validEnabled.length +
-      preferences.disabledTools.length -
-      validDisabled.length;
-
-    if (staleCount > 0) {
-      logger.warn('Discarded stale MCP tool preference ids', {
-        registeredCount: registeredIds.size,
-        staleCount,
-      });
-
-      try {
-        await saveToolPreferences(app.getPath('userData'), {
-          disabledTools: validDisabled,
-          enabledTools: validEnabled,
-          lastUpdated: Date.now(),
-          version: preferences.version,
-        });
-      } catch (saveError) {
-        logger.warn('Failed to persist cleaned tool preferences', { error: saveError });
-      }
-    }
-
-    return { disabledTools: validDisabled, enabledTools: validEnabled };
-  } catch (error) {
-    logger.error('Failed to load tool preferences', { error });
-    return { disabledTools: [], enabledTools: [] };
-  }
 }

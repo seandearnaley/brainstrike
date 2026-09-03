@@ -207,7 +207,12 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
         })
       );
     }
-    expect(resolveClientCapabilities).toHaveBeenCalledWith(testCase.server);
+    // The runtime resolves capabilities against the EFFECTIVE private
+    // definition, which carries the registered-extension dials (BST-1604).
+    expect(resolveClientCapabilities).toHaveBeenCalledWith({
+      ...testCase.server,
+      extensions: { apps: true, tasks: true },
+    });
   });
 
   it('closes the feature subscription before closing its transport client', async () => {

@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  type McpExtensionEnablement,
+  McpExtensionEnablementSchema,
+  resolveMcpExtensionEnablement,
+} from './mcp-extensions.js';
 import { ConfiguredMcpServerIdSchema, McpConfiguredAuthSchema } from './mcp-host.js';
 
 export const McpTransportEnum = z.enum(['stdio', 'streamable-http', 'sse']);
@@ -136,6 +141,7 @@ const StdioServerSchema = z.strictObject({
   command: NonEmptySpawnStringSchema,
   enabledTools: z.array(z.string()).optional(),
   env: EnvironmentSchema.optional(),
+  extensions: McpExtensionEnablementSchema.optional(),
   name: ConfiguredMcpServerIdSchema,
   protocol: McpProtocolEnum.optional(),
   startup: StartupPolicySchema,
@@ -145,6 +151,7 @@ const StdioServerSchema = z.strictObject({
 const HttpServerSchema = z.strictObject({
   auth: McpConfiguredAuthSchema.optional(),
   enabledTools: z.array(z.string()).optional(),
+  extensions: McpExtensionEnablementSchema.optional(),
   headers: HeadersSchema.optional(),
   name: ConfiguredMcpServerIdSchema,
   protocol: McpProtocolEnum.optional(),
@@ -281,4 +288,23 @@ export function parseMcpConfigValue(value: unknown): {
       : []
   );
   return { config: McpConfigSchema.parse(parsed.data), migrations };
+}
+
+/**
+ * Folds the global extension preference into every server's own override so
+ * the resolved private definition carries the EFFECTIVE state (BST-1604).
+ * Because `extensions` is part of the private definition, a flipped dial
+ * changes the server's config ref, which advances the connection generation
+ * and retires the old authority exactly like a server-definition replacement.
+ */
+export function applyMcpExtensionPreferences(
+  config: ResolvedMcpConfig,
+  preferences: McpExtensionEnablement
+): ResolvedMcpConfig {
+  return {
+    servers: config.servers.map((server) => ({
+      ...server,
+      extensions: resolveMcpExtensionEnablement(server.extensions, preferences),
+    })),
+  };
 }

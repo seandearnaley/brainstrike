@@ -347,6 +347,19 @@ separate Electron WebContents or session partition: Electron never creates a
 WebContents for an in-page `<iframe>`, so no `web-contents-created` /
 session-level policy can ever observe an app frame.
 
+**The Apps host is not unconditionally present (BST-1604).** It ships ON, but a
+global Settings switch and a per-server `"extensions": { "apps": false }` entry
+in the MCP configuration document each turn it off. With Apps off for a server
+the client never advertises `io.modelcontextprotocol/ui` on that connection, so
+no conformant server returns an app resource; the change advances that server's
+connection generation, which drops its run-detached admissions, and the visible
+renderer's enablement provider unmounts every mounted app for it through the
+ordinary teardown below (frame bridge close, tool-call authority close,
+generation retirement, sandbox shell release — the shell URL 404s immediately).
+Nothing else in this section is conditional: the session policy below is
+installed on `session.defaultSession` for the whole process regardless of the
+dials, so a stale or racing frame can never regain a permission or a download.
+
 - **App frame.** The untrusted app document is an `about:srcdoc` iframe with
   `sandbox="allow-scripts"` (opaque origin; no `allow-same-origin`,
   `allow-popups`, `allow-downloads`, `allow-forms`, or `allow-top-navigation`)

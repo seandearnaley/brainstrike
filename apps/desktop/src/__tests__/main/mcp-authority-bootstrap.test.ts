@@ -18,8 +18,11 @@ import type { LoadedMcpConfig, ResolvedMcpConfig } from '../../mcp-loader';
 import { readMainSourceSections } from './main-source-test-helpers';
 import {
   createMcpElicitationPresenterStub,
+  createMcpExtensionPreferencesStub,
   createMcpTaskHostStub,
 } from './mcp-authority-test-runtime';
+
+const extensionPreferences = createMcpExtensionPreferencesStub();
 
 const mocks = vi.hoisted(() => ({
   getMcpConfigPath: vi.fn(async () => '/tmp/mcp.config.json'),
@@ -127,6 +130,7 @@ describe('MCP desktop authority bootstrap', () => {
       ),
     },
     replaceResolvedConfig: mocks.replaceResolvedConfig,
+    ...extensionPreferences,
     taskHost: createMcpTaskHostStub(),
   };
 
@@ -189,7 +193,7 @@ describe('MCP desktop authority bootstrap', () => {
 
     expect(readyStart).toBeGreaterThanOrEqual(0);
     expect(source.slice(readyStart)).toMatch(
-      /registerMcpIpcHandlers\(\{\s*runtime:\s*getDesktopMcpHostRuntime\(\)\s*\}\)/
+      /registerMcpIpcHandlers\(\{\s*runtime:\s*getDesktopMcpHostRuntime\(\),\s*settingsStore:\s*getSettingsStore,\s*\}\)/
     );
   });
 
