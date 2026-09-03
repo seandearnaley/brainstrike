@@ -460,6 +460,16 @@ export class McpServerActor {
       this.diagnose(error.code, cause);
       throw this.fail(error);
     }
+    if (this.failure) {
+      // The transport was invalidated while the handshake was still running —
+      // a stdio child that exits mid-`initialize` reaches `onUnexpectedClose`
+      // before the client factory returns (BST-1600). `change` is an
+      // unconditional single writer, so publishing `connected` here would
+      // clobber that lifecycle failure and leave a dead server behind a
+      // healthy row. The client is already owned by `this.client`, so actor
+      // close still reaps it.
+      throw this.failure;
+    }
     if (!this.closePromise) {
       let catalog: McpHostCatalog | undefined;
       try {

@@ -52,6 +52,7 @@ import {
   McpServerFeatureEventRegistry,
   resolveMcpServerFeatureEventDiagnosticSink,
 } from './server-feature-events';
+import { installMcpStdioSendClosure } from './stdio-send-closure';
 import {
   listenForMcpTasks,
   type McpTasksNotificationHandler,
@@ -64,6 +65,7 @@ const DEFAULT_CLIENT_VERSION = '0.1.0';
 const CLOSED_ERROR_MESSAGE = 'Explicit stdio MCP client is closed';
 const DISCONNECTED_DURING_CONNECT_ERROR_MESSAGE =
   'MCP stdio connection closed during initialization';
+const SEVERED_SEND_ERROR_MESSAGE = 'MCP stdio child pipe closed before the message was written';
 // The SDK 2.0.0 public API requires a numeric request timeout. This is the
 // platform maximum timer value, used only for the human-paced auth handshake;
 // cancellation remains signal-driven through the transport/client lifecycle.
@@ -129,6 +131,8 @@ interface ActiveConnection {
   client: Client;
   disconnected: boolean;
   extensionDispatchLedger: RegisteredExtensionDispatchLedger;
+  /** Rejects in-flight writes that the dead child's pipe can never drain. */
+  failInFlightSends(cause: Error): void;
   removeStderrListener(): void;
   toolDefinitions: ReadonlyMap<string, ExplicitHttpMcpTool>;
   toolMetadataReady: boolean;
@@ -559,6 +563,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   private async closeConnection(connection: ActiveConnection): Promise<void> {
+    connection.failInFlightSends(new Error(SEVERED_SEND_ERROR_MESSAGE));
     const results = await Promise.allSettled([
       connection.capabilityLease.close(),
       connection.transport.close(),
@@ -600,14 +605,18 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const capabilityLease = this.options.capabilityRuntime.install(client, this.options.serverName);
     this.featureEvents.install(client);
     const extensionDispatchLedger = new RegisteredExtensionDispatchLedger();
+    const stdioTransport = new StdioClientTransport({
+      command: this.options.command,
+      ...(this.options.args ? { args: this.options.args } : {}),
+      ...(this.options.env ? { env: this.options.env } : {}),
+      ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
+    });
+    // Installed on the raw transport, before the extension/result wrappers, so
+    // every message this connection writes is covered by the closure.
+    const sendClosure = installMcpStdioSendClosure(stdioTransport);
     const transport = installMcpResultTypeCompatibility(
       installRegisteredExtensionDispatch(
-        new StdioClientTransport({
-          command: this.options.command,
-          ...(this.options.args ? { args: this.options.args } : {}),
-          ...(this.options.env ? { env: this.options.env } : {}),
-          ...(this.options.onStderr ? { stderr: 'pipe' as const } : {}),
-        }),
+        stdioTransport,
         this.options.extensionRegistry,
         extensionDispatchLedger
       ),
@@ -636,6 +645,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       client,
       disconnected: false,
       extensionDispatchLedger,
+      failInFlightSends: (cause) => sendClosure.close(cause),
       removeStderrListener: () => stderr?.off('data', onStderrData),
       toolDefinitions: new Map(),
       toolMetadataReady: false,
@@ -647,6 +657,10 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   private invalidateConnection(connection: ActiveConnection): void {
+    // First, and before the `disconnected` short-circuit: the SDK's stdio
+    // `send()` never settles once the child's pipe is gone, and `listen()`
+    // awaits it before it can handle its own closure rejection (BST-1600).
+    connection.failInFlightSends(new Error(SEVERED_SEND_ERROR_MESSAGE));
     if (connection.disconnected) {
       return;
     }

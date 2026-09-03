@@ -2916,9 +2916,28 @@ through the browser-blocked runtime parser before publishing or returning them.
 expired-session reconnect and request replay. Host composition must select `host-owned`: a session-invalidating 404 invalidates the connection, emits one unexpected-close signal, and returns the original failure without replay. Transport code never infers ownership.
 `ExplicitStdioMcpClient` publishes pending child ownership before connection begins, sets terminal closure
 synchronously before teardown, and reaps pending and active children through one idempotent close promise. Only an active connection emits the observer signal; pending failures reject connect directly. Observer exceptions are isolated, and the next operation creates a fresh child without replay.
+Terminal closure also SETTLES THE CONNECTION'S IN-FLIGHT TRANSPORT WRITES
+(`installMcpStdioSendClosure`, BST-1600). Node's parent-side pipe to a child
+that has exited or closed its read end returns `false` from `write()` and never
+emits `'drain'` again, and the SDK's `StdioClientTransport.send()` resolves only
+on that `'drain'` — so a message written into a dead child's pipe returns a
+promise that never settles. `Protocol.request()` survives that (its response
+handler is settled by `_onclose`), but `Client.listen()` awaits the send BEFORE
+it can handle its own `opening` promise: a child that dies in that window used to
+hang `subscriptions/listen` and the whole connect sequence forever — orphaning
+the client past main's 5s `SIGNAL_SHUTDOWN_TIMEOUT_MS` — while
+`Client._onclose`'s `SdkError: Connection closed` escaped as an unhandled
+rejection in Electron main. Closure now rejects those writes visibly, so the
+failure classifies like any other. Never wrap this in a swallowing catch, and
+never assume a stdio `send` promise settles on its own.
 Actor state is single-writer and generation-bound. A failure remains the latest
 snapshot through teardown; observer exceptions are isolated and diagnosed, not
-allowed to corrupt invocation or cleanup. Public actor close is idempotent and
+allowed to corrupt invocation or cleanup. Because `change` is that unconditional
+single writer, a successful client handshake never publishes `connected` once a
+failure has been recorded: a stdio child that exits mid-handshake reaches
+`onUnexpectedClose` before the client factory returns, and `createClient`
+rethrows that failure instead of clobbering the row (BST-1600).
+Public actor close is idempotent and
 never rejects. Its report includes an explicit sanitized `failures` array in
 addition to non-negative safe-integer resource counters, so a failed teardown
 cannot masquerade as an all-zero clean proof. Client-reported failures are
