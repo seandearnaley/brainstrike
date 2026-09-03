@@ -92,7 +92,7 @@ function buildToolPreferencesFaultMessage(fault: {
   const cause = fault.kind === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
   // The fault latches for the session: nothing watches this file and the guard
   // does not re-read it, so the instruction has to say restart or it promises a
-  // recovery that will not happen (BST-1615, follow-up BST-1616).
+  // recovery that will not happen (BST-1615, follow-up BST-1620).
   return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved, so your saved choices are left on disk untouched. Repair or remove that file and restart the app to recover them.`;
 }
 
