@@ -1688,9 +1688,8 @@ capability-gated, no `isElectron()`).
   own "nothing here" answer produces. `queryHover`/`queryLocations` therefore
   return a `QueryOutcome` — `{ok:true, value}` or `{ok:false, reason}` — and
   `withTimeout`'s fallback is the `QUERY_TIMED_OUT` sentinel symbol, never
-  `null`. Every leg that did not answer lands in `LspInspectionResult.
-  queryFailures` as `{query, reason:'timeout'|'error', message}`, where `query`
-  is named for the RESULT FIELD it fills (`hover` / `diagnostics` /
+  `null`. Every leg that did not answer lands in `LspInspectionResult.queryFailures`
+  as `{query, reason:'timeout'|'error', message}`, where `query` is named for the RESULT FIELD it fills (`hover` / `diagnostics` /
   `definition` / `implementation`) and `message` says what is UNKNOWN and what
   not to conclude ("do not conclude it has no definition or is dead code"). The
   diagnostics leg is covered by the same rule via the `diagnostics` map miss —
@@ -1706,9 +1705,10 @@ capability-gated, no `isElectron()`).
   among the budget-droppable candidates, since dropping them restores the exact
   ambiguity. Do not reintroduce a bare `catch { return []; }` on either query,
   and do not give `withTimeout` a fallback that a real answer could equal.
-  Pinned by `apps/desktop/src/__tests__/assistant-server/lsp-inspect-query-
-  failures.test.ts` (fake JSON-RPC wire: per-query timeout, throw, and the
-  mixed case) plus the projection cases in
+  Pinned by
+  `apps/desktop/src/__tests__/assistant-server/lsp-inspect-query-failures.test.ts`
+  (fake JSON-RPC wire: per-query timeout, throw, and the mixed case) plus the
+  projection cases in
   `workspace-inspection-model-projections.test.ts`.
 - **Pool + lifecycle.** One pooled server child process per workspace `rootId`
   (module-level Map, mirroring `execute-command-tool`'s `liveChildProcesses`).
