@@ -6,6 +6,7 @@ import type {
   EditDiagnostic,
   InspectLocation,
   LspInspectionResult,
+  LspQueryFailure,
   LspUnavailableReason,
 } from './lsp-diagnostics';
 import {
@@ -117,6 +118,20 @@ function isDiagnostic(value: unknown): value is EditDiagnostic {
   );
 }
 
+function isQueryFailure(value: unknown): value is LspQueryFailure {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value['message'] === 'string' &&
+    (value['query'] === 'definition' ||
+      value['query'] === 'diagnostics' ||
+      value['query'] === 'hover' ||
+      value['query'] === 'implementation') &&
+    (value['reason'] === 'timeout' || value['reason'] === 'error')
+  );
+}
+
 function isInspectLocation(value: unknown): value is InspectLocation {
   if (!isRecord(value)) {
     return false;
@@ -130,7 +145,7 @@ function isInspectLocation(value: unknown): value is InspectLocation {
 
 function hasOptionalArray(
   value: Record<string, unknown>,
-  key: 'definition' | 'diagnostics' | 'implementation',
+  key: 'definition' | 'diagnostics' | 'implementation' | 'queryFailures',
   predicate: (item: unknown) => boolean
 ): boolean {
   const collection = value[key];
@@ -149,7 +164,8 @@ function parseLspInspectResult(output: unknown): LspInspectResult {
       isOptionalString(output['hover']) &&
       hasOptionalArray(output, 'definition', isInspectLocation) &&
       hasOptionalArray(output, 'diagnostics', isDiagnostic) &&
-      hasOptionalArray(output, 'implementation', isInspectLocation)
+      hasOptionalArray(output, 'implementation', isInspectLocation) &&
+      hasOptionalArray(output, 'queryFailures', isQueryFailure)
     )
   ) {
     throw new ToolProjectionInputRejectedError(
@@ -310,7 +326,24 @@ function lspHeader(result: LspInspectResult): string {
   if (!result.available) {
     return `${base} | reason=${result.reason}`;
   }
-  return result.language ? `${base} | language=${singleLine(result.language)}` : base;
+  const withLanguage = result.language ? `${base} | language=${singleLine(result.language)}` : base;
+  const failures = result.queryFailures ?? [];
+  if (failures.length === 0) {
+    return withLanguage;
+  }
+  // BST-1614: name the unanswered groups IN THE HEADER, not only in the
+  // detail lines below — the header is the one line the budget can never
+  // drop, so "definition is absent" can't be read as "there is none".
+  return `${withLanguage} | unanswered=${failures.map((failure) => failure.query).join(',')}`;
+}
+
+/** One unanswered leg, phrased so the omission above cannot read as "none". */
+function formatQueryFailure(failure: LspQueryFailure): string {
+  return `query_unanswered: ${failure.query} | reason=${failure.reason} | ${clipEnd(
+    failure.message,
+    MAX_DIAGNOSTIC_CHARS,
+    'query-failure-message'
+  )}`;
 }
 
 function buildLspProjectionLines(result: LspInspectResult): LspProjectionLine[] {
@@ -355,6 +388,28 @@ export function projectLspInspectModelOutput(
   }
 
   const hover = result.hover ? `hover: ${clipEnd(result.hover, MAX_HOVER_CHARS, 'hover')}` : null;
+  // The prelude sits above the droppable result lines, in PRIORITY order: an
+  // unanswered-query line prevents a WRONG conclusion, while hover is only
+  // informational, so failures outrank it under budget pressure.
+  //
+  // Nothing here is unconditional. `domainModelResultCharBudget` is per-run
+  // (resolveScaledToolResultBudget clamps the domain allowance to 500..3000
+  // tokens, so a small context window floors it at 2000 chars), and a maximal
+  // header + hover + three failure lines runs to roughly 4.2k. Forcing them in
+  // would make the closing assertProjectionFits THROW — turning a degraded but
+  // useful inspection into a failed tool call, exactly when the language
+  // server is already misbehaving. The header keeps `unanswered=<queries>`
+  // whatever gets dropped, so the "absent group is not verified-empty" signal
+  // never depends on a line that fits.
+  const prelude: string[] = [];
+  for (const line of [
+    ...(result.queryFailures ?? []).map(formatQueryFailure),
+    ...(hover ? [hover] : []),
+  ]) {
+    if (decodedChars([header, ...prelude, line]) <= domainModelResultCharBudget) {
+      prelude.push(line);
+    }
+  }
   const candidates = buildLspProjectionLines(result);
   const totals: Record<LspCollectionKind, number> = {
     definitions: result.definition?.length ?? 0,
@@ -373,7 +428,7 @@ export function projectLspInspectModelOutput(
     const omitted = omissionSummary(totals, candidateKept);
     const lines = [
       header,
-      ...(hover ? [hover] : []),
+      ...prelude,
       ...keptLines,
       candidate.value,
       ...(omitted ? [omitted] : []),
@@ -386,7 +441,10 @@ export function projectLspInspectModelOutput(
   }
 
   const omitted = omissionSummary(totals, kept);
-  const lines = [header, ...(hover ? [hover] : []), ...keptLines, ...(omitted ? [omitted] : [])];
+  const lines = [header, ...prelude, ...keptLines, ...(omitted ? [omitted] : [])];
+  // The header is the only unconditional line, and it is self-bounding (root
+  // and path are clipped), so this assertion can no longer be tripped by a
+  // degraded inspection — it stays as a genuine invariant check.
   assertProjectionFits('lspInspect', lines, domainModelResultCharBudget);
   return makeTextModelOutput(lines);
 }
