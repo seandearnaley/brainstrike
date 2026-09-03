@@ -283,7 +283,7 @@ export class ElectronStorageAdapter implements StorageAdapter {
           delete stagedCache[key];
         }
       }
-    }, true);
+    });
   }
 
   async getAllKeys(): Promise<string[]> {

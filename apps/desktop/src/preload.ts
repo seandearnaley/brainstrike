@@ -101,6 +101,7 @@ const PROVIDER_AUTH_START_CHANNEL = 'provider-auth:start' as const;
 const PROVIDER_AUTH_STATUS_CHANNEL = 'provider-auth:status' as const;
 const SETTINGS_CLEAR_ALL_CHANNEL = 'settings:clearAll' as const;
 const STORAGE_CLEAR_CHANNEL = 'storage:clear' as const;
+const STORAGE_CLEAR_ALL_FOR_E2E_CHANNEL = 'storage:clearAllForE2e' as const;
 const STORAGE_GET_ALL_KEYS_CHANNEL = 'storage:getAllKeys' as const;
 const STORAGE_GET_ITEM_CHANNEL = 'storage:getItem' as const;
 const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
@@ -852,7 +853,10 @@ if (shouldExposeBridge('electronAPI')) {
     saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
       ipcRenderer.invoke(LAYOUT_SAVE_CHANNEL, state),
     storage: {
-      clear: () => ipcRenderer.invoke(STORAGE_CLEAR_CHANNEL),
+      clear: () =>
+        ipcRenderer.invoke(
+          DESKTOP_TEST_MODE ? STORAGE_CLEAR_ALL_FOR_E2E_CHANNEL : STORAGE_CLEAR_CHANNEL
+        ),
       getAllKeys: () => ipcRenderer.invoke(STORAGE_GET_ALL_KEYS_CHANNEL),
       getItem: (key: string) => ipcRenderer.invoke(STORAGE_GET_ITEM_CHANNEL, key),
       removeItem: (key: string) => ipcRenderer.invoke(STORAGE_REMOVE_ITEM_CHANNEL, key),

@@ -73,8 +73,11 @@ export function registerStoragePreferencesIpcHandlers({
   registry.registerInvoke(
     'storage',
     DESKTOP_IPC_CHANNELS.storage.setItem,
-    async (_event, key: unknown, value: string) => {
+    async (_event, key: unknown, value: unknown) => {
       assertRendererWritableDesktopStorageKey(key);
+      if (typeof value !== 'string') {
+        throw new TypeError('Storage value must be a string.');
+      }
       return storage.setItem(key, value);
     }
   );
@@ -111,6 +114,9 @@ export function registerStoragePreferencesIpcHandlers({
         }
         return storage.setItem(key, value);
       }
+    );
+    registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.clearAllForE2e, async () =>
+      storage.clear()
     );
   }
 

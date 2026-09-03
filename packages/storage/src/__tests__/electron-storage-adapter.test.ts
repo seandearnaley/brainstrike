@@ -237,6 +237,16 @@ describe('ElectronStorageAdapter', () => {
     await expect(corruptedAdapter.setItem('recovered', 'value')).resolves.toBeUndefined();
   });
 
+  it('should refuse clearExcept when protected records could not be loaded', async () => {
+    await adapter.getAllKeys();
+    const invalidContent = '{"rootsList":"main-owned","invalid":42}';
+    await fsPromises.writeFile(storageFile, invalidContent, 'utf8');
+    const invalidAdapter = new ElectronStorageAdapter(path.basename(storageFile));
+
+    await expect(invalidAdapter.clearExcept(['rootsList'])).rejects.toThrow(StorageFileLoadError);
+    await expect(fsPromises.readFile(storageFile, 'utf8')).resolves.toBe(invalidContent);
+  });
+
   it('should create storage directory if it does not exist', async () => {
     // Use a relative path (relative to userDataDir, which is set in mockState)
     const relativePath = 'nested/deep/storage.json';

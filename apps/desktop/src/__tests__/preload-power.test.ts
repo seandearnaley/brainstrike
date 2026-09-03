@@ -101,6 +101,7 @@ describe('preload power bridge', () => {
           dbLive: {
             onUpdate: (cb: (payload: { id: number; results: unknown }) => void) => () => void;
           };
+          storage: { clear: () => Promise<unknown> };
         }
       | undefined;
   }
@@ -194,6 +195,13 @@ describe('preload power bridge', () => {
     const powerApi = getPowerApi();
     expect(powerApi).toBeDefined();
     expect(typeof powerApi?.onPowerState).toBe('function');
+  });
+
+  it('routes E2E storage reset through the explicit full-clear channel', async () => {
+    mockInvoke.mockClear();
+    await getElectronApi()?.storage.clear();
+
+    expect(mockInvoke).toHaveBeenCalledWith('storage:clearAllForE2e');
   });
 
   it('subscribes to app:power-state IPC channel', () => {

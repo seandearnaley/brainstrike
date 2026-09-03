@@ -134,6 +134,15 @@ describe('storage preferences IPC domain', () => {
     expect(storage.removeItem).not.toHaveBeenCalled();
   });
 
+  it('rejects non-string renderer values at the IPC boundary', async () => {
+    const setItem = handlers.get('storage:setItem');
+
+    await expect(
+      setItem?.({} as IpcMainInvokeEvent, 'assistant-preferences.v1', { invalid: true })
+    ).rejects.toThrow('Storage value must be a string');
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
   it('clears renderer-owned keys without deleting main-owned ledgers', async () => {
     const clear = handlers.get('storage:clear');
 
@@ -150,11 +159,12 @@ describe('storage preferences IPC domain', () => {
     ]);
   });
 
-  it('does not register the main-owned storage seed outside Electron E2E mode', () => {
+  it('does not register storage test helpers outside Electron E2E mode', () => {
     expect(handlers.has('storage:seedMainOwnedForE2e')).toBe(false);
+    expect(handlers.has('storage:clearAllForE2e')).toBe(false);
   });
 
-  it('registers a bounded main-owned storage seed only in Electron E2E mode', async () => {
+  it('registers bounded storage helpers only in Electron E2E mode', async () => {
     vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
     try {
       registerStoragePreferencesIpcHandlers({
@@ -162,6 +172,7 @@ describe('storage preferences IPC domain', () => {
         storage,
       });
       const seedMainOwned = handlers.get('storage:seedMainOwnedForE2e');
+      const clearAll = handlers.get('storage:clearAllForE2e');
 
       await seedMainOwned?.({} as IpcMainInvokeEvent, 'rootsList', '[{"path":"/test"}]');
       expect(storage.setItem).toHaveBeenCalledWith('rootsList', '[{"path":"/test"}]');
@@ -169,6 +180,9 @@ describe('storage preferences IPC domain', () => {
       await expect(
         seedMainOwned?.({} as IpcMainInvokeEvent, 'assistant-preferences.v1', '{}')
       ).rejects.toThrow('E2E main-owned storage seed requires a main-owned key');
+
+      await clearAll?.({} as IpcMainInvokeEvent);
+      expect(storage.clear).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllEnvs();
     }

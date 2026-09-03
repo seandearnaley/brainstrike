@@ -280,11 +280,17 @@ read it themselves, not read the reset result.
 
 The renderer-facing `storage:*` bridge cannot mutate any of the root/vault
 authority keys above (BST-1401). `setItem` and `removeItem` reject them by exact
-key, and `clear` enumerates and removes only renderer-owned records. The full
+key, `setItem` rejects non-string IPC values before persistence, and `clear`
+enumerates and removes only renderer-owned records. That selective clear fails
+closed when the durable file could not be loaded; it never recovers corruption
+by erasing authority records it could not preserve. The full
 desktop factory-reset handler remains the sole whole-profile wipe; it deletes
 the userData entries in main after the reset barrier closes. E2E root-ledger
-seeding uses a separate channel that main registers only in explicit Electron
-test mode, so production tests do not require a production bypass.
+seeding and the E2E reset harness's full clear use separate channels that main
+registers only in explicit Electron test mode, so production tests do not
+require a production bypass. Preload and main use the same `--test-mode` /
+`ELECTRON_IS_E2E_TEST=true` predicate, and a source-AST contract pins preload's
+copied seed-key set to main's authoritative tuple.
 
 That coverage is pinned by
 `apps/desktop/src/__tests__/main/desktop-factory-reset-storage-ledgers.test.ts`,
