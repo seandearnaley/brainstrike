@@ -168,9 +168,15 @@ function readStoredToolStates(preferences: ToolPreferences): Map<string, boolean
  * tools discovered on *this* run, so serialising it as the whole file dropped
  * the saved choices of every server whose discovery failed — one toggle wiped
  * a slow or erroring server's preferences, the same absence-vs-failure
- * conflation BST-1621 fixed in the load path. Ids absent from this run are
- * carried through untouched; retiring one stays keyed on removal from the MCP
- * config, never on a failed discovery.
+ * conflation BST-1621 fixed in the load path. Every stored id is carried
+ * through untouched, including ones this run never discovered.
+ *
+ * This function retires nothing, and holds no notion of what "retired" means —
+ * its only contribution is declining to drop what it did not see. Retirement
+ * is the projection path's job (`loadToolPreferencesForProjection`), which
+ * BST-1621 re-keys onto a server's removal from the MCP config rather than its
+ * absence from a discovery pass. Do not add a second retirement rule here:
+ * that split is what keeps the two write paths from drifting.
  *
  * `mcp:tools:reset` shares this write, so a reset now resets exactly the tools
  * the Settings list shows — the discovered ones — and leaves an undiscovered
