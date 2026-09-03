@@ -144,28 +144,170 @@ function getFlattenedTools(): Array<{ id: string; enabled: boolean }> {
 }
 
 /**
- * Persist the registry's current enabled/disabled split.
+ * The stored tool states this run's registry is overlaid onto, in file order.
+ *
+ * `disabledTools` is applied after `enabledTools` so an id listed in both wins
+ * as disabled: the schema permits the overlap and re-enabling a tool the user
+ * turned off is the harmful direction to guess in.
+ */
+function readStoredToolStates(preferences: ToolPreferences): Map<string, boolean> {
+  const states = new Map<string, boolean>();
+  for (const id of preferences.enabledTools) {
+    states.set(id, true);
+  }
+  for (const id of preferences.disabledTools) {
+    states.set(id, false);
+  }
+  return states;
+}
+
+/**
+ * The version stamp this build writes.
+ *
+ * Deliberately a constant rather than an echo of the stored file's stamp: the
+ * body serialised below is always the shape THIS code emits, so labelling it
+ * with a version it was not written in is wrong in both directions. Echoing a
+ * newer stamp would mark v1-shaped data as already migrated and no future
+ * migration could detect it. The version is a property of the writer.
+ */
+const TOOL_PREFERENCES_VERSION = 1;
+
+/**
+ * Serialises every read-modify-write of `tool-preferences.json`.
+ *
+ * The file has two writers on DIFFERENT queues, so they genuinely interleave
+ * (verified, not assumed): the toggle path runs under `trackConfigOperation`,
+ * which serialises on `mcpConfigOperationTail`, while the config-watch path
+ * reaches `loadToolPreferencesForProjection` through `trackConfigChange` ->
+ * `registerConfigChange`, which only records into `mcpLifecycleBarrier` and
+ * does not serialise execution. `latestAuthorityEpoch` narrows the window but
+ * cannot close it: that check runs once at operation entry, before the I/O.
+ *
+ * Unserialised, the lost update is: toggle reads the file -> the projection
+ * pass prunes and rewrites -> the toggle writes its now-stale merged map and
+ * resurrects every id the prune just removed. Both writers take this lock.
+ */
+let toolPreferencesFileQueue: Promise<unknown> = Promise.resolve();
+
+export function withToolPreferencesFileLock<T>(operation: () => Promise<T>): Promise<T> {
+  const run = toolPreferencesFileQueue.then(operation, operation);
+  toolPreferencesFileQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+/** How a tool-preference mutation should reach disk. */
+export type ToolPreferenceWriteIntent =
+  /** A toggle: preserve every stored id this run did not discover. */
+  | 'merge'
+  /** A reset: the user is discarding stored choices, so preserve nothing. */
+  | 'replace';
+
+function partitionToolStates(states: ReadonlyMap<string, boolean>): {
+  disabledTools: string[];
+  enabledTools: string[];
+} {
+  const enabledTools: string[] = [];
+  const disabledTools: string[] = [];
+  for (const [id, enabled] of states) {
+    (enabled ? enabledTools : disabledTools).push(id);
+  }
+  return { disabledTools, enabledTools };
+}
+
+/**
+ * The stored states a `merge` write overlays onto, or a throw if the file
+ * cannot be read.
+ *
+ * Refusing here is BST-1615's rule applied to the merge: a merge into a file we
+ * could not read degrades into exactly the whole-file replace BST-1623 fixes,
+ * over the user's only copy. This is NOT the latched session fault
+ * `requireToolPreferencesWritable` covers — the projection pass can have read
+ * the file cleanly and the file broken afterwards — so it is read fresh.
+ */
+async function readMergeBaseStates(userDataDir: string): Promise<Map<string, boolean>> {
+  const stored = await loadToolPreferences(userDataDir);
+
+  if (stored.status === 'invalid' || stored.status === 'unreadable') {
+    logger.error('MCP tool preferences could not be read; refusing to overwrite them', {
+      kind: stored.status,
+      path: stored.path,
+      reason: stored.reason,
+    });
+    const cause =
+      stored.status === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
+    throw new Error(
+      `MCP tool preferences could not be read from ${stored.path} — ${cause} (${stored.reason}). Your tool change was not saved; the file is left untouched so your saved choices can be recovered. Reset tool preferences to discard the broken file, or repair it and restart the app.`
+    );
+  }
+
+  return stored.status === 'loaded' ? readStoredToolStates(stored.preferences) : new Map();
+}
+
+/**
+ * Apply a tool-preference mutation to the registry and persist the result.
+ *
+ * `merge` (a toggle) MERGES rather than replaces (BST-1623). `getAllTools()`
+ * holds only the tools discovered on *this* run, so serialising it as the whole
+ * file dropped the saved choices of every server whose discovery failed — one
+ * toggle wiped a slow or erroring server's preferences, the same
+ * absence-vs-failure conflation BST-1621 fixed in the load path. Every stored
+ * id is carried through untouched, including ones this run never discovered.
+ *
+ * This function retires nothing, and holds no notion of what "retired" means —
+ * its only contribution is declining to drop what it did not see. Retirement
+ * is the projection path's job (`loadToolPreferencesForProjection`), which
+ * BST-1621 re-keys onto a server's removal from the MCP config rather than its
+ * absence from a discovery pass. Do not add a second retirement rule here:
+ * that split is what keeps the two write paths from drifting.
+ *
+ * `replace` (a reset) preserves nothing by definition, so it never reads the
+ * file and is never refused. That is the point: reset is the ONLY in-app
+ * remediation for a corrupt preferences file, and gating it on a readable file
+ * would leave a user whose file is broken with every remediation blocked and
+ * nothing but "go edit JSON in userData by hand" (BST-1620 records that there
+ * is no other in-session recovery).
+ *
+ * The read happens BEFORE `mutation()` so a refused write cannot leave the live
+ * registry changed. `filterEnabledServerTools` consults that registry for
+ * assistant runs, so mutating it behind a rejected IPC would be BST-1615's
+ * "the UI says it worked" defect one layer up. It also restores the property
+ * the pre-merge code had for free: with no `await` between `mutation()` and the
+ * registry snapshot, the states written are exactly the ones that existed when
+ * the mutation ran, so a concurrent re-discovery cannot be folded into it.
  *
  * Throws on failure (BST-1615). The caller is a user-initiated settings write:
- * swallowing the error here made the IPC resolve successfully while nothing
- * reached disk, so the toggle silently reverted on the next launch.
+ * swallowing the error made the IPC resolve successfully while nothing reached
+ * disk, so the toggle silently reverted on the next launch.
  */
-export async function saveToolPreferencesIfNeeded(): Promise<void> {
-  const tools = getFlattenedTools();
-  const enabledTools = tools.filter((t) => t.enabled).map((t) => t.id);
-  const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
+export async function applyToolPreferenceMutation(
+  mutation: () => void,
+  intent: ToolPreferenceWriteIntent
+): Promise<void> {
+  const userDataDir = app.getPath('userData');
 
-  try {
-    await saveToolPreferences(app.getPath('userData'), {
-      disabledTools,
-      enabledTools,
-      lastUpdated: Date.now(),
-      version: 1,
-    });
-  } catch (error) {
-    logger.error('Failed to save tool preferences', { error });
-    throw error;
-  }
+  await withToolPreferencesFileLock(async () => {
+    const states = intent === 'merge' ? await readMergeBaseStates(userDataDir) : new Map();
+
+    // No `await` between the mutation and the snapshot: see above.
+    mutation();
+    for (const tool of getFlattenedTools()) {
+      states.set(tool.id, tool.enabled);
+    }
+
+    try {
+      await saveToolPreferences(userDataDir, {
+        ...partitionToolStates(states),
+        lastUpdated: Date.now(),
+        version: TOOL_PREFERENCES_VERSION,
+      });
+    } catch (error) {
+      logger.error('Failed to save tool preferences', { error });
+      throw error;
+    }
+  });
 }
 
 /**

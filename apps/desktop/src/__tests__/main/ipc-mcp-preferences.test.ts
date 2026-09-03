@@ -84,7 +84,22 @@ const {
     };
   });
 
-  const savePreferences = vi.fn();
+  // Signature mirrors the real `saveToolPreferences`: without the parameter
+  // types `mock.calls` narrows to an empty tuple and every payload assertion
+  // below stops type-checking.
+  const savePreferences = vi.fn(
+    async (
+      _userDataDir: string,
+      _preferences: {
+        disabledTools: string[];
+        enabledTools: string[];
+        lastUpdated: number;
+        version: number;
+      }
+    ): Promise<void> => {
+      order.push('save-preferences');
+    }
+  );
 
   const loadConfig = vi.fn(async () => ({
     config: {
@@ -100,7 +115,9 @@ const {
     path: '/mock/config.json',
   }));
 
-  const watchConfig = vi.fn(async () => ({ close: vi.fn() }));
+  const watchConfig = vi.fn(async (_onChange: (config: unknown) => Promise<void> | void) => ({
+    close: vi.fn(),
+  }));
   const getConfigPath = vi.fn(async () => '/mock/path');
   const setCustomConfigPath = vi.fn(async () => {});
 
@@ -624,8 +641,12 @@ describe('ipc-mcp tool preference loading', () => {
     };
     expect(stats.preferencesFault).toMatchObject({ kind: 'invalid' });
 
-    const reset = getIpcHandler<[]>('mcp:tools:reset');
-    await expect(reset({})).rejects.toThrow(/tool-preferences\.json/);
+    // Probed with a toggle, not a reset: reset is deliberately exempt from the
+    // fault (it is the remediation), so it would no longer witness the latch.
+    const disable = getIpcHandler<[string[]]>('mcp:tools:disable');
+    await expect(disable({}, ['mock-server.tool.enable'])).rejects.toThrow(
+      /tool-preferences\.json/
+    );
     expect(saveToolPreferencesMock).not.toHaveBeenCalled();
   });
 

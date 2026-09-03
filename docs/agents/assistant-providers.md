@@ -4440,6 +4440,97 @@ Closing the absence gap — reporting a server whose catalog never arrives at al
 — needs that pending/settled discriminator on the snapshot, and remains open on
 BST-1603.
 
+### MCP tool-preference persistence (BST-1615, BST-1621, BST-1623)
+
+`mcp/tool-preferences.json` under `userData` is the user's only copy of which
+MCP tools they turned off. It has TWO writers, and every rule below exists
+because one of them destroyed data.
+
+**Absence is not failure, and neither is evidence of staleness.** Both write
+paths conflated "this id was not in this run's discovery" with "this id is
+gone". MCP discovery loses its race routinely (BST-1603: an `npx`-launched
+server exceeds the 5s budget on 100% of samples under load), so those are
+ordinary runs, not edge cases.
+
+- The LOAD path (`loadToolPreferencesForProjection`) pruned any stored id
+  absent from `registeredIds` and rewrote the file (BST-1621).
+- The SAVE path (`applyToolPreferenceMutation`) serialised
+  `mcpToolRegistry.getAllTools()` — also only this run's tools — as the whole
+  file, so one toggle dropped every failed server's choices (BST-1623).
+
+#### Write precedence: read → refuse → merge
+
+`applyToolPreferenceMutation` (`apps/desktop/src/mcp/tool-discovery.ts`) takes a
+`ToolPreferenceWriteIntent`:
+
+| Intent | Caller | Reads first | Refuses on `invalid`/`unreadable` | Preserves undiscovered ids |
+| --- | --- | --- | --- | --- |
+| `merge` | `mcp:tools:enable` / `disable` | yes | **yes** | **yes** |
+| `replace` | `mcp:tools:reset` | no | no | no |
+
+`merge` seeds from the stored file (`enabledTools` first, then `disabledTools`,
+so an id in both lands disabled — the schema permits the overlap and
+re-enabling a tool the user turned off is the harmful direction to guess in),
+then overlays this run's registry. A `merge` into a file that could not be read
+would degrade into exactly the whole-file replace BST-1623 fixes, so it throws
+instead. That is NOT the latched session fault (below): the projection pass can
+read the file cleanly and the file break afterwards, so the merge reads fresh.
+
+**The save path retires nothing and has no notion of what "retired" means.** It
+only declines to drop what it did not see. Retirement is the projection path's
+job, keyed on a server's removal from the MCP config (BST-1621) — never on a
+failed discovery, in either path. Do not add a second retirement rule to the
+save path; the single authority is what keeps the two writers from drifting.
+
+**The read happens BEFORE the mutation.** A refused write must not leave the
+live registry changed: `filterEnabledServerTools` consults that registry for
+assistant runs, so mutating it behind a rejected IPC is BST-1615's "the UI says
+it worked" defect one layer up. This also keeps the registry snapshot
+synchronous with the mutation — there is no `await` between them, so a
+concurrent re-discovery cannot be folded into the write.
+
+**The version stamp is a constant, not an echo.** The body serialised is always
+the shape this build emits; echoing a newer file's stamp would mark v1-shaped
+data as already migrated and no future migration could detect it.
+
+#### Reset is the remediation, so it is never gated
+
+`mcp:tools:reset` uses `replace`: it preserves nothing by definition, so it does
+not read the file and is not blocked by the latched fault. This is deliberate.
+Reset is the ONLY in-app recovery for a corrupt preferences file — gating it
+would leave that user with every remediation blocked and nothing but "edit JSON
+in `userData` by hand". A successful reset also CLEARS `toolPreferencesFault`,
+because it has just written a readable file; leaving it latched would make the
+recovery useless (the file is fine and every later toggle still throws until
+restart). BST-1620 owns the *other* recovery case — the user repairs the file
+out-of-band and wants the session to notice without a restart.
+
+Reset discards every stored id, including undiscovered servers'. An earlier
+revision preserved them by symmetry with the toggle; that was wrong. Reset is an
+explicit, labelled discard, not the incidental loss BST-1621 protects against,
+and a half-reset that silently leaves entries behind is both surprising and an
+unreliable remediation.
+
+#### Both writers take one lock
+
+`withToolPreferencesFileLock` serialises every read-modify-write of the file.
+The two writers are on DIFFERENT queues and genuinely interleave: the toggle
+runs under `trackConfigOperation` (serialised on `mcpConfigOperationTail`),
+while the config-watch path reaches the projection through `trackConfigChange`
+→ `registerConfigChange`, which only records into `mcpLifecycleBarrier` and does
+not serialise execution. `latestAuthorityEpoch` narrows the window but cannot
+close it — that check runs once at operation entry, before the I/O.
+
+Unserialised, the lost update is: toggle reads → the projection prunes and
+rewrites → the toggle writes its now-stale merged map and resurrects everything
+the prune just removed. Any new writer of this file MUST take the same lock.
+
+Paired tests: `apps/desktop/src/__tests__/main/ipc-mcp-preferences.test.ts`
+(merge preservation, both refusal kinds, reset-over-corrupt, fault clearing,
+no-mutation-on-refusal, version stamping, and the watcher-vs-toggle
+serialisation) and `packages/agent/src/__tests__/tool-persistence.integration.spec.ts`
+for the `ToolPreferencesLoadResult` discrimination itself.
+
 ### Tool discovery contract (LIVE for hosted Mastra catalog search)
 
 `packages/assistant-contract/src/tool-discovery.ts` is the authoritative
