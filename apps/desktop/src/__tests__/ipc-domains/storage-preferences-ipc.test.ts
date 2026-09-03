@@ -51,6 +51,7 @@ interface FakeStore {
 function createStorage(): ElectronStorageAdapter {
   return {
     clear: vi.fn(async () => undefined),
+    clearExcept: vi.fn(async () => undefined),
     getAllKeys: vi.fn(async () => ['alpha']),
     getItem: vi.fn(async (key: string) => `value:${key}`),
     removeItem: vi.fn(async () => undefined),
@@ -100,8 +101,16 @@ describe('storage preferences IPC domain', () => {
     expect(storage.getItem).toHaveBeenCalledWith('alpha');
     expect(storage.setItem).toHaveBeenCalledWith('alpha', 'beta');
     expect(storage.removeItem).toHaveBeenCalledWith('alpha');
-    expect(storage.clear).toHaveBeenCalled();
+    expect(storage.clear).not.toHaveBeenCalled();
     expect(storage.getAllKeys).toHaveBeenCalled();
+    expect(storage.clearExcept).toHaveBeenCalledWith([
+      'lastFolderPath',
+      'notesVaultRoots',
+      'recentRootsList',
+      'recentRootsList.corrupt',
+      'rootsList',
+      'rootsList.corrupt',
+    ]);
   });
 
   it.each([
@@ -126,19 +135,19 @@ describe('storage preferences IPC domain', () => {
   });
 
   it('clears renderer-owned keys without deleting main-owned ledgers', async () => {
-    vi.mocked(storage.getAllKeys).mockResolvedValue([
-      'assistant-preferences.v1',
-      'rootsList',
-      'recentRootsList.corrupt',
-      'notesVaultRoots',
-    ]);
     const clear = handlers.get('storage:clear');
 
     await clear?.({} as IpcMainInvokeEvent);
 
     expect(storage.clear).not.toHaveBeenCalled();
-    expect(storage.removeItem).toHaveBeenCalledTimes(1);
-    expect(storage.removeItem).toHaveBeenCalledWith('assistant-preferences.v1');
+    expect(storage.clearExcept).toHaveBeenCalledWith([
+      'lastFolderPath',
+      'notesVaultRoots',
+      'recentRootsList',
+      'recentRootsList.corrupt',
+      'rootsList',
+      'rootsList.corrupt',
+    ]);
   });
 
   it('does not register the main-owned storage seed outside Electron E2E mode', () => {

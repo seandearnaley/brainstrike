@@ -1300,14 +1300,13 @@ additional explorer/status chrome):
     kind query succeeds and the row exists; it deliberately fails open to ordinary
     Recents behavior if the kind query throws or the root row was never written. Thus **the BAR** cannot
     mount an arbitrary path: a stray or stale path string is rejected. This is
-    NOT a hardening boundary against a
-    compromised renderer: main-process storage is itself renderer-writable
-    through the unrestricted `storage:setItem` bridge, which puts the ledger in
-    the SAME trust class as `rootsList` + `fs:restoreRoots`. A renderer that can
-    call `storage:setItem` can write its own grant and then "re-mount" it. So
-    this is a correctness gate, not a security boundary. Hardening `storage:*`
-    with a main-owned key allowlist would raise the floor for every main-owned
-    key at once and is a separate follow-up. Paths are keyed with a stripped
+    a hardening boundary against a compromised renderer by itself: the ledger
+    remains one input to the main-owned mount decision, never a replacement for
+    that decision. BST-1401 additionally rejects renderer mutation of
+    `rootsList`, `recentRootsList`, their quarantine records, `notesVaultRoots`,
+    and `lastFolderPath` through `storage:setItem`, `storage:removeItem`, and
+    `storage:clear`. Desktop E2E uses a separately registered test-mode-only
+    seed channel; production never registers it. Paths are keyed with a stripped
     trailing separator, so `/ws/alpha/` and `/ws/alpha` are one slot. A CORRUPT
     ledger is quarantined to `recentRootsList.corrupt`, logged at ERROR, and
     reset (mirroring `readStoredRootsOrQuarantine`) rather than left permanently

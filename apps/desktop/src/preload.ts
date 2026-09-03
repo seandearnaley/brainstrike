@@ -1,5 +1,7 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { isMainOwnedDesktopStorageKey } =
+  require('./platform/desktop-storage-authority') as typeof import('./platform/desktop-storage-authority');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 type EmbeddingTelemetrySnapshot =
   import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
@@ -104,6 +106,7 @@ const STORAGE_CLEAR_CHANNEL = 'storage:clear' as const;
 const STORAGE_GET_ALL_KEYS_CHANNEL = 'storage:getAllKeys' as const;
 const STORAGE_GET_ITEM_CHANNEL = 'storage:getItem' as const;
 const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
+const STORAGE_SEED_MAIN_OWNED_FOR_E2E_CHANNEL = 'storage:seedMainOwnedForE2e' as const;
 const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
 const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
@@ -845,7 +848,13 @@ if (shouldExposeBridge('electronAPI')) {
       getItem: (key: string) => ipcRenderer.invoke(STORAGE_GET_ITEM_CHANNEL, key),
       removeItem: (key: string) => ipcRenderer.invoke(STORAGE_REMOVE_ITEM_CHANNEL, key),
       setItem: (key: string, value: string) =>
-        ipcRenderer.invoke(STORAGE_SET_ITEM_CHANNEL, key, value),
+        ipcRenderer.invoke(
+          DESKTOP_TEST_MODE && isMainOwnedDesktopStorageKey(key)
+            ? STORAGE_SEED_MAIN_OWNED_FOR_E2E_CHANNEL
+            : STORAGE_SET_ITEM_CHANNEL,
+          key,
+          value
+        ),
     },
   });
 }

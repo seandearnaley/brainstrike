@@ -4,11 +4,17 @@ import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui'
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
+import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
   createDesktopIpcRegistry,
   type DesktopIpcSenderPolicy,
 } from '../platform/desktop-ipc-registry';
+import {
+  assertRendererWritableDesktopStorageKey,
+  isMainOwnedDesktopStorageKey,
+  MAIN_OWNED_DESKTOP_STORAGE_KEYS,
+} from '../platform/desktop-storage-authority';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from '../platform/vector-preferences-storage-key';
 import type { DesktopSettingsStoreSchema } from '../store-schema';
 
@@ -67,19 +73,46 @@ export function registerStoragePreferencesIpcHandlers({
   registry.registerInvoke(
     'storage',
     DESKTOP_IPC_CHANNELS.storage.setItem,
-    async (_event, key: string, value: string) => storage.setItem(key, value)
+    async (_event, key: unknown, value: string) => {
+      assertRendererWritableDesktopStorageKey(key);
+      return storage.setItem(key, value);
+    }
   );
   registry.registerInvoke(
     'storage',
     DESKTOP_IPC_CHANNELS.storage.removeItem,
-    async (_event, key: string) => storage.removeItem(key)
+    async (_event, key: unknown) => {
+      assertRendererWritableDesktopStorageKey(key);
+      return storage.removeItem(key);
+    }
   );
-  registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.clear, async () =>
-    storage.clear()
-  );
+  registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.clear, async () => {
+    // Renderer factory-reset cleanup may clear preference slices, but only
+    // desktop main's reset barrier may erase root/vault authority ledgers.
+    await storage.clearExcept(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
+  });
   registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.getAllKeys, async () =>
     storage.getAllKeys()
   );
+
+  if (isElectronE2ETestMode()) {
+    // Existing desktop E2E boots from exact persisted-root fixtures. Keep that
+    // setup authority on a separately registered test-only channel instead of
+    // weakening the production mutation guard.
+    registry.registerInvoke(
+      'storage',
+      DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
+      async (_event, key: unknown, value: unknown) => {
+        if (!isMainOwnedDesktopStorageKey(key)) {
+          throw new Error('E2E main-owned storage seed requires a main-owned key.');
+        }
+        if (typeof value !== 'string') {
+          throw new TypeError('E2E main-owned storage seed value must be a string.');
+        }
+        return storage.setItem(key, value);
+      }
+    );
+  }
 
   // BST-1380: hidden inference hosts resolve their device preference from the
   // SAME canonical record the visible UI writes. They receive this scoped
