@@ -379,13 +379,14 @@ end-to-end in BST-1161 (bridge, preload, IPC channel, handler,
 
 ## THE `worktrees` IPC DOMAIN
 
-`apps/desktop/src/ipc-worktrees.ts` registers the eleven-method `worktrees`
+`apps/desktop/src/ipc-worktrees.ts` registers the twelve-method `worktrees`
 domain against the narrowing boundary in `worktrees-ipc-handlers.ts`; preload
 exposes the same exact method set as `window.worktrees`, and
 `packages/app-shell/src/worktrees/worktrees-bridge.ts` rejects a
-present-but-incomplete bridge wholesale. All eleven methods — `adopt`,
+present-but-incomplete bridge wholesale. All twelve methods — `adopt`,
 `archive`, `checkoutStatus`, `create`, `createBranchHere`, `createContext`,
-`getSettings`, `list`, `listManagedPaths`, `restore`, `setSettings` — are
+`getSettings`, `inspectArchive`, `list`, `listManagedPaths`, `restore`,
+`setSettings` — are
 implemented and the lifecycle mutations call real `WorktreeService` methods.
 `adopt` and `checkoutStatus` (BST-1392, W5) are the two most recent additions:
 `adopt` records an existing on-disk worktree the live inventory already
@@ -596,7 +597,13 @@ The snapshot is captured on EVERY archive, clean or not, and BEFORE the safety
 verdict is acted on. `archive` refuses a dirty or unpushed worktree unless
 `force`; the one blocker `force` never overrides is an active run in that
 worktree (`brainstrike_assistant_thread_runs.status = 'running'` for the owning
-thread). W3 deliberately does NOT take a `git worktree lock` for the duration
+thread). Ignored files remain outside the snapshot. `inspectArchive` therefore
+returns their count, a bounded sorted list of top-level path names, and an
+opaque confirmation token bound to the complete ignored-path set. Both the Mode
+chip and Worktree Map require an explicit destructive confirmation when the
+count is non-zero; `archive` independently re-inspects and rejects a missing or
+stale token, so direct IPC/tool callers cannot bypass the guard. W3 deliberately
+does NOT take a `git worktree lock` for the duration
 of a run: a lock is globally visible and `git-workbench-header.tsx` disables any
 locked worktree, so it would disable every managed worktree in the Changes
 surface. Run-scoped locking is a W5 follow-up.

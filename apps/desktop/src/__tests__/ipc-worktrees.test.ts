@@ -26,6 +26,7 @@ const ALL_WORKTREE_CHANNELS = [
   DESKTOP_IPC_CHANNELS.worktrees.createBranchHere,
   DESKTOP_IPC_CHANNELS.worktrees.createContext,
   DESKTOP_IPC_CHANNELS.worktrees.getSettings,
+  DESKTOP_IPC_CHANNELS.worktrees.inspectArchive,
   DESKTOP_IPC_CHANNELS.worktrees.list,
   DESKTOP_IPC_CHANNELS.worktrees.managedPaths,
   DESKTOP_IPC_CHANNELS.worktrees.restore,
@@ -41,6 +42,7 @@ function stubHandlers(): WorktreesIpcHandlers {
     createBranchHere: vi.fn(async () => ({ ok: true, value: {} }) as never),
     createContext: vi.fn(async () => ({ ok: true, value: {} }) as never),
     getSettings: vi.fn(async () => ({ ok: true, value: {} }) as never),
+    inspectArchive: vi.fn(async () => ({ ok: true, value: {} }) as never),
     list: vi.fn(async () => ({ ok: true, value: {} }) as never),
     listManagedPaths: vi.fn(async () => ({ ok: true, value: {} }) as never),
     restore: vi.fn(async () => ({ ok: true, value: {} }) as never),
@@ -54,7 +56,7 @@ describe('registerWorktreesIpcHandlers', () => {
     getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');
   });
 
-  it('registers all eleven channels and routes each to the correct handler', async () => {
+  it('registers all twelve channels and routes each to the correct handler', async () => {
     const { ipcMain } = await import('electron');
     const handlers = stubHandlers();
 
@@ -63,7 +65,7 @@ describe('registerWorktreesIpcHandlers', () => {
     const handleMock = ipcMain.handle as unknown as ReturnType<typeof vi.fn>;
     const registeredChannels = handleMock.mock.calls.map(([channel]) => channel);
     expect(registeredChannels).toEqual(expect.arrayContaining([...ALL_WORKTREE_CHANNELS]));
-    expect(registeredChannels).toHaveLength(11);
+    expect(registeredChannels).toHaveLength(12);
 
     const handlerFor = (channel: string) =>
       handleMock.mock.calls.find(([registered]) => registered === channel)?.[1] as (
@@ -78,6 +80,7 @@ describe('registerWorktreesIpcHandlers', () => {
       vi.mocked(handlers.createBranchHere).mockClear();
       vi.mocked(handlers.createContext).mockClear();
       vi.mocked(handlers.getSettings).mockClear();
+      vi.mocked(handlers.inspectArchive).mockClear();
       vi.mocked(handlers.list).mockClear();
       vi.mocked(handlers.listManagedPaths).mockClear();
       vi.mocked(handlers.restore).mockClear();
@@ -98,6 +101,14 @@ describe('registerWorktreesIpcHandlers', () => {
     expect(handlers.listManagedPaths).not.toHaveBeenCalled();
     expect(handlers.restore).not.toHaveBeenCalled();
     expect(handlers.setSettings).not.toHaveBeenCalled();
+
+    clearHandlerMocks();
+    const inspectArchivePayload = { worktreeId: 'w1' };
+    await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.inspectArchive)(
+      visibleEvent,
+      inspectArchivePayload
+    );
+    expect(handlers.inspectArchive).toHaveBeenCalledWith(inspectArchivePayload);
 
     clearHandlerMocks();
     const payload = { name: 'feature' };
@@ -252,7 +263,7 @@ describe('registerWorktreesIpcHandlers', () => {
   it.each([
     ['a hidden sender', 'embedding-host'],
     ['an untracked sender', undefined],
-  ] as const)('rejects %s on all eleven channels', async (_label, role) => {
+  ] as const)('rejects %s on all twelve channels', async (_label, role) => {
     const { ipcMain } = await import('electron');
     const handlers = stubHandlers();
     getWindowRoleByWebContentsIdMock.mockReturnValue(role);
@@ -274,7 +285,7 @@ describe('registerWorktreesIpcHandlers', () => {
     }
   });
 
-  it('disposer removes all eleven registered channels', async () => {
+  it('disposer removes all twelve registered channels', async () => {
     const { ipcMain } = await import('electron');
     const dispose = registerWorktreesIpcHandlers(stubHandlers());
 
@@ -283,6 +294,6 @@ describe('registerWorktreesIpcHandlers', () => {
     const removeHandlerMock = ipcMain.removeHandler as unknown as ReturnType<typeof vi.fn>;
     const removedChannels = removeHandlerMock.mock.calls.map(([channel]) => channel);
     expect(removedChannels).toEqual(expect.arrayContaining([...ALL_WORKTREE_CHANNELS]));
-    expect(removedChannels).toHaveLength(11);
+    expect(removedChannels).toHaveLength(12);
   });
 });

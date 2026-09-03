@@ -138,9 +138,12 @@ export async function inspectWorktreeSafety(input: {
     return { error: describeFailure(statusRun), ok: false };
   }
   const statusEntries = statusRun.stdout.split('\0').filter((entry) => entry.length > 0);
-  const ignoredEntries = statusEntries
-    .filter((entry) => entry.startsWith('!! '))
-    .map((entry) => entry.slice(3));
+  const ignoredEntries: string[] = [];
+  for (const entry of statusEntries) {
+    if (entry.startsWith('!! ')) {
+      ignoredEntries.push(entry.slice(3));
+    }
+  }
   const ignoredEntryCount = ignoredEntries.length;
   const ignoredEntriesConfirmationToken =
     ignoredEntryCount === 0
