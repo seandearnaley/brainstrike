@@ -72,7 +72,13 @@ function McpToolsAvailabilityNotice({ server }: { readonly server: McpServerInfo
     return null;
   }
   return (
-    <div className="text-xs text-yellow-500">
+    // `text-muted-foreground`, NOT a yellow: measured live in the settings
+    // dialog, `text-yellow-500` is 1.87:1 against that surface — WCAG AA wants
+    // 4.5:1 for small text. The DOT carries the warning; this line explains it,
+    // and a semantic token also stays correct in dark mode without guessing a
+    // shade. (`text-warning` is not a generated utility despite `--warning`
+    // existing — it renders as inherited body colour.)
+    <div className="text-muted-foreground text-xs">
       connected · {label} — this server contributes no tools to a run until it enumerates
     </div>
   );

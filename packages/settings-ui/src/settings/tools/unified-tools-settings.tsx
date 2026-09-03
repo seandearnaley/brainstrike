@@ -31,6 +31,7 @@ import { McpConfigPanel } from './mcp-config-panel';
 import { McpExtensionSettings } from './mcp-extension-settings';
 import { McpServerStatusRow } from './mcp-server-status-row';
 import { McpSupportMatrix } from './mcp-support-status';
+import { type McpToolsAvailability, resolveMcpToolsAvailability } from './mcp-tools-availability';
 import { TokenBudgetSummary } from './token-budget-summary';
 import type { McpConnectionStatus } from './tool-group-accordion';
 import { ToolGroupAccordion } from './tool-group-accordion';
@@ -544,11 +545,15 @@ export function UnifiedToolsSettings({
   }, []);
 
   const serverStatusMap = useMemo(() => {
-    const statusMap = new Map<string, { status: McpConnectionStatus; error: string | null }>();
+    const statusMap = new Map<
+      string,
+      { status: McpConnectionStatus; error: string | null; toolsAvailability: McpToolsAvailability }
+    >();
     for (const server of mcpServers) {
       statusMap.set(server.configuredServerId, {
         error: server.state === 'error' ? server.error.message : null,
         status: server.state,
+        toolsAvailability: resolveMcpToolsAvailability(server),
       });
     }
     return statusMap;
@@ -557,6 +562,12 @@ export function UnifiedToolsSettings({
   const getServerStatus = useCallback(
     (serverName: string): McpConnectionStatus | undefined =>
       serverStatusMap.get(serverName)?.status,
+    [serverStatusMap]
+  );
+
+  const getServerToolsAvailability = useCallback(
+    (serverName: string): McpToolsAvailability | undefined =>
+      serverStatusMap.get(serverName)?.toolsAvailability,
     [serverStatusMap]
   );
 
@@ -639,6 +650,7 @@ export function UnifiedToolsSettings({
       expandedToolId={expandedToolId}
       getServerError={getServerError}
       getServerStatus={getServerStatus}
+      getServerToolsAvailability={getServerToolsAvailability}
       hasTools={hasTools}
       loading={loading}
       mcpConfigInfo={mcpConfigInfo}
@@ -720,6 +732,7 @@ interface ToolsPanelContentProps {
   expandedToolId: string | null;
   getServerError: (serverName: string) => string | undefined;
   getServerStatus: (serverName: string) => McpConnectionStatus | undefined;
+  getServerToolsAvailability: (serverName: string) => McpToolsAvailability | undefined;
   hasTools: boolean;
   loading: boolean;
   mcpConfigInfo: McpConfigInfo | null;
@@ -758,6 +771,7 @@ function ToolsPanelContent({
   expandedToolId,
   getServerError,
   getServerStatus,
+  getServerToolsAvailability,
   hasTools,
   loading,
   mcpConfigInfo,
@@ -891,6 +905,7 @@ function ToolsPanelContent({
           expandedToolId={expandedToolId}
           getServerError={getServerError}
           getServerStatus={getServerStatus}
+          getServerToolsAvailability={getServerToolsAvailability}
           onDisableGroup={onDisableGroup}
           onEnableGroup={onEnableGroup}
           onErrorBoundaryReset={onErrorBoundaryReset}
@@ -911,6 +926,7 @@ interface ToolsAccordionListProps {
   expandedToolId: string | null;
   getServerError: (serverName: string) => string | undefined;
   getServerStatus: (serverName: string) => McpConnectionStatus | undefined;
+  getServerToolsAvailability: (serverName: string) => McpToolsAvailability | undefined;
   onDisableGroup: (group: ToolGroup) => void;
   onEnableGroup: (group: ToolGroup) => void;
   onErrorBoundaryReset: () => void;
@@ -927,6 +943,7 @@ function ToolsAccordionList({
   expandedToolId,
   getServerError,
   getServerStatus,
+  getServerToolsAvailability,
   onDisableGroup,
   onEnableGroup,
   onErrorBoundaryReset,
@@ -947,11 +964,15 @@ function ToolsAccordionList({
           {toolGroups.map((group) => {
             const serverName = group.source === 'mcp' ? group.serverName : undefined;
             const connectionStatus = serverName ? getServerStatus(serverName) : undefined;
+            const toolsAvailability = serverName
+              ? getServerToolsAvailability(serverName)
+              : undefined;
             const mcpProps =
               serverName === undefined
                 ? {}
                 : {
                     ...(connectionStatus ? { connectionStatus } : {}),
+                    ...(toolsAvailability ? { toolsAvailability } : {}),
                     errorMessage: getServerError(serverName),
                     ...(operations.openMcpConfig && {
                       onOpenConfigFile: () => operations.openMcpConfig?.(),

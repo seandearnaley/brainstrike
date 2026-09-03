@@ -20,6 +20,7 @@ import {
 } from '@brainstrike/ui';
 import { Circle, MoreVertical, RefreshCw, Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { McpToolsAvailability } from './mcp-tools-availability';
 
 /**
  * MCP connection status types.
@@ -54,6 +55,13 @@ export interface ToolGroupAccordionProps {
   onRefreshConnection?: () => void;
   /** Source of the tools ('native' or 'mcp') */
   source: 'native' | 'mcp';
+  /**
+   * Whether a CONNECTED server's tool list actually loaded (BST-1603). A
+   * connected server that enumerated nothing gets the same warning colour as a
+   * connecting one, because it is in the same position from the user's seat:
+   * present, but contributing no tools to a run.
+   */
+  toolsAvailability?: McpToolsAvailability;
   /** Total number of tools in the group */
   totalCount: number;
 }
@@ -61,10 +69,19 @@ export interface ToolGroupAccordionProps {
 /**
  * Get the CSS classes for the connection status indicator.
  */
-function getStatusIndicatorClasses(status: McpConnectionStatus): string {
+function getStatusIndicatorClasses(
+  status: McpConnectionStatus,
+  toolsAvailability: McpToolsAvailability | undefined
+): string {
   switch (status) {
     case 'connected':
-      return 'fill-green-500 text-green-500';
+      // Green means "this server is contributing tools", NOT merely "the
+      // handshake succeeded" (BST-1603). Those two came apart silently before:
+      // a server that connected and failed to enumerate showed the same green
+      // dot as a healthy one, which is why the row could not be trusted.
+      return toolsAvailability && toolsAvailability !== 'available'
+        ? 'fill-yellow-500 text-yellow-500'
+        : 'fill-green-500 text-green-500';
     case 'connecting':
     case 'authorizing':
     case 'authentication-required':
@@ -111,6 +128,7 @@ export function ToolGroupAccordion({
   onEnableAll,
   onDisableAll,
   connectionStatus,
+  toolsAvailability,
   errorMessage,
   onRefreshConnection,
   onOpenConfigFile,
@@ -129,7 +147,7 @@ export function ToolGroupAccordion({
             {/* MCP Connection Status Indicator */}
             {isMcp && connectionStatus && (
               <Circle
-                className={`h-2 w-2 ${getStatusIndicatorClasses(connectionStatus)}`}
+                className={`h-2 w-2 ${getStatusIndicatorClasses(connectionStatus, toolsAvailability)}`}
                 data-testid="mcp-status-indicator"
               />
             )}

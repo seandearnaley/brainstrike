@@ -453,4 +453,61 @@ describe('ToolGroupAccordion', () => {
       expect(badge).toHaveAttribute('data-variant', 'default');
     });
   });
+
+  describe('tools-availability indicator (BST-1603)', () => {
+    const mcpProps = {
+      ...defaultProps,
+      connectionStatus: 'connected' as McpConnectionStatus,
+      id: 'mcp-alpha',
+      label: 'alpha',
+      source: 'mcp' as const,
+    };
+
+    it('shows GREEN for a connected server whose tools loaded', () => {
+      render(
+        <ToolGroupAccordion {...mcpProps} toolsAvailability="available">
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      expect(screen.getByTestId('status-indicator')).toHaveClass('fill-green-500');
+    });
+
+    it('shows YELLOW for a connected server whose tool list did not load', () => {
+      // The whole point of BST-1603: "connected" is a transport fact, and a
+      // green dot for a server contributing zero tools is the silent
+      // degradation this indicator exists to end.
+      render(
+        <ToolGroupAccordion {...mcpProps} toolsAvailability="tools-unavailable">
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      const indicator = screen.getByTestId('status-indicator');
+      expect(indicator).toHaveClass('fill-yellow-500');
+      expect(indicator).not.toHaveClass('fill-green-500');
+    });
+
+    it('shows YELLOW when the catalog is absent entirely', () => {
+      render(
+        <ToolGroupAccordion {...mcpProps} toolsAvailability="catalog-unavailable">
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      expect(screen.getByTestId('status-indicator')).toHaveClass('fill-yellow-500');
+    });
+
+    it('stays GREEN when availability is unknown, rather than crying wolf', () => {
+      // No availability prop (e.g. a caller that has not wired it): report the
+      // transport fact rather than inventing a warning.
+      render(
+        <ToolGroupAccordion {...mcpProps}>
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      expect(screen.getByTestId('status-indicator')).toHaveClass('fill-green-500');
+    });
+  });
 });
