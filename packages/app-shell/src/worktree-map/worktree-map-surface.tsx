@@ -13,7 +13,7 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { WorktreeArchiveConfirmationDialog } from '@brainstrike/assistant-ui';
+import { WorktreeArchiveConfirmationDialog } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type { ReactElement } from 'react';

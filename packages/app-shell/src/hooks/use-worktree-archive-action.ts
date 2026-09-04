@@ -1,4 +1,4 @@
-import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui';
+import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import type { WorktreeArchivePreview } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useMemo, useState } from 'react';

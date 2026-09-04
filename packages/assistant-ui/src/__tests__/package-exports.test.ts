@@ -22,6 +22,7 @@ describe('@brainstrike/assistant-ui package contract', () => {
         './tool-fallback',
         './tool-result-renderer-context',
         './tool-result-renderers',
+        './worktree-archive-confirmation-dialog',
         // Tailwind source directive, imported by both app stylesheets.
         './styles.css',
       ].sort()

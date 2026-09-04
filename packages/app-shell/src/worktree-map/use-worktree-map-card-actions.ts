@@ -4,7 +4,7 @@
  * callbacks and their stated, user-visible error.
  */
 import type { AssistantMemoryThread, AssistantThreadRepository } from '@brainstrike/assistant-data';
-import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui';
+import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import type { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback, useState } from 'react';
