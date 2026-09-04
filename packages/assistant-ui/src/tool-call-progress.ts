@@ -69,15 +69,23 @@ export interface ToolCallProgressInput {
  * while arguments are still arriving, and the elapsed time from the part's
  * timing. Sub-second elapsed values are withheld: the timer ticks once a
  * second, so showing `420ms` would only flicker.
+ *
+ * "Receiving input" is claimed only once bytes have actually arrived. A part
+ * opens as `partial-call` before its first delta, and a producer that never
+ * streams argument text (a zero-argument tool, a call delivered whole) may
+ * leave it there for the whole execution — `Receiving input · 0 B` would then
+ * assert the opposite of what is happening. Bytes received ⇒ input arriving
+ * is the only claim the label can make truthfully.
  */
 export function describeToolCallProgress({
   argsByteLength,
   argsStreaming,
   elapsedMs,
 }: ToolCallProgressInput): string {
-  const segments = argsStreaming
-    ? ['Receiving input', formatByteCount(argsByteLength)]
-    : ['Running'];
+  const segments =
+    argsStreaming && argsByteLength > 0
+      ? ['Receiving input', formatByteCount(argsByteLength)]
+      : ['Running'];
   if (elapsedMs !== undefined && elapsedMs >= 1000) {
     segments.push(formatActivityDuration(elapsedMs));
   }

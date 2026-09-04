@@ -51,6 +51,14 @@ describe('describeToolCallProgress', () => {
     ).toBe('Running');
   });
 
+  it('never claims input is arriving before a single byte has', () => {
+    // A part sits in `partial-call` before its first delta, and a producer
+    // that never streams argument text may leave it there for the whole run.
+    expect(
+      describeToolCallProgress({ argsByteLength: 0, argsStreaming: true, elapsedMs: 45_000 })
+    ).toBe('Running · 45.0s');
+  });
+
   it('reads as plain running once the arguments are complete and the tool executes', () => {
     expect(
       describeToolCallProgress({ argsByteLength: 512, argsStreaming: false, elapsedMs: undefined })

@@ -432,7 +432,10 @@ function ToolRunTiming({
   if (isRunning) {
     return (
       <AssistantThinkingIndicator
-        className="shrink-0 text-xs tabular-nums"
+        // Shrinkable, unlike the settled duration: a label such as
+        // "Receiving input · 999.9 KB · 9m 59s" must truncate in a narrow
+        // pane rather than squeeze the tool name out of its slot.
+        className="min-w-0 max-w-[60%] shrink text-xs tabular-nums"
         data-args-streaming={argsStreaming ? 'true' : undefined}
         label={progressLabel}
         markClassName="size-3.5"

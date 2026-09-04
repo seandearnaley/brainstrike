@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   describeToolCallProgress,
   readToolCallArgsState,
@@ -52,6 +52,44 @@ export function useToolCallElapsedMs(
   return Math.max(0, now - startedAt);
 }
 
+interface ByteCount {
+  readonly bytes: number;
+  readonly text: string;
+}
+
+const EMPTY_BYTE_COUNT: ByteCount = { bytes: 0, text: '' };
+
+function advanceByteCount(previous: ByteCount, text: string): ByteCount {
+  // The accumulator only ever APPENDS argument text, so the common step is
+  // "encode the new suffix". A text that is not an extension (a different
+  // call's part re-mounting into the same card, a reload) is recounted whole.
+  const bytes =
+    text.length >= previous.text.length && text.startsWith(previous.text)
+      ? previous.bytes + utf8ByteLength(text.slice(previous.text.length))
+      : utf8ByteLength(text);
+  return { bytes, text };
+}
+
+/**
+ * UTF-8 byte length of a string that grows by appends, in O(total) rather
+ * than O(n²): re-encoding the whole accumulated argument text on every delta
+ * would allocate a fresh copy of a multi-megabyte input dozens of times a
+ * second, on the same frame budget as the streaming render.
+ *
+ * The running count is carried as state adjusted during render (React's
+ * "storing information from previous renders" pattern) rather than a ref
+ * mutated in render, so the hook stays pure for the compiler.
+ */
+export function useIncrementalUtf8ByteLength(text: string): number {
+  const [count, setCount] = useState<ByteCount>(EMPTY_BYTE_COUNT);
+  if (count.text === text) {
+    return count.bytes;
+  }
+  const next = advanceByteCount(count, text);
+  setCount(next);
+  return next.bytes;
+}
+
 export interface ToolCallProgressSource {
   /** Raw argument text streamed so far — the LIVE value, not a remembered one. */
   readonly argsText: string | undefined;
@@ -70,8 +108,7 @@ export function useToolCallProgressLabel(
 ): { readonly argsStreaming: boolean; readonly label: string } {
   const argsStreaming = isRunning && readToolCallArgsState(part) === 'partial-call';
   const elapsedMs = useToolCallElapsedMs(part.timing, isRunning);
-  const argsText = part.argsText ?? '';
-  const argsByteLength = useMemo(() => utf8ByteLength(argsText), [argsText]);
+  const argsByteLength = useIncrementalUtf8ByteLength(part.argsText ?? '');
   return {
     argsStreaming,
     label: describeToolCallProgress({ argsByteLength, argsStreaming, elapsedMs }),

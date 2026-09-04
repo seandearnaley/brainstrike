@@ -84,6 +84,12 @@ describe('ToolFallback streamed-input progress (BST-849)', () => {
     expect(indicator()).toHaveTextContent('Receiving input · 40 B · 42.5s');
   });
 
+  it('reads as running while a partial-call part has received no bytes yet', () => {
+    renderTool({ argsText: '', state: 'partial-call' });
+    expect(indicator()).toHaveTextContent('Running');
+    expect(indicator()).not.toHaveTextContent('Receiving input');
+  });
+
   it('shows no timer when the runtime recorded no timing', () => {
     renderTool({ argsText: 'x'.repeat(40), state: 'call' });
     expect(indicator()).toHaveTextContent('Running');
