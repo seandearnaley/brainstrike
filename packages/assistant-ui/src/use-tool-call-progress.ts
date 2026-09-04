@@ -21,6 +21,13 @@ export interface ToolCallTimingLike {
  * Keyed on the timing PRIMITIVES rather than the object: the accumulator
  * spreads the part on every argument delta, and a re-armed interval per delta
  * would reset the tick phase dozens of times a second.
+ *
+ * The clock is seeded lazily at mount and advanced ONLY from the interval —
+ * no synchronous setState inside the effect (the compiler's
+ * `set-state-in-effect` diagnostic). The card mounts with the part the
+ * accumulator opens, so the seed and `startedAt` are the same instant; the
+ * label withholds sub-second values anyway, so nothing is lost before the
+ * first tick.
  */
 export function useToolCallElapsedMs(
   timing: ToolCallTimingLike | undefined,
@@ -35,7 +42,6 @@ export function useToolCallElapsedMs(
     if (!ticking) {
       return;
     }
-    setNow(Date.now());
     const intervalId = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(intervalId);
   }, [ticking]);
