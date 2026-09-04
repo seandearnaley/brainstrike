@@ -5,13 +5,49 @@
 // `postinstall` (Electron 42 removed its own postinstall for supply-chain
 // reasons; this repo matches that posture). A hash or size mismatch deletes
 // the download and fails the build loudly; there is no skip flag.
+//
+// BST-1627: on darwin the verified archives are ALSO unpacked here, at build
+// time, into resources/python-runtime/unpacked/<electron arch>/ — the tree
+// build.mac.extraResources copies into the bundle. The tarball itself must
+// never ship: Apple's notarization service scans inside archives and rejects
+// python-build-standalone's ad-hoc-signed Mach-O files, whereas loose files
+// in the bundle are re-signed by osx-sign with the Developer ID identity. A
+// sentinel next to python/ records the archive sha256 so the runtime resolver
+// can prove the tree matches the manifest without re-hashing 66 MB.
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+
+/** Mirrors PYTHON_RUNTIME_SENTINEL_FILE_NAME in src/python-runtime/resolve-python-binary.ts. */
+export const PYTHON_RUNTIME_SENTINEL_FILE_NAME = '.brainstrike-python-runtime-ok';
+/**
+ * Absolute on purpose: this binary unpacks interpreter code that later runs
+ * inside the fence, so it must not be resolvable via a caller-controlled PATH.
+ */
+const TAR_BINARY = '/usr/bin/tar';
+const ELECTRON_ARCH_BY_TARGET = new Map([
+  ['aarch64-apple-darwin', 'arm64'],
+  ['x86_64-apple-darwin', 'x64'],
+]);
+
+/** The electron-builder `${arch}` name whose unpack directory a manifest target feeds. */
+export function electronArchForTarget(target) {
+  const arch = ELECTRON_ARCH_BY_TARGET.get(target);
+  if (!arch) {
+    throw new Error(
+      `python-runtime: no electron-builder arch is mapped for manifest target "${target}".`
+    );
+  }
+  return arch;
+}
 
 const defaultResourcesDir = path.resolve(import.meta.dirname, '../resources/python-runtime');
 // PR #2205 review: the original call had no AbortSignal/timeout at all, so a
@@ -138,9 +174,86 @@ export async function fetchPythonRuntime({
   }
 }
 
+async function readSentinel(installDir) {
+  try {
+    return (
+      await fsPromises.readFile(path.join(installDir, PYTHON_RUNTIME_SENTINEL_FILE_NAME), 'utf8')
+    ).trim();
+  } catch {
+    return;
+  }
+}
+
+async function unpackOne({ archivePath, entry, installDir, log }) {
+  // Re-verify right before extraction: the fetch step verified the download,
+  // but the file on disk is what actually gets unpacked and signed.
+  await verifyArchive({ entry, filePath: archivePath, label: archivePath });
+  const stagingDir = `${installDir}.staging-${process.pid}`;
+  await fsPromises.rm(stagingDir, { force: true, recursive: true });
+  await fsPromises.mkdir(stagingDir, { recursive: true });
+  try {
+    await execFileAsync(TAR_BINARY, ['-xzf', archivePath, '-C', stagingDir]);
+    const stagedBinary = path.join(stagingDir, 'python', 'bin', 'python3');
+    try {
+      await fsPromises.access(stagedBinary, fsConstants.X_OK);
+    } catch {
+      throw new Error(
+        `python-runtime: ${path.basename(archivePath)} did not contain an executable at python/bin/python3.`
+      );
+    }
+    await fsPromises.writeFile(
+      path.join(stagingDir, PYTHON_RUNTIME_SENTINEL_FILE_NAME),
+      `${entry.sha256}\n`,
+      { mode: 0o644 }
+    );
+    await fsPromises.rm(installDir, { force: true, recursive: true });
+    await fsPromises.rename(stagingDir, installDir);
+    log(`python-runtime: unpacked ${path.basename(archivePath)} into ${installDir}.`);
+  } finally {
+    await fsPromises.rm(stagingDir, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Unpack every supported target's verified archive into
+ * `<resourcesDir>/unpacked/<electron arch>/`. Idempotent: a tree whose
+ * sentinel already records the manifest's sha256 is left untouched; any other
+ * state (no tree, older archive, partial unpack) is replaced wholesale.
+ */
+export async function unpackPythonRuntime({
+  log = (message) => console.error(message),
+  resourcesDir = defaultResourcesDir,
+} = {}) {
+  const manifestPath = path.join(resourcesDir, 'manifest.json');
+  const manifest = JSON.parse(await fsPromises.readFile(manifestPath, 'utf8'));
+  for (const { entry, target } of loadManifestTargets(manifest, manifestPath)) {
+    const fileName = new URL(renderAssetUrl(manifest, target)).pathname.split('/').at(-1);
+    const archivePath = path.join(resourcesDir, fileName);
+    const installDir = path.join(resourcesDir, 'unpacked', electronArchForTarget(target));
+    if ((await readSentinel(installDir)) === entry.sha256) {
+      log(`python-runtime: ${installDir} already unpacked from ${fileName}; skipping.`);
+      continue;
+    }
+    await unpackOne({ archivePath, entry, installDir, log });
+  }
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  fetchPythonRuntime().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+  fetchPythonRuntime()
+    .then(() => {
+      // The unpack feeds build.mac.extraResources only; other platforms have
+      // no /usr/bin/tar contract and no consumer for the tree. Say so rather
+      // than silently doing nothing.
+      if (process.platform !== 'darwin') {
+        console.error(
+          `python-runtime: skipping build-time unpack on ${process.platform} (only the macOS bundle ships the interpreter).`
+        );
+        return;
+      }
+      return unpackPythonRuntime();
+    })
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
 }

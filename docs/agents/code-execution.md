@@ -513,19 +513,28 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   - **The bundled-CPython resolver (BST-1061, LIVE) is
     `resolveDesktopPythonExecutable()` in `apps/desktop/src/python-runtime/`**
     — the desktop composition root resolves once and INJECTS the resulting
-    absolute path; this package never imports it. It unpacks under
-    `userData/python-runtime/` (a SIBLING of every always-deny store below,
-    never a descendant, so the interpreter stays fence-readable) and fails
-    with a typed `python_*` error family (`python_unsupported_platform`,
-    `python_manifest_invalid`, `python_archive_missing`,
-    `python_checksum_mismatch`, `python_unpack_failed`) kept disjoint from
+    absolute path; this package never imports it. Since BST-1627 the
+    interpreter is unpacked at BUILD time by
+    `apps/desktop/scripts/fetch-python-runtime.mjs` into
+    `resources/python-runtime/unpacked/<electron arch>/` (never at runtime,
+    never under `userData`): Apple's notarization service scans inside shipped
+    archives and rejects python-build-standalone's ad-hoc-signed Mach-O files,
+    so the tarball cannot ship and the loose tree is what osx-sign signs with
+    the Developer ID identity. The resolver only verifies that the tree's
+    `.brainstrike-python-runtime-ok` sentinel records the archive sha256 the
+    manifest pins and that `python/bin/python3` is executable, and fails with
+    a typed `python_*` error family (`python_unsupported_platform`,
+    `python_manifest_invalid`, `python_runtime_missing`) kept disjoint from
     the seam's and fence's codes, so `run_python` can distinguish "no
     interpreter" from "no sandbox". There is no PATH-python fallback in any
     state. In development the desktop composition root locates the checked-in
-    manifest and archive directory from the emitted `dist/main.js` module path,
-    not `app.getAppPath()` (which is already `dist/` for direct-file E2E
-    launches); packaged macOS builds use electron-builder's
-    `<Resources>/python-runtime` resource.
+    manifest directory from the emitted `dist/main.js` module path, not
+    `app.getAppPath()` (which is already `dist/` for direct-file E2E
+    launches), and the install dir is `unpacked/<process.arch>` beneath it;
+    packaged macOS builds copy `unpacked/${arch}` plus the manifest into
+    electron-builder's `<Resources>/python-runtime` resource, so there the
+    install dir IS the resources dir
+    (`resolveDesktopPythonRuntimeInstallDir`).
 - **Always-deny-read** (`ALWAYS_DENY_READ_PATHS`, applied on top of every
   policy): `.ssh`, `.aws`, `.gnupg`, `.config/gcloud`, `.config/gh`, `.kube`,
   `.docker`, `.netrc`, `.npmrc`, `.pypirc` — resolved to ABSOLUTE paths from

@@ -36,9 +36,12 @@
           "from": "resources/python-runtime",
           "to": "python-runtime",
           "filter": [
-            "manifest.json",
-            "*.tar.gz"
+            "manifest.json"
           ]
+        },
+        {
+          "from": "resources/python-runtime/unpacked/${arch}",
+          "to": "python-runtime"
         }
       ]
     },

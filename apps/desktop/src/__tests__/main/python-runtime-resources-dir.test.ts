@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { resolveDesktopPythonRuntimeResourcesDir } from '../../python-runtime';
+import {
+  resolveDesktopPythonRuntimeInstallDir,
+  resolveDesktopPythonRuntimeResourcesDir,
+} from '../../python-runtime';
 
 describe('resolveDesktopPythonRuntimeResourcesDir', () => {
   it('resolves development resources from the parent of the emitted main module', () => {
@@ -78,5 +81,43 @@ describe('resolveDesktopPythonRuntimeResourcesDir', () => {
         ''
       )
     ).toBe(path.join('/Applications/Brainstrike.app/Contents/Resources', 'python-runtime'));
+  });
+});
+
+describe('resolveDesktopPythonRuntimeInstallDir', () => {
+  it('points at the per-arch build-time unpack directory in development', () => {
+    expect(
+      resolveDesktopPythonRuntimeInstallDir(
+        false,
+        '/repo/apps/desktop/resources/python-runtime',
+        'arm64'
+      )
+    ).toBe(path.join('/repo/apps/desktop/resources/python-runtime', 'unpacked', 'arm64'));
+    expect(
+      resolveDesktopPythonRuntimeInstallDir(
+        false,
+        '/repo/apps/desktop/resources/python-runtime',
+        'x64'
+      )
+    ).toBe(path.join('/repo/apps/desktop/resources/python-runtime', 'unpacked', 'x64'));
+  });
+
+  it('is the resources directory itself when packaged: electron-builder copies the per-arch unpack there', () => {
+    // build.mac.extraResources copies resources/python-runtime/unpacked/<arch>
+    // straight to <Resources>/python-runtime, so the signed interpreter and
+    // the manifest share one directory in the bundle.
+    expect(
+      resolveDesktopPythonRuntimeInstallDir(
+        true,
+        '/Applications/Brainstrike.app/Contents/Resources/python-runtime',
+        'arm64'
+      )
+    ).toBe('/Applications/Brainstrike.app/Contents/Resources/python-runtime');
+  });
+
+  it('refuses an arch that has no unpack directory instead of guessing', () => {
+    expect(() =>
+      resolveDesktopPythonRuntimeInstallDir(false, '/repo/resources/python-runtime', 'ia32')
+    ).toThrow('ia32');
   });
 });

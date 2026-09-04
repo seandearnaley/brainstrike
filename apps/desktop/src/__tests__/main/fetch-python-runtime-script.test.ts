@@ -1,10 +1,19 @@
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, writeFileSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchPythonRuntime } from '../../../scripts/fetch-python-runtime.mjs';
+import {
+  electronArchForTarget,
+  fetchPythonRuntime,
+  PYTHON_RUNTIME_SENTINEL_FILE_NAME,
+  unpackPythonRuntime,
+} from '../../../scripts/fetch-python-runtime.mjs';
+
+const execFileAsync = promisify(execFile);
 
 const TARGET_A = 'aarch64-apple-darwin';
 const TARGET_B = 'x86_64-apple-darwin';
@@ -169,5 +178,130 @@ describe('fetch-python-runtime script', () => {
       expect.any(String),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
+  });
+});
+
+/**
+ * Builds a real gzip tarball with the python-build-standalone install_only
+ * layout (python/bin/python3) so the unpack path exercises the real tar.
+ */
+async function writeRealArchive(destPath: string, marker: string): Promise<string> {
+  const stage = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-python-tar-'));
+  cleanupPaths.push(stage);
+  mkdirSync(path.join(stage, 'python', 'bin'), { recursive: true });
+  writeFileSync(path.join(stage, 'python', 'bin', 'python3'), `#!/bin/sh\necho ${marker}\n`, {
+    mode: 0o755,
+  });
+  await execFileAsync('/usr/bin/tar', ['-czf', destPath, '-C', stage, 'python']);
+  const { createReadStream } = await import('node:fs');
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(destPath)) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
+
+describe('electronArchForTarget', () => {
+  it('maps the two supported darwin triples onto electron-builder arch names', () => {
+    expect(electronArchForTarget(TARGET_A)).toBe('arm64');
+    expect(electronArchForTarget(TARGET_B)).toBe('x64');
+  });
+
+  it('refuses an unknown triple instead of guessing an arch directory', () => {
+    expect(() => electronArchForTarget('riscv64-unknown-linux-gnu')).toThrow('riscv64');
+  });
+});
+
+describe.skipIf(process.platform !== 'darwin')('unpack-python-runtime (build-time, darwin)', () => {
+  async function createUnpackFixture(): Promise<{
+    resourcesDir: string;
+    sha256: string;
+  }> {
+    const resourcesDir = await fsPromises.mkdtemp(
+      path.join(os.tmpdir(), 'brainstrike-python-unpack-')
+    );
+    cleanupPaths.push(resourcesDir);
+    const sha256 = await writeRealArchive(archivePath(resourcesDir, TARGET_A), 'unpacked-ok');
+    const stats = await fsPromises.stat(archivePath(resourcesDir, TARGET_A));
+    const manifest = {
+      assetUrlTemplate:
+        'https://example.invalid/download/{releaseTag}/cpython-{pythonVersion}+{releaseTag}-{target}-{variant}.tar.gz',
+      pythonVersion: '3.13.14',
+      releaseTag: '20260728',
+      supportedTargets: [TARGET_A],
+      targets: { [TARGET_A]: { bytes: stats.size, sha256 } },
+      variant: 'install_only',
+    };
+    writeFileSync(path.join(resourcesDir, 'manifest.json'), JSON.stringify(manifest));
+    return { resourcesDir, sha256 };
+  }
+
+  it('unpacks every supported target under unpacked/<arch>/ and records the archive hash', async () => {
+    const { resourcesDir, sha256 } = await createUnpackFixture();
+    const log = vi.fn();
+    await unpackPythonRuntime({ log, resourcesDir });
+    const installDir = path.join(resourcesDir, 'unpacked', 'arm64');
+    const binary = path.join(installDir, 'python', 'bin', 'python3');
+    await expect(
+      fsPromises.readFile(path.join(installDir, PYTHON_RUNTIME_SENTINEL_FILE_NAME), 'utf8')
+    ).resolves.toBe(`${sha256}\n`);
+    const { stdout } = await execFileAsync(binary, []);
+    expect(stdout.trim()).toBe('unpacked-ok');
+    expect(log.mock.calls.flat().join('\n')).toContain('unpacked');
+  });
+
+  it('is idempotent: a matching sentinel skips the extraction entirely', async () => {
+    const { resourcesDir } = await createUnpackFixture();
+    await unpackPythonRuntime({ log: () => undefined, resourcesDir });
+    const installDir = path.join(resourcesDir, 'unpacked', 'arm64');
+    const canary = path.join(installDir, 'python', 'canary');
+    writeFileSync(canary, 'survives a no-op unpack');
+    const log = vi.fn();
+    await unpackPythonRuntime({ log, resourcesDir });
+    expect(fs.existsSync(canary)).toBe(true);
+    expect(log.mock.calls.flat().join('\n')).toContain('already unpacked');
+  });
+
+  it('replaces an install whose sentinel records a different archive hash', async () => {
+    const { resourcesDir } = await createUnpackFixture();
+    const installDir = path.join(resourcesDir, 'unpacked', 'arm64');
+    mkdirSync(path.join(installDir, 'python', 'bin'), { recursive: true });
+    writeFileSync(path.join(installDir, PYTHON_RUNTIME_SENTINEL_FILE_NAME), `${'0'.repeat(64)}\n`);
+    writeFileSync(path.join(installDir, 'python', 'stale'), 'from an older archive');
+    await unpackPythonRuntime({ log: () => undefined, resourcesDir });
+    expect(fs.existsSync(path.join(installDir, 'python', 'stale'))).toBe(false);
+    expect(fs.existsSync(path.join(installDir, 'python', 'bin', 'python3'))).toBe(true);
+  });
+
+  it('refuses to unpack an archive that does not verify against the manifest', async () => {
+    const { resourcesDir } = await createUnpackFixture();
+    writeFileSync(archivePath(resourcesDir, TARGET_A), 'tampered');
+    await expect(unpackPythonRuntime({ log: () => undefined, resourcesDir })).rejects.toThrow(
+      /sha256 mismatch|expected .* bytes/
+    );
+    expect(fs.existsSync(path.join(resourcesDir, 'unpacked', 'arm64'))).toBe(false);
+  });
+
+  it('fails loudly when the archive lacks python/bin/python3 and leaves no install behind', async () => {
+    const { resourcesDir } = await createUnpackFixture();
+    const stage = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-python-bad-'));
+    cleanupPaths.push(stage);
+    mkdirSync(path.join(stage, 'python'), { recursive: true });
+    writeFileSync(path.join(stage, 'python', 'README'), 'no interpreter here');
+    const badArchive = archivePath(resourcesDir, TARGET_A);
+    await execFileAsync('/usr/bin/tar', ['-czf', badArchive, '-C', stage, 'python']);
+    const hash = createHash('sha256');
+    for await (const chunk of fs.createReadStream(badArchive)) {
+      hash.update(chunk);
+    }
+    const stats = await fsPromises.stat(badArchive);
+    const manifestPath = path.join(resourcesDir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.targets[TARGET_A] = { bytes: stats.size, sha256: hash.digest('hex') };
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    await expect(unpackPythonRuntime({ log: () => undefined, resourcesDir })).rejects.toThrow(
+      'python/bin/python3'
+    );
+    expect(fs.existsSync(path.join(resourcesDir, 'unpacked', 'arm64'))).toBe(false);
   });
 });

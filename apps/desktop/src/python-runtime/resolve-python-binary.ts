@@ -1,29 +1,29 @@
-import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream, constants as fsConstants } from 'node:fs';
+import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
-import { createLogger } from '@brainstrike/logging';
-
-const logger = createLogger('PythonRuntime');
-const execFileAsync = promisify(execFile);
 
 /**
- * BST-1061: resolve the bundled python-build-standalone CPython for agent
- * Python. There is deliberately NO fallback to a PATH `python`/`python3` —
- * every unusable state below is a distinct typed error so `run_python` can
+ * BST-1061 / BST-1627: resolve the bundled python-build-standalone CPython for
+ * agent Python. There is deliberately NO fallback to a PATH `python`/`python3`
+ * — every unusable state below is a distinct typed error so `run_python` can
  * tell the user which half of the stack is missing (no interpreter vs no
  * sandbox). The `python_*` code family must stay disjoint from the
  * CodeExecutor seam's own codes (`no_sandbox_configured`,
  * `exec_capability_mismatch`, ...) and the fence's `fence_*` family — see
  * docs/agents/code-execution.md.
+ *
+ * The interpreter is unpacked at BUILD time by
+ * `scripts/fetch-python-runtime.mjs` (BST-1627): Apple's notarization service
+ * scans inside shipped archives and rejects python-build-standalone's
+ * ad-hoc-signed Mach-O files, so the tarball can never ship. The unpacked tree
+ * is copied into the bundle as loose files that osx-sign signs with the
+ * Developer ID identity. At runtime this module therefore never extracts
+ * anything: it checks that the unpacked tree's sentinel records the exact
+ * archive hash the manifest pins and that the interpreter is executable.
  */
 export type PythonRuntimeErrorCode =
-  | 'python_archive_missing'
-  | 'python_checksum_mismatch'
   | 'python_manifest_invalid'
-  | 'python_unpack_failed'
+  | 'python_runtime_missing'
   | 'python_unsupported_platform';
 
 export class PythonRuntimeError extends Error {
@@ -52,27 +52,11 @@ export class PythonManifestInvalidError extends PythonRuntimeError {
   }
 }
 
-export class PythonArchiveMissingError extends PythonRuntimeError {
-  declare readonly code: 'python_archive_missing';
+export class PythonRuntimeMissingError extends PythonRuntimeError {
+  declare readonly code: 'python_runtime_missing';
 
   constructor(message: string) {
-    super('python_archive_missing', message);
-  }
-}
-
-export class PythonChecksumMismatchError extends PythonRuntimeError {
-  declare readonly code: 'python_checksum_mismatch';
-
-  constructor(message: string) {
-    super('python_checksum_mismatch', message);
-  }
-}
-
-export class PythonUnpackFailedError extends PythonRuntimeError {
-  declare readonly code: 'python_unpack_failed';
-
-  constructor(message: string) {
-    super('python_unpack_failed', message);
+    super('python_runtime_missing', message);
   }
 }
 
@@ -97,32 +81,32 @@ export interface PythonRuntimeManifest {
 export interface ResolvePythonBinaryOptions {
   /** Defaults to `process.arch`; injectable for tests. */
   readonly arch?: string;
+  /**
+   * Absolute dir holding the build-time unpack for THIS arch: `python/bin/
+   * python3` plus the sentinel written by `scripts/fetch-python-runtime.mjs`.
+   */
+  readonly installDir: string;
+  /** Absolute dir holding `manifest.json`. */
+  readonly manifestDir: string;
   /** Defaults to `process.platform`; injectable for tests. */
   readonly platform?: string;
-  /** Absolute dir holding `manifest.json` + the fetched tarballs. */
-  readonly resourcesDir: string;
   /**
-   * Optional cancellation (e.g. a run_skill_script user Stop, or a caller's
-   * own timeout budget). Checked before hashing and threaded into the
-   * `/usr/bin/tar` child process, so a cold first-run unpack -- the only slow
-   * part of this function -- can actually be interrupted (PR #2205 review:
-   * previously a fired signal reached `runDetachedProcess` but never this
-   * resolver, so Stop could not touch an in-flight extraction).
+   * Optional cancellation (a run_skill_script user Stop, or a caller's own
+   * timeout budget). Nothing here is slow any more — resolution is a sentinel
+   * read plus an `fs.access` — but the seam stays so callers that thread a
+   * signal through keep a single contract.
    */
   readonly signal?: AbortSignal | undefined;
-  /** Absolute per-user app-data dir; the runtime unpacks under `<dir>/python-runtime/`. */
-  readonly userDataDir: string;
 }
 
-const SENTINEL_FILE_NAME = '.brainstrike-python-runtime-ok';
-const SHA256_HEX = /^[0-9a-f]{64}$/;
 /**
- * Absolute on purpose: this binary unpacks interpreter code that later runs
- * inside the fence, so it must not be resolvable via a caller-controlled PATH.
- * Reachable only on darwin (the manifest's `supportedTargets` gate), where
- * /usr/bin/tar is part of the OS.
+ * Written by the build-time unpack next to `python/`; holds the sha256 of the
+ * archive the tree came from so the runtime can prove the interpreter is the
+ * one the manifest pins without re-hashing 66 MB on every launch.
  */
-const TAR_BINARY = '/usr/bin/tar';
+export const PYTHON_RUNTIME_SENTINEL_FILE_NAME = '.brainstrike-python-runtime-ok';
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const BINARY_RELATIVE_PATH = path.join('python', 'bin', 'python3');
 
 function resolveTargetTriple(platform: string, arch: string): string | undefined {
   if (platform === 'darwin' && arch === 'arm64') {
@@ -135,7 +119,7 @@ function resolveTargetTriple(platform: string, arch: string): string | undefined
 }
 
 function assertManifestShape(value: unknown, manifestPath: string): PythonRuntimeManifest {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new PythonManifestInvalidError(
       `Bundled Python runtime manifest at ${manifestPath} is not an object.`
     );
@@ -182,8 +166,8 @@ function assertManifestShape(value: unknown, manifestPath: string): PythonRuntim
   return value as PythonRuntimeManifest;
 }
 
-async function loadManifest(resourcesDir: string): Promise<PythonRuntimeManifest> {
-  const manifestPath = path.join(resourcesDir, 'manifest.json');
+async function loadManifest(manifestDir: string): Promise<PythonRuntimeManifest> {
+  const manifestPath = path.join(manifestDir, 'manifest.json');
   let raw: string;
   try {
     raw = await fsPromises.readFile(manifestPath, 'utf8');
@@ -207,202 +191,70 @@ async function loadManifest(resourcesDir: string): Promise<PythonRuntimeManifest
   return assertManifestShape(parsed, manifestPath);
 }
 
-export function renderPythonRuntimeAssetFileName(
-  manifest: Pick<
-    PythonRuntimeManifest,
-    'assetUrlTemplate' | 'pythonVersion' | 'releaseTag' | 'variant'
-  >,
-  target: string
-): string {
-  const url = manifest.assetUrlTemplate
-    .replaceAll('{releaseTag}', manifest.releaseTag)
-    .replaceAll('{pythonVersion}', manifest.pythonVersion)
-    .replaceAll('{target}', target)
-    .replaceAll('{variant}', manifest.variant);
-  const fileName = new URL(url).pathname.split('/').at(-1);
-  if (!fileName) {
-    throw new PythonManifestInvalidError(
-      `Bundled Python runtime assetUrlTemplate renders to a URL without a file name: ${url}`
-    );
-  }
-  return fileName;
+function missingRuntime(installDir: string, detail: string): PythonRuntimeMissingError {
+  return new PythonRuntimeMissingError(
+    `The bundled Python runtime is not usable at ${installDir}: ${detail}. ` +
+      'In development, unpack it with `node apps/desktop/scripts/fetch-python-runtime.mjs`; ' +
+      'in a packaged app this indicates broken packaging (reinstall).'
+  );
 }
 
-async function hashFileSha256(filePath: string): Promise<string> {
-  const hash = createHash('sha256');
-  await new Promise<void>((resolve, reject) => {
-    const stream = createReadStream(filePath);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('error', reject);
-    stream.on('end', resolve);
-  });
-  return hash.digest('hex');
-}
-
-async function isUsableInstall(sentinelPath: string, binaryPath: string, expectedSha256: string) {
-  let sentinel: string;
+async function readSentinel(installDir: string): Promise<string | undefined> {
   try {
-    sentinel = await fsPromises.readFile(sentinelPath, 'utf8');
+    return (
+      await fsPromises.readFile(path.join(installDir, PYTHON_RUNTIME_SENTINEL_FILE_NAME), 'utf8')
+    ).trim();
   } catch {
-    return false;
-  }
-  if (sentinel.trim() !== expectedSha256) {
-    return false;
-  }
-  try {
-    await fsPromises.access(binaryPath, fsConstants.X_OK);
-  } catch {
-    return false;
-  }
-  return true;
-}
-
-async function unpackArchive({
-  archivePath,
-  binaryRelativePath,
-  expectedSha256,
-  installDir,
-  signal,
-}: {
-  archivePath: string;
-  binaryRelativePath: string;
-  expectedSha256: string;
-  installDir: string;
-  signal: AbortSignal | undefined;
-}): Promise<void> {
-  const stagingDir = `${installDir}.staging-${process.pid}-${Date.now()}`;
-  await fsPromises.rm(stagingDir, { force: true, recursive: true });
-  await fsPromises.mkdir(stagingDir, { recursive: true });
-  try {
-    try {
-      // `signal` lets Node kill the tar child (and reject this call with an
-      // AbortError) the moment it fires -- this is the ONLY step here slow
-      // enough for cancellation to matter (a full CPython tree extraction).
-      await execFileAsync(TAR_BINARY, ['-xzf', archivePath, '-C', stagingDir], { signal });
-    } catch (error) {
-      if (signal?.aborted) {
-        throw error;
-      }
-      throw new PythonUnpackFailedError(
-        `Unpacking the bundled Python runtime failed (${TAR_BINARY} -xzf ${archivePath}): ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-    const stagedBinary = path.join(stagingDir, binaryRelativePath);
-    try {
-      await fsPromises.access(stagedBinary, fsConstants.X_OK);
-    } catch {
-      throw new PythonUnpackFailedError(
-        `The bundled Python archive at ${archivePath} did not contain an executable at ${binaryRelativePath}.`
-      );
-    }
-    await fsPromises.writeFile(path.join(stagingDir, SENTINEL_FILE_NAME), `${expectedSha256}\n`, {
-      mode: 0o644,
-    });
-    // A stale install dir only exists here when its sentinel check failed
-    // (partial unpack, older archive hash) — replace it wholesale.
-    await fsPromises.rm(installDir, { force: true, recursive: true });
-    try {
-      await fsPromises.rename(stagingDir, installDir);
-    } catch (error) {
-      // A concurrent process (second app instance) may have won the rename.
-      // Accept its install only if it verifies; otherwise surface the failure.
-      if (
-        await isUsableInstall(
-          path.join(installDir, SENTINEL_FILE_NAME),
-          path.join(installDir, binaryRelativePath),
-          expectedSha256
-        )
-      ) {
-        return;
-      }
-      throw new PythonUnpackFailedError(
-        `Installing the bundled Python runtime into ${installDir} failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-  } finally {
-    await fsPromises.rm(stagingDir, { force: true, recursive: true }).catch(() => {
-      // Best-effort cleanup; a leftover staging dir is inert and lives under
-      // userData, so factory reset still removes it.
-    });
+    return;
   }
 }
 
-async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions): Promise<string> {
+/**
+ * Resolves the build-time-unpacked CPython interpreter and returns its
+ * ABSOLUTE path. Unsupported platforms classify BEFORE any manifest I/O, so a
+ * missing manifest can never mask the real reason. Each call re-validates the
+ * tree on disk (sentinel read + `fs.access`, both cheap): nothing is memoised,
+ * so a tree removed or replaced under a running process surfaces as the typed
+ * `python_runtime_missing` on the next call instead of a raw ENOENT later.
+ */
+export async function resolvePythonBinary(options: ResolvePythonBinaryOptions): Promise<string> {
+  options.signal?.throwIfAborted();
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
   for (const [label, dir] of [
-    ['resourcesDir', options.resourcesDir],
-    ['userDataDir', options.userDataDir],
+    ['manifestDir', options.manifestDir],
+    ['installDir', options.installDir],
   ] as const) {
     if (!path.isAbsolute(dir)) {
       throw new Error(`resolvePythonBinary requires an absolute ${label}; received "${dir}".`);
     }
   }
-
   const triple = resolveTargetTriple(platform, arch);
-  const manifest = triple ? await loadManifest(options.resourcesDir) : undefined;
+  const manifest = triple ? await loadManifest(options.manifestDir) : undefined;
   const targetEntry = triple && manifest ? manifest.targets[triple] : undefined;
   if (!(triple && manifest && targetEntry && manifest.supportedTargets.includes(triple))) {
-    // Manifest problems on a never-supported platform still read as manifest
-    // errors first — but only when a triple exists to look up.
     throw new PythonUnsupportedPlatformError(
       `The bundled Python runtime does not support ${platform}/${arch}` +
         `${triple ? ` (target "${triple}" is not in the manifest)` : ''}. ` +
         'BST-1061 ships macOS only; there is deliberately no fallback to a PATH python.'
     );
   }
-
-  const installDir = path.join(
-    options.userDataDir,
-    'python-runtime',
-    `cpython-${manifest.pythonVersion}+${manifest.releaseTag}-${triple}`
-  );
-  const binaryRelativePath = path.join('python', 'bin', 'python3');
-  const binaryPath = path.join(installDir, binaryRelativePath);
-  const sentinelPath = path.join(installDir, SENTINEL_FILE_NAME);
-
-  if (await isUsableInstall(sentinelPath, binaryPath, targetEntry.sha256)) {
-    return assertAbsolute(binaryPath);
+  const sentinel = await readSentinel(options.installDir);
+  if (sentinel === undefined) {
+    throw missingRuntime(options.installDir, 'no build-time unpack sentinel is present');
   }
-
-  const archiveFileName = renderPythonRuntimeAssetFileName(manifest, triple);
-  const archivePath = path.join(options.resourcesDir, archiveFileName);
+  if (sentinel !== targetEntry.sha256) {
+    throw missingRuntime(
+      options.installDir,
+      `the unpacked tree records archive sha256 ${sentinel}, which does not match the manifest's ${targetEntry.sha256}`
+    );
+  }
+  const binaryPath = path.join(options.installDir, BINARY_RELATIVE_PATH);
   try {
-    await fsPromises.access(archivePath, fsConstants.R_OK);
+    await fsPromises.access(binaryPath, fsConstants.X_OK);
   } catch {
-    throw new PythonArchiveMissingError(
-      `The bundled Python runtime archive is missing at ${archivePath}. ` +
-        'In development, fetch it with `node apps/desktop/scripts/fetch-python-runtime.mjs`; ' +
-        'in a packaged app this indicates broken packaging (reinstall).'
-    );
+    throw missingRuntime(options.installDir, `${BINARY_RELATIVE_PATH} is not an executable file`);
   }
-
-  options.signal?.throwIfAborted();
-  const actualSha256 = await hashFileSha256(archivePath);
-  if (actualSha256 !== targetEntry.sha256) {
-    throw new PythonChecksumMismatchError(
-      `The bundled Python runtime archive at ${archivePath} failed checksum verification ` +
-        `(expected sha256 ${targetEntry.sha256}, got ${actualSha256}). Refusing to unpack it.`
-    );
-  }
-
-  options.signal?.throwIfAborted();
-  logger.info('Unpacking bundled Python runtime', { archivePath, installDir });
-  await unpackArchive({
-    archivePath,
-    binaryRelativePath,
-    expectedSha256: targetEntry.sha256,
-    installDir,
-    signal: options.signal,
-  });
-  return assertAbsolute(binaryPath);
-}
-
-function assertAbsolute(binaryPath: string): string {
   // ExecPolicy paths are absolute-only (a literal `~` is rejected, not
   // expanded), so a non-absolute result here would silently fail policy
   // validation in every fence consumer. Final guard, not just a test.
@@ -410,59 +262,4 @@ function assertAbsolute(binaryPath: string): string {
     throw new Error(`BUG: resolvePythonBinary produced a non-absolute path: ${binaryPath}`);
   }
   return binaryPath;
-}
-
-const inflightResolutions = new Map<string, Promise<string>>();
-
-/**
- * Resolves (unpacking on first run) the bundled CPython interpreter and
- * returns its ABSOLUTE path. This is SELF-VALIDATING, not a permanent memo:
- * the cache entry only coalesces CONCURRENT callers onto one in-flight
- * promise, and is cleared the moment that promise settles, win or lose.
- *
- * A permanent success cache was the original design, and it was wrong (PR
- * #2205 review, corroborated independently by two reviewers): factory reset
- * deletes `<userDataDir>/python-runtime` on disk but has no way to reach
- * into this module's in-memory map, and desktop factory reset only reloads
- * the RENDERER (`factory-reset-panel.tsx`) — this main-process module keeps
- * running across a reset. A cached path surviving reset would let the next
- * `python3` skill script in the SAME process hand `runDetachedProcess` a
- * path that no longer exists, failing as a raw OS `ENOENT` instead of one of
- * this module's typed `python_*` errors — precisely the untyped-failure
- * outcome the whole error family exists to prevent.
- *
- * Clearing on every settle instead makes each top-level call re-run
- * `resolvePythonBinaryUncached`, whose `isUsableInstall` check is a cheap
- * sentinel-file read + `fs.access` (not a re-hash or re-unpack) when nothing
- * changed on disk, and correctly re-unpacks from the archive still sitting
- * in `resourcesDir` when the install was actually removed.
- *
- * Unpacks into `<userDataDir>/python-runtime/…`. On macOS that is a SIBLING
- * of the fence's always-deny credential stores (`~/.ssh`, `~/.aws`,
- * `~/.config/gh`, … — see ALWAYS_DENY_READ_PATHS in
- * `@brainstrike/agent/fence-executor`), never a descendant, so the
- * interpreter stays readable inside the fence.
- */
-export function resolvePythonBinary(options: ResolvePythonBinaryOptions): Promise<string> {
-  const key = [
-    options.userDataDir,
-    options.resourcesDir,
-    options.platform ?? process.platform,
-    options.arch ?? process.arch,
-  ].join(' ');
-  const existing = inflightResolutions.get(key);
-  if (existing) {
-    return existing;
-  }
-  const resolution = resolvePythonBinaryUncached(options);
-  inflightResolutions.set(key, resolution);
-  const clearCacheEntry = () => {
-    inflightResolutions.delete(key);
-  };
-  // Attached to BOTH outcomes via the two-callback form (not `.finally`), so
-  // this bookkeeping never creates its own unhandled-rejection warning — the
-  // `resolution` promise returned below still carries the rejection for the
-  // real caller to handle.
-  resolution.then(clearCacheEntry, clearCacheEntry);
-  return resolution;
 }

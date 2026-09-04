@@ -117,12 +117,13 @@ describe('resetDesktopApplicationData', () => {
     });
   });
 
-  it('wipes the bundled Python runtime unpack dir in the wholesale userData reset (BST-1061)', async () => {
-    // The bundled-CPython unpack dir (resolvePythonBinary's install target)
-    // deliberately has NO dedicated reset wiring: it lives under userData,
-    // so the wholesale wipe must cover it. This test pins that — if the dir
-    // ever moves out of userData, or `python-runtime` is added to the
-    // preserved-entry list, factory reset silently stops being a fresh start.
+  it('sweeps a legacy bundled-Python unpack dir in the wholesale userData reset (BST-1061)', async () => {
+    // Pre-BST-1627 builds unpacked CPython under userData/python-runtime at
+    // first use. Since BST-1627 the interpreter ships signed inside the
+    // bundle and nothing is written there, but an upgraded install can still
+    // carry the old directory. It has NO dedicated reset wiring: the
+    // wholesale wipe must cover it, so `python-runtime` must never join the
+    // preserved-entry list.
     fsMocks.readdirSync.mockReturnValue(['logs', 'python-runtime']);
     const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
 

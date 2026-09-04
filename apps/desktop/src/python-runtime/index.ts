@@ -48,6 +48,37 @@ export function resolveDesktopPythonRuntimeResourcesDir(
   return path.join(path.dirname(distDir), 'resources', 'python-runtime');
 }
 
+/**
+ * Electron-builder arch names that have a build-time unpack directory
+ * (`scripts/fetch-python-runtime.mjs` writes one per manifest target).
+ */
+const UNPACKED_ARCHES: ReadonlySet<string> = new Set(['arm64', 'x64']);
+
+/**
+ * BST-1627: where the build-time-unpacked interpreter tree lives.
+ *
+ * Packaged: `build.mac.extraResources` copies
+ * `resources/python-runtime/unpacked/${arch}` straight into
+ * `<Resources>/python-runtime`, the same directory the manifest lands in, so
+ * the install dir IS the resources dir. Development: the per-arch directory
+ * the fetch script unpacks into, under the checked-in resources dir.
+ */
+export function resolveDesktopPythonRuntimeInstallDir(
+  isPackaged: boolean,
+  resourcesDir: string,
+  arch: string
+): string {
+  if (!UNPACKED_ARCHES.has(arch)) {
+    throw new Error(
+      `Python runtime: no build-time unpack exists for arch "${arch}" (expected one of ${[...UNPACKED_ARCHES].join(', ')})`
+    );
+  }
+  if (isPackaged) {
+    return resourcesDir;
+  }
+  return path.join(resourcesDir, 'unpacked', arch);
+}
+
 function desktopPythonRuntimeResourcesDir(): string {
   return resolveDesktopPythonRuntimeResourcesDir(app.isPackaged, process.resourcesPath);
 }
@@ -56,19 +87,20 @@ function desktopPythonRuntimeResourcesDir(): string {
  * The desktop composition root's bundled-CPython capability (BST-1061):
  * resolve once, then INJECT the resulting absolute path wherever an
  * interpreter is needed (`FenceExecutor` takes it as `FenceInterpreter` —
- * it never imports this module). The unpack dir lives under
- * `app.getPath('userData')`, so factory reset's wholesale userData wipe
- * covers it with no extra wiring.
+ * it never imports this module). Since BST-1627 nothing is unpacked at
+ * runtime and nothing is written under `userData`: the signed interpreter
+ * ships inside the bundle, so factory reset has nothing of ours to remove
+ * (a `userData/python-runtime` left by a pre-BST-1627 install is still
+ * swept by the wholesale userData wipe).
  *
- * `signal` is forwarded straight through to `resolvePythonBinary` (PR #2205
- * review): a run_skill_script user Stop, or a caller's own timeout budget,
- * must be able to interrupt a cold first-run unpack, not just the process
- * spawned afterward.
+ * `signal` is forwarded straight through to `resolvePythonBinary` so callers
+ * keep one cancellation contract even though resolution is now cheap.
  */
 export function resolveDesktopPythonExecutable(signal?: AbortSignal): Promise<string> {
+  const manifestDir = desktopPythonRuntimeResourcesDir();
   return resolvePythonBinary({
-    resourcesDir: desktopPythonRuntimeResourcesDir(),
+    installDir: resolveDesktopPythonRuntimeInstallDir(app.isPackaged, manifestDir, process.arch),
+    manifestDir,
     signal,
-    userDataDir: app.getPath('userData'),
   });
 }

@@ -187,17 +187,21 @@ modules can install their mocks. The regression in
 cross-test boundary, while
 `register-factory-reset-session-stores.test.ts` pins production registration.
 
-Desktop bundled Python runtime (BST-1061): `resolvePythonBinary` unpacks the
-pinned CPython under `app.getPath('userData')/python-runtime/`, so the
-wholesale userData wipe in `desktop-factory-reset.ts` covers it with zero
-dedicated wiring. That coverage is pinned by the BST-1061 regression test in
-`apps/desktop/src/__tests__/main/desktop-factory-reset.test.ts` — if the
-unpack dir ever moves outside userData, it needs explicit reset wiring plus an
-update here.
+Desktop bundled Python runtime (BST-1061, reshaped by BST-1627): the pinned
+CPython is unpacked at BUILD time into the bundle (see
+`docs/agents/code-execution.md`), so `resolvePythonBinary` writes NOTHING
+under `userData` and factory reset has no runtime state of ours to remove.
+The wholesale userData wipe in `desktop-factory-reset.ts` still sweeps a
+`userData/python-runtime` left behind by a pre-BST-1627 install; the
+BST-1061 regression test in
+`apps/desktop/src/__tests__/main/desktop-factory-reset.test.ts` keeps pinning
+that legacy-directory sweep.
 
 `resolveDesktopPythonRuntimeResourcesDir` (`apps/desktop/src/python-runtime/
-index.ts`) resolves the SOURCE directory the archive/manifest ship in — a
-different, unrelated path from the unpack dir above — and is where BST-1459
+index.ts`) resolves the directory the manifest ships in (its sibling
+`resolveDesktopPythonRuntimeInstallDir` derives the per-arch unpacked tree
+from it: `unpacked/<arch>` in development, the same directory when packaged)
+— and is where BST-1459
 found a real bug: it used to derive this from `app.getAppPath()`, which
 returns a launch-mode-dependent value (the project root under `electron .`,
 but `dist/` itself when Electron is launched with a direct path to
