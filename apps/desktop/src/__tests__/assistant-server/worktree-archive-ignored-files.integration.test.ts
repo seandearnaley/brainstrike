@@ -61,7 +61,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real PGl
 
     await expect(service.archive({ worktreeId: worktree.id })).resolves.toEqual({
       error:
-        'This worktree has 1 ignored entry that is not in the archive snapshot and will be permanently deleted: .env. Confirm this deletion to archive.',
+        'This worktree has 1 ignored entry that is not in the archive snapshot and will be permanently deleted. Top-level paths: .env. Confirm this deletion to archive.',
       ok: false,
     });
     expect(existsSync(worktree.path)).toBe(true);
@@ -76,7 +76,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real PGl
       })
     ).resolves.toEqual({
       error:
-        'This worktree has 2 ignored entries that are not in the archive snapshot and will be permanently deleted: .cache, .env. Confirm this deletion to archive.',
+        'This worktree has 2 ignored entries that are not in the archive snapshot and will be permanently deleted. Top-level paths: .cache, .env. Confirm this deletion to archive.',
       ok: false,
     });
     expect(existsSync(worktree.path)).toBe(true);
@@ -146,7 +146,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real PGl
       })
     ).resolves.toEqual({
       error:
-        'This worktree has 2 ignored entries that are not in the archive snapshot and will be permanently deleted: .env, .late-secret. Confirm this deletion to archive.',
+        'This worktree has 2 ignored entries that are not in the archive snapshot and will be permanently deleted. Top-level paths: .env, .late-secret. Confirm this deletion to archive.',
       ok: false,
     });
     expect(existsSync(worktree.path)).toBe(true);

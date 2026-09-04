@@ -10,9 +10,9 @@
  * removal; `git restore --source=<ref>` replays it; and `git ls-tree` makes it
  * inspectable with ordinary git.
  *
- * `git add -A` inside the worktree honors `.gitignore`, so `node_modules` and
- * other ignored trees are NOT captured — the snapshot is the user's work, not
- * their dependency cache.
+ * `git add -A` inside the worktree honors `.gitignore`, so every entry Git
+ * reports as ignored — including `node_modules` — is excluded from the snapshot.
+ * The snapshot is the user's work, not their dependency cache.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';

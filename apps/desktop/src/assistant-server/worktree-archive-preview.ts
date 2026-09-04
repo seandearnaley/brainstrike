@@ -16,7 +16,7 @@ export function ignoredEntriesArchiveBlocker(safety: WorktreeSafetyReport): stri
   const suffix = safety.ignoredTopLevelEntriesTruncated ? ', and other ignored paths' : '';
   return `This worktree has ${count} ignored ${noun} that ${
     count === 1 ? 'is' : 'are'
-  } not in the archive snapshot and will be permanently deleted: ${paths}${suffix}. Confirm this deletion to archive.`;
+  } not in the archive snapshot and will be permanently deleted. Top-level paths: ${paths}${suffix}. Confirm this deletion to archive.`;
 }
 
 export async function worktreePathExists(worktreePath: string): Promise<boolean> {
