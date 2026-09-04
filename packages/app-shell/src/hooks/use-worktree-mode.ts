@@ -775,7 +775,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     refreshList,
     runId: args.runId,
     setPending,
-    worktreeId: args.checkout.worktreeId,
+    worktreeId: currentWorktreeId,
     worktreeName: currentEntry?.name ?? 'worktree',
   });
 

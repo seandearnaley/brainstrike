@@ -365,7 +365,7 @@ describe('useWorktreeMode', () => {
     });
     const { rerender, result } = renderHook(
       ({ checkout }) => useWorktreeMode({ ...ARGS, checkout }),
-      { initialProps: { checkout: WORKTREE_CHECKOUT } }
+      { initialProps: { checkout: WORKTREE_CHECKOUT as UseWorktreeModeArgs['checkout'] } }
     );
     const originalOnArchive = result.current?.onArchive;
     rerender({ checkout: WORKTREE_CHECKOUT });
@@ -374,10 +374,10 @@ describe('useWorktreeMode', () => {
     await waitFor(() => expect(result.current?.archiveConfirmation).not.toBeNull());
     rerender({
       checkout: {
-        branch: 'bs/second',
-        mode: 'worktree' as const,
-        worktreeId: 'w-2',
-        worktreePath: '/managed/app/second',
+        branch: 'bs/bright-fox',
+        mode: 'local' as const,
+        worktreeId: 'w-1',
+        worktreePath: '/managed/app/bright-fox',
       },
     });
     await waitFor(() => expect(result.current?.archiveConfirmation).toBeNull());
