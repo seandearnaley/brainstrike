@@ -23,6 +23,10 @@
 /**
  * THE reasoning-effort vocabulary, weakest to strongest.
  *
+ * Mirrors the `reasoningEffort` enum of the installed `@ai-sdk/openai` (4.0.42)
+ * chat-options declaration; policed by
+ * `scripts/__tests__/ai-sdk-openai-mirror-contract.test.mjs`.
+ *
  * This is the union's MEMBERSHIP, not an offered list. Nothing here says a
  * given model accepts every value: what a particular model offers is resolved
  * per-family by `resolveReasoningControlsAvailability`
