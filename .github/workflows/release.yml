@@ -21,12 +21,20 @@ name: Release
 #      test lane re-validates it with the production schema before merge
 # The site can never name an asset that is not already reachable.
 #
-# Code signing (drop-in, not yet configured): macOS signing + notarization
-# activates when these repo secrets exist — CSC_LINK (base64 .p12),
-# CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
-# Until then CSC_IDENTITY_AUTO_DISCOVERY=false keeps builds deliberately
-# unsigned rather than half-signed. Windows Authenticode is a later addition
-# (Azure Trusted Signing) and ships unsigned for now.
+# macOS code signing + notarization (BST-1627): the build-macos job signs
+# with the Developer ID Application identity in CSC_LINK (base64 .p12) +
+# CSC_KEY_PASSWORD and notarizes through an App Store Connect API key
+# (APPLE_API_KEY = .p8 contents, APPLE_API_KEY_ID, APPLE_API_ISSUER). The
+# .p8 is materialised into a 0600 file under RUNNER_TEMP only for the
+# packaging step because notarytool takes a key PATH. The "Verify signing
+# evidence" step is the gate RELEASES.md requires: when CSC_LINK is present
+# the job fails unless the packaged app is Developer-ID signed, notarized
+# (spctl source=Notarized Developer ID) and stapled; only when the secret is
+# absent does the build fall back to the documented unsigned posture, with
+# CSC_IDENTITY_AUTO_DISCOVERY=false so it can never be half-signed. The DMG
+# itself is deliberately unsigned (electron-builder default; Gatekeeper
+# assesses the stapled app inside it). Windows Authenticode is a later
+# addition (Azure Trusted Signing) and ships unsigned for now.
 
 on:
   push:
@@ -47,8 +55,6 @@ env:
   TURBO_CACHE_DIR: .turbo
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-  # Unsigned until signing secrets land; see header.
-  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
   context:
@@ -98,8 +104,79 @@ jobs:
       - name: Build desktop dependency graph
         run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
 
+      - name: Resolve signing posture
+        id: signing
+        env:
+          HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$HAS_CSC_LINK" == "true" ]]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Signing posture: Developer ID + notarization (CSC_LINK present)"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CSC_LINK is not configured; building the documented UNSIGNED macOS posture (RELEASES.md)."
+          fi
+
+      - name: Materialise the notarization key
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          APPLE_API_KEY_CONTENTS: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          for NAME in APPLE_API_KEY_CONTENTS APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            [[ -n "${!NAME}" ]] || { echo "::error::CSC_LINK is set but ${NAME/_CONTENTS/} is missing; refusing a signed-but-unnotarized build."; exit 1; }
+          done
+          KEY_FILE="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          umask 077
+          printf '%s\n' "$APPLE_API_KEY_CONTENTS" > "$KEY_FILE"
+          echo "APPLE_API_KEY=$KEY_FILE" >> "$GITHUB_ENV"
+
       - name: Package DMGs
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.signing.outputs.signed }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm --filter @brainstrike/desktop run dist --mac dmg --arm64 --x64 --publish never
+
+      - name: Remove the notarization key
+        if: always() && steps.signing.outputs.signed == 'true'
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+      - name: Verify signing evidence
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          cd apps/desktop/release
+          for ARCH in arm64 x64; do
+            DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
+            [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
+            MOUNT=$(hdiutil attach "$DMG" -nobrowse -readonly | awk -F'\t' '/\/Volumes\//{print $NF; exit}')
+            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' | head -1)
+            if [[ "$SIGNED" == "true" ]]; then
+              echo "== ${DMG}: signing evidence"
+              codesign --verify --deep --strict --verbose=2 "$APP"
+              codesign -dvv "$APP" 2>&1 | grep -E '^Authority=Developer ID Application:' || { echo "::error::${DMG}: app is not signed with a Developer ID Application identity"; hdiutil detach "$MOUNT"; exit 1; }
+              codesign -d --entitlements - --xml "$APP" 2>/dev/null | grep -q 'com.apple.security.cs.disable-library-validation' || { echo "::error::${DMG}: hardened-runtime entitlements are missing"; hdiutil detach "$MOUNT"; exit 1; }
+              xcrun stapler validate "$APP" || { echo "::error::${DMG}: notarization ticket is not stapled to the app"; hdiutil detach "$MOUNT"; exit 1; }
+              ASSESS=$(spctl -a -t exec -vv "$APP" 2>&1 || true)
+              echo "$ASSESS"
+              grep -q 'source=Notarized Developer ID' <<<"$ASSESS" || { echo "::error::${DMG}: Gatekeeper does not report a notarized Developer ID app"; hdiutil detach "$MOUNT"; exit 1; }
+            else
+              echo "== ${DMG}: UNSIGNED posture (no CSC_LINK); asserting no half-signed identity"
+              if codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Developer ID'; then
+                echo "::error::${DMG}: app carries a Developer ID signature although CSC_LINK is absent; posture is inconsistent"; hdiutil detach "$MOUNT"; exit 1
+              fi
+            fi
+            hdiutil detach "$MOUNT"
+          done
 
       - name: Smoke-test packaged apps
         run: |
