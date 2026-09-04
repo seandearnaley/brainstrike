@@ -1,0 +1,43 @@
+<svg
+  aria-labelledby="brainstrike-title brainstrike-description"
+  fill="none"
+  role="img"
+  viewBox="0 0 1024 1024"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title id="brainstrike-title">Brainstrike</title>
+  <desc id="brainstrike-description">
+    A metallic head silhouette divided by a lightning bolt, on a dark square background.
+  </desc>
+  <defs>
+    <linearGradient
+      gradientUnits="userSpaceOnUse"
+      id="brainstrike-metal"
+      x1="278"
+      x2="734"
+      y1="181"
+      y2="858"
+    >
+      <stop stop-color="#f4f4f3" />
+      <stop offset=".25" stop-color="#cececd" />
+      <stop offset=".5" stop-color="#929291" />
+      <stop offset=".75" stop-color="#515150" />
+      <stop offset="1" stop-color="#292928" />
+    </linearGradient>
+    <radialGradient cx="437" cy="469" gradientUnits="userSpaceOnUse" id="brainstrike-core" r="405">
+      <stop stop-color="#454545" />
+      <stop offset=".48" stop-color="#222222" />
+      <stop offset="1" stop-color="#080808" />
+    </radialGradient>
+  </defs>
+  <rect fill="#080808" height="1024" width="1024" />
+  <path
+    d="M612 134C493 103 373 136 290 218C223 284 197 360 214 448L149 571Q145 578 152 582L210 616L225 720C229 753 245 769 280 769H336L494 473L342 474Z M640 146C749 190 821 281 821 396C821 478 777 548 730 616C710 646 704 676 712 710L736 808L418 930L380 795C377 782 370 771 357 769L622 417Q628 409 619 408L486 405Z"
+    fill="url(#brainstrike-core)"
+  />
+  <path
+    d="M612 134C493 103 373 136 290 218C223 284 197 360 214 448L149 571Q145 578 152 582L210 616L225 720C229 753 245 769 280 769H336L494 473L342 474Z M544 174C462 158 377 184 317 240C263 291 244 363 254 441Q257 453 251 467L202 564L239 587Q247 592 249 605L265 710Q268 727 284 727H322L437 498L269 494Z M640 146C749 190 821 281 821 396C821 478 777 548 730 616C710 646 704 676 712 710L736 808L418 930L380 795C377 782 370 771 357 769L622 417Q628 409 619 408L486 405Z M651 200L548 380L684 384L405 747Q413 759 417 777L445 874L686 782L670 712C657 661 671 624 695 589C739 524 777 463 777 400C777 315 728 244 651 200Z"
+    fill="url(#brainstrike-metal)"
+    fill-rule="evenodd"
+  />
+</svg>
