@@ -781,10 +781,13 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     await waitForServerState(restarted.window, 'stdio', /Connected/i);
     const restartedStdioPid = await readOwnedPid(stdioPidFile, firstStdioPid);
     const beforeResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
-    await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
-    await expect(serverRow(restarted.window, 'oauth')).toContainText('OAuth credentials stored');
-    await restarted.window.getByRole('button', { exact: true, name: 'Connect oauth' }).click();
+    // A persisted grant reconnects during startup discovery, without another
+    // Connect action. Waiting for authentication-required encoded the old bug.
     await waitForServerState(restarted.window, 'oauth', /Connected/i);
+    await expect(serverRow(restarted.window, 'oauth')).toContainText('OAuth credentials stored');
+    await expect(
+      restarted.window.getByRole('button', { exact: true, name: 'Connect oauth' })
+    ).toHaveCount(0);
     const restartedBindings = await readOAuthLoopbackBindings(userDataDir);
     expect(restartedBindings.length).toBeGreaterThan(bindingsBeforeRestart.length);
     // The log file is cumulative, so only the records this launch appended say
