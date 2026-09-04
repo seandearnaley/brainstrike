@@ -123,7 +123,3 @@ export {
   type WorkspaceBarWorktreePicker,
   type WorkspaceBarWorktreeSummary,
 } from './workspace-bar/workspace-bar';
-export {
-  type WorktreeArchiveConfirmation,
-  WorktreeArchiveConfirmationDialog,
-} from './workspace-bar/worktree-archive-confirmation-dialog';
