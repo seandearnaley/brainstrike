@@ -13,13 +13,14 @@ const readManifest = (): PackageManifest =>
   JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')) as PackageManifest;
 
 type RootExportNames = keyof typeof import('../index');
-type ForbiddenArchiveRootExport = Extract<
-  RootExportNames,
-  'WorktreeArchiveConfirmation' | 'WorktreeArchiveConfirmationDialog'
->;
+type ForbiddenArchiveRootExport = Extract<RootExportNames, 'WorktreeArchiveConfirmationDialog'>;
 
+// This value-export invariant is enforced by the test TypeScript program, not by Vitest at runtime.
 const rootHasNoForbiddenArchiveExports: ForbiddenArchiveRootExport extends never ? true : never =
   true;
+
+// @ts-expect-error -- the archive confirmation type must not be re-exported from the root barrel.
+export type ForbiddenArchiveRootType = import('../index').WorktreeArchiveConfirmation;
 
 describe('@brainstrike/assistant-ui package contract', () => {
   it('publishes the required export subpaths', () => {
