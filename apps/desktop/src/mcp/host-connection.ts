@@ -155,7 +155,7 @@ export async function connectClient(
   try {
     await client.connect({
       signal: context.signal,
-      ...(server.startup === 'automatic' || context.interactiveAuthorization === false
+      ...(server.startup === 'automatic' || context.interactiveAuthorization !== true
         ? { timeout: 10_000 }
         : {}),
     });

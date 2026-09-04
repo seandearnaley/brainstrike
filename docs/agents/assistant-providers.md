@@ -2795,9 +2795,14 @@ only explicit host controls grant interactive authorization to the provider.
 If login is needed, the attempt closes its transport/provider and returns to
 authentication-required, without retrying on every assistant request. Its safe
 error directs the user to Settings > AI Tools instead of a generic actor error.
-`connect`, `retry`, `cancel`, `disconnect`,
-and `reauthorize` are explicit host controls; user-paced authorization is not governed by the
-automatic ten-second machine deadline. Stdio stderr is piped through the SDK's
+`connect`, `retry`, `cancel`, `disconnect`, and `reauthorize` are explicit host
+controls; user-paced authorization is not governed by the automatic ten-second
+machine deadline. An explicit Connect arriving during a background attempt reuses
+its success, or continues an authentication-required failure with a fresh
+interactive provider after cleanup. It never retries cancellation, transport, or
+cleanup failures. Omitted connection modes use the same non-interactive deadline
+and provider policy as explicit false. Auth projection is awaited during config
+staging before actor construction. Stdio stderr is piped through the SDK's
 early-created stream, line-bounded and secret-redacted before it reaches the
 server snapshot. Healthy stderr remains a session-only debug signal. On connect
 failure or unexpected child exit, the host emits at most one durable `warn` per

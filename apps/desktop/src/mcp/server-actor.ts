@@ -244,6 +244,7 @@ export class McpServerActor {
   private client: McpServerActorClient | undefined;
   private clientClosePromise: Promise<McpHostCloseReport> | undefined;
   private connectAttempt: AbortController | undefined;
+  private connectAttemptInteractive = false;
   private clientPromise: Promise<McpServerActorClient> | undefined;
   private catalogUnsubscribe: (() => void) | undefined;
   private closePromise: Promise<McpHostCloseReport> | undefined;
@@ -418,10 +419,26 @@ export class McpServerActor {
       return Promise.resolve(this.client);
     }
     if (this.clientPromise) {
+      if (interactiveAuthorization && !this.connectAttemptInteractive) {
+        // Reuse a successful refresh. Only an explicit Connect may continue a
+        // completed background auth failure with a fresh interactive provider.
+        // Cancellation, transport faults, and cleanup failures must not retry.
+        return this.clientPromise.catch((cause: unknown) => {
+          if (!(cause instanceof ActorError) || cause.code !== 'mcp-authentication-required') {
+            throw cause;
+          }
+          this.throwIfAborted();
+          if (this.failure) {
+            throw this.failure;
+          }
+          return this.getClient(true);
+        });
+      }
       return this.clientPromise;
     }
     const attempt = new AbortController();
     this.connectAttempt = attempt;
+    this.connectAttemptInteractive = interactiveAuthorization;
     const clientPromise = Promise.resolve().then(() =>
       this.createClient(attempt, interactiveAuthorization)
     );

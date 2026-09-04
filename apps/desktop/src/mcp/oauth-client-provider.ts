@@ -512,6 +512,7 @@ export async function createMcpOAuthClientProvider(
     server: options.serverId,
   });
   let staleRegistrationDiscarded = false;
+  // Providers belong to one connection attempt; this latch never crosses retries.
   let interactiveAuthorizationRequired = false;
   let currentIssuer: string | undefined;
   let currentState: string | undefined;
