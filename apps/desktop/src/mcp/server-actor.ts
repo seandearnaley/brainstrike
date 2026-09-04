@@ -37,6 +37,8 @@ export class McpServerActorClientCleanupError extends AggregateError {
 interface ClientContext {
   configuredServerId: ConfiguredMcpServerId;
   generation: number;
+  /** Only an explicit host Connect/Retry/Reauthorize control may allow browser authorization. */
+  interactiveAuthorization?: boolean;
   onDiagnostic(diagnostic: McpHostDiagnostic): void;
   onUnexpectedClose(failure?: McpLifecycleFailure): void;
   signal: AbortSignal;
@@ -122,7 +124,11 @@ class ActorError extends Error {
     readonly category: McpStableErrorCategory,
     readonly code: McpServerActorErrorCode
   ) {
-    super('MCP server actor operation failed');
+    super(
+      code === 'mcp-authentication-required'
+        ? 'MCP authentication required. Connect or reauthorize this server in Settings > AI Tools.'
+        : 'MCP server actor operation failed'
+    );
     this.name = 'McpServerActorError';
   }
 }
@@ -247,9 +253,14 @@ export class McpServerActor {
   private consecutiveRequestTimeouts = 0;
   private status: ActorStatus;
   constructor(private readonly options: McpServerActorOptions) {
+    const auth = options.auth?.();
+    const hasStoredOAuthCredentials =
+      auth?.type === 'oauth-user' && auth.credentialState === 'stored';
     this.status = {
       state:
-        options.startup === 'authentication-required' ? 'authentication-required' : 'disconnected',
+        options.startup === 'authentication-required' && !hasStoredOAuthCredentials
+          ? 'authentication-required'
+          : 'disconnected',
     };
   }
   connect(): Promise<McpHostServerSnapshot> {
@@ -259,7 +270,7 @@ export class McpServerActor {
     if (this.failure) {
       return Promise.reject(this.failure);
     }
-    const client = this.getClient();
+    const client = this.getClient(true);
     const attemptSignal = this.connectAttempt?.signal;
     const signal = attemptSignal
       ? AbortSignal.any([this.generationAbort.signal, attemptSignal])
@@ -402,7 +413,7 @@ export class McpServerActor {
     }
     return this.failure;
   }
-  private getClient(): Promise<McpServerActorClient> {
+  private getClient(interactiveAuthorization = false): Promise<McpServerActorClient> {
     if (this.client) {
       return Promise.resolve(this.client);
     }
@@ -411,7 +422,9 @@ export class McpServerActor {
     }
     const attempt = new AbortController();
     this.connectAttempt = attempt;
-    const clientPromise = Promise.resolve().then(() => this.createClient(attempt));
+    const clientPromise = Promise.resolve().then(() =>
+      this.createClient(attempt, interactiveAuthorization)
+    );
     this.clientPromise = clientPromise;
     void clientPromise.then(
       () => {
@@ -428,12 +441,18 @@ export class McpServerActor {
       }
     );
     this.change({
-      state: this.options.startup === 'authentication-required' ? 'authorizing' : 'connecting',
+      state:
+        this.options.startup === 'authentication-required' && interactiveAuthorization
+          ? 'authorizing'
+          : 'connecting',
     });
     return this.clientPromise;
   }
-  private async createClient(attempt: AbortController): Promise<McpServerActorClient> {
-    const client = await this.createClientForAttempt(attempt);
+  private async createClient(
+    attempt: AbortController,
+    interactiveAuthorization: boolean
+  ): Promise<McpServerActorClient> {
+    const client = await this.createClientForAttempt(attempt, interactiveAuthorization);
     try {
       this.throwIfAborted(attempt.signal);
     } catch (cause) {
@@ -498,11 +517,15 @@ export class McpServerActor {
     }
     return client;
   }
-  private async createClientForAttempt(attempt: AbortController): Promise<McpServerActorClient> {
+  private async createClientForAttempt(
+    attempt: AbortController,
+    interactiveAuthorization: boolean
+  ): Promise<McpServerActorClient> {
     try {
       return await this.options.factory({
         configuredServerId: this.options.configuredServerId,
         generation: this.options.generation,
+        interactiveAuthorization,
         onDiagnostic: (diagnostic) => this.recordDiagnostic(diagnostic),
         onUnexpectedClose: (failure) => this.invalidateTransport(failure),
         signal: AbortSignal.any([this.generationAbort.signal, attempt.signal]),

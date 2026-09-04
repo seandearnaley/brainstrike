@@ -695,6 +695,7 @@ export class DesktopMcpHostRuntime {
     let provider: McpOAuthClientProvider | undefined;
     if (server.auth?.type === 'oauth-user') {
       provider = await this.createOAuthProvider({
+        allowInteractiveAuthorization: context.interactiveAuthorization === true,
         openExternal: this.openExternal,
         ...(server.auth.scopes ? { scopes: server.auth.scopes } : {}),
         serverId: server.name,

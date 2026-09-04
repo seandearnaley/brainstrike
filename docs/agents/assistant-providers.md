@@ -2787,7 +2787,15 @@ failed zero-tool servers plus negotiation/config errors remain visible.
 Startup policy is explicit per configured server: `automatic` permits one
 bounded machine connection attempt during discovery, while
 `authentication-required` publishes an actionable status without constructing
-the transport or opening a browser. `connect`, `retry`, `cancel`, `disconnect`,
+the transport when no reusable native OAuth credentials are stored. A stored
+native HTTP OAuth grant starts disconnected and participates in app-load tool
+discovery, reconnecting with the existing SDK token/refresh flow under the
+ten-second machine deadline. This automatic attempt cannot open a browser;
+only explicit host controls grant interactive authorization to the provider.
+If login is needed, the attempt closes its transport/provider and returns to
+authentication-required, without retrying on every assistant request. Its safe
+error directs the user to Settings > AI Tools instead of a generic actor error.
+`connect`, `retry`, `cancel`, `disconnect`,
 and `reauthorize` are explicit host controls; user-paced authorization is not governed by the
 automatic ten-second machine deadline. Stdio stderr is piped through the SDK's
 early-created stream, line-bounded and secret-redacted before it reaches the
@@ -3309,12 +3317,23 @@ actions such as Authenticate, Reauthorize, Disconnect, Retry, and Replace
 Configuration. Opaque server, invocation, continuation, task, and Apps ids are
 never reconstructed from display names.
 
-The startup policy is conservative for every interactive OAuth path. Native
+The startup policy prevents unsolicited interactive OAuth. Native
 HTTP `oauth-user` entries that omit startup normalize to
 `authentication-required`; explicitly selecting `automatic` is invalid. An
 `npx -y mcp-remote ...` shape is normalized to `authentication-required`, even
-when the legacy config omitted startup policy, so config loading and startup
-discovery cannot spawn a browser. Connect, Cancel, Disconnect, Reauthorize, and
+when the legacy config omitted startup policy. Native HTTP OAuth with stored
+credentials reconnects during app-load discovery; missing or unreadable
+credentials still wait for explicit Connect. The actor passes a separate
+interactive-authorization flag to each connection attempt. Automatic attempts
+may reuse/refresh credentials, but the provider rejects browser authorization
+before arming a callback or calling openExternal. Config loading and startup
+discovery therefore cannot spawn a browser. Stdio OAuth helpers keep the
+explicit-connect policy because Brainstrike does not own their credential or
+browser flow. Restart and refresh behavior is covered through the production
+host plus app-load discovery in `mcp-oauth-client-provider.integration.test.ts`;
+missing credentials, login-required recovery, and the bounded first request
+are covered by `mcp-host-runtime-oauth.test.ts`.
+Connect, Cancel, Disconnect, Reauthorize, and
 Retry are capability-gated Settings actions. Cancel is dispatched directly to the owning actor,
 aborts the active connect signal, and settles child/listener cleanup without
 waiting behind config replacement or discovery work. User-paced stdio auth

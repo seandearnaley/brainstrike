@@ -16,6 +16,7 @@ import {
   createMcpOAuthClientProvider,
   createMcpOAuthStoreIdentity,
 } from '../../mcp/oauth-client-provider';
+import { discoverToolsFromConfig } from '../../mcp/tool-discovery';
 import type { ResolvedMcpServer } from '../../mcp-loader';
 
 type OAuthHttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
@@ -426,11 +427,15 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     const relaunched = launch(async () => {
       throw new Error('browser must not open after a relaunch');
     });
-    await relaunched.replaceResolvedConfig({ servers: [configured] });
-
+    const config = { servers: [configured] };
+    const committed = await relaunched.replaceResolvedConfig(config);
+    // The same discovery entrypoint used during app load must reconnect; no
+    // Settings control is sent on the relaunched host.
+    await expect(discoverToolsFromConfig(relaunched, config, committed)).resolves.toHaveLength(1);
+    expect(relaunched.host.snapshot().servers[0]?.state).toBe('connected');
     await expect(
-      relaunched.host.control({ action: 'connect', configuredServerId: configured.name })
-    ).resolves.toMatchObject({ state: 'connected' });
+      relaunched.host.invoke({ configuredServerId: configured.name, type: 'tools/list' })
+    ).resolves.toMatchObject({ type: 'tools/list' });
     expect(server.dcrRequests).toHaveLength(1);
     expect(server.authorizationRequests).toHaveLength(1);
     expect(server.refreshCount()).toBe(1);

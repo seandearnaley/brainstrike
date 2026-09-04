@@ -1,6 +1,6 @@
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
+import { createDesktopMcpHostRuntime, type ExplicitClient } from '../../mcp/host-runtime';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
@@ -60,6 +60,118 @@ afterEach(async () => {
   await runtime?.host.close();
   runtime = undefined;
   vi.restoreAllMocks();
+});
+
+describe('DesktopMcpHostRuntime OAuth restart', () => {
+  it('does not construct a transport or open a browser when credentials are missing', async () => {
+    const createHttpTransportClient = vi.fn(failingTransportClient);
+    const openExternal = vi.fn(async () => undefined);
+    runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient,
+      oauthStore: createInMemoryMcpOAuthStore(),
+      openExternal,
+    });
+    await runtime.replaceResolvedConfig({ servers: [oauthServer] });
+    await expect(
+      runtime.host.invoke({ configuredServerId: oauthServer.name, type: 'tools/list' })
+    ).rejects.toMatchObject({
+      code: 'mcp-authentication-required',
+      message:
+        'MCP authentication required. Connect or reauthorize this server in Settings > AI Tools.',
+    });
+    expect(createHttpTransportClient).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit Connect when stored credentials need browser authorization', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    await store.write(createMcpOAuthStoreIdentity(oauthServer.name, oauthServer.url), {
+      [staleIssuer]: {
+        tokens: { access_token: 'rejected-access', token_type: 'Bearer' },
+        updatedAt: 1,
+      },
+    });
+    const openExternal = vi.fn(async () => undefined);
+    const modes: (boolean | undefined)[] = [];
+    const close = vi.fn(async () => undefined);
+    runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: (options) => ({
+        ...failingTransportClient(),
+        close,
+        connect: async () => {
+          if (modes.length === 1) {
+            await requireOAuthProvider(options.authProvider).redirectToAuthorization(
+              new URL('https://auth.linear.example/authorize')
+            );
+          }
+        },
+      }),
+      createOAuthProvider: (options) => {
+        modes.push(options.allowInteractiveAuthorization);
+        return createMcpOAuthClientProvider(options);
+      },
+      oauthStore: store,
+      onInternalError: vi.fn(),
+      openExternal,
+      resolveExtensionRegistry: () => undefined,
+    });
+    await runtime.replaceResolvedConfig({ servers: [oauthServer] });
+    await expect(
+      runtime.host.invoke({ configuredServerId: oauthServer.name, type: 'tools/list' })
+    ).rejects.toMatchObject({ code: 'mcp-authentication-required' });
+    expect(runtime.host.snapshot().servers[0]?.state).toBe('authentication-required');
+    expect(close).toHaveBeenCalledOnce();
+    expect(openExternal).not.toHaveBeenCalled();
+    // Failed background auth is not retried by every model request.
+    await expect(
+      runtime.host.invoke({ configuredServerId: oauthServer.name, type: 'tools/list' })
+    ).rejects.toMatchObject({ code: 'mcp-authentication-required' });
+    expect(modes).toEqual([false]);
+    await expect(
+      runtime.host.control({ action: 'connect', configuredServerId: oauthServer.name })
+    ).resolves.toMatchObject({ state: 'connected' });
+    expect(modes).toEqual([false, true]);
+  });
+
+  it('discovers tools on the first request after restart using stored credentials without a Connect action', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    await store.write(createMcpOAuthStoreIdentity(oauthServer.name, oauthServer.url), {
+      [staleIssuer]: {
+        tokens: { access_token: 'stored-access', token_type: 'Bearer' },
+        updatedAt: 1,
+      },
+    });
+    const openExternal = vi.fn(async () => undefined);
+    const connect = vi.fn<ExplicitClient['connect']>(async () => undefined);
+    runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: (options) => ({
+        ...failingTransportClient(),
+        close: vi.fn(async () => undefined),
+        connect: async (request) => {
+          expect(await requireOAuthProvider(options.authProvider).tokens()).toMatchObject({
+            access_token: 'stored-access',
+          });
+          await connect(request);
+        },
+        listTools: vi.fn(async () => ({
+          tools: [{ inputSchema: { type: 'object' as const }, name: 'list_issues' }],
+        })),
+      }),
+      oauthStore: store,
+      onInternalError: vi.fn(),
+      openExternal,
+      resolveExtensionRegistry: () => undefined,
+    });
+    await runtime.replaceResolvedConfig({ servers: [oauthServer] });
+
+    await expect(
+      runtime.host.invoke({ configuredServerId: oauthServer.name, type: 'tools/list' })
+    ).resolves.toMatchObject({ result: { tools: [{ name: 'list_issues' }] }, type: 'tools/list' });
+    expect(connect).toHaveBeenCalledOnce();
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ timeout: 10_000 }));
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(runtime.host.snapshot().servers[0]?.state).toBe('connected');
+  });
 });
 
 describe('DesktopMcpHostRuntime OAuth cleanup', () => {

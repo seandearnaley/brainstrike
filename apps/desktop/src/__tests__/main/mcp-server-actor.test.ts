@@ -100,7 +100,13 @@ function client(
 async function failure(promise: Promise<unknown>, code: string): Promise<unknown> {
   const error = await promise.catch((caught: unknown) => caught);
   expect(error).toBeInstanceOf(Error);
-  expect(error).toMatchObject({ code, message: 'MCP server actor operation failed' });
+  expect(error).toMatchObject({
+    code,
+    message:
+      code === 'mcp-authentication-required'
+        ? 'MCP authentication required. Connect or reauthorize this server in Settings > AI Tools.'
+        : 'MCP server actor operation failed',
+  });
   expect(error).toHaveProperty('category', expect.any(String));
   expect(error).not.toHaveProperty('cause');
   return error;
