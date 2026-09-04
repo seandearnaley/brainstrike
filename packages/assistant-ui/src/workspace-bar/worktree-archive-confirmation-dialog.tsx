@@ -24,6 +24,8 @@ export function WorktreeArchiveConfirmationDialog({
 }): ReactElement {
   const { preview } = confirmation;
   const noun = preview.ignoredEntryCount === 1 ? 'entry' : 'entries';
+  const hiddenTopLevelEntryCount =
+    preview.ignoredTopLevelEntryCount - preview.ignoredTopLevelEntries.length;
   return (
     <Dialog
       onOpenChange={(open) => {
@@ -49,9 +51,10 @@ export function WorktreeArchiveConfirmationDialog({
               <li key={entry}>{entry}</li>
             ))}
           </ul>
-          {preview.ignoredTopLevelEntriesTruncated ? (
+          {hiddenTopLevelEntryCount > 0 ? (
             <p className="mt-2 text-muted-foreground text-xs">
-              Additional ignored paths are hidden.
+              {hiddenTopLevelEntryCount} additional top-level{' '}
+              {hiddenTopLevelEntryCount === 1 ? 'path is' : 'paths are'} hidden.
             </p>
           ) : null}
         </div>

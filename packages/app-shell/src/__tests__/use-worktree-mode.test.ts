@@ -96,6 +96,14 @@ const CREATE_REQUEST = {
   name: 'bright-fox',
 } as const;
 
+const SINGLE_IGNORED_PREVIEW = {
+  confirmationToken: 'ignored-token',
+  ignoredEntryCount: 1,
+  ignoredTopLevelEntries: ['.env'],
+  ignoredTopLevelEntriesTruncated: false,
+  ignoredTopLevelEntryCount: 1,
+} as const;
+
 function entry(overrides: Partial<WorktreeListEntry> = {}): WorktreeListEntry {
   return {
     branch: 'main',
@@ -146,6 +154,7 @@ describe('useWorktreeMode', () => {
         ignoredEntryCount: 0,
         ignoredTopLevelEntries: [],
         ignoredTopLevelEntriesTruncated: false,
+        ignoredTopLevelEntryCount: 0,
       },
     });
     createBranchHereSpy.mockResolvedValue({ ok: true, value: null });
@@ -330,12 +339,7 @@ describe('useWorktreeMode', () => {
   it('requires confirmation before handing off and archiving ignored files', async () => {
     inspectArchiveSpy.mockResolvedValueOnce({
       ok: true,
-      value: {
-        confirmationToken: 'ignored-token',
-        ignoredEntryCount: 1,
-        ignoredTopLevelEntries: ['.env'],
-        ignoredTopLevelEntriesTruncated: false,
-      },
+      value: SINGLE_IGNORED_PREVIEW,
     });
     const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
 
@@ -356,12 +360,7 @@ describe('useWorktreeMode', () => {
   it('cancels ignored-file confirmation when the selected worktree changes', async () => {
     inspectArchiveSpy.mockResolvedValueOnce({
       ok: true,
-      value: {
-        confirmationToken: 'ignored-token',
-        ignoredEntryCount: 1,
-        ignoredTopLevelEntries: ['.env'],
-        ignoredTopLevelEntriesTruncated: false,
-      },
+      value: SINGLE_IGNORED_PREVIEW,
     });
     const { rerender, result } = renderHook(
       ({ checkout }) => useWorktreeMode({ ...ARGS, checkout }),

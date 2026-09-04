@@ -184,6 +184,7 @@ describe('WorktreeMapSurface', () => {
         ignoredEntryCount: 0,
         ignoredTopLevelEntries: [],
         ignoredTopLevelEntriesTruncated: false,
+        ignoredTopLevelEntryCount: 0,
       },
     });
     createThreadMock.mockResolvedValue({ id: 'thread-9' });
@@ -525,9 +526,21 @@ describe('WorktreeMapSurface', () => {
       ok: true,
       value: {
         confirmationToken: 'ignored-token',
-        ignoredEntryCount: 2,
-        ignoredTopLevelEntries: ['.env', 'data'],
-        ignoredTopLevelEntriesTruncated: false,
+        ignoredEntryCount: 17,
+        ignoredTopLevelEntries: [
+          '.env',
+          '.secret-01',
+          '.secret-02',
+          '.secret-03',
+          '.secret-04',
+          '.secret-05',
+          '.secret-06',
+          '.secret-07',
+          '.secret-08',
+          'data/',
+        ],
+        ignoredTopLevelEntriesTruncated: true,
+        ignoredTopLevelEntryCount: 12,
       },
     });
     render(<WorktreeMapSurface />);
@@ -536,9 +549,10 @@ describe('WorktreeMapSurface', () => {
     await userEvent.click(screen.getByRole('menuitem', { name: /archive/iu }));
 
     expect(archiveMock).not.toHaveBeenCalled();
-    expect(await screen.findByText(/permanently delete 2 ignored entries/iu)).toBeInTheDocument();
+    expect(await screen.findByText(/permanently delete 17 ignored entries/iu)).toBeInTheDocument();
     expect(screen.getByText('.env')).toBeInTheDocument();
-    expect(screen.getByText('data')).toBeInTheDocument();
+    expect(screen.getByText('data/')).toBeInTheDocument();
+    expect(screen.getByText('2 additional top-level paths are hidden.')).toBeInTheDocument();
 
     await userEvent.click(
       screen.getByRole('button', { name: /delete ignored files and archive/iu })
