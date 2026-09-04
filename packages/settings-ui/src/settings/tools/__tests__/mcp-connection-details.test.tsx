@@ -66,7 +66,7 @@ describe('MCP connection details disclosure', () => {
     );
     expect(screen.getByText(/Connection lost/u)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Retry linear' })).toBeVisible();
-    expect(screen.getByTestId('mcp-diagnostics-linear')).not.toBeVisible();
+    expect(screen.getByTestId('mcp-diagnostics-linear')).toBeVisible();
   });
 
   it('keeps unreadable credential failures visible before opening details', () => {
@@ -81,8 +81,36 @@ describe('MCP connection details disclosure', () => {
         }}
       />
     );
-    expect(screen.getByRole('alert')).toBeVisible();
-    expect(screen.getByRole('alert')).toHaveTextContent('Stored credentials are unreadable');
+    expect(screen.getByRole('status')).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('Stored credentials are unreadable');
     expect(screen.getByRole('button', { name: 'Disconnect linear' })).toBeVisible();
+  });
+  it('preserves expansion within a generation and resets it for the next generation', () => {
+    const onControl = vi.fn();
+    const { rerender } = render(
+      <McpServerStatusRow controlAvailable onControl={onControl} server={connected} />
+    );
+    fireEvent.click(screen.getByLabelText('Connection details for linear'));
+    rerender(
+      <McpServerStatusRow
+        controlAvailable
+        onControl={onControl}
+        server={{ ...connected, diagnostics: [] }}
+      />
+    );
+    expect(
+      screen.getByLabelText('Connection details for linear').closest('details')
+    ).toHaveAttribute('open');
+    rerender(
+      <McpServerStatusRow
+        controlAvailable
+        onControl={onControl}
+        server={{ ...connected, generation: 5 }}
+      />
+    );
+    expect(
+      screen.getByLabelText('Connection details for linear').closest('details')
+    ).not.toHaveAttribute('open');
+    expect(onControl).not.toHaveBeenCalled();
   });
 });

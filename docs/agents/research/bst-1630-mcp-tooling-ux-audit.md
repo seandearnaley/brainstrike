@@ -67,6 +67,10 @@ Preserve the diagnostic depth, but put it behind "Connection details". Use nativ
 HTML disclosure semantics rather than another state machine. Keep server and
 control errors, tool availability, catalog content, and recovery actions outside.
 The host snapshot remains authoritative and disclosure creates no host call.
+Review closure keeps stderr/client diagnostics visible in error and
+authentication-required states without forcing the disclosure open. Healthy logs
+remain collapsed. A generation-reset regression also verifies that ordinary
+snapshot updates preserve expansion while a new generation resets it.
 
 ### 4. Connection is not tool readiness — BST-1632
 

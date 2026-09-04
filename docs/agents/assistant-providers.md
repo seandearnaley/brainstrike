@@ -4532,9 +4532,12 @@ BST-1632 (follow-up to BST-1603).
 
 The server row keeps lifecycle state, available controls, tool-availability
 failures, catalog content, server/control errors, and malformed or unreadable
-credential notices visible. Protocol
-policy/generation, OAuth facts, effective extension advertisements, and diagnostic
-logs live inside a native `details` disclosure labeled "Connection details".
+credential notices visible. Stdio/client diagnostics stay visible for error and
+authentication-required states; healthy-server logs are inside the disclosure.
+Protocol policy/generation, OAuth facts, and effective extension advertisements
+live inside a native `details` disclosure labeled "Connection details". Failure
+diagnostics do not force it open or override the user's DOM-resident open state.
+Credential faults use a polite status announcement and the shared state labels.
 These facts remain available without an additional host call or persistent UI
 store. Expanding details never initiates authorization or a lifecycle control.
 The disclosure resets on a new server generation; current snapshot facts remain
@@ -4961,10 +4964,12 @@ and `skill_search`, the conditional skills guidance, and a representative
 first-turn `SkillsProcessor` metadata block. The canonical authored
 representation converts the real Zod inputs through the Standard Schema input
 protocol and must stay INSIDE the 10,096-10,396 `o200k_base` band (BST-927/
-BST-980): the ceiling is the bloat gate with real headroom (an unrelated
-one-word description edit no longer trips the required Unit check), and the
-floor fails just as loudly when a tool or schema silently falls out of the
-registry. When the ceiling fires, trim before raising; move both bounds
+BST-980): the ceiling bounds growth, and the floor detects a tool or schema
+silently falling out of the registry. These are existing test thresholds, not
+bands recentered by the audit. At the 2026-09-04 measurement, authored and critical
+surfaces have only 34 and 21 tokens of remaining headroom. Keeping those ceilings
+is deliberate pending BST-1633's measured reductions; the audit does not promise
+150 tokens of current headroom or silently raise limits to absorb drift. When the ceiling fires, trim before raising; move both bounds
 together (the ~300-token width is the contract) and record the trade in the
 test's comment ledger. The live actual Mastra/OpenRouter core surface and
 resolved instructions must stay between 2,000 and 5,000 tokens, materially

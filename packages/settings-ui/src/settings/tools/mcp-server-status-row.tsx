@@ -71,8 +71,9 @@ function McpCredentialFaultNotice({ server }: { readonly server: McpServerInfo }
     return null;
   }
   return (
-    <div className="text-destructive text-xs" role="alert">
-      Stored credentials are {auth.credentialState}. Open connection details for more information.
+    <div className="text-destructive text-xs" role="status">
+      Stored credentials are {credentialStateLabel(auth.credentialState)}. Open connection details
+      for more information.
     </div>
   );
 }
@@ -172,6 +173,31 @@ function McpExtensionStatus({ server }: { readonly server: McpServerInfo }) {
   );
 }
 
+function hasConnectionFailure(server: McpServerInfo): boolean {
+  return server.state === 'error' || server.state === 'authentication-required';
+}
+
+function McpDiagnostics({ server }: { readonly server: McpServerInfo }) {
+  if (!server.diagnostics?.length) {
+    return null;
+  }
+  return (
+    <div
+      className="mt-1 whitespace-pre-line text-muted-foreground text-xs"
+      data-testid={`mcp-diagnostics-${server.configuredServerId}`}
+    >
+      {server.diagnostics
+        .map(
+          (diagnostic) =>
+            `${diagnostic.stream} · ${diagnostic.message}${
+              diagnostic.truncated ? ' · truncated' : ''
+            }`
+        )
+        .join('\n')}
+    </div>
+  );
+}
+
 function McpConnectionDetails({ server }: { readonly server: McpServerInfo }) {
   return (
     <details className="mt-2 text-muted-foreground text-xs">
@@ -200,21 +226,7 @@ function McpConnectionDetails({ server }: { readonly server: McpServerInfo }) {
             }`}
           </div>
         )}
-        {server.diagnostics && server.diagnostics.length > 0 && (
-          <div
-            className="mt-1 whitespace-pre-line text-muted-foreground text-xs"
-            data-testid={`mcp-diagnostics-${server.configuredServerId}`}
-          >
-            {server.diagnostics
-              .map(
-                (diagnostic) =>
-                  `${diagnostic.stream} · ${diagnostic.message}${
-                    diagnostic.truncated ? ' · truncated' : ''
-                  }`
-              )
-              .join('\n')}
-          </div>
-        )}
+        {!hasConnectionFailure(server) && <McpDiagnostics server={server} />}
       </div>
     </details>
   );
@@ -330,6 +342,7 @@ export function McpServerStatusRow({
           MCP lifecycle control failed: {controlError}
         </div>
       )}
+      {hasConnectionFailure(server) && <McpDiagnostics server={server} />}
       <McpConnectionDetails key={server.generation} server={server} />
       <Dialog
         onOpenChange={(open) => {
