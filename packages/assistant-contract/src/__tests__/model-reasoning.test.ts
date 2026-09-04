@@ -180,11 +180,15 @@ describe('resolveReasoningControlsAvailability', () => {
   });
 
   it.each([undefined, 'claude-not-in-catalog'])(
-    'offers no Anthropic controls without a declared model: %s',
+    'keeps the Thinking toggle but withholds the ladder without a declared model: %s',
     (modelId) => {
+      // A persisted legacy budget is still sent for such an id (see
+      // anthropic-provider-options.test.ts), so the toggle that clears it must
+      // stay reachable; only the effort ladder has nothing to be judged against.
       expect(resolveReasoningControlsAvailability('anthropic', modelId)).toEqual({
-        available: false,
-        reason: 'no-reasoning-controls',
+        available: true,
+        efforts: [],
+        family: 'anthropic',
       });
     }
   );

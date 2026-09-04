@@ -603,8 +603,12 @@
   https://platform.claude.com/docs/en/about-claude/models/overview.
   `resolveReasoningControlsAvailability` reads the declared ladder/default;
   Haiku gets an empty ladder so its Effort row disappears while its Thinking
-  toggle remains. Missing/uncatalogued models get no controls (direct
-  Anthropic uses the registry model allow-list, with no custom-model option).
+  toggle remains. A missing or uncatalogued id (direct Anthropic uses the
+  registry model allow-list, with no custom-model option, so this is the
+  no-selection edge) gets the SAME empty-ladder shape, not `available: false`:
+  the request builder still sends a persisted legacy budget for such an id,
+  and the toggle is authoritative for "is Claude thinking", so it must stay
+  visible and clearable; only the ladder is withheld.
   `buildAnthropicOptions(modelName, settings)` treats an effort outside the
   model's ladder, including no ladder or no registry row, as ABSENT: no effort
   and no derived adaptive thinking, never a neighbouring effort. An explicit

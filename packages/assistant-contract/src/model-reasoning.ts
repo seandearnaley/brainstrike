@@ -50,7 +50,7 @@ export type ReasoningControlsAvailability =
       available: true;
       family: 'anthropic';
       efforts: readonly AnthropicEffort[];
-      defaultEffort?: AnthropicEffort;
+      defaultEffort?: AnthropicEffort | undefined;
     }
   | {
       /**
@@ -235,13 +235,15 @@ function resolveOpenRouterControls(
 
 function resolveAnthropicControls(modelId: string | undefined): ReasoningControlsAvailability {
   // Direct Anthropic uses the registry allow-list (isValidModelForProvider),
-  // with no custom-model option. Keep missing/uncatalogued ids unavailable:
-  // with no registry row there is no ladder to judge against.
+  // with no custom-model option, so a missing or uncatalogued id is the
+  // no-selection edge, not a custom route. It still gets the Thinking toggle
+  // with an EMPTY effort ladder — the same shape as Haiku — because
+  // `buildAnthropicOptions` keeps sending a persisted legacy budget for such
+  // an id, and the toggle is AUTHORITATIVE for "is Claude thinking": hiding it
+  // would leave a request the user can neither see nor clear. Only the ladder
+  // needs a registry row to judge against, so only the ladder is withheld.
   const model = modelId === undefined ? undefined : findDeclaredLlmModel('anthropic', modelId);
-  if (!model) {
-    return { available: false, reason: 'no-reasoning-controls' };
-  }
-  if (!model.anthropicReasoning) {
+  if (!model?.anthropicReasoning) {
     return { available: true, efforts: [], family: 'anthropic' };
   }
   return {

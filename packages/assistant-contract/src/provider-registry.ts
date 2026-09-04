@@ -1,6 +1,5 @@
-import type { AnthropicEffort } from '@brainstrike/types';
 import { GEMMA4_E2B_MODEL_ID } from './local-llm.js';
-import type { OpenAiReasoningEffort } from './runtime-data.js';
+import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = 768;
 
