@@ -4526,7 +4526,21 @@ fill-class assertion in E2E is as fragile as the row state it replaces.
 
 Closing the absence gap — reporting a server whose catalog never arrives at all
 — needs that pending/settled discriminator on the snapshot, and remains open on
-BST-1603.
+BST-1632 (follow-up to BST-1603).
+
+### MCP Settings progressive disclosure (BST-1630)
+
+The server row keeps lifecycle state, available controls, tool-availability
+failures, catalog content, server/control errors, and malformed or unreadable
+credential notices visible. Protocol
+policy/generation, OAuth facts, effective extension advertisements, and diagnostic
+logs live inside a native `details` disclosure labeled "Connection details".
+These facts remain available without an additional host call or persistent UI
+store. Expanding details never initiates authorization or a lifecycle control.
+The disclosure resets on a new server generation; current snapshot facts remain
+the sole authority. `mcp-connection-details.test.tsx` covers visibility, recovery
+controls, and local expansion. The dated BST-1630 audit records real Electron
+keyboard/focus and layout measurements for the production component.
 
 ### MCP tool-preference persistence (BST-1615, BST-1621, BST-1623)
 
@@ -4946,7 +4960,7 @@ skills engine enabled. That means both guards include `skill`, `skill_read`,
 and `skill_search`, the conditional skills guidance, and a representative
 first-turn `SkillsProcessor` metadata block. The canonical authored
 representation converts the real Zod inputs through the Standard Schema input
-protocol and must stay INSIDE the 8,650-8,950 `o200k_base` band (BST-927/
+protocol and must stay INSIDE the 10,096-10,396 `o200k_base` band (BST-927/
 BST-980): the ceiling is the bloat gate with real headroom (an unrelated
 one-word description edit no longer trips the required Unit check), and the
 floor fails just as loudly when a tool or schema silently falls out of the
@@ -4956,11 +4970,17 @@ test's comment ledger. The live actual Mastra/OpenRouter core surface and
 resolved instructions must stay between 2,000 and 5,000 tokens, materially
 below the retired 11,500-token eager boundary. A real
 Mastra-loop capture separately proves the first provider request contains that
-core plus `search_tools`, and that a later request appends the discovered
+core plus `search_tools` and `list_available_tools`, and that a later request appends the discovered
 definition. Dynamically loaded definitions are append-only within the active
 context and counted by the last-position token limiter.
 
-Both are whole-surface regressions, not estimates from descriptions alone.
+Both count schemas and instructions for their declared surfaces, not descriptions
+alone. The core envelope excludes processor-added discovery controls. The
+2026-09-04 probe measured 4,730 tokens before those controls and 5,081 with them
+in the same normalized representation. BST-1633 tracks the complete post-processor
+provider budget and total tokens per successful task; the existing core ceiling
+must not be presented as a cap on the full request. Tokenizer counts are not
+provider-billed usage or a cache-discount estimate.
 Recover budget by removing duplicated prose and preserving one canonical
 definition. Do not weaken validation constraints, spoof provider/model
 identity, or remove cross-tool safety/workspace invariants to make either
@@ -4969,11 +4989,11 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the eager baseline is 32 tools with its aggregate recorded at 8,121
-`o200k_base` tokens (banded +/-150 like the surface gates; the tool COUNT
-stays exact — it is the precise dropped-tool catcher), while the live critical
-definition surface is 8 tools recorded at 2,166 tokens (same band treatment)
-before the compact `search_tools` control is added. System instructions, provider conversion,
+contract: the eager baseline is 39 tools, measured at 9,490 `o200k_base` tokens
+on 2026-09-04, within its 9,340-9,640 band. The live critical definition surface
+is 8 tools, measured at 2,295 tokens within its 2,016-2,316 band, before discovery
+controls are added. Counts stay exact to catch missing tools; no budget was
+raised during the BST-1630 audit. System instructions, provider conversion,
 skills metadata, and each dynamically loaded definition remain part of the
 captured-request and last-position limiter budgets.
 
