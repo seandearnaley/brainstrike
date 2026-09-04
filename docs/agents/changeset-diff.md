@@ -379,13 +379,14 @@ end-to-end in BST-1161 (bridge, preload, IPC channel, handler,
 
 ## THE `worktrees` IPC DOMAIN
 
-`apps/desktop/src/ipc-worktrees.ts` registers the eleven-method `worktrees`
+`apps/desktop/src/ipc-worktrees.ts` registers the twelve-method `worktrees`
 domain against the narrowing boundary in `worktrees-ipc-handlers.ts`; preload
 exposes the same exact method set as `window.worktrees`, and
 `packages/app-shell/src/worktrees/worktrees-bridge.ts` rejects a
-present-but-incomplete bridge wholesale. All eleven methods — `adopt`,
+present-but-incomplete bridge wholesale. All twelve methods — `adopt`,
 `archive`, `checkoutStatus`, `create`, `createBranchHere`, `createContext`,
-`getSettings`, `list`, `listManagedPaths`, `restore`, `setSettings` — are
+`getSettings`, `inspectArchive`, `list`, `listManagedPaths`, `restore`,
+`setSettings` — are
 implemented and the lifecycle mutations call real `WorktreeService` methods.
 `adopt` and `checkoutStatus` (BST-1392, W5) are the two most recent additions:
 `adopt` records an existing on-disk worktree the live inventory already
@@ -596,7 +597,27 @@ The snapshot is captured on EVERY archive, clean or not, and BEFORE the safety
 verdict is acted on. `archive` refuses a dirty or unpushed worktree unless
 `force`; the one blocker `force` never overrides is an active run in that
 worktree (`brainstrike_assistant_thread_runs.status = 'running'` for the owning
-thread). W3 deliberately does NOT take a `git worktree lock` for the duration
+thread). Ignored files remain outside the snapshot. `inspectArchive` therefore
+returns their count, the exact total number of top-level paths, and a bounded
+sorted display list. Directory-shaped display entries retain a trailing slash,
+and a truncated list states the exact number of additional top-level paths. The
+opaque confirmation token is bound to the complete top-level ignored-path set
+and the managed worktree's id and canonical path, so it cannot be transferred to
+a different worktree with the same ignored names. When that count is non-zero,
+`archive` requires the caller to echo the current non-empty
+`confirmIgnoredEntries` token; `force` does not bypass this deletion gate.
+Immediately after snapshot capture and all branch/remote safety reads, `archive`
+re-reads porcelain status as its final Git operation and rejects a missing or
+stale token before removal. This closes mutations during snapshot capture and
+the post-capture safety checks; no filesystem lock exists, so a mutation after
+that final status read remains an unavoidable local race. The token is a
+stale-confirmation guard: it proves the caller saw the current top-level
+ignored-path set for this worktree, not that a human approved it. Churn beneath
+an already disclosed top-level directory intentionally does not invalidate the
+token; a newly created nested secret is deleted under that prior directory-level
+confirmation and is not named separately. Nested Git repositories need separate
+restorability handling tracked by BST-1625. W3 deliberately does NOT take a
+`git worktree lock` for the duration
 of a run: a lock is globally visible and `git-workbench-header.tsx` disables any
 locked worktree, so it would disable every managed worktree in the Changes
 surface. Run-scoped locking is a W5 follow-up.
