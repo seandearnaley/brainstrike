@@ -32,10 +32,15 @@ export function extractUpstreamEfforts(declarationSource) {
   if (declarationStart === -1) {
     return [];
   }
-  const nextDeclaration = declarationSource.indexOf('\ndeclare ', declarationStart + 1);
+  // End the slice at the declaration's OWN terminator (`}>;` closes the
+  // LazySchema generic) rather than at the next `declare`: a dts bundle emits
+  // plain `type`/`interface` declarations between `declare const`s, and one of
+  // those carrying a same-indented `reasoningEffort` would otherwise be read as
+  // the oracle after a future release drops the field from chat options.
+  const declarationEnd = declarationSource.indexOf('}>;', declarationStart);
   const block = declarationSource.slice(
     declarationStart,
-    nextDeclaration === -1 ? undefined : nextDeclaration
+    declarationEnd === -1 ? undefined : declarationEnd + '}>;'.length
   );
   const effortDeclaration = /\n {4}reasoningEffort\?: (?<body>[^;]+);/u.exec(block);
   if (!effortDeclaration) {
@@ -58,7 +63,9 @@ export function extractDeclaredEfforts(source) {
     /export const OPENAI_REASONING_EFFORT_VALUES = \[(?<body>[^\]]*)\] as const;/u.exec(source);
   return {
     annotatedVersions: unique(
-      [...source.matchAll(/@ai-sdk\/openai`?\s*\((?<version>\d+\.\d+\.\d+)\)/gu)].map(
+      // Prerelease tags (`4.1.0-beta.1`) are real @ai-sdk versions; a bare
+      // semver triple would reject the very annotation the violation asks for.
+      [...source.matchAll(/@ai-sdk\/openai`?\s*\((?<version>\d+\.\d+\.\d+[^\s)]*)\)/gu)].map(
         (match) => match.groups.version
       )
     ),
@@ -87,9 +94,12 @@ export function collectViolations({ installedVersion, declared, upstream }) {
         `${DECLARED_FILE} OPENAI_REASONING_EFFORT_VALUES is NARROWER than the installed ${PROVIDER_PACKAGE} \`reasoningEffort\` enum: missing ${missing.join(', ')}; the app would offer strictly less than the provider accepts`
       );
     }
+    // The const also types OpenRouter's per-model `supportedEfforts`, so a
+    // value the OpenAI chat schema no longer accepts is not automatically dead:
+    // the violation names both resolutions instead of ordering a deletion.
     if (extra.length > 0) {
       violations.push(
-        `${DECLARED_FILE} OPENAI_REASONING_EFFORT_VALUES is WIDER than the installed ${PROVIDER_PACKAGE} \`reasoningEffort\` enum: unknown ${extra.join(', ')}; those values would reach the request boundary and be rejected at runtime`
+        `${DECLARED_FILE} OPENAI_REASONING_EFFORT_VALUES is WIDER than the installed ${PROVIDER_PACKAGE} \`reasoningEffort\` enum: unknown ${extra.join(', ')}; the platform openai provider would type a value its wire rejects — drop it if no provider routes it, or split the OpenRouter vocabulary out of this const if OpenRouter still does`
       );
     }
   }
@@ -190,7 +200,7 @@ test('money control: a declaration wider than the provider fails visibly', () =>
       upstream: ['high', 'low', 'medium'],
     }),
     [
-      'packages/types/src/assistant-provider-settings.ts OPENAI_REASONING_EFFORT_VALUES is WIDER than the installed @ai-sdk/openai `reasoningEffort` enum: unknown ultra; those values would reach the request boundary and be rejected at runtime',
+      'packages/types/src/assistant-provider-settings.ts OPENAI_REASONING_EFFORT_VALUES is WIDER than the installed @ai-sdk/openai `reasoningEffort` enum: unknown ultra; the platform openai provider would type a value its wire rejects — drop it if no provider routes it, or split the OpenRouter vocabulary out of this const if OpenRouter still does',
     ]
   );
 });
@@ -256,6 +266,31 @@ declare const otherOptions: _ai_sdk_provider_utils.LazySchema<{
       `expected extraction failure for chat field: ${field}`
     );
   }
+});
+
+test('extraction: an interface between the chat options and the next declare cannot lend an oracle', () => {
+  // No `\ndeclare ` separates the interface from the chat block, so a boundary
+  // cut at the next `declare` would read the interface's field as the oracle.
+  assert.deepEqual(
+    extractUpstreamEfforts(`declare const openaiLanguageModelChatOptions: _ai_sdk_provider_utils.LazySchema<{
+    user?: string | undefined;
+}>;
+interface OpenAIResponsesShape {
+    reasoningEffort?: "high" | "low" | undefined;
+}
+declare const openaiLanguageModelResponsesOptions: _ai_sdk_provider_utils.LazySchema<{
+    reasoningEffort?: string | null | undefined;
+}>;`),
+    []
+  );
+});
+
+test('extraction: a prerelease provider version annotation is read whole', () => {
+  assert.deepEqual(
+    extractDeclaredEfforts(`/** Mirrors \`@ai-sdk/openai\` (4.1.0-beta.1). */
+export const OPENAI_REASONING_EFFORT_VALUES = ['low'] as const;`).annotatedVersions,
+    ['4.1.0-beta.1']
+  );
 });
 
 test('extraction: reads the declared members and all distinct annotated versions', () => {
