@@ -1226,7 +1226,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
   });
 
-  it('discovers, auto-loads, and executes a deferred native tool through the real loop', async () => {
+  it('enumerates, discovers, auto-loads, and executes a deferred native tool through the real loop', async () => {
     const executions: string[] = [];
     const offeredToolNames: string[][] = [];
     let turn = 0;
@@ -1260,6 +1260,20 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
               {
+                input: JSON.stringify({ prefix: 'brainstrike' }),
+                toolCallId: 'call-catalog-1',
+                toolName: 'list_available_tools',
+                type: 'tool-call',
+              },
+              { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+            ]),
+          });
+        }
+        if (turn === 2) {
+          return Promise.resolve({
+            stream: enqueue([
+              { type: 'stream-start', warnings: [] },
+              {
                 input: JSON.stringify({ query: 'workspace context files' }),
                 toolCallId: 'call-search-1',
                 toolName: 'search_tools',
@@ -1269,7 +1283,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             ]),
           });
         }
-        if (turn === 2) {
+        if (turn === 3) {
           return Promise.resolve({
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
@@ -1321,8 +1335,13 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       chunks.push(chunk);
     }
 
-    expect(offeredToolNames[0]).toEqual(['search_tools']);
-    expect(offeredToolNames[1]).toEqual(['search_tools', 'brainstrike_listWorkspaceContext']);
+    expect(offeredToolNames[0]).toEqual(['search_tools', 'list_available_tools']);
+    expect(offeredToolNames[1]).toEqual(['search_tools', 'list_available_tools']);
+    expect(offeredToolNames[2]).toEqual([
+      'search_tools',
+      'brainstrike_listWorkspaceContext',
+      'list_available_tools',
+    ]);
     expect(executions).toEqual(['ran']);
     expect(chunks).toContainEqual(
       expect.objectContaining({
