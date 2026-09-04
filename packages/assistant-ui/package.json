@@ -80,6 +80,10 @@
     "./tool-result-renderers": {
       "types": "./dist/use-tool-result-renderers.d.ts",
       "import": "./dist/use-tool-result-renderers.js"
+    },
+    "./worktree-archive-confirmation-dialog": {
+      "types": "./dist/workspace-bar/worktree-archive-confirmation-dialog.d.ts",
+      "import": "./dist/workspace-bar/worktree-archive-confirmation-dialog.js"
     }
   },
   "files": [

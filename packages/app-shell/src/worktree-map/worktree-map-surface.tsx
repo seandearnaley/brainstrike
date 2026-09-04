@@ -13,6 +13,7 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
+import { WorktreeArchiveConfirmationDialog } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type { ReactElement } from 'react';
@@ -71,6 +72,7 @@ export function WorktreeMapSurface(): ReactElement {
   });
   const {
     actionError,
+    archiveConfirmation,
     onAddAsRoot,
     onAdopt,
     onArchive,
@@ -98,48 +100,53 @@ export function WorktreeMapSurface(): ReactElement {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
-      {/* A stated failure, NEVER the empty state: "no worktrees" is a
+    <>
+      <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
+        {/* A stated failure, NEVER the empty state: "no worktrees" is a
           different, honest fact and must not stand in for "the read failed". */}
-      {error ? <p className="text-destructive text-sm">{error}</p> : null}
-      {actionError ? <p className="text-destructive text-sm">{actionError}</p> : null}
-      {repositories.length === 0 && !error ? (
-        <p className="text-muted-foreground text-sm">{EMPTY_STATE}</p>
+        {error ? <p className="text-destructive text-sm">{error}</p> : null}
+        {actionError ? <p className="text-destructive text-sm">{actionError}</p> : null}
+        {repositories.length === 0 && !error ? (
+          <p className="text-muted-foreground text-sm">{EMPTY_STATE}</p>
+        ) : null}
+        {repositories.map((repositoryModel) => (
+          <section className="flex min-w-0 flex-col gap-2" key={repositoryModel.repoCommonDir}>
+            <h2 className="font-medium text-sm">{repositoryModel.repositoryName}</h2>
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {repositoryModel.cards.map((card) => (
+                <WorktreeMapCard
+                  card={card}
+                  key={card.entry.path}
+                  onAddAsRoot={onAddAsRoot}
+                  onAdopt={onAdopt}
+                  onArchive={onArchive}
+                  // Present only for the card holding the SELECTED thread's
+                  // checkout [A11] — every other card renders no such item.
+                  onHandOffToLocal={
+                    card.thread && card.thread.threadId === selectedThreadId
+                      ? () => onHandOffToLocal(card)
+                      : undefined
+                  }
+                  onNewThread={onNewThread}
+                  onOpenPullRequest={(url) => {
+                    void platform?.openExternal(url);
+                  }}
+                  onOpenTerminal={terminalAvailable ? onOpenTerminal : undefined}
+                  onOpenThread={(threadId) => selectThread(resourceId, threadId)}
+                  onReveal={(path) => {
+                    void platform?.showItemInFolder(path);
+                  }}
+                  onToggleIndexing={setWorktreeRootIndexingEnabled}
+                  status={statusByPath.get(card.entry.path)}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+      {archiveConfirmation ? (
+        <WorktreeArchiveConfirmationDialog confirmation={archiveConfirmation} />
       ) : null}
-      {repositories.map((repositoryModel) => (
-        <section className="flex min-w-0 flex-col gap-2" key={repositoryModel.repoCommonDir}>
-          <h2 className="font-medium text-sm">{repositoryModel.repositoryName}</h2>
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {repositoryModel.cards.map((card) => (
-              <WorktreeMapCard
-                card={card}
-                key={card.entry.path}
-                onAddAsRoot={onAddAsRoot}
-                onAdopt={onAdopt}
-                onArchive={onArchive}
-                // Present only for the card holding the SELECTED thread's
-                // checkout [A11] — every other card renders no such item.
-                onHandOffToLocal={
-                  card.thread && card.thread.threadId === selectedThreadId
-                    ? () => onHandOffToLocal(card)
-                    : undefined
-                }
-                onNewThread={onNewThread}
-                onOpenPullRequest={(url) => {
-                  void platform?.openExternal(url);
-                }}
-                onOpenTerminal={terminalAvailable ? onOpenTerminal : undefined}
-                onOpenThread={(threadId) => selectThread(resourceId, threadId)}
-                onReveal={(path) => {
-                  void platform?.showItemInFolder(path);
-                }}
-                onToggleIndexing={setWorktreeRootIndexingEnabled}
-                status={statusByPath.get(card.entry.path)}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
+    </>
   );
 }

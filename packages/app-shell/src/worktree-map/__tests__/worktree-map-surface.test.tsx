@@ -97,8 +97,13 @@ vi.mock('../../platform-bridge', () => ({
 
 const adoptMock = vi.fn();
 const archiveMock = vi.fn();
+const inspectArchiveMock = vi.fn();
 vi.mock('../../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({ adopt: adoptMock, archive: archiveMock }),
+  resolveWorktreesBridge: () => ({
+    adopt: adoptMock,
+    archive: archiveMock,
+    inspectArchive: inspectArchiveMock,
+  }),
 }));
 
 const addRootDirectoryByPathMock = vi.fn();
@@ -153,6 +158,7 @@ describe('WorktreeMapSurface', () => {
       addRootDirectoryByPathMock,
       adoptMock,
       archiveMock,
+      inspectArchiveMock,
       createPgliteAssistantThreadRepositoryMock,
       createThreadMock,
       openExternalMock,
@@ -171,6 +177,16 @@ describe('WorktreeMapSurface', () => {
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
     adoptMock.mockResolvedValue({ ok: true, value: {} });
     archiveMock.mockResolvedValue({ ok: true, value: {} });
+    inspectArchiveMock.mockResolvedValue({
+      ok: true,
+      value: {
+        confirmationToken: null,
+        ignoredEntryCount: 0,
+        ignoredTopLevelEntries: [],
+        ignoredTopLevelEntriesTruncated: false,
+        ignoredTopLevelEntryCount: 0,
+      },
+    });
     createThreadMock.mockResolvedValue({ id: 'thread-9' });
     useWorktreeMapMock.mockReset().mockReturnValue(BASE_STATE);
   });
@@ -503,6 +519,48 @@ describe('WorktreeMapSurface', () => {
 
     expect(archiveMock).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows ignored paths and archives only after destructive confirmation', async () => {
+    inspectArchiveMock.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        confirmationToken: 'ignored-token',
+        ignoredEntryCount: 17,
+        ignoredTopLevelEntries: [
+          '.env',
+          '.secret-01',
+          '.secret-02',
+          '.secret-03',
+          '.secret-04',
+          '.secret-05',
+          '.secret-06',
+          '.secret-07',
+          '.secret-08',
+          'data/',
+        ],
+        ignoredTopLevelEntriesTruncated: true,
+        ignoredTopLevelEntryCount: 12,
+      },
+    });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /archive/iu }));
+
+    expect(archiveMock).not.toHaveBeenCalled();
+    expect(await screen.findByText(/permanently delete 17 ignored entries/iu)).toBeInTheDocument();
+    expect(screen.getByText('.env')).toBeInTheDocument();
+    expect(screen.getByText('data/')).toBeInTheDocument();
+    expect(screen.getByText('2 additional top-level paths are hidden.')).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /delete ignored files and archive/iu })
+    );
+    expect(archiveMock).toHaveBeenCalledWith({
+      confirmIgnoredEntries: 'ignored-token',
+      worktreeId: 'wt-1',
+    });
   });
 
   it('adds the checkout as a workspace root through the by-path seam', async () => {

@@ -4,6 +4,7 @@
  * callbacks and their stated, user-visible error.
  */
 import type { AssistantMemoryThread, AssistantThreadRepository } from '@brainstrike/assistant-data';
+import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import type { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback, useState } from 'react';
@@ -51,6 +52,7 @@ export interface UseWorktreeMapCardActionsInput {
 
 export interface WorktreeMapCardActions {
   readonly actionError: string | null;
+  readonly archiveConfirmation: WorktreeArchiveConfirmation | null;
   readonly onAddAsRoot: (card: WorktreeMapCardModel) => void;
   readonly onAdopt: (card: WorktreeMapCardModel) => void;
   readonly onArchive: (card: WorktreeMapCardModel) => void;
@@ -86,6 +88,12 @@ export function useWorktreeMapCardActions(
     worktrees,
   } = input;
   const [actionError, setActionError] = useState<string | null>(null);
+  const [archiveConfirmationState, setArchiveConfirmationState] = useState<{
+    readonly card: WorktreeMapCardModel;
+    readonly preview: WorktreeArchiveConfirmation['preview'] & {
+      readonly confirmationToken: string;
+    };
+  } | null>(null);
 
   const onNewThread = useCallback(
     (card: WorktreeMapCardModel) => {
@@ -219,16 +227,15 @@ export function useWorktreeMapCardActions(
     [openTerminalAt]
   );
 
-  const onArchive = useCallback(
-    (card: WorktreeMapCardModel) => {
+  const archiveCard = useCallback(
+    (card: WorktreeMapCardModel, confirmIgnoredEntries?: string): void => {
       const worktreeId = card.entry.id;
       if (!(worktreeId && worktrees)) {
         setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
         return;
       }
-      setActionError(null);
       worktrees
-        .archive({ worktreeId })
+        .archive({ ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}), worktreeId })
         .then((result) => {
           // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
           if (!result.ok) {
@@ -249,6 +256,60 @@ export function useWorktreeMapCardActions(
     },
     [refresh, worktrees]
   );
+
+  const onArchive = useCallback(
+    (card: WorktreeMapCardModel) => {
+      const worktreeId = card.entry.id;
+      if (!(worktreeId && worktrees)) {
+        setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
+        return;
+      }
+      setActionError(null);
+      worktrees
+        .inspectArchive({ worktreeId })
+        .then((result) => {
+          if (!result.ok) {
+            setActionError(`Could not inspect worktree for archive: ${result.error}`);
+            return;
+          }
+          if (result.value.ignoredEntryCount === 0) {
+            archiveCard(card);
+            return;
+          }
+          if (result.value.confirmationToken === null) {
+            setActionError(
+              'Archive inspection did not provide an ignored-file confirmation token.'
+            );
+            return;
+          }
+          setArchiveConfirmationState({
+            card,
+            preview: {
+              ...result.value,
+              confirmationToken: result.value.confirmationToken,
+            },
+          });
+        })
+        .catch((caught: unknown) => {
+          logger.error('worktree map could not inspect archive', { error: caught, worktreeId });
+          setActionError(errorMessage(caught));
+        });
+    },
+    [archiveCard, worktrees]
+  );
+
+  const archiveConfirmation: WorktreeArchiveConfirmation | null = archiveConfirmationState
+    ? {
+        onCancel: () => setArchiveConfirmationState(null),
+        onConfirm: () => {
+          const confirmation = archiveConfirmationState;
+          setArchiveConfirmationState(null);
+          archiveCard(confirmation.card, confirmation.preview.confirmationToken);
+        },
+        preview: archiveConfirmationState.preview,
+        worktreeName: archiveConfirmationState.card.entry.name,
+      }
+    : null;
 
   // (bot review fix, PR #2664) Hand off publishes the SAME checkout-intent
   // seam as onNewThread, but with `worktreeId: null` — the null-worktree
@@ -314,6 +375,7 @@ export function useWorktreeMapCardActions(
 
   return {
     actionError,
+    archiveConfirmation,
     onAddAsRoot,
     onAdopt,
     onArchive,

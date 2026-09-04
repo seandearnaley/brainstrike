@@ -18,6 +18,7 @@ const baseBarProps = {
 };
 
 const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
+  archiveConfirmation: null,
   baseRefs: [
     { label: 'main (current)', value: 'main' },
     { label: 'origin/main (fresh)', value: 'origin/main' },
@@ -106,6 +107,34 @@ describe('ModeChip', () => {
     expect(chip).toHaveTextContent('bright-fox');
     expect(chip).not.toHaveTextContent('⧉');
     expect(chip).toHaveAttribute('title', '/managed/app/bright-fox');
+  });
+
+  it('renders the destructive archive confirmation supplied by the mode', () => {
+    render(
+      <WorkspaceBar
+        {...baseBarProps}
+        mode={mode({
+          archiveConfirmation: {
+            onCancel: vi.fn(),
+            onConfirm: vi.fn(),
+            preview: {
+              confirmationToken: 'ignored-token',
+              ignoredEntryCount: 1,
+              ignoredTopLevelEntries: ['.env'],
+              ignoredTopLevelEntriesTruncated: false,
+              ignoredTopLevelEntryCount: 1,
+            },
+            worktreeName: 'bright-fox',
+          },
+          worktree,
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('worktree-archive-ignored-confirmation')).toHaveTextContent(
+      'Archiving “bright-fox” will permanently delete 1 ignored entry.'
+    );
+    expect(screen.getByText('.env')).toBeInTheDocument();
   });
 
   // M3 ruling: the visible-reason diagnostic-menu convention overrides disabled+tooltip copy.

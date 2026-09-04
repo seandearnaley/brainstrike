@@ -34,6 +34,11 @@ import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 import { resolveWorktreesBridge, type WorktreesBridge } from '../worktrees/worktrees-bridge';
+import {
+  errorMessage,
+  toastFailure,
+  useWorktreeArchiveAction,
+} from './use-worktree-archive-action';
 
 const logger = createLogger('WorktreeMode');
 
@@ -68,14 +73,8 @@ export interface UseWorktreeModeArgs {
   readonly primaryRootPath: string | null;
   /** The thread's active run, when it has one, so the operation reaches its timeline. */
   readonly runId: string | null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function toastFailure(title: string, description: string): void {
-  toast({ description, title, variant: 'destructive' });
+  /** Selected thread identity; archive confirmation must never transfer across threads. */
+  readonly threadId: string | null;
 }
 
 function rejectWithToast(title: string, description: string): never {
@@ -343,6 +342,30 @@ function computeRepositorySetupConsent(
     repositoryPath: repositorySetup.repositoryPath,
     scriptPath: repositorySetup.scriptPath,
   };
+}
+
+function missingWorktreeDiagnostic(input: {
+  readonly currentWorktreeId: string | null;
+  readonly hasAttemptedForCurrentId: boolean;
+  readonly listError: string | null;
+  readonly listing: boolean;
+  readonly listRevision: number;
+  readonly missingWorktreeName: string | null;
+}): string | null {
+  if (
+    !(
+      input.missingWorktreeName &&
+      input.listRevision > 0 &&
+      !input.listing &&
+      input.hasAttemptedForCurrentId
+    )
+  ) {
+    return null;
+  }
+  if (input.listError) {
+    return `Could not verify the bound worktree because the worktree list is unavailable: ${input.listError}`;
+  }
+  return `The bound worktree ${input.currentWorktreeId ?? '(unknown)'} is missing from the refreshed worktree list.`;
 }
 
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
@@ -639,46 +662,16 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     [addRootDirectoryByPath, args.onSelectWorktree, refreshList]
   );
 
-  const onArchive = useCallback((): void => {
-    const worktreeId = args.checkout.worktreeId;
-    if (!(bridge && worktreeId)) {
-      return;
-    }
-    setPending(true);
-    // Hand off FIRST, archive only once that resolves. Archiving first (the
-    // original order) could succeed and then leave a failed hand-off with
-    // the thread still bound to a now-archived worktree — `refreshList`
-    // turns that into a missing-worktree diagnostic chip, which offers no
-    // hand-off or picker action, stranding the thread with no recovery path.
-    // With this order: a failed hand-off archives nothing (thread stays
-    // safely on the still-live worktree; retry the hand-off/archive), and a
-    // failed archive after a successful hand-off leaves the thread safely
-    // Local with the worktree still on disk (retry Archive from the
-    // picker-side actions, or from the thread that still lists it).
-    void (async () => {
-      try {
-        await args.onHandOffToLocal();
-      } catch (error) {
-        toastFailure('Could not hand off to Local — worktree not archived', errorMessage(error));
-        return;
-      }
-      try {
-        const result = await bridge.archive({
-          worktreeId,
-          ...(args.runId ? { runId: args.runId } : {}),
-        });
-        if (!result.ok) {
-          toastFailure('Thread handed off — worktree not archived', result.error);
-          return;
-        }
-        await refreshList();
-      } catch (error) {
-        toastFailure('Thread handed off — worktree not archived', errorMessage(error));
-      }
-    })().finally(() => {
-      setPending(false);
-    });
-  }, [args.checkout.worktreeId, args.onHandOffToLocal, args.runId, bridge, refreshList]);
+  const { archiveConfirmation, onArchive } = useWorktreeArchiveAction({
+    bridge,
+    onHandOffToLocal: args.onHandOffToLocal,
+    refreshList,
+    runId: args.runId,
+    setPending,
+    threadId: args.threadId,
+    worktreeId: currentWorktreeId,
+    worktreeName: currentEntry?.name ?? 'worktree',
+  });
 
   const onHandOffToLocal = useCallback((): void => {
     setPending(true);
@@ -784,12 +777,14 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const missingWorktreeName = missingWorktreePath
     ? (missingWorktreePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? missingWorktreePath)
     : null;
-  const missingWorktreeReason =
-    missingWorktreeName && listRevision > 0 && !listing && hasAttemptedForCurrentId
-      ? listError
-        ? `Could not verify the bound worktree because the worktree list is unavailable: ${listError}`
-        : `The bound worktree ${currentWorktreeId ?? '(unknown)'} is missing from the refreshed worktree list.`
-      : null;
+  const missingWorktreeReason = missingWorktreeDiagnostic({
+    currentWorktreeId,
+    hasAttemptedForCurrentId,
+    listError,
+    listing,
+    listRevision,
+    missingWorktreeName,
+  });
 
   return useMemo(() => {
     if (!(bridge && args.primaryRootId)) {
@@ -806,6 +801,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     const disabled = createDisabledReason(args.firstRequestState, settings);
     if (!args.isRepository) {
       return {
+        archiveConfirmation: null,
         baseRefs: BASE_REFS,
         createDisabledReason: 'Not a git repository',
         defaultBranchPrefix: 'bs/',
@@ -837,6 +833,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       };
     }
     return {
+      archiveConfirmation,
       baseRefs: BASE_REFS,
       createDisabledReason: disabled,
       defaultBranchPrefix: 'bs/',
@@ -844,7 +841,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       disabledReason: missingWorktreeReason,
       localPath: args.primaryRootPath,
       managedParentPath,
-      onArchive: currentWorktreeId ? onArchive : undefined,
+      onArchive: currentWorktreeId && args.threadId ? onArchive : undefined,
       onCreate,
       onCreateBranchHere: createBranchHereHandler,
       onHandOffToLocal: currentWorktreeId ? onHandOffToLocal : undefined,
@@ -888,10 +885,12 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     };
   }, [
     args.checkout.branch,
+    archiveConfirmation,
     args.firstRequestState,
     args.isRepository,
     args.primaryRootId,
     args.primaryRootPath,
+    args.threadId,
     bridge,
     createBranchHereHandler,
     currentEntry,

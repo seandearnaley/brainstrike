@@ -608,22 +608,27 @@ ignored-path set
 and the managed worktree's id and canonical path, so it cannot be transferred to
 a different worktree with the same ignored names. When that count is non-zero,
 `archive` requires the caller to echo the current non-empty
-`confirmIgnoredEntries` token; `force` does not bypass this deletion gate.
-When the managed worktree path is already missing, `inspectArchive` returns an
-empty preview with a null token and `archive` skips the ignored-entry gate
-because there is no on-disk target left to delete. Immediately after snapshot
-capture and all branch/remote safety reads, `archive`
-re-reads porcelain status as its final Git operation and rejects a missing or
-stale token before removal. This closes mutations during snapshot capture and
-the post-capture safety checks; no filesystem lock exists, so a mutation after
-that final status read remains an unavoidable local race. The token is a
-stale-confirmation guard: it proves the caller saw the current top-level
-ignored-path set for this worktree, not that a human approved it. Churn beneath
-an already disclosed top-level directory intentionally does not invalidate the
-token. The entry count is not in the token preimage, so it can drift from the
-eventual matching-entry count when nested churn occurs, including under-reporting
-it while the token stays valid; a newly created nested secret is deleted under
-that prior directory-level
+`confirmIgnoredEntries` token; `force` does not bypass this deletion gate. Both
+the Mode chip and Worktree Map require an explicit destructive confirmation when
+the count is non-zero. The Mode chip's confirmation field is required (nullable,
+never optional), and pending confirmation state binds both the selected thread
+and worktree. Either selection changing clears it, so returning to the old
+selection cannot resurrect a stale destructive action. When the managed
+worktree path is already missing, `inspectArchive` returns an empty preview with
+a null token and `archive` skips the ignored-entry gate because there is no
+on-disk target left to delete. Immediately after snapshot capture and all
+branch/remote safety reads, `archive` re-reads porcelain
+status as its final Git operation and rejects a missing or stale token before
+removal. This closes mutations during snapshot capture and the post-capture
+safety checks; no filesystem lock exists, so a mutation after that final status
+read remains an unavoidable local race. The token is a stale-confirmation guard:
+it proves the caller saw the current top-level ignored-path set for this
+worktree, not that a human approved it. Churn beneath an already disclosed
+top-level directory intentionally does not invalidate the token. The entry count
+is not in the token preimage, so it can drift from the eventual matching-entry
+count when nested churn occurs, including under-reporting it while the token
+stays valid; a newly created nested secret is deleted under that prior
+directory-level
 confirmation and is not named separately. Nested Git repositories need separate
 restorability handling tracked by BST-1625. W3 deliberately does NOT take a
 `git worktree lock` for the duration of a run: a lock is globally visible and
