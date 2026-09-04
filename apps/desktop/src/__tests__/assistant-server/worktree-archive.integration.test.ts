@@ -34,10 +34,7 @@ vi.mock('../../assistant-server/worktree-archive', async (importOriginal) => {
 });
 
 import type { GitCommandRunner } from '../../assistant-server/git-service';
-import {
-  captureArchiveSnapshot,
-  inspectWorktreeSafety,
-} from '../../assistant-server/worktree-archive';
+import { captureArchiveSnapshot } from '../../assistant-server/worktree-archive';
 import {
   createWorktreeLedger,
   type WorktreeLedgerDatabase,
@@ -123,40 +120,6 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
           }
         }
       }
-    });
-
-    it('reports ignored entries without treating them as dirty blockers', async () => {
-      writeFileSync(path.join(repo, '.gitignore'), 'ignored.log\n');
-      git(repo, ['add', '.gitignore']);
-      git(repo, ['commit', '-m', 'ignore generated logs']);
-      const service = buildService();
-      const created = await service.create({
-        baseRef: 'main',
-        branch: { name: 'bs/ignored-safety' },
-        createdBy: 'user',
-        name: 'ignored-safety',
-        rootId: 'r-1',
-      });
-      if (!created.ok) {
-        return;
-      }
-      writeFileSync(path.join(created.value.worktree.path, 'ignored.log'), 'generated\n');
-      const cwd = created.value.worktree.path;
-
-      const report = await inspectWorktreeSafety({
-        baseRef: 'main',
-        invoke: (args, timeoutMs = 5000) => execFileGitRunner({ args, cwd, timeoutMs }),
-        lockedReason: null,
-        threadIsRunning: false,
-      });
-
-      expect(report.ok).toBe(true);
-      if (!report.ok) {
-        return;
-      }
-      expect(report.value.ignoredEntryCount).toBe(1);
-      expect(report.value.dirty).toBe(false);
-      expect(report.value.blockers).toEqual([]);
     });
 
     it('captures a snapshot ref even for a CLEAN worktree, then removes it', async () => {

@@ -173,6 +173,7 @@ const WORKTREES_CREATE_CHANNEL = 'worktrees:create' as const;
 const WORKTREES_CREATE_BRANCH_HERE_CHANNEL = 'worktrees:createBranchHere' as const;
 const WORKTREES_CREATE_CONTEXT_CHANNEL = 'worktrees:createContext' as const;
 const WORKTREES_GET_SETTINGS_CHANNEL = 'worktrees:getSettings' as const;
+const WORKTREES_INSPECT_ARCHIVE_CHANNEL = 'worktrees:inspectArchive' as const;
 const WORKTREES_LIST_CHANNEL = 'worktrees:list' as const;
 const WORKTREES_MANAGED_PATHS_CHANNEL = 'worktrees:managedPaths' as const;
 const WORKTREES_RESTORE_CHANNEL = 'worktrees:restore' as const;
@@ -1601,8 +1602,12 @@ if (shouldExposeBridge('changes')) {
 if (shouldExposeBridge('worktrees')) {
   contextBridge.exposeInMainWorld('worktrees', {
     adopt: (params: WorktreeAdoptParams) => ipcRenderer.invoke(WORKTREES_ADOPT_CHANNEL, params),
-    archive: (params: { force?: boolean; runId?: string; worktreeId: string }) =>
-      ipcRenderer.invoke(WORKTREES_ARCHIVE_CHANNEL, params),
+    archive: (params: {
+      confirmIgnoredEntries?: string;
+      force?: boolean;
+      runId?: string;
+      worktreeId: string;
+    }) => ipcRenderer.invoke(WORKTREES_ARCHIVE_CHANNEL, params),
     checkoutStatus: (params: { path: string }) =>
       ipcRenderer.invoke(WORKTREES_CHECKOUT_STATUS_CHANNEL, params),
     create: (params: unknown) => ipcRenderer.invoke(WORKTREES_CREATE_CHANNEL, params),
@@ -1611,6 +1616,8 @@ if (shouldExposeBridge('worktrees')) {
     createContext: (params: { rootId: string }) =>
       ipcRenderer.invoke(WORKTREES_CREATE_CONTEXT_CHANNEL, params),
     getSettings: () => ipcRenderer.invoke(WORKTREES_GET_SETTINGS_CHANNEL),
+    inspectArchive: (params: { worktreeId: string }) =>
+      ipcRenderer.invoke(WORKTREES_INSPECT_ARCHIVE_CHANNEL, params),
     list: () => ipcRenderer.invoke(WORKTREES_LIST_CHANNEL),
     listManagedPaths: () => ipcRenderer.invoke(WORKTREES_MANAGED_PATHS_CHANNEL),
     restore: (params: { worktreeId: string }) =>
