@@ -17,6 +17,7 @@ describe('MCP optional input semantics', () => {
             {
               description: 'List issues. Priority is an optional filter; zero means no priority.',
               inputSchema: {
+                additionalProperties: false,
                 properties: {
                   limit: { type: 'integer' },
                   priority: { maximum: 4, minimum: 0, type: 'integer' },
@@ -59,15 +60,27 @@ describe('MCP optional input semantics', () => {
           id: 'resp-optional-inputs',
           model: 'gpt-5.6-terra',
           object: 'response',
-          output: [
-            {
-              content: [{ annotations: [], text: 'done', type: 'output_text' }],
-              id: 'msg-optional-inputs',
-              role: 'assistant',
-              status: 'completed',
-              type: 'message',
-            },
-          ],
+          output:
+            requests.length === 1
+              ? [
+                  {
+                    arguments: JSON.stringify({ priority: -1, team: 'BST' }),
+                    call_id: 'call-invalid',
+                    id: 'fc-invalid',
+                    name: 'linear_list_issues',
+                    status: 'completed',
+                    type: 'function_call',
+                  },
+                ]
+              : [
+                  {
+                    content: [{ annotations: [], text: 'done', type: 'output_text' }],
+                    id: 'msg-optional-inputs',
+                    role: 'assistant',
+                    status: 'completed',
+                    type: 'message',
+                  },
+                ],
           status: 'completed',
           usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
         });
@@ -81,7 +94,9 @@ describe('MCP optional input semantics', () => {
       tools: { linear_list_issues: tool },
     });
     await agent.generate('List the latest five BST issues.');
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(2);
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(requests[1])).toMatch(/validation/i);
     expect(requests[0]).toMatchObject({
       tools: expect.arrayContaining([
         expect.objectContaining({

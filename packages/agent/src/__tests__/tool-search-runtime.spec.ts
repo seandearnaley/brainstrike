@@ -213,11 +213,28 @@ describe('BrainstrikeToolSearchProcessor', () => {
     });
     const next = await processor.processInputStep({ ...args, stepNumber: 1 });
     expect(Object.keys(next.tools)).toContain('linear_action_60');
-    expect(Object.keys(next.tools).length).toBeLessThanOrEqual(5);
+    expect(Object.keys(next.tools)).toHaveLength(5);
     expect(JSON.stringify(lastPage)).not.toContain('inputSchema');
     await expect(first.tools.list_available_tools.execute?.({ offset: 62 })).rejects.toThrow(
       'offset exceeds'
     );
+  });
+
+  it('orders names independently of locale and treats the exact end as an empty page', async () => {
+    const tools = Object.fromEntries(
+      ['linear_a', 'linear_B'].map((id) => [id, createDeferredTool()])
+    );
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: tools,
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map(Object.keys(tools).map((id) => [id, id])),
+    });
+    const { tools: controls } = await processor.processInputStep(createStepArgs());
+    const page = await controls.list_available_tools.execute?.({ prefix: 'linear' });
+    expect(page?.tools.map((t) => t.name)).toEqual(['linear_B', 'linear_a']);
+    await expect(
+      controls.list_available_tools.execute?.({ offset: 2, prefix: 'linear' })
+    ).resolves.toMatchObject({ nextOffset: null, tools: [], total: 2 });
   });
 
   it('keeps catalog membership scoped to each runtime', async () => {
@@ -509,6 +526,8 @@ describe('BrainstrikeToolSearchProcessor', () => {
     await expect(processor.getLoadedToolsForRequestContext()).resolves.toHaveProperty(
       DEFERRED_TOOL_ID
     );
+    const step = await processor.processInputStep(createStepArgs());
+    expect(step.tools).toHaveProperty('list_available_tools');
   });
 
   it('pins Mastra context storage as empty-or-complete for loaded approval tools', async () => {

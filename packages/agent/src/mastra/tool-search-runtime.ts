@@ -366,7 +366,7 @@ export class BrainstrikeToolSearchProcessor {
       options.deferredTools,
       options.toolNameMap
     );
-    this.toolNameMap = options.toolNameMap;
+    this.toolNameMap = new Map(options.toolNameMap);
   }
 
   subscribeSearchObservations(observer: ToolDiscoverySearchObserver): () => void {
@@ -477,9 +477,16 @@ export class BrainstrikeToolSearchProcessor {
           toolId !== LIST_AVAILABLE_TOOLS_ID &&
           !baseToolIds.has(toolId)
       );
-      const loadedToolIds = loadedSanitizedIds.map(
-        (toolId) => this.toolNameMap.get(toolId) ?? toolId
-      );
+      const loadedToolIds = loadedSanitizedIds.map((toolId) => {
+        const originalId = this.toolNameMap.get(toolId);
+        if (!originalId) {
+          throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
+            context: { phase: 'loaded-tool-mapping', sanitizedId: toolId },
+            detail: 'loaded tool is missing its original-name mapping',
+          });
+        }
+        return originalId;
+      });
       const threadIdValue = args.requestContext?.get(MASTRA_THREAD_ID_KEY);
       if (
         threadIdValue !== undefined &&

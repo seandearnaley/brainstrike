@@ -51,7 +51,12 @@ export function createDeferredToolCatalog(
         originalName,
       };
     })
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .sort((left, right) => {
+      if (left.name < right.name) {
+        return -1;
+      }
+      return left.name > right.name ? 1 : 0;
+    });
 
   return createTool({
     description:

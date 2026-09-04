@@ -1230,6 +1230,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     const executions: string[] = [];
     const offeredToolNames: string[][] = [];
     let turn = 0;
+    const catalogOutputs: unknown[] = [];
     const deferredTool = createTool({
       description: 'List workspace context files and metadata.',
       execute: async () => {
@@ -1254,14 +1255,21 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
       doStream: (options: LanguageModelV2CallOptions) => {
         offeredToolNames.push((options.tools ?? []).map((tool) => tool.name));
+        if (turn === 1 || turn === 2) {
+          catalogOutputs.push(
+            readToolResultOutput(options.prompt.findLast((m) => m.role === 'tool'))
+          );
+        }
         turn += 1;
-        if (turn === 1) {
+        if (turn <= 2) {
           return Promise.resolve({
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
               {
-                input: JSON.stringify({ prefix: 'brainstrike' }),
-                toolCallId: 'call-catalog-1',
+                input: JSON.stringify(
+                  turn === 1 ? { prefix: 'absent' } : { offset: 1, prefix: 'brainstrike' }
+                ),
+                toolCallId: `call-catalog-${turn}`,
                 toolName: 'list_available_tools',
                 type: 'tool-call',
               },
@@ -1269,7 +1277,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             ]),
           });
         }
-        if (turn === 2) {
+        if (turn === 3) {
           return Promise.resolve({
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
@@ -1283,7 +1291,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             ]),
           });
         }
-        if (turn === 3) {
+        if (turn === 4) {
           return Promise.resolve({
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
@@ -1337,10 +1345,15 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
     expect(offeredToolNames[0]).toEqual(['search_tools', 'list_available_tools']);
     expect(offeredToolNames[1]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[2]).toEqual([
+    expect(offeredToolNames[2]).toEqual(['search_tools', 'list_available_tools']);
+    expect(offeredToolNames[3]).toEqual([
       'search_tools',
       'brainstrike_listWorkspaceContext',
       'list_available_tools',
+    ]);
+    expect(catalogOutputs).toEqual([
+      { type: 'json', value: { catalogTotal: 1, nextOffset: null, tools: [], total: 0 } },
+      { type: 'json', value: { catalogTotal: 1, nextOffset: null, tools: [], total: 1 } },
     ]);
     expect(executions).toEqual(['ran']);
     expect(chunks).toContainEqual(

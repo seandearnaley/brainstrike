@@ -4652,7 +4652,13 @@ unavailable. `list_available_tools` therefore exposes the same post-gate,
 per-runtime catalog without loading definitions or executing MCP requests.
 It supports case-insensitive name prefixes and pages of 50 entries, reports
 the matching total and `nextOffset` (null only at the end), and explicitly
-marks descriptions shortened to 160 characters. Models enumerate with it and
+marks descriptions shortened to 160 characters. Ordering uses code-unit name
+comparison rather than the host locale. Each prefix/offset query is independent;
+clients must keep the prefix when following nextOffset. An offset exactly at
+the matching count returns the empty end page; an offset beyond it is invalid.
+The name map is total for eligible tools and snapshotted per processor; missing
+mappings fail visibly at construction or loaded-tool projection.
+Models enumerate with it and
 use an exact listed name in `search_tools` to load a capability. Inventory
 results never enter Mastra's loaded-tool state; search results and instructions
 explicitly distinguish ranked matches from the complete catalog. No new store,

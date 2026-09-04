@@ -54,6 +54,8 @@ export function createTestHost(clients: Record<string, TestHostClient>): {
         throw new Error('unknown server');
       }
       if (operation.type === 'tools/list') {
+        // Catalog fixtures cross the same validated DTO boundary as the host.
+        // Unlike raw Tasks/Apps call results below, these are ordinary core lists.
         return parseMcpHostOperationResult({
           result: await client.listTools(),
           type: 'tools/list',
