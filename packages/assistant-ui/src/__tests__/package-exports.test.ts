@@ -12,6 +12,15 @@ interface PackageManifest {
 const readManifest = (): PackageManifest =>
   JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')) as PackageManifest;
 
+type RootExportNames = keyof typeof import('../index');
+type ForbiddenArchiveRootExport = Extract<
+  RootExportNames,
+  'WorktreeArchiveConfirmation' | 'WorktreeArchiveConfirmationDialog'
+>;
+
+const rootHasNoForbiddenArchiveExports: ForbiddenArchiveRootExport extends never ? true : never =
+  true;
+
 describe('@brainstrike/assistant-ui package contract', () => {
   it('publishes the required export subpaths', () => {
     const manifest = readManifest();
@@ -57,6 +66,9 @@ describe('@brainstrike/assistant-ui package contract', () => {
         continue;
       }
 
+      expect(importTarget, `${exportName} import target`).toMatch(/^\.\/dist\/.+\.js$/);
+      expect(typesTarget, `${exportName} types target`).toMatch(/^\.\/dist\/.+\.d\.ts$/);
+
       const importStem = importTarget.replace(/^\.\/dist\//, '').replace(/\.js$/, '');
       const typesStem = typesTarget.replace(/^\.\/dist\//, '').replace(/\.d\.ts$/, '');
 
@@ -73,6 +85,7 @@ describe('@brainstrike/assistant-ui package contract', () => {
   it('keeps the archive dialog off the root barrel', () => {
     const rootSource = readFileSync(join(packageRoot, 'src/index.ts'), 'utf8');
 
+    expect(rootHasNoForbiddenArchiveExports).toBe(true);
     expect(rootSource).not.toContain('worktree-archive-confirmation-dialog');
   });
 });
