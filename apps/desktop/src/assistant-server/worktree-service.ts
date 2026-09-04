@@ -56,7 +56,7 @@ import {
   captureArchiveSnapshot,
   captureMissingArchiveSnapshot,
   inspectWorktreeSafety,
-  type WorktreeSafetyReport,
+  type WorktreeSafetyReport as SafetyReport,
 } from './worktree-archive';
 import {
   ignoredEntriesArchiveBlocker,
@@ -462,9 +462,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { ok: true, value: entries };
   }
 
-  async function inspectArchiveRow(
-    row: ManagedWorktreeRow
-  ): Promise<GitResult<WorktreeSafetyReport>> {
+  async function inspectArchiveRow(row: ManagedWorktreeRow): Promise<GitResult<SafetyReport>> {
     const inventory = await deps.resolveInventory();
     const descriptor = inventory.repositories
       .flatMap((repository) => repository.worktrees)
@@ -474,6 +472,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       invoke: invokeIn(row.path),
       lockedReason: descriptor?.lockedReason ?? null,
       threadIsRunning: await ledger.hasRunningThread(row.id),
+      worktree: { id: row.id, path: row.path },
     });
   }
 
@@ -494,7 +493,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { ok: true, value: null };
   }
 
-  function resolveArchiveBlocker(safety: WorktreeSafetyReport, force: boolean): string | null {
+  function resolveArchiveBlocker(safety: SafetyReport, force: boolean): string | null {
     if (safety.threadIsRunning) {
       // The ONE blocker `force` never overrides.
       const runningBlocker = safety.blockers.find((blocker) => blocker.length > 0);

@@ -261,10 +261,12 @@ export interface WorktreeArchiveResult {
 
 /** Read-only disclosure shown before archive can delete ignored files. */
 export interface WorktreeArchivePreview {
-  /** Opaque proof binding confirmation to the exact ignored-path set inspected. */
+  /** Opaque proof binding this worktree to the exact ignored-path set inspected. */
   readonly confirmationToken: string | null;
   readonly ignoredEntryCount: number;
   /** Bounded, sorted top-level paths only; never file contents. */
   readonly ignoredTopLevelEntries: readonly string[];
   readonly ignoredTopLevelEntriesTruncated: boolean;
+  /** Total top-level paths represented by the token, including undisplayed paths. */
+  readonly ignoredTopLevelEntryCount: number;
 }

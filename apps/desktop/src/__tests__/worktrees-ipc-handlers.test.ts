@@ -293,6 +293,7 @@ describe('worktrees IPC handlers', () => {
         ignoredEntryCount: 1,
         ignoredTopLevelEntries: ['.env'],
         ignoredTopLevelEntriesTruncated: false,
+        ignoredTopLevelEntryCount: 1,
       },
     });
     await handlers().inspectArchive({ worktreeId: 'wt-1' });
