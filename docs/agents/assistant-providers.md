@@ -608,9 +608,21 @@
   one source. Do NOT re-declare it. The contrast with `AnthropicEffort` is the
   whole point: that one mirrors a zod schema `@ai-sdk/anthropic` never exports
   as a value, so its three copies are unavoidable and are policed by
-  `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`; nothing
-  upstream forces a copy here, so the copies were deleted instead of a second
-  drift contract being added.
+  `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`. The OpenAI
+  copies were deleted, but the single const still mirrors an upstream
+  vocabulary: the installed `@ai-sdk/openai` now ships `reasoningEffort` as a
+  literal union in its chat-options declaration. Membership and the version
+  annotated on the const (the ONLY place the pin lives — do not repeat the
+  number here) are policed by
+  `scripts/__tests__/ai-sdk-openai-mirror-contract.test.mjs` against the
+  installed provider's `dist/index.d.ts`. This contract covers the platform
+  `openai` provider's chat options only: the Responses-API `reasoningEffort` is
+  an open `string`, not an enumerable oracle, and OpenRouter's cross-vendor
+  values are still governed per model by `resolveReasoningControlsAvailability`,
+  not by this contract. Because the same const types OpenRouter's per-model
+  ladders, a WIDER finding (a value OpenAI's chat schema dropped) is a
+  decision, not a deletion order: drop the value if no provider routes it, or
+  split the OpenRouter vocabulary out of this const if OpenRouter still does.
   The const is union MEMBERSHIP, not an offered list — the
   `ANTHROPIC_REASONING_EFFORTS` ruling above is unchanged by it. What a given
   model offers stays in `resolveReasoningControlsAvailability`; never express an
