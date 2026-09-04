@@ -54,6 +54,12 @@ export function registerWorktreesIpcHandlers(handlers: WorktreesIpcHandlers): ()
   );
   registry.registerAuthorizedInvoke(
     'worktrees',
+    DESKTOP_IPC_CHANNELS.worktrees.inspectArchive,
+    { roles: ['visible-ui'] },
+    (_event, payload: unknown) => handlers.inspectArchive(payload)
+  );
+  registry.registerAuthorizedInvoke(
+    'worktrees',
     DESKTOP_IPC_CHANNELS.worktrees.list,
     { roles: ['visible-ui'] },
     () => handlers.list()

@@ -317,6 +317,7 @@ export const DESKTOP_IPC_CHANNELS = {
     createBranchHere: 'worktrees:createBranchHere',
     createContext: 'worktrees:createContext',
     getSettings: 'worktrees:getSettings',
+    inspectArchive: 'worktrees:inspectArchive',
     list: 'worktrees:list',
     managedPaths: 'worktrees:managedPaths',
     restore: 'worktrees:restore',

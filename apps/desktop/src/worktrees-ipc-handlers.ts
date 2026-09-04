@@ -15,6 +15,7 @@ import type {
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeAdoptParams,
+  WorktreeArchivePreview,
   WorktreeArchiveResult,
   WorktreeCheckoutStatus,
   WorktreeCreateContext,
@@ -36,6 +37,7 @@ export interface WorktreesIpcHandlers {
   readonly createBranchHere: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
   readonly createContext: (payload: unknown) => Promise<GitResult<WorktreeCreateContext>>;
   readonly getSettings: () => Promise<GitResult<WorktreeSettings>>;
+  readonly inspectArchive: (payload: unknown) => Promise<GitResult<WorktreeArchivePreview>>;
   readonly list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
   readonly listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
   readonly restore: (payload: unknown) => Promise<GitResult<WorktreeCreateResult>>;
@@ -178,6 +180,7 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
 }
 
 function validateArchive(payload: unknown): GitResult<{
+  readonly confirmIgnoredEntries?: string;
   readonly force?: boolean;
   readonly runId?: string;
   readonly worktreeId: string;
@@ -188,16 +191,35 @@ function validateArchive(payload: unknown): GitResult<{
   if (payload['force'] !== undefined && typeof payload['force'] !== 'boolean') {
     return { error: 'worktrees:archive force must be a boolean when present.', ok: false };
   }
+  if (
+    payload['confirmIgnoredEntries'] !== undefined &&
+    !nonEmptyString(payload['confirmIgnoredEntries'])
+  ) {
+    return {
+      error: 'worktrees:archive confirmIgnoredEntries must be a non-empty string when present.',
+      ok: false,
+    };
+  }
   return {
     ok: true,
     value: {
       worktreeId: payload['worktreeId'],
+      ...(nonEmptyString(payload['confirmIgnoredEntries'])
+        ? { confirmIgnoredEntries: payload['confirmIgnoredEntries'] }
+        : {}),
       ...(typeof payload['force'] === 'boolean' ? { force: payload['force'] } : {}),
       // Schema-stability field: forwarded now but intentionally inert until
       // the worktree timeline lands in Task 18.
       ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
     },
   };
+}
+
+function validateInspectArchive(payload: unknown): GitResult<{ readonly worktreeId: string }> {
+  if (!(isRecord(payload) && nonEmptyString(payload['worktreeId']))) {
+    return { error: 'worktrees:inspectArchive requires { worktreeId }.', ok: false };
+  }
+  return { ok: true, value: { worktreeId: payload['worktreeId'] } };
 }
 
 function validateCreateBranchHere(payload: unknown): GitResult<{
@@ -312,6 +334,15 @@ export function createWorktreesIpcHandlers(
       } catch (error) {
         return failed('worktrees:getSettings', error);
       }
+    },
+    inspectArchive: async (payload) => {
+      const params = validateInspectArchive(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:inspectArchive', (service) =>
+        service.inspectArchive(params.value)
+      );
     },
     list: async () => await withService('worktrees:list', (service) => service.list()),
     listManagedPaths: async () =>

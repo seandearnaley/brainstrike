@@ -125,8 +125,8 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       }
     });
 
-    it('reports ignored entries without treating them as dirty blockers', async () => {
-      writeFileSync(path.join(repo, '.gitignore'), 'ignored.log\n');
+    it('reports ignored entries and their top-level paths without treating them as dirty blockers', async () => {
+      writeFileSync(path.join(repo, '.gitignore'), '.env\ndata/*.sqlite\n');
       git(repo, ['add', '.gitignore']);
       git(repo, ['commit', '-m', 'ignore generated logs']);
       const service = buildService();
@@ -140,7 +140,9 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       if (!created.ok) {
         return;
       }
-      writeFileSync(path.join(created.value.worktree.path, 'ignored.log'), 'generated\n');
+      writeFileSync(path.join(created.value.worktree.path, '.env'), 'SECRET=test\n');
+      mkdirSync(path.join(created.value.worktree.path, 'data'), { recursive: true });
+      writeFileSync(path.join(created.value.worktree.path, 'data', 'local.sqlite'), 'local\n');
       const cwd = created.value.worktree.path;
 
       const report = await inspectWorktreeSafety({
@@ -154,9 +156,26 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       if (!report.ok) {
         return;
       }
-      expect(report.value.ignoredEntryCount).toBe(1);
+      expect(report.value.ignoredEntryCount).toBe(2);
+      expect(report.value.ignoredTopLevelEntries).toEqual(['.env', 'data']);
       expect(report.value.dirty).toBe(false);
       expect(report.value.blockers).toEqual([]);
+
+      const originalConfirmationToken = report.value.ignoredEntriesConfirmationToken;
+      writeFileSync(path.join(created.value.worktree.path, 'data', 'second.sqlite'), 'local-2\n');
+      const changedReport = await inspectWorktreeSafety({
+        baseRef: 'main',
+        invoke: (args, timeoutMs = 5000) => execFileGitRunner({ args, cwd, timeoutMs }),
+        lockedReason: null,
+        threadIsRunning: false,
+      });
+      expect(changedReport.ok).toBe(true);
+      if (!changedReport.ok) {
+        return;
+      }
+      expect(changedReport.value.ignoredEntryCount).toBe(3);
+      expect(changedReport.value.ignoredTopLevelEntries).toEqual(['.env', 'data']);
+      expect(changedReport.value.ignoredEntriesConfirmationToken).toBe(originalConfirmationToken);
     });
 
     it('captures a snapshot ref even for a CLEAN worktree, then removes it', async () => {

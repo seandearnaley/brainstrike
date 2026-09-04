@@ -729,6 +729,7 @@ declare global {
     worktrees?: {
       adopt: (params: WorktreeAdoptParams) => Promise<GitResult<ManagedWorktreeRow>>;
       archive: (params: {
+        confirmIgnoredEntries?: string;
         force?: boolean;
         runId?: string;
         worktreeId: string;
@@ -741,6 +742,9 @@ declare global {
       }) => Promise<GitResult<ManagedWorktreeRow>>;
       createContext: (params: { rootId: string }) => Promise<GitResult<WorktreeCreateContext>>;
       getSettings: () => Promise<GitResult<WorktreeSettings>>;
+      inspectArchive: (params: {
+        worktreeId: string;
+      }) => Promise<GitResult<import('@brainstrike/types').WorktreeArchivePreview>>;
       list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
       listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
       restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;

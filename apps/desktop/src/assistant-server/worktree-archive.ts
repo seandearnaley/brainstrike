@@ -14,7 +14,7 @@
  * other ignored trees are NOT captured — the snapshot is the user's work, not
  * their dependency cache.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -47,10 +47,15 @@ export function archiveSnapshotRef(worktreeId: string): string {
 export interface WorktreeSafetyReport {
   readonly blockers: readonly string[];
   readonly dirty: boolean;
+  readonly ignoredEntriesConfirmationToken: string | null;
   readonly ignoredEntryCount: number;
+  readonly ignoredTopLevelEntries: readonly string[];
+  readonly ignoredTopLevelEntriesTruncated: boolean;
   readonly threadIsRunning: boolean;
   readonly unpushedCommits: number;
 }
+
+const MAX_IGNORED_TOP_LEVEL_ENTRIES = 10;
 
 interface UnpushedSafety {
   readonly blocker: string | null;
@@ -124,15 +129,34 @@ export async function inspectWorktreeSafety(input: {
   }
   const statusRun = await invokeGitHookFree(input.invoke, [
     'status',
-    '--porcelain',
+    '--porcelain=v1',
+    '-z',
     '--untracked-files=all',
     '--ignored=matching',
   ]);
   if (statusRun.exitCode !== 0) {
     return { error: describeFailure(statusRun), ok: false };
   }
-  const statusEntries = statusRun.stdout.split('\n').filter((entry) => entry.length > 0);
-  const ignoredEntryCount = statusEntries.filter((entry) => entry.startsWith('!! ')).length;
+  const statusEntries = statusRun.stdout.split('\0').filter((entry) => entry.length > 0);
+  const ignoredEntries: string[] = [];
+  for (const entry of statusEntries) {
+    if (entry.startsWith('!! ')) {
+      ignoredEntries.push(entry.slice(3));
+    }
+  }
+  const ignoredEntryCount = ignoredEntries.length;
+  const ignoredTopLevelEntrySet = new Set(
+    ignoredEntries.map((entry) => {
+      const separatorIndex = entry.indexOf('/');
+      return separatorIndex === -1 ? entry : entry.slice(0, separatorIndex);
+    })
+  );
+  const allIgnoredTopLevelEntries = [...ignoredTopLevelEntrySet].sort();
+  const ignoredEntriesConfirmationToken =
+    ignoredEntryCount === 0
+      ? null
+      : createHash('sha256').update(JSON.stringify(allIgnoredTopLevelEntries)).digest('hex');
+  const ignoredTopLevelEntries = allIgnoredTopLevelEntries.slice(0, MAX_IGNORED_TOP_LEVEL_ENTRIES);
   const dirty = statusEntries.some((entry) => !entry.startsWith('!! '));
   if (dirty) {
     blockers.push(
@@ -151,7 +175,11 @@ export async function inspectWorktreeSafety(input: {
     value: {
       blockers,
       dirty,
+      ignoredEntriesConfirmationToken,
       ignoredEntryCount,
+      ignoredTopLevelEntries,
+      ignoredTopLevelEntriesTruncated:
+        ignoredTopLevelEntries.length < allIgnoredTopLevelEntries.length,
       threadIsRunning: input.threadIsRunning,
       unpushedCommits: unpushed.value.count,
     },
