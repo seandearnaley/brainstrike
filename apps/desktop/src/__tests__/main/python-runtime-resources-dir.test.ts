@@ -115,9 +115,11 @@ describe('resolveDesktopPythonRuntimeInstallDir', () => {
     ).toBe('/Applications/Brainstrike.app/Contents/Resources/python-runtime');
   });
 
-  it('refuses an arch that has no unpack directory instead of guessing', () => {
-    expect(() =>
+  it('only derives a path: an unsupported arch is classified by resolvePythonBinary, not here (PR #2958 review)', () => {
+    // A guard here would throw synchronously from the Promise-returning
+    // resolveDesktopPythonExecutable and lose the typed python_* family.
+    expect(
       resolveDesktopPythonRuntimeInstallDir(false, '/repo/resources/python-runtime', 'ia32')
-    ).toThrow('ia32');
+    ).toBe(path.join('/repo/resources/python-runtime', 'unpacked', 'ia32'));
   });
 });

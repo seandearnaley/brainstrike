@@ -193,9 +193,8 @@ async function writeRealArchive(destPath: string, marker: string): Promise<strin
     mode: 0o755,
   });
   await execFileAsync('/usr/bin/tar', ['-czf', destPath, '-C', stage, 'python']);
-  const { createReadStream } = await import('node:fs');
   const hash = createHash('sha256');
-  for await (const chunk of createReadStream(destPath)) {
+  for await (const chunk of fs.createReadStream(destPath)) {
     hash.update(chunk);
   }
   return hash.digest('hex');
@@ -212,7 +211,10 @@ describe('electronArchForTarget', () => {
   });
 });
 
-describe.skipIf(process.platform !== 'darwin')('unpack-python-runtime (build-time, darwin)', () => {
+// The unpack needs only an absolute /usr/bin/tar (darwin AND ubuntu runners
+// have one; Windows does not), so the gate names that dependency rather than
+// a platform (PR #2958 review) and the suite runs on the lane that gates merge.
+describe.skipIf(!fs.existsSync('/usr/bin/tar'))('unpack-python-runtime (build-time)', () => {
   async function createUnpackFixture(): Promise<{
     resourcesDir: string;
     sha256: string;
@@ -260,6 +262,18 @@ describe.skipIf(process.platform !== 'darwin')('unpack-python-runtime (build-tim
     await unpackPythonRuntime({ log, resourcesDir });
     expect(fs.existsSync(canary)).toBe(true);
     expect(log.mock.calls.flat().join('\n')).toContain('already unpacked');
+  });
+
+  it('re-unpacks when the sentinel matches but the interpreter is gone (Codex review)', async () => {
+    const { resourcesDir } = await createUnpackFixture();
+    await unpackPythonRuntime({ log: () => undefined, resourcesDir });
+    const installDir = path.join(resourcesDir, 'unpacked', 'arm64');
+    const binary = path.join(installDir, 'python', 'bin', 'python3');
+    await fsPromises.rm(binary);
+    const log = vi.fn();
+    await unpackPythonRuntime({ log, resourcesDir });
+    expect(fs.existsSync(binary)).toBe(true);
+    expect(log.mock.calls.flat().join('\n')).not.toContain('already unpacked');
   });
 
   it('replaces an install whose sentinel records a different archive hash', async () => {

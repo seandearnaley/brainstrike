@@ -49,12 +49,6 @@ export function resolveDesktopPythonRuntimeResourcesDir(
 }
 
 /**
- * Electron-builder arch names that have a build-time unpack directory
- * (`scripts/fetch-python-runtime.mjs` writes one per manifest target).
- */
-const UNPACKED_ARCHES: ReadonlySet<string> = new Set(['arm64', 'x64']);
-
-/**
  * BST-1627: where the build-time-unpacked interpreter tree lives.
  *
  * Packaged: `build.mac.extraResources` copies
@@ -62,17 +56,18 @@ const UNPACKED_ARCHES: ReadonlySet<string> = new Set(['arm64', 'x64']);
  * `<Resources>/python-runtime`, the same directory the manifest lands in, so
  * the install dir IS the resources dir. Development: the per-arch directory
  * the fetch script unpacks into, under the checked-in resources dir.
+ *
+ * Deliberately no arch validation here (PR #2958 review): this only derives a
+ * path. `resolvePythonBinary` classifies platform/arch FIRST and rejects an
+ * unsupported one with the typed `python_unsupported_platform`, so a guard
+ * here would only turn that typed rejection into an untyped synchronous
+ * throw from a Promise-returning API.
  */
 export function resolveDesktopPythonRuntimeInstallDir(
   isPackaged: boolean,
   resourcesDir: string,
   arch: string
 ): string {
-  if (!UNPACKED_ARCHES.has(arch)) {
-    throw new Error(
-      `Python runtime: no build-time unpack exists for arch "${arch}" (expected one of ${[...UNPACKED_ARCHES].join(', ')})`
-    );
-  }
   if (isPackaged) {
     return resourcesDir;
   }

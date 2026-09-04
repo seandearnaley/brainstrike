@@ -184,6 +184,24 @@ async function readSentinel(installDir) {
   }
 }
 
+/**
+ * A matching sentinel alone is not proof the tree is intact (Codex review on
+ * PR #2958): the ignored unpacked/ tree can lose files after the sentinel was
+ * written, and a release build must never package that silently. Only a
+ * tree whose sentinel matches AND whose interpreter is executable is reused.
+ */
+async function isUnpackedTreeUsable(installDir, expectedSha256) {
+  if ((await readSentinel(installDir)) !== expectedSha256) {
+    return false;
+  }
+  try {
+    await fsPromises.access(path.join(installDir, 'python', 'bin', 'python3'), fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function unpackOne({ archivePath, entry, installDir, log }) {
   // Re-verify right before extraction: the fetch step verified the download,
   // but the file on disk is what actually gets unpacked and signed.
@@ -217,8 +235,9 @@ async function unpackOne({ archivePath, entry, installDir, log }) {
 /**
  * Unpack every supported target's verified archive into
  * `<resourcesDir>/unpacked/<electron arch>/`. Idempotent: a tree whose
- * sentinel already records the manifest's sha256 is left untouched; any other
- * state (no tree, older archive, partial unpack) is replaced wholesale.
+ * sentinel already records the manifest's sha256 AND whose interpreter is
+ * executable is left untouched; any other state (no tree, older archive,
+ * partial or damaged unpack) is replaced wholesale.
  */
 export async function unpackPythonRuntime({
   log = (message) => console.error(message),
@@ -230,7 +249,7 @@ export async function unpackPythonRuntime({
     const fileName = new URL(renderAssetUrl(manifest, target)).pathname.split('/').at(-1);
     const archivePath = path.join(resourcesDir, fileName);
     const installDir = path.join(resourcesDir, 'unpacked', electronArchForTarget(target));
-    if ((await readSentinel(installDir)) === entry.sha256) {
+    if (await isUnpackedTreeUsable(installDir, entry.sha256)) {
       log(`python-runtime: ${installDir} already unpacked from ${fileName}; skipping.`);
       continue;
     }
