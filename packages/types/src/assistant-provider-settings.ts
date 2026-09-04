@@ -28,7 +28,7 @@
  * per-family by `resolveReasoningControlsAvailability`
  * (`@brainstrike/assistant-contract/model-reasoning`), and narrowing an offered
  * list must never be expressed by narrowing this declaration — see the
- * `ANTHROPIC_REASONING_EFFORTS` ruling in `docs/agents/assistant-providers.md`.
+ * per-model `anthropicReasoning` ladder ruling in `docs/agents/assistant-providers.md`.
  * Its only job is to be the single place the values are written down.
  *
  * Declared as a value so the one place that needs them at RUNTIME — the Hosted

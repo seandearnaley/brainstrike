@@ -191,7 +191,15 @@ export function buildEffortControlModel(
       };
     }
     case 'anthropic': {
-      const current = settings.anthropicEffort;
+      if (availability.efforts.length === 0) {
+        return;
+      }
+      // Match the request guard: persisted efforts outside this model's
+      // offered ladder are absent, never an active selection or slider stop.
+      const current =
+        settings.anthropicEffort && availability.efforts.includes(settings.anthropicEffort)
+          ? settings.anthropicEffort
+          : undefined;
       return {
         // Parity with AnthropicReasoningSection's effort select.
         buildUpdate: (value) => ({
@@ -200,7 +208,7 @@ export function buildEffortControlModel(
         currentLabel: current ? ANTHROPIC_EFFORT_LABELS[current] : 'Auto',
         currentValue: current ?? 'auto',
         options: availability.efforts.map((effort) => ({
-          isModelDefault: false,
+          isModelDefault: availability.defaultEffort === effort,
           label: ANTHROPIC_EFFORT_LABELS[effort],
           value: effort,
         })),
@@ -328,7 +336,7 @@ export function buildThinkingToggleModel(
     );
     return {
       // The toggle is authoritative for "is Claude thinking at all". An effort
-      // alone now implies adaptive thinking, so switching off must clear the
+      // on the offered ladder implies adaptive thinking, so switching off clears the
       // effort too — otherwise the runtime keeps requesting thinking while the
       // switch reads unchecked.
       buildUpdate: (checked) =>
@@ -337,7 +345,9 @@ export function buildThinkingToggleModel(
           : { anthropicEffort: undefined, anthropicThinkingBudgetTokens: undefined },
       checked:
         typeof settings.anthropicThinkingBudgetTokens === 'number' ||
-        Boolean(settings.anthropicEffort),
+        Boolean(
+          settings.anthropicEffort && availability.efforts.includes(settings.anthropicEffort)
+        ),
     };
   }
 

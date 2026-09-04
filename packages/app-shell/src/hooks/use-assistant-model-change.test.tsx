@@ -3,14 +3,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { useAssistantModelChange } from './use-assistant-model-change';
 
 function renderModelChange(
-  providerSettings: Parameters<typeof useAssistantModelChange>[0]['providerSettings']
+  providerSettings: Parameters<typeof useAssistantModelChange>[0]['providerSettings'],
+  currentModel = 'google::gemini-3.5-flash'
 ) {
   const setModel = vi.fn();
   const setProviderSettings = vi.fn();
   const setThreadDraftRuntime = vi.fn();
   const { result } = renderHook(() =>
     useAssistantModelChange({
-      currentModel: 'google::gemini-3.5-flash',
+      currentModel,
       draftRuntimeByThreadId: {},
       fixedProviderModels: undefined,
       memoryThreadId: undefined,
@@ -62,5 +63,32 @@ describe('useAssistantModelChange provider reconciliation', () => {
     expect(Object.keys(updates ?? {})).toEqual(['bedrockEffort']);
     expect(updates).toHaveProperty('bedrockEffort', undefined);
     expect(setModel).toHaveBeenCalledWith('bedrock::amazon.nova-2-lite-v1:0');
+  });
+  it('clears only anthropicEffort on a global Sonnet 5 to Sonnet 4.6 switch', () => {
+    const { result, setModel, setProviderSettings, setThreadDraftRuntime } = renderModelChange(
+      {
+        anthropic: { anthropicEffort: 'xhigh', maxOutputTokens: 2048 },
+      },
+      'anthropic::claude-sonnet-5'
+    );
+    act(() => result.current.handleModelChange('anthropic::claude-sonnet-4-6'));
+    expect(setProviderSettings).toHaveBeenCalledOnce();
+    const [provider, updates] = setProviderSettings.mock.calls[0] ?? [];
+    expect(provider).toBe('anthropic');
+    expect(Object.keys(updates ?? {})).toEqual(['anthropicEffort']);
+    expect(updates).toHaveProperty('anthropicEffort', undefined);
+    expect(setModel).toHaveBeenCalledWith('anthropic::claude-sonnet-4-6');
+    expect(setThreadDraftRuntime).not.toHaveBeenCalled();
+  });
+
+  it('emits nothing for a supported Anthropic effort on a global switch', () => {
+    const { result, setProviderSettings } = renderModelChange(
+      {
+        anthropic: { anthropicEffort: 'high' },
+      },
+      'anthropic::claude-sonnet-5'
+    );
+    act(() => result.current.handleModelChange('anthropic::claude-sonnet-4-6'));
+    expect(setProviderSettings).not.toHaveBeenCalled();
   });
 });

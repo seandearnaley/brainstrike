@@ -46,6 +46,9 @@ function buildReconciledProviderSettingsUpdate(
   if (compatibleSettings?.googleThinkingLevel !== currentSettings?.googleThinkingLevel) {
     updates.googleThinkingLevel = undefined;
   }
+  if (compatibleSettings?.anthropicEffort !== currentSettings?.anthropicEffort) {
+    updates.anthropicEffort = undefined;
+  }
   if (compatibleSettings?.bedrockEffort !== currentSettings?.bedrockEffort) {
     updates.bedrockEffort = undefined;
   }

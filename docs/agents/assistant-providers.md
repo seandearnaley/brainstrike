@@ -579,24 +579,42 @@
   or it reports stale state (the Google include-thoughts switch and the
   OpenAI/OpenRouter summary select both do this).
 - The Anthropic Thinking toggle is AUTHORITATIVE for "is Claude thinking".
-  Because a bare `anthropicEffort` now implies the adaptive thinking form,
+  Because a model-supported `anthropicEffort` implies adaptive thinking,
   switching the toggle off clears the effort as well as the budget; otherwise
   the runtime keeps requesting thinking while the switch reads unchecked.
 - Anthropic thinking mirrors the installed `@ai-sdk/anthropic` discriminated
   union: `adaptive` (carries `display`, whose provider-side default is
   `omitted`), legacy `enabled` + `budgetTokens`, and `disabled`. An explicit
-  budget pins the legacy form; otherwise a chosen effort emits `adaptive`.
+  budget pins the legacy form; otherwise a supported effort emits `adaptive`.
   The `AnthropicEffort` TYPE spans `low|medium|high|xhigh|max`, in step with
   the SDK enum, and is declared identically in BOTH
   `packages/assistant-contract/src/runtime-data.ts` and
   `packages/agent/src/types.ts` (the latter is what actually hands
   `providerOptions` to the SDK, and the boundary is structural — a narrower
-  type there diverges SILENTLY). `ANTHROPIC_REASONING_EFFORTS`, the OFFERED
-  list, stays deliberately narrower at `low|medium|high`:
-  `resolveReasoningControlsAvailability` returns it for every Anthropic model
-  with no per-model lookup, so widening it would offer efforts a given model
-  may reject. Widen only once the registry carries per-model
-  `reasoning.supportedEfforts` for Anthropic.
+  type there diverges SILENTLY). The OFFERED ladder is now declared per model
+  in `LlmModelDefinition.anthropicReasoning` (BST-847), typed `AnthropicEffort`
+  and separate from the OpenAI-vocabulary `reasoning` block. It is recorded
+  from vendor documentation, never derived from union membership: Fable 5,
+  Opus 4.8, and Sonnet 5 offer `low|medium|high|xhigh|max`; Sonnet 4.6 offers
+  `low|medium|high|max` (NO `xhigh`). Each defaults to `high`. Haiku 4.5
+  declares NO effort ladder: effort is unsupported, while thinking keeps the
+  legacy `enabled` + `budgetTokens` form. Sources, retrieved **2026-09-04**:
+  https://platform.claude.com/docs/en/build-with-claude/effort and
+  https://platform.claude.com/docs/en/about-claude/models/overview.
+  `resolveReasoningControlsAvailability` reads the declared ladder/default;
+  Haiku gets an empty ladder so its Effort row disappears while its Thinking
+  toggle remains. Missing/uncatalogued models get no controls (direct
+  Anthropic uses the registry model allow-list, with no custom-model option).
+  `buildAnthropicOptions(modelName, settings)` treats an effort outside the
+  model's ladder, including no ladder or no registry row, as ABSENT: no effort
+  and no derived adaptive thinking, never a neighbouring effort. An explicit
+  legacy budget still survives independently. Controls display rejected
+  persisted efforts as Auto and do not count them as active thinking.
+  `reconcileAnthropicSettingsForModel` strips unsupported efforts on explicit
+  switches to declared models, preserves budgets/unrelated settings and
+  identity when unchanged, and leaves uncatalogued models alone (the Bedrock
+  rule). The global-switch update key list includes `anthropicEffort` so its
+  removal persists as `anthropicEffort: undefined`.
 - The OpenAI-family effort vocabulary has exactly ONE declaration:
   `OPENAI_REASONING_EFFORT_VALUES` in `@brainstrike/types`
   (`assistant-provider-settings.ts`), with `OpenAiReasoningEffort` derived from
@@ -612,8 +630,8 @@
   upstream forces a copy here, so the copies were deleted instead of a second
   drift contract being added.
   The const is union MEMBERSHIP, not an offered list — the
-  `ANTHROPIC_REASONING_EFFORTS` ruling above is unchanged by it. What a given
-  model offers stays in `resolveReasoningControlsAvailability`; never express an
+  `anthropicReasoning` per-model ladder ruling above is unchanged by it. What
+  a given model offers stays in `resolveReasoningControlsAvailability`; never express an
   offered-list narrowing by narrowing this union.
   `EFFORT_TRACK_ORDER` in
   `packages/assistant-ui/src/reasoning-effort-controls.tsx` is deliberately NOT
@@ -632,7 +650,7 @@
   `GOOGLE_GEMINI_37_FLASH_THINKING_LEVELS` exception — selected per-model by
   `getGoogleThinkingLevels`. A separate "all values" const sitting beside them
   would still be precisely the offered-vs-membership confusion the
-  `ANTHROPIC_REASONING_EFFORTS` ruling exists to prevent. That
+  `anthropicReasoning` offered-ladder ruling exists to prevent. That
   `GOOGLE_FLASH_THINKING_LEVELS` happens to list all four levels today is a fact
   about what earlier Flash models offer, not a definition of the type. Gemini
   3.7 Flash deliberately omits `minimal`, which its official model page says
@@ -1475,8 +1493,8 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   submenu, no thinking toggle) rather than borrowing the Anthropic family.
   `BEDROCK_REASONING_EFFORTS` is the per-dialect OFFERED list, deliberately
   narrower than the type — same offered-vs-membership discipline as
-  `ANTHROPIC_REASONING_EFFORTS`. An effort the selected route does not offer
-  yields NO provider options rather than a request the API would reject.
+  the per-model `anthropicReasoning` ladders. An effort the selected route does
+  not offer yields NO provider options rather than a request the API would reject.
 - **Visibility (BST-840) projects onto Bedrock through
   `resolveBedrockReasoningDisplay`** (`reasoning-visibility.ts`), which maps the
   shared switch to `reasoningConfig.display` (`summarized`/`omitted`, same
