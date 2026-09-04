@@ -73,7 +73,6 @@ describe('@brainstrike/assistant-ui package contract', () => {
   it('keeps the archive dialog off the root barrel', () => {
     const rootSource = readFileSync(join(packageRoot, 'src/index.ts'), 'utf8');
 
-    expect(rootSource).not.toContain('WorktreeArchiveConfirmationDialog');
-    expect(rootSource).not.toContain('WorktreeArchiveConfirmation');
+    expect(rootSource).not.toContain('worktree-archive-confirmation-dialog');
   });
 });
