@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!--
+      Hardened-runtime entitlements for the Developer ID build. Every key here
+      is load-bearing; do not add "just in case" entitlements. The app is NOT
+      App-Sandboxed, so no com.apple.security.app-sandbox / files.* keys.
+    -->
+    <!-- V8 and the Electron renderer need JIT and writable+executable memory. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!--
+      The bundle loads code not signed by our Team ID: the Electron framework
+      itself, node-pty prebuilds, @brainstrike/secure-fs-native and @parcel
+      *.node addons under app.asar.unpacked, and the ad-hoc-signed
+      python-build-standalone CPython unpacked under userData at first use.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>
