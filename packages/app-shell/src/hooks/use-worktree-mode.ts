@@ -359,44 +359,51 @@ function useWorktreeArchiveAction(input: {
   readonly archiveConfirmation: WorktreeArchiveConfirmation | null;
   readonly onArchive: () => void;
 } {
-  const [confirmation, setConfirmation] = useState<WorktreeArchivePreview | null>(null);
+  const { bridge, onHandOffToLocal, refreshList, runId, setPending, worktreeId, worktreeName } =
+    input;
+  const [confirmation, setConfirmation] = useState<{
+    readonly preview: WorktreeArchivePreview;
+    readonly worktreeId: string;
+    readonly worktreeName: string;
+  } | null>(null);
+  const currentConfirmation = confirmation?.worktreeId === worktreeId ? confirmation : null;
 
   const archiveWorktree = useCallback(
     async (confirmIgnoredEntries?: string): Promise<void> => {
-      if (!(input.bridge && input.worktreeId)) {
+      if (!(bridge && worktreeId)) {
         return;
       }
       try {
-        await input.onHandOffToLocal();
+        await onHandOffToLocal();
       } catch (error) {
         toastFailure('Could not hand off to Local — worktree not archived', errorMessage(error));
         return;
       }
       try {
-        const result = await input.bridge.archive({
+        const result = await bridge.archive({
           ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}),
-          worktreeId: input.worktreeId,
-          ...(input.runId ? { runId: input.runId } : {}),
+          worktreeId,
+          ...(runId ? { runId } : {}),
         });
         if (!result.ok) {
           toastFailure('Thread handed off — worktree not archived', result.error);
           return;
         }
-        await input.refreshList();
+        await refreshList();
       } catch (error) {
         toastFailure('Thread handed off — worktree not archived', errorMessage(error));
       }
     },
-    [input]
+    [bridge, onHandOffToLocal, refreshList, runId, worktreeId]
   );
 
   const onArchive = useCallback((): void => {
-    if (!(input.bridge && input.worktreeId)) {
+    if (!(bridge && worktreeId)) {
       return;
     }
-    input.setPending(true);
-    void input.bridge
-      .inspectArchive({ worktreeId: input.worktreeId })
+    setPending(true);
+    void bridge
+      .inspectArchive({ worktreeId })
       .then(async (result) => {
         if (!result.ok) {
           toastFailure('Could not inspect worktree for archive', result.error);
@@ -409,22 +416,22 @@ function useWorktreeArchiveAction(input: {
         if (result.value.confirmationToken === null) {
           throw new Error('Archive inspection did not provide an ignored-file confirmation token.');
         }
-        setConfirmation(result.value);
+        setConfirmation({ preview: result.value, worktreeId, worktreeName });
       })
       .catch((error: unknown) => {
         toastFailure('Could not inspect worktree for archive', errorMessage(error));
       })
-      .finally(() => input.setPending(false));
-  }, [archiveWorktree, input]);
+      .finally(() => setPending(false));
+  }, [archiveWorktree, bridge, setPending, worktreeId, worktreeName]);
 
   const archiveConfirmation = useMemo<WorktreeArchiveConfirmation | null>(() => {
-    if (!confirmation) {
+    if (!currentConfirmation) {
       return null;
     }
     return {
       onCancel: () => setConfirmation(null),
       onConfirm: () => {
-        const confirmationToken = confirmation.confirmationToken;
+        const confirmationToken = currentConfirmation.preview.confirmationToken;
         if (confirmationToken === null) {
           toastFailure(
             'Could not archive worktree',
@@ -433,13 +440,13 @@ function useWorktreeArchiveAction(input: {
           return;
         }
         setConfirmation(null);
-        input.setPending(true);
-        void archiveWorktree(confirmationToken).finally(() => input.setPending(false));
+        setPending(true);
+        void archiveWorktree(confirmationToken).finally(() => setPending(false));
       },
-      preview: confirmation,
-      worktreeName: input.worktreeName,
+      preview: currentConfirmation.preview,
+      worktreeName: currentConfirmation.worktreeName,
     };
-  }, [archiveWorktree, confirmation, input]);
+  }, [archiveWorktree, currentConfirmation, setPending]);
 
   return { archiveConfirmation, onArchive };
 }

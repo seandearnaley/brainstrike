@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseWorktreeModeArgs } from '../hooks/use-worktree-mode';
 
 type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
-
 const {
   addRootByPathSpy,
   addRootDirectorySpy,
@@ -35,7 +34,6 @@ const {
   restoreSpy: vi.fn(),
   toastSpy: vi.fn(),
 }));
-
 vi.mock('../worktrees/worktrees-bridge', () => ({
   resolveWorktreesBridge: () => ({
     adopt: adoptSpy,
@@ -75,7 +73,6 @@ import { useWorktreeMode } from '../hooks/use-worktree-mode';
 
 const onHandOffToLocal = vi.fn(() => Promise.resolve());
 const onSelectWorktree = vi.fn(() => Promise.resolve());
-
 const ARGS = {
   checkout: { branch: null, mode: 'local' as const, worktreeId: null, worktreePath: null },
   firstRequestState: 'unsent' as const,
@@ -86,7 +83,6 @@ const ARGS = {
   primaryRootPath: '/work/app',
   runId: null,
 };
-
 const WORKTREE_CHECKOUT = {
   branch: 'bs/bright-fox',
   mode: 'worktree' as const,
@@ -355,6 +351,38 @@ describe('useWorktreeMode', () => {
       confirmIgnoredEntries: 'ignored-token',
       worktreeId: 'w-1',
     });
+  });
+
+  it('cancels ignored-file confirmation when the selected worktree changes', async () => {
+    inspectArchiveSpy.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        confirmationToken: 'ignored-token',
+        ignoredEntryCount: 1,
+        ignoredTopLevelEntries: ['.env'],
+        ignoredTopLevelEntriesTruncated: false,
+      },
+    });
+    const { rerender, result } = renderHook(
+      ({ checkout }) => useWorktreeMode({ ...ARGS, checkout }),
+      { initialProps: { checkout: WORKTREE_CHECKOUT } }
+    );
+    const originalOnArchive = result.current?.onArchive;
+    rerender({ checkout: WORKTREE_CHECKOUT });
+    expect(result.current?.onArchive).toBe(originalOnArchive);
+    act(() => result.current?.onArchive?.());
+    await waitFor(() => expect(result.current?.archiveConfirmation).not.toBeNull());
+    rerender({
+      checkout: {
+        branch: 'bs/second',
+        mode: 'worktree' as const,
+        worktreeId: 'w-2',
+        worktreePath: '/managed/app/second',
+      },
+    });
+    await waitFor(() => expect(result.current?.archiveConfirmation).toBeNull());
+    expect(onHandOffToLocal).not.toHaveBeenCalled();
+    expect(archiveSpy).not.toHaveBeenCalled();
   });
 
   it('archives only after a successful hand-off, in that order', async () => {

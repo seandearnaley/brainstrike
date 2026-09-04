@@ -568,7 +568,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     if (!snapshot.ok) {
       return snapshot;
     }
-    // Bind confirmation to the post-snapshot ignored path set that is about to be removed.
+    // Private GIT_INDEX_FILE capture never mutates the worktree or index; this report is authoritative.
     const currentSafety = await inspectArchiveRow(row);
     if (!currentSafety.ok) {
       return currentSafety;

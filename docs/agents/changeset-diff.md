@@ -599,12 +599,13 @@ verdict is acted on. `archive` refuses a dirty or unpushed worktree unless
 worktree (`brainstrike_assistant_thread_runs.status = 'running'` for the owning
 thread). Ignored files remain outside the snapshot. `inspectArchive` therefore
 returns their count, a bounded sorted list of top-level path names, and an
-opaque confirmation token bound to the complete ignored-path set. Both the Mode
+opaque confirmation token bound to the complete top-level ignored-path set. Both the Mode
 chip and Worktree Map require an explicit destructive confirmation when the
-count is non-zero; `archive` independently re-inspects and rejects a missing or
-stale token, then re-inspects again after snapshot capture immediately before
-removal so a path created during capture cannot ride an earlier token. Direct
-IPC/tool callers cannot bypass the guard. W3 deliberately does NOT take a
+count is non-zero. Immediately after snapshot capture, `archive` independently
+re-inspects and rejects a missing or stale token before removal, so a new
+top-level ignored path created during capture cannot ride an earlier token. The
+token is a stale-confirmation guard: it proves the caller saw the current
+top-level ignored-path set, not that a human approved it. W3 deliberately does NOT take a
 `git worktree lock` for the duration
 of a run: a lock is globally visible and `git-workbench-header.tsx` disables any
 locked worktree, so it would disable every managed worktree in the Changes

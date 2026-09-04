@@ -145,21 +145,17 @@ export async function inspectWorktreeSafety(input: {
     }
   }
   const ignoredEntryCount = ignoredEntries.length;
-  const ignoredEntriesConfirmationToken =
-    ignoredEntryCount === 0
-      ? null
-      : createHash('sha256')
-          .update(JSON.stringify([...ignoredEntries].sort()))
-          .digest('hex');
   const ignoredTopLevelEntrySet = new Set(
     ignoredEntries.map((entry) => {
       const separatorIndex = entry.indexOf('/');
       return separatorIndex === -1 ? entry : entry.slice(0, separatorIndex);
     })
   );
-  const allIgnoredTopLevelEntries = [...ignoredTopLevelEntrySet].sort((left, right) =>
-    left.localeCompare(right)
-  );
+  const allIgnoredTopLevelEntries = [...ignoredTopLevelEntrySet].sort();
+  const ignoredEntriesConfirmationToken =
+    ignoredEntryCount === 0
+      ? null
+      : createHash('sha256').update(JSON.stringify(allIgnoredTopLevelEntries)).digest('hex');
   const ignoredTopLevelEntries = allIgnoredTopLevelEntries.slice(0, MAX_IGNORED_TOP_LEVEL_ENTRIES);
   const dirty = statusEntries.some((entry) => !entry.startsWith('!! '));
   if (dirty) {
