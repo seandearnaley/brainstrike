@@ -7,6 +7,22 @@ export const LIST_AVAILABLE_TOOLS_ID = 'list_available_tools';
 const PAGE_SIZE = 50;
 const DESCRIPTION_LIMIT = 160;
 
+function summarizeDescription(text: string): {
+  description: string;
+  descriptionTruncated: boolean;
+} {
+  let description = '';
+  let length = 0;
+  for (const point of text) {
+    if (length === DESCRIPTION_LIMIT) {
+      return { description, descriptionTruncated: true };
+    }
+    description += point;
+    length += 1;
+  }
+  return { description, descriptionTruncated: false };
+}
+
 const catalogInputSchema = z.object({
   offset: z
     .number()
@@ -46,7 +62,7 @@ export function createDeferredToolCatalog(
         });
       }
       return {
-        description: 'description' in tool ? (tool.description ?? '') : '',
+        ...summarizeDescription('description' in tool ? (tool.description ?? '') : ''),
         name,
         originalName,
       };
@@ -71,18 +87,19 @@ export function createDeferredToolCatalog(
           )
         : entries;
       if (offset > matches.length) {
-        throw new Error(
-          'Tool catalog offset exceeds the matching catalog size. Restart at offset 0.'
-        );
+        throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
+          context: { matchingTotal: matches.length, offset, phase: 'catalog-pagination' },
+          detail: 'Tool catalog offset exceeds the matching catalog size. Restart at offset 0.',
+        });
       }
       const page = matches.slice(offset, offset + PAGE_SIZE);
       const nextOffset = offset + page.length;
       return {
         catalogTotal: entries.length,
         nextOffset: nextOffset < matches.length ? nextOffset : null,
-        tools: page.map(({ name, description }) => ({
-          description: description.slice(0, DESCRIPTION_LIMIT),
-          descriptionTruncated: description.length > DESCRIPTION_LIMIT,
+        tools: page.map(({ name, description, descriptionTruncated }) => ({
+          description,
+          descriptionTruncated,
           name,
         })),
         total: matches.length,

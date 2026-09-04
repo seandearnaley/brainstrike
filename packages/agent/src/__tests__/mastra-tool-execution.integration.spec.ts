@@ -1255,19 +1255,21 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
       doStream: (options: LanguageModelV2CallOptions) => {
         offeredToolNames.push((options.tools ?? []).map((tool) => tool.name));
-        if (turn === 1 || turn === 2) {
+        if (turn >= 1 && turn <= 3) {
           catalogOutputs.push(
             readToolResultOutput(options.prompt.findLast((m) => m.role === 'tool'))
           );
         }
         turn += 1;
-        if (turn <= 2) {
+        if (turn <= 3) {
           return Promise.resolve({
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
               {
                 input: JSON.stringify(
-                  turn === 1 ? { prefix: 'absent' } : { offset: 1, prefix: 'brainstrike' }
+                  turn === 1
+                    ? { prefix: 'absent' }
+                    : { offset: turn === 2 ? 1 : 0, prefix: 'brainstrike' }
                 ),
                 toolCallId: `call-catalog-${turn}`,
                 toolName: 'list_available_tools',
@@ -1277,12 +1279,12 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             ]),
           });
         }
-        if (turn === 3) {
+        if (turn === 4) {
           return Promise.resolve({
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
               {
-                input: JSON.stringify({ query: 'workspace context files' }),
+                input: JSON.stringify({ query: 'brainstrike_listWorkspaceContext' }),
                 toolCallId: 'call-search-1',
                 toolName: 'search_tools',
                 type: 'tool-call',
@@ -1291,7 +1293,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             ]),
           });
         }
-        if (turn === 4) {
+        if (turn === 5) {
           return Promise.resolve({
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
@@ -1346,7 +1348,8 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(offeredToolNames[0]).toEqual(['search_tools', 'list_available_tools']);
     expect(offeredToolNames[1]).toEqual(['search_tools', 'list_available_tools']);
     expect(offeredToolNames[2]).toEqual(['search_tools', 'list_available_tools']);
-    expect(offeredToolNames[3]).toEqual([
+    expect(offeredToolNames[3]).toEqual(['search_tools', 'list_available_tools']);
+    expect(offeredToolNames[4]).toEqual([
       'search_tools',
       'brainstrike_listWorkspaceContext',
       'list_available_tools',
@@ -1354,6 +1357,21 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(catalogOutputs).toEqual([
       { type: 'json', value: { catalogTotal: 1, nextOffset: null, tools: [], total: 0 } },
       { type: 'json', value: { catalogTotal: 1, nextOffset: null, tools: [], total: 1 } },
+      {
+        type: 'json',
+        value: {
+          catalogTotal: 1,
+          nextOffset: null,
+          tools: [
+            {
+              description: 'List workspace context files and metadata.',
+              descriptionTruncated: false,
+              name: 'brainstrike_listWorkspaceContext',
+            },
+          ],
+          total: 1,
+        },
+      },
     ]);
     expect(executions).toEqual(['ran']);
     expect(chunks).toContainEqual(

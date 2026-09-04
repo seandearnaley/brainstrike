@@ -4645,17 +4645,25 @@ permission denial, and host unavailability. OpenAI's native `tool_search` is
 model-gated, not inferred from `provider === "openai"`. Anthropic native search
 likewise preserves provider search/tool-reference history. Live Mastra catalog
 search uses `storage: 'context'`, `search.autoLoad: true`, and `topK: 3`.
+The pinned `@mastra/core@1.59.0` patch selects an exact registered ID before
+BM25 candidate trimming, preserving the SDK search filter and context-store
+activation. Exact selection loads only that tool; fuzzy queries retain the
+three-match ranking limit. Both ESM and CJS distributions carry the same fix.
+Remove the patch only when an upstream version passes the adversarial exact-name
+regression in `tool-search-runtime.spec.ts`. No extra model tool or round trip
+is introduced.
 Search results are ranked selections, never an inventory. The 2026-09-04
 Linear failure had all 61 tools in the eligible deferred catalog, but a broad
 query returned three label/status tools and the model declared issue operations
 unavailable. `list_available_tools` therefore exposes the same post-gate,
-per-runtime catalog without loading definitions or executing MCP requests.
+per-runtime deferred catalog without loading definitions or executing MCP requests.
 It supports case-insensitive name prefixes and pages of 50 entries, reports
 the matching total and `nextOffset` (null only at the end), and explicitly
-marks descriptions shortened to 160 characters. Ordering uses code-unit name
+marks descriptions shortened to 160 Unicode code points. Eager tools are already
+callable and are not included in this deferred inventory. Ordering uses code-unit name
 comparison rather than the host locale. Each prefix/offset query is independent;
 clients must keep the prefix when following nextOffset. An offset exactly at
-the matching count returns the empty end page; an offset beyond it is invalid.
+the matching count returns the empty end page; an offset beyond it reports a typed pagination error with the offset and matching count.
 The name map is total for eligible tools and snapshotted per processor; missing
 mappings fail visibly at construction or loaded-tool projection.
 Models enumerate with it and

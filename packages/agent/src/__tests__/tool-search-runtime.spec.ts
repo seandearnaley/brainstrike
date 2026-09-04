@@ -169,6 +169,40 @@ describe('BrainstrikeToolSearchProcessor', () => {
     ).toThrow('missing its original-name mapping');
   });
 
+  it('loads only the exact catalog name despite higher-ranking description matches', async () => {
+    const tools = Object.fromEntries(
+      ['foo_target', ...Array.from({ length: 10 }, (_, index) => `distractor_${index}`)].map(
+        (id) => [
+          id,
+          createTool({
+            description:
+              id === 'foo_target' ? 'Perform the requested operation.' : 'foo target '.repeat(30),
+            execute: async () => ({ completed: id }),
+            id,
+            inputSchema: z.object({}),
+          }),
+        ]
+      )
+    );
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: tools,
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map(Object.keys(tools).map((id) => [id, id])),
+    });
+    const args = createStepArgs({ threadId: 'exact-catalog' });
+    const first = await processor.processInputStep(args);
+    await expect(
+      first.tools.search_tools.execute?.({ query: 'foo_target' })
+    ).resolves.toMatchObject({
+      results: [{ name: 'foo_target' }],
+    });
+    const next = await processor.processInputStep({ ...args, stepNumber: 1 });
+    expect(Object.keys(next.tools)).toEqual(['search_tools', 'foo_target', 'list_available_tools']);
+    expect(
+      await processor.getLoadedToolsForRequestContext({ requestContext: args.requestContext })
+    ).toHaveProperty('foo_target');
+  });
+
   it('pages a 61-tool catalog and loads an exact name from the last page', async () => {
     const tools = Object.fromEntries(
       Array.from({ length: 61 }, (_, index) => {
@@ -213,11 +247,34 @@ describe('BrainstrikeToolSearchProcessor', () => {
     });
     const next = await processor.processInputStep({ ...args, stepNumber: 1 });
     expect(Object.keys(next.tools)).toContain('linear_action_60');
-    expect(Object.keys(next.tools)).toHaveLength(5);
+    expect(Object.keys(next.tools)).toHaveLength(3);
     expect(JSON.stringify(lastPage)).not.toContain('inputSchema');
     await expect(first.tools.list_available_tools.execute?.({ offset: 62 })).rejects.toThrow(
       'offset exceeds'
     );
+  });
+
+  it('bounds inventory descriptions without splitting Unicode code points and reports invalid offsets', async () => {
+    const tool = createTool({
+      description: `${'a'.repeat(159)}🧭end`,
+      id: 'unicode_tool',
+      inputSchema: z.object({}),
+    });
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: { unicode_tool: tool },
+      model: 'openai/gpt-5.6-terra',
+      toolNameMap: new Map([['unicode_tool', 'unicode_tool']]),
+    });
+    const { tools } = await processor.processInputStep(createStepArgs());
+    await expect(tools.list_available_tools.execute?.({})).resolves.toMatchObject({
+      tools: [
+        { description: `${'a'.repeat(159)}🧭`, descriptionTruncated: true, name: 'unicode_tool' },
+      ],
+    });
+    await expect(tools.list_available_tools.execute?.({ offset: 2 })).rejects.toMatchObject({
+      code: 'mastra_agent_tool_discovery_failure',
+      context: { matchingTotal: 1, offset: 2, phase: 'catalog-pagination' },
+    });
   });
 
   it('orders names independently of locale and treats the exact end as an empty page', async () => {
