@@ -492,7 +492,7 @@ download offline. The DMG container itself is deliberately unsigned
 (electron-builder default; Gatekeeper assesses the app inside it).
 
 - **Hardened runtime + entitlements.** `build.mac.hardenedRuntime` is on and
-  `build/entitlements.mac.plist` is the complete, tracked entitlement set:
+  `signing/entitlements.mac.plist` is the complete, tracked entitlement set:
   `allow-jit` and `allow-unsigned-executable-memory` for V8, and
   `disable-library-validation` because the bundle loads code not signed by our
   Team ID (the Electron framework, `node-pty` prebuilds,

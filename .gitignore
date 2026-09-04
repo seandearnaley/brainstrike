@@ -149,9 +149,8 @@ apps/web/blob-report/
 performance-benchmarks/
 apps/web/performance-metrics/
 
-# Desktop build artifacts and generated icons (contents, not the directory,
-# so tracked signing inputs below can be re-included)
-apps/desktop/build/*
+# Desktop build artifacts and generated icons
+apps/desktop/build/
 icons/.generated/
 
 .codex/
@@ -173,9 +172,6 @@ packages/mcp-test-lab/artifacts/
 # Per-session scratch artifacts (other Claude sessions may hold these)
 .claude-scratch-*
 .claude-scratch/
-
-# Signing inputs are tracked; build/ otherwise stays generated output.
-!apps/desktop/build/entitlements.mac.plist
 
 # Code-signing material must never enter the repo
 *.p12
