@@ -1107,7 +1107,7 @@ describe('assistant runtime helpers', () => {
       maxSteps: 4,
     });
     expect(
-      buildProviderOptions('anthropic', 'claude-sonnet-4-5', {
+      buildProviderOptions('anthropic', 'claude-sonnet-4-6', {
         anthropicEffort: 'high',
         anthropicThinkingBudgetTokens: 1024.8,
       })

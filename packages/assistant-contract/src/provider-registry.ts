@@ -1,5 +1,5 @@
 import { GEMMA4_E2B_MODEL_ID } from './local-llm.js';
-import type { OpenAiReasoningEffort } from './runtime-data.js';
+import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = 768;
 
@@ -79,6 +79,16 @@ interface BaseModelDefinition {
 }
 
 export interface LlmModelDefinition extends BaseModelDefinition {
+  /**
+   * Direct Anthropic's vendor-documented OFFERED effort ladder. Recorded per
+   * model, never derived from the SDK enum or the model name. Absence is
+   * authoritative: no effort parameter, while legacy budget thinking remains
+   * available. Kept separate from the OpenAI-vocabulary `reasoning` block.
+   */
+  anthropicReasoning?: {
+    readonly defaultEffort: AnthropicEffort;
+    readonly supportedEfforts: readonly AnthropicEffort[];
+  };
   /**
    * Bedrock-only: which `providerOptions.bedrock.reasoningConfig` dialect this
    * route accepts. Absence is authoritative — the route exposes no reasoning
@@ -524,6 +534,13 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     keyFormatHint: 'sk-ant-...',
     models: [
       {
+        // Vendor OFFERED ladder and default; retrieved 2026-09-04:
+        // https://platform.claude.com/docs/en/build-with-claude/effort
+        // https://platform.claude.com/docs/en/about-claude/models/overview
+        anthropicReasoning: {
+          defaultEffort: 'high',
+          supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
         contextWindow: 1_000_000,
         id: 'claude-fable-5',
         label: 'Claude Fable 5',
@@ -541,6 +558,13 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'supported',
       },
       {
+        // Vendor OFFERED ladder and default; retrieved 2026-09-04:
+        // https://platform.claude.com/docs/en/build-with-claude/effort
+        // https://platform.claude.com/docs/en/about-claude/models/overview
+        anthropicReasoning: {
+          defaultEffort: 'high',
+          supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
         contextWindow: 200_000,
         id: 'claude-opus-4-8',
         label: 'Claude Opus 4.8',
@@ -559,6 +583,13 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'supported',
       },
       {
+        // Vendor OFFERED ladder and default; retrieved 2026-09-04:
+        // https://platform.claude.com/docs/en/build-with-claude/effort
+        // https://platform.claude.com/docs/en/about-claude/models/overview
+        anthropicReasoning: {
+          defaultEffort: 'high',
+          supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
         contextWindow: 1_000_000,
         default: true,
         id: 'claude-sonnet-5',
@@ -579,6 +610,13 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'supported',
       },
       {
+        // Vendor OFFERED ladder and default; retrieved 2026-09-04:
+        // https://platform.claude.com/docs/en/build-with-claude/effort
+        // https://platform.claude.com/docs/en/about-claude/models/overview
+        anthropicReasoning: {
+          defaultEffort: 'high',
+          supportedEfforts: ['low', 'medium', 'high', 'max'],
+        },
         contextWindow: 200_000,
         id: 'claude-sonnet-4-6',
         label: 'Claude Sonnet 4.6',
@@ -596,6 +634,10 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'supported',
       },
       {
+        // No effort ladder: the overview table says effort is unsupported;
+        // thinking uses the legacy enabled + budget_tokens form. Retrieved 2026-09-04:
+        // https://platform.claude.com/docs/en/build-with-claude/effort
+        // https://platform.claude.com/docs/en/about-claude/models/overview
         contextWindow: 200_000,
         id: 'claude-haiku-4-5',
         label: 'Claude Haiku 4.5',

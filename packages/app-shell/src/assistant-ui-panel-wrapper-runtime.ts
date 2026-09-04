@@ -1573,10 +1573,27 @@ function buildOpenRouterOptions(
   };
 }
 
+/**
+ * Direct Anthropic reasoning (BST-847).
+ *
+ * The OFFERED ladder is declared per model in the registry, never inferred
+ * from the SDK enum. Persisted provider-wide effort can outlive its model:
+ * an unsupported effort is ABSENT, never coerced to a neighbour, and cannot
+ * manufacture adaptive thinking. No declared ladder means no effort; an
+ * explicit legacy thinking budget remains independently configured.
+ */
 function buildAnthropicOptions(
+  modelName: string | undefined,
   settings: AssistantProviderSettings
 ): AnthropicProviderOptions | undefined {
-  const effort = settings.anthropicEffort || undefined;
+  const reasoning = modelName
+    ? findLlmModelDefinition('anthropic', modelName)?.anthropicReasoning
+    : undefined;
+  const requestedEffort = settings.anthropicEffort;
+  const effort =
+    requestedEffort && reasoning?.supportedEfforts.includes(requestedEffort)
+      ? requestedEffort
+      : undefined;
   // An explicit budget pins the legacy `enabled` form (older models); it also
   // carries no `display`, so it is left exactly as configured. Otherwise the
   // modern adaptive form carries `display`, which defaults to `omitted`
@@ -1721,7 +1738,7 @@ export function buildProviderOptions(
       return openrouter ? { openrouter } : undefined;
     }
     case 'anthropic': {
-      const anthropic = buildAnthropicOptions(settings);
+      const anthropic = buildAnthropicOptions(modelName, settings);
       return anthropic ? { anthropic } : undefined;
     }
     case 'bedrock': {
@@ -1805,6 +1822,32 @@ function reconcileBedrockSettingsForModel(
   return compatibleSettings;
 }
 
+/**
+ * Anthropic counterpart of the Bedrock reconciler (BST-847). Clear a
+ * provider-wide effort the selected model cannot offer so the controls show
+ * what the request builder actually sends. Haiku declares no effort ladder.
+ * An UNCATALOGUED model is left alone: with no registry row there is no ladder
+ * to judge against, and that route shows no effort control.
+ */
+function reconcileAnthropicSettingsForModel(
+  modelName: string,
+  settings: AssistantProviderSettings
+): AssistantProviderSettings {
+  const effort = settings.anthropicEffort;
+  if (!effort) {
+    return settings;
+  }
+  const definition = findLlmModelDefinition('anthropic', modelName);
+  if (!definition) {
+    return settings;
+  }
+  if (definition.anthropicReasoning?.supportedEfforts.includes(effort)) {
+    return settings;
+  }
+  const { anthropicEffort: _unsupportedAnthropicEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
+}
+
 function reconcileGoogleSettingsForModel(
   modelName: string,
   settings: AssistantProviderSettings
@@ -1828,6 +1871,9 @@ export function reconcileProviderSettingsForModel(
   modelName: string,
   settings: AssistantProviderSettings | undefined
 ): AssistantProviderSettings | undefined {
+  if (providerId === 'anthropic' && settings) {
+    return reconcileAnthropicSettingsForModel(modelName, settings);
+  }
   if (providerId === 'google' && settings) {
     return reconcileGoogleSettingsForModel(modelName, settings);
   }
