@@ -82,13 +82,21 @@ const ARGS = {
   primaryRootId: 'r-1',
   primaryRootPath: '/work/app',
   runId: null,
+  threadId: 'thread-1',
 };
-const WORKTREE_CHECKOUT = {
+const WORKTREE_CHECKOUT: UseWorktreeModeArgs['checkout'] = {
   branch: 'bs/bright-fox',
   mode: 'worktree' as const,
   worktreeId: 'w-1',
   worktreePath: '/managed/app/bright-fox',
 };
+const ARCHIVE_SELECTION_CHANGES = [
+  [
+    'worktree',
+    { checkout: { ...WORKTREE_CHECKOUT, mode: 'local' as const }, threadId: 'thread-1' },
+  ],
+  ['thread', { checkout: WORKTREE_CHECKOUT, threadId: 'thread-2' }],
+] as const;
 
 const CREATE_REQUEST = {
   baseRef: 'main',
@@ -357,32 +365,24 @@ describe('useWorktreeMode', () => {
     });
   });
 
-  it('cancels ignored-file confirmation when the selected worktree changes', async () => {
-    inspectArchiveSpy.mockResolvedValueOnce({
-      ok: true,
-      value: SINGLE_IGNORED_PREVIEW,
-    });
-    const { rerender, result } = renderHook(
-      ({ checkout }) => useWorktreeMode({ ...ARGS, checkout }),
-      { initialProps: { checkout: WORKTREE_CHECKOUT as UseWorktreeModeArgs['checkout'] } }
-    );
-    const originalOnArchive = result.current?.onArchive;
-    rerender({ checkout: WORKTREE_CHECKOUT });
-    expect(result.current?.onArchive).toBe(originalOnArchive);
-    act(() => result.current?.onArchive?.());
-    await waitFor(() => expect(result.current?.archiveConfirmation).not.toBeNull());
-    rerender({
-      checkout: {
-        branch: 'bs/bright-fox',
-        mode: 'local' as const,
-        worktreeId: 'w-1',
-        worktreePath: '/managed/app/bright-fox',
-      },
-    });
-    await waitFor(() => expect(result.current?.archiveConfirmation).toBeNull());
-    expect(onHandOffToLocal).not.toHaveBeenCalled();
-    expect(archiveSpy).not.toHaveBeenCalled();
-  });
+  it.each(ARCHIVE_SELECTION_CHANGES)(
+    'cancels ignored-file confirmation when the selected %s changes',
+    async (_identity, changedSelection) => {
+      inspectArchiveSpy.mockResolvedValueOnce({ ok: true, value: SINGLE_IGNORED_PREVIEW });
+      const initialSelection = { checkout: WORKTREE_CHECKOUT, threadId: 'thread-1' };
+      const { rerender, result } = renderHook(
+        ({ checkout, threadId }) => useWorktreeMode({ ...ARGS, checkout, threadId }),
+        { initialProps: initialSelection }
+      );
+      act(() => result.current?.onArchive?.());
+      await waitFor(() => expect(result.current?.archiveConfirmation).not.toBeNull());
+      rerender(changedSelection);
+      await waitFor(() => expect(result.current?.archiveConfirmation).toBeNull());
+      rerender(initialSelection);
+      expect(result.current?.archiveConfirmation).toBeNull();
+      expect(archiveSpy).not.toHaveBeenCalled();
+    }
+  );
 
   it('archives only after a successful hand-off, in that order', async () => {
     const callOrder: string[] = [];

@@ -90,8 +90,9 @@ export function useWorktreeMapCardActions(
   const [actionError, setActionError] = useState<string | null>(null);
   const [archiveConfirmationState, setArchiveConfirmationState] = useState<{
     readonly card: WorktreeMapCardModel;
-    readonly confirmationToken: string;
-    readonly preview: WorktreeArchiveConfirmation['preview'];
+    readonly preview: WorktreeArchiveConfirmation['preview'] & {
+      readonly confirmationToken: string;
+    };
   } | null>(null);
 
   const onNewThread = useCallback(
@@ -283,8 +284,10 @@ export function useWorktreeMapCardActions(
           }
           setArchiveConfirmationState({
             card,
-            confirmationToken: result.value.confirmationToken,
-            preview: result.value,
+            preview: {
+              ...result.value,
+              confirmationToken: result.value.confirmationToken,
+            },
           });
         })
         .catch((caught: unknown) => {
@@ -301,7 +304,7 @@ export function useWorktreeMapCardActions(
         onConfirm: () => {
           const confirmation = archiveConfirmationState;
           setArchiveConfirmationState(null);
-          archiveCard(confirmation.card, confirmation.confirmationToken);
+          archiveCard(confirmation.card, confirmation.preview.confirmationToken);
         },
         preview: archiveConfirmationState.preview,
         worktreeName: archiveConfirmationState.card.entry.name,

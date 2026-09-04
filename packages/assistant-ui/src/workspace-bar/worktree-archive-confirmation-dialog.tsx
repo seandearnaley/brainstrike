@@ -51,7 +51,7 @@ export function WorktreeArchiveConfirmationDialog({
               <li key={entry}>{entry}</li>
             ))}
           </ul>
-          {hiddenTopLevelEntryCount > 0 ? (
+          {preview.ignoredTopLevelEntriesTruncated && hiddenTopLevelEntryCount > 0 ? (
             <p className="mt-2 text-muted-foreground text-xs">
               {hiddenTopLevelEntryCount} additional top-level{' '}
               {hiddenTopLevelEntryCount === 1 ? 'path is' : 'paths are'} hidden.

@@ -18,12 +18,10 @@ import type {
   WorkspaceBarRepositorySetupConsent,
   WorkspaceBarWorktreeOption,
   WorkspaceBarWorktreeSummary,
-  WorktreeArchiveConfirmation,
 } from '@brainstrike/assistant-ui';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import type {
-  WorktreeArchivePreview,
   WorktreeCreateContext,
   WorktreeCreateResult,
   WorktreeListEntry,
@@ -36,6 +34,11 @@ import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 import { resolveWorktreesBridge, type WorktreesBridge } from '../worktrees/worktrees-bridge';
+import {
+  errorMessage,
+  toastFailure,
+  useWorktreeArchiveAction,
+} from './use-worktree-archive-action';
 
 const logger = createLogger('WorktreeMode');
 
@@ -70,14 +73,8 @@ export interface UseWorktreeModeArgs {
   readonly primaryRootPath: string | null;
   /** The thread's active run, when it has one, so the operation reaches its timeline. */
   readonly runId: string | null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function toastFailure(title: string, description: string): void {
-  toast({ description, title, variant: 'destructive' });
+  /** Selected thread identity; archive confirmation must never transfer across threads. */
+  readonly threadId: string | null;
 }
 
 function rejectWithToast(title: string, description: string): never {
@@ -345,110 +342,6 @@ function computeRepositorySetupConsent(
     repositoryPath: repositorySetup.repositoryPath,
     scriptPath: repositorySetup.scriptPath,
   };
-}
-
-function useWorktreeArchiveAction(input: {
-  readonly bridge: WorktreesBridge | null;
-  readonly onHandOffToLocal: () => Promise<void>;
-  readonly refreshList: () => Promise<void>;
-  readonly runId: string | null;
-  readonly setPending: (pending: boolean) => void;
-  readonly worktreeId: string | null;
-  readonly worktreeName: string;
-}): {
-  readonly archiveConfirmation: WorktreeArchiveConfirmation | null;
-  readonly onArchive: () => void;
-} {
-  const { bridge, onHandOffToLocal, refreshList, runId, setPending, worktreeId, worktreeName } =
-    input;
-  const [confirmation, setConfirmation] = useState<{
-    readonly preview: WorktreeArchivePreview;
-    readonly worktreeId: string;
-    readonly worktreeName: string;
-  } | null>(null);
-  const currentConfirmation = confirmation?.worktreeId === worktreeId ? confirmation : null;
-
-  const archiveWorktree = useCallback(
-    async (confirmIgnoredEntries?: string): Promise<void> => {
-      if (!(bridge && worktreeId)) {
-        return;
-      }
-      try {
-        await onHandOffToLocal();
-      } catch (error) {
-        toastFailure('Could not hand off to Local — worktree not archived', errorMessage(error));
-        return;
-      }
-      try {
-        const result = await bridge.archive({
-          ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}),
-          worktreeId,
-          ...(runId ? { runId } : {}),
-        });
-        if (!result.ok) {
-          toastFailure('Thread handed off — worktree not archived', result.error);
-          return;
-        }
-        await refreshList();
-      } catch (error) {
-        toastFailure('Thread handed off — worktree not archived', errorMessage(error));
-      }
-    },
-    [bridge, onHandOffToLocal, refreshList, runId, worktreeId]
-  );
-
-  const onArchive = useCallback((): void => {
-    if (!(bridge && worktreeId)) {
-      return;
-    }
-    setPending(true);
-    void bridge
-      .inspectArchive({ worktreeId })
-      .then(async (result) => {
-        if (!result.ok) {
-          toastFailure('Could not inspect worktree for archive', result.error);
-          return;
-        }
-        if (result.value.ignoredEntryCount === 0) {
-          await archiveWorktree();
-          return;
-        }
-        if (result.value.confirmationToken === null) {
-          throw new Error('Archive inspection did not provide an ignored-file confirmation token.');
-        }
-        setConfirmation({ preview: result.value, worktreeId, worktreeName });
-      })
-      .catch((error: unknown) => {
-        toastFailure('Could not inspect worktree for archive', errorMessage(error));
-      })
-      .finally(() => setPending(false));
-  }, [archiveWorktree, bridge, setPending, worktreeId, worktreeName]);
-
-  const archiveConfirmation = useMemo<WorktreeArchiveConfirmation | null>(() => {
-    if (!currentConfirmation) {
-      return null;
-    }
-    return {
-      onCancel: () => setConfirmation(null),
-      onConfirm: () => {
-        const confirmationToken = currentConfirmation.preview.confirmationToken;
-        if (confirmationToken === null) {
-          toastFailure(
-            'Could not archive worktree',
-            'Archive inspection did not provide an ignored-file confirmation token.'
-          );
-          return;
-        }
-        setConfirmation(null);
-        setPending(true);
-        void archiveWorktree(confirmationToken).finally(() => setPending(false));
-      },
-      preview: currentConfirmation.preview,
-      worktreeName: currentConfirmation.worktreeName,
-    };
-  }, [archiveWorktree, currentConfirmation, setPending]);
-
-  return { archiveConfirmation, onArchive };
 }
 
 function missingWorktreeDiagnostic(input: {
@@ -775,6 +668,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     refreshList,
     runId: args.runId,
     setPending,
+    threadId: args.threadId,
     worktreeId: currentWorktreeId,
     worktreeName: currentEntry?.name ?? 'worktree',
   });
@@ -947,7 +841,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       disabledReason: missingWorktreeReason,
       localPath: args.primaryRootPath,
       managedParentPath,
-      onArchive: currentWorktreeId ? onArchive : undefined,
+      onArchive: currentWorktreeId && args.threadId ? onArchive : undefined,
       onCreate,
       onCreateBranchHere: createBranchHereHandler,
       onHandOffToLocal: currentWorktreeId ? onHandOffToLocal : undefined,
@@ -996,6 +890,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     args.isRepository,
     args.primaryRootId,
     args.primaryRootPath,
+    args.threadId,
     bridge,
     createBranchHereHandler,
     currentEntry,

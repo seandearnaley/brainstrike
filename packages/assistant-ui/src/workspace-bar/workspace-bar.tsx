@@ -98,7 +98,7 @@ export interface WorkspaceBarRepositorySetupConsent {
 }
 
 export interface WorkspaceBarMode {
-  readonly archiveConfirmation?: WorktreeArchiveConfirmation | null;
+  readonly archiveConfirmation: WorktreeArchiveConfirmation | null;
   /** Base refs the create sheet offers, most useful first. */
   readonly baseRefs: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOption[]];
   readonly createDisabledReason: string | null;
