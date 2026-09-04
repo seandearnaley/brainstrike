@@ -56,7 +56,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real PGl
       }),
     });
     if (!preview.ok || preview.value.confirmationToken === null) {
-      return;
+      throw new Error(preview.ok ? 'Expected ignored-file confirmation.' : preview.error);
     }
 
     await expect(service.archive({ worktreeId: worktree.id })).resolves.toEqual({

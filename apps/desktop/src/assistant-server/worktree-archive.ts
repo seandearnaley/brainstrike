@@ -137,6 +137,8 @@ export async function inspectWorktreeSafety(input: {
   if (statusRun.exitCode !== 0) {
     return { error: describeFailure(statusRun), ok: false };
   }
+  // In -z mode, rename/copy origins are extra prefix-less fields. The status record already
+  // makes the worktree dirty, and the bare origin cannot be mistaken for an ignored entry.
   const statusEntries = statusRun.stdout.split('\0').filter((entry) => entry.length > 0);
   const ignoredEntries: string[] = [];
   for (const entry of statusEntries) {
