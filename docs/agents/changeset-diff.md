@@ -430,6 +430,20 @@ invalidation; N status subprocesses behind an orientation surface is the cost
 this seam exists to avoid. Until a card's status resolves it renders
 "checking…", never a clean glyph.
 
+**Collection navigation (BST-1635).** The Map projects its canonical repository
+models through `selectWorktreeCollection`: tokenized case-insensitive local
+search, All/Running/Needs attention/External filters, primary-first name or
+recent-activity sorting within each repository, and a global 25-checkout page
+bound. Search/filter/sort changes return to the first page; a smaller result
+clamps both the visible and source page so recovering async results cannot jump back.
+Page and toolbar changes reset checkout scrolling. These are ephemeral React view preferences, never a
+new persistent store or another DB/IPC query. Unknown/loading status is not an
+attention signal; the primary checkout's Local-only usability is not a fault.
+Status errors, dirty/behind checkouts, failed PR checks and unusable non-primary
+checkouts are attention signals. Repository and status loading/refresh ownership
+stay in `useWorktreeMap`. The paired collection cases live in
+`worktree-map-model.test.ts` and `worktree-map-surface.test.tsx`.
+
 **"Open in Terminal" — SHIPPED in W6 (BST-1457); the deferral and its tripwire
 are gone.** Spec §10 lists the action on a Worktree Map card, §4.1 on the Folder
 chip's root rows and §4.3 on the Mode chip's worktree menu; all three exist. The
