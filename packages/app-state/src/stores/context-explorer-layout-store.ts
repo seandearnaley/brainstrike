@@ -70,20 +70,20 @@ type PersistedContextExplorerLayoutState = Pick<
   'sizes' | 'showLeftPanel' | 'showRightPanel' | 'showConsole' | 'explorerActiveTab'
 >;
 
-// The whole persisted subset restores here (explorerActiveTab is durable, unlike
-// the outer shell's root tab), so the projection is the identity.
+// The whole persisted subset restores here: explorerActiveTab is durable,
+// unlike the outer shell's root tab.
 const parsePersistedLayoutState = createPersistedLayoutParser<PersistedContextExplorerLayoutState>({
   defaultSizes: DEFAULT_STATE.sizes,
   loggerName: 'ContextExplorerLayoutStore',
-  pickState: (raw) => raw,
+  persistedKeys: ['explorerActiveTab', 'showConsole', 'showLeftPanel', 'showRightPanel', 'sizes'],
 });
 
 function persistOptions(
-  storage: PersistStorage<PersistedContextExplorerLayoutState>
-): PersistOptions<ContextExplorerLayoutStoreState, PersistedContextExplorerLayoutState> {
+  storage: PersistStorage<Partial<PersistedContextExplorerLayoutState>>
+): PersistOptions<ContextExplorerLayoutStoreState, Partial<PersistedContextExplorerLayoutState>> {
   return {
     migrate: (persistedState, version) => {
-      let state = persistedState as PersistedContextExplorerLayoutState;
+      let state = persistedState as Partial<PersistedContextExplorerLayoutState>;
 
       if (version < 2) {
         const sizes = state.sizes || [25, 20, 20];
@@ -127,7 +127,7 @@ export function createContextExplorerLayoutStore(storage: StorageAdapter) {
 }
 
 function createContextExplorerLayoutStoreWithPersistStorage(
-  storage: PersistStorage<PersistedContextExplorerLayoutState>
+  storage: PersistStorage<Partial<PersistedContextExplorerLayoutState>>
 ) {
   return create<ContextExplorerLayoutStoreState>()(persist(creator, persistOptions(storage)));
 }

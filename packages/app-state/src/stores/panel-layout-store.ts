@@ -154,17 +154,12 @@ type PersistedPanelState = Pick<
 const parsePersistedPanelState = createPersistedLayoutParser<PersistedPanelState>({
   defaultSizes: DEFAULT_STATE.sizes,
   loggerName: 'PanelLayoutStore',
-  pickState: (raw) => ({
-    showConsole: raw.showConsole,
-    showLeftPanel: raw.showLeftPanel,
-    showRightPanel: raw.showRightPanel,
-    sizes: raw.sizes,
-  }),
+  persistedKeys: ['showConsole', 'showLeftPanel', 'showRightPanel', 'sizes'],
 });
 
 function persistOptions(
-  storage: PersistStorage<PersistedPanelState>
-): PersistOptions<PanelLayoutStoreState, PersistedPanelState> {
+  storage: PersistStorage<Partial<PersistedPanelState>>
+): PersistOptions<PanelLayoutStoreState, Partial<PersistedPanelState>> {
   return {
     migrate: (persistedState, version) => {
       // The outer shell replaced the old three-pane geometry, so pre-v4 sizes do not map
@@ -195,7 +190,9 @@ export function createPanelLayoutStore(storage: StorageAdapter) {
   );
 }
 
-function createPanelLayoutStoreWithPersistStorage(storage: PersistStorage<PersistedPanelState>) {
+function createPanelLayoutStoreWithPersistStorage(
+  storage: PersistStorage<Partial<PersistedPanelState>>
+) {
   return create<PanelLayoutStoreState>()(persist(creator, persistOptions(storage)));
 }
 

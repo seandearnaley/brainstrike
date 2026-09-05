@@ -26,8 +26,13 @@ export interface PersistedLayoutState {
   sizes: PanelSizes;
 }
 
+/**
+ * What comes back from storage: the whitelisted keys of an untrusted snapshot.
+ * `state` is honestly partial — only `sizes` is validated (and repaired);
+ * zustand's merge lays the rest over the store defaults, as it always has.
+ */
 export interface PersistedLayoutStorageValue<P extends PersistedLayoutState> {
-  state: P;
+  state: Partial<P>;
   version: number;
 }
 
@@ -67,21 +72,43 @@ export interface PersistedLayoutParserOptions<P extends PersistedLayoutState> {
   readonly loggerName: string;
   readonly minPanelSize?: number;
   /**
-   * Projects the raw persisted `state` onto the store's persisted subset.
-   * This is the whitelist: anything the projection drops (e.g. a legacy
-   * `activeTab`) can never restore, whatever an old snapshot contains.
+   * The whitelist, as data: only these keys are copied out of a persisted
+   * snapshot. Anything else (e.g. the outer shell's legacy `activeTab`) can
+   * never restore, whatever an old snapshot contains — and there is no
+   * projection function to accidentally pass through.
    */
-  readonly pickState: (raw: P) => P;
+  readonly persistedKeys: readonly (keyof P & string)[];
 }
 
 export type PersistedLayoutParser<P extends PersistedLayoutState> = (
   raw: string | null
 ) => PersistedLayoutStorageValue<P> | null;
 
+function pickPersistedKeys<P extends PersistedLayoutState>(
+  raw: Record<string, unknown>,
+  keys: readonly (keyof P & string)[]
+): Partial<P> {
+  const picked: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (Object.hasOwn(raw, key)) {
+      picked[key] = raw[key];
+    }
+  }
+  // Values other than `sizes` are not validated here (pre-existing contract:
+  // zustand's merge accepts them as-is); `Partial` is the honest shape.
+  return picked as Partial<P>;
+}
+
+function isSnapshotObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 /**
- * Builds the read-side parser: invalid JSON or a snapshot without `state`
- * yields null (defaults win), corrupted sizes are repaired to
- * `defaultSizes`, and the persisted version is preserved so zustand's
+ * Builds the read-side parser: invalid JSON or a snapshot without an object
+ * `state` yields null (defaults win); a missing or corrupted `sizes` is
+ * repaired to `defaultSizes` (a snapshot without `sizes` would otherwise
+ * merge `undefined` over the default tuple and crash the first
+ * `sizes[0]` read); the persisted version is preserved so zustand's
  * `migrate` still sees it.
  */
 export function createPersistedLayoutParser<P extends PersistedLayoutState>(
@@ -95,21 +122,11 @@ export function createPersistedLayoutParser<P extends PersistedLayoutState>(
     if (!raw) {
       return null;
     }
+    // Only the parse is guarded: a JSON failure is genuinely corrupt storage,
+    // and nothing after it should be able to masquerade as one.
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(raw) as { state?: P; version?: number };
-      const rawState = parsed?.state;
-      if (!rawState) {
-        return null;
-      }
-      const state = options.pickState(rawState);
-      const version = typeof parsed.version === 'number' ? parsed.version : 0;
-      if (state.sizes && hasCorruptedSizes(state.sizes, { expectedLength, minPanelSize })) {
-        return {
-          state: { ...state, sizes: [...options.defaultSizes] as PanelSizes },
-          version,
-        };
-      }
-      return { state, version };
+      parsed = JSON.parse(raw);
     } catch (error) {
       if (process.env['NODE_ENV'] !== 'production') {
         logger.warn('Ignoring invalid persisted layout state', {
@@ -118,6 +135,18 @@ export function createPersistedLayoutParser<P extends PersistedLayoutState>(
       }
       return null;
     }
+    if (!(isSnapshotObject(parsed) && isSnapshotObject(parsed['state']))) {
+      return null;
+    }
+    const state = pickPersistedKeys<P>(parsed['state'], options.persistedKeys);
+    const version = typeof parsed['version'] === 'number' ? parsed['version'] : 0;
+    if (hasCorruptedSizes(state.sizes, { expectedLength, minPanelSize })) {
+      return {
+        state: { ...state, sizes: [...options.defaultSizes] as PanelSizes },
+        version,
+      };
+    }
+    return { state, version };
   };
 }
 
@@ -129,7 +158,7 @@ export function createPersistedLayoutParser<P extends PersistedLayoutState>(
 export function createAdapterPersistStorage<P extends PersistedLayoutState>(
   storage: StorageAdapter,
   parse: PersistedLayoutParser<P>
-): PersistStorage<P> {
+): PersistStorage<Partial<P>> {
   return {
     getItem: async (name: string) => parse(await storage.getItem(name)),
     removeItem: async (name: string) => {
@@ -144,7 +173,7 @@ export function createAdapterPersistStorage<P extends PersistedLayoutState>(
 /** `window.localStorage` when reachable, otherwise a per-instance memory map. */
 export function createFallbackPersistStorage<P extends PersistedLayoutState>(
   parse: PersistedLayoutParser<P>
-): PersistStorage<P> {
+): PersistStorage<Partial<P>> {
   const memoryStorage = new Map<string, string>();
 
   const getBrowserStorage = (): Storage | null => {
@@ -192,7 +221,7 @@ export function createFallbackPersistStorage<P extends PersistedLayoutState>(
  */
 export function resolveDefaultPersistStorage<P extends PersistedLayoutState>(
   parse: PersistedLayoutParser<P>
-): PersistStorage<P> {
+): PersistStorage<Partial<P>> {
   try {
     return createAdapterPersistStorage(createBrowserStorageAdapter(), parse);
   } catch {

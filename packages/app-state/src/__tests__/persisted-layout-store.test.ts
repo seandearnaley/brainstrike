@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createContextExplorerLayoutStore } from '../stores/context-explorer-layout-store';
+import { createPanelLayoutStore } from '../stores/panel-layout-store';
 import {
   createAdapterPersistStorage,
   createFallbackPersistStorage,
@@ -11,8 +10,6 @@ import {
   normalizeSizes,
   resolveNextSizes,
 } from '../stores/persisted-layout-store';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 interface LayoutState {
   showConsole: boolean;
@@ -25,12 +22,7 @@ const DEFAULT_SIZES: readonly [number, number, number] = [18, 40, 20];
 const parse = createPersistedLayoutParser<LayoutState>({
   defaultSizes: DEFAULT_SIZES,
   loggerName: 'LayoutStoreTest',
-  pickState: (raw) => ({
-    showConsole: raw.showConsole,
-    showLeftPanel: raw.showLeftPanel,
-    showRightPanel: raw.showRightPanel,
-    sizes: raw.sizes,
-  }),
+  persistedKeys: ['showConsole', 'showLeftPanel', 'showRightPanel', 'sizes'],
 });
 
 /**
@@ -62,14 +54,24 @@ describe('persisted-layout-store helper', () => {
   });
 
   describe('parser', () => {
-    it('returns null for empty, invalid JSON, or missing state', () => {
+    it('returns null for empty, invalid JSON, or a missing / non-object state', () => {
       expect(parse(null)).toBeNull();
       expect(parse('')).toBeNull();
       expect(parse('{invalid json')).toBeNull();
       expect(parse(JSON.stringify({ version: 2 }))).toBeNull();
+      expect(parse(JSON.stringify({ state: 'nope', version: 2 }))).toBeNull();
+      expect(parse(JSON.stringify(null))).toBeNull();
     });
 
-    it('whitelists through pickState so stray persisted keys never reach the store', () => {
+    it('repairs a snapshot that has state but no sizes, instead of merging undefined', () => {
+      const parsed = parse(JSON.stringify({ state: { showConsole: true }, version: 4 }));
+      expect(parsed).toEqual({
+        state: { showConsole: true, sizes: [...DEFAULT_SIZES] },
+        version: 4,
+      });
+    });
+
+    it('whitelists by persistedKeys so stray persisted keys never reach the store', () => {
       const parsed = parse(
         JSON.stringify({
           state: {
@@ -186,14 +188,40 @@ describe('persisted-layout-store helper', () => {
     });
   });
 
-  it('both layout stores consume the helper instead of private copies', () => {
-    for (const file of ['panel-layout-store.ts', 'context-explorer-layout-store.ts']) {
-      const source = readFileSync(path.resolve(__dirname, '../stores', file), 'utf8');
-      expect(source, file).toMatch(/from '\.\/persisted-layout-store'/u);
-      expect(source, file).not.toMatch(/function createFallbackPersistStorage/u);
-      expect(source, file).not.toMatch(/function parsePersistedPanelState/u);
-      expect(source, file).not.toMatch(/function hasCorruptedSizes/u);
-      expect(source, file).not.toMatch(/function normalizeSizes/u);
+  describe('both layout stores share the recovery path', () => {
+    const PANEL_DEFAULTS = [18, 40, 20];
+    const EXPLORER_DEFAULTS = [25, 20, 20];
+
+    async function hydrate<TStore extends { getState: () => { sizes: number[] } }>(
+      name: string,
+      create: (adapter: ReturnType<typeof createMemoryStorageAdapter>) => TStore,
+      snapshot: unknown
+    ): Promise<number[]> {
+      const adapter = createMemoryStorageAdapter();
+      await adapter.setItem(name, JSON.stringify(snapshot));
+      const store = create(adapter);
+      const persistApi = (store as unknown as { persist?: { rehydrate?: () => Promise<void> } })
+        .persist;
+      if (!persistApi?.rehydrate) {
+        throw new Error(`expected persist API on ${name}`);
+      }
+      await persistApi.rehydrate();
+      return store.getState().sizes;
     }
+
+    it.each([
+      { label: 'corrupted sizes', state: { showConsole: true, sizes: [4.488, 5.386, 0] } },
+      { label: 'missing sizes', state: { showConsole: true } },
+    ])('both stores hydrate $label to their own defaults', async ({ state }) => {
+      await expect(
+        hydrate('panel-layout-store.v1', createPanelLayoutStore, { state, version: 4 })
+      ).resolves.toEqual(PANEL_DEFAULTS);
+      await expect(
+        hydrate('context-explorer-layout-store.v1', createContextExplorerLayoutStore, {
+          state,
+          version: 3,
+        })
+      ).resolves.toEqual(EXPLORER_DEFAULTS);
+    });
   });
 });
