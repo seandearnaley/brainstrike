@@ -449,7 +449,8 @@ stay in `useWorktreeMap`. The paired collection cases live in
 and full-width checkout articles, with one, two, or four columns based on the
 Worktrees container width (600px / 760px). Checkout identity/path, Git status,
 thread activity and actions keep a stable order. The action group uses 32px
-controls; the indexing toggle exposes its existing exact-root preference via
+controls and stays inside the row at narrow widths; the primary label may
+truncate while its accessible name and title remain complete. The indexing toggle exposes its existing exact-root preference via
 an accessible name and `aria-pressed`. Missing-on-disk rows do not claim a
 pending Git read. A resolved clean status is explicit, and the selected linked
 thread is labeled and accented. Disabled-target guidance stays visible in a neutral tone; the canonical unmanaged-checkout message directs users to the shipped Worktrees → Adopt action. All mutation and capability guards are unchanged.

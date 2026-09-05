@@ -309,7 +309,15 @@ test.describe('Worktree Map (desktop)', () => {
           }
           const a = primary.getBoundingClientRect();
           const b = menu.getBoundingClientRect();
+          const bounds = element.getBoundingClientRect();
+          const actionsContained = Array.from(element.querySelectorAll('footer button')).every(
+            (button) => {
+              const rect = button.getBoundingClientRect();
+              return rect.left >= bounds.left && rect.right <= bounds.right;
+            }
+          );
           return {
+            actionsContained,
             actionX: b.x,
             menuHeight: b.height,
             menuWidth: b.width,
@@ -320,6 +328,7 @@ test.describe('Worktree Map (desktop)', () => {
       );
       expect(geometry).toHaveLength(3);
       for (const row of geometry) {
+        expect(row.actionsContained).toBe(true);
         expect(row.menuHeight).toBe(32);
         expect(row.menuWidth).toBe(32);
         expect(row.primaryHeight).toBe(32);

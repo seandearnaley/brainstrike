@@ -214,6 +214,7 @@ export function WorktreeMapSurface(): ReactElement {
               <div
                 className="overflow-hidden rounded-lg border border-border bg-card [&>article+article]:border-border [&>article+article]:border-t"
                 data-testid="worktree-map-rows"
+                key={`${collection.page}:${query}:${filter}:${sort}`}
               >
                 {repositoryModel.cards.map((card) => (
                   <WorktreeMapCard

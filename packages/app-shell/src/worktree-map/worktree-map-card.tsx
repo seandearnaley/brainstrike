@@ -243,19 +243,19 @@ export function WorktreeMapCard({
         current={onHandOffToLocal !== undefined}
         onOpenThread={onOpenThread}
       />
-      <footer className="flex items-center justify-end gap-1.5">
+      <footer className="flex min-w-0 items-center justify-end gap-1.5">
         <WorktreeIndexingToggle card={card} onToggleIndexing={onToggleIndexing} />
         <Button
-          className="h-8 @min-[760px]/worktrees:flex-none flex-1 px-2 text-xs"
+          className="h-8 min-w-0 @min-[760px]/worktrees:flex-none flex-1 shrink px-2 text-xs"
           data-testid="worktree-map-new-thread"
           disabled={!entry.usable}
           onClick={() => onNewThread(card)}
           size="sm"
-          title={card.disabledReason ?? undefined}
+          title={card.disabledReason ?? 'New thread here'}
           type="button"
           variant="outline"
         >
-          New thread here
+          <span className="truncate">New thread here</span>
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
