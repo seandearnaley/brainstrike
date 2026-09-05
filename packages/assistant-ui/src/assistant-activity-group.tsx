@@ -1,4 +1,5 @@
-import { AlertCircle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import type { MessagePartStatus } from '@assistant-ui/react';
+import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Square } from 'lucide-react';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
 import type { ToolActivitySummary } from './tool-activity';
@@ -9,7 +10,8 @@ import { formatActivityDuration } from './tool-durations';
  * turn's already-elapsed run-event span so it continues from there instead of
  * resetting to 0 (which otherwise flashes e.g. 1.8s → 0.2s the moment the group
  * mounts mid-turn). Once inactive it freezes the measured value; a turn never
- * observed live (reloaded/finished) just returns `fallbackMs`.
+ * observed live (reloaded/finished) just returns `fallbackMs`. Reactivation of
+ * this same mounted group preserves its accumulated live activity time.
  */
 function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number | undefined {
   const [measuredMs, setMeasuredMs] = useState<number | null>(null);
@@ -17,6 +19,7 @@ function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number
   // and read once when activity starts — so a growing fallback never restarts
   // the clock.
   const seedRef = useRef(fallbackMs);
+  const accumulatedRef = useRef(0);
   useEffect(() => {
     seedRef.current = fallbackMs;
   }, [fallbackMs]);
@@ -26,10 +29,14 @@ function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number
       return;
     }
     // Anchor the clock to the turn's real start: now − elapsed-so-far.
-    const start = Date.now() - (seedRef.current ?? 0);
+    const start = Date.now() - Math.max(seedRef.current ?? 0, accumulatedRef.current);
     setMeasuredMs(Date.now() - start);
     const intervalId = setInterval(() => setMeasuredMs(Date.now() - start), 100);
-    return () => clearInterval(intervalId);
+    return () => {
+      accumulatedRef.current = Date.now() - start;
+      setMeasuredMs(accumulatedRef.current);
+      clearInterval(intervalId);
+    };
   }, [isActive]);
 
   return measuredMs ?? fallbackMs;
@@ -38,6 +45,7 @@ function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number
 interface AssistantActivityGroupProps {
   children?: ReactNode;
   fallbackMs?: number | undefined;
+  incompleteReason?: Extract<MessagePartStatus, { type: 'incomplete' }>['reason'] | undefined;
   /** True while the turn is still producing tool activity (keeps it expanded). */
   isActive: boolean;
   summary: ToolActivitySummary;
@@ -66,26 +74,40 @@ function ActivityWorkingLabel({ summary }: { summary: ToolActivitySummary }) {
 
 /** Resting summary once the turn is done: "Worked for 12s · 5 steps". */
 function ActivityDoneLabel({
+  cancelled,
   elapsedLabel,
   failed,
   stepLabel,
 }: {
+  cancelled: boolean;
   elapsedLabel: string | null;
   failed: boolean;
   stepLabel: string;
 }) {
+  const StatusIcon = cancelled ? Square : CheckCircle;
+  const completedLabel = cancelled ? 'Stopped' : 'Worked';
   return (
     <span className="inline-flex min-w-0 shrink-0 items-center gap-1.5">
       {failed ? (
         <AlertCircle className="size-4 text-destructive" />
       ) : (
-        <CheckCircle className="size-4 text-emerald-600 dark:text-emerald-500" />
+        <StatusIcon
+          className={
+            cancelled
+              ? 'size-4 text-muted-foreground'
+              : 'size-4 text-emerald-600 dark:text-emerald-500'
+          }
+        />
       )}
-      <span className="bs-activity-summary-label">{failed ? 'Activity failed' : 'Worked'}</span>
+      <span className="bs-activity-summary-label">
+        {failed ? 'Activity failed' : completedLabel}
+      </span>
       {elapsedLabel && !failed ? (
-        <span className="bs-activity-summary-meta">for {elapsedLabel}</span>
+        <span className="bs-activity-summary-meta">
+          {cancelled ? 'after' : 'for'} {elapsedLabel}
+        </span>
       ) : null}
-      <span className="bs-activity-summary-meta">· {stepLabel}</span>
+      {stepLabel ? <span className="bs-activity-summary-meta">· {stepLabel}</span> : null}
     </span>
   );
 }
@@ -100,6 +122,7 @@ export function AssistantActivityGroup({
   children,
   fallbackMs,
   isActive,
+  incompleteReason,
   summary,
 }: AssistantActivityGroupProps) {
   const bodyId = useId();
@@ -108,9 +131,14 @@ export function AssistantActivityGroup({
 
   // Derived expansion: follow the live state until the user takes manual control.
   const expanded = userExpanded ?? isActive;
-  const failed = !isActive && summary.failedCount > 0;
+  const cancelled = !isActive && incompleteReason === 'cancelled';
+  const failed =
+    !(isActive || cancelled) && (incompleteReason !== undefined || summary.failedCount > 0);
   const elapsedLabel = elapsedMs === undefined ? null : formatActivityDuration(elapsedMs);
-  const stepLabel = `${summary.stepCount} ${summary.stepCount === 1 ? 'step' : 'steps'}`;
+  const stepLabel =
+    summary.stepCount > 0
+      ? `${summary.stepCount} ${summary.stepCount === 1 ? 'step' : 'steps'}`
+      : '';
   const ChevronIcon = expanded ? ChevronUp : ChevronDown;
 
   return (
@@ -132,7 +160,12 @@ export function AssistantActivityGroup({
         {isActive ? (
           <ActivityWorkingLabel summary={summary} />
         ) : (
-          <ActivityDoneLabel elapsedLabel={elapsedLabel} failed={failed} stepLabel={stepLabel} />
+          <ActivityDoneLabel
+            cancelled={cancelled}
+            elapsedLabel={elapsedLabel}
+            failed={failed}
+            stepLabel={stepLabel}
+          />
         )}
 
         <span className="bs-activity-right">

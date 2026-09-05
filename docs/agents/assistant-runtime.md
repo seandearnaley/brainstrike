@@ -1249,8 +1249,23 @@ The reasoning disclosure renders live reasoning text directly from
 renderer, because that renderer reads a different part hook and produces an
 expanded-but-empty disclosure. Reasoning may remain auto-collapsed by the
 activity UI, but user expansion must show accumulated text before, during, and
-after intervening tool calls; the active icon clears only on a real terminal
-part.
+after intervening tool calls. Each contiguous activity group renders through
+`ChainOfThoughtPrimitive.Parts` at its own position (BST-1656); never hoist later
+parts into the first group or suppress later groups. Reasoning indicators and
+activity status derive from that group's parts/status, so earlier groups remain
+inactive when later thinking starts. The existing named tool-renderer map is
+adapted into the chain primitive's single tool slot, preserving task-list,
+subagent, and MCP result renderers. Activity wrappers remain mounted through
+completion, preserving disclosure state and tool identity. Reasoning-only groups
+omit the zero-tool step count. Incomplete group status is authoritative even
+without tool calls: cancellation shows a neutral Stopped summary, while other
+incomplete reasons show Activity failed. A completed call with the canonical
+`isError` flag also marks its group failed; domain fields alone never imply
+failure, and a call is counted once. Completed tool details remain
+accessible by expanding the activity group; packaged UI proofs follow that
+same disclosure interaction. Tool durations and shell output remain correlated
+by call id across the message, while each group's elapsed fallback uses only its
+own tool events. The turn-wide task list renders once in the first group.
 
 Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.37's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,

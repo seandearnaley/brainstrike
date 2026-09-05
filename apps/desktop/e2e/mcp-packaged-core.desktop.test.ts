@@ -487,7 +487,14 @@ async function executeAssistantTool(
   }
   await approval.getByRole('button', { name: /Approve/u }).click();
   await expect(completed).toBeVisible({ timeout: 90_000 });
-  const toolCard = page.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
+  const activity = page
+    .getByTestId('assistant-activity-group')
+    .filter({ hasText: 'legacy.echo' })
+    .last();
+  const summary = activity.getByTestId('assistant-activity-summary');
+  await expect(summary).toHaveAttribute('aria-expanded', 'false');
+  await summary.click();
+  const toolCard = activity.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
   await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
@@ -528,7 +535,14 @@ async function executeElicitationTool(
   await expect(page.getByText('Packaged MCP elicitation completed.').first()).toBeVisible({
     timeout: 90_000,
   });
-  const toolCard = page
+  const activity = page
+    .getByTestId('assistant-activity-group')
+    .filter({ hasText: 'oauth.elicit_confirm' })
+    .last();
+  const summary = activity.getByTestId('assistant-activity-summary');
+  await expect(summary).toHaveAttribute('aria-expanded', 'false');
+  await summary.click();
+  const toolCard = activity
     .getByTestId('tool-fallback')
     .filter({ hasText: 'oauth.elicit_confirm' })
     .last();
