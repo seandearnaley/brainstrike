@@ -10,8 +10,7 @@ export const readToolOutputArtifact = defineNativeTool({
     requiresApproval: false,
     riskCategory: 'read',
   },
-  description:
-    'Page/grep; never alter or recreate the cursor.',
+  description: 'Page/grep; never alter or recreate the cursor.',
   discovery: { family: 'tool-output artifacts', namespace: 'artifacts' },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.readToolOutputArtifact',

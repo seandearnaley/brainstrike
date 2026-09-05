@@ -867,7 +867,7 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
         riskCategory: 'read',
       },
       description: 'probe',
-      discovery: { namespace: 'database' },
+      discovery: { family: 'diagnostics', namespace: 'database' },
       id: 'brainstrike.instructionProbe',
       inputSchema: providerCompatibleInputSchema(z.object({}).strict()),
       instruction: (names) =>

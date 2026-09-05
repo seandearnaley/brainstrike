@@ -195,7 +195,9 @@ export class InvalidNativeToolDefinitionError extends Error {
  *   (`tool-risk.ts`) — a potentially dangerous tool is never silently bucketed;
  * - a deferred tool without a discovery namespace, or a critical tool with
  *   one, throws {@link InvalidNativeToolDefinitionError};
- * - a desktop tool must list the `desktop` surface, and `local` implies `desktop`.
+ * - a desktop tool must list the `desktop` surface, and `local` implies `desktop`;
+ * - a deferred desktop tool must declare a `discovery.family` (otherwise it is
+ *   behind `search_tools` with no advertised capability).
  */
 export function defineNativeTool<const Definition extends NativeToolDefinition>(
   definition: Definition
@@ -222,6 +224,15 @@ export function defineNativeTool<const Definition extends NativeToolDefinition>(
       throw new InvalidNativeToolDefinitionError(
         definition.id,
         'every desktop tool registers on the desktop surface'
+      );
+    }
+    if (definition.discovery !== undefined && definition.discovery.family === undefined) {
+      // deriveCapabilityFamilies() advertises only definitions with a family;
+      // a deferred desktop tool without one would be behind search_tools with
+      // no capability line — reachable in principle, undiscoverable in practice.
+      throw new InvalidNativeToolDefinitionError(
+        definition.id,
+        'a deferred desktop tool must declare the discovery.family its capability is advertised under'
       );
     }
   }

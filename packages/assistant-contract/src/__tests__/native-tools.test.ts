@@ -259,6 +259,23 @@ describe('defineNativeTool fail-loud checks', () => {
     ).toThrow(InvalidNativeToolDefinitionError);
   });
 
+  it('throws when a deferred desktop tool declares a namespace but no capability family', () => {
+    // Without a family the tool sits behind search_tools with no advertised
+    // capability line: reachable in principle, undiscoverable in practice.
+    expect(() =>
+      defineNativeTool({
+        ...base,
+        defaults: {
+          category: 'retrieval',
+          estimatedTokens: 1,
+          loadingTier: 'deferred',
+          requiresApproval: false,
+        },
+        discovery: { namespace: 'workspace' },
+      })
+    ).toThrow(InvalidNativeToolDefinitionError);
+  });
+
   it('throws when a critical tool declares a discovery namespace', () => {
     expect(() =>
       defineNativeTool({
