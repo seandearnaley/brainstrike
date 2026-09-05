@@ -3647,7 +3647,11 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('marks sync unconfigured (not an error) when no root folder is selected yet', async () => {
+  it.each([
+    { managedCollectionId: 'set-1', rootPath: null },
+    { managedCollectionId: null, rootPath: ROOT_PATH },
+    { managedCollectionId: null, rootPath: null },
+  ])('marks incomplete setup unconfigured: %j', async ({ managedCollectionId, rootPath }) => {
     // BST-1335: a managed collection can exist (background indexing enabled,
     // default collection created) before the user has picked a workspace
     // root. That is incomplete setup, not a failure — it must not land as an
@@ -3666,15 +3670,15 @@ describe('WorkspaceCollectionSyncService', () => {
     await service.sync({
       enabled: true,
       indexingPolicyPreset: 'balanced',
-      managedCollectionId: 'set-1',
-      rootDirectoryHandle: null,
+      managedCollectionId,
+      rootDirectoryHandle: rootPath === null ? null : createRootHandle(rootPath),
     });
 
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        activeRootPath: null,
+        activeRootPath: rootPath,
         lastError: null,
-        managedCollectionId: 'set-1',
+        managedCollectionId,
         state: 'unconfigured',
       })
     );
@@ -3683,7 +3687,31 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(log.warn).not.toHaveBeenCalled();
     expect(log.info).toHaveBeenCalledWith(
       expect.stringContaining('unconfigured'),
-      expect.objectContaining({ managedCollectionId: 'set-1' })
+      expect.objectContaining({ managedCollectionId })
+    );
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a missing required database dependency as an error', async () => {
+    const deps = createDeps();
+    // Simulate an untyped caller violating the constructor's required DB contract.
+    Reflect.deleteProperty(deps, 'db');
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: 'Database is not ready.',
+        managedCollectionId: 'set-1',
+        state: 'error',
+      })
     );
     expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
   });

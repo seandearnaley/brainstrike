@@ -2040,6 +2040,9 @@ export function WorkspaceCollectionSyncProvider({
     }
 
     workspaceIndexBootstrapInFlightRef.current = true;
+    // Bootstrap publishes the collection id through preferences. That update
+    // re-runs triggerSync, which owns setup/paused/scanning status. Writing a
+    // second status after bootstrap resolves can overwrite that newer state.
     void bootstrapWorkspaceIndexCollection(
       { enabled, managedCollectionId },
       {
@@ -2047,42 +2050,6 @@ export function WorkspaceCollectionSyncProvider({
         setManagedCollectionId,
       }
     )
-      .then((collection) => {
-        if (!collection) {
-          return;
-        }
-        const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
-        if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
-          setSyncStatus({
-            activeRootPath: rootDirectoryHandleRef.current?.path ?? null,
-            currentFilePath: null,
-            lastError: null,
-            managedCollectionId: collection.id,
-            managedCollectionName: collection.name ?? null,
-            pauseReasons: [
-              ...(latestBackgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
-              ...getBackgroundWorkPauseReasonLabels(
-                latestBackgroundWorkSnapshot.automaticPauseReasons
-              ),
-            ],
-            processedFiles: 0,
-            queuedFiles: 0,
-            state: 'paused',
-          });
-          return;
-        }
-        setSyncStatus({
-          activeRootPath: rootDirectoryHandleRef.current?.path ?? null,
-          currentFilePath: null,
-          lastError: null,
-          managedCollectionId: collection.id,
-          managedCollectionName: collection.name ?? null,
-          pauseReasons: [],
-          processedFiles: 0,
-          queuedFiles: 0,
-          state: 'waiting',
-        });
-      })
       .catch((error) => {
         reportAsyncError('bootstrap', error);
       })
@@ -2096,7 +2063,6 @@ export function WorkspaceCollectionSyncProvider({
     managedCollectionId,
     reportAsyncError,
     setManagedCollectionId,
-    setSyncStatus,
   ]);
 
   const triggerSync = useCallback(

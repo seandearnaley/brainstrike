@@ -33,12 +33,10 @@ export interface RootFolderCacheRequestValidation {
 }
 
 /**
- * `no-root-folder` is an UNCONFIGURED state (setup incomplete — e.g. a fresh
- * launch before the user has picked a workspace root), not a failure. The
- * caller routes it to a non-error sync status instead of the generic error
- * path (BST-1335). `no-managed-collection` and `db-not-ready` keep routing to
- * the error path; only the reported no-root case is in scope for this
- * distinction.
+ * Missing root or collection is incomplete setup (`unconfigured`). The provider
+ * waits for database initialization before constructing the service; a missing
+ * required database at the service boundary remains an error, as do invalid
+ * metadata and failures after initialization.
  */
 export type RootFolderCacheValidationFailureCode =
   | 'db-not-ready'

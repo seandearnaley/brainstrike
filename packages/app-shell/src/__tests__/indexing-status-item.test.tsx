@@ -381,30 +381,40 @@ describe('IndexingStatusItem', () => {
     expect(screen.getByTestId('indexing-action-region')).toHaveClass('h-11');
   });
 
-  it('shows a neutral "No root selected" status, not Blocked/Ready, when unconfigured (BST-1335)', () => {
-    useBackgroundIndexingPreferencesStore.setState({ enabled: true, paused: false });
-    useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-      activeRootPath: null,
-      lastError: null,
-      managedCollectionId: 'collection-a',
-      state: 'unconfigured',
-    });
-    useIndexingActivityStore.getState().setBackgroundSnapshot({
-      enabled: true,
-      lastError: null,
-      managedCollectionId: 'collection-a',
-      managedCollectionName: null,
-      paused: false,
-      pauseReasons: [],
-      state: 'unconfigured',
-    });
+  it.each([
+    { activeRootPath: null, label: 'No root selected', managedCollectionId: 'set-1' },
+    {
+      activeRootPath: '/workspace/root',
+      label: 'No collection selected',
+      managedCollectionId: null,
+    },
+  ])(
+    'shows the missing setup requirement: $label',
+    ({ activeRootPath, label, managedCollectionId }) => {
+      useBackgroundIndexingPreferencesStore.setState({ enabled: true, paused: false });
+      useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+        activeRootPath,
+        lastError: null,
+        managedCollectionId,
+        state: 'unconfigured',
+      });
+      useIndexingActivityStore.getState().setBackgroundSnapshot({
+        enabled: true,
+        lastError: null,
+        managedCollectionId,
+        managedCollectionName: null,
+        paused: false,
+        pauseReasons: [],
+        state: 'unconfigured',
+      });
 
-    render(<IndexingStatusItem />);
+      render(<IndexingStatusItem />);
 
-    const status = screen.getByTestId('indexing-status-item');
-    expect(status).toHaveTextContent('Workspace IndexNo root selected');
-    expect(status).toHaveClass('text-muted-foreground');
-  });
+      const status = screen.getByTestId('indexing-status-item');
+      expect(status).toHaveTextContent(`Workspace Index${label}`);
+      expect(status).toHaveClass('text-muted-foreground');
+    }
+  );
 
   it('keeps the pause action available while a bound Workspace Index waits for restore', async () => {
     useBackgroundIndexingPreferencesStore.setState({

@@ -947,6 +947,49 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
   });
 
+  it('keeps a fresh profile error-free through database startup and collection bootstrap without a root', async () => {
+    const readyDatabase = dbState.current;
+    dbState.current = null;
+    fileSystemState.rootDirectoryHandle = null;
+    fileSystemState.rootDirectoryHandles = [];
+    fileSystemState.rootIdByPath = new Map();
+    useBackgroundIndexingPreferencesStore.setState({ managedCollectionId: null });
+    const observedStates: string[] = [];
+    const unsubscribe = useWorkspaceCollectionSyncStatusStore.subscribe((state) => {
+      observedStates.push(state.state);
+    });
+    try {
+      const content = () => (
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      const { rerender } = render(content());
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+          lastError: null,
+          state: 'waiting',
+        })
+      );
+      expect(getOrCreateWorkspaceIndexSetMock).not.toHaveBeenCalled();
+
+      dbState.current = readyDatabase;
+      rerender(content());
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+          lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          state: 'unconfigured',
+        })
+      );
+      expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1);
+      expect(observedStates).not.toContain('error');
+      expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('bootstraps when persist hydration completed but the store marker is stale', async () => {
     const workspaceIndex: EmbeddingSet = {
       createdAt: new Date().toISOString(),

@@ -38,6 +38,18 @@ Structured logs:
 Scoped loggers:
 - createLogger('FileImporter')
 
+Workspace indexing setup (BST-1340):
+- Missing root or managed collection is `unconfigured`, clearing stale progress
+  and `lastError` without a durable diagnostic failure. The provider reports
+  `waiting` while the database initializes and constructs the sync service only
+  once it exists. A missing required database inside the service is an invalid
+  dependency and remains an error, as do invalid metadata and runtime failures.
+- The provider bootstraps a default Workspace Index for fresh preferences.
+  Publishing its collection id re-enters the sync lifecycle, which owns the
+  resulting status; bootstrap completion must not overwrite a newer status.
+  Public regressions: `workspace-collection-sync-service.test.ts` and
+  `workspace-collection-sync-provider.test.tsx` in app-shell background indexing.
+
 Sensitive data:
 - Auto-redacts: apiKey, password, token, secret, authorization, cookie
 - Structured arguments and listener bindings are recursively redacted before transport,
