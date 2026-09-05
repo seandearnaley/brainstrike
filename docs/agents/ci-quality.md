@@ -1680,15 +1680,22 @@ substitute retries, a global promise pin, or a timeout increase.
 The original smoke failure occurred during the second assistant setup, after
 the folder fixture's thread-seeding reload. Its trace was created but never
 uploaded: the workflow looked in `test-results` while desktop Playwright writes
-to `blob-report`. The required Desktop E2E upload now targets
-`apps/desktop/blob-report/` and warns if evidence is missing. This absence
+to `blob-report`. The required Desktop E2E and both nightly desktop uploads now target
+`apps/desktop/blob-report/`, matching the already-correct packaged MCP uploader.
+Both Playwright test attachments (`outputDir`) and its blob reporter use that
+directory. Uploaders warn if it is missing: `failure()` also covers setup/build
+failures before Playwright has run, when no test artifacts exist. This absence
 prevents reconstructing the precise GC schedule in that historical execution.
 
 The controlled regression in `assistant-panel.desktop.test.ts` invokes the
 public `setupAssistantMock` helper in an isolated Electron renderer, with a
 collectible pending writer and explicit `HeapProfiler.collectGarbage`. The
 pre-fix helper reproduces `Resulting promise was garbage collected`; the owned
-write survives until settlement and becomes collectible after disposal. It also
+write survives until settlement. Public JSHandle instrumentation verifies that
+disposal completes on every outcome and that the released handle is unusable
+while its renderer remains responsive; the test does not demand that V8 reclaim
+a released object by a deadline. A missing-disposal negative control fails this
+contract. It also
 covers delayed and immediate rejection, structured failure, and navigation,
 including the absence of unhandled renderer errors. The regular assistant and
 folder specs continue to exercise the real frozen preload bridge and complete

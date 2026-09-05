@@ -1,5 +1,5 @@
 import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
-import type { Page } from '@playwright/test';
+import type { JSHandle, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -7,15 +7,17 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 type ProviderWriteOutcome = 'success' | 'rejected' | 'immediate-rejected' | 'failed' | 'navigation';
 
+interface ProviderWriteTestState {
+  __pendingProviderWrite?: WeakRef<Promise<SecretsWriteResult> & { settle: () => void }>;
+  __providerConfigured?: boolean;
+}
+
 async function installCollectibleProviderWrite(
   page: Page,
   outcome: ProviderWriteOutcome
 ): Promise<void> {
   await page.evaluate((writeOutcome) => {
-    const globals = window as Window & {
-      __pendingProviderWrite?: WeakRef<Promise<SecretsWriteResult> & { settle: () => void }>;
-      __providerConfigured?: boolean;
-    };
+    const globals = window as Window & ProviderWriteTestState;
     globals.__pendingProviderWrite = undefined;
     globals.__providerConfigured = false;
     Reflect.set(globals, '__brainstrikeTestHooks__', {
@@ -180,6 +182,28 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     });
     const page = await isolatedPage;
     const session = await page.context().newCDPSession(page);
+    const ownedHandles: JSHandle<unknown>[] = [];
+    const disposedHandles = new Set<JSHandle<unknown>>();
+    // Observe the public ownership boundary without requiring V8 to reclaim
+    // the object by a deadline. Delegate every operation to the real Page.
+    const observedPage = new Proxy(page, {
+      get(target, property) {
+        if (property === 'evaluateHandle') {
+          return async (...args: Parameters<Page['evaluateHandle']>) => {
+            const handle = await target.evaluateHandle(...args);
+            ownedHandles.push(handle);
+            const dispose = handle.dispose.bind(handle);
+            handle.dispose = async () => {
+              await dispose();
+              disposedHandles.add(handle);
+            };
+            return handle;
+          };
+        }
+        const value: unknown = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
     try {
@@ -192,23 +216,31 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
       ] as const) {
         await test.step(outcome, async () => {
           await installCollectibleProviderWrite(page, outcome);
-          const setup = setupAssistantMock(page).then(
+          const handlesBefore = ownedHandles.length;
+          const setup = setupAssistantMock(observedPage).then(
             () => ({ error: null }),
             (error: unknown) => ({ error: String(error) })
           );
           await page.waitForFunction(
-            () => Reflect.get(window, '__pendingProviderWrite') !== undefined
+            () => (window as Window & ProviderWriteTestState).__pendingProviderWrite !== undefined
           );
           if (outcome === 'navigation') {
             await page.reload();
             expect((await setup).error).toContain('Execution context was destroyed');
+            expect(pageErrors).toEqual([]);
+            expect(ownedHandles).toHaveLength(handlesBefore + 1);
+            expect(disposedHandles.size).toBe(ownedHandles.length);
             return;
           }
+          // Immediate rejection has already settled; this case checks same-turn
+          // rejection observation, not survival of a still-pending operation.
           if (outcome !== 'immediate-rejected') {
             await session.send('HeapProfiler.collectGarbage');
           }
           const pendingWriteIsAlive = await page.evaluate(() => {
-            const completion = Reflect.get(window, '__pendingProviderWrite').deref();
+            const completion = (
+              window as Window & ProviderWriteTestState
+            ).__pendingProviderWrite?.deref();
             if (!completion) {
               return false;
             }
@@ -227,20 +259,28 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
           }
           expect(pageErrors).toEqual([]);
           expect(pendingWriteIsAlive).toBe(true);
-          expect(await page.evaluate(() => Reflect.get(window, '__providerConfigured'))).toBe(
-            outcome === 'success'
-          );
-          await session.send('HeapProfiler.collectGarbage');
           expect(
             await page.evaluate(
-              () => Reflect.get(window, '__pendingProviderWrite').deref() === undefined
+              () => (window as Window & ProviderWriteTestState).__providerConfigured
             )
-          ).toBe(true);
+          ).toBe(outcome === 'success');
+          expect(ownedHandles).toHaveLength(handlesBefore + 1);
+          expect(disposedHandles.size).toBe(ownedHandles.length);
+          // The renderer remains usable while the released handle does not.
+          expect(await page.evaluate(() => true)).toBe(true);
+          const handle = ownedHandles.at(-1);
+          if (!handle) {
+            throw new Error('The provider setup did not create an owned handle');
+          }
+          await expect(handle.evaluate(() => true)).rejects.toThrow();
         });
       }
     } finally {
-      await session.detach();
-      await page.close();
+      try {
+        await session.detach();
+      } finally {
+        await page.close();
+      }
     }
   });
 });
