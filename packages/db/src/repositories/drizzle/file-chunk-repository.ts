@@ -576,6 +576,8 @@ export class DrizzleFileChunkRepository {
     // ORDERING comes from BM25. The `, id` tiebreaks keep ordering
     // deterministic — BM25 produces exact score ties for rows with identical
     // term statistics.
+    // BM25 orders but never matches: a row BM25 would score but the tsquery
+    // rejects never reaches fusion, so recall is tsvector-bounded (BST-908).
     // NOTE: this is the drizzle-idiomatic form of `bm25RankExpression` from
     // ../_shared.ts (used by the raw-SQL repos): the index name rides as a
     // BOUND PARAMETER here instead of a SQL literal — semantically identical

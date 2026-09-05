@@ -3613,11 +3613,12 @@ The assistant's search verbs, in the order the default instructions present them
    MRR = 1 strict), and the runner fails if either pure arm reaches precision@1 = 1
    (the set would no longer separate the arms).
 4. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths. The
-   lexical arm matches and ranks with built-in PostgreSQL FTS over migration 034's
-   generated tsvector + GIN index. Ordering uses `ts_rank` plus an `id` tiebreaker;
-   the caller's language, query mode, and `rankNormalization` remain authoritative.
-   Migration 065 quarantines pg_textsearch after observed persisted BM25-index
-   corruption. RRF fuses rank positions, so the fusion layer is unchanged.
+   lexical arm matches with built-in PostgreSQL FTS over migration 034's
+   generated tsvector + GIN index and orders those matches with the
+   migration-066 pg_textsearch BM25 index plus an `id` tiebreaker; the caller's
+   language and query mode remain authoritative for matching (BM25 orders but
+   never matches — see `docs/agents/database.md`). RRF fuses rank positions,
+   so the fusion layer is unchanged.
 5. Web retrieval pair (external service — Tavily via the shared `'tavily'`
    secrets-store key, env `BRAINSTRIKE_TAVILY_API_KEY`/`TAVILY_API_KEY` first):
    `brainstrike.webSearch` (snippets; provider-native search swapped in on

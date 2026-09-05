@@ -688,9 +688,12 @@ extension control file" error on that path only:
   migration visibly before BM25 writes begin **on a greenfield database**.
   The production lexical arm
   matches through migration 034's generated tsvector + GIN index and orders
-  those matches with the migration-066 BM25 index. `rankNormalization` remains
-  in the public options type for compatibility but is inert because
-  pg_textsearch owns BM25 normalization. When that exact English `plain` arm
+  those matches with the migration-066 BM25 index. BM25 orders but never
+  matches, so recall is bounded by the tsvector arm; the ts_rank-era
+  `rankNormalization` option was removed (BST-908) because pg_textsearch owns
+  BM25 normalization and the knob had become a silent no-op.
+  `__tests__/fts-search-options-contract.test.ts` pins both facts. When that
+  exact English `plain` arm
   returns zero rows, all three file-chunk repository implementations may run
   one bounded `pg_trgm` fallback using the index-supported `$query <% content`
   word-similarity predicate. Websearch and phrase modes remain exact-only so

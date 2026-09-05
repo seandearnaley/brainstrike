@@ -167,13 +167,6 @@ export interface FTSSearchOptions {
   limit?: number;
   /** Query parsing mode (default: 'websearch' for user-friendly syntax) */
   queryMode?: FTSQueryMode;
-  /**
-   * @deprecated INERT since the BM25 ordering swap: ranking is BM25 (which has
-   * its own length normalization via the index's `b` parameter), so ts_rank
-   * normalization flags do not apply and this option is ignored. Kept only to
-   * avoid a type-surface break for existing callers.
-   */
-  rankNormalization?: number;
   /** Optional multi-root workspace scope (file_records.root_id ∈ rootIds). Empty array matches nothing. */
   rootIds?: readonly string[];
   /** Optional snapshot id referencing a persisted selection allowlist */
