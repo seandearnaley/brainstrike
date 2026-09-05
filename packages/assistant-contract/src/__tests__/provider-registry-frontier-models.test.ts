@@ -42,15 +42,43 @@ describe('frontier model refresh (2026-07)', () => {
   });
 
   describe('Anthropic', () => {
-    it('exposes Fable 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
+    it('exposes Opus 5 / Fable 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
       const ids = llmIds('anthropic');
       expect(ids).toEqual([
         'claude-fable-5',
+        'claude-opus-5',
         'claude-opus-4-8',
         'claude-sonnet-5',
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
       ]);
+    });
+
+    it('declares Claude Opus 5 from the vendor model-overview facts (BST-957)', () => {
+      const opus = getLlmModelDefinition('anthropic', 'claude-opus-5');
+
+      expect(opus).toEqual({
+        anthropicReasoning: {
+          defaultEffort: 'high',
+          supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
+        contextWindow: 1_000_000,
+        id: 'claude-opus-5',
+        label: 'Claude Opus 5',
+        maxOutputTokens: 128_000,
+        nativeToolSearch: 'anthropic',
+        pricing: {
+          cacheReadPerMTok: 0.5,
+          cacheWritePerMTok: 6.25,
+          inputPerMTok: 5,
+          outputPerMTok: 25,
+        },
+        promptCaching: 'anthropic',
+        supportsStreaming: true,
+        tagline: 'For complex agentic coding and enterprise work',
+        type: 'llm',
+        vision: 'supported',
+      });
     });
 
     it('drops the superseded 4-5 generation aliases', () => {

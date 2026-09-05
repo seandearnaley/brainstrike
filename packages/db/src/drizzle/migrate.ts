@@ -105,6 +105,7 @@ import { migration112WorktreeSetupReason } from '../migrations/112-worktree-setu
 import { migration113OpenRouterQwen38Flash } from '../migrations/113-openrouter-qwen-3-8-flash.js';
 import { migration114McpTasks } from '../migrations/114-mcp-tasks.js';
 import { migration115McpTaskAuthority } from '../migrations/115-mcp-task-authority.js';
+import { migration116AnthropicClaudeOpus5 } from '../migrations/116-anthropic-claude-opus-5.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -354,6 +355,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-113-openrouter-qwen-3-8-flash', migration113OpenRouterQwen38Flash),
   customMigration('custom-114-mcp-tasks', migration114McpTasks),
   customMigration('custom-115-mcp-task-authority', migration115McpTaskAuthority),
+  customMigration('custom-116-anthropic-claude-opus-5', migration116AnthropicClaudeOpus5),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
