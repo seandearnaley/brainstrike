@@ -247,6 +247,66 @@ never a fallback for the scoped capability.
 
 ---
 
+## IPC CONTRACT MODULES (BST-1648)
+
+**Preloads import pure sibling modules; the channel manifest is the ONE
+place a channel string lives.** `scripts/build-main-config.mjs` bundles
+`preload` and `hidden-preload` with the same esbuild `bundle: true` config as
+`main`: every RELATIVE import is inlined into `dist/preload.js` /
+`dist/hidden-preload.js`, while bare package, `node:*`, and `electron`
+imports stay external `require(...)` calls — which a sandboxed renderer can
+resolve for `electron` and nothing else. The old "preload imports nothing"
+rule (#871) was therefore never a bundler constraint and is replaced by an
+allowlist:
+
+- A preload may import any relative module whose transitive VALUE-import
+  graph is pure (no `electron`, no `node:*`, no bare package). Type-only
+  imports are erased by the bundler and do not count.
+  `apps/desktop/src/__tests__/preload-sandbox-imports.test.ts` walks that
+  graph from both entries with the TypeScript AST
+  (`__tests__/helpers/preload-import-graph.ts`) and fails on the first impure
+  edge by file and specifier; `scripts/build-main.mjs` additionally refuses to
+  emit a preload bundle containing any `require(` other than `electron`
+  (`scripts/preload-bundle-contract.mjs`, pinned on a real write:false
+  bundle by `preload-bundle-contract.test.ts`).
+- `platform/desktop-ipc-channels.ts` (`DESKTOP_IPC_CHANNELS`) is the one
+  manifest. It now also owns the `logging` group (`LOGGING_API_CHANNELS` is a
+  re-export of it, because `logging-api-contract.ts`'s validators need
+  `@brainstrike/logging`) and the `chunkingHost` / `embeddingHost` / `llmHost`
+  groups, whose literals are pinned equal to the `@brainstrike/worker-runtime`
+  descriptors in `*-host-shared.ts` by
+  `__tests__/platform/desktop-ipc-channel-contract.test.ts` (a preload cannot
+  require that package; main keeps using the descriptors). `preload.ts` and
+  `hidden-preload.ts` contain NO channel literal: `preload-runtime-contract.test.ts`
+  and `hidden-preload-contract.test.ts` flag any string equal to a manifest
+  channel, and the hidden test pins the manifest GROUPS the hidden preload may
+  reference (`chunkingHost`, `db`, `embeddingHost`, `files`, `llmHost`,
+  `logging`, `runtime`, `vectorPreferences`) so the role-scoped hidden
+  capability manifest (BST-1235/BST-1380) cannot widen by a stray reference.
+- `platform/ipc-contract.ts` is the pure per-domain contract vocabulary:
+  `channel<Args, Result>({ channel, roles, parseArgs })`,
+  `rawChannel<Args, Result>(…)`, `pushEvent<Payload>({ channel })`, and the
+  derived `Handlers<C>` (main) / `Bridge<C>` (preload + renderer `Window`)
+  types. `roles` is a non-empty tuple and `parseArgs` is a plain function
+  that runs only in MAIN before the handler and THROWS on malformed input
+  (no zod in preload, no coercion).
+**Error-envelope ruling (extends the `mcp:content:*` ruling in
+`docs/agents/assistant-providers.md`).** Exactly one failure shape crosses IPC
+as data for contract channels: `IpcResult<T> = { ok: true, value } |
+{ ok: false, error: { category, code, message } }` (`ipcOk` / `ipcFailure`
+in `platform/ipc-contract.ts`). A thrown Error reaches the renderer as
+Electron's formatted string, main-process stack included, so contract
+handlers never throw for expected failures. `channel()` declares the
+`ipc-result` envelope: the handler returns `IpcResult<T>` and the ONE preload
+unwrap turns `ok: false` into a clean Error whose message is
+`message (category · code)` with `category`/`code` properties, and rejects a
+malformed reply by name. `rawChannel()` is for domains whose consumers already
+read a typed envelope of their own (`GitResult`, `TerminalResult`,
+`NotesVaultResult`) and never throw across IPC; throw-style domains convert to
+`IpcResult` as they migrate. Paired: `__tests__/platform/ipc-contract.test.ts`.
+
+---
+
 ## FACTORY RESET CONTRACT
 
 “Factory Reset Brainstrike” = true fresh start.
@@ -416,8 +476,10 @@ or later repersist stale authority records. E2E root-ledger
 seeding and the E2E reset harness's full clear use separate channels that main
 registers only in explicit Electron test mode, so production tests do not
 require a production bypass. Preload and main use the same `--test-mode` /
-`ELECTRON_IS_E2E_TEST=true` predicate, and a source-AST contract pins preload's
-copied seed-key set to main's authoritative tuple.
+`ELECTRON_IS_E2E_TEST=true` predicate, and the preload builds its seed-key set
+from main's authoritative `MAIN_OWNED_DESKTOP_STORAGE_KEYS` tuple directly
+(the pure `platform/desktop-storage-authority.ts` module bundles into the
+preload — see IPC CONTRACT MODULES below).
 
 That coverage is pinned by
 `apps/desktop/src/__tests__/main/desktop-factory-reset-storage-ledgers.test.ts`,
