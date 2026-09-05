@@ -812,11 +812,21 @@ is the single engine registry; `CLIENT_EXTENSIONS` contains `live`.
   `createEnginePglite`; the multi-tab client installs `live`, while the
   short-lived bootstrap engines have no reactive client.
 - `scripts/benchmark-binary-quantization.ts` uses `createBrainstrikePglite`.
-- Desktop adoption in `apps/desktop/src/db-main.ts` is the second BST-1644 commit.
+- `apps/desktop/src/db-main.ts` dynamically imports
+  `@brainstrike/db/pglite-factory`; its caller retains the vector catalog probe,
+  initial sync and failure cleanup. Bare package imports stay external in the
+  main-process build; this subpath imports only PGlite and its extensions.
+  The obsolete core PGlite ambient declaration is removed so the factory options
+  use vendor types. The contract guard has no remaining runtime exceptions.
 
 Paired tests: `packages/db/__tests__/pglite-factory.test.ts` pins registry keys;
 `pglite-factory.integration.test.ts` boots the direct, worker-init and bootstrap
 factories and probes `pg_extension` after explicit extension installation.
+`apps/desktop/src/__tests__/main/db-main.pglite-factory.test.ts` also boots the
+real filesystem-backed desktop factory with full migrations and a live query;
+it simulates the utility parent port and does not qualify an actual Electron
+launch. The scripts contract rejects `any` types and construction suppressions
+in the desktop DB host.
 Loading the extension binaries does not itself execute `CREATE EXTENSION`;
 callers and migrations continue to own that SQL and shutdown/drain behavior.
 The DB unit project already includes real-engine integration files;

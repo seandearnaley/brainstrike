@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { BrainstrikePglite, createBrainstrikePglite } from '@brainstrike/db/pglite-factory';
 import { createLogger } from '@brainstrike/logging';
 import type {
   DatabaseDiagnosticsSnapshot,
@@ -55,37 +56,9 @@ interface ErrorDetails {
   stack?: string;
 }
 
-interface ExtensionModuleShape {
-  default?: unknown;
-  live?: unknown;
-  pg_textsearch?: unknown;
-  pg_trgm?: unknown;
-  vector?: unknown;
-}
-
 interface GitProfileContext {
   branch: string | null;
   workspaceSeed: string;
-}
-
-function extractExtensionExport(
-  module: unknown,
-  field: 'vector' | 'live' | 'pg_trgm' | 'pg_textsearch'
-): unknown {
-  if (module && typeof module === 'object') {
-    const record = module as ExtensionModuleShape;
-    if (record[field]) {
-      return record[field];
-    }
-    try {
-      if (record.default) {
-        return record.default;
-      }
-    } catch {
-      // Ignore missing default export for mocked modules that only expose named exports
-    }
-  }
-  return module;
 }
 
 function withOptionalErrorCode(message: string, code: string | undefined): ErrorDetails {
@@ -196,102 +169,21 @@ function getErrorDetails(error: unknown): ErrorDetails {
   return withOptionalErrorCode(String(error), code);
 }
 
-async function loadPgVectorExtension(): Promise<unknown> {
-  try {
-    const vectorModule = await import('@electric-sql/pglite-pgvector');
-    const vector = extractExtensionExport(vectorModule, 'vector');
-    if (!vector) {
-      throw new Error('vector export missing from module');
-    }
-    logger.debug('pgvector extension loaded successfully (ESM)');
-    return vector;
-  } catch (error) {
-    const details = getErrorDetails(error);
-    logger.error('pgvector extension failed to load.', {
-      attempts: [
-        {
-          source: 'ESM',
-          ...details,
-        },
-      ],
-    });
-    throw new Error(
-      `pgvector extension is required and failed to load via ESM import. (${details.message})`
-    );
-  }
-}
-
-async function loadPgLiveExtension(): Promise<unknown> {
-  try {
-    const liveModule = await import('@electric-sql/pglite/live');
-    const live = extractExtensionExport(liveModule, 'live');
-    if (!live) {
-      throw new Error('live export missing from module');
-    }
-    logger.debug('pglite live query extension loaded successfully (ESM)');
-    return live;
-  } catch (error) {
-    const details = getErrorDetails(error);
-    logger.error('pglite live query extension failed to load.', details);
-    throw new Error(
-      `live query extension is required and failed to load via ESM import. (${details.message})`
-    );
-  }
-}
-
-async function loadPgTrgmExtension(): Promise<unknown> {
-  try {
-    const trgmModule = await import('@electric-sql/pglite/contrib/pg_trgm');
-    const pgTrgm = extractExtensionExport(trgmModule, 'pg_trgm');
-    if (!pgTrgm) {
-      throw new Error('pg_trgm export missing from module');
-    }
-    logger.debug('pg_trgm extension loaded successfully (ESM)');
-    return pgTrgm;
-  } catch (error) {
-    const details = getErrorDetails(error);
-    logger.error('pg_trgm extension failed to load.', details);
-    throw new Error(
-      `pg_trgm extension is required and failed to load via ESM import. (${details.message})`
-    );
-  }
-}
-
-async function loadPgTextsearchExtension(): Promise<unknown> {
-  try {
-    const textsearchModule = await import('@electric-sql/pglite-pg_textsearch');
-    const pgTextsearch = extractExtensionExport(textsearchModule, 'pg_textsearch');
-    if (!pgTextsearch) {
-      throw new Error('pg_textsearch export missing from module');
-    }
-    logger.debug('pg_textsearch extension loaded successfully (ESM)');
-    return pgTextsearch;
-  } catch (error) {
-    const details = getErrorDetails(error);
-    logger.error('pg_textsearch extension failed to load.', details);
-    throw new Error(
-      `pg_textsearch extension is required and failed to load via ESM import. (${details.message})`
-    );
-  }
-}
-
-// Dynamic imports for ESM packages
+// This subpath imports only PGlite and its extensions, safe in the Node DB host.
 const getPGlite = async () => {
-  const { PGlite } = await import('@electric-sql/pglite');
+  const { createBrainstrikePglite } = await import('@brainstrike/db/pglite-factory');
   const { migrate } = await import('@brainstrike/db');
-  const vector = await loadPgVectorExtension();
-  const live = await loadPgLiveExtension();
-  const pgTrgm = await loadPgTrgmExtension();
-  const pgTextsearch = await loadPgTextsearchExtension();
-  return { live, migrate, PGlite, pgTextsearch, pgTrgm, vector };
+  return { createBrainstrikePglite, migrate };
 };
 
 // Database instance for main process
 // These runtime handles intentionally live outside mutableState because they carry
 // live process resources (local PGlite or remote client) + single-flight Promise,
 // while mutableState is focused on diagnostic/profile metadata snapshots.
-// biome-ignore lint/suspicious/noExplicitAny: local PGlite instance is constructed via dynamic import
-let db: any = null;
+// The existing role-dependent facade returns RemoteDbClient in main and raw
+// PGlite in the utility host. Keep that boundary unknown here; the constructor
+// and its post-create checks below use the concrete BrainstrikePglite type.
+let db: unknown = null;
 // Single-flight guard for startup/runtime callers that hit getDatabase() concurrently.
 // Without this we can spawn multiple PGlite initializations at once, which causes
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
@@ -396,32 +288,10 @@ async function tryCloseDatabaseInstance(
 
 // Helper to create and validate a PGlite instance with pgvector
 async function createVectorDatabase(
-  PGliteCtor: unknown,
-  dataDir: string,
-  vector: unknown,
-  live: unknown,
-  pgTrgm: unknown,
-  pgTextsearch: unknown
-) {
-  // biome-ignore lint/suspicious/noExplicitAny: PGlite ctor type not available at compile time
-  const Ctor: any = PGliteCtor as any;
-  // biome-ignore lint/suspicious/noExplicitAny: PGlite instance type not available at compile time
-  const instance: any = new Ctor({
-    dataDir,
-    // pg_trgm / pg_textsearch have no runtime pg_extension check below (unlike
-    // vector): their CREATE EXTENSION migrations fail loudly if the module isn't
-    // loaded here. The vector check predates the migration-based approach.
-    extensions: {
-      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
-      live: live as any,
-      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
-      pg_textsearch: pgTextsearch as any,
-      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
-      pg_trgm: pgTrgm as any,
-      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
-      vector: vector as any,
-    },
-  });
+  createDatabase: typeof createBrainstrikePglite,
+  dataDir: string
+): Promise<BrainstrikePglite> {
+  const instance = await createDatabase({ dataDir });
 
   try {
     await instance.query('SELECT 1');
@@ -1331,6 +1201,7 @@ async function initializeMainDatabaseInternal(
       throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
     }
 
+    let readyDatabase: BrainstrikePglite;
     // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension.
     try {
       acquireDatabaseProcessLock(appDataDir);
@@ -1339,14 +1210,8 @@ async function initializeMainDatabaseInternal(
       // lock is held, so we never touch a data dir another process is using.
       const movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
 
-      db = await createVectorDatabase(
-        loadedPGlite.PGlite,
-        dataDir,
-        loadedPGlite.vector,
-        loadedPGlite.live,
-        loadedPGlite.pgTrgm,
-        loadedPGlite.pgTextsearch
-      );
+      readyDatabase = await createVectorDatabase(loadedPGlite.createBrainstrikePglite, dataDir);
+      db = readyDatabase;
       logger.debug('Database initialized with pgvector extension at:', dataDir);
 
       // Reclaim any engine-upgrade backups past their retention window now that
@@ -1393,7 +1258,7 @@ async function initializeMainDatabaseInternal(
     // extension/module startup can otherwise overlap with another Electron worker
     // before the database is actually ready to serve renderer IPC queries.
     try {
-      await loadedPGlite.migrate(db);
+      await loadedPGlite.migrate(readyDatabase);
     } catch (err) {
       recordInitializationFailure('migration', err);
       releaseInitializationLockOnce();
@@ -1450,8 +1315,9 @@ async function getLocalDatabase(): Promise<DesktopDatabase> {
     logger.debug('Lazy-loading database (triggered by IPC usage)');
     await initializeLocalMainDatabase();
   }
-  // Local PGlite is constructed via dynamic import; it structurally satisfies
-  // DesktopDatabase / RemoteDbClient for query/transaction/live/maintenance.
+  if (!db) {
+    throw new Error('Local database initialization completed without a database');
+  }
   return db as DesktopDatabase;
 }
 

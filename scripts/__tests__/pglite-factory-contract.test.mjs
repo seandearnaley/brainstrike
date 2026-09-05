@@ -8,10 +8,6 @@ import ts from 'typescript';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const factoryPath = 'packages/db/src/pglite-factory.ts';
-// BST-1644 is delivered as two independently gated commits. The desktop
-// adoption commit removes this sole transitional exception and its assertion.
-const pendingDesktopAdoption = 'apps/desktop/src/db-main.ts';
-
 function isRuntimeSource(file) {
   return (
     /\.[cm]?[jt]sx?$/u.test(file) &&
@@ -68,9 +64,7 @@ test('PGlite construction belongs exclusively to pglite-factory.ts', () => {
     .trim()
     .split('\n');
   const violations = files
-    .filter(
-      (file) => isRuntimeSource(file) && file !== factoryPath && file !== pendingDesktopAdoption
-    )
+    .filter((file) => isRuntimeSource(file) && file !== factoryPath)
     .flatMap((file) =>
       constructionViolations(file, readFileSync(path.join(repoRoot, file), 'utf8'))
     );
@@ -78,16 +72,6 @@ test('PGlite construction belongs exclusively to pglite-factory.ts', () => {
     violations,
     [],
     `Construct only through ${factoryPath}:\n${violations.join('\n')}`
-  );
-});
-
-test('the sole transitional desktop exception still owns a constructor', () => {
-  assert.ok(
-    constructionViolations(
-      pendingDesktopAdoption,
-      readFileSync(path.join(repoRoot, pendingDesktopAdoption), 'utf8')
-    ).length > 0,
-    'remove the desktop exception when its factory adoption lands'
   );
 });
 
@@ -127,4 +111,20 @@ test('guard catches constructors, static creation, and constructor aliases but i
   ]) {
     assert.ok(constructionViolations('example.ts', source).length > 0, source);
   }
+});
+
+test('the desktop host contains no any types or construction suppressions', () => {
+  const file = 'apps/desktop/src/db-main.ts';
+  const source = readFileSync(path.join(repoRoot, file), 'utf8');
+  assert.doesNotMatch(source, /biome-ignore[^\n]*noExplicitAny/u);
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  function visit(node) {
+    assert.notEqual(
+      node.kind,
+      ts.SyntaxKind.AnyKeyword,
+      'desktop DB host must use concrete types or unknown'
+    );
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
 });

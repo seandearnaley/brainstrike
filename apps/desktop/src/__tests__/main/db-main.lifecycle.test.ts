@@ -121,7 +121,9 @@ const PGliteMock = vi.fn().mockImplementation(function (this: {
   this.exec = execMock;
   this.syncToFs = syncToFsMock;
 });
-vi.mock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
+vi.mock('@electric-sql/pglite', () => ({
+  PGlite: { create: (options: unknown) => Promise.resolve(new PGliteMock(options)) },
+}));
 vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }));
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
