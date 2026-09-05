@@ -4299,31 +4299,42 @@ hint, throw visibly. Provider-native Anthropic/OpenAI web search remains owned
 by the provider adapter and does not pass through this execute-backed Tavily
 projector.
 
-Native-tool catalog ownership is deliberately split at the browser/runtime
-boundary:
-- `packages/assistant-contract/src/native-tool-catalog.ts` owns the canonical
-  ids and the exact desktop/skill partitions. The browser-safe
-  `TOOL_DESCRIPTIONS` and `NATIVE_TOOL_DEFAULTS` registries are exact
-  `NativeToolId` maps. `NATIVE_TOOL_SCHEMAS` is display metadata for UI and
+Native-tool catalog ownership (BST-1646): ONE `defineNativeTool` declaration
+per tool, everything else derived.
+- `packages/assistant-contract/src/native-tools/definitions/*.ts` — one file per
+  tool declaring its id, model-facing description, registered Zod
+  `inputSchema` (wrapped once in `providerCompatibleInputSchema`), load/risk
+  `defaults`, `discovery` namespace + capability family, `surfaces`
+  (desktop/web/local), history posture, non-durable output, and inspector
+  `returns` prose. `native-tools/index.ts` is the ONLY list (`NATIVE_TOOLS`);
+  `deriveNativeToolRegistries` produces every registry from it under its
+  historical export name: `NATIVE_TOOL_ID`, the id partitions
+  (`DESKTOP_/WEB_/LOCAL_DESKTOP_/SKILL_/NON_DURABLE_…`), `TOOL_DESCRIPTIONS`,
+  `NATIVE_TOOL_DEFAULTS`, `NATIVE_TOOL_DISCOVERY_NAMESPACES` membership,
+  `DEFERRED_CAPABILITY_FAMILIES`, the two history allowlists
+  (`RECENCY_PRUNABLE_` / `STALE_REPLAYABLE_NATIVE_TOOL_IDS`), and the prompt
+  composer's model-facing name map. `defineNativeTool` throws on an
+  undeterminable risk bucket, a deferred tool without a namespace, or a
+  critical tool with one. `NATIVE_TOOL_SCHEMAS` is display metadata for UI and
   documentation only; it is NEVER an execution or provider-schema source.
-- `packages/assistant-contract/src/native-tools/schemas/` owns the canonical
-  Zod input schemas (BST-1646; they import only `zod` and browser-safe
-  contracts, so they are safe in renderer bundles) and exports them from
-  `@brainstrike/assistant-contract/native-tool-schemas`.
-  `packages/agent/src/tools/schemas.ts` owns the exact
-  `NATIVE_TOOL_INPUT_SCHEMAS` map from every `DesktopNativeToolId` to those
-  schema objects and re-exports them from the historical
-  `packages/agent/src/tools/schemas-*.ts` paths for one release; edit the
-  contract package, never the agent shims. Desktop provider registration and
-  `validateToolInput` reuse those same schema objects. Mastra converts them to provider JSON Schema
-  through the Standard Schema input protocol; never reconstruct validation or
-  provider schemas from the lossy display metadata.
-- Agent Skills (`skill`/`skill_read`/`skill_search`) remain canonical native ids
-  for metadata parity, but their execution schemas are Mastra-owned and are not
-  entries in `NATIVE_TOOL_INPUT_SCHEMAS`. The separate desktop-only
-  `brainstrike.runSkillScript` is a Brainstrike-owned typed execution tool and
-  therefore is present in the desktop catalog/schema map, deferred `skills`
-  namespace, and execute-risk policy; web and the built-in local model omit it.
+- `packages/agent/src/tools/schemas.ts` exports `NATIVE_TOOL_INPUT_SCHEMAS`,
+  derived from the desktop definitions' `inputSchema` objects (the Zod modules
+  themselves live in `packages/assistant-contract/src/native-tools/schemas/`,
+  exported as `@brainstrike/assistant-contract/native-tool-schemas`, and are
+  re-exported from the historical `packages/agent/src/tools/schemas-*.ts`
+  paths for one release — edit the contract package, never the agent shims). Desktop provider
+  registration and `validateToolInput` reuse those same schema objects. Mastra
+  converts them to provider JSON Schema through the Standard Schema input
+  protocol; never reconstruct validation or provider schemas from the lossy
+  display metadata.
+- Agent Skills (`skill`/`skill_read`/`skill_search`) are `kind: 'skill'`
+  definitions: Mastra executes them, but the provider contract Brainstrike
+  imposes (`providerDescription` + `inputSchema` in `skill-tools.ts`) comes
+  from the definition, and they are not entries in `NATIVE_TOOL_INPUT_SCHEMAS`.
+  The separate desktop-only `brainstrike.runSkillScript` is a Brainstrike-owned
+  typed execution tool and therefore is present in the desktop catalog/schema
+  map, deferred `skills` namespace, and execute-risk policy; web and the
+  built-in local model omit it.
 
 Provider-emitted `null` has one fleet-wide meaning for the registered native
 catalog: on an optional or defaulted field it is omission, never a second domain
@@ -4375,10 +4386,12 @@ Mastra/OpenAI request in `mcp-optional-inputs.spec.ts` pins explicit non-strict
 generation, required-field preservation, omission at execution, and continued
 input validation; `mcp-runtime-client.spec.ts` pins explicit strict opt-in.
 
-Adding or renaming a native tool must update the canonical catalog first, then
-the exact metadata/schema maps, live desktop registry, exports, and conditional
-model-facing guidance. The parity tests fail on stale, missing, or extra keys;
-there is no fallback alias or partially registered tool.
+Adding or renaming a native tool is one `defineNativeTool` file (listed once
+in `native-tools/index.ts`) plus its desktop executor entry and, when the tool
+needs prompt guidance, an `instruction` hook on the definition. The catalog's
+inline snapshot (`native-tools.test.ts`) is the only hand-listed id set; every
+other registry derives, so there is no stale, missing, or extra key to drift —
+and no fallback alias or partially registered tool.
 
 `brainstrike.manageCanvas` is desktop-only because its source of truth is the
 client-local `brainstrike_canvas_versions` ledger. It is a deferred workspace

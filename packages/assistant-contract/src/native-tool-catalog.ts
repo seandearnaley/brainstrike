@@ -2,127 +2,49 @@
  * Canonical native tool ids shared by browser-safe UI metadata, the hosted
  * desktop registry, and the agent runtime.
  *
- * Keep execution schemas out of this module: they are Zod/Mastra-owned and
- * therefore live in `@brainstrike/agent`. This catalog must remain safe to
- * import from renderer bundles.
+ * Every export here is DERIVED from the single definition list in
+ * `./native-tools/index.ts` (`NATIVE_TOOLS`, BST-1646): the id partitions, the
+ * web/local surface subsets, and the non-durable-output set are read off each
+ * `defineNativeTool` declaration, so none of them can be stated twice. Keep
+ * this module safe to import from renderer bundles — the definitions carry
+ * Zod input schemas (zod is browser-safe) and nothing Mastra/Node-only.
  */
-const DESKTOP_NATIVE_TOOL_ID = {
-  askUser: 'brainstrike.askUser',
-  browserGetPageText: 'brainstrike.browserGetPageText',
-  browserNavigate: 'brainstrike.browserNavigate',
-  browserReadPage: 'brainstrike.browserReadPage',
-  deleteWorkspaceFile: 'brainstrike.deleteWorkspaceFile',
-  executeCommand: 'brainstrike.executeCommand',
-  findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
-  globWorkspace: 'brainstrike.globWorkspace',
-  grepSearch: 'brainstrike.grepSearch',
-  hybridSearch: 'brainstrike.hybridSearch',
-  inspectCommandSessions: 'brainstrike.inspectCommandSessions',
-  listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
-  listWorkspaceContext: 'brainstrike.listWorkspaceContext',
-  listWorktrees: 'brainstrike.listWorktrees',
-  lspInspect: 'brainstrike.lspInspect',
-  manageCanvas: 'brainstrike.manageCanvas',
-  manageCommandSession: 'brainstrike.manageCommandSession',
-  manageTaskList: 'brainstrike.manageTaskList',
-  manageWorktree: 'brainstrike.manageWorktree',
-  queryDiagnostics: 'brainstrike.queryDiagnostics',
-  queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
-  querySelf: 'brainstrike.querySelf',
-  readToolOutputArtifact: 'brainstrike.readToolOutputArtifact',
-  readWorkspaceContext: 'brainstrike.readWorkspaceContext',
-  readWorkspaceDirectory: 'brainstrike.readWorkspaceDirectory',
-  readWorkspaceFile: 'brainstrike.readWorkspaceFile',
-  renameWorkspaceFile: 'brainstrike.renameWorkspaceFile',
-  runPython: 'brainstrike.runPython',
-  runSkillScript: 'brainstrike.runSkillScript',
-  stringReplaceWorkspaceFile: 'brainstrike.stringReplaceWorkspaceFile',
-  submitPlan: 'brainstrike.submitPlan',
-  updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
-  updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
-  webExtract: 'brainstrike.webExtract',
-  webSearch: 'brainstrike.webSearch',
-  writeWorkspaceFile: 'brainstrike.writeWorkspaceFile',
-} as const;
 
-const SKILL_NATIVE_TOOL_ID = {
-  skill: 'skill',
-  skillRead: 'skill_read',
-  skillSearch: 'skill_search',
-} as const;
+import type { NativeToolSurface } from './native-tools/define.js';
+import {
+  type DesktopNativeTool,
+  NATIVE_TOOL_REGISTRIES,
+  type NativeTool,
+} from './native-tools/index.js';
 
-export const NATIVE_TOOL_ID = {
-  ...DESKTOP_NATIVE_TOOL_ID,
-  ...SKILL_NATIVE_TOOL_ID,
-} as const;
+export const NATIVE_TOOL_ID = NATIVE_TOOL_REGISTRIES.nativeToolId;
 
-export type DesktopNativeToolId =
-  (typeof DESKTOP_NATIVE_TOOL_ID)[keyof typeof DESKTOP_NATIVE_TOOL_ID];
-export type SkillNativeToolId = (typeof SKILL_NATIVE_TOOL_ID)[keyof typeof SKILL_NATIVE_TOOL_ID];
-export type NativeToolId = DesktopNativeToolId | SkillNativeToolId;
-export type WebNativeToolId = Exclude<
-  DesktopNativeToolId,
-  | typeof NATIVE_TOOL_ID.browserGetPageText
-  | typeof NATIVE_TOOL_ID.browserNavigate
-  | typeof NATIVE_TOOL_ID.browserReadPage
-  | typeof NATIVE_TOOL_ID.inspectCommandSessions
-  | typeof NATIVE_TOOL_ID.listWorktrees
-  | typeof NATIVE_TOOL_ID.manageCanvas
-  | typeof NATIVE_TOOL_ID.manageCommandSession
-  | typeof NATIVE_TOOL_ID.manageWorktree
-  | typeof NATIVE_TOOL_ID.queryDiagnostics
-  | typeof NATIVE_TOOL_ID.querySelf
-  | typeof NATIVE_TOOL_ID.runPython
-  | typeof NATIVE_TOOL_ID.runSkillScript
->;
-export type LocalDesktopNativeToolId = Extract<
-  DesktopNativeToolId,
-  | typeof NATIVE_TOOL_ID.executeCommand
-  | typeof NATIVE_TOOL_ID.globWorkspace
-  | typeof NATIVE_TOOL_ID.grepSearch
-  | typeof NATIVE_TOOL_ID.readWorkspaceFile
-  | typeof NATIVE_TOOL_ID.stringReplaceWorkspaceFile
->;
+/** The camelCase catalog keys (`askUser`, `skillRead`, …) — one per native tool. */
+export type NativeToolKey = keyof typeof NATIVE_TOOL_ID;
 
-const LOCAL_DESKTOP_NATIVE_TOOL_ID = {
-  executeCommand: NATIVE_TOOL_ID.executeCommand,
-  globWorkspace: NATIVE_TOOL_ID.globWorkspace,
-  grepSearch: NATIVE_TOOL_ID.grepSearch,
-  readWorkspaceFile: NATIVE_TOOL_ID.readWorkspaceFile,
-  stringReplaceWorkspaceFile: NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
-} as const satisfies Record<
-  | 'executeCommand'
-  | 'globWorkspace'
-  | 'grepSearch'
-  | 'readWorkspaceFile'
-  | 'stringReplaceWorkspaceFile',
-  LocalDesktopNativeToolId
->;
+export type DesktopNativeToolId = DesktopNativeTool['id'];
+export type SkillNativeToolId = Extract<NativeTool, { readonly kind: 'skill' }>['id'];
+export type NativeToolId = NativeTool['id'];
 
-export const DESKTOP_NATIVE_TOOL_IDS: readonly DesktopNativeToolId[] = Object.freeze(
-  Object.values(DESKTOP_NATIVE_TOOL_ID)
-);
+type DesktopToolOnSurface<Surface extends NativeToolSurface> = DesktopNativeTool extends infer Tool
+  ? Tool extends { readonly surfaces: readonly (infer Listed)[] }
+    ? Surface extends Listed
+      ? Tool
+      : never
+    : never
+  : never;
 
-export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
-  DESKTOP_NATIVE_TOOL_IDS.filter(
-    (id): id is WebNativeToolId =>
-      id !== NATIVE_TOOL_ID.browserGetPageText &&
-      id !== NATIVE_TOOL_ID.browserNavigate &&
-      id !== NATIVE_TOOL_ID.browserReadPage &&
-      id !== NATIVE_TOOL_ID.inspectCommandSessions &&
-      id !== NATIVE_TOOL_ID.listWorktrees &&
-      id !== NATIVE_TOOL_ID.manageCanvas &&
-      id !== NATIVE_TOOL_ID.manageCommandSession &&
-      id !== NATIVE_TOOL_ID.manageWorktree &&
-      id !== NATIVE_TOOL_ID.queryDiagnostics &&
-      id !== NATIVE_TOOL_ID.querySelf &&
-      id !== NATIVE_TOOL_ID.runPython &&
-      id !== NATIVE_TOOL_ID.runSkillScript
-  )
-);
+export type WebNativeToolId = DesktopToolOnSurface<'web'>['id'];
+export type LocalDesktopNativeToolId = DesktopToolOnSurface<'local'>['id'];
+
+export const DESKTOP_NATIVE_TOOL_IDS: readonly DesktopNativeToolId[] =
+  NATIVE_TOOL_REGISTRIES.ids.desktop;
+
+export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = NATIVE_TOOL_REGISTRIES.ids.web;
 
 /**
- * Eager-core-only tools advertised to the built-in local model.
+ * Eager-core-only tools advertised to the built-in local model — the desktop
+ * definitions that list the `local` surface.
  *
  * `askUser` and `submitPlan` are the other critical tools, but the local
  * provider deliberately does not register their suspend/resume implementations.
@@ -130,24 +52,26 @@ export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
  * but remains excluded here: the local capability surface is an explicit,
  * separately qualified product contract rather than every critical hosted tool.
  */
-export const LOCAL_DESKTOP_NATIVE_TOOL_IDS: readonly LocalDesktopNativeToolId[] = Object.freeze(
-  Object.values(LOCAL_DESKTOP_NATIVE_TOOL_ID)
-);
+export const LOCAL_DESKTOP_NATIVE_TOOL_IDS: readonly LocalDesktopNativeToolId[] =
+  NATIVE_TOOL_REGISTRIES.ids.local;
 
 /** Native tool results that must never be retained by durable artifact settlement. */
-export const NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS: readonly DesktopNativeToolId[] = Object.freeze([
-  NATIVE_TOOL_ID.inspectCommandSessions,
-  NATIVE_TOOL_ID.manageCommandSession,
-]);
+export const NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS: readonly DesktopNativeToolId[] =
+  NATIVE_TOOL_REGISTRIES.ids.nonDurableOutput;
 
-export const SKILL_NATIVE_TOOL_IDS: readonly SkillNativeToolId[] = Object.freeze(
-  Object.values(SKILL_NATIVE_TOOL_ID)
-);
+export const SKILL_NATIVE_TOOL_IDS: readonly SkillNativeToolId[] = NATIVE_TOOL_REGISTRIES.ids.skill;
 
-export const NATIVE_TOOL_IDS: readonly NativeToolId[] = Object.freeze([
-  ...DESKTOP_NATIVE_TOOL_IDS,
-  ...SKILL_NATIVE_TOOL_IDS,
-]);
+/**
+ * Settled-history allowlists for the two projection processors, declared per
+ * tool as `history.recencyPrunable` / `history.staleReplayable`. Both are
+ * ALLOWLISTS: a tool that declares neither stays verbatim in provider history.
+ */
+export const RECENCY_PRUNABLE_NATIVE_TOOL_IDS: readonly NativeToolId[] =
+  NATIVE_TOOL_REGISTRIES.ids.recencyPrunable;
+export const STALE_REPLAYABLE_NATIVE_TOOL_IDS: readonly NativeToolId[] =
+  NATIVE_TOOL_REGISTRIES.ids.staleReplayable;
+
+export const NATIVE_TOOL_IDS: readonly NativeToolId[] = NATIVE_TOOL_REGISTRIES.ids.native;
 
 const DESKTOP_NATIVE_TOOL_ID_SET: ReadonlySet<string> = new Set(DESKTOP_NATIVE_TOOL_IDS);
 const NATIVE_TOOL_ID_SET: ReadonlySet<string> = new Set(NATIVE_TOOL_IDS);

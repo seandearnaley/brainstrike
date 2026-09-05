@@ -1,4 +1,6 @@
-import { NATIVE_TOOL_ID, type NativeToolId } from './native-tool-catalog.js';
+import type { NativeToolId } from './native-tool-catalog.js';
+import type { NativeToolDiscoveryNamespace } from './native-tools/define.js';
+import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.js';
 import type { PermissionDecision } from './permission-policy.js';
 import {
   getProviderDefinition,
@@ -7,102 +9,50 @@ import {
   type ProviderId,
 } from './provider-registry.js';
 
-export type NativeToolDiscoveryNamespace =
-  | 'artifacts'
-  | 'context'
-  | 'database'
-  | 'embeddings'
-  | 'execution'
-  | 'semantics'
-  | 'sessions'
-  | 'skills'
-  | 'web'
-  | 'workspace';
+export type { NativeToolDiscoveryNamespace };
 
 export interface NativeToolDiscoveryNamespaceDefinition {
   readonly summary: string;
   readonly toolIds: readonly NativeToolId[];
 }
 
+const NATIVE_TOOL_DISCOVERY_NAMESPACE_SUMMARIES: Record<NativeToolDiscoveryNamespace, string> = {
+  artifacts: 'Continue reading durable oversized tool results by opaque cursor.',
+  context: 'Inspect and update workspace context, directory, and Tapestry selections.',
+  database:
+    "Inspect durable diagnostic failures or run read-only SQL over Brainstrike's own local database: assistant run history, edit checkpoints, token usage and cost, queue metrics, and the workspace code index.",
+  embeddings: 'Inspect and query configured embedding spaces.',
+  execution:
+    'Run code the assistant writes inside an OS sandbox: Python with no network access and writes confined to a temporary scratch directory. Use for computation, parsing, and data wrangling.',
+  semantics: 'Search indexed code and inspect language-server symbols and diagnostics.',
+  sessions: 'Inspect and control persistent workspace command sessions and development servers.',
+  skills: 'Discover, activate, read, and run bundled scripts from installed Agent Skills.',
+  web: "Search the public web, extract readable page content, and drive the app's embedded browser pane: navigate it and read the live page as text or an accessibility tree.",
+  workspace:
+    'Perform specialist workspace mutations, manage isolated git worktrees, and maintain Canvas documents or tasks.',
+};
+
 /**
  * Provider-facing deferred groups. Each namespace stays below ten functions so
  * native provider search receives enough semantic detail without reintroducing
- * the complete tool-schema payload.
+ * the complete tool-schema payload. Membership is DERIVED from each tool's
+ * `discovery.namespace` (`native-tools/definitions/*.ts`); only the summaries
+ * are authored here.
  */
-export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
-  artifacts: {
-    summary: 'Continue reading durable oversized tool results by opaque cursor.',
-    toolIds: [NATIVE_TOOL_ID.readToolOutputArtifact],
-  },
-  context: {
-    summary: 'Inspect and update workspace context, directory, and Tapestry selections.',
-    toolIds: [
-      NATIVE_TOOL_ID.listWorkspaceContext,
-      NATIVE_TOOL_ID.readWorkspaceContext,
-      NATIVE_TOOL_ID.readWorkspaceDirectory,
-      NATIVE_TOOL_ID.updateWorkspaceContextSelection,
-      NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
-    ],
-  },
-  database: {
-    summary:
-      "Inspect durable diagnostic failures or run read-only SQL over Brainstrike's own local database: assistant run history, edit checkpoints, token usage and cost, queue metrics, and the workspace code index.",
-    toolIds: [NATIVE_TOOL_ID.queryDiagnostics, NATIVE_TOOL_ID.querySelf],
-  },
-  embeddings: {
-    summary: 'Inspect and query configured embedding spaces.',
-    toolIds: [NATIVE_TOOL_ID.listEmbeddingSpaces, NATIVE_TOOL_ID.queryEmbeddingSpace],
-  },
-  execution: {
-    summary:
-      'Run code the assistant writes inside an OS sandbox: Python with no network access and writes confined to a temporary scratch directory. Use for computation, parsing, and data wrangling.',
-    toolIds: [NATIVE_TOOL_ID.runPython],
-  },
-  semantics: {
-    summary: 'Search indexed code and inspect language-server symbols and diagnostics.',
-    toolIds: [
-      NATIVE_TOOL_ID.findWorkspaceSymbol,
-      NATIVE_TOOL_ID.hybridSearch,
-      NATIVE_TOOL_ID.lspInspect,
-    ],
-  },
-  sessions: {
-    summary: 'Inspect and control persistent workspace command sessions and development servers.',
-    toolIds: [NATIVE_TOOL_ID.inspectCommandSessions, NATIVE_TOOL_ID.manageCommandSession],
-  },
-  skills: {
-    summary: 'Discover, activate, read, and run bundled scripts from installed Agent Skills.',
-    toolIds: [
-      NATIVE_TOOL_ID.runSkillScript,
-      NATIVE_TOOL_ID.skill,
-      NATIVE_TOOL_ID.skillRead,
-      NATIVE_TOOL_ID.skillSearch,
-    ],
-  },
-  web: {
-    summary:
-      "Search the public web, extract readable page content, and drive the app's embedded browser pane: navigate it and read the live page as text or an accessibility tree.",
-    toolIds: [
-      NATIVE_TOOL_ID.browserGetPageText,
-      NATIVE_TOOL_ID.browserNavigate,
-      NATIVE_TOOL_ID.browserReadPage,
-      NATIVE_TOOL_ID.webExtract,
-      NATIVE_TOOL_ID.webSearch,
-    ],
-  },
-  workspace: {
-    summary:
-      'Perform specialist workspace mutations, manage isolated git worktrees, and maintain Canvas documents or tasks.',
-    toolIds: [
-      NATIVE_TOOL_ID.deleteWorkspaceFile,
-      NATIVE_TOOL_ID.listWorktrees,
-      NATIVE_TOOL_ID.manageCanvas,
-      NATIVE_TOOL_ID.manageTaskList,
-      NATIVE_TOOL_ID.manageWorktree,
-      NATIVE_TOOL_ID.renameWorkspaceFile,
-    ],
-  },
-} as const satisfies Record<NativeToolDiscoveryNamespace, NativeToolDiscoveryNamespaceDefinition>;
+export const NATIVE_TOOL_DISCOVERY_NAMESPACES: Record<
+  NativeToolDiscoveryNamespace,
+  NativeToolDiscoveryNamespaceDefinition
+> = Object.fromEntries(
+  (Object.keys(NATIVE_TOOL_DISCOVERY_NAMESPACE_SUMMARIES) as NativeToolDiscoveryNamespace[]).map(
+    (namespace) => [
+      namespace,
+      {
+        summary: NATIVE_TOOL_DISCOVERY_NAMESPACE_SUMMARIES[namespace],
+        toolIds: NATIVE_TOOL_REGISTRIES.discoveryNamespaceToolIds[namespace],
+      },
+    ]
+  )
+) as Record<NativeToolDiscoveryNamespace, NativeToolDiscoveryNamespaceDefinition>;
 
 export type ToolDiscoveryAdapter =
   | 'anthropic-native-search'

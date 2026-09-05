@@ -11,7 +11,6 @@ import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const UNAUTHENTICATED_SENDER_POLICY = {
@@ -445,7 +444,7 @@ function sanitizeToolInput(
   startTime: number,
   toolId: string,
   input: unknown,
-  logScope: 'assistant-runtime' | 'mcp' | 'native'
+  logScope: 'assistant-runtime' | 'mcp'
 ): { ok: true; value: Record<string, JsonValue> } | { ok: false; result: ToolExecutionResult } {
   const sanitizedInput = sanitizeMcpInput(input);
   if (sanitizedInput.ok) {
@@ -529,14 +528,6 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
       const runtimeData = sanitizeRuntimeData(runtimeDataInput);
 
       try {
-        if (isExecutableNativeTool(normalizedToolId)) {
-          const sanitizedInput = sanitizeToolInput(startTime, normalizedToolId, input, 'native');
-          if (!sanitizedInput.ok) {
-            return sanitizedInput.result;
-          }
-          return await executeNativeTool(normalizedToolId, sanitizedInput.value);
-        }
-
         if (isNativeTool(normalizedToolId)) {
           const assistantRuntimeResult = await tryExecuteAssistantRuntimeTool(
             startTime,
