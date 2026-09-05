@@ -245,6 +245,7 @@ export class McpServerActor {
   private clientClosePromise: Promise<McpHostCloseReport> | undefined;
   private connectAttempt: AbortController | undefined;
   private connectAttemptInteractive = false;
+  private connectRequestAbort = new AbortController();
   private clientPromise: Promise<McpServerActorClient> | undefined;
   private catalogUnsubscribe: (() => void) | undefined;
   private closePromise: Promise<McpHostCloseReport> | undefined;
@@ -271,11 +272,10 @@ export class McpServerActor {
     if (this.failure) {
       return Promise.reject(this.failure);
     }
+    // A Connect can span background and interactive transport attempts. Its
+    // cancellation lifetime belongs to the control request, not the first attempt.
+    const signal = AbortSignal.any([this.generationAbort.signal, this.connectRequestAbort.signal]);
     const client = this.getClient(true);
-    const attemptSignal = this.connectAttempt?.signal;
-    const signal = attemptSignal
-      ? AbortSignal.any([this.generationAbort.signal, attemptSignal])
-      : this.generationAbort.signal;
     const work = client.then(() => this.snapshot());
     this.inFlight.add(work);
     const remove = () => this.inFlight.delete(work);
@@ -287,6 +287,8 @@ export class McpServerActor {
       return Promise.reject(this.retiredError);
     }
 
+    this.connectRequestAbort.abort(new DOMException('MCP connection cancelled', 'AbortError'));
+    this.connectRequestAbort = new AbortController();
     const attempt = this.connectAttempt;
     if (attempt && !attempt.signal.aborted) {
       attempt.abort(new DOMException('MCP connection cancelled', 'AbortError'));
@@ -309,6 +311,8 @@ export class McpServerActor {
       throw this.retiredError;
     }
 
+    this.connectRequestAbort.abort(new DOMException('MCP connection disconnected', 'AbortError'));
+    this.connectRequestAbort = new AbortController();
     const attempt = this.connectAttempt;
     if (attempt && !attempt.signal.aborted) {
       attempt.abort(new DOMException('MCP connection disconnected', 'AbortError'));
@@ -423,11 +427,14 @@ export class McpServerActor {
         // Reuse a successful refresh. Only an explicit Connect may continue a
         // completed background auth failure with a fresh interactive provider.
         // Cancellation, transport faults, and cleanup failures must not retry.
+        const requestSignal = this.connectRequestAbort.signal;
+        // createClientForAttempt clears the failed promise before publishing
+        // authentication-required; ordinary requests still receive that failure.
         return this.clientPromise.catch((cause: unknown) => {
           if (!(cause instanceof ActorError) || cause.code !== 'mcp-authentication-required') {
             throw cause;
           }
-          this.throwIfAborted();
+          this.throwIfAborted(requestSignal);
           if (this.failure) {
             throw this.failure;
           }

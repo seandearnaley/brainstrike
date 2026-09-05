@@ -744,25 +744,44 @@ export class DesktopMcpHostRuntime {
       }
       throw cause;
     }
-    return connectClient(
-      client,
-      server,
-      context,
-      (code, cause) => this.reportInternalError(code, cause),
-      extensionRegistry,
-      undefined,
-      provider,
-      provider
-        ? async () => {
-            try {
-              await provider.recordSuccessfulConnection();
-              updateAuth(provider.authSnapshot());
-            } catch (cause) {
-              this.reportInternalError('mcp-oauth-connection-record-failed', cause);
-            }
-          }
-        : undefined
-    );
+    try {
+      return await connectClient(
+        client,
+        server,
+        context,
+        (code, cause) => this.reportInternalError(code, cause),
+        extensionRegistry,
+        undefined,
+        provider,
+        provider ? () => this.recordOAuthConnection(provider, updateAuth) : undefined
+      );
+    } finally {
+      // SDK refresh failure may invalidate persisted tokens before authorization.
+      // Publish that state before the actor publishes its terminal snapshot.
+      this.publishOAuthSnapshot(provider, updateAuth);
+    }
+  }
+
+  private publishOAuthSnapshot(
+    provider: McpOAuthClientProvider | undefined,
+    publish: (auth: McpHostAuthSnapshot) => void
+  ): void {
+    if (!provider) {
+      return;
+    }
+    publish(provider.authSnapshot());
+  }
+
+  private async recordOAuthConnection(
+    provider: McpOAuthClientProvider,
+    updateAuth: (auth: McpHostAuthSnapshot) => void
+  ): Promise<void> {
+    try {
+      await provider.recordSuccessfulConnection();
+      updateAuth(provider.authSnapshot());
+    } catch (cause) {
+      this.reportInternalError('mcp-oauth-connection-record-failed', cause);
+    }
   }
 
   private async clearOAuthCredentials(

@@ -787,7 +787,7 @@ export async function createMcpOAuthClientProvider(
     },
     async redirectToAuthorization(authorizationUrl) {
       assertOpen();
-      if (options.allowInteractiveAuthorization === false) {
+      if (options.allowInteractiveAuthorization !== true) {
         interactiveAuthorizationRequired = true;
         throw new McpLifecycleFailure('authentication', 'mcp-authentication-required');
       }

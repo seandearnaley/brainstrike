@@ -16,6 +16,30 @@ const identity = {
 } as const;
 
 describe('MCP OAuth credential boundary', () => {
+  it('requires explicit interactive consent when the authorization option is omitted', async () => {
+    const openExternal = vi.fn(async () => undefined);
+    const provider = await createMcpOAuthClientProvider({
+      openExternal,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      store: createInMemoryMcpOAuthStore(),
+    });
+    try {
+      const state = await provider.state?.();
+      await expect(
+        provider.redirectToAuthorization(
+          new URL(`https://auth.example.test/authorize?state=${state}`)
+        )
+      ).rejects.toMatchObject({ code: 'mcp-authentication-required' });
+      expect(openExternal).not.toHaveBeenCalled();
+      expect(
+        provider.takePendingAuthorizationCallback(new AbortController().signal)
+      ).toBeUndefined();
+    } finally {
+      await provider.close();
+    }
+  });
+
   it('does not initialize secure persistence before the first OAuth store operation', async () => {
     const delegate = createInMemoryMcpOAuthStore();
     const createStore = vi.fn(() => delegate);
@@ -172,6 +196,7 @@ describe('MCP OAuth credential boundary', () => {
   it('requests configured scopes and records successful authenticated connections', async () => {
     const store = createInMemoryMcpOAuthStore();
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       scopes: ['read'],
       serverId: identity.serverId,
@@ -208,6 +233,7 @@ describe('MCP OAuth credential boundary', () => {
 
   it('normalizes persisted dynamic-registration redirect URLs before reuse', async () => {
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -237,6 +263,7 @@ describe('MCP OAuth credential boundary', () => {
 
   it('hands each pending authorization callback to the transport exactly once', async () => {
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -269,6 +296,7 @@ describe('MCP OAuth credential boundary', () => {
 
   it('cancels an aborted callback take, detaches its listener, and permits an immediate retry', async () => {
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -388,6 +416,7 @@ describe('MCP OAuth credential boundary', () => {
 
   it('treats an explicit empty internal scope list like an omitted list', async () => {
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       scopes: [],
       serverId: identity.serverId,
@@ -406,6 +435,7 @@ describe('MCP OAuth credential boundary', () => {
     const store = createInMemoryMcpOAuthStore();
     const issuer = 'https://auth.example.test';
     const first = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -429,6 +459,7 @@ describe('MCP OAuth credential boundary', () => {
     );
 
     const relaunched = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -449,6 +480,7 @@ describe('MCP OAuth credential boundary', () => {
     const store = createInMemoryMcpOAuthStore();
     const issuer = 'https://auth.example.test';
     const first = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -475,6 +507,7 @@ describe('MCP OAuth credential boundary', () => {
     });
     try {
       const relaunched = await createMcpOAuthClientProvider({
+        allowInteractiveAuthorization: true,
         openExternal: async () => undefined,
         serverId: identity.serverId,
         serverUrl: identity.resourceUrl,
@@ -514,6 +547,7 @@ describe('MCP OAuth credential boundary', () => {
       },
     });
     const discarding = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -539,6 +573,7 @@ describe('MCP OAuth credential boundary', () => {
     }
 
     const recovered = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -558,6 +593,7 @@ describe('MCP OAuth credential boundary', () => {
   it('rejects client metadata documents that are not valid HTTPS URLs', async () => {
     await expect(
       createMcpOAuthClientProvider({
+        allowInteractiveAuthorization: true,
         clientMetadataUrl: 'http://client.example.test/metadata.json',
         openExternal: async () => undefined,
         serverId: identity.serverId,

@@ -6,6 +6,7 @@ import {
 import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 import { McpBearerCredentialFailure } from '../../mcp/bearer-credential';
+import { McpLifecycleFailure } from '../../mcp/lifecycle-errors';
 import {
   McpServerActor,
   type McpServerActorClient,
@@ -337,6 +338,35 @@ describe('McpServerActor', () => {
     await ordinary.close();
     expect(ordinaryClear).not.toHaveBeenCalled();
   });
+  it('cancels explicit Connect after background authorization hands off to a new attempt', async () => {
+    const background = deferred<McpServerActorClient>();
+    const interactive = deferred<McpServerActorClient>();
+    const factory = vi.fn(
+      ({ interactiveAuthorization }: Parameters<McpServerActorClientFactory>[0]) =>
+        interactiveAuthorization ? interactive.promise : background.promise
+    );
+    const subject = actor(factory);
+    const discovery = subject.invoke(LIST).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(factory).toHaveBeenCalledOnce());
+    const connecting = subject.connect().catch((error: unknown) => error);
+    background.reject(new McpLifecycleFailure('authentication', 'mcp-authentication-required'));
+    await discovery;
+    await vi.waitFor(() => expect(factory).toHaveBeenCalledTimes(2));
+    await subject.cancel();
+    const settled = vi.fn();
+    void connecting.then(settled);
+    try {
+      await vi.waitFor(
+        () => expect(settled).toHaveBeenCalledWith(expect.objectContaining({ name: 'AbortError' })),
+        { timeout: 100 }
+      );
+    } finally {
+      interactive.resolve(client());
+      await connecting;
+      await subject.close();
+    }
+  });
+
   it('does not let a cancelled old factory clear an immediate retry client', async () => {
     const oldFactory = deferred<McpServerActorClient>();
     const oldClose = vi.fn(async () => report);

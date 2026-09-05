@@ -177,7 +177,13 @@ describe('DesktopMcpHostRuntime OAuth restart', () => {
         close,
         connect: async () => {
           if (modes.length === 1) {
-            await requireOAuthProvider(options.authProvider).redirectToAuthorization(
+            const provider = requireOAuthProvider(options.authProvider);
+            if (!(provider.invalidateCredentials && provider.saveDiscoveryState)) {
+              throw new Error('Missing SDK credential invalidation');
+            }
+            await provider.saveDiscoveryState({ authorizationServerUrl: staleIssuer });
+            await provider.invalidateCredentials('tokens');
+            await provider.redirectToAuthorization(
               new URL('https://auth.linear.example/authorize')
             );
           }
@@ -196,7 +202,10 @@ describe('DesktopMcpHostRuntime OAuth restart', () => {
     await expect(
       runtime.host.invoke({ configuredServerId: oauthServer.name, type: 'tools/list' })
     ).rejects.toMatchObject({ code: 'mcp-authentication-required' });
-    expect(runtime.host.snapshot().servers[0]?.state).toBe('authentication-required');
+    expect(runtime.host.snapshot().servers[0]).toMatchObject({
+      auth: { credentialState: 'missing', grantedScopes: [] },
+      state: 'authentication-required',
+    });
     expect(close).toHaveBeenCalledOnce();
     expect(openExternal).not.toHaveBeenCalled();
     // Failed background auth is not retried by every model request.

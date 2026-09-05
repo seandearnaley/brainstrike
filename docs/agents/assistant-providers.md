@@ -3367,8 +3367,21 @@ Disconnect, config removal, revocation, and factory reset clear both encrypted
 records and in-memory refresh/session state; a storage failure is visible and
 never converted into an unauthenticated fallback.
 
-Production host composition creates the OAuth provider only for an explicit
-Connect or Reauthorize action, passes both `provider.fetch` and `authProvider`
+Explicit Connect cancellation spans the entire control request, including a
+background-to-interactive handoff, rather than borrowing the first transport
+attempt's signal. Cancel aborts that request even if the new factory has not
+settled; late factories are still drained and closed by the actor.
+`mcp-server-actor.test.ts` pins this cancellation boundary.
+
+The host republishes `provider.authSnapshot()` after connection settlement,
+including failure after SDK credential invalidation, so Settings does not retain
+"stored" after an `invalid_grant` removes the tokens. The host OAuth regression
+pins missing credentials and cleared granted scopes before explicit retry.
+
+Production host composition creates the OAuth provider for stored-grant
+background discovery and explicit Connect or Reauthorize actions. Only an
+explicit true authorization option permits browser consent; omission is
+non-interactive. It passes both `provider.fetch` and `authProvider`
 to `ExplicitHttpMcpClient`, and for OAuth-user Streamable HTTP also passes the
 provider's one-shot `takePendingAuthorizationCallback(signal)` source. The
 agent client alone consumes that source, calls the SDK transport's `finishAuth`,
