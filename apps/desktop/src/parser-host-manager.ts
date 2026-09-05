@@ -39,6 +39,29 @@ export function resolveParserHostEntryPath(currentModuleFilename?: string): stri
   );
 }
 
+/**
+ * Describe an unusable host message without logging it. Parser traffic carries
+ * user source text and ASTs, so the raw payload must never reach the log:
+ * only its shape does. `parser-host-entry` posts nothing but
+ * `ParserHostParseResponse` frames (no handshake/ready/log frames), so every
+ * message that fails this check is a real fault, not normal traffic.
+ */
+function summarizeMalformedMessage(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object') {
+    return { messageType: value === null ? 'null' : typeof value };
+  }
+  if (Array.isArray(value)) {
+    // Keys of a large array would be as unbounded as the payload itself.
+    return { length: value.length, messageType: 'array' };
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    keys: Object.keys(record),
+    messageType: 'object',
+    ...(typeof record['type'] === 'string' ? { type: record['type'] } : {}),
+  };
+}
+
 function isParserHostParseResponse(value: unknown): value is ParserHostParseResponse {
   return (
     value !== null &&
@@ -68,7 +91,19 @@ export class ParserHostManager {
       responseId: (response) => response.requestId,
       role: 'Parser host',
       send: (request) => {
-        this.#ensureHost().postMessage(request);
+        try {
+          this.#ensureHost().postMessage(request);
+        } catch (error) {
+          // A failed fork or postMessage is an infrastructure fault, not a
+          // parse failure. `parse()` converts it to `ok: false` per the
+          // always-answer contract, so without this it would be visible only
+          // to whoever inspects the response object.
+          logger.error('Parser host request could not be sent', {
+            error,
+            requestId: request.requestId,
+          });
+          throw error;
+        }
       },
       timeoutMs: () => this.#requestTimeoutMs,
     });
@@ -114,7 +149,7 @@ export class ParserHostManager {
 
   #handleResponse(message: unknown): void {
     if (!isParserHostParseResponse(message)) {
-      logger.warn('Ignored malformed parser host message', { message });
+      logger.warn('Ignored malformed parser host message', summarizeMalformedMessage(message));
       return;
     }
     this.#requests.accept(message);

@@ -31,6 +31,7 @@ class FakeUtilityProcess extends EventEmitter {
 
 const forkMock = vi.hoisted(() => vi.fn());
 const loggerWarnMock = vi.hoisted(() => vi.fn());
+const loggerErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   utilityProcess: {
@@ -44,7 +45,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     ...actual,
     createLogger: () => ({
       debug: vi.fn(),
-      error: vi.fn(),
+      error: loggerErrorMock,
       fatal: vi.fn(),
       info: vi.fn(),
       trace: vi.fn(),
@@ -73,6 +74,7 @@ describe('ParserHostManager', () => {
     forkMock.mockReset();
     forkMock.mockImplementation(() => new FakeUtilityProcess());
     loggerWarnMock.mockReset();
+    loggerErrorMock.mockReset();
   });
   afterEach(() => {
     vi.resetModules();
@@ -172,17 +174,42 @@ describe('ParserHostManager', () => {
     );
   });
 
-  it('logs a malformed host message at warn instead of ignoring it', async () => {
+  it('logs a malformed host message at warn as a shape summary, never the payload', async () => {
     const { ParserHostManager } = await import('../../parser-host-manager');
     const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
 
     const parsePromise = manager.parse(baseRequest);
     const host = latestProcess();
-    host.emit('message', { unexpected: true });
+    // Parser traffic carries user source text and ASTs; the log must describe
+    // the frame, not reproduce it.
+    host.emit('message', { content: 'const secret = "user source text";', type: 'noise' });
 
-    expect(loggerWarnMock).toHaveBeenCalledWith(expect.any(String), expect.anything());
+    expect(loggerWarnMock).toHaveBeenCalledWith('Ignored malformed parser host message', {
+      keys: ['content', 'type'],
+      messageType: 'object',
+      type: 'noise',
+    });
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('user source text');
+
     host.reply({ ok: true, requestId: 'req-1', root: { type: 'Program' } });
     await expect(parsePromise).resolves.toMatchObject({ ok: true });
+  });
+
+  it('logs a fork failure at error and still answers with ok: false', async () => {
+    const { ParserHostManager } = await import('../../parser-host-manager');
+    const manager = new ParserHostManager({ entryPath: '/fake/entry.js' });
+    const forkFailure = new Error('utilityProcess.fork failed: entry missing');
+    forkMock.mockImplementationOnce(() => {
+      throw forkFailure;
+    });
+
+    const response = await manager.parse(baseRequest);
+
+    expect(response).toMatchObject({ ok: false });
+    expect(loggerErrorMock).toHaveBeenCalledWith('Parser host request could not be sent', {
+      error: forkFailure,
+      requestId: 'req-1',
+    });
   });
 
   it('stop() kills the host and rejects pending requests', async () => {

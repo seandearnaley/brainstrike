@@ -180,9 +180,10 @@ describe('ChunkingHostManager', () => {
       type: 'result',
     });
 
+    // `channel` and `type` are what identify which late report arrived.
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ requestId: 'req-late' })
+      'Received chunking host response for unknown request',
+      { channel: 'chunk-result', requestId: 'req-late', type: 'result' }
     );
   });
 

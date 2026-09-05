@@ -2,17 +2,26 @@
  * Request/response correlation for the background host managers.
  *
  * One pending map, one per-request deadline, one duplicate-id guard, one
- * send-failure wrapper, one reject-all, one late-response path — shared by
- * every host manager regardless of transport (hidden `BrowserWindow`
+ * send-failure wrapper, one reject-all, one late-response path, usable by any
+ * host manager regardless of transport (hidden `BrowserWindow`
  * `webContents.send` or `utilityProcess.postMessage`). The transport itself,
- * response payload interpretation, and any host-specific bookkeeping (the DB
- * host's abandoned-request ledger, the llm host's pre-cancel ledger and
- * cancel-to-host) stay in the adapter and reach the channel through the hooks
- * below.
+ * response payload interpretation, and any host-specific bookkeeping stay in
+ * the adapter and reach the channel through the hooks below.
+ *
+ * Adopted so far: the chunking and parser host managers. Adapters still to
+ * migrate: db, llm, embedding — they still carry their own correlation code,
+ * and the hooks here (`onLateResponse` for the DB host's abandoned-request
+ * ledger, `onAbort` for the llm host's pre-cancel ledger and cancel-to-host,
+ * `onTimeout`'s `terminate` policy for a transaction whose connection cannot
+ * survive an abandoned statement) exist for them.
  *
  * This module deliberately never imports Electron: managers are constructed at
  * module scope before `app.whenReady`, so the channel must be safe to build in
- * a constructor.
+ * a constructor. `@brainstrike/worker-runtime` is main-process safe for the
+ * same reason — its entry declares types and two `Set` literals at module
+ * scope, touches `Worker`/`MessageEvent` only in type positions, and is
+ * already loaded in main by `chunking-host-shared` and
+ * `renderer-host-lifecycle`.
  */
 
 import { createLogger } from '@brainstrike/logging';
@@ -21,6 +30,11 @@ import { createRequestTracker } from '@brainstrike/worker-runtime';
 const logger = createLogger('HostRequestChannel');
 
 export type HostRequestTimeoutPolicy = 'abandon' | 'terminate';
+
+interface HostRequestTimeoutDecisionFor<TPolicy extends HostRequestTimeoutPolicy> {
+  readonly error: Error;
+  readonly policy: TPolicy;
+}
 
 export interface HostRequestTimeoutContext {
   /** In-flight request count at the moment of the timeout, INCLUDING the timed-out request. */
@@ -37,16 +51,14 @@ export interface HostRequestTimeoutContext {
  * What a timeout means for this host. `abandon` rejects only the timed-out
  * request; `terminate` rejects it first, then every other in-flight request
  * with the SAME error, then hands the error to `terminate` so the adapter can
- * kill its transport (the DB host does this for transaction requests, whose
- * connection state cannot survive an abandoned statement).
+ * kill its transport (intended for the DB host's transaction requests, whose
+ * connection state cannot survive an abandoned statement — not yet migrated).
  */
 export type HostRequestTimeoutDecision =
-  | { readonly error: Error; readonly policy: 'abandon' }
-  | {
-      readonly error: Error;
-      readonly policy: 'terminate';
+  | HostRequestTimeoutDecisionFor<'abandon'>
+  | (HostRequestTimeoutDecisionFor<'terminate'> & {
       readonly terminate: (error: Error) => void;
-    };
+    });
 
 export interface HostRequestAbortContext {
   readonly reason: unknown;
@@ -60,6 +72,15 @@ export interface HostRequestChannelOptions<TRequest, TResponse> {
    * Decide the error a request rejects with when its `signal` fires, and run
    * any abort side effect (e.g. send a cancel to the host). Default: the
    * signal's reason when it is an Error, else `<role> request <id> was aborted.`
+   *
+   * Unlike `onTimeout`, this runs AFTER the entry is released: `has()` and
+   * `inFlight()` report the post-release state, so an adapter moving the entry
+   * into its own ledger will not find it in the channel. Deliberate — the
+   * abort side effect is a send, and the request is already unrecoverable.
+   *
+   * Not consulted at all when the signal is already aborted at `request()`
+   * time: nothing was sent, so there is nothing to cancel, and the rejection
+   * uses the signal's reason (or the default abort error) directly.
    */
   readonly onAbort?: (request: TRequest, context: HostRequestAbortContext) => Error;
   /**
@@ -191,7 +212,18 @@ export function createHostRequestChannel<TRequest, TResponse>(
     entry.reject(decision.error);
     if (decision.policy === 'terminate') {
       rejectAll(decision.error);
-      decision.terminate(decision.error);
+      try {
+        decision.terminate(decision.error);
+      } catch (error) {
+        // Runs inside a timer callback: an adapter killing an already-dead
+        // transport must not become an uncaught main-process exception. The
+        // request is already rejected, so there is nothing left to settle.
+        logger.error(`${role} terminate hook failed while handling a request timeout`, {
+          error,
+          requestId: entry.requestId,
+          role,
+        });
+      }
     }
   };
 
@@ -267,7 +299,14 @@ export function createHostRequestChannel<TRequest, TResponse>(
     const entry = pending.get(requestId);
     if (!entry) {
       if (options.onLateResponse) {
-        options.onLateResponse(requestId, response);
+        try {
+          options.onLateResponse(requestId, response);
+        } catch (error) {
+          // `accept` runs inside the transport listener (an IPC event handler
+          // or a `utilityProcess` message listener); a consumer throw must not
+          // escape into it.
+          logger.error(`${role} late-response hook failed`, { error, requestId, role });
+        }
         return;
       }
       logger.warn(`${role} response arrived for a request that is no longer pending`, {
@@ -283,7 +322,13 @@ export function createHostRequestChannel<TRequest, TResponse>(
       clearTimeout(entry.timer);
       entry.timer = arm(entry);
       entry.progressCount += 1;
-      entry.onProgress?.(response);
+      try {
+        entry.onProgress?.(response);
+      } catch (error) {
+        // Same isolation as the late-response hook. The deadline is already
+        // re-armed above, so a throwing consumer cannot shorten it either.
+        logger.error(`${role} progress hook failed`, { error, requestId, role });
+      }
       return;
     }
     release(entry);
