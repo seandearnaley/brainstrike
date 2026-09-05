@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -8,10 +9,19 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const { scripts } = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
 
+// The stub `node` below only asserts on argv, so pin the wrapper's existence here:
+// moving or renaming it must fail this suite, not just `pnpm knip`.
+assert.ok(
+  existsSync(path.join(repoRoot, 'scripts/run-turbo-command.mjs')),
+  'scripts/run-turbo-command.mjs must exist for the knip script'
+);
+
 // Execute the real package command across the process boundary. Stand-in binaries
 // model absent build outputs and failures without rebuilding the repo in this suite.
+// The fixture lives in the OS temp dir: it holds executables named `node`/`knip`/`turbo`,
+// which must never be left inside the repository if the process is interrupted.
 function runWorkflow(buildExit, auditExit) {
-  const fixture = mkdtempSync(path.join(repoRoot, '.claude-scratch-knip-'));
+  const fixture = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-knip-workflow-'));
   try {
     const binaries = {
       knip: `

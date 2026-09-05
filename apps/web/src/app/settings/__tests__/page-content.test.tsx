@@ -107,8 +107,8 @@ describe('Web SettingsPageContent', () => {
 
     const nav = screen.getByRole('navigation', { name: /settings categories/i });
     expect(within(nav).queryByRole('button', { name: /^API Keys$/i })).not.toBeInTheDocument();
+    // getByRole throws on multiple matches, so this also guards against a duplicate registration.
     const providersButton = within(nav).getByRole('button', { name: /^Providers$/i });
-    expect(within(nav).getAllByRole('button', { name: /^Providers$/i })).toHaveLength(1);
     fireEvent.click(providersButton);
 
     expect(window.location.hash).toBe('#settings/providers');
