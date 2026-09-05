@@ -70,6 +70,8 @@ describe('assistant activity chronology through the real runtime', () => {
       await user.click(screen.getByRole('button', { name: 'Stop' }));
       await waitFor(() => expect(second).toHaveAttribute('data-active', 'false'));
       expect(first).toHaveAttribute('data-active', 'false');
+      expect(first).toHaveTextContent('Worked');
+      expect(first).not.toHaveTextContent('Stopped');
       expect(second).toHaveTextContent('Stopped');
       expect(second).not.toHaveTextContent('Worked');
       expect(screen.getAllByTestId('assistant-activity-group')[0]).toBe(first);
@@ -154,6 +156,31 @@ describe('assistant activity chronology through the real runtime', () => {
     await screen.findByText('Activity failed');
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
     expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked');
+  });
+
+  it('marks an explicit tool-result error in only its completed activity group', async () => {
+    const content = completedParts.map((part) =>
+      part.type === 'tool-call' && part.toolCallId === 'comments'
+        ? { ...part, isError: true, result: { error: 'Tool refused.' } }
+        : part
+    );
+    render(
+      <Harness
+        adapter={{
+          async run() {
+            throw new Error('Hydration must not invoke a model.');
+          },
+        }}
+        initialMessages={[{ content, role: 'assistant' }]}
+      />
+    );
+    await screen.findByText('Review complete.');
+    const { first, second } = expectChronologicalGroups();
+    expect(first).toHaveTextContent('Worked');
+    expect(first).toHaveAttribute('data-failed', 'false');
+    expect(second).toHaveTextContent('Activity failed');
+    expect(second).toHaveAttribute('data-failed', 'true');
+    expect(second).not.toHaveTextContent('Worked');
   });
 
   it('preserves the same order and completed state when hydrated from persisted parts', async () => {

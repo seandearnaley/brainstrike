@@ -32,6 +32,16 @@ describe('summarizeToolActivity', () => {
     expect(summary.failedCount).toBe(1);
   });
 
+  it('counts completed error results once without guessing from domain fields', () => {
+    const summary = summarizeToolActivity([
+      toolPart({ isError: true, status: { type: 'complete' } }),
+      toolPart({ isError: true, status: { type: 'incomplete' } }),
+      toolPart({ result: { error: 'ordinary domain data' }, status: { type: 'complete' } }),
+    ]);
+    expect(summary.failedCount).toBe(2);
+    expect(summary.stepCount).toBe(3);
+  });
+
   it('surfaces the running tool name and its primary argument as the active step', () => {
     const summary = summarizeToolActivity([
       toolPart({ status: { type: 'complete' }, toolName: 'first.tool' }),

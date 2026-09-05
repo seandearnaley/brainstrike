@@ -491,7 +491,9 @@ async function executeAssistantTool(
     .getByTestId('assistant-activity-group')
     .filter({ hasText: 'legacy.echo' })
     .last();
-  await activity.getByRole('button', { exact: true, name: 'Expand activity' }).click();
+  const summary = activity.getByTestId('assistant-activity-summary');
+  await expect(summary).toHaveAttribute('aria-expanded', 'false');
+  await summary.click();
   const toolCard = activity.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
   await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
@@ -533,7 +535,14 @@ async function executeElicitationTool(
   await expect(page.getByText('Packaged MCP elicitation completed.').first()).toBeVisible({
     timeout: 90_000,
   });
-  const toolCard = page
+  const activity = page
+    .getByTestId('assistant-activity-group')
+    .filter({ hasText: 'oauth.elicit_confirm' })
+    .last();
+  const summary = activity.getByTestId('assistant-activity-summary');
+  await expect(summary).toHaveAttribute('aria-expanded', 'false');
+  await summary.click();
+  const toolCard = activity
     .getByTestId('tool-fallback')
     .filter({ hasText: 'oauth.elicit_confirm' })
     .last();

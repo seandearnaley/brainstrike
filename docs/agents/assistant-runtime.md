@@ -1239,7 +1239,9 @@ subagent, and MCP result renderers. Activity wrappers remain mounted through
 completion, preserving disclosure state and tool identity. Reasoning-only groups
 omit the zero-tool step count. Incomplete group status is authoritative even
 without tool calls: cancellation shows a neutral Stopped summary, while other
-incomplete reasons show Activity failed. Completed tool details remain
+incomplete reasons show Activity failed. A completed call with the canonical
+`isError` flag also marks its group failed; domain fields alone never imply
+failure, and a call is counted once. Completed tool details remain
 accessible by expanding the activity group; packaged UI proofs follow that
 same disclosure interaction. Tool durations and shell output remain correlated
 by call id across the message, while each group's elapsed fallback uses only its
