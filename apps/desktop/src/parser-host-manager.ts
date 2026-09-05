@@ -39,12 +39,29 @@ export function resolveParserHostEntryPath(currentModuleFilename?: string): stri
   );
 }
 
+/** Longest content-derived string this summary will repeat into a log. */
+const MAX_SUMMARY_STRING_LENGTH = 64;
+/** Most keys this summary will name; the full count is always reported. */
+const MAX_SUMMARY_KEYS = 20;
+
+function truncateForLog(value: string): string {
+  return value.length <= MAX_SUMMARY_STRING_LENGTH
+    ? value
+    : `${value.slice(0, MAX_SUMMARY_STRING_LENGTH)}…`;
+}
+
 /**
  * Describe an unusable host message without logging it. Parser traffic carries
  * user source text and ASTs, so the raw payload must never reach the log:
  * only its shape does. `parser-host-entry` posts nothing but
  * `ParserHostParseResponse` frames (no handshake/ready/log frames), so every
  * message that fails this check is a real fault, not normal traffic.
+ *
+ * Every field here is bounded, because a malformed frame's *shape* is
+ * content-controlled too: a mis-serialized response can put source text in a
+ * key or in `type`, and a record keyed by identifier or path has as many keys
+ * as the payload has content. Counts are exact; the strings behind them are
+ * truncated.
  */
 function summarizeMalformedMessage(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object') {
@@ -55,10 +72,12 @@ function summarizeMalformedMessage(value: unknown): Record<string, unknown> {
     return { length: value.length, messageType: 'array' };
   }
   const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
   return {
-    keys: Object.keys(record),
+    keyCount: keys.length,
+    keys: keys.slice(0, MAX_SUMMARY_KEYS).map(truncateForLog),
     messageType: 'object',
-    ...(typeof record['type'] === 'string' ? { type: record['type'] } : {}),
+    ...(typeof record['type'] === 'string' ? { type: truncateForLog(record['type']) } : {}),
   };
 }
 

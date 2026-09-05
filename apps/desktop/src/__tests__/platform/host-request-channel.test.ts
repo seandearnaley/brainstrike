@@ -82,9 +82,11 @@ describe('createHostRequestChannel', () => {
         { cause: error }
       );
     }
-    // Covers `from 'electron'`, `require('electron')`, `await import('electron')`
-    // and subpath specifiers such as 'electron/main'.
-    expect(source).not.toMatch(/['"]electron(\/|['"])/u);
+    // Anchored on the import forms, so the module's own prose may name Electron
+    // without failing this guard: `from 'electron'`, `require('electron')`,
+    // `await import('electron')`, backtick specifiers, and subpaths such as
+    // 'electron/main'.
+    expect(source).not.toMatch(/(?:from|import\(|require\()\s*['"`]electron(?:\/|['"`])/u);
   });
 
   it('sends the request and resolves with the terminal response for that id', async () => {

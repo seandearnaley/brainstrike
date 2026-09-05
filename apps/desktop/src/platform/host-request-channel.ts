@@ -218,6 +218,12 @@ export function createHostRequestChannel<TRequest, TResponse>(
         // Runs inside a timer callback: an adapter killing an already-dead
         // transport must not become an uncaught main-process exception. The
         // request is already rejected, so there is nothing left to settle.
+        //
+        // Only the request is settled, though — the transport is not. The
+        // channel neither retries nor escalates, so a `terminate` that throws
+        // leaves the host alive-but-wedged until the next timeout decides to
+        // kill it again. Adapters must therefore make `terminate` idempotent
+        // and self-healing rather than assume one call is the last word.
         logger.error(`${role} terminate hook failed while handling a request timeout`, {
           error,
           requestId: entry.requestId,
