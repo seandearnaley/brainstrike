@@ -273,12 +273,22 @@ describe('WorktreeMapSurface', () => {
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(screen.getByText('51–51 of 51')).toBeInTheDocument();
+    const scrollport = screen
+      .getAllByTestId('worktree-map-card')[0]
+      ?.closest('section')?.parentElement;
+    if (!scrollport) {
+      throw new Error('Missing worktree scrollport');
+    }
+    scrollport.scrollTop = 500;
     useWorktreeMapMock.mockReturnValue({ ...state, statusByPath: new Map() });
     view.rerender(<WorktreeMapSurface />);
     expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
     useWorktreeMapMock.mockReturnValue(state);
     view.rerender(<WorktreeMapSurface />);
     expect(screen.getByText('1–25 of 51')).toBeInTheDocument();
+    expect(
+      screen.getAllByTestId('worktree-map-card')[0]?.closest('section')?.parentElement?.scrollTop
+    ).toBe(0);
     expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
   });
 

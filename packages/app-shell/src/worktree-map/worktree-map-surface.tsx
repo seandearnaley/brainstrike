@@ -144,7 +144,11 @@ export function WorktreeMapSurface(): ReactElement {
           sort={sort}
           total={collection.total}
         />
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4" ref={scrollRef}>
+        <div
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4"
+          key={collection.page}
+          ref={scrollRef}
+        >
           {/* A stated failure, NEVER the empty state: "no worktrees" is a
           different, honest fact and must not stand in for "the read failed". */}
           {error ? (
