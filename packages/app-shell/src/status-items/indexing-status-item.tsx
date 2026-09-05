@@ -139,11 +139,14 @@ function getDisplayStatus(args: {
       value: formatSnapshotActivity(snapshot),
     };
   }
-  // BST-1335: no root selected yet is unconfigured, not an error — must not
-  // fall through to the "Ready" default below, which would misreport a fresh,
-  // unconfigured setup as fully synced.
+  // Missing setup is neither broken nor fully synced. Name the missing input
+  // instead of claiming a root is absent when only the collection is missing.
   if (syncStatus.state === 'unconfigured') {
-    return { busy: false, toneClassName: 'text-muted-foreground', value: 'No root selected' };
+    return {
+      busy: false,
+      toneClassName: 'text-muted-foreground',
+      value: syncStatus.activeRootPath ? 'No collection selected' : 'No root selected',
+    };
   }
   if (snapshot.status === 'unavailable') {
     return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };

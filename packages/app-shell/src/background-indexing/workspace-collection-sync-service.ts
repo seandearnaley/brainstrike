@@ -374,7 +374,7 @@ export class WorkspaceCollectionSyncService {
   }
 
   /**
-   * No root folder has been selected yet — setup is incomplete, not a
+   * No root folder or managed collection has been selected — setup is incomplete, not a
    * failure (BST-1335). Logged at info (never durably persisted, unlike the
    * warn+ `errorTransitionLogger` chokepoint the status store owns for
    * genuine `error`/`blocked` transitions) and carries no `lastError`, so the
@@ -383,10 +383,12 @@ export class WorkspaceCollectionSyncService {
   private setUnconfiguredStatus(args: {
     activeRootPath: string | null;
     managedCollectionId: string | null;
+    reason: string;
   }): void {
-    this.deps.log?.info('Workspace collection sync is unconfigured: no root folder selected', {
+    this.deps.log?.info('Workspace collection sync is unconfigured', {
       activeRootPath: args.activeRootPath,
       managedCollectionId: args.managedCollectionId,
+      reason: args.reason,
     });
     this.deps.setStatus({
       activeRootPath: args.activeRootPath,
@@ -411,20 +413,23 @@ export class WorkspaceCollectionSyncService {
   }
 
   /**
-   * BST-1335: `no-root-folder` is unconfigured setup, not a failure, so it
-   * routes to `setUnconfiguredStatus` instead of `setErrorStatus`. Split out
-   * of `resolveContext` to keep that method's cognitive complexity under the
-   * lint ceiling.
+   * Missing setup is unconfigured (BST-1340). The provider waits for database
+   * initialization before constructing this service; a missing required DB here
+   * is an invalid dependency and remains an error.
    */
   private handleInvalidRequest(args: {
     rootPath: string | null;
     validation: Extract<ReturnType<typeof validateRootFolderCacheRequest>, { ok: false }>;
     managedCollectionId: string | null;
   }): void {
-    if (args.validation.code === 'no-root-folder') {
+    if (
+      args.validation.code === 'no-root-folder' ||
+      args.validation.code === 'no-managed-collection'
+    ) {
       this.setUnconfiguredStatus({
         activeRootPath: args.rootPath,
         managedCollectionId: args.managedCollectionId,
+        reason: args.validation.reason,
       });
       return;
     }
