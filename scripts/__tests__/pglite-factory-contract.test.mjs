@@ -1,0 +1,137 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const factoryPath = 'packages/db/src/pglite-factory.ts';
+function isRuntimeSource(file) {
+  return (
+    /\.[cm]?[jt]sx?$/u.test(file) &&
+    !file.split('/').includes('__tests__') &&
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(file)
+  );
+}
+
+function constructionViolations(file, source) {
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const violations = [];
+  function visit(node) {
+    const directConstruction =
+      (ts.isNewExpression(node) && node.expression.getText(parsed) === 'PGlite') ||
+      (ts.isCallExpression(node) && node.expression.getText(parsed) === 'PGlite.create');
+    // Ban runtime access to the vendor constructor too, including namespace
+    // imports and the desktop's dynamic-import / PGliteCtor -> Ctor chain.
+    const importsCore =
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === '@electric-sql/pglite' &&
+      !node.importClause?.isTypeOnly &&
+      !(
+        node.importClause?.namedBindings &&
+        ts.isNamedImports(node.importClause.namedBindings) &&
+        node.importClause.namedBindings.elements.every((element) => element.isTypeOnly)
+      );
+    const loadsCore =
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        node.expression.getText(parsed) === 'require') &&
+      node.arguments.some(
+        (argument) => ts.isStringLiteral(argument) && argument.text === '@electric-sql/pglite'
+      );
+    if (directConstruction || importsCore || loadsCore) {
+      const { line } = parsed.getLineAndCharacterOfPosition(node.getStart(parsed));
+      violations.push(`${file}:${line + 1}: ${node.getText(parsed).split('\n')[0]}`);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  return violations;
+}
+
+test('PGlite construction belongs exclusively to pglite-factory.ts', () => {
+  const files = execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', 'apps', 'packages', 'scripts'],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }
+  )
+    .trim()
+    .split('\n');
+  const violations = files
+    .filter((file) => isRuntimeSource(file) && file !== factoryPath)
+    // `--cached` lists tracked paths even when deleted in the worktree; skip those.
+    .filter((file) => existsSync(path.join(repoRoot, file)))
+    .flatMap((file) => {
+      const source = readFileSync(path.join(repoRoot, file), 'utf8');
+      // Cheap pre-filter: nothing without this text can construct or import PGlite,
+      // so the full AST parse runs only on the handful of candidate files.
+      return source.includes('PGlite') || source.includes('@electric-sql/pglite')
+        ? constructionViolations(file, source)
+        : [];
+    });
+  assert.deepEqual(
+    violations,
+    [],
+    `Construct only through ${factoryPath}:\n${violations.join('\n')}`
+  );
+});
+
+test('the source sweep includes benchmarks and future runtime sites, preserving deliberate test fixtures', () => {
+  for (const file of [
+    'apps/new/src/db.ts',
+    'packages/new/src/db.mjs',
+    'scripts/bench.ts',
+    'packages/db/scripts/benchmark-binary-quantization.ts',
+  ]) {
+    assert.ok(isRuntimeSource(file), file);
+  }
+  for (const file of [
+    'packages/db/__tests__/helpers/bare-db.ts',
+    'apps/new/src/db.test.ts',
+    'packages/new/db.integration.spec.ts',
+  ]) {
+    assert.equal(isRuntimeSource(file), false, file);
+  }
+});
+
+test('guard catches constructors, static creation, and constructor aliases but ignores comments and types', () => {
+  assert.equal(
+    constructionViolations(
+      'example.ts',
+      '// new PGlite()\nimport type { PGlite } from "@electric-sql/pglite";'
+    ).length,
+    0
+  );
+  for (const source of [
+    'new PGlite({})',
+    'PGlite.create({})',
+    'import { PGlite as Database } from "@electric-sql/pglite";',
+    'const { PGlite: Database } = await import("@electric-sql/pglite");',
+    'import * as vendor from "@electric-sql/pglite";',
+    'const vendor = require("@electric-sql/pglite");',
+  ]) {
+    assert.ok(constructionViolations('example.ts', source).length > 0, source);
+  }
+});
+
+test('the desktop host contains no any types or construction suppressions', () => {
+  const file = 'apps/desktop/src/db-main.ts';
+  const source = readFileSync(path.join(repoRoot, file), 'utf8');
+  assert.doesNotMatch(source, /biome-ignore[^\n]*noExplicitAny/u);
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  function visit(node) {
+    assert.notEqual(
+      node.kind,
+      ts.SyntaxKind.AnyKeyword,
+      'desktop DB host must use concrete types or unknown'
+    );
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+});

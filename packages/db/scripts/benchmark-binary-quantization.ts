@@ -45,8 +45,7 @@
  * NOT part of any build/CI lane — manual benchmark harness.
  */
 import { writeFileSync } from 'node:fs';
-import { PGlite } from '@electric-sql/pglite';
-import { vector } from '@electric-sql/pglite-pgvector';
+import { createBrainstrikePglite } from '../src/pglite-factory.js';
 
 // ---------- args ----------
 function argValue(name: string): string | undefined {
@@ -219,11 +218,15 @@ async function main(): Promise<void> {
       `twoStage=${TWO_STAGE}${TWO_STAGE ? ` rerankPools=${RERANK_POOLS.join('/')}` : ''}`
   );
   // memory:// — pure WASM, single connection, like the app
-  const db = new PGlite({ extensions: { vector } });
+  const db = await createBrainstrikePglite();
   await db.query('CREATE EXTENSION IF NOT EXISTS vector');
   const ver = await db.query<{ extversion: string }>(
     "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
   );
+  const extensions = await db.query<{ extname: string }>(
+    'SELECT extname FROM pg_extension ORDER BY extname'
+  );
+  console.log(`pg_extension: ${extensions.rows.map(({ extname }) => extname).join(', ')}`);
   const mwm = await db.query<{ maintenance_work_mem: string }>('SHOW maintenance_work_mem');
   console.log(
     `pgvector ${ver.rows[0]?.extversion}, maintenance_work_mem=${mwm.rows[0]?.maintenance_work_mem}`
