@@ -24,6 +24,9 @@ export function useModelMigrationNotices(): void {
     for (const notice of pending) {
       toast({
         description: `${getProviderDisplayName(notice.provider)} no longer offers ${notice.from}. Your selection was moved to ${notice.to} — pick another model if that is not what you want.`,
+        // A one-shot startup notice about a downgrade the user never chose
+        // must outlive the 5s default: it stays until explicitly closed.
+        persistent: true,
         title: 'Saved model replaced',
       });
     }

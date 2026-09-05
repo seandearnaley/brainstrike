@@ -41,8 +41,14 @@ describe('useModelMigrationNotices', () => {
     const { rerender } = renderHook(() => useModelMigrationNotices());
 
     expect(toastMock).toHaveBeenCalledTimes(1);
-    const call = toastMock.mock.calls[0]?.[0] as { description: string; title: string };
+    const call = toastMock.mock.calls[0]?.[0] as {
+      description: string;
+      persistent?: boolean;
+      title: string;
+    };
     expect(call.title).toBe('Saved model replaced');
+    // Startup notice: must not vanish on the 5s default before it is read.
+    expect(call.persistent).toBe(true);
     expect(call.description).toContain('OpenRouter');
     expect(call.description).toContain('google/gemini-2.5-pro');
     expect(call.description).toContain('google/gemini-2.5-flash');
