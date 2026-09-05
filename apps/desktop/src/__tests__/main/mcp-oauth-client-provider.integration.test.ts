@@ -16,6 +16,7 @@ import {
   createMcpOAuthClientProvider,
   createMcpOAuthStoreIdentity,
 } from '../../mcp/oauth-client-provider';
+import { discoverToolsFromConfig } from '../../mcp/tool-discovery';
 import type { ResolvedMcpServer } from '../../mcp-loader';
 
 type OAuthHttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
@@ -426,11 +427,15 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     const relaunched = launch(async () => {
       throw new Error('browser must not open after a relaunch');
     });
-    await relaunched.replaceResolvedConfig({ servers: [configured] });
-
+    const config = { servers: [configured] };
+    const committed = await relaunched.replaceResolvedConfig(config);
+    // The same discovery entrypoint used during app load must reconnect; no
+    // Settings control is sent on the relaunched host.
+    await expect(discoverToolsFromConfig(relaunched, config, committed)).resolves.toHaveLength(1);
+    expect(relaunched.host.snapshot().servers[0]?.state).toBe('connected');
     await expect(
-      relaunched.host.control({ action: 'connect', configuredServerId: configured.name })
-    ).resolves.toMatchObject({ state: 'connected' });
+      relaunched.host.invoke({ configuredServerId: configured.name, type: 'tools/list' })
+    ).resolves.toMatchObject({ type: 'tools/list' });
     expect(server.dcrRequests).toHaveLength(1);
     expect(server.authorizationRequests).toHaveLength(1);
     expect(server.refreshCount()).toBe(1);
@@ -474,7 +479,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       relaunched.host.control({ action: 'connect', configuredServerId: configured.name })
     ).rejects.toMatchObject({ category: 'authentication', code: 'mcp-authentication-required' });
     expect(relaunched.host.snapshot().servers[0]).toMatchObject({
-      auth: { credentialState: 'stored', type: 'oauth-user' },
+      auth: { credentialState: 'missing', type: 'oauth-user' },
       state: 'authentication-required',
     });
     await relaunched.host.close();
@@ -643,6 +648,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     } as const;
     const store = createInMemoryMcpOAuthStore();
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -672,6 +678,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
   it('does not resurrect a refresh token response from an invalidated generation', async () => {
     const responseGate = Promise.withResolvers<Response>();
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       fetchFn: async () => await responseGate.promise,
       openExternal: async () => undefined,
       serverId: 'stale-refresh',
@@ -700,6 +707,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
 
   it('keeps flow X discovery stale across overlapping flow Y reads and saves', async () => {
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: 'overlapping-issuers',
       serverUrl: 'https://mcp.example.test/mcp',
@@ -758,6 +766,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
   it('times out an abandoned authorization callback and closes its listener', async () => {
     vi.useFakeTimers();
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: 'callback-timeout',
       serverUrl: 'https://mcp.example.test/mcp',
@@ -790,6 +799,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     } as const;
     const store = createInMemoryMcpOAuthStore();
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: identity.serverId,
       serverUrl: identity.resourceUrl,
@@ -818,6 +828,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
 
   it('makes cancellation terminal, closes the callback listener, and rejects stale credential saves', async () => {
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: 'linear',
       serverUrl: 'https://mcp.example.test/mcp',
@@ -845,6 +856,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
   ])('supports %s registration selection', async (_label, clientRegistration, preRegistered) => {
     const server = await startFakeOAuthServer({ clientRegistration });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       clientMetadataUrl:
         clientRegistration === 'cimd' ? 'https://brainstrike.example/mcp-client.json' : undefined,
       openExternal: async (authorizationUrl) => {
@@ -884,6 +896,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       clientRegistration: 'dcr',
     });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async (authorizationUrl) => {
         const authorization = await fetch(authorizationUrl, { redirect: 'manual' });
         const location = authorization.headers.get('location');
@@ -915,6 +928,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       issParameterSupported,
     });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: followAuthorizationRedirect,
       serverId: 'issuer-accepted',
       serverUrl: server.url,
@@ -940,6 +954,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       issParameterSupported: supported,
     });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: followAuthorizationRedirect,
       serverId: 'issuer-rejected',
       serverUrl: server.url,
@@ -963,6 +978,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       metadataIssuerMismatch: true,
     });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: followAuthorizationRedirect,
       serverId: 'metadata-issuer-mismatch',
       serverUrl: server.url,
@@ -988,6 +1004,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       offlineAccessSupported: supported,
     });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: followAuthorizationRedirect,
       serverId: 'offline-access',
       serverUrl: server.url,
@@ -1009,6 +1026,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       resourceMismatch: true,
     });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async () => undefined,
       serverId: 'resource-mismatch',
       serverUrl: server.url,
@@ -1052,6 +1070,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     });
     honestOriginalResourceUrl = honestOriginalAuthorizationServer.url.href;
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: followAuthorizationRedirect,
       serverId: 'authorization-server-migration',
       serverUrl: honestOriginalAuthorizationServer.url,
@@ -1093,6 +1112,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
     const store = createInMemoryMcpOAuthStore();
     const createProvider = (openExternal: (authorizationUrl: string) => Promise<void>) =>
       createMcpOAuthClientProvider({
+        allowInteractiveAuthorization: true,
         openExternal,
         serverId: 'restart-session',
         serverUrl: server.url,
@@ -1142,6 +1162,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       clientRegistration: 'dcr',
     });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async (authorizationUrl) => {
         const authorization = await fetch(authorizationUrl, { redirect: 'manual' });
         const location = authorization.headers.get('location');
@@ -1165,6 +1186,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
   it('shares refresh requests and performs one bounded 401 retry', async () => {
     const server = await startFakeOAuthServer({ clientRegistration: 'dcr' });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async (authorizationUrl) => {
         const authorization = await fetch(authorizationUrl, { redirect: 'manual' });
         const location = authorization.headers.get('location');
@@ -1195,6 +1217,7 @@ describe('desktop-main MCP OAuthClientProvider', () => {
       insufficientScope: true,
     });
     const provider = await createMcpOAuthClientProvider({
+      allowInteractiveAuthorization: true,
       openExternal: async (authorizationUrl) => {
         const authorization = await fetch(authorizationUrl, { redirect: 'manual' });
         const location = authorization.headers.get('location');

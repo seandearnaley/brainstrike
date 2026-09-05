@@ -265,6 +265,7 @@ describe('official conformance ephemeral OAuth adapter', () => {
       scenario: 'auth/pre-registration',
     });
     const provider = await runtime.createOAuthProvider({
+      allowInteractiveAuthorization: true,
       openExternal: runtime.openExternal,
       serverId: 'official-conformance',
       serverUrl: 'http://127.0.0.1:38199/mcp',

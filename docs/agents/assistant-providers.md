@@ -2787,9 +2787,22 @@ failed zero-tool servers plus negotiation/config errors remain visible.
 Startup policy is explicit per configured server: `automatic` permits one
 bounded machine connection attempt during discovery, while
 `authentication-required` publishes an actionable status without constructing
-the transport or opening a browser. `connect`, `retry`, `cancel`, `disconnect`,
-and `reauthorize` are explicit host controls; user-paced authorization is not governed by the
-automatic ten-second machine deadline. Stdio stderr is piped through the SDK's
+the transport when no reusable native OAuth credentials are stored. A stored
+native HTTP OAuth grant starts disconnected and participates in app-load tool
+discovery, reconnecting with the existing SDK token/refresh flow under the
+ten-second machine deadline. This automatic attempt cannot open a browser;
+only explicit host controls grant interactive authorization to the provider.
+If login is needed, the attempt closes its transport/provider and returns to
+authentication-required, without retrying on every assistant request. Its safe
+error directs the user to Settings > AI Tools instead of a generic actor error.
+`connect`, `retry`, `cancel`, `disconnect`, and `reauthorize` are explicit host
+controls; user-paced authorization is not governed by the automatic ten-second
+machine deadline. An explicit Connect arriving during a background attempt reuses
+its success, or continues an authentication-required failure with a fresh
+interactive provider after cleanup. It never retries cancellation, transport, or
+cleanup failures. Omitted connection modes use the same non-interactive deadline
+and provider policy as explicit false. Auth projection is awaited during config
+staging before actor construction. Stdio stderr is piped through the SDK's
 early-created stream, line-bounded and secret-redacted before it reaches the
 server snapshot. Healthy stderr remains a session-only debug signal. On connect
 failure or unexpected child exit, the host emits at most one durable `warn` per
@@ -3309,12 +3322,23 @@ actions such as Authenticate, Reauthorize, Disconnect, Retry, and Replace
 Configuration. Opaque server, invocation, continuation, task, and Apps ids are
 never reconstructed from display names.
 
-The startup policy is conservative for every interactive OAuth path. Native
+The startup policy prevents unsolicited interactive OAuth. Native
 HTTP `oauth-user` entries that omit startup normalize to
 `authentication-required`; explicitly selecting `automatic` is invalid. An
 `npx -y mcp-remote ...` shape is normalized to `authentication-required`, even
-when the legacy config omitted startup policy, so config loading and startup
-discovery cannot spawn a browser. Connect, Cancel, Disconnect, Reauthorize, and
+when the legacy config omitted startup policy. Native HTTP OAuth with stored
+credentials reconnects during app-load discovery; missing or unreadable
+credentials still wait for explicit Connect. The actor passes a separate
+interactive-authorization flag to each connection attempt. Automatic attempts
+may reuse/refresh credentials, but the provider rejects browser authorization
+before arming a callback or calling openExternal. Config loading and startup
+discovery therefore cannot spawn a browser. Stdio OAuth helpers keep the
+explicit-connect policy because Brainstrike does not own their credential or
+browser flow. Restart and refresh behavior is covered through the production
+host plus app-load discovery in `mcp-oauth-client-provider.integration.test.ts`;
+missing credentials, login-required recovery, and the bounded first request
+are covered by `mcp-host-runtime-oauth.test.ts`.
+Connect, Cancel, Disconnect, Reauthorize, and
 Retry are capability-gated Settings actions. Cancel is dispatched directly to the owning actor,
 aborts the active connect signal, and settles child/listener cleanup without
 waiting behind config replacement or discovery work. User-paced stdio auth
@@ -3343,8 +3367,25 @@ Disconnect, config removal, revocation, and factory reset clear both encrypted
 records and in-memory refresh/session state; a storage failure is visible and
 never converted into an unauthenticated fallback.
 
-Production host composition creates the OAuth provider only for an explicit
-Connect or Reauthorize action, passes both `provider.fetch` and `authProvider`
+Explicit Connect cancellation spans the entire control request, including a
+background-to-interactive handoff, rather than borrowing the first transport
+attempt's signal. Cancel aborts that request even if the new factory has not
+settled; late factories are still drained and closed by the actor.
+`mcp-server-actor.test.ts` pins this cancellation boundary.
+
+The host republishes `provider.authSnapshot()` after connection settlement,
+including failure after SDK credential invalidation, so Settings does not retain
+"stored" after an `invalid_grant` removes the tokens. The host OAuth regression
+pins missing credentials and cleared granted scopes before explicit retry.
+Auth publication is owned by the latest connection attempt and is invalidated
+by explicit credential clearing. A cancelled attempt that finishes cleanup late
+cannot overwrite a replacement provider's credential facts; the host regression
+holds old cleanup open across Cancel and successful Connect to prove this.
+
+Production host composition creates the OAuth provider for stored-grant
+background discovery and explicit Connect or Reauthorize actions. Only an
+explicit true authorization option permits browser consent; omission is
+non-interactive. It passes both `provider.fetch` and `authProvider`
 to `ExplicitHttpMcpClient`, and for OAuth-user Streamable HTTP also passes the
 provider's one-shot `takePendingAuthorizationCallback(signal)` source. The
 agent client alone consumes that source, calls the SDK transport's `finishAuth`,
