@@ -999,6 +999,25 @@ enrichment. Only the DB result may populate the trusted manifest/tool inventory;
 renderer fields can order or focus roots but can never substitute adapter ids
 for the durable selectors accepted by native tools.
 
+**Background indexing readiness (BST-630).** The shared filesystem provider's
+`isAccessLoading` and the roots registry's `rootsReconciliationSettled` own
+restoration readiness. Database and runtime dependencies must also exist.
+Until they settle, sync stays `waiting`; elapsed time never bypasses them.
+`resolveDbRootId` still awaits each root's registration before import. The
+indexer scans through the filesystem adapter rather than the rendered tree,
+so tree loading and expanded-path restoration neither delay indexing nor
+cancel an active pass. There is no tree-restoration grace timer. Root-access
+restoration resuming, root-set changes, pause, and unmount still cancel work.
+Provider regressions cover delayed access/registry/DB readiness beyond the old
+grace window, tree-only churn, and in-flight cancellation in
+`packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx`.
+Successful root imports refresh the active collection's statistics once after
+all chunking/assignment batches finish. The earlier managed-cache refresh sees
+files before chunks exist; waiting for embedding completion would leave the
+popover claiming current zero chunks after faster startup. The real-PGlite
+large-import regression verifies 108,000 pending chunks before any embedding
+worker runs. This uses the existing rollup API and background scheduler priority.
+
 **Surfaced UI** (the composer WORKSPACE BAR below is always visible; every
 OTHER surface here is forest-mode/multi-root only, so a single root shows no
 additional explorer/status chrome):
