@@ -28,7 +28,6 @@ import {
   type FileExplorerRefreshEventDetail,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui/shell';
-import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
@@ -125,10 +124,6 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
 const BACKGROUND_PRESSURE_POLL_MS = 50;
 const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
-// Longest the background indexer will defer to an unsettled file-tree UI
-// restoration before indexing anyway (a giant root can keep the tree loading for
-// minutes; indexing must not block on it indefinitely).
-const TREE_RESTORATION_GRACE_MS = 5000;
 const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
   'Verifying Workspace Index coverage before reporting idle.';
 
@@ -1504,7 +1499,6 @@ export function WorkspaceCollectionSyncProvider({
         .join('|'),
     [rootDirectoryHandles]
   );
-  const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
 
   // Root registry: ensure a DB roots row exists for every adapter root.
@@ -1748,22 +1742,9 @@ export function WorkspaceCollectionSyncProvider({
     };
   }, [reportAsyncError, storeHasHydrated]);
 
-  const treeRestorationSettled =
-    fileTreeContext === null ||
-    (!(fileTreeContext.isLoading || fileTreeContext.isRestoringExpandedPaths) &&
-      fileTreeContext.isRestorationSettled);
-  // The background indexer scans the filesystem directly, and resolveDbRootId
-  // already awaits root reconciliation, so the file-tree UI restoration is a
-  // convenience gate, NOT a correctness prerequisite. Wait for it briefly (so a
-  // fast restoration completes first) but never block indefinitely: a very large
-  // root can keep the tree loading for minutes, which must not wedge a
-  // freshly-added folder in "waiting" forever (the real "added a folder, nothing
-  // happened" cause). After the grace window, index regardless of tree state.
-  //
-  // A ref (not state) holds the expired flag: it gates triggerSync but is never
-  // rendered, so flipping it must not re-render. The grace timer (wired below,
-  // after triggerSyncFromEvent exists) re-runs the sync explicitly when it fires.
-  const treeRestorationGraceExpiredRef = useRef(false);
+  // Root access and DB reconciliation are the indexing readiness contract.
+  // The indexer reads the filesystem directly; tree loading and expansion
+  // restoration are presentation work and must neither gate nor cancel it.
 
   const validateHostedProviderAccess = useCallback(
     async (embeddingSetId: string): Promise<void> => {
@@ -2205,28 +2186,6 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
 
-      // Read the grace flag from the ref at call time (never stale): the gate
-      // passes once the tree settles OR the grace timer has fired.
-      const isTreeRestorationReady =
-        treeRestorationSettled || treeRestorationGraceExpiredRef.current;
-      if (!isTreeRestorationReady) {
-        syncLoopGenerationRef.current += 1;
-        syncLoopActiveRef.current = false;
-        pendingSyncScopeRef.current = null;
-        void service.cancel();
-        setSyncStatus({
-          activeRootPath: rootDirectoryHandle.path,
-          currentFilePath: null,
-          lastError: null,
-          managedCollectionId,
-          managedCollectionName: null,
-          processedFiles: 0,
-          queuedFiles: 0,
-          state: 'waiting',
-        });
-        return;
-      }
-
       const selection = filterSyncTargetsByIndexingDefault(
         buildSyncLoopTargets({
           rootDirectoryHandle,
@@ -2484,7 +2443,6 @@ export function WorkspaceCollectionSyncProvider({
       rootsReconciliationSettled,
       service,
       setSyncStatus,
-      treeRestorationSettled,
       triggerWorkspaceIndexBootstrap,
       worktreeRootIndexingOptInById,
     ]
@@ -2498,26 +2456,6 @@ export function WorkspaceCollectionSyncProvider({
     };
   }, [triggerSync]);
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
-
-  // After the grace window, proceed even if file-tree restoration never settles.
-  // The ref-held flag gates triggerSync (never rendered), and the timer re-runs
-  // the sync explicitly so a freshly-added root indexes instead of waiting
-  // forever (a giant tree can keep restoration in flight for minutes). Once
-  // expired it stays expired for the session.
-  useEffect(() => {
-    if (treeRestorationSettled || treeRestorationGraceExpiredRef.current) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      treeRestorationGraceExpiredRef.current = true;
-      logger.warn(
-        'File explorer restoration did not settle within the grace window; starting background indexing anyway',
-        { graceMs: TREE_RESTORATION_GRACE_MS }
-      );
-      triggerSyncFromEvent();
-    }, TREE_RESTORATION_GRACE_MS);
-    return () => clearTimeout(timer);
-  }, [treeRestorationSettled]);
 
   // Re-run the sync when background-work state changes (pause -> cancel + paused
   // status; resume -> sync). This replaces the old backgroundWorkSnapshot
@@ -2912,12 +2850,12 @@ export function WorkspaceCollectionSyncProvider({
         hasManagedCollectionId: Boolean(managedCollectionId),
         hasRootDirectoryHandle: Boolean(rootDirectoryHandle),
         isAccessLoading,
-        isTreeRestorationReady: treeRestorationSettled,
         rootDirectoryHandlePath: rootDirectoryHandle?.path ?? null,
         rootDirectoryHandles: rootDirectoryHandles.map((handle) => ({
           path: handle.path,
           rootId: handle.rootId ?? rootIdByPath.get(handle.path) ?? null,
         })),
+        rootsReconciliationSettled,
         serviceAvailable: Boolean(service),
       },
       syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
@@ -2932,7 +2870,7 @@ export function WorkspaceCollectionSyncProvider({
     managedCollectionId,
     missingRuntimeDependencies,
     readDatabaseSchedulerSnapshot,
-    treeRestorationSettled,
+    rootsReconciliationSettled,
     readDebugHostStatus,
     resolveDbRootId,
     rootDirectoryHandle,
