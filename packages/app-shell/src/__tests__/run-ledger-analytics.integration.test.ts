@@ -1,7 +1,7 @@
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { getLedgerCostTrend, getModelComparison } from '../run-ledger-analytics';
 
 let pgliteDataDirCounter = 0;
@@ -14,16 +14,13 @@ function createPgliteTestDataDir(prefix: string): string {
 describe('run ledger analytics (real PGlite)', () => {
   let pgliteDataDir: string | undefined;
 
-  afterEach(async () => {
-    if (pgliteDataDir) {
-      await wasmLoader.closeCached(pgliteDataDir);
-      pgliteDataDir = undefined;
-    }
-  });
-
   async function seedWorkspace(dataDirName: string) {
     pgliteDataDir = createPgliteTestDataDir(dataDirName);
     const db = await wasmLoader.createPGlite(pgliteDataDir);
+    onTestFinished(async () => {
+      await db.close();
+      expect(db.closed).toBe(true);
+    });
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 

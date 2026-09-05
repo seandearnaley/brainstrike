@@ -1304,6 +1304,19 @@ specs that churn per-test `memory://` instances (e.g. model-resolution, ~10
 cycles) carry the same residual risk. `--no-memory-protection-keys` was tried
 and disproven (BST-1221, 2026-08-22).
 
+**In-memory fixture ownership (BST-1221, 2026-09-05).**
+`wasmLoader.createPGlite('memory://...')` returns an uncached handle;
+`closeCached(dataDir)` cannot close it. Assistant-data fixtures must use
+`src/__tests__/helpers/test-pglite.ts`, which registers direct handle cleanup
+with Vitest's `onTestFinished`. It also respects a handle explicitly closed by
+a migration test's `finally` block. The real runner regression in
+`test-pglite-lifecycle.integration.test.ts` observes both owned databases after
+cleanup and fails if either remains open. The fixture keeps a fresh database
+per test; it does not share mutable state, lower concurrency, or suppress the
+native-fatal/lost-file guards. The app-shell analytics and desktop live-usage
+fixtures likewise close their returned handles directly. The prior teardown leaked the in-memory handles
+and relied on process/GC cleanup under repeated WASM initialization pressure.
+
 The required Unit test and integration steps additionally run through
 `scripts/run-test-command.mjs`. The wrapper streams stdout/stderr unchanged,
 preserves the command's exit status except that a classified fatal fails the

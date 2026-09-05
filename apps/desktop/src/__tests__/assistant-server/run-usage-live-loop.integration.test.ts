@@ -192,7 +192,8 @@ describe('durable run usage live Mastra loop (real agent → real repo → real 
         runKind: 'chat',
       });
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
+      expect(db.closed).toBe(true);
     }
   });
 });

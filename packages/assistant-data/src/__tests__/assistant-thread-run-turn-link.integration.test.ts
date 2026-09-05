@@ -11,10 +11,10 @@
  * docs/agents/assistant-persistence.md § RUN-EVENT / THREAD-RUN SCHEMA
  * OWNERSHIP).
  */
-import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createPgliteAssistantThreadRepository } from '../assistant-memory-repository';
+import { createTestPGlite } from './helpers/test-pglite';
 
 let pgliteDataDirCounter = 0;
 
@@ -26,16 +26,9 @@ function createPgliteTestDataDir(prefix: string): string {
 describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
   let pgliteDataDir: string | undefined;
 
-  afterEach(async () => {
-    if (pgliteDataDir) {
-      await wasmLoader.closeCached(pgliteDataDir);
-      pgliteDataDir = undefined;
-    }
-  });
-
   it('persists turnMessageId at run creation and returns it on the record', async () => {
     pgliteDataDir = createPgliteTestDataDir('run-turn-link');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -59,7 +52,7 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
 
   it('persists NULL when no turn message id is in hand (legacy/edge callers)', async () => {
     pgliteDataDir = createPgliteTestDataDir('run-turn-link-null');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -82,7 +75,7 @@ describe('assistant thread run turn link (real PGlite, BST-1163)', () => {
 
   it('upgrades a pre-1163 runs table in place (ADD COLUMN IF NOT EXISTS, no migration)', async () => {
     pgliteDataDir = createPgliteTestDataDir('run-turn-link-upgrade');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     // The exact pre-1163 column set (FK omitted: the upgrade path under test
     // is the ALTER, which is FK-independent; a real old install's FK is
     // untouched by it).

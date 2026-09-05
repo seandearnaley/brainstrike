@@ -12,9 +12,9 @@ import {
   TOOL_SUSPEND_DATA_NAME,
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
+import { MigrationRunner, migrations } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   type AssistantThreadRepository,
@@ -23,6 +23,7 @@ import {
   mapRunLedgerRow,
   RUN_LEDGER_AGGREGATION_SQL,
 } from '../assistant-memory-repository';
+import { createTestPGlite } from './helpers/test-pglite';
 
 function makeMessagesOnlyRepository(): AssistantThreadRepository {
   return {
@@ -2406,7 +2407,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
   it('bootstraps the migration-076 run-errors shape without retry fiction', async () => {
     const dataDir = createPgliteTestDataDir('assistant-run-errors-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
@@ -2457,13 +2458,13 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         ])
       );
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
   it('bootstraps the migration-083+092 tool-call telemetry shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('tool-call-telemetry-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
@@ -2503,15 +2504,15 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         ])
       );
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
   it('keeps the token-estimate calibration bootstrap shape identical to migrations 086, 089, then 091', async () => {
     const bootstrapDataDir = createPgliteTestDataDir('token-estimate-calibration-bootstrap-shape');
     const migratedDataDir = createPgliteTestDataDir('token-estimate-calibration-migrated-shape');
-    const bootstrapDb = await wasmLoader.createPGlite(bootstrapDataDir);
-    const migratedDb = await wasmLoader.createPGlite(migratedDataDir);
+    const bootstrapDb = await createTestPGlite(bootstrapDataDir);
+    const migratedDb = await createTestPGlite(migratedDataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(bootstrapDb as DbHandle);
       await repository.createThread('workspace-a');
@@ -2599,14 +2600,14 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         ].sort()
       );
     } finally {
-      await wasmLoader.closeCached(bootstrapDataDir);
-      await wasmLoader.closeCached(migratedDataDir);
+      await bootstrapDb.close();
+      await migratedDb.close();
     }
   });
 
   it('bootstraps the migration-084/087 tool projection rewrite shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('tool-projection-rewrite-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
@@ -2628,13 +2629,13 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'created_at',
       ]);
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
   it('bootstraps the migration-088 compaction range shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('compaction-range-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
@@ -2653,7 +2654,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'created_at',
       ]);
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
@@ -2969,7 +2970,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     // `occurred_at` is deliberately set BEFORE the run's own rows, to prove
     // the ordering is driven by `sequence`, not `occurred_at`.
     const dataDir = createPgliteTestDataDir('forge-observation-sequence-order');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       const thread = await repository.createThread('workspace-a');
@@ -3021,7 +3022,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'event-pr-opened',
       ]);
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
@@ -3282,16 +3283,9 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 describe('createPgliteAssistantThreadRepository integration', () => {
   let pgliteDataDir: string | undefined;
 
-  afterEach(async () => {
-    if (pgliteDataDir) {
-      await wasmLoader.closeCached(pgliteDataDir);
-      pgliteDataDir = undefined;
-    }
-  });
-
   it('persists an explicit initial title in the same operation that creates the thread', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-create-with-title');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     const thread = await repository.createThread('workspace-a', 'Evidence review');
@@ -3304,7 +3298,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('round-trips the durable operating-root binding through thread metadata', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-operating-root');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a', 'Bound thread');
 
@@ -3325,7 +3319,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('persists and reloads a worktree checkout', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-worktree-checkout');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('r');
 
@@ -3358,7 +3352,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('loads a legacy persisted worktree checkout with no durable Local root id', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-legacy-worktree-checkout');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('r');
     const legacyMetadata = {
@@ -3379,7 +3373,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('persists a local checkout with no worktree keys', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-local-checkout');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('r');
 
@@ -3392,7 +3386,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('rejects a worktree checkout missing its authority id', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-incomplete-worktree-checkout');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('r');
 
@@ -3407,7 +3401,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('rejects a worktree id with no mode', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-modeless-worktree-checkout');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('r');
 
@@ -3418,7 +3412,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('rejects a local checkout that still carries worktree keys', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-inconsistent-local-checkout');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('r');
 
@@ -3433,7 +3427,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('rejects an unknown checkout mode rather than coercing it', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-unknown-checkout');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('r');
 
@@ -3446,7 +3440,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('persists carousel topology before Mastra content and hydrates the selected edit branch', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-message-carousel-topology');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     const edges = [
@@ -3503,7 +3497,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('topologically hydrates regeneration after Mastra updates the reused user timestamp', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-regeneration-topology-order');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -3588,7 +3582,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('replays the first regenerated response in a legacy thread as an assistant sibling', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-legacy-regeneration');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -3636,12 +3630,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   describe('soft-rewind tombstone hydration (BST-1115)', () => {
     async function seedRewindThread(dataDirName: string): Promise<{
-      db: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
+      db: Awaited<ReturnType<typeof createTestPGlite>>;
       repository: AssistantThreadRepository;
       threadId: string;
     }> {
       pgliteDataDir = createPgliteTestDataDir(dataDirName);
-      const db = await wasmLoader.createPGlite(pgliteDataDir);
+      const db = await createTestPGlite(pgliteDataDir);
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       const thread = await repository.createThread('workspace-a');
       for (const [index, id] of ['message-1', 'message-2', 'message-3'].entries()) {
@@ -3865,7 +3859,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('deletes messages and cascades thread runs and run events in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-cascade');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -3992,7 +3986,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('atomically deletes many threads and every explicitly owned row in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-delete');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const first = await repository.createThread('workspace-a');
     const second = await repository.createThread('workspace-a');
@@ -4149,7 +4143,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('emits a single tombstone op per delete; idempotent deletes emit none (BST-993)', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-mind-ops');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     // Placements now cascade on the SINGLE-thread path too — previously only
@@ -4188,7 +4182,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('rejects an unknown bulk-delete id without deleting known threads', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-delete-unknown');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     // The placements table is bootstrapped by the repository itself now that
@@ -4208,7 +4202,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // constraint), so deleteThread must explicitly delete its rows or up to
     // 32 MB/thread of before_content is stranded until factory reset.
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-checkpoints');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -4242,7 +4236,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('persists curated metadata without changing conversational recency', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-curated-metadata');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     const conversationalUpdatedAt = new Date('2026-04-22T08:00:00.000Z');
@@ -4268,7 +4262,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('atomically updates curated metadata for many threads without changing recency', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-metadata');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const first = await repository.createThread('workspace-a');
     const second = await repository.createThread('workspace-a');
@@ -4305,7 +4299,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('rejects checkout transitions through the bulk metadata writer', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-checkout-metadata');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -4316,7 +4310,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('rejects an unknown bulk metadata id without changing known threads', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-metadata-unknown');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -4330,7 +4324,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('seeds a new thread as OM-overwritable, then a manual rename clears the marker', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-title-marker');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -4345,7 +4339,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('records run usage and aggregates cumulative tokens per model in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-cumulative');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     // Same thread, three runs across TWO models — cost must be attributable
@@ -4475,7 +4469,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('aggregates provider-reported and legacy usage separately in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-mixed-cost');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     await repository.recordRunUsage({
@@ -4522,7 +4516,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('returns null cumulative usage for a thread with no recorded runs', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-empty');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     await expect(repository.getThreadCumulativeUsage('never-seen')).resolves.toBeNull();
@@ -4530,7 +4524,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('aggregates cross-root usage per (root, model), including a null root bucket', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-cross-root-usage');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     // The aggregation LEFT JOINs roots for display names (production has the
@@ -4649,7 +4643,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('returns an empty cross-root usage list for a workspace with no usage', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-cross-root-usage-empty');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     // roots exists in production (migration 039); the aggregation joins it.
@@ -4662,7 +4656,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('records one outcome label per run and upserts later verdicts in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-outcome-upsert');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     await repository.recordRunOutcome({
@@ -4699,7 +4693,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // AND the byte-consistent main-process writer in apps/desktop
     // assistant-server/run-persistence.ts recordDesktopAssistantHookRunOutcome).
     pgliteDataDir = createPgliteTestDataDir('assistant-run-outcome-hook-precedence');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     await repository.recordRunOutcome({
@@ -4748,7 +4742,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('aggregates the run ledger across usage, tool events, checkpoints, and outcomes in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-ledger');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -4936,7 +4930,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // RUN_LEDGER_AGGREGATION_SQL through live.query, so the shared SQL must
     // bind each parameter exactly once. Caught live on desktop (2026-07-16).
     pgliteDataDir = createPgliteTestDataDir('assistant-run-ledger-live');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     await repository.createThreadRun({
