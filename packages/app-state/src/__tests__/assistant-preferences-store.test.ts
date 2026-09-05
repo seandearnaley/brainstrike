@@ -1022,6 +1022,124 @@ describe('assistant-preferences-store', () => {
     );
   });
 
+  describe('model migration notices (BST-565)', () => {
+    function seedSnapshot(
+      state: Record<string, unknown>,
+      version: number
+    ): {
+      rehydrate: () => Promise<void>;
+      readPersisted: () => Promise<Record<string, unknown>>;
+    } {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+      const { name, storage } = options;
+      const snapshot: StorageValue<unknown> = { state, version };
+      storage.setItem(name, snapshot);
+      return {
+        readPersisted: async () => {
+          const raw: unknown = await storage.getItem(name);
+          if (!(raw && typeof raw === 'object' && 'state' in raw)) {
+            throw new Error('expected a persisted snapshot');
+          }
+          return raw.state as Record<string, unknown>;
+        },
+        rehydrate: async () => {
+          await persistApi.rehydrate?.();
+        },
+      };
+    }
+
+    it('records a notice when a retired per-provider selection is remapped', async () => {
+      const { rehydrate, readPersisted } = seedSnapshot(
+        {
+          enabledModelsByProvider: {
+            openrouter: ['google/gemini-2.5-pro', 'anthropic/claude-sonnet-4.6'],
+          },
+          modelsByProvider: { openrouter: 'google/gemini-2.5-pro' },
+          providerSettings: {},
+          selectedModel: 'openrouter::google/gemini-2.5-pro',
+        },
+        5
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      // The silent Pro → Flash downgrade this ticket exists for is now visible.
+      expect(store.modelMigrationNotices).toEqual([
+        {
+          from: 'google/gemini-2.5-pro',
+          provider: 'openrouter',
+          to: 'google/gemini-2.5-flash',
+        },
+      ]);
+      expect(store.modelsByProvider['openrouter']).toBe('google/gemini-2.5-flash');
+      expect(store.selectedModel).toBe('openrouter::google/gemini-2.5-flash');
+      // Session-only: the notice never lands in storage, so it cannot replay.
+      expect(await readPersisted()).not.toHaveProperty('modelMigrationNotices');
+    });
+
+    it('records nothing when the saved selections are all current', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: { openrouter: ['anthropic/claude-sonnet-4.6'] },
+          modelsByProvider: { openrouter: 'anthropic/claude-sonnet-4.6' },
+          providerSettings: {},
+          selectedModel: 'openrouter::anthropic/claude-sonnet-4.6',
+        },
+        5
+      );
+
+      await rehydrate();
+
+      expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toEqual([]);
+    });
+
+    it('does not notify for retired ids that were merely enabled, not selected', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: {
+            openrouter: ['google/gemini-2.5-pro', 'anthropic/claude-sonnet-4.6'],
+          },
+          modelsByProvider: { openrouter: 'anthropic/claude-sonnet-4.6' },
+          providerSettings: {},
+          selectedModel: 'openrouter::anthropic/claude-sonnet-4.6',
+        },
+        5
+      );
+
+      await rehydrate();
+
+      expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toEqual([]);
+    });
+
+    it('dismissModelMigrationNotices clears the list and is a no-op when empty', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: { anthropic: ['claude-sonnet-4-5'] },
+          modelsByProvider: { anthropic: 'claude-sonnet-4-5' },
+          providerSettings: {},
+          selectedModel: 'anthropic::claude-sonnet-4-5',
+        },
+        5
+      );
+      await rehydrate();
+      expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toHaveLength(1);
+
+      useAssistantPreferencesStore.getState().dismissModelMigrationNotices();
+      const cleared = useAssistantPreferencesStore.getState().modelMigrationNotices;
+      expect(cleared).toEqual([]);
+
+      useAssistantPreferencesStore.getState().dismissModelMigrationNotices();
+      // Same reference: an already-empty dismiss must not publish a new state
+      // (the toast hook calls dismiss unconditionally after hydration).
+      expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toBe(cleared);
+    });
+  });
+
   it('migrates superseded frontier IDs and leaves first-class models untouched', async () => {
     const persistApi = storeWithPersist.persist;
     const options = persistApi?.getOptions?.();

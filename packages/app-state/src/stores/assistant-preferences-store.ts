@@ -36,7 +36,7 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../automation-overrides';
-import { getModelIdMigrationTarget } from './assistant-model-id-migrations';
+import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
 import { clearPersistedStorageForTests } from './persist-api';
 
@@ -84,8 +84,27 @@ export class AvailableProviderDiscoveryError extends AggregateError {
   }
 }
 
+/**
+ * One retired model id that the persist migration replaced in the user's
+ * per-provider selection (BST-565). `to` is the id the user is now on after
+ * the remap and any enabled-list fallback, so the notice describes the final
+ * outcome, not just the catalog mapping.
+ */
+export interface ModelMigrationNotice {
+  readonly from: string;
+  readonly provider: SupportedProvider;
+  readonly to: string;
+}
+
 interface AssistantPreferencesData {
   enabledModelsByProvider: EnabledModelsMap;
+  /**
+   * Remaps of retired ids applied to the user's saved selections during the
+   * last persist migration. Session-only (never partialized): the app shell
+   * surfaces each one once and then dismisses them, so a capability
+   * downgrade such as OpenRouter Pro → Flash cannot happen silently.
+   */
+  modelMigrationNotices: readonly ModelMigrationNotice[];
   modelsByProvider: Partial<Record<SupportedProvider, string>>;
   /**
    * Plan mode: when enabled, the assistant investigates read-only and proposes a
@@ -105,6 +124,7 @@ interface AssistantPreferencesData {
 
 interface AssistantPreferencesActions {
   clearModel: () => void;
+  dismissModelMigrationNotices: () => void;
   getAvailableProviders: () => Promise<SupportedProvider[]>;
   getEnabledModels: (provider: SupportedProvider) => string[];
   getLocalRuntimeModels: (options?: {
@@ -768,6 +788,26 @@ function buildMigratedModelsByProvider(
   return migrated;
 }
 
+/**
+ * Which saved per-provider selections were retired ids, and what they became.
+ * Only SELECTED ids count: a retired id that was merely enabled changes nothing
+ * the user is running on, so it is remapped quietly.
+ */
+function collectModelMigrationNotices(
+  base: Partial<Record<SupportedProvider, string>> | undefined,
+  migrated: Partial<Record<SupportedProvider, string>>
+): ModelMigrationNotice[] {
+  const notices: ModelMigrationNotice[] = [];
+  for (const provider of SUPPORTED_PROVIDERS) {
+    const from = base?.[provider];
+    const to = migrated[provider];
+    if (typeof from === 'string' && to && to !== from && isRetiredModelId(provider, from)) {
+      notices.push({ from, provider, to });
+    }
+  }
+  return notices;
+}
+
 function buildMigratedSelectedModel(
   base: Partial<Store> & { selectedProvider?: SupportedProvider | null },
   enabled: EnabledModelsMap
@@ -999,6 +1039,13 @@ export const useAssistantPreferencesStore = create<Store>()(
   persist(
     (set, get) => ({
       clearModel: () => set({ selectedModel: null }),
+
+      // Returns the same state when already empty so an unconditional dismiss
+      // after hydration publishes nothing.
+      dismissModelMigrationNotices: () =>
+        set((state) =>
+          state.modelMigrationNotices.length === 0 ? state : { modelMigrationNotices: [] }
+        ),
       enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
 
       getAvailableProviders: async () => {
@@ -1142,6 +1189,7 @@ export const useAssistantPreferencesStore = create<Store>()(
         const parsed = parseCompositeModelKey(get().selectedModel);
         return parsed?.provider ?? null;
       },
+      modelMigrationNotices: [],
       modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
       planModeEnabled: false,
       providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
@@ -1262,6 +1310,12 @@ export const useAssistantPreferencesStore = create<Store>()(
 
         return {
           enabledModelsByProvider: migratedEnabled,
+          // Merged into live state but excluded by `partialize`, so the
+          // notices exist for this session only (BST-565).
+          modelMigrationNotices: collectModelMigrationNotices(
+            base.modelsByProvider,
+            migratedModelsByProvider
+          ),
           modelsByProvider: migratedModelsByProvider,
           // Preserve every partialize'd field the migrated snapshot may carry
           // (e.g. a pre-v7 user's read-only planning guard) — the returned
@@ -1294,6 +1348,7 @@ export const useAssistantPreferencesStore = create<Store>()(
 function resetStoreState() {
   useAssistantPreferencesStore.setState({
     enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
+    modelMigrationNotices: [],
     modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
     planModeEnabled: false,
     providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },

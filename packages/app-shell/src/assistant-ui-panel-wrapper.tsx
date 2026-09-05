@@ -142,6 +142,7 @@ import { useConfiguredAssistantProviders } from './hooks/use-configured-assistan
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
+import { useModelMigrationNotices } from './hooks/use-model-migration-notices';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
@@ -266,6 +267,7 @@ export function AssistantUiPanelWrapper({
     providerSource.kind === 'discovery',
     providerReadErrors
   );
+  useModelMigrationNotices();
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {

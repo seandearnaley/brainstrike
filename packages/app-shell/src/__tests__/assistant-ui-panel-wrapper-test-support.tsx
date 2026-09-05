@@ -168,6 +168,7 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async (impo
 
   interface AssistantPreferencesState {
     clearModel: () => void;
+    dismissModelMigrationNotices: () => void;
     enabledModelsByProvider: Record<string, string[]>;
     getAvailableProviders: () => Promise<SupportedProvider[]>;
     getLocalRuntimeModels: () => Promise<{
@@ -179,6 +180,7 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async (impo
     >;
     getSelectedModel: () => string | null;
     getSelectedProvider: () => SupportedProvider | null;
+    modelMigrationNotices: readonly { from: string; provider: SupportedProvider; to: string }[];
     modelsByProvider: Record<string, string>;
     providerSettings: Record<string, Record<string, unknown>>;
     recentModels: string[];
@@ -212,6 +214,13 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async (impo
         selectedModel: null,
         selectedProvider: null,
       });
+    },
+    // BST-565: mirrors the real store's no-op-when-empty contract so the
+    // wrapper's unconditional post-hydration dismiss publishes nothing.
+    dismissModelMigrationNotices: () => {
+      set((state) =>
+        state.modelMigrationNotices.length === 0 ? state : { modelMigrationNotices: [] }
+      );
     },
     enabledModelsByProvider: buildEnabledModelsByProvider(),
     getAvailableProviders: async () => ['openai', 'anthropic', 'google', 'openrouter'],
@@ -261,6 +270,7 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async (impo
     }),
     getSelectedModel: () => get().selectedModel,
     getSelectedProvider: () => get().selectedProvider,
+    modelMigrationNotices: [],
     modelsByProvider: {},
     providerSettings: {},
     recentModels: [],
