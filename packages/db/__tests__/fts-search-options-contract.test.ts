@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, expectTypeOf, it } from 'vitest';
@@ -11,6 +11,18 @@ function read(relative: string): string {
   return readFileSync(path.join(SRC, relative), 'utf8');
 }
 
+/** Every TypeScript source under `packages/db/src`, so a new read site cannot escape the guard. */
+function* sourceFiles(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      yield* sourceFiles(full);
+    } else if (/\.tsx?$/u.test(entry.name)) {
+      yield full;
+    }
+  }
+}
+
 /**
  * BST-908: `rankNormalization` was a ts_rank-era knob that became a silent
  * no-op once ordering moved to BM25 (migration 066). A public option that
@@ -20,18 +32,16 @@ function read(relative: string): string {
 describe('FTSSearchOptions contract (BST-908)', () => {
   it('does not declare the inert rankNormalization option', () => {
     expectTypeOf<FTSSearchOptions>().not.toHaveProperty('rankNormalization');
-    expect(read('models/file-chunk.ts')).not.toMatch(/rankNormalization/u);
   });
 
-  it('no repository reads a rankNormalization option', () => {
-    for (const file of [
-      'repositories/file-chunk-repository.ts',
-      'repositories/drizzle/file-chunk-repository.ts',
-      'repositories/electron-file-chunk-repository.ts',
-      'search/hybrid-search-service.ts',
-    ]) {
-      expect(read(file), file).not.toMatch(/rankNormalization/u);
+  it('nothing under packages/db/src declares or reads rankNormalization', () => {
+    let scanned = 0;
+    for (const file of sourceFiles(SRC)) {
+      scanned += 1;
+      expect(readFileSync(file, 'utf8'), file).not.toMatch(/rankNormalization/u);
     }
+    // The walk must actually have covered the models + repositories tree.
+    expect(scanned).toBeGreaterThan(50);
   });
 
   it('documents at every BM25 ranking site that BM25 orders but never matches', () => {
@@ -44,7 +54,8 @@ describe('FTSSearchOptions contract (BST-908)', () => {
     ]) {
       const source = read(file);
       expect(source, file).toMatch(/to_bm25query/u);
-      expect(source, file).toMatch(/BM25 (orders|ranks)[^\n]*never matches/u);
+      // Spans a comment wrap: the fact is one statement, its line break is not.
+      expect(source, file).toMatch(/BM25\s+(orders|ranks)[\s\S]{0,80}?never\s+matches/u);
     }
   });
 });
