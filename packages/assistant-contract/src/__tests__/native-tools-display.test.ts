@@ -21,7 +21,7 @@ function probe(inputSchema: z.ZodType, display?: Readonly<Record<string, string>
   return defineNativeTool({
     defaults: PROBE_DEFAULTS,
     description: 'probe',
-    discovery: { namespace: 'database' },
+    discovery: { family: 'diagnostics', namespace: 'database' },
     ...(display ? { display } : {}),
     id: 'brainstrike.displayProbe',
     inputSchema: providerCompatibleInputSchema(inputSchema),
