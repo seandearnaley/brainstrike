@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { pgliteConstructor } = vi.hoisted(() => ({ pgliteConstructor: vi.fn() }));
 
 vi.mock('@electric-sql/pglite', () => ({
-  PGlite: pgliteConstructor,
+  PGlite: { create: (options: unknown) => Promise.resolve(new pgliteConstructor(options)) },
 }));
 
 vi.mock('@electric-sql/pglite/contrib/pg_trgm', () => ({

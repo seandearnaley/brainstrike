@@ -800,14 +800,32 @@ extension control file" error on that path only:
   real and sufficient.
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
-Construction sites (keep in sync when adding extensions or new sites):
-- packages/db/src/wasm-loader.ts (cached loaders + HMR reset in `resetExtensionCaches`)
-- packages/db/src/pglite-worker-entry.ts (engine extensions only)
-- packages/db/src/browser-first-run-bootstrap-worker.ts (engine extensions only; the dedicated first-run bootstrap worker — see BROWSER FIRST-RUN FAST BOOTSTRAP)
-- apps/desktop/src/db-main.ts (main-process host; ambient type shims live in apps/desktop/src/types/)
+Construct production and benchmark PGlite instances only via
+`packages/db/src/pglite-factory.ts`; `scripts/__tests__/pglite-factory-contract.test.mjs`
+enforces this ownership. The factory uses `PGlite.create()` to await engine
+readiness and preserve typed client plugin namespaces. `ENGINE_EXTENSIONS`
+is the single engine registry; `CLIENT_EXTENSIONS` contains `live`.
 
-Tests that construct PGlite directly and run migrations must also pass the full
-extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.test.ts).
+- `wasm-loader.ts` retains cached dynamic extension loaders and HMR reset;
+  direct persistent instances cache the creation promise to prevent double-open.
+- `pglite-worker-entry.ts` and `browser-first-run-bootstrap-worker.ts` use
+  `createEnginePglite`; the multi-tab client installs `live`, while the
+  short-lived bootstrap engines have no reactive client.
+- `scripts/benchmark-binary-quantization.ts` uses `createBrainstrikePglite`.
+- Desktop adoption in `apps/desktop/src/db-main.ts` is the second BST-1644 commit.
+
+Paired tests: `packages/db/__tests__/pglite-factory.test.ts` pins registry keys;
+`pglite-factory.integration.test.ts` boots the direct, worker-init and bootstrap
+factories and probes `pg_extension` after explicit extension installation.
+Loading the extension binaries does not itself execute `CREATE EXTENSION`;
+callers and migrations continue to own that SQL and shutdown/drain behavior.
+The DB unit project already includes real-engine integration files;
+`pnpm --filter @brainstrike/db test:integration` selects every integration file
+from that same project without changing the full unit suite's discovery.
+
+Tests that deliberately construct bare or partial-extension engines remain
+fixtures; migration fixtures must still load the full extension set (see
+`drizzle-migrate.test.ts` / `drizzle-job-queue-compatibility.test.ts`).
 
 ### CLOSING a PGlite: drain first — an overlapping statement wedges it forever
 
