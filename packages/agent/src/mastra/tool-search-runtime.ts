@@ -11,6 +11,7 @@ import { ToolSearchProcessor } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY } from '@mastra/core/request-context';
 import type { Tool } from '@mastra/core/tools';
 import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families';
+import { createDeferredToolCatalog, LIST_AVAILABLE_TOOLS_ID } from './deferred-tool-catalog';
 import { createMastraAgentError } from './mastra-agent-error';
 
 const logger = createLogger('MastraToolDiscovery');
@@ -115,6 +116,10 @@ export function resolveToolDiscoverySurface(
 type ToolSearchStepArgs = Parameters<ToolSearchProcessor['processInputStep']>[0];
 type ToolSearchStepResult = Awaited<ReturnType<ToolSearchProcessor['processInputStep']>>;
 type SearchTool = ToolSearchStepResult['tools']['search_tools'];
+type CatalogTool = ReturnType<typeof createDeferredToolCatalog>;
+type DiscoveryStepResult = Omit<ToolSearchStepResult, 'tools'> & {
+  tools: ToolSearchStepResult['tools'] & { [LIST_AVAILABLE_TOOLS_ID]: CatalogTool };
+};
 
 export interface ToolDiscoverySearchObservation {
   readonly query: string;
@@ -145,7 +150,7 @@ function buildSearchToolDescription(
   );
   const families = describeAvailableDeferredCapabilityFamilies(originalIds);
   const familiesClause = families.length > 0 ? ` this run: ${families}` : '';
-  return `Search deferred capabilities${familiesClause}. Matches load automatically and are callable on your next step in this same response.`;
+  return `Search deferred capabilities${familiesClause}, including MCP tools. Returns at most 3 ranked matches, not a complete inventory. For available tools use list_available_tools; to load a listed tool, query its exact name. Matches load automatically and are callable on your next step in this same response.`;
 }
 
 /**
@@ -157,8 +162,11 @@ function buildSearchToolDescription(
  * integration finishes loading" (finishReason `stop`, no call ever sent).
  * Brainstrike owns this executor, so the sentence is Brainstrike's.
  */
-function describeLoadedSearchResult(loadedToolNames: readonly string[]): string {
-  return `Found and loaded ${loadedToolNames.length} tool(s): ${loadedToolNames.join(', ')}. They are callable now, on your next step in this same response: call them right away and do not end your reply to wait for loading.`;
+function describeLoadedSearchResult(
+  loadedToolNames: readonly string[],
+  catalogSize: number
+): string {
+  return `Found and loaded ${loadedToolNames.length} tool(s): ${loadedToolNames.join(', ')}. These are ranked matches, not the complete catalog of ${catalogSize} eligible deferred tools. Use list_available_tools to enumerate available capabilities; a tool absent from these matches may still be available. Loaded matches are callable on your next step in this same response: use them when needed and do not end your reply to wait for loading.`;
 }
 
 function readSearchQuery(args: readonly unknown[]): string | undefined {
@@ -207,7 +215,8 @@ function wrapSearchTelemetry(
   stepNumber: number | undefined,
   toolNameMap: ReadonlyMap<string, string>,
   notify: ToolDiscoverySearchObserver,
-  description: string
+  description: string,
+  catalogSize: number
 ): SearchTool {
   const execute = searchTool.execute;
   if (!execute) {
@@ -277,7 +286,10 @@ function wrapSearchTelemetry(
         Awaited<ReturnType<typeof execute>>,
         { readonly results: unknown }
       >;
-      return { ...loadedResult, message: describeLoadedSearchResult(searchResult.loadedNames) };
+      return {
+        ...loadedResult,
+        message: describeLoadedSearchResult(searchResult.loadedNames, catalogSize),
+      };
     },
     writable:
       executeDescriptor && 'writable' in executeDescriptor ? executeDescriptor.writable : true,
@@ -323,6 +335,8 @@ export class BrainstrikeToolSearchProcessor {
   readonly id = 'tool-search';
   readonly name = 'Brainstrike Tool Search Processor';
   private readonly delegate: ToolSearchProcessor;
+  private readonly catalogSize: number;
+  private readonly catalogTool: CatalogTool;
   private readonly loadPersistedMessages: (() => Promise<readonly MastraDBMessage[]>) | undefined;
   private readonly model: ToolSearchStepArgs['model'];
   private readonly onToolsLoaded: ((tools: ToolsInput) => void) | undefined;
@@ -343,6 +357,8 @@ export class BrainstrikeToolSearchProcessor {
       storage: 'context',
       tools: options.deferredTools as Record<string, Tool>,
     });
+    this.catalogSize = Object.keys(options.deferredTools).length;
+    this.catalogTool = createDeferredToolCatalog(options.deferredTools, options.toolNameMap);
     this.loadPersistedMessages = options.loadPersistedMessages;
     this.model = options.model;
     this.onToolsLoaded = options.onToolsLoaded;
@@ -350,7 +366,7 @@ export class BrainstrikeToolSearchProcessor {
       options.deferredTools,
       options.toolNameMap
     );
-    this.toolNameMap = options.toolNameMap;
+    this.toolNameMap = new Map(options.toolNameMap);
   }
 
   subscribeSearchObservations(observer: ToolDiscoverySearchObserver): () => void {
@@ -450,16 +466,27 @@ export class BrainstrikeToolSearchProcessor {
     }
   }
 
-  async processInputStep(args: ToolSearchStepArgs): Promise<ToolSearchStepResult> {
+  async processInputStep(args: ToolSearchStepArgs): Promise<DiscoveryStepResult> {
     try {
       const result = await this.delegate.processInputStep(args);
       const baseToolIds = new Set(Object.keys(args.tools ?? {}));
       const loadedSanitizedIds = Object.keys(result.tools).filter(
-        (toolId) => toolId !== 'search_tools' && toolId !== 'load_tool' && !baseToolIds.has(toolId)
+        (toolId) =>
+          toolId !== 'search_tools' &&
+          toolId !== 'load_tool' &&
+          toolId !== LIST_AVAILABLE_TOOLS_ID &&
+          !baseToolIds.has(toolId)
       );
-      const loadedToolIds = loadedSanitizedIds.map(
-        (toolId) => this.toolNameMap.get(toolId) ?? toolId
-      );
+      const loadedToolIds = loadedSanitizedIds.map((toolId) => {
+        const originalId = this.toolNameMap.get(toolId);
+        if (!originalId) {
+          throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
+            context: { phase: 'loaded-tool-mapping', sanitizedId: toolId },
+            detail: 'loaded tool is missing its original-name mapping',
+          });
+        }
+        return originalId;
+      });
       const threadIdValue = args.requestContext?.get(MASTRA_THREAD_ID_KEY);
       if (
         threadIdValue !== undefined &&
@@ -472,23 +499,25 @@ export class BrainstrikeToolSearchProcessor {
       }
       const threadId = typeof threadIdValue === 'string' ? threadIdValue : undefined;
       this.trackLoadedTools(threadId, loadedSanitizedIds, result.tools);
+      const tools = { ...result.tools, [LIST_AVAILABLE_TOOLS_ID]: this.catalogTool };
 
       logger.info('Mastra tool discovery step prepared', {
-        activeDefinitionCount: Object.keys(result.tools).length,
+        activeDefinitionCount: Object.keys(tools).length,
         code: 'mastra_tool_discovery_step',
         loadedToolIds,
         stepNumber: args.stepNumber,
       });
-      result.tools.search_tools = wrapSearchTelemetry(
+      tools.search_tools = wrapSearchTelemetry(
         result.tools.search_tools,
         args.stepNumber,
         this.toolNameMap,
         (observation) => {
           this.notifySearchObservers(observation);
         },
-        this.searchToolDescription
+        this.searchToolDescription,
+        this.catalogSize
       );
-      return result;
+      return { ...result, tools };
     } catch (error) {
       if (
         error instanceof Error &&

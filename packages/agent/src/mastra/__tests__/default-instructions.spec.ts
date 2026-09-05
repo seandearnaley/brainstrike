@@ -151,6 +151,8 @@ describe('default assistant instructions', () => {
       toolDiscoveryEnabled: true,
     });
     expect(withDiscovery).toContain('search_tools');
+    expect(withDiscovery).toContain('list_available_tools');
+    expect(withDiscovery).toContain('not the complete catalog');
     // This run's map registers NO workspace-context tools, so the derived
     // family list must not advertise them (see the capability-coverage suite).
     expect(withDiscovery).not.toContain('workspace context and tapestry');
@@ -162,6 +164,7 @@ describe('default assistant instructions', () => {
 
     const withoutDiscovery = buildDefaultInstructions(toolNameMap);
     expect(withoutDiscovery).not.toContain('search_tools');
+    expect(withoutDiscovery).not.toContain('list_available_tools');
   });
 
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {

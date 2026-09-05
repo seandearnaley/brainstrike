@@ -314,7 +314,11 @@ function createMcpTool(
       ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
       : {}),
     ...(mcp ? { mcp } : {}),
-    ...(strict === undefined ? {} : { strict }),
+    // Preserve the server's optional-input semantics. OpenAI Responses may
+    // normalize an omitted strict flag by requiring every property, forcing
+    // the model to invent filters such as Linear priority=0. Runtime JSON
+    // Schema validation still runs; a server's explicit strict opt-in wins.
+    strict: strict ?? false,
     // Tasks and Apps share one projector: Tasks get their bounded status view,
     // while Apps project the inner ordinary result. Definitions carrying
     // neither contract keep the generic pipeline path without a custom seam.

@@ -2127,6 +2127,8 @@ describe('mastra streaming integration', () => {
   it.each([
     { originalToolId: 'search_tools', sanitizedToolId: 'search_tools' },
     { originalToolId: 'search.tools', sanitizedToolId: 'search_tools' },
+    { originalToolId: 'list_available_tools', sanitizedToolId: 'list_available_tools' },
+    { originalToolId: 'list.available.tools', sanitizedToolId: 'list_available_tools' },
   ])(
     'rejects reserved catalog meta-tool collision for $originalToolId before agent construction',
     async ({ originalToolId, sanitizedToolId }) => {
@@ -2148,7 +2150,7 @@ describe('mastra streaming integration', () => {
         code: 'mastra_agent_tool_name_collision',
         context: {
           originalToolId,
-          reservedToolId: 'search_tools',
+          reservedToolId: sanitizedToolId,
           sanitizedToolId,
         },
       });

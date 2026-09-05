@@ -252,7 +252,7 @@ function settleRuntimeToolOutputs(params: {
   });
 }
 
-const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools']);
+const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools', 'list_available_tools']);
 
 function assertCatalogMetaToolNamesAvailable(params: {
   eligibleTools: ToolsInput;

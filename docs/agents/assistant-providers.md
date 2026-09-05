@@ -4313,6 +4313,19 @@ The catalog's `ZodPreprocess`-constrained map makes the wrapper exhaustive for
 newly registered schemas; server-owned MCP schemas and deprecated or otherwise
 unregistered internal schemas are outside this native catalog rule.
 
+Server-owned MCP schemas retain their own omission/null semantics. The MCP
+adapter explicitly sets `strict: false` unless the server opts into strictness
+through `_meta.mastra.strict`. An omitted strict flag lets OpenAI Responses
+normalize optional fields into required ones: the 2026-09-04 Linear request
+filled every filter, including `priority: 0`, and returned only no-priority
+issues instead of the latest five issues. Do not repair that by stripping
+zero, null, or empty arguments: those may be meaningful server inputs. Preserve
+the schema and optional fields on the provider wire, with Mastra's original
+JSON Schema validation still required before tools/call. The captured real
+Mastra/OpenAI request in `mcp-optional-inputs.spec.ts` pins explicit non-strict
+generation, required-field preservation, omission at execution, and continued
+input validation; `mcp-runtime-client.spec.ts` pins explicit strict opt-in.
+
 Adding or renaming a native tool must update the canonical catalog first, then
 the exact metadata/schema maps, live desktop registry, exports, and conditional
 model-facing guidance. The parity tests fail on stale, missing, or extra keys;
@@ -4632,6 +4645,35 @@ permission denial, and host unavailability. OpenAI's native `tool_search` is
 model-gated, not inferred from `provider === "openai"`. Anthropic native search
 likewise preserves provider search/tool-reference history. Live Mastra catalog
 search uses `storage: 'context'`, `search.autoLoad: true`, and `topK: 3`.
+The pinned `@mastra/core@1.59.0` patch selects an exact registered ID before
+BM25 candidate trimming, preserving the SDK search filter and context-store
+activation. Exact selection loads only that tool; fuzzy queries retain the
+three-match ranking limit. Both ESM and CJS distributions carry the same fix.
+Remove the patch only when an upstream version passes the adversarial exact-name
+regression in `tool-search-runtime.spec.ts`. No extra model tool or round trip
+is introduced.
+Search results are ranked selections, never an inventory. The 2026-09-04
+Linear failure had all 61 tools in the eligible deferred catalog, but a broad
+query returned three label/status tools and the model declared issue operations
+unavailable. `list_available_tools` therefore exposes the same post-gate,
+per-runtime deferred catalog without loading definitions or executing MCP requests.
+It supports case-insensitive name prefixes and pages of 50 entries, reports
+the matching total and `nextOffset` (null only at the end), and explicitly
+marks descriptions shortened to 160 Unicode code points. Eager tools are already
+callable and are not included in this deferred inventory. Ordering uses code-unit name
+comparison rather than the host locale. Each prefix/offset query is independent;
+clients must keep the prefix when following nextOffset. An offset exactly at
+the matching count returns the empty end page; an offset beyond it reports a typed pagination error with the offset and matching count.
+The name map is total for eligible tools and snapshotted per processor; missing
+mappings fail visibly at construction or loaded-tool projection.
+Models enumerate with it and
+use an exact listed name in `search_tools` to load a capability. Inventory
+results never enter Mastra's loaded-tool state; search results and instructions
+explicitly distinguish ranked matches from the complete catalog. No new store,
+remote round trip, or eligibility path is introduced. Processor tests cover
+61-tool pagination, runtime isolation, and selective loading; the real Mastra
+loop test covers inventory -> search -> execution.
+
 Mastra's BM25 catalog ranks the sanitized tool id plus its canonical
 description. Brainstrike's initial `search_tools` description must therefore
 name the major deferred capability families explicitly, including open
@@ -4732,9 +4774,11 @@ resume lookup to return both without durable recall. If a future Mastra release
 permits a partial non-empty set, update the adapter to merge the post-gate
 durable and delegate sets deterministically; do not add a speculative fallback.
 
-Mastra owns the fixed `search_tools` catalog meta-tool id. When a surviving
+Mastra owns the fixed `search_tools` catalog meta-tool id; Brainstrike owns
+`list_available_tools`. When a surviving
 eager/core or deferred definition has an original id whose canonical sanitized
-form is `search_tools` (including `search.tools`), a run with deferred catalog
+form is either reserved id (including `search.tools` and
+`list.available.tools`), a run with deferred catalog
 discovery throws `mastra_agent_tool_name_collision` before constructing the
 Agent. The error reports only the original, sanitized, and reserved ids. A run
 with no deferred definitions installs no catalog processor and preserves a
