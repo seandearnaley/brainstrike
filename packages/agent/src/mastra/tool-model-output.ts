@@ -337,7 +337,8 @@ export function wouldTruncateMcpModelOutput(
 ): boolean {
   const envelope = readHookResultEnvelope(output);
   const source = envelope ? envelope.result : output;
-  const domainOutput = readMcpAppToolInvocationResult(source)?.result ?? source;
+  const appResult = readMcpAppToolInvocationResult(source);
+  const domainOutput = appResult ? appResult.result : source;
   // Tasks have a purpose-built status projection; media has its own inline contract.
   if (readMcpTaskToolInvocationResult(domainOutput) || readMcpMultimodalOutput(domainOutput)) {
     return false;
@@ -779,7 +780,7 @@ function projectDefaultModelOutput(
   const envelope = readHookResultEnvelope(projectionSource);
   const persistedDomainOutput = envelope ? envelope.result : projectionSource;
   const appResult = readMcpAppToolInvocationResult(persistedDomainOutput);
-  const domainOutput = appResult?.result ?? persistedDomainOutput;
+  const domainOutput = appResult ? appResult.result : persistedDomainOutput;
   const hookContext = envelope?.additionalContext;
   const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
   const defaultProjection = createDefaultModelOutput(
@@ -883,7 +884,7 @@ function projectExistingModelOutput(
   const envelope = readHookResultEnvelope(projectionSource);
   const persistedDomainOutput = envelope ? envelope.result : projectionSource;
   const appResult = readMcpAppToolInvocationResult(persistedDomainOutput);
-  const domainOutput = appResult?.result ?? persistedDomainOutput;
+  const domainOutput = appResult ? appResult.result : persistedDomainOutput;
   const hookContext = envelope?.additionalContext;
   const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
   const boundResolvedProjection = (resolved: unknown): unknown => {

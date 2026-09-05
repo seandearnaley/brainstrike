@@ -1,6 +1,6 @@
 import {
-  NATIVE_TOOL_ID,
   NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS,
+  readMcpAppToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import {
   encodeToolOutputArtifactContent,
@@ -78,7 +78,7 @@ export interface ApplyToolOutputArtifactSettlementOptions {
   /** Delegation tools actually registered for this run, resolved after persona assembly. */
   readonly getDelegationToolNames?: () => readonly string[];
   /** Runtime registration supplies the eligible reader's exact callable name. */
-  readonly getReaderToolName?: () => string;
+  readonly getReaderToolName: () => string;
   /**
    * Optional stricter inline ceilings for tools whose complete model projection
    * must fit a smaller character budget than the generic transport envelope.
@@ -351,7 +351,9 @@ async function settleOutput(
     return output;
   }
   const hookEnvelope = readHookResultEnvelope(output);
-  const domainOutput = hookEnvelope ? hookEnvelope.result : output;
+  const displaySource = hookEnvelope ? hookEnvelope.result : output;
+  const appResult = readMcpAppToolInvocationResult(displaySource);
+  const domainOutput = appResult ? appResult.result : displaySource;
   if (readMcpMultimodalOutput(domainOutput)) {
     return output;
   }
@@ -379,6 +381,7 @@ async function settleOutput(
     throw new ToolOutputArtifactSettlementError('missing_tool_call_id', toolName);
   }
 
+  const readerToolName = options.getReaderToolName();
   let reference: ToolOutputArtifactReference;
   try {
     reference = await options.store.store({
@@ -400,17 +403,19 @@ async function settleOutput(
       new TypeError('Artifact storage returned incoherent metadata.')
     );
   }
+  const artifactOutputs = createArtifactOutputs(
+    toolName,
+    reference,
+    serialized.content,
+    displaySource,
+    options.getDelegationToolNames,
+    readerToolName
+  );
   return createSettlementCarrier({
-    ...createArtifactOutputs(
-      toolName,
-      reference,
-      serialized.content,
-      domainOutput,
-      options.getDelegationToolNames,
-      options.getReaderToolName
-        ? options.getReaderToolName()
-        : NATIVE_TOOL_ID.readToolOutputArtifact
-    ),
+    ...artifactOutputs,
+    // Apps need their origin and complete result to mount and hydrate the sandbox.
+    // The model pages only the ordinary result, never this renderer-owned marker.
+    displayOutput: appResult ? displaySource : artifactOutputs.displayOutput,
     projectionSource: output,
   });
 }

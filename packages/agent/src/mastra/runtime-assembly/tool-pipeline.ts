@@ -230,6 +230,20 @@ function applyRuntimeToolHooks(params: {
   });
 }
 
+export function resolveEligibleArtifactReaderName(
+  tools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>
+): string {
+  const names = Object.keys(tools).filter(
+    (id) => toolNameMap.get(id) === NATIVE_TOOL_ID.readToolOutputArtifact
+  );
+  const name = names[0];
+  if (names.length !== 1 || !name) {
+    throw new Error('Durable tool output requires one eligible artifact reader.');
+  }
+  return name;
+}
+
 function settleRuntimeToolOutputs(params: {
   getDelegationToolNames: (() => readonly string[]) | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
@@ -249,16 +263,7 @@ function settleRuntimeToolOutputs(params: {
     ...(params.inlineMaxSerializedCharsByToolName
       ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
       : {}),
-    getReaderToolName: () => {
-      const names = Object.keys(params.tools).filter(
-        (id) => params.toolNameMap.get(id) === NATIVE_TOOL_ID.readToolOutputArtifact
-      );
-      const name = names[0];
-      if (names.length !== 1 || !name) {
-        throw new Error('Durable tool output requires one eligible artifact reader.');
-      }
-      return name;
-    },
+    getReaderToolName: () => resolveEligibleArtifactReaderName(params.tools, params.toolNameMap),
     store: params.store,
     toolNameMap: params.toolNameMap,
     wouldTruncateModelOutput: (toolName, output) =>
@@ -511,6 +516,19 @@ export async function composeRuntimeToolMap(
     timeoutOverrideMs: params.mcpTimeoutMs,
     toolNameMap,
   });
+  // Collection adds only MCP entries to the already-sanitized local registry.
+  // Capture that provenance before provider controls can change the final map.
+  const mcpToolNames = new Set(
+    Object.keys(combinedTools)
+      .filter((id) => !sanitizedLocalToolIds.has(id))
+      .map((id) => {
+        const original = toolNameMap.get(id);
+        if (!original) {
+          throw new Error(`Collected MCP tool ${id} is missing its original name.`);
+        }
+        return original;
+      })
+  );
   // Intentional global guard: every native and MCP tool execution shares this
   // ceiling so a single slow tool cannot freeze the assistant stream.
   // Per-runtime, which is per request. The guard is the only layer that sees
@@ -586,11 +604,7 @@ export async function composeRuntimeToolMap(
   const artifactSettledTools = settleRuntimeToolOutputs({
     getDelegationToolNames: params.getDelegationToolNames,
     inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
-    mcpToolNames: new Set(
-      Object.keys(finalTools)
-        .filter((id) => !sanitizedLocalToolIds.has(id))
-        .map((id) => toolNameMap.get(id) ?? id)
-    ),
+    mcpToolNames,
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     store: params.toolOutputArtifactStore,
     toolNameMap,

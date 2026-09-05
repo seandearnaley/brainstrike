@@ -1,6 +1,6 @@
 import { projectToolOutputArtifactPage } from '@brainstrike/agent';
 
-/** Mastra invokes this with the sanitized tool as receiver, including its exact callable id. */
+/** The central model-projection wrapper invokes this with the sanitized tool as receiver, including its exact callable id. */
 export function createArtifactReaderModelProjection(
   resolveBudget: () => number
 ): (this: { id: string }, output: unknown) => unknown {

@@ -1024,13 +1024,29 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   });
 
   it.each([
-    { hook: false, value: `${'x'.repeat(4500)}required-middle-criterion${'y'.repeat(4500)}` },
-    { hook: false, value: `${'\\n"quoted"'.repeat(420)}required-middle-criterion` },
-    { hook: true, value: `${'x'.repeat(4500)}required-middle-criterion${'y'.repeat(4500)}` },
-    { hook: false, value: `${'x'.repeat(5900)}required-middle-criterion${'y'.repeat(5900)}` },
+    {
+      hook: false,
+      name: 'ordinary',
+      value: `${'x'.repeat(4500)}required-middle-criterion${'y'.repeat(4500)}`,
+    },
+    {
+      hook: false,
+      name: 'escaped',
+      value: `${'\\n"quoted"'.repeat(420)}required-middle-criterion`,
+    },
+    {
+      hook: true,
+      name: 'hook context',
+      value: `${'x'.repeat(4500)}required-middle-criterion${'y'.repeat(4500)}`,
+    },
+    {
+      hook: false,
+      name: 'multiple pages',
+      value: `${'x'.repeat(5900)}required-middle-criterion${'y'.repeat(5900)}`,
+    },
   ])(
-    'preserves recoverable MCP data below the artifact byte ceiling ($hook)',
-    async ({ hook, value }) => {
+    'preserves recoverable MCP data below the artifact byte ceiling ($name)',
+    async ({ hook, name, value }) => {
       const server = await startStreamableMcpServer();
       const mcpHost = createRealTransportMcpHost({
         name: 'remote',
@@ -1133,6 +1149,13 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       expect(server.executions).toEqual([value]);
       expect(stored).toHaveLength(1);
       expect(stored[0]?.content).toBe(JSON.stringify({ echoed: value }));
+      expect(new TextEncoder().encode(stored[0]?.content).byteLength).toBeLessThan(12_000);
+      if (name === 'escaped') {
+        expect(value.length).toBeLessThan(8000);
+        expect(
+          JSON.stringify({ type: 'text', value: JSON.stringify({ echoed: value }) }).length
+        ).toBeGreaterThan(8000);
+      }
       expect(recovered).toBe(stored[0]?.content);
       expect(modelOutput).toContain('cursor');
       expect(modelOutput).toContain('brainstrike_readToolOutputArtifact');
@@ -1142,6 +1165,50 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       }
     }
   );
+
+  it('does not apply MCP-only settlement to an ordinary local tool', async () => {
+    const store = vi.fn(async () => {
+      throw new Error('Local inline output must not be settled.');
+    });
+    let modelOutput = '';
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'Local result received.',
+      input: '{}',
+      onToolResultPrompt: (prompt) => {
+        modelOutput = JSON.stringify(
+          readToolResultOutput(prompt.filter((message) => message.role === 'tool').at(-1))
+        );
+      },
+      toolCallId: 'local-inline-call',
+      toolName: 'local_inline',
+    });
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'local-inline-user',
+          parts: [{ text: 'Read local output.', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        toolOutputArtifactStore: { store },
+        tools: {
+          local_inline: createTool({
+            description: 'Local fixture',
+            execute: async () => 'x'.repeat(9042),
+            id: 'local_inline',
+            inputSchema: z.object({}),
+          }),
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      /* Drive the actual runtime to completion. */
+    }
+    expect(store).not.toHaveBeenCalled();
+    expect(modelOutput).toContain('x'.repeat(100));
+  });
 
   it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
     const server = await startStreamableMcpServer();

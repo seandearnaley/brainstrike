@@ -568,13 +568,18 @@ This predicate applies only to MCP tools from the eligible runtime map. Task
 status projections and inline media keep their dedicated contracts. No second
 size constant approximates the model projection. The complete raw output is
 stored before publishing a recovery page; storage failures still fail visibly.
-Runtime settlement resolves one eligible reader from the canonical name map,
-and pages use its exact callable id. The eligible artifact reader remains on
-the core discovery surface, so recovery never requires a search call. The reader's own model projector receives
-the sanitized tool as its Mastra receiver and fits continuation guidance with
-that same id. Standalone page helpers retain their canonical-name default.
-A trusted per-tool
-canonical-name map may lower the inline threshold by
+Runtime settlement requires an explicit reader resolver. It resolves exactly
+one eligible reader from the canonical name map before storage; zero or
+multiple matches fail visibly without writing an artifact. Recovery pages use
+the exact callable id. MCP Apps retain their complete marker,
+origin, and ordinary result in display/transcript output so sandbox mounting
+and hydration remain valid; only the ordinary result is serialized for model
+artifact recovery. Apps media takes the existing inline media path. The eligible
+artifact reader remains on the core discovery surface, so recovery never
+requires a search call. The reader's own model projector receives
+the sanitized tool through the central projection wrapper's receiver and fits
+continuation guidance with that same id. Standalone page helpers retain their canonical-name default.
+A trusted per-tool canonical-name map may lower the inline threshold by
 serialized characters when a complete domain projection has a tighter budget.
 `brainstrike.webExtract` uses the smaller of 2400 characters and the active
 run's resolved domain-projection character budget: smaller extracts project
