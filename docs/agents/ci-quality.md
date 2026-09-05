@@ -1055,26 +1055,37 @@ an approved merge makes it available there. Before that bootstrap, report the
 missing live Claude coverage explicitly and obtain human review; local contract
 fixtures are not proof that a live OIDC exchange or Claude review completed.
 
-`scripts/claude-review.mjs` captures `gh pr diff` as a read-only data file,
-checking the live head and base before and after capture. Claude reads only that
-snapshot and posts findings on the PR; it must not crawl the checkout or fetch
-a moving PR diff. The tool permissions permit the snapshot Read, the exact
-PR's `gh pr comment`, and (for automatic PR events) inline comments bound to the
-requested `commit_id`. Dispatch has no PR entity context in the upstream action
-and therefore uses explicit top-level file/line findings. The `dontAsk` mode
-denies unapproved tools. The model and 80-turn ceiling remain unchanged.
+`scripts/claude-review.mjs` captures `gh pr diff`, checking the live head and
+base before and after capture. It sends that snapshot directly as prompt data.
+Claude has no file, shell, network, or GitHub tools: `--tools=` disables built-ins,
+`--disallowedTools "mcp__*"` denies MCP tools, strict empty MCP configuration
+prevents other servers loading, and slash commands are disabled. Only the
+schema's `StructuredOutput` tool remains. Do not replace this with `allowedTools`
+plus `dontAsk`: read-only commands remain available under that permission mode.
+The model and 80-turn ceiling remain unchanged.
 
-The final handler always posts a disposition on the PR and in the workflow
-summary, tied to the requested head, scope, and run attempt:
+Claude returns completed/head/base/scope fields and review text. Trusted
+orchestration validates the exact request, rechecks live head/base, and posts
+that text with an explicit **Claude-generated review** attribution. Both
+invocation paths use top-level file/line findings; the model cannot post inline
+comments or execute untrusted diff content. Missing, partial, malformed,
+wrong-head/base/scope, oversized, or unpublishable output stays incomplete.
+Reviews are never truncated to fit GitHub's comment-body limit. A diff that
+exceeds the runner/action's input limit also fails visibly; no narrower diff is
+substituted.
+
+The final handler records a disposition in the workflow summary and publishes
+it on the PR, tied to the requested head, scope, and run attempt. Publication
+failures remain incomplete in the summary and fail the job:
 
 - **Skipped:** the automatic self-change guard withheld Claude execution.
 - **Incomplete:** preparation/action failure, the 80-turn cap, cancellation,
   an upstream OIDC skip without a successful conclusion, missing exact-run
-  Claude review content, or a changed/closed PR invalidates coverage.
-- **Completed:** the action explicitly concluded successfully, an actual
-  `claude[bot]` comment contains the exact run/head marker, and live head/base
-  checks still match. The disposition links that review; it is coverage, not
-  approval, and findings still need inspection and closure.
+  structured review output, publication failure, or a changed/closed PR invalidates coverage.
+- **Completed:** the action explicitly concluded successfully, the
+  complete structured output matches the requested head/base/scope, live
+  head/base checks still match, and the trusted reporter publishes the actual
+  review text. It is coverage, not approval; inspect and close its findings.
 
 Skipped and incomplete dispositions fail the review job. `continue-on-error`
 only allows this final reporting step to run; it preserves BST-1412's red
@@ -1084,10 +1095,22 @@ checks remain separate. Any later push invalidates an older head's coverage.
 Contracts execute normal, failure, self-change, targeted, moving-head, missing
 content, and trust rejection paths in `scripts/__tests__/claude-review.test.mjs`
 and pin the workflow wiring in `claude-auto-review-contract.test.mjs`.
+The opt-in CLI boundary check uses a fake localhost Anthropic API and no real
+credentials:
+
+```bash
+node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude
+```
+
+Use CLI 2.1.261, the version installed by the pinned action. The fixture injects
+an unsolicited Bash file-read tool call: it must be rejected, the private
+fixture content must remain unread, and structured output must still succeed.
+This validates model tool isolation, not live OIDC or semantic review quality.
 
 Primary trust evidence: [Anthropic action security guidance](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/docs/security.md),
 [manual dispatch example](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/examples/manual-code-analysis.yml),
 [OIDC skip and conclusion implementation](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/src/entrypoints/run.ts),
+[Claude CLI tool controls](https://code.claude.com/docs/en/cli-reference),
 and [GitHub's trusted-event security guidance](https://docs.github.com/en/actions/reference/security/secure-use).
 
 ### Cost-ranked Linux x64 jobs run on Ubicloud (BST-765)

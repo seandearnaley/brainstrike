@@ -41,37 +41,30 @@ function fixture(
     GITHUB_SHA: trusted,
     GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
     GITHUB_WORKFLOW_REF: 'owner/repo/.github/workflows/claude-code-review.yml@refs/heads/main',
+    REVIEW_OUTPUT: JSON.stringify({
+      base_sha: base,
+      completed: true,
+      head_sha: head,
+      review: 'The requested scope was reviewed; no findings.',
+      scope: eventName === 'workflow_dispatch' ? 'targeted' : 'whole PR',
+    }),
     RUNNER_TEMP: dir,
   };
   writeFileSync(env.GITHUB_EVENT_PATH, JSON.stringify(event));
   const calls = [];
-  let postedReview = true;
   const gh = (args) => {
     calls.push(args);
     if (args[0] === 'pr' && args[1] === 'diff') {
       return 'diff --git a/test.txt b/test.txt\n+sample\n';
     }
     if (args[0] === 'pr' && args[1] === 'comment') {
-      return '';
+      return 'https://github.com/owner/repo/pull/42#issuecomment-99';
     }
     if (args[1] === 'repos/owner/repo/pulls/42') {
       return JSON.stringify(pr);
     }
     if (args[1] === 'repos/owner/repo/pulls/42/files') {
       return JSON.stringify([files.map((filename) => ({ filename }))]);
-    }
-    if (args[1] === 'repos/owner/repo/issues/42/comments') {
-      return JSON.stringify([
-        postedReview
-          ? [
-              {
-                body: `<!-- claude-review:123:1:${head} -->\nReview findings: sample.`,
-                html_url: 'https://github.com/owner/repo/pull/42#issuecomment-99',
-                user: { login: 'claude[bot]' },
-              },
-            ]
-          : [],
-      ]);
     }
     throw new Error(`Unexpected gh request: ${JSON.stringify(args)}`);
   };
@@ -82,7 +75,7 @@ function fixture(
     gh,
     gitHead: () => trusted,
     noReview: () => {
-      postedReview = false;
+      env.REVIEW_OUTPUT = '';
     },
     pr,
     summary: () => readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'),
@@ -90,7 +83,7 @@ function fixture(
   };
 }
 
-test('normal completion requires explicit action conclusion and posted exact-run review', (t) => {
+test('normal completion requires explicit action conclusion and valid exact-head review output', (t) => {
   const f = fixture(t);
   assert.equal(prepareReview(f), 0);
   assert.equal(reportReview(f), 0);
@@ -146,7 +139,7 @@ test('green action without review content is incomplete', (t) => {
   prepareReview(f);
   f.noReview();
   assert.equal(reportReview(f), 1);
-  assert.match(f.summary(), /No exact-run Claude review comment/);
+  assert.match(f.summary(), /Claude auto-review did not complete/);
 });
 
 test('moving head invalidates completion instead of claiming current coverage', (t) => {
@@ -226,12 +219,60 @@ test('truncated changed-file inventory cannot hide an orchestration change', (t)
   assert.match(f.summary(), /changed-file inventory is incomplete/);
 });
 
-test('targeted tools explicitly omit unavailable inline MCP and deny unapproved tools', (t) => {
+test('review has no model execution or file tools and returns structured output', (t) => {
   const f = fixture(t, { eventName: 'workflow_dispatch' });
   prepareReview(f);
   const outputs = readFileSync(f.env.GITHUB_OUTPUT, 'utf8');
   assert.doesNotMatch(outputs, /mcp__github_inline_comment__/);
-  assert.match(outputs, /inline-comment MCP is unavailable/);
-  assert.match(outputs, /--permission-mode dontAsk/);
-  assert.match(outputs, /Read\(\/\//);
+  assert.match(outputs, /--tools=/);
+  assert.match(outputs, /--disallowedTools" "mcp__\*"/);
+  assert.match(outputs, /--strict-mcp-config/);
+  assert.match(outputs, /--json-schema/);
+  assert.match(outputs, /CAPTURED DIFF/);
+  assert.match(outputs, /diff --git/);
+});
+
+for (const invalid of [
+  { completed: false },
+  { head_sha: 'd'.repeat(40) },
+  { base_sha: 'd'.repeat(40) },
+  { scope: 'targeted' },
+  { review: '' },
+  { tool_calls: [{ name: 'Bash' }] },
+]) {
+  test(`invalid model output is rejected before any completed review is published: ${JSON.stringify(invalid)}`, (t) => {
+    const f = fixture(t);
+    prepareReview(f);
+    f.env.REVIEW_OUTPUT = JSON.stringify({ ...JSON.parse(f.env.REVIEW_OUTPUT), ...invalid });
+    assert.equal(reportReview(f), 1);
+    assert.match(f.summary(), /did not return a complete structured review/);
+    assert.ok(
+      f.calls
+        .filter((call) => call[0] === 'pr' && call[1] === 'comment')
+        .every((call) => !call.at(-1).includes('## Claude review completed'))
+    );
+  });
+}
+
+test('publication failure cannot become completed coverage and does not blindly retry', (t) => {
+  const f = fixture(t);
+  prepareReview(f);
+  const originalGh = f.gh;
+  let publications = 0;
+  f.gh = (args) => {
+    if (args[0] === 'pr' && args[1] === 'comment') {
+      publications++;
+      throw new Error('GitHub unavailable');
+    }
+    return originalGh(args);
+  };
+  assert.equal(reportReview(f), 1);
+  assert.equal(publications, 1);
+  assert.match(f.summary(), /Publication failed/);
+  assert.doesNotMatch(f.summary(), /## Claude review completed/);
+});
+
+test('optional CLI probe is import-safe and does not require Claude in default tests', async () => {
+  const probe = await import('../probe-claude-review-tools.mjs');
+  assert.equal(typeof probe.main, 'function');
 });

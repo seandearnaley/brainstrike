@@ -18,6 +18,10 @@ test('Claude orchestration uses trusted default-branch code for automatic and ta
 test('reporting always consumes explicit Claude conclusion instead of green eligibility', () => {
   assert.match(workflow, /continue-on-error: true/);
   assert.match(workflow, /ACTION_CONCLUSION: \$\{\{ steps.claude-review.outputs.conclusion \}\}/);
+  assert.match(
+    workflow,
+    /REVIEW_OUTPUT: \$\{\{ steps.claude-review.outputs.structured_output \}\}/
+  );
   assert.match(workflow, /ACTION_OUTCOME: \$\{\{ steps.claude-review.outcome \}\}/);
   assert.match(workflow, /if: \$\{\{ always\(\) \}\}/);
   assert.match(workflow, /node scripts\/claude-review.mjs report/);
