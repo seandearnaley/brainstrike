@@ -63,17 +63,18 @@ function credentialStateLabel(state: 'malformed' | 'missing' | 'stored' | 'unrea
 
 function McpCredentialFaultNotice({ server }: { readonly server: McpServerInfo }) {
   const { auth } = server;
-  if (
-    !auth ||
-    auth.type === 'none' ||
-    (auth.credentialState !== 'malformed' && auth.credentialState !== 'unreadable')
-  ) {
-    return null;
-  }
+  const hasFault =
+    auth &&
+    auth.type !== 'none' &&
+    (auth.credentialState === 'malformed' || auth.credentialState === 'unreadable');
   return (
     <div className="text-destructive text-xs" role="status">
-      Stored credentials are {credentialStateLabel(auth.credentialState)}. Open connection details
-      for more information.
+      {hasFault ? (
+        <>
+          Stored credentials are {credentialStateLabel(auth.credentialState)}. Open connection
+          details for more information.
+        </>
+      ) : null}
     </div>
   );
 }
@@ -173,6 +174,9 @@ function McpExtensionStatus({ server }: { readonly server: McpServerInfo }) {
   );
 }
 
+// The host publishes terminal transport faults as error and OAuth consent
+// requirements as authentication-required. Connecting/disconnected are lifecycle
+// states; their diagnostic history remains available in Connection details.
 function hasConnectionFailure(server: McpServerInfo): boolean {
   return server.state === 'error' || server.state === 'authentication-required';
 }

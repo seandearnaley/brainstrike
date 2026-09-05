@@ -69,8 +69,37 @@ describe('MCP connection details disclosure', () => {
     expect(screen.getByTestId('mcp-diagnostics-linear')).toBeVisible();
   });
 
-  it('keeps unreadable credential failures visible before opening details', () => {
-    render(
+  it.each([
+    { auth: { credentialState: 'malformed', type: 'bearer' }, control: 'Connect' },
+    { auth: { ...connected.auth, credentialState: 'unreadable' }, control: 'Disconnect' },
+  ] as const)(
+    'keeps $auth.credentialState credential failures visible before opening details',
+    ({ auth, control }) => {
+      render(
+        <McpServerStatusRow
+          controlAvailable
+          onControl={vi.fn()}
+          server={{
+            ...connected,
+            auth,
+            state: 'authentication-required',
+          }}
+        />
+      );
+      expect(screen.getByRole('status')).toBeVisible();
+      expect(screen.getByRole('status')).toHaveTextContent(
+        `Stored credentials are ${auth.credentialState}`
+      );
+      expect(screen.getByRole('button', { name: `${control} linear` })).toBeVisible();
+    }
+  );
+  it('retains the live region while credential fault content changes', () => {
+    const { rerender } = render(
+      <McpServerStatusRow controlAvailable onControl={vi.fn()} server={connected} />
+    );
+    const region = screen.getByRole('status');
+    expect(region).toBeEmptyDOMElement();
+    rerender(
       <McpServerStatusRow
         controlAvailable
         onControl={vi.fn()}
@@ -81,10 +110,13 @@ describe('MCP connection details disclosure', () => {
         }}
       />
     );
-    expect(screen.getByRole('status')).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('Stored credentials are unreadable');
-    expect(screen.getByRole('button', { name: 'Disconnect linear' })).toBeVisible();
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toHaveTextContent('Stored credentials are unreadable');
+    rerender(<McpServerStatusRow controlAvailable onControl={vi.fn()} server={connected} />);
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toBeEmptyDOMElement();
   });
+
   it('preserves expansion within a generation and resets it for the next generation', () => {
     const onControl = vi.fn();
     const { rerender } = render(

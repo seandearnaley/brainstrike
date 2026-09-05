@@ -4537,7 +4537,11 @@ authentication-required states; healthy-server logs are inside the disclosure.
 Protocol policy/generation, OAuth facts, and effective extension advertisements
 live inside a native `details` disclosure labeled "Connection details". Failure
 diagnostics do not force it open or override the user's DOM-resident open state.
-Credential faults use a polite status announcement and the shared state labels.
+Credential faults use the shared state labels and a persistent polite status region.
+The credential status region remains mounted while its content changes, so
+later credential faults update an existing live region. Initial faults remain
+visibly rendered; automatic initial screen-reader announcement is not promised.
+`mcp-connection-details.test.tsx` pins node identity and both fault wordings.
 These facts remain available without an additional host call or persistent UI
 store. Expanding details never initiates authorization or a lifecycle control.
 The disclosure resets on a new server generation; current snapshot facts remain
@@ -4969,7 +4973,8 @@ silently falling out of the registry. These are existing test thresholds, not
 bands recentered by the audit. At the 2026-09-04 measurement, authored and critical
 surfaces have only 34 and 21 tokens of remaining headroom. Keeping those ceilings
 is deliberate pending BST-1633's measured reductions; the audit does not promise
-150 tokens of current headroom or silently raise limits to absorb drift. When the ceiling fires, trim before raising; move both bounds
+150 tokens of current headroom or silently raise limits to absorb drift. When
+the ceiling fires, trim before raising; move both bounds
 together (the ~300-token width is the contract) and record the trade in the
 test's comment ledger. The live actual Mastra/OpenRouter core surface and
 resolved instructions must stay between 2,000 and 5,000 tokens, materially
