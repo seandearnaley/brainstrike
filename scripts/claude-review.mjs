@@ -103,6 +103,18 @@ export function prepareReview({
       throw new Error('The PR must target the trusted default branch.');
     }
     assertCurrent(pr, request);
+    // The action's own actor check is unavailable here: pull_request_target
+    // cannot mint a Claude App token (upstream claude-code-action#713), so the
+    // workflow passes github.token and that check never runs. Automatic review
+    // therefore requires a head branch inside this repository, which only a
+    // collaborator can push. A fork head — or a head whose fork was deleted,
+    // leaving `repo` null — is refused visibly rather than reviewed on trust.
+    if (!targeted && pr.head.repo?.full_name !== request.repository) {
+      request.disposition = 'skipped';
+      request.reason =
+        'Automatic Claude review did not run because this PR head is outside the trusted repository. A maintainer who has read the diff can request coverage using the trusted default-branch workflow.';
+      return 0;
+    }
     const pages = JSON.parse(
       gh([
         'api',

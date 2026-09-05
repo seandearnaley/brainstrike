@@ -11,14 +11,19 @@ const trusted = 'c'.repeat(40);
 
 function fixture(
   t,
-  { eventName = 'pull_request_target', files = [], actionConclusion = 'success' } = {}
+  {
+    eventName = 'pull_request_target',
+    files = [],
+    actionConclusion = 'success',
+    headRepo = 'owner/repo',
+  } = {}
 ) {
   const dir = mkdtempSync(path.join(tmpdir(), 'claude-review-'));
   t.after(() => rmSync(dir, { force: true, recursive: true }));
   const pr = {
     base: { ref: 'main', sha: base },
     changed_files: files.length,
-    head: { sha: head },
+    head: { repo: headRepo === null ? null : { full_name: headRepo }, sha: head },
     number: 42,
     state: 'open',
   };
@@ -102,6 +107,33 @@ test('self-change skips Claude visibly and supplies trusted targeted invocation'
   assert.match(f.summary(), /--ref main/);
   assert.match(f.summary(), new RegExp(`expected_head=${head}`));
   assert.ok(f.calls.some((call) => call[0] === 'pr' && call[1] === 'comment'));
+});
+
+test('an automatic fork-head PR is refused instead of silently reviewed', (t) => {
+  const f = fixture(t, { headRepo: 'attacker/repo' });
+  assert.equal(prepareReview(f), 0);
+  assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /eligible<<[^\n]+\nfalse\n/);
+  assert.equal(f.calls.filter((call) => call[0] === 'pr' && call[1] === 'diff').length, 0);
+  assert.equal(reportReview(f), 1);
+  assert.match(f.summary(), /Claude review skipped/);
+  assert.match(f.summary(), /outside the trusted repository/);
+  assert.match(f.summary(), /gh workflow run claude-code-review.yml/);
+});
+
+test('a deleted fork head repository cannot pass the trusted-head guard', (t) => {
+  const f = fixture(t, { headRepo: null });
+  assert.equal(prepareReview(f), 0);
+  assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /eligible<<[^\n]+\nfalse\n/);
+  assert.equal(reportReview(f), 1);
+  assert.match(f.summary(), /outside the trusted repository/);
+});
+
+test('a maintainer can still dispatch a targeted review of a fork-head PR', (t) => {
+  const f = fixture(t, { eventName: 'workflow_dispatch', headRepo: 'attacker/repo' });
+  assert.equal(prepareReview(f), 0);
+  assert.match(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), /eligible<<[^\n]+\ntrue\n/);
+  assert.equal(reportReview(f), 0);
+  assert.match(f.summary(), /Claude review completed/);
 });
 
 test('targeted trusted dispatch can review workflow self-change without PR code checkout', (t) => {
