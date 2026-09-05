@@ -108,9 +108,9 @@ export interface HostRequestChannelOptions<TRequest, TResponse> {
 }
 
 export interface HostRequestOptions<TResponse> {
-  readonly onProgress?: (response: TResponse) => void;
+  readonly onProgress?: ((response: TResponse) => void) | undefined;
   /** Aborting rejects with `signal.reason` when it is an Error, else a per-role abort error. */
-  readonly signal?: AbortSignal;
+  readonly signal?: AbortSignal | undefined;
 }
 
 export interface HostRequestChannel<TRequest, TResponse> {

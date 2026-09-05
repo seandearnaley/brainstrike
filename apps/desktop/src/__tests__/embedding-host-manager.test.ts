@@ -683,6 +683,58 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     await expect(embeddingPromise).resolves.toEqual([0.125, 0.75]);
   });
 
+  it('logs a late query embedding response at warn instead of dropping it silently', async () => {
+    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/logging');
+    setLogLevel(LogLevel.WARN);
+    const warnedRequestIds: unknown[] = [];
+    const removeLogListener = addLogListener((entry) => {
+      if (entry.level !== 'warn') {
+        return;
+      }
+      for (const arg of entry.args) {
+        if (arg && typeof arg === 'object' && 'requestId' in arg) {
+          warnedRequestIds.push((arg as { requestId: unknown }).requestId);
+        }
+      }
+    });
+    const manager = new EmbeddingHostManager();
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    });
+    const observedRejection = embeddingPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await lifecycleState.ensureStarted.mock.results[0]?.value;
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    const request = mockHostWindow.webContents.send.mock.calls[0]?.[1] as {
+      requestId: string;
+      runtimeId: string;
+    };
+
+    await vi.advanceTimersByTimeAsync(60_001);
+    await expect(observedRejection).resolves.toBeInstanceOf(Error);
+    warnedRequestIds.length = 0;
+
+    try {
+      manager.acceptQueryEmbeddingResponseReport(91, {
+        channel: 'query-embedding-result',
+        payload: { embedding: [0.1, 0.2] },
+        requestId: request.requestId,
+        runtimeId: request.runtimeId,
+        type: 'result',
+      });
+      expect(warnedRequestIds).toContain(request.requestId);
+    } finally {
+      removeLogListener();
+    }
+  });
+
   it('preserves the original error cause when sending a query embedding request fails', async () => {
     const sendError = new Error('send failed');
     mockHostWindow.webContents.send.mockImplementation(() => {

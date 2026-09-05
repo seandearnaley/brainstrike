@@ -75,6 +75,23 @@ vi.mock('electron', () => ({
   },
 }));
 
+const loggerWarnMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: loggerWarnMock,
+    }),
+  };
+});
+
 // Restore the real stream/runtime surfaces replaced by the desktop-wide test
 // setup so this suite can prove the watchdog-to-manager cancellation chain.
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -99,8 +116,12 @@ type TestableLlmHostManager = Omit<LlmHostManager, never> & {
       type: string;
     }
   ) => void;
-  pendingRequests: Map<string, unknown>;
   preCancelledRequestIds: Set<string>;
+  requests: {
+    has: (requestId: string) => boolean;
+    ids: () => readonly string[];
+    size: () => number;
+  };
 };
 
 function requireResolver<T>(
@@ -160,6 +181,39 @@ describe('LlmHostManager', () => {
     mockHostWindow.webContents.send.mockReset();
   });
 
+  it('logs a late response at warn instead of dropping it silently', async () => {
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
+    const requester = createRequester(99);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'req-late',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const observedRejection = requestPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+    await expect(observedRejection).resolves.toBeInstanceOf(Error);
+    loggerWarnMock.mockClear();
+
+    manager.acceptResponseReport(71, {
+      channel: 'llm-result',
+      payload: { result: { text: 'too late' } },
+      requestId: '99:req-late',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
+    });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ requestId: '99:req-late' })
+    );
+  });
+
   it('extends request lifetime while llm-host progress reports are still arriving', async () => {
     const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(101);
@@ -186,7 +240,7 @@ describe('LlmHostManager', () => {
 
     await vi.advanceTimersByTimeAsync(59_000);
 
-    expect(manager.pendingRequests.has('101:req-progress')).toBe(true);
+    expect(manager.requests.has('101:req-progress')).toBe(true);
     expect(requester.send).toHaveBeenCalledWith(
       expect.stringContaining('progress'),
       expect.objectContaining({
@@ -320,7 +374,7 @@ describe('LlmHostManager', () => {
         type: 'progress',
       });
     }
-    expect(manager.pendingRequests.has('111:req-long-generation')).toBe(true);
+    expect(manager.requests.has('111:req-long-generation')).toBe(true);
 
     manager.acceptResponseReport(71, {
       channel: 'llm-result',
@@ -365,7 +419,7 @@ describe('LlmHostManager', () => {
     await expect(observedRejection).resolves.toMatchObject({
       message: 'Llm host request 112:req-wedged timed out.',
     });
-    expect(manager.pendingRequests.has('112:req-wedged')).toBe(false);
+    expect(manager.requests.has('112:req-wedged')).toBe(false);
   });
 
   it('uses a longer timeout window for warmup requests', async () => {
@@ -376,14 +430,14 @@ describe('LlmHostManager', () => {
 
     await vi.advanceTimersByTimeAsync(61_000);
 
-    expect(manager.pendingRequests.size).toBe(1);
+    expect(manager.requests.size()).toBe(1);
 
     manager.acceptResponseReport(71, {
       channel: 'llm-result',
       payload: {
         result: null,
       },
-      requestId: [...manager.pendingRequests.keys()][0] ?? 'missing',
+      requestId: manager.requests.ids()[0] ?? 'missing',
       runtimeId: 'llm-host-runtime',
       type: 'result',
     });
@@ -397,9 +451,9 @@ describe('LlmHostManager', () => {
 
     const warmupPromise = manager.warmup(requester, 'onnx-community/gemma-4-E2B-it-ONNX');
     await vi.waitFor(() => {
-      expect(manager.pendingRequests.size).toBe(1);
+      expect(manager.requests.size()).toBe(1);
     });
-    const [requestId] = [...manager.pendingRequests.keys()];
+    const [requestId] = manager.requests.ids();
 
     expect(requestId?.startsWith('401:')).toBe(true);
 
@@ -437,9 +491,9 @@ describe('LlmHostManager', () => {
     });
 
     await expect(duplicateRequest).rejects.toThrow(
-      'Duplicate llm host requestId 201:duplicate-id.'
+      'Llm host request 201:duplicate-id is already in flight.'
     );
-    expect(manager.pendingRequests.has('201:duplicate-id')).toBe(true);
+    expect(manager.requests.has('201:duplicate-id')).toBe(true);
 
     manager.acceptResponseReport(71, {
       channel: 'llm-result',
@@ -475,8 +529,8 @@ describe('LlmHostManager', () => {
     });
 
     await vi.waitFor(() => {
-      expect(manager.pendingRequests.has('301:same-id')).toBe(true);
-      expect(manager.pendingRequests.has('302:same-id')).toBe(true);
+      expect(manager.requests.has('301:same-id')).toBe(true);
+      expect(manager.requests.has('302:same-id')).toBe(true);
     });
 
     manager.acceptResponseReport(71, {
@@ -702,7 +756,7 @@ describe('LlmHostManager', () => {
       (error: unknown) => error
     );
     await vi.waitFor(() => {
-      expect(manager.pendingRequests.has('801:engine-fault')).toBe(true);
+      expect(manager.requests.has('801:engine-fault')).toBe(true);
     });
 
     manager.acceptResponseReport(71, {
@@ -746,7 +800,7 @@ describe('LlmHostManager', () => {
       (error: unknown) => error
     );
     await vi.waitFor(() => {
-      expect(manager.pendingRequests.has('802:plain-failure')).toBe(true);
+      expect(manager.requests.has('802:plain-failure')).toBe(true);
     });
 
     manager.acceptResponseReport(71, {
@@ -781,7 +835,7 @@ describe('LlmHostManager', () => {
       (error: unknown) => error
     );
     await vi.waitFor(() => {
-      expect(manager.pendingRequests.has('803:malformed-tool-call')).toBe(true);
+      expect(manager.requests.has('803:malformed-tool-call')).toBe(true);
     });
 
     manager.acceptResponseReport(71, {
@@ -834,7 +888,7 @@ describe('LlmHostManager', () => {
         );
       }
 
-      for (const requestId of [...manager.pendingRequests.keys()]) {
+      for (const requestId of manager.requests.ids()) {
         manager.acceptResponseReport(71, {
           channel: 'llm-result',
           payload: {
@@ -867,9 +921,9 @@ describe('LlmHostManager', () => {
       );
 
       await vi.waitFor(() => {
-        expect(manager.pendingRequests.size).toBe(1);
+        expect(manager.requests.size()).toBe(1);
       });
-      const [requestId] = [...manager.pendingRequests.keys()];
+      const [requestId] = manager.requests.ids();
       expect(requestId?.startsWith('main:')).toBe(true);
 
       manager.acceptResponseReport(71, {
@@ -915,16 +969,16 @@ describe('LlmHostManager', () => {
       );
 
       await vi.waitFor(() => {
-        expect(manager.pendingRequests.size).toBe(1);
+        expect(manager.requests.size()).toBe(1);
       });
-      const [requestId] = [...manager.pendingRequests.keys()];
+      const [requestId] = manager.requests.ids();
 
       abortController.abort();
 
       await expect(observedRejection).resolves.toMatchObject({
         message: `Llm host request ${requestId} was aborted.`,
       });
-      expect(manager.pendingRequests.size).toBe(0);
+      expect(manager.requests.size()).toBe(0);
       expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
@@ -973,9 +1027,9 @@ describe('LlmHostManager', () => {
         const bodyPromise = drainResponse(session.createResponse());
 
         await vi.waitFor(() => {
-          expect(manager.pendingRequests.size).toBe(1);
+          expect(manager.requests.size()).toBe(1);
         });
-        const [stalledRequestId] = [...manager.pendingRequests.keys()];
+        const [stalledRequestId] = manager.requests.ids();
         expect(stalledRequestId).toMatch(/^main:/);
 
         await vi.advanceTimersByTimeAsync(1001);
@@ -1022,7 +1076,7 @@ describe('LlmHostManager', () => {
           runtimeId: 'llm-host-runtime',
           type: 'result',
         });
-        expect(manager.pendingRequests.size).toBe(0);
+        expect(manager.requests.size()).toBe(0);
 
         const recoveredIterator = await streamMastraAgent(
           [
@@ -1044,9 +1098,9 @@ describe('LlmHostManager', () => {
         const recoveredBodyPromise = drainResponse(recoveredSession.createResponse());
 
         await vi.waitFor(() => {
-          expect(manager.pendingRequests.size).toBe(1);
+          expect(manager.requests.size()).toBe(1);
         });
-        const [recoveredRequestId] = [...manager.pendingRequests.keys()];
+        const [recoveredRequestId] = manager.requests.ids();
         expect(recoveredRequestId).not.toBe(stalledRequestId);
         manager.acceptResponseReport(71, {
           channel: 'llm-progress',
@@ -1070,7 +1124,7 @@ describe('LlmHostManager', () => {
         });
 
         await expect(recoveredBodyPromise).resolves.toContain('recovered');
-        expect(manager.pendingRequests.size).toBe(0);
+        expect(manager.requests.size()).toBe(0);
       } finally {
         if (previousFirstOutput === undefined) {
           Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
@@ -1125,9 +1179,9 @@ describe('LlmHostManager', () => {
       );
 
       await vi.waitFor(() => {
-        expect(manager.pendingRequests.size).toBe(1);
+        expect(manager.requests.size()).toBe(1);
       });
-      const [requestId] = [...manager.pendingRequests.keys()];
+      const [requestId] = manager.requests.ids();
 
       manager.acceptResponseReport(71, {
         channel: 'llm-result',
@@ -1150,9 +1204,9 @@ describe('LlmHostManager', () => {
 
       const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
       await vi.waitFor(() => {
-        expect(manager.pendingRequests.size).toBe(1);
+        expect(manager.requests.size()).toBe(1);
       });
-      const [requestId] = [...manager.pendingRequests.keys()];
+      const [requestId] = manager.requests.ids();
 
       manager.acceptResponseReport(71, {
         channel: 'llm-progress',
@@ -1207,7 +1261,7 @@ describe('LlmHostManager', () => {
       });
 
       await vi.waitFor(() => {
-        expect(manager.pendingRequests.size).toBe(1);
+        expect(manager.requests.size()).toBe(1);
       });
       manager.acceptResponseReport(71, {
         channel: 'llm-progress',
@@ -1236,9 +1290,9 @@ describe('LlmHostManager', () => {
       const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
 
       await vi.waitFor(() => {
-        expect(manager.pendingRequests.size).toBe(1);
+        expect(manager.requests.size()).toBe(1);
       });
-      const [requestId] = [...manager.pendingRequests.keys()];
+      const [requestId] = manager.requests.ids();
       expect(requestId?.startsWith('main:')).toBe(true);
 
       manager.acceptResponseReport(71, {
