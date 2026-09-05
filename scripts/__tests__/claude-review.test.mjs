@@ -106,6 +106,8 @@ test('self-change skips Claude visibly and supplies trusted targeted invocation'
   assert.match(f.summary(), /Claude review skipped/);
   assert.match(f.summary(), /--ref main/);
   assert.match(f.summary(), new RegExp(`expected_head=${head}`));
+  // A self-change skip keeps the trust-boundary focus, which is what it lost.
+  assert.match(f.summary(), /focus=Review the workflow trust boundary/);
   assert.ok(f.calls.some((call) => call[0] === 'pr' && call[1] === 'comment'));
 });
 
@@ -117,7 +119,11 @@ test('an automatic fork-head PR is refused instead of silently reviewed', (t) =>
   assert.equal(reportReview(f), 1);
   assert.match(f.summary(), /Claude review skipped/);
   assert.match(f.summary(), /outside the trusted repository/);
+  // The recovery command must request the review this PR actually lost, not the
+  // workflow-trust-boundary focus that only fits a self-change skip.
   assert.match(f.summary(), /gh workflow run claude-code-review.yml/);
+  assert.match(f.summary(), /focus=Review the complete diff/);
+  assert.doesNotMatch(f.summary(), /workflow trust boundary/);
 });
 
 test('a deleted fork head repository cannot pass the trusted-head guard', (t) => {

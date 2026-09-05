@@ -40,8 +40,16 @@ function assertCurrent(pr, request) {
   }
 }
 
+// Each skip reason loses a different review, so the recovery command has to ask
+// for the one that was actually withheld. A self-change skip wants the trust
+// boundary; an untrusted-head skip wants the ordinary whole-diff review it lost.
+const WORKFLOW_TRUST_FOCUS = 'Review the workflow trust boundary and its exact diff';
+const FULL_DIFF_FOCUS =
+  'Review the complete diff: code quality, bugs, security, and performance, with specific file/line findings';
+
 function dispatchCommand(request) {
-  return `gh workflow run claude-code-review.yml --repo ${request.repository} --ref ${request.defaultBranch} -f pr_number=${request.number} -f expected_head=${request.head} -f 'focus=Review the workflow trust boundary and its exact diff'`;
+  const focus = request.dispatchFocus ?? WORKFLOW_TRUST_FOCUS;
+  return `gh workflow run claude-code-review.yml --repo ${request.repository} --ref ${request.defaultBranch} -f pr_number=${request.number} -f expected_head=${request.head} -f 'focus=${focus}'`;
 }
 
 /** Prepare trusted orchestration and a read-only diff snapshot; never check out PR code. */
@@ -111,6 +119,7 @@ export function prepareReview({
     // leaving `repo` null — is refused visibly rather than reviewed on trust.
     if (!targeted && pr.head.repo?.full_name !== request.repository) {
       request.disposition = 'skipped';
+      request.dispatchFocus = FULL_DIFF_FOCUS;
       request.reason =
         'Automatic Claude review did not run because this PR head is outside the trusted repository. A maintainer who has read the diff can request coverage using the trusted default-branch workflow.';
       return 0;
@@ -134,6 +143,7 @@ export function prepareReview({
     );
     if (selfChange && !targeted) {
       request.disposition = 'skipped';
+      request.dispatchFocus = WORKFLOW_TRUST_FOCUS;
       request.reason =
         'Automatic Claude review did not run because this PR changes review orchestration. Request an explicit review using the trusted default-branch workflow; the proposed workflow is never executed.';
       return 0;
