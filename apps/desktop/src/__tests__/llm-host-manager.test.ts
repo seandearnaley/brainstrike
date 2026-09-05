@@ -76,13 +76,14 @@ vi.mock('electron', () => ({
 }));
 
 const loggerWarnMock = vi.hoisted(() => vi.fn());
+const loggerDebugMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({
-      debug: vi.fn(),
+      debug: loggerDebugMock,
       error: vi.fn(),
       fatal: vi.fn(),
       info: vi.fn(),
@@ -179,9 +180,13 @@ describe('LlmHostManager', () => {
     currentLifecycleStatus.state = 'running';
     mockHostWindow.isDestroyed.mockReturnValue(false);
     mockHostWindow.webContents.send.mockReset();
+    // Shared across every logger in the module graph (manager + channel), so a
+    // stale call from an earlier test would otherwise satisfy a later one.
+    loggerWarnMock.mockClear();
+    loggerDebugMock.mockClear();
   });
 
-  it('logs a late response at warn instead of dropping it silently', async () => {
+  it('logs a late response for an abandoned request at debug, not warn', async () => {
     const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(99);
 
@@ -208,10 +213,66 @@ describe('LlmHostManager', () => {
       type: 'result',
     });
 
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ requestId: '99:req-late' })
+    // The manager itself abandoned this id when it timed out, so the host
+    // answering a cancel already in flight is expected, not a fault.
+    expect(loggerDebugMock).toHaveBeenCalledWith('Llm host answered an abandoned request', {
+      requestId: '99:req-late',
+    });
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('no longer pending'),
+      expect.anything()
     );
+  });
+
+  it('warns for a response whose id this manager never abandoned', async () => {
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
+
+    manager.acceptResponseReport(71, {
+      channel: 'llm-result',
+      payload: { result: { text: 'nobody asked' } },
+      requestId: '99:req-unknown',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
+    });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Llm host response arrived for a request that is no longer pending',
+      { requestId: '99:req-unknown' }
+    );
+  });
+
+  it('does not warn per frame when progress trails an abandoned request', async () => {
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
+    const requester = createRequester(99);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'req-trailing',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const observedRejection = requestPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+    await expect(observedRejection).resolves.toBeInstanceOf(Error);
+    loggerWarnMock.mockClear();
+
+    // A streaming host has frames in flight when it is cancelled; one
+    // cancellation must not become a burst of warnings.
+    for (let index = 0; index < 5; index += 1) {
+      manager.acceptResponseReport(71, {
+        channel: 'llm-progress',
+        payload: { kind: 'generation', text: `token-${index}` },
+        requestId: '99:req-trailing',
+        runtimeId: 'llm-host-runtime',
+        type: 'progress',
+      });
+    }
+
+    expect(loggerWarnMock).not.toHaveBeenCalled();
   });
 
   it('extends request lifetime while llm-host progress reports are still arriving', async () => {

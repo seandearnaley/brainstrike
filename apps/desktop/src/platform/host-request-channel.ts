@@ -304,6 +304,20 @@ export function createHostRequestChannel<TRequest, TResponse>(
     const requestId = options.responseId(response);
     const entry = pending.get(requestId);
     if (!entry) {
+      if (options.isProgress?.(response)) {
+        // Trailing progress after the request left the map is expected, not a
+        // correlation fault: a streaming host has frames in flight when it is
+        // cancelled or times out, and it keeps emitting until the cancel
+        // reaches it. Warning per frame would turn one cancellation into a
+        // burst, so this never reaches `onLateResponse` — that hook is for
+        // terminal responses, which is what an adapter's abandoned-request
+        // ledger reasons about.
+        logger.debug(`${role} progress arrived for a request that is no longer pending`, {
+          requestId,
+          role,
+        });
+        return;
+      }
       if (options.onLateResponse) {
         try {
           options.onLateResponse(requestId, response);

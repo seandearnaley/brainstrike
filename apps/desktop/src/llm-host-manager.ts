@@ -144,7 +144,16 @@ function clientForMain(options: LlmHostMainRequestOptions): LlmHostRequestClient
       const handler = (): void => {
         controller.abort(createRequestFailure(`Llm host request ${requestId} was aborted.`));
       };
-      signal.addEventListener('abort', handler, { once: true });
+      if (signal.aborted) {
+        // `addEventListener` never fires for a signal that is already aborted.
+        // `assertMainRequestNotAborted` rejects the common case before
+        // dispatch, so this closes the window between that check and this
+        // registration: without it the derived signal would start un-aborted
+        // and the request would run to the generate timeout.
+        handler();
+      } else {
+        signal.addEventListener('abort', handler, { once: true });
+      }
       return {
         release: () => {
           signal.removeEventListener('abort', handler);
@@ -160,6 +169,9 @@ interface PreCancelledRequestCleanup {
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
+/** Abandoned ids retained while their host answer may still arrive. */
+const MAX_ABANDONED_REQUEST_IDS = 64;
+
 function createRequestFailure(message: string, code?: string): Error {
   const error = new Error(message);
   if (code) {
@@ -173,6 +185,12 @@ export class LlmHostManager {
   private readonly lifecycle: RendererHostLifecycle<LlmHostStatus>;
   private readonly preCancelledRequestCleanups = new Map<string, PreCancelledRequestCleanup>();
   private readonly preCancelledRequestIds = new Set<string>();
+  /**
+   * Ids this manager abandoned (abort or timeout) whose host answer may still
+   * be in flight. Bounded and oldest-evicted: a late report that never arrives
+   * must not retain an id forever.
+   */
+  private readonly abandonedRequestIds = new Set<string>();
   private readonly requests: HostRequestChannel<LlmHostRequest, LlmHostResponseReport>;
   private controlState: RuntimeHostControlState | null = null;
   private engineResetInFlight = false;
@@ -181,12 +199,27 @@ export class LlmHostManager {
     this.requests = createHostRequestChannel<LlmHostRequest, LlmHostResponseReport>({
       isProgress: (report) => report.type === 'progress',
       onAbort: (_request, { reason, requestId }) => {
+        this.rememberAbandonedRequest(requestId);
         this.tryCancelHostRequest(requestId, undefined, 'requester destruction');
         return reason instanceof Error
           ? reason
           : createRequestFailure(`Llm host request ${requestId} was aborted.`);
       },
+      onLateResponse: (requestId) => {
+        // A terminal report for a request this manager itself abandoned is the
+        // host answering a cancel that was already in flight — expected, and
+        // routine when a user presses stop. Only an id we never abandoned is
+        // an actual correlation fault.
+        if (this.abandonedRequestIds.delete(requestId)) {
+          logger.debug('Llm host answered an abandoned request', { requestId });
+          return;
+        }
+        logger.warn('Llm host response arrived for a request that is no longer pending', {
+          requestId,
+        });
+      },
       onTimeout: (_request, { progressCount, requestId }) => {
+        this.rememberAbandonedRequest(requestId);
         // The timeout is an INACTIVITY window, not a wall-clock ceiling: each
         // progress report (download %, text/reasoning snapshots) proves the
         // host is alive and re-arms the deadline. A wedged host goes silent
@@ -361,6 +394,7 @@ export class LlmHostManager {
     }
     this.preCancelledRequestCleanups.clear();
     this.preCancelledRequestIds.clear();
+    this.abandonedRequestIds.clear();
   }
 
   acceptStatusReport(senderId: number, report: LlmHostStatusReport): void {
@@ -608,6 +642,17 @@ export class LlmHostManager {
       );
     }
     return `${requesterPrefix}${trimmedRequestId}`;
+  }
+
+  private rememberAbandonedRequest(requestId: string): void {
+    this.abandonedRequestIds.add(requestId);
+    while (this.abandonedRequestIds.size > MAX_ABANDONED_REQUEST_IDS) {
+      const oldest = this.abandonedRequestIds.values().next();
+      if (oldest.done) {
+        return;
+      }
+      this.abandonedRequestIds.delete(oldest.value);
+    }
   }
 
   private clearPreCancelledRequest(requestId: string): boolean {

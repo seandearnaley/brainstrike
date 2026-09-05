@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 interface EmbeddingLifecycleStatus {
   active: boolean;
@@ -684,8 +684,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('logs a late query embedding response at warn instead of dropping it silently', async () => {
-    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/logging');
-    setLogLevel(LogLevel.WARN);
+    // No `setLogLevel` here: the level is process-wide with no getter to
+    // restore it, and the ambient level already emits warn records. The
+    // listener does the filtering, and it is unregistered on test finish so it
+    // cannot leak into the rest of the run.
+    const { addLogListener } = await import('@brainstrike/logging');
     const warnedRequestIds: unknown[] = [];
     const removeLogListener = addLogListener((entry) => {
       if (entry.level !== 'warn') {
@@ -697,6 +700,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         }
       }
     });
+    onTestFinished(removeLogListener);
     const manager = new EmbeddingHostManager();
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
@@ -721,18 +725,14 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     await expect(observedRejection).resolves.toBeInstanceOf(Error);
     warnedRequestIds.length = 0;
 
-    try {
-      manager.acceptQueryEmbeddingResponseReport(91, {
-        channel: 'query-embedding-result',
-        payload: { embedding: [0.1, 0.2] },
-        requestId: request.requestId,
-        runtimeId: request.runtimeId,
-        type: 'result',
-      });
-      expect(warnedRequestIds).toContain(request.requestId);
-    } finally {
-      removeLogListener();
-    }
+    manager.acceptQueryEmbeddingResponseReport(91, {
+      channel: 'query-embedding-result',
+      payload: { embedding: [0.1, 0.2] },
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+      type: 'result',
+    });
+    expect(warnedRequestIds).toContain(request.requestId);
   });
 
   it('preserves the original error cause when sending a query embedding request fails', async () => {
