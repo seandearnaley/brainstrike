@@ -54,7 +54,7 @@ function StatusGlyphs({ status }: { readonly status: WorktreeCheckoutStatusState
   }
   if (status.kind === 'error') {
     return (
-      <span className="break-words text-destructive text-xs">
+      <span className="min-w-0 max-w-full break-words text-destructive text-xs">
         status unavailable: {status.message}
       </span>
     );
@@ -181,7 +181,7 @@ export function WorktreeMapCard({
   return (
     <article
       aria-label={entry.name}
-      className="grid min-w-0 @min-[480px]/worktrees:grid-cols-2 @min-[760px]/worktrees:grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem] grid-cols-1 items-center gap-3 border-l-2 border-l-transparent bg-card px-3 py-3 transition-colors focus-within:bg-accent/30 hover:bg-accent/30 data-[current=true]:border-l-primary data-[current=true]:bg-primary/5"
+      className="grid min-w-0 @min-[600px]/worktrees:grid-cols-2 @min-[760px]/worktrees:grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem] grid-cols-1 items-center gap-3 border-l-2 border-l-transparent bg-card px-3 py-3 transition-colors focus-within:bg-accent/30 hover:bg-accent/30 data-[current=true]:border-l-primary data-[current=true]:bg-primary/5"
       data-current={onHandOffToLocal ? 'true' : undefined}
       data-testid="worktree-map-card"
     >
@@ -213,7 +213,7 @@ export function WorktreeMapCard({
         </p>
         {card.disabledReason ? (
           <p
-            className={`mt-1 break-words text-xs ${entry.primary ? 'text-muted-foreground' : 'text-destructive'}`}
+            className="mt-1 break-words text-muted-foreground text-xs"
             data-testid="worktree-map-disabled-reason"
           >
             {card.disabledReason}

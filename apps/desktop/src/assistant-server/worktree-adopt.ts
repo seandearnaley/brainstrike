@@ -713,7 +713,7 @@ function resolveUsability(
   }
   if (row === null && descriptor.containment !== 'outside-roots') {
     return {
-      disabledReason: 'Created outside BrainStrike — adopting it is coming with the Worktree Map.',
+      disabledReason: 'Use Worktrees → Adopt to manage this checkout.',
       remedy: null,
       usable: false,
     };
