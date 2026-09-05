@@ -2855,6 +2855,22 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
   without re-measuring both.
 
+Local dependency audit: run `pnpm knip` from the repository root after installing
+dependencies. The command builds `@brainstrike/platform-utils` and
+`@brainstrike/build-utils` through the bounded Turbo wrapper before Knip loads
+the Vite/Playwright configs, so absent
+`dist/` directories need no manual preparation; a failed build stops the audit,
+and an audit failure remains nonzero. `scripts/__tests__/knip-workflow.test.mjs`
+exercises that command ordering and both failure paths. The web-only
+`@brainstrike/mcp-app-host-ui` ignore documents its real CSS `@import`, which the
+workspace's TS/TSX project glob does not follow. Installed Knip 6.32.2 rejects
+workspace-level `rules` (including `exports: "warn"`), so the BST-1642 trial for
+`types`, `utils`, `logging`, `tokenization`, and `worker-runtime` has no warning
+counts; keep existing global severities until a version supporting scoped rules
+is deliberately adopted. App category registration is tested through each app's
+rendered settings navigation; settings-ui tests must not read either app's source
+without declaring those cross-package inputs in Turbo.
+
 Local: `pnpm run react-doctor` (lint-enabled full scan, telemetry off via config) ·
 `pnpm exec react-doctor . --no-supply-chain --scope full --json --no-cache` (fresh machine report) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·

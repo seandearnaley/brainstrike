@@ -102,6 +102,20 @@ describe('Web SettingsPageContent', () => {
     expect(screen.getByText(/No settings matched "missing"/i)).toBeInTheDocument();
   });
 
+  test('registers the Provider Hub without a separate API Keys category', async () => {
+    renderPage();
+
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    expect(within(nav).queryByRole('button', { name: /^API Keys$/i })).not.toBeInTheDocument();
+    const providersButton = within(nav).getByRole('button', { name: /^Providers$/i });
+    expect(within(nav).getAllByRole('button', { name: /^Providers$/i })).toHaveLength(1);
+    fireEvent.click(providersButton);
+
+    expect(window.location.hash).toBe('#settings/providers');
+    expect(await screen.findByTestId('providers-settings')).toBeInTheDocument();
+    expect(await screen.findByTestId('provider-card-openai')).toBeInTheDocument();
+  });
+
   test('renders model selection when the category is selected', async () => {
     renderPage();
 
