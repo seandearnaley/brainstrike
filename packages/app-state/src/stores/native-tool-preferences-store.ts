@@ -2,6 +2,7 @@ import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract/tool-me
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { clearPersistedStorageForTests } from './persist-api';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 type NativeToolStateMap = Record<string, boolean>;
 
@@ -154,6 +155,27 @@ export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>(
       toolStates: {},
     }),
     {
+      /**
+       * BST-1645: the sanitize runs HERE, not in `onRehydrateStorage`.
+       *
+       * `createNativeToolPreferencesStorage().getItem` is synchronous, so
+       * zustand's persist middleware resolves hydration DURING `create(...)` —
+       * while the module-level `useNativeToolPreferencesStore` binding is still
+       * in its temporal dead zone. The old rehydrate callback called
+       * `useNativeToolPreferencesStore.setState` and threw a ReferenceError
+       * that zustand swallowed (it re-invokes the callback with
+       * `state === undefined`, which then returns early), so retired tool ids
+       * persisted at the CURRENT version were never dropped: `migrate` only
+       * runs on a version mismatch. Same bug as #2086; see
+       * `import-settings-store.ts`.
+       */
+      merge: createSanitizedPersistMerge<NativeToolPreferencesStore, NativeToolPreferencesData>(
+        (persistedState) => ({
+          toolStates: sanitizeToolStates(
+            (persistedState as { toolStates?: unknown } | undefined)?.toolStates
+          ),
+        })
+      ),
       migrate: (state) => {
         const snapshot = state as Partial<NativeToolPreferencesStore> | undefined;
         return {
@@ -162,20 +184,6 @@ export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>(
         } satisfies Partial<NativeToolPreferencesStore>;
       },
       name: STORE_NAME,
-      onRehydrateStorage: () => (state) => {
-        if (!state) {
-          return;
-        }
-        const toolStates = sanitizeToolStates(state.toolStates);
-        if (
-          Object.keys(toolStates).length !== Object.keys(state.toolStates).length ||
-          Object.entries(toolStates).some(
-            ([toolId, enabled]) => state.toolStates[toolId] !== enabled
-          )
-        ) {
-          useNativeToolPreferencesStore.setState({ toolStates });
-        }
-      },
       partialize: (store) => ({
         toolStates: store.toolStates,
       }),

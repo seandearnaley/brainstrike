@@ -1,9 +1,15 @@
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { Progress } from '@brainstrike/ui';
 import { Download } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 
 export function GlobalDownloadIndicator() {
-  const { downloadProgress, isDownloading } = useModelRegistryStore();
+  const { downloadProgress, isDownloading } = useModelRegistryStore(
+    useShallow((state) => ({
+      downloadProgress: state.downloadProgress,
+      isDownloading: state.isDownloading,
+    }))
+  );
 
   // Calculate total progress or show the most active one
   // For simplicity, if any is downloading, show the one with highest progress or just the first one

@@ -150,10 +150,14 @@ const stream = await streamMastraAgent(messages, {
 
 ### AI SDK Data Stream Protocol
 
-`@brainstrike/agent` now emits the documented
-[AI SDK Data Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), so
-`@assistant-ui/react-data-stream` can attach directly. The session adapter returns newline-delimited
-`code:JSON` records (e.g. `0:"hello"`, `b:{...}`) with the `x-vercel-ai-data-stream: v1` header.
+`@brainstrike/agent` emits the documented
+[AI SDK Data Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol). The session
+adapter returns newline-delimited `code:JSON` records (e.g. `0:"hello"`, `b:{...}`) with the
+`x-vercel-ai-data-stream: v1` header. The renderer consumes it through assistant-stream's
+`DataStreamDecoder` behind a bespoke `ChatModelAdapter` on `useLocalRuntime`
+(`packages/assistant-ui/src/data-stream-runtime.ts`) — not through
+`@assistant-ui/react-data-stream`, whose runtime owns the chat-model slot and does not support
+human-in-the-loop tools.
 
 ```ts
 import {

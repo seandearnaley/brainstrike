@@ -109,7 +109,6 @@
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
-    "@assistant-ui/react-data-stream": "catalog:",
     "@assistant-ui/react-markdown": "catalog:",
     "@assistant-ui/styles": "catalog:",
     "@babel/core": "catalog:",

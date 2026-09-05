@@ -840,8 +840,8 @@
   `node:` builtin. Keep it that way — a browser-safe subpath that reaches an
   `@ai-sdk` module now drags a Node HTTP stack into the renderer bundle.
   **The v4 `@ai-sdk/provider` line still has TWO copies, not one.** 4.0.7 (the
-  `packages/agent` pin, the three providers, `@ai-sdk/provider-utils@5.0.27`,
-  and `@assistant-ui/react-data-stream`) and 4.0.4 (`@mastra/core@1.57.0`'s
+  `packages/agent` pin, the three providers, and
+  `@ai-sdk/provider-utils@5.0.27`) and 4.0.4 (`@mastra/core@1.57.0`'s
   `@ai-sdk/provider-v7` alias, via `@ai-sdk/provider-utils@5.0.13`). What #2462
   removed was the agent-only THIRD revision — 4.0.2, which the old
   `provider-utils@5.0.5` pulled in — and that third copy was the actual hazard,

@@ -34,7 +34,6 @@ catalog:
   # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
   '@aws-sdk/credential-providers': 3.1111.0
   '@assistant-ui/react': '~0.15.13'
-  '@assistant-ui/react-data-stream': ^0.12.26
   '@assistant-ui/react-markdown': ^0.14.10
   '@assistant-ui/styles': ^0.3.7
   # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
