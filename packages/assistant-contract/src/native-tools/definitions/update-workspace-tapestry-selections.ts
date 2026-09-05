@@ -13,6 +13,11 @@ export const updateWorkspaceTapestrySelections = defineNativeTool({
   description:
     'Create, update, or clear token-aware Tapestry line ranges for selected workspace context files',
   discovery: { family: 'workspace context and tapestry', namespace: 'context' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    updates:
+      'Per-file range updates: each item has path and ranges with startLine/endLine/isActive',
+  },
   id: 'brainstrike.updateWorkspaceTapestrySelections',
   inputSchema: providerCompatibleInputSchema(UpdateWorkspaceTapestrySelectionsInputSchema),
   kind: 'desktop',

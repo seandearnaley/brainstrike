@@ -13,6 +13,11 @@ export const manageCommandSession = defineNativeTool({
   description:
     'Start, write to, stop, or remove a persistent PTY command session in one open workspace root. Pass exactly one typed operation. Use this for servers and interactive commands that must outlive one tool call; use executeCommand for normal bounded commands. Arbitrary execution with no sandbox; requires approval by default',
   discovery: { family: 'command sessions', namespace: 'sessions' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    operation:
+      'Exactly one operation: {action:"start", command, cwd?, cols?, rows?}, {action:"write", sessionId, data}, {action:"stop", sessionId}, or {action:"remove", sessionId}.',
+  },
   id: 'brainstrike.manageCommandSession',
   inputSchema: providerCompatibleInputSchema(ManageCommandSessionInputSchema),
   kind: 'desktop',

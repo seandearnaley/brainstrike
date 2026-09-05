@@ -125,6 +125,13 @@ interface NativeToolDefinitionBase<Id extends string, In extends z.ZodType> {
     readonly family?: DeferredCapabilityFamilyPhrase;
     readonly namespace: NativeToolDiscoveryNamespace;
   };
+  /**
+   * Inspector-only prose per top-level input parameter, NEVER sent to the
+   * model. Use it where a field's wire `.describe()` is absent or terser than
+   * a human reader needs; prose the model should see belongs in `.describe()`.
+   * `toToolSchemaDisplay` throws for a key that names no parameter.
+   */
+  readonly display?: Readonly<Record<string, string>>;
   /** Settled-history posture for the two projection processors (see the type). */
   readonly history?: NativeToolHistoryPosture;
   readonly id: Id;

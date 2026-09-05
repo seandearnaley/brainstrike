@@ -18,6 +18,11 @@ export const lspInspect = defineNativeTool({
   description:
     "LSP (Language Server Protocol) semantic code inspection for TypeScript/JavaScript: the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Give the file path, 1-based line, and `match`: prefer the unique identifier itself (for example `computeTotal`); when it repeats on that line, pass a unique line fragment with exactly one `<<<` immediately before the intended occurrence. Wrong-line identifiers return bounded candidate lines for an explicit retry; ambiguous targets never guess. Read-only; returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available",
   discovery: { family: 'symbol and LSP inspection', namespace: 'semantics' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    match:
+      'Prefer the unique identifier itself, e.g. `computeTotal` (cursor at its first character). If it repeats on the line, use a unique fragment with exactly one `<<<` before the intended occurrence, e.g. `const total = <<<computeTotal(items)`',
+  },
   history: { recencyPrunable: true },
   id: 'brainstrike.lspInspect',
   inputSchema: providerCompatibleInputSchema(LspInspectInputSchema),

@@ -15,6 +15,10 @@ export const submitPlan = defineNativeTool({
   },
   description:
     'Submit a structured implementation plan (title, overview, ordered steps, optional risks/verification) for the user to Approve or Reject. The run PAUSES until they respond; rejection feedback is returned so you can revise and resubmit',
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    steps: 'Ordered implementation steps; each has a title and optional detail.',
+  },
   id: 'brainstrike.submitPlan',
   inputSchema: SubmitPlanInputSchema,
   kind: 'desktop',

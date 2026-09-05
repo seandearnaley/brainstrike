@@ -16,6 +16,12 @@ export const skillSearch = defineNativeTool({
   description:
     'Search across installed skill instructions and reference files by keyword; returns matching skills, sources, and line-scoped snippets. Read-only',
   discovery: { namespace: 'skills' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    query: 'The search query.',
+    skillNames: 'Optional list of skill names to search within.',
+    topK: 'Maximum number of results to return (default 5).',
+  },
   history: { recencyPrunable: true },
   id: 'skill_search',
   // The provider contract `skill-tools.ts` imposes over Mastra's own schema.

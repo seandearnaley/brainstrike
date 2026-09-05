@@ -20,6 +20,11 @@ export const manageTaskList = defineNativeTool({
   description:
     'Record and update a structured plan for the current thread as a task list (whole-list replace). Each task has content (imperative label), activeForm (present-tense in-progress label), and status pending/in_progress/completed. Keep exactly one task in_progress; mark tasks completed as you finish them. The list is re-shown to you every turn and rendered to the user as a progress checklist',
   discovery: { family: 'task lists', namespace: 'workspace' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    tasks:
+      'The full task list to store (whole-list replace). Each item is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. Maximum 50 tasks.',
+  },
   id: 'brainstrike.manageTaskList',
   inputSchema: providerCompatibleInputSchema(ManageTaskListInputSchema),
   kind: 'desktop',

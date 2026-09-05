@@ -20,6 +20,13 @@ export const skillRead = defineNativeTool({
   description:
     'Read a bundled file from an activated skill directory (references/, scripts/, or assets/), optionally sliced by startLine/endLine. Read-only and containment-checked to the skill directory',
   discovery: { namespace: 'skills' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    endLine: 'Ending line number (1-indexed, inclusive); omit to read to the end.',
+    path: 'Path relative to the skill root, e.g. "references/forms.md" or "scripts/fill.py".',
+    skillName: 'The skill name (or directory path when two skills share a name).',
+    startLine: 'Starting line number (1-indexed); omit to read from the beginning.',
+  },
   id: 'skill_read',
   // The provider contract `skill-tools.ts` imposes over Mastra's own schema.
   inputSchema: z.object({

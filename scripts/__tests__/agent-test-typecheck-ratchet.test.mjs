@@ -30,7 +30,7 @@ const testConfigPath = path.join(agentRoot, 'tsconfig.test.json');
  * Ratchet ceiling: the number of LEGACY SOURCE FILES still excluded from the
  * test project. Lower it as files are drained; never raise it.
  */
-const MAX_EXCLUDED_LEGACY_FILES = 69;
+const MAX_EXCLUDED_LEGACY_FILES = 68;
 
 /** Not legacy debt — the ordinary build-output exclusions every project carries. */
 const NON_LEGACY_EXCLUDES = new Set(['dist', 'node_modules']);

@@ -4154,10 +4154,10 @@ active budget. Proofs:
 display, persistence, hooks, and reload, but their Mastra `toModelOutput`
 projections are deterministic line-oriented text. Content mode returns NO
 context lines unless the caller opts in (`contextLines` defaults to 0 —
-BST-1193: searches locate, reads understand; the schema, the browser-safe
-display mirror in `tool-schemas-display-search.ts`, and the tool fallback
-must state the same default, pinned by
-`native-tool-display-schema-parity.spec.ts`). Since BST-1185 those
+BST-1193: searches locate, reads understand; the schema's `.describe()`
+text and the tool fallback must state the same default — the inspector
+display is derived from that schema (`toToolSchemaDisplay`, BST-1646), so
+there is no longer a second mirror to keep in step). Since BST-1185 those
 projections are PATH-GROUPED and happy-path-silent: one file header per file
 (`rootName:path`, root prefix only when the producer's `openRoots` reports
 more than one open folder — the display name is a valid `root` selector, and
@@ -4315,8 +4315,18 @@ per tool, everything else derived.
   (`RECENCY_PRUNABLE_` / `STALE_REPLAYABLE_NATIVE_TOOL_IDS`), and the prompt
   composer's model-facing name map. `defineNativeTool` throws on an
   undeterminable risk bucket, a deferred tool without a namespace, or a
-  critical tool with one. `NATIVE_TOOL_SCHEMAS` is display metadata for UI and
-  documentation only; it is NEVER an execution or provider-schema source.
+  critical tool with one. `NATIVE_TOOL_SCHEMAS` (the settings inspector
+  display, and the built-in local model's tool schema via
+  `toLocalRuntimeInputSchema`) is DERIVED from each definition's
+  `inputSchema` by `native-tools/display.ts` (`toToolSchemaDisplay`, Zod 4
+  `z.toJSONSchema` in `io: 'input'` mode — the same conversion the provider
+  wrapper runs), so parameter names, types, required-ness, enum options,
+  defaults, and bounds cannot drift from the wire. A parameter's prose is its
+  `.describe()` text; a definition's `display` map adds inspector-only prose
+  (never sent to the model) for a field whose wire description is absent or
+  terser than a human reader needs, and a key naming no parameter throws at
+  derivation. `NATIVE_TOOL_SCHEMAS` is NEVER an execution or provider-schema
+  source.
 - `packages/agent/src/tools/schemas.ts` exports `NATIVE_TOOL_INPUT_SCHEMAS`,
   derived from the desktop definitions' `inputSchema` objects (the Zod modules
   themselves live in `packages/assistant-contract/src/native-tools/schemas/`,
@@ -4387,8 +4397,14 @@ generation, required-field preservation, omission at execution, and continued
 input validation; `mcp-runtime-client.spec.ts` pins explicit strict opt-in.
 
 Adding or renaming a native tool is one `defineNativeTool` file (listed once
-in `native-tools/index.ts`) plus its desktop executor entry and, when the tool
-needs prompt guidance, an `instruction` hook on the definition. The catalog's
+in `native-tools/index.ts`) plus one entry in the desktop executor map
+(`apps/desktop/src/assistant-server/native-tool-executors-*.ts`, assembled
+into the exhaustive `NATIVE_TOOL_EXECUTORS` — a definition with no entry, or
+an entry for no definition, is a compile error) and, when the tool needs
+prompt guidance, an `instruction` hook on the definition.
+`buildDesktopAssistantTools` is a fold of `DESKTOP_NATIVE_TOOL_IDS` through
+that map; an entry returns `undefined` when its capability is absent for the
+request (built-in local provider, no artifact reader, no skill resolver). The catalog's
 inline snapshot (`native-tools.test.ts`) is the only hand-listed id set; every
 other registry derives, so there is no stale, missing, or extra key to drift —
 and no fallback alias or partially registered tool.
