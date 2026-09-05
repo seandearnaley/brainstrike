@@ -6,11 +6,11 @@ import {
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import type { z } from 'zod';
-import { ReadToolOutputArtifactCursorInputSchema } from '../mastra/tool-output-artifact-reader';
 import {
   type ProviderCompatibleInputSchema,
   providerCompatibleInputSchema,
 } from './provider-compatible-input';
+import { ReadToolOutputArtifactCursorInputSchema } from './schemas-artifacts';
 import {
   BrowserGetPageTextInputSchema,
   BrowserNavigateInputSchema,

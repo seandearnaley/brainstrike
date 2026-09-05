@@ -156,7 +156,8 @@ Single tool with an `action` discriminated union — `create`, `update`,
 `rewrite`, `list` — persisting versioned Canvas documents
 (`brainstrike_canvas_versions`, migration 082) that the Canvas surface renders
 in the sandboxed CanvasFrame (BST-1173). The Zod schema lives in
-`src/tools/schemas-workspace.ts` (provider envelope is a strict root object
+`packages/assistant-contract/src/native-tools/schemas/schemas-workspace.ts` (re-exported from
+`src/tools/schemas-workspace.ts`) (provider envelope is a strict root object
 delegating to the canonical union; root `oneOf` is rejected by the provider
 contract). Execution lives in `apps/desktop/src/assistant-server/manage-canvas-tool.ts`.
 
@@ -188,7 +189,9 @@ Limitations / invariants:
 Two tools over ONE code path (BST-1392, spec §6.4): both call the SAME
 `WorktreeService` the Worktree Map / Mode chip calls, never `git worktree`
 directly. `listWorktrees` is read-only; `manageWorktree` creates or archives.
-The Zod schemas live in `src/tools/schemas-worktrees.ts`
+The Zod schemas live in
+`packages/assistant-contract/src/native-tools/schemas/schemas-worktrees.ts` (re-exported from
+`src/tools/schemas-worktrees.ts`)
 (`ListWorktreesInputSchema`, `ManageWorktreeInputSchema` — the latter is a
 strict root object with a `superRefine` delegating to a `create`/`archive`
 discriminated union, same shape as `manageCanvas`: a raw discriminated union

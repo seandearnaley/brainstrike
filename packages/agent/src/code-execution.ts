@@ -15,7 +15,25 @@
  * sibling backend, which is the silent-degradation class this seam exists to
  * prevent.
  */
+import {
+  MAX_EXEC_CODE_LENGTH,
+  MAX_EXEC_TIMEOUT_MS,
+  MAX_POLICY_DOMAIN_LENGTH,
+  MAX_POLICY_ENTRIES,
+  policyDomainSchema,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
 import { z } from 'zod';
+
+// The policy domain grammar and its limits live on the browser-safe side of the
+// Mastra boundary (BST-1646) because the run_python INPUT schema needs them;
+// this seam re-exports them so its public API is unchanged.
+export {
+  MAX_EXEC_CODE_LENGTH,
+  MAX_EXEC_TIMEOUT_MS,
+  MAX_POLICY_DOMAIN_LENGTH,
+  MAX_POLICY_ENTRIES,
+  policyDomainSchema,
+};
 
 export const EXEC_LANGUAGES = ['python', 'javascript', 'bash'] as const;
 
@@ -59,17 +77,11 @@ export function parseExecutorKind(value: unknown): ExecutorKind {
 }
 
 export const MAX_POLICY_PATH_LENGTH = 4096;
-export const MAX_POLICY_DOMAIN_LENGTH = 253;
-export const MAX_POLICY_ENTRIES = 256;
-export const MAX_EXEC_CODE_LENGTH = 1_000_000;
-export const MAX_EXEC_TIMEOUT_MS = 600_000;
 export const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;
 
 const POSIX_ABSOLUTE_PATH = /^\//;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/;
 const WINDOWS_UNC_PATH = /^\\\\[^\\/]+[\\/][^\\/]+/;
-const DOMAIN_PATTERN =
-  /^(\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
 
 /**
  * Splits on the separators the path's own platform actually uses. A backslash
@@ -124,28 +136,6 @@ const policyPathSchema = z
   })
   .refine((value) => !pathSegments(value).includes('..'), {
     message: 'must not contain a ".." segment',
-  });
-
-/**
- * A hostname or a `*.example.com` wildcard. A BARE `*` is rejected: an empty
- * `allowedDomains` list meaning "no network" is this policy's safety-critical
- * invariant, and a single wildcard entry would invert it. Unrestricted egress
- * is deliberately not expressible.
- */
-export const policyDomainSchema = z
-  .string()
-  .min(1)
-  .max(MAX_POLICY_DOMAIN_LENGTH)
-  .refine((value) => value.trim().length > 0, { message: 'must not be blank' })
-  .refine((value) => value !== '*', {
-    message: 'a bare "*" wildcard is not expressible; list explicit domains',
-  })
-  .refine((value) => !value.startsWith('*.') || value.slice(2).includes('.'), {
-    message:
-      'a wildcard must name a parent domain of at least two labels (e.g. "*.example.com", not "*.com")',
-  })
-  .refine((value) => DOMAIN_PATTERN.test(value), {
-    message: 'must be a hostname or a "*.example.com" wildcard',
   });
 
 const policyPathListSchema = z.array(policyPathSchema).max(MAX_POLICY_ENTRIES);

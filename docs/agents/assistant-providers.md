@@ -4306,10 +4306,16 @@ boundary:
   `TOOL_DESCRIPTIONS` and `NATIVE_TOOL_DEFAULTS` registries are exact
   `NativeToolId` maps. `NATIVE_TOOL_SCHEMAS` is display metadata for UI and
   documentation only; it is NEVER an execution or provider-schema source.
-- `packages/agent/src/tools/schemas.ts` owns the exact
-  `NATIVE_TOOL_INPUT_SCHEMAS` map from every `DesktopNativeToolId` to its
-  canonical Zod schema. Desktop provider registration and `validateToolInput`
-  reuse those same schema objects. Mastra converts them to provider JSON Schema
+- `packages/assistant-contract/src/native-tools/schemas/` owns the canonical
+  Zod input schemas (BST-1646; they import only `zod` and browser-safe
+  contracts, so they are safe in renderer bundles) and exports them from
+  `@brainstrike/assistant-contract/native-tool-schemas`.
+  `packages/agent/src/tools/schemas.ts` owns the exact
+  `NATIVE_TOOL_INPUT_SCHEMAS` map from every `DesktopNativeToolId` to those
+  schema objects and re-exports them from the historical
+  `packages/agent/src/tools/schemas-*.ts` paths for one release; edit the
+  contract package, never the agent shims. Desktop provider registration and
+  `validateToolInput` reuse those same schema objects. Mastra converts them to provider JSON Schema
   through the Standard Schema input protocol; never reconstruct validation or
   provider schemas from the lossy display metadata.
 - Agent Skills (`skill`/`skill_read`/`skill_search`) remain canonical native ids
@@ -4322,8 +4328,9 @@ boundary:
 Provider-emitted `null` has one fleet-wide meaning for the registered native
 catalog: on an optional or defaulted field it is omission, never a second domain
 value. `providerCompatibleInputSchema` in
-`packages/agent/src/tools/provider-compatible-input.ts` wraps each complete
-registered input once. One immutable traversal of its strict input JSON Schema
+`packages/assistant-contract/src/native-tools/schemas/provider-compatible-input.ts`
+(re-exported by `packages/agent/src/tools/provider-compatible-input.ts`) wraps
+each complete registered input once. One immutable traversal of its strict input JSON Schema
 removes `null` only from declared properties absent from `required`, including
 properties nested in arrays, tuple positions, uniquely const-matched
 `oneOf`/`anyOf` branches, and unions with exactly one structured branch matching

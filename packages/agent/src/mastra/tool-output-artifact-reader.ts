@@ -1,5 +1,13 @@
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
+  ArtifactCursorSchema,
+  ArtifactPageSizeSchema,
+  ArtifactSearchPatternSchema,
+  type ReadToolOutputArtifactCursorInput,
+  ReadToolOutputArtifactCursorInputSchema,
+  requireSearchPatternForFlags,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
+import {
   decodeToolOutputArtifactContent,
   decodeToolOutputArtifactCursor,
   encodeToolOutputArtifactContent,
@@ -9,7 +17,6 @@ import {
   isToolOutputArtifactReference,
   TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES,
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
-  TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES,
   type ToolOutputArtifactPage,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
@@ -42,76 +49,7 @@ const ToolOutputArtifactReferenceSchema = z
   })
   .strict();
 
-const ArtifactPageSizeSchema = z
-  .number()
-  .int()
-  .min(TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES)
-  .max(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES)
-  .optional();
-
-const ArtifactCursorSchema = z
-  .string()
-  .min(1)
-  .max(2048)
-  .refine(isToolOutputArtifactCursor, 'Malformed tool output artifact cursor')
-  .describe('Prior cursor; copy byte-for-byte, never edit or recreate it.');
-
-const ArtifactSearchPatternSchema = z.string().min(1).max(2000);
-
-function requireSearchPatternForFlags(
-  input: {
-    readonly caseSensitive?: boolean | undefined;
-    readonly isRegex?: boolean | undefined;
-    readonly pattern?: string | undefined;
-  },
-  context: z.RefinementCtx
-): void {
-  if (input.pattern === undefined) {
-    for (const field of ['caseSensitive', 'isRegex'] as const) {
-      if (input[field] !== undefined) {
-        context.addIssue({
-          code: 'custom',
-          message: `${field} requires pattern.`,
-          path: [field],
-        });
-      }
-    }
-    return;
-  }
-  if (input.isRegex !== true) {
-    return;
-  }
-  // Fail-fast: mirrors GrepSearchInputSchema's regex refine
-  // (schemas-search.ts) — reject an invalid pattern at parse rather than
-  // deferring the failure to execution (no silent fallback). ReDoS-shape
-  // safety is a separate, execution-time check (assertSafeRegexSource in
-  // createSearchMatcher, matching the shared guard grepSearch's own matcher
-  // uses) since it is about the pattern's SHAPE, not its syntax.
-  try {
-    new RegExp(input.pattern);
-  } catch {
-    context.addIssue({
-      code: 'custom',
-      message: 'pattern is not a valid JavaScript regular expression (isRegex is true)',
-      path: ['pattern'],
-    });
-  }
-}
-
-export const ReadToolOutputArtifactCursorInputSchema = z
-  .object({
-    caseSensitive: z.boolean().optional(),
-    cursor: ArtifactCursorSchema,
-    isRegex: z.boolean().optional(),
-    maxBytes: ArtifactPageSizeSchema,
-    pattern: ArtifactSearchPatternSchema.optional(),
-  })
-  .strict()
-  .superRefine(requireSearchPatternForFlags);
-
-export type ReadToolOutputArtifactCursorInput = z.infer<
-  typeof ReadToolOutputArtifactCursorInputSchema
->;
+export { type ReadToolOutputArtifactCursorInput, ReadToolOutputArtifactCursorInputSchema };
 
 export const ReadToolOutputArtifactInputSchema = z
   .object({
