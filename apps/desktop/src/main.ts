@@ -77,6 +77,7 @@ import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { type SerializedDesktopError, serializeDesktopError } from './desktop-error-serialization';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
+import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import {
   createDesktopFactoryResetHandler,
@@ -107,6 +108,7 @@ import {
   createDesktopDimensionIndexMaintenanceScheduler,
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
+import { resolveBuiltRendererPath } from './dist-root';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
@@ -174,6 +176,10 @@ import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import {
+  configureDesktopIpcSenderFrameAllowlist,
+  createDesktopIpcSenderFrameAllowlist,
+} from './platform/desktop-ipc-sender-frame';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { registerPrivilegedSchemes } from './privileged-schemes';
 import {
@@ -1650,6 +1656,21 @@ if (singleInstanceLockAcquired) {
         isTestMode: e2eTestMode,
       });
       logger.debug('Resolved desktop launch mode', { launchMode });
+
+      // BST-1641: second IPC sender factor. Every `registerAuthorizedInvoke`
+      // channel verifies `event.senderFrame.url` against this allowlist, which
+      // is launch-mode-exact and built from the SAME resolvers the visible
+      // window and hidden hosts load their document from. Installed here —
+      // after the launch mode is known and before any BrowserWindow exists —
+      // so no authorized invoke can ever be evaluated against an unconfigured
+      // (fail-closed) allowlist in production.
+      configureDesktopIpcSenderFrameAllowlist(
+        createDesktopIpcSenderFrameAllowlist({
+          builtRendererPath: resolveBuiltRendererPath(),
+          devRendererUrl: DESKTOP_DEV_RENDERER_URL,
+          launchMode,
+        })
+      );
 
       // Register the root-validated `brainstrike-asset://` protocol now that the
       // app is ready (protocol.handle requires ready). The resolver validates

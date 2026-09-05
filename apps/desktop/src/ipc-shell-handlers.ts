@@ -149,3 +149,5 @@ export function createShellIpcHandlers({
     },
   };
 }
+
+export type ShellIpcHandlers = ReturnType<typeof createShellIpcHandlers>;

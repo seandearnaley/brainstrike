@@ -8,6 +8,15 @@ import {
   recordAssistantAuthIssuance,
 } from './provider-auth/assistant-auth-origin';
 
+const EMBEDDING_HOST_SHARED_SENDER_POLICY = {
+  reason:
+    'Invoked by the visible UI and the embedding-host hidden host (dist/hidden-preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+const VISIBLE_ONLY_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 interface ReloadIntent {
   readonly reason: string;
   readonly source: 'renderer';
@@ -94,13 +103,17 @@ export function registerMainPlatformIpcHandlers({
     }
   );
 
-  registry.registerInvoke('runtime', DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot, () =>
-    getPowerSnapshot()
+  registry.registerUnauthenticatedInvoke(
+    'runtime',
+    DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
+    () => getPowerSnapshot()
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'runtime',
     DESKTOP_PRELOAD_IPC_CHANNELS.runtime.noteReloadIntent,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (event, reason: unknown): Promise<void> => {
       const normalizedReason = normalizeReloadIntentReason(reason);
       const window = getLiveSenderWindow(event.sender);

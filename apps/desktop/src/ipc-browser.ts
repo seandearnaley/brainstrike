@@ -15,34 +15,63 @@ export function registerBrowserIpcHandlers(handlers: BrowserIpcHandlers): () => 
   const registry = createDesktopIpcRegistry({ ipcMain });
   const channels = DESKTOP_IPC_CHANNELS.browser;
 
-  registry.registerInvoke('browser', channels.createTab, (_event, url: unknown) =>
-    handlers.createTab(url)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.createTab,
+    { roles: ['visible-ui'] },
+    (_event, url: unknown) => handlers.createTab(url)
   );
-  registry.registerInvoke('browser', channels.closeTab, (_event, tabId: unknown) =>
-    handlers.closeTab(tabId)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.closeTab,
+    { roles: ['visible-ui'] },
+    (_event, tabId: unknown) => handlers.closeTab(tabId)
   );
-  registry.registerInvoke('browser', channels.selectTab, (_event, tabId: unknown) =>
-    handlers.selectTab(tabId)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.selectTab,
+    { roles: ['visible-ui'] },
+    (_event, tabId: unknown) => handlers.selectTab(tabId)
   );
-  registry.registerInvoke('browser', channels.navigate, (_event, tabId: unknown, url: unknown) =>
-    handlers.navigate(tabId, url)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.navigate,
+    { roles: ['visible-ui'] },
+    (_event, tabId: unknown, url: unknown) => handlers.navigate(tabId, url)
   );
-  registry.registerInvoke('browser', channels.goBack, (_event, tabId: unknown) =>
-    handlers.goBack(tabId)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.goBack,
+    { roles: ['visible-ui'] },
+    (_event, tabId: unknown) => handlers.goBack(tabId)
   );
-  registry.registerInvoke('browser', channels.goForward, (_event, tabId: unknown) =>
-    handlers.goForward(tabId)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.goForward,
+    { roles: ['visible-ui'] },
+    (_event, tabId: unknown) => handlers.goForward(tabId)
   );
-  registry.registerInvoke('browser', channels.reload, (_event, tabId: unknown) =>
-    handlers.reload(tabId)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.reload,
+    { roles: ['visible-ui'] },
+    (_event, tabId: unknown) => handlers.reload(tabId)
   );
-  registry.registerInvoke('browser', channels.setBounds, (_event, rect: unknown) =>
-    handlers.setBounds(rect)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.setBounds,
+    { roles: ['visible-ui'] },
+    (_event, rect: unknown) => handlers.setBounds(rect)
   );
-  registry.registerInvoke('browser', channels.setOccluded, (_event, occluded: unknown) =>
-    handlers.setOccluded(occluded)
+  registry.registerAuthorizedInvoke(
+    'browser',
+    channels.setOccluded,
+    { roles: ['visible-ui'] },
+    (_event, occluded: unknown) => handlers.setOccluded(occluded)
   );
-  registry.registerInvoke('browser', channels.listTabs, () => handlers.listTabs());
+  registry.registerAuthorizedInvoke('browser', channels.listTabs, { roles: ['visible-ui'] }, () =>
+    handlers.listTabs()
+  );
 
   return () => {
     registry.unregisterAll();

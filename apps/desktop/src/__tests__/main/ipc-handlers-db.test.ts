@@ -1,6 +1,7 @@
 import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { getResetTables } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   applyManagedCacheBatchMock,
   browserWindowMock,
@@ -330,7 +331,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:exec');
 
     const result = await handler?.(
-      {} as unknown,
+      createTrustedInvokeEvent(),
       "ALTER TABLE file_records ADD COLUMN label TEXT DEFAULT 'drop'"
     );
 
@@ -343,7 +344,7 @@ describe('database IPC handlers', () => {
   it('db:exec rejects destructive renderer schema SQL before it reaches PGlite', async () => {
     const handler = handlers.get('db:exec');
 
-    await expect(handler?.({} as unknown, 'DROP TABLE file_records')).rejects.toThrow(
+    await expect(handler?.(createTrustedInvokeEvent(), 'DROP TABLE file_records')).rejects.toThrow(
       'db:exec does not permit destructive schema SQL from the renderer.'
     );
 
@@ -442,7 +443,7 @@ describe('database IPC handlers', () => {
     const ret = { done: true };
     mockDb.exec.mockResolvedValue(ret);
 
-    const result = await handler?.({} as unknown, 'CREATE TABLE');
+    const result = await handler?.(createTrustedInvokeEvent(), 'CREATE TABLE');
 
     expect(getDatabaseMock).toHaveBeenCalled();
     expect(mockDb.exec).toHaveBeenCalledWith('CREATE TABLE');
@@ -454,7 +455,7 @@ describe('database IPC handlers', () => {
     const err = new Error('exec fail');
     mockDb.exec.mockRejectedValue(err);
 
-    await expect(handler?.({} as unknown, 'SELECT bad')).rejects.toThrow(err);
+    await expect(handler?.(createTrustedInvokeEvent(), 'SELECT bad')).rejects.toThrow(err);
   });
 
   it('db:managed-cache:apply-batch validates payload and delegates to the DB host', async () => {

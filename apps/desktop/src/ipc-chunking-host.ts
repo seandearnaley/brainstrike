@@ -17,6 +17,11 @@ import {
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-background-runtime-lifecycle-ipc';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): () => void {
   const unregisterLifecycle = registerBackgroundRuntimeLifecycleIpcHandlers({
     assertStatus: assertChunkingHostStatusReport,
@@ -32,15 +37,17 @@ export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): (
   });
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'chunking-host',
     CHUNKING_HOST_CHUNK_FILE_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (event, payload: unknown) =>
       manager.chunkFile(event.sender.id, assertChunkingHostChunkFileRequestPayload(payload))
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'chunking-host',
     CHUNKING_HOST_CHUNK_BATCH_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (event, payload: unknown) =>
       manager.chunkBatch(event.sender.id, assertChunkingHostChunkBatchRequestPayload(payload))
   );

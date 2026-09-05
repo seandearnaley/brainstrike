@@ -35,6 +35,19 @@ import {
   recoverRuntimeDatabaseCorruption,
 } from './runtime-database-corruption';
 
+const ALL_INDEXING_HOSTS_SENDER_POLICY = {
+  reason:
+    'Invoked by the visible UI and the chunking-host and embedding-host hidden hosts (dist/hidden-preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+const VISIBLE_ONLY_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+const EMBEDDING_HOST_SHARED_SENDER_POLICY = {
+  reason:
+    'Invoked by the visible UI and the embedding-host hidden host (dist/hidden-preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 interface DatabaseHostWindowMatcher {
   readonly isHostWindow: (window: BrowserWindow) => boolean;
 }
@@ -530,9 +543,10 @@ export function registerDatabaseIpcHandlers(
     context: string
   ): Promise<T> => await runWithCorruptionRecovery(operation, context, recover);
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.query,
+    ALL_INDEXING_HOSTS_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       sql: string,
@@ -555,9 +569,10 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.exec,
+    { roles: ['embedding-host', 'visible-ui'] },
     async (
       event: IpcMainInvokeEvent,
       sql: string,
@@ -585,9 +600,10 @@ export function registerDatabaseIpcHandlers(
   // transaction lock serializes a concurrent db:query (e.g. the FTS half of a hybrid
   // search) so it can't interleave — the isolation/error-coupling fix that raw
   // BEGIN/COMMIT over separate IPC calls can't provide.
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.transaction,
+    { roles: ['embedding-host', 'visible-ui'] },
     async (
       event: IpcMainInvokeEvent,
       statements: TransactionStatement[],
@@ -610,9 +626,10 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.liveQueryStart,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       payload: LiveQueryPayload,
@@ -677,18 +694,20 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.liveQueryStop,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (_event, id: number) => {
       await cleanupLiveSubscription(Number(id));
       return { success: true };
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.liveQueryRefresh,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       payload: { id: number; offset?: number; limit?: number },
@@ -716,23 +735,37 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.ping, async () => ({
-    message: 'ping',
-    success: true,
-  }));
-
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.diagnostics, async () => {
-    const { getDbHostManager } = await import('../db-host-manager');
-    return await getDbHostManager().getDiagnostics();
-  });
-
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.schedulerSnapshot, async () =>
-    getDesktopDatabaseWorkSchedulerSnapshot()
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.ping,
+    VISIBLE_ONLY_SENDER_POLICY,
+    async () => ({
+      message: 'ping',
+      success: true,
+    })
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.diagnostics,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
+    async () => {
+      const { getDbHostManager } = await import('../db-host-manager');
+      return await getDbHostManager().getDiagnostics();
+    }
+  );
+
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.schedulerSnapshot,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
+    async () => getDesktopDatabaseWorkSchedulerSnapshot()
+  );
+
+  registry.registerUnauthenticatedInvoke(
     'db',
     DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
       const parsedPayload = parseManagedCacheBatchArgs(payload);
       return runScheduledDatabaseWork(
@@ -749,9 +782,10 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
       const parsedPayload = parseManagedCacheInvalidationsArgs(payload);
       return runScheduledDatabaseWork(
@@ -768,9 +802,10 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
       const parsedPayload = parseInsertChunksAndEnqueueEmbeddingJobsArgs(payload);
       return runScheduledDatabaseWork(
@@ -787,30 +822,36 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.test, async () => {
-    try {
-      return await withCorruptionRecovery(async () => {
-        const { getDatabase } = await import('../db-main');
-        const db = await getDatabase();
-        await db.query('SELECT 1');
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.test,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
+    async () => {
+      try {
+        return await withCorruptionRecovery(async () => {
+          const { getDatabase } = await import('../db-main');
+          const db = await getDatabase();
+          await db.query('SELECT 1');
+          return {
+            dbLocation: 'DB Host',
+            message: 'Database connection successful',
+            success: true,
+          };
+        }, 'db:test');
+      } catch (error) {
         return {
           dbLocation: 'DB Host',
-          message: 'Database connection successful',
-          success: true,
+          message: `Database connection failed: ${error instanceof Error ? error.message : String(error)}`,
+          success: false,
         };
-      }, 'db:test');
-    } catch (error) {
-      return {
-        dbLocation: 'DB Host',
-        message: `Database connection failed: ${error instanceof Error ? error.message : String(error)}`,
-        success: false,
-      };
+      }
     }
-  });
+  );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.clearAll,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (_event, confirmationToken?: string) => {
       try {
         if (!confirmationToken || confirmationToken !== 'CONFIRM_CLEAR_DATABASE') {
@@ -984,24 +1025,34 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.resetLocal, async () => {
-    if (options?.onResetLocal) {
-      return options.onResetLocal();
-    }
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.resetLocal,
+    VISIBLE_ONLY_SENDER_POLICY,
+    async () => {
+      if (options?.onResetLocal) {
+        return options.onResetLocal();
+      }
 
-    const { resetLocalDatabase } = await import('../db-main');
-    try {
-      await resetLocalDatabase();
-      return { success: true };
-    } catch (error) {
-      return { message: error instanceof Error ? error.message : String(error), success: false };
+      const { resetLocalDatabase } = await import('../db-main');
+      try {
+        await resetLocalDatabase();
+        return { success: true };
+      } catch (error) {
+        return { message: error instanceof Error ? error.message : String(error), success: false };
+      }
     }
-  });
+  );
 
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.getUserDataPath, async () => {
-    const { getDatabaseDiagnostics } = await import('../db-main');
-    return getDatabaseDiagnostics().dataDir;
-  });
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.getUserDataPath,
+    VISIBLE_ONLY_SENDER_POLICY,
+    async () => {
+      const { getDatabaseDiagnostics } = await import('../db-main');
+      return getDatabaseDiagnostics().dataDir;
+    }
+  );
 
   return () => {
     registry.unregisterAll();

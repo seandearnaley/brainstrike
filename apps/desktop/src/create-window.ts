@@ -13,6 +13,7 @@ import {
   resolveDesktopRendererLaunchMode,
 } from './desktop-launch-mode';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
+import { resolveBuiltRendererPath, resolveDistRoot } from './dist-root';
 import { shouldDenyMcpAppFrameNavigation } from './mcp/apps-frame-navigation';
 import type { DesktopWindowState } from './store-schema';
 import { assignWindowRole, getWindowRole } from './window-role';
@@ -20,10 +21,6 @@ import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-s
 
 const startupLogger = createLogger('CreateWindow');
 
-const resolveDistRoot = (): string => {
-  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
-  return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
-};
 const DEV_RENDERER_ORIGIN = new URL(DESKTOP_DEV_RENDERER_URL).origin;
 
 function isAllowedRendererNavigation(win: BrowserWindow, targetUrl: string): boolean {
@@ -187,7 +184,7 @@ interface LoadRendererOptions {
 
 async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
   const distRoot = resolveDistRoot();
-  const rendererPath = path.join(distRoot, 'renderer/index.html');
+  const rendererPath = resolveBuiltRendererPath();
   const hasBuiltRenderer = fs.existsSync(rendererPath);
   const launchMode = options.launchMode ?? 'built';
 

@@ -5,6 +5,7 @@ import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
+import { resolveBuiltRendererPath, resolveDistRoot } from './dist-root';
 import { waitForWindowClosed } from './window-lifecycle-utils';
 import {
   assignWindowRole,
@@ -54,11 +55,6 @@ interface RendererHostLifecycleOptions<TStatus extends RendererHostStatusShape> 
   readonly role: Exclude<DesktopWindowRole, 'visible-ui'>;
   readonly statusEventName: string;
   readonly timeoutMessage: string;
-}
-
-function resolveDistRoot(): string {
-  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
-  return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
 }
 
 function createLifecycleDisposedError(role: Exclude<DesktopWindowRole, 'visible-ui'>): Error {
@@ -376,7 +372,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       isTestMode: process.env['CI'] === 'true' || process.argv.includes('--test-mode'),
     });
     if (launchMode === 'built' || launchMode === 'test-built') {
-      await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
+      await window.loadFile(resolveBuiltRendererPath(), {
         query: {
           mode: this.options.mode,
           runtimeId,

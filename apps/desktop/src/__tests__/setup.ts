@@ -2,6 +2,15 @@ import '@testing-library/jest-dom';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { vi } from 'vitest';
+import { configureDesktopIpcSenderFrameAllowlist } from '../platform/desktop-ipc-sender-frame';
+import { TEST_DESKTOP_IPC_SENDER_FRAME_ALLOWLIST } from './helpers/desktop-ipc-sender-frame-test-allowlist';
+
+// Install the sender-frame allowlist `registerAuthorizedInvoke` consults
+// (BST-1641). Production configures it from `main.ts` once the launch mode is
+// known; the unit lane pins a deterministic built-renderer allowlist so every
+// authorized-channel test dispatches through the real second factor. Build a
+// trusted event with `createTrustedInvokeEvent` from the same helper.
+configureDesktopIpcSenderFrameAllowlist(TEST_DESKTOP_IPC_SENDER_FRAME_ALLOWLIST);
 
 // Mock Electron for tests that transitively import main-process modules. The
 // harness layers observable IPC and WebContents controls over the inert default

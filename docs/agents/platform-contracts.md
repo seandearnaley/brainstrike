@@ -82,10 +82,76 @@ the persistence to every applicable factory-reset path in the same change.
 Electron preload possession is not an authorization boundary. Sensitive invoke
 handlers use `registerAuthorizedInvoke` from
 `apps/desktop/src/platform/desktop-ipc-registry.ts` and declare a non-empty set
-of server-owned `DesktopWindowRole` values. The registry resolves the sender by
-`event.sender.id` and rejects missing or disallowed roles before the handler
-receives renderer-controlled arguments. Empty and duplicate policies are
-registration errors; unknown senders never inherit `visible-ui`.
+of server-owned `DesktopWindowRole` values. Authorization runs BEFORE the
+handler receives or parses any renderer-controlled argument and has two
+factors (BST-1641):
+
+1. **Sender role** — `event.sender.id` is resolved through `window-role.ts`
+   and rejected unless it maps to a declared role. Empty and duplicate
+   policies are registration errors; unknown senders never inherit
+   `visible-ui`.
+2. **Sender frame** — `event.senderFrame.url` must match the process-wide
+   allowlist in `apps/desktop/src/platform/desktop-ipc-sender-frame.ts`
+   (Electron's "Validate the sender of all IPC messages" checklist item). The
+   allowlist is launch-mode-exact: `built`/`test-built` accept ONLY the
+   `file://` document at `resolveBuiltRendererPath()` (`dist-root.ts`, the
+   same resolver `create-window.ts` and `renderer-host-lifecycle.ts` load
+   from), and `dev-server` accepts ONLY `DESKTOP_DEV_RENDERER_URL`'s origin +
+   pathname — so a packaged app never trusts `http://localhost:38181` and a
+   dev app never trusts a stray `file://` page. Query and fragment are ignored
+   because hidden hosts load the same document as
+   `?mode=<role>&runtimeId=…`; a sibling file or path-prefix spoof
+   (`index.html.evil`) does not match. `main.ts` configures the allowlist once
+   per boot, right after `resolveDesktopRendererLaunchMode` and before any
+   window exists. A `null`/missing `senderFrame` (Electron nulls it after the
+   frame navigated or was destroyed), an off-allowlist URL, and an
+   unconfigured allowlist ALL fail closed with a visible `Desktop IPC
+   <channel> …` error; the renderer-controlled URL is never echoed into the
+   message. `createDesktopIpcRegistry({ senderFrameAllowlist })` injects an
+   allowlist for unit tests; the desktop test setup installs a deterministic
+   one process-wide, and suites that `vi.resetModules()` reinstall it via
+   `reconfigureTestSenderFrameAllowlistAfterModuleReset` (a fresh module
+   instance is unconfigured, i.e. fail-closed — by design, not a test bug).
+
+The unauthenticated verb is deliberately the long one:
+`registerUnauthenticatedInvoke(domain, channel, { reason }, handler)` requires
+a non-empty reason (registration error otherwise) so every opt-out is
+reviewable at the call site; the short `registerInvoke` no longer exists. The
+reason states WHO holds the channel per the preload manifests
+(`dist/preload.js` = `visible-ui`; `dist/hidden-preload.js` = the hidden
+roles) and that a sender-role policy is pending. Channels not exposed by any
+preload manifest cannot be invoked from a renderer at all, so "exposed only by
+the visible-UI preload" is a factual caller set, not an authorization claim.
+
+Sender-authorized domains and their roles (the preload manifests are the
+source of truth for who may hold a channel; `hidden-preload.ts` exposes no
+`fs:*`, `git:*`, `terminal:*`, `shell:*`, `changes:*`, `browser:*`, or
+`command-sessions:*` channel):
+
+| Domain / channels | Roles |
+| --- | --- |
+| `terminal:*` (create/write/resize/destroy), `command-sessions:*` | `visible-ui` |
+| `shell:*` (open-external/open-path/show-item-in-folder) | `visible-ui` |
+| `git:*` (all 15, incl. push/commit/switchBranch) | `visible-ui` |
+| `changes:*` (resolveView/fileDiff/inventory/rewind*) | `visible-ui` |
+| `browser:*` (all 10 pane controls) | `visible-ui` |
+| `fs:*` under `registerFileSystemIpcHandlers` (reads, root grants incl. `fs:addRootByPath`/`fs:requestDirectoryAccess`, `fs:readFileByPath`, `fs:readFileByAbsolutePath`, `fs:removeRoot`) | `visible-ui` |
+| `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234) | `embedding-host`, `visible-ui` |
+| `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `worktrees:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
+| `vector-preferences:read|write|clear` | `embedding-host` (pre-existing; see BST-1380 below) |
+
+Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
+policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
+chunking/embedding hosts), the remaining `db:*` diagnostics/live-query/reset
+channels, `logging:get-preferences` (all four roles), `app:power-snapshot`
+(visible UI + embedding host), `parser-host:parse` (visible UI + chunking
+host), and the visible-UI-only `mcp:*`, `notesVault:*`, `storage:*`/
+`preferences:*`, `fs:watch*`, hooks/skills/forge/user-commands/user-personas/
+clipboard/context-files/file-exports/diagnostics/assistant-checkpoint/
+embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
+controls (`*-host:ensure-started|stop|reset|get-status`, `chunking-host:chunk-*`,
+`llm-host:*`, `embedding-host:query-embedding`). `tools:execute` is the
+unregistered legacy harness (BST-1233).
 
 Provider secrets plus assistant URL/token credentials are visible-UI-only.
 Hidden chunking, embedding, and local-LLM windows use the role-selected
@@ -93,7 +159,20 @@ Hidden chunking, embedding, and local-LLM windows use the role-selected
 This packaging boundary is defense in depth: main-process sender authorization
 must remain even when a preload omits the channel. Add new sensitive invoke
 channels through the authorized registration API and cover both an allowed
-sender and hidden/untracked rejection.
+sender and hidden/untracked rejection. The browser pane host
+(`browser/browser-pane-host.ts`) is sandboxed with NO preload and MCP App
+iframes receive no preload either, so neither can reach `ipcRenderer` at all;
+the sender-frame factor additionally rejects them by URL if that ever changes.
+
+Paired tests: `apps/desktop/src/__tests__/platform/desktop-ipc-registry.test.ts`
+(role rejection, spoofed/null/missing frame rejection with a valid
+`sender.id`, unconfigured-allowlist fail-closed, mandatory reason),
+`desktop-ipc-sender-frame.test.ts` (allowlist matching per launch mode),
+`privileged-ipc-sender-authorization.test.ts` (terminal, command sessions,
+shell, git, changes, browser: allowed visible-UI, hidden, untracked, and
+off-allowlist frame per channel, plus the exact channel set), the `files`
+sweep in `ipc-domains/file-system-ipc.test.ts`, and the `db:exec`/
+`db:transaction` role pair in `ipc-domains/db-ipc.test.ts`.
 
 Narrowing a manifest can silently REMOVE a capability a hidden host still
 depends on. BST-1235 dropped `electronAPI.storage` from the hidden hosts, and

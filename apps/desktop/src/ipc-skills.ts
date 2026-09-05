@@ -3,6 +3,11 @@ import { createSkillsScanHandler } from './ipc-skills-handlers';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 /**
  * Registers the Agent Skills scan IPC (desktop-only). The Settings → Skills
  * panel and the composer's "/" menu call `scan` to list every discovered
@@ -12,7 +17,12 @@ export function registerSkillsIpcHandlers(): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const scanSkillsHandler = createSkillsScanHandler();
 
-  registry.registerInvoke('skills', DESKTOP_IPC_CHANNELS.skills.scan, () => scanSkillsHandler());
+  registry.registerUnauthenticatedInvoke(
+    'skills',
+    DESKTOP_IPC_CHANNELS.skills.scan,
+    UNAUTHENTICATED_SENDER_POLICY,
+    () => scanSkillsHandler()
+  );
 
   return () => {
     registry.unregisterAll();

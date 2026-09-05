@@ -7,6 +7,11 @@ import { ipcMain } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 const logger = createLogger('DesktopIpcRuntime');
 
 /**
@@ -242,23 +247,26 @@ function validateModelId(value: unknown): string {
 export function registerRuntimeIpcHandlers(): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'runtime',
     RUNTIME_PROBE_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, runtimeId: unknown, rawOptions: unknown) =>
       await getBridge().probe(validateRuntimeId(runtimeId), normaliseProbeOptions(rawOptions))
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'runtime',
     RUNTIME_LIST_MODELS_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, runtimeId: unknown, rawOptions: unknown) =>
       await getBridge().listModels(validateRuntimeId(runtimeId), normaliseListOptions(rawOptions))
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'runtime',
     RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, modelId: unknown, rawOptions: unknown) =>
       await getBridge().resolveOllamaCapabilities(
         validateModelId(modelId),
@@ -266,9 +274,10 @@ export function registerRuntimeIpcHandlers(): () => void {
       )
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'runtime',
     RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, runtimeId: unknown, modelId: unknown, rawOptions: unknown) =>
       await getBridge().verifyEmbeddingDimensions(
         validateRuntimeId(runtimeId),

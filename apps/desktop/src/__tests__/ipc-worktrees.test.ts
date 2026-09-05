@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerWorktreesIpcHandlers } from '../ipc-worktrees';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import type { WorktreesIpcHandlers } from '../worktrees-ipc-handlers';
+import { createAllowlistedSenderFrame } from './helpers/desktop-ipc-sender-frame-test-allowlist';
 
 const getWindowRoleByWebContentsIdMock = vi.hoisted(() => vi.fn());
 
@@ -87,7 +88,7 @@ describe('registerWorktreesIpcHandlers', () => {
       vi.mocked(handlers.setSettings).mockClear();
     };
 
-    const visibleEvent = { sender: { id: 8101 } };
+    const visibleEvent = { sender: { id: 8101 }, senderFrame: createAllowlistedSenderFrame() };
     const adoptPayload = { createdBy: 'user', path: '/repo/wt' };
     await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.adopt)(visibleEvent, adoptPayload);
     expect(handlers.adopt).toHaveBeenCalledWith(adoptPayload);
@@ -270,7 +271,7 @@ describe('registerWorktreesIpcHandlers', () => {
     registerWorktreesIpcHandlers(handlers);
 
     const handleMock = ipcMain.handle as unknown as ReturnType<typeof vi.fn>;
-    const event = { sender: { id: 8102 } };
+    const event = { sender: { id: 8102 }, senderFrame: createAllowlistedSenderFrame() };
     for (const channel of ALL_WORKTREE_CHANNELS) {
       const registeredHandler = handleMock.mock.calls.find(
         ([registered]) => registered === channel

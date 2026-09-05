@@ -1,6 +1,10 @@
 import { buildAssistantThreadRunsSchemaSql } from '@brainstrike/assistant-data';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createAllowlistedSenderFrame,
+  createTrustedInvokeEvent,
+} from '../helpers/desktop-ipc-sender-test-helpers';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -142,7 +146,7 @@ describe('database IPC domain', () => {
       handlers.get('db:query')?.({} as IpcMainInvokeEvent, 'SELECT\0 1')
     ).rejects.toThrow('db:query SQL must not contain null bytes.');
 
-    await expect(handlers.get('db:exec')?.({} as IpcMainInvokeEvent, '')).rejects.toThrow(
+    await expect(handlers.get('db:exec')?.(createTrustedInvokeEvent(), '')).rejects.toThrow(
       'db:exec SQL must be a non-empty string.'
     );
   });
@@ -153,16 +157,16 @@ describe('database IPC domain', () => {
     ).rejects.toThrow('db:query does not permit destructive schema SQL from the renderer.');
 
     await expect(
-      handlers.get('db:exec')?.({} as IpcMainInvokeEvent, 'DROP TABLE file_records')
+      handlers.get('db:exec')?.(createTrustedInvokeEvent(), 'DROP TABLE file_records')
     ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
 
     await expect(
-      handlers.get('db:exec')?.({} as IpcMainInvokeEvent, 'DROP TYPE file_record_kind')
+      handlers.get('db:exec')?.(createTrustedInvokeEvent(), 'DROP TYPE file_record_kind')
     ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
 
     await expect(
       handlers.get('db:exec')?.(
-        {} as IpcMainInvokeEvent,
+        createTrustedInvokeEvent(),
         'ALTER TABLE file_records DROP COLUMN path'
       )
     ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
@@ -179,20 +183,20 @@ describe('database IPC domain', () => {
 
   it('validates the db:transaction statement list and guards each statement SQL', async () => {
     // Empty / non-array statement list is rejected before any DB work.
-    await expect(handlers.get('db:transaction')?.({} as IpcMainInvokeEvent, [])).rejects.toThrow(
+    await expect(handlers.get('db:transaction')?.(createTrustedInvokeEvent(), [])).rejects.toThrow(
       'db:transaction requires a non-empty statements array.'
     );
 
     // Every statement's SQL passes through the same assertRendererSql guard as db:query.
     await expect(
-      handlers.get('db:transaction')?.({} as IpcMainInvokeEvent, [
+      handlers.get('db:transaction')?.(createTrustedInvokeEvent(), [
         { sql: "SET LOCAL hnsw.ef_search = '1'" },
         { sql: 'SELECT\0 1' },
       ])
     ).rejects.toThrow('db:transaction SQL must not contain null bytes.');
 
     await expect(
-      handlers.get('db:transaction')?.({} as IpcMainInvokeEvent, [
+      handlers.get('db:transaction')?.(createTrustedInvokeEvent(), [
         { sql: 'DROP TABLE file_records' },
       ])
     ).rejects.toThrow('db:transaction does not permit destructive schema SQL from the renderer.');
@@ -200,7 +204,7 @@ describe('database IPC domain', () => {
 
   it('runs db:transaction statements through a single main-process transaction', async () => {
     const result = await handlers.get('db:transaction')?.(
-      {} as IpcMainInvokeEvent,
+      createTrustedInvokeEvent(),
       [
         { sql: "SET LOCAL hnsw.ef_search = '120'" },
         { params: ['set-1'], sql: 'SELECT id FROM file_chunks WHERE embedding_set_id = $1' },
@@ -285,5 +289,50 @@ describe('database IPC domain', () => {
     ).rejects.toThrow('Atomic chunk/job enqueue requires a positive targetDimension.');
 
     expect(dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs).not.toHaveBeenCalled();
+  });
+
+  // BST-1641: raw SQL entry points are sender-authorized for exactly the roles
+  // that hold `electronAPI.db.exec` / `runTransaction` in a preload manifest —
+  // the embedding host and the visible UI. Reaching the SQL guard proves the
+  // handler ran; the chunking/llm hosts and untracked senders never get there.
+  describe('sender authorization', () => {
+    const CASES = [
+      ['db:exec', [''], 'db:exec SQL must be a non-empty string.'],
+      ['db:transaction', [[]], 'db:transaction requires a non-empty statements array.'],
+    ] as const;
+
+    it.each(CASES)(
+      '%s accepts the embedding host and the visible UI',
+      async (channel, args, guard) => {
+        await expect(
+          handlers.get(channel)?.(createTrustedInvokeEvent('embedding-host'), ...args)
+        ).rejects.toThrow(guard);
+        await expect(
+          handlers.get(channel)?.(createTrustedInvokeEvent('visible-ui'), ...args)
+        ).rejects.toThrow(guard);
+      }
+    );
+
+    it.each(CASES)(
+      '%s rejects the chunking host, the llm host, and an untracked sender',
+      async (channel, args) => {
+        const rejection = `Desktop IPC ${channel} requires sender role embedding-host, visible-ui.`;
+        await expect(
+          handlers.get(channel)?.(createTrustedInvokeEvent('chunking-host'), ...args)
+        ).rejects.toThrow(rejection);
+        await expect(
+          handlers.get(channel)?.(createTrustedInvokeEvent('llm-host'), ...args)
+        ).rejects.toThrow(rejection);
+        await expect(
+          handlers.get(channel)?.(
+            {
+              sender: { id: 777_001 },
+              senderFrame: createAllowlistedSenderFrame(),
+            } as unknown as IpcMainInvokeEvent,
+            ...args
+          )
+        ).rejects.toThrow(rejection);
+      }
+    );
   });
 });
