@@ -261,7 +261,11 @@ describe('Desktop SettingsPageContent', () => {
     // BST-1358 replaced "API Keys" + "Models & Providers" with one surface.
     expect(within(nav).queryByRole('button', { name: /^API Keys$/i })).not.toBeInTheDocument();
 
-    fireEvent.click(await within(nav).findByRole('button', { name: /^Providers$/i }));
+    // findByRole throws on multiple matches, so this also guards against a duplicate registration.
+    const providersButton = await within(nav).findByRole('button', { name: /^Providers$/i });
+    fireEvent.click(providersButton);
+
+    expect(window.location.hash).toBe('#settings/providers');
 
     expect(await screen.findByTestId('providers-settings')).toBeInTheDocument();
     // Cards are grouped by provider runtime, exactly as the model picker groups.
