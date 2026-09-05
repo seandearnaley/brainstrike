@@ -85,7 +85,7 @@ function ActivityDoneLabel({
       {elapsedLabel && !failed ? (
         <span className="bs-activity-summary-meta">for {elapsedLabel}</span>
       ) : null}
-      <span className="bs-activity-summary-meta">· {stepLabel}</span>
+      {stepLabel ? <span className="bs-activity-summary-meta">· {stepLabel}</span> : null}
     </span>
   );
 }
@@ -110,7 +110,10 @@ export function AssistantActivityGroup({
   const expanded = userExpanded ?? isActive;
   const failed = !isActive && summary.failedCount > 0;
   const elapsedLabel = elapsedMs === undefined ? null : formatActivityDuration(elapsedMs);
-  const stepLabel = `${summary.stepCount} ${summary.stepCount === 1 ? 'step' : 'steps'}`;
+  const stepLabel =
+    summary.stepCount > 0
+      ? `${summary.stepCount} ${summary.stepCount === 1 ? 'step' : 'steps'}`
+      : '';
   const ChevronIcon = expanded ? ChevronUp : ChevronDown;
 
   return (
