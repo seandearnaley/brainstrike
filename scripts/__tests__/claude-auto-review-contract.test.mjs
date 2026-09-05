@@ -20,8 +20,11 @@ test('review authenticates without the App exchange that rejects pull_request_ta
   // token (anthropics/claude-code-action#713), so the App path cannot run here.
   // The action must receive the workflow's own token and nothing broader, and
   // the now-unusable OIDC grant must stay off the job.
-  assert.match(workflow, /github_token: \$\{\{ github.token \}\}/);
-  assert.doesNotMatch(workflow, /github_token: \$\{\{ secrets\./);
+  // Assert every occurrence, not just that one good one exists: a second
+  // `github_token:` from any other source would otherwise reopen the App path.
+  const tokenInputs = workflow.match(/github_token:.*/g) ?? [];
+  assert.equal(tokenInputs.length, 1);
+  assert.match(tokenInputs[0], /^github_token: \$\{\{ github\.token \}\}$/);
   assert.doesNotMatch(workflow, /id-token:/);
 });
 

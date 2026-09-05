@@ -57,7 +57,7 @@ jobs:
           # circuits that exchange before it is attempted. Nothing here needs an
           # App identity: the model runs with zero tools and never reaches
           # GitHub, and the trusted reporter below publishes with github.token.
-          # The actor check this bypasses is re-implemented, more strictly, by
+          # The actor check this bypasses is re-implemented in trusted code by
           # the same-repository head guard in scripts/claude-review.mjs.
           # Revert both this input and the removed id-token grant if #713 closes.
           github_token: ${{ github.token }}

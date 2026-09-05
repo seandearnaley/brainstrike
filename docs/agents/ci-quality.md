@@ -1049,8 +1049,13 @@ This costs nothing: the model runs with zero tools and never reaches GitHub,
 and the trusted reporter already publishes with `github.token`.
 
 The action's actor permission check goes away with that exchange, so
-preparation re-implements it more strictly: automatic review requires
-`head.repo.full_name` to equal the running repository. A fork head, or a head
+preparation re-implements it in trusted code: automatic review requires
+`head.repo.full_name` to equal the running repository. This is tighter than the
+actor check in nearly every case but is not a strict superset — a former
+collaborator whose in-repo branch still exists can reopen their own PR and pass
+the head guard where an actor check would fail. That residue is acceptable only
+because the model runs with zero tools; do not lean on this guard for anything
+that can act. A fork head, or a head
 whose fork was deleted (`repo` is `null`), receives an explicit **skipped**
 disposition and the targeted dispatch command, so a maintainer who has read the
 diff can request coverage deliberately. Restore the OIDC path — the
@@ -1106,8 +1111,11 @@ failures remain incomplete in the summary and fail the job:
 - **Skipped:** the automatic self-change or untrusted-head guard withheld
   Claude execution.
 - **Incomplete:** preparation/action failure, the 80-turn cap, cancellation,
-  an upstream OIDC skip without a successful conclusion, missing exact-run
-  structured review output, publication failure, or a changed/closed PR invalidates coverage.
+  missing exact-run structured review output, publication failure, or a
+  changed/closed PR invalidates coverage. The reporter's message still names an
+  upstream OIDC skip; that is residual defense only — no OIDC path is live
+  while `github_token` is supplied (see above) — so it must not be read as a
+  reachable cause today.
 - **Completed:** the action explicitly concluded successfully, the
   complete structured output matches the requested head/base/scope, live
   head/base checks still match, and the trusted reporter publishes the actual
