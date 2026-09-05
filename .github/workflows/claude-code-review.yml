@@ -1,8 +1,14 @@
 name: Claude Auto Review
 on:
-  pull_request_target:
-    # One initial whole-PR review. No synchronize-triggered cold review loops.
-    # Never close/reopen solely for review; use the targeted dispatch below.
+  pull_request:
+    # One initial whole-PR review per layer. No synchronize-triggered cold
+    # review loops. Never close/reopen solely for review; use the targeted
+    # dispatch below. pull_request (not pull_request_target) is deliberate:
+    # it runs from the PR merge commit for ANY base branch, so every layer of
+    # a stack is reviewed against its own parent, and drafts are handled by
+    # the job condition. pull_request_target would execute the intermediate
+    # branch's workflow copy for stacked layers, and Anthropic's App token
+    # exchange rejects its OIDC token regardless (claude-code-action#713).
     types: [opened, ready_for_review, reopened]
   workflow_dispatch:
     inputs:
@@ -21,15 +27,22 @@ on:
 
 jobs:
   review:
-    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    # Drafts are reviewed when marked ready, not at open. Targeted dispatch
+    # always runs. The pull_request clause is spelled out because GitHub
+    # expressions coerce `null == false` to true — a bare `draft == false`
+    # would admit any future trigger that lacks a pull_request payload.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) }}
     runs-on: ubicloud-standard-2
     timeout-minutes: 60
     permissions:
       contents: read
       pull-requests: write
     steps:
-      # Both supported events execute default-branch orchestration. Never check
-      # out a PR ref with these credentials, even into a second worktree.
+      # pull_request checks out the event's merge commit (PR head merged into
+      # its base) — PR-authored code, including this file; see the trust model
+      # in docs/agents/ci-quality.md. workflow_dispatch checks out the default
+      # branch. Never check out the PR head separately with these credentials,
+      # even into a second worktree.
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
@@ -50,16 +63,15 @@ jobs:
         uses: anthropics/claude-code-action@d75b94d5ad426cb8546e6628b6f5f19b84e5cce1 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Anthropic's github-app-token-exchange rejects the OIDC token of a
-          # pull_request_target event (401 "Invalid OIDC token"), so the App
-          # exchange cannot mint a token on this trigger at all — see upstream
-          # anthropics/claude-code-action#713. Supplying github_token short-
-          # circuits that exchange before it is attempted. Nothing here needs an
-          # App identity: the model runs with zero tools and never reaches
-          # GitHub, and the trusted reporter below publishes with github.token.
-          # The actor check this bypasses is re-implemented in trusted code by
-          # the same-repository head guard in scripts/claude-review.mjs.
-          # Revert both this input and the removed id-token grant if #713 closes.
+          # Supplying github_token makes the action skip Anthropic's App token
+          # exchange entirely (setupGitHubToken returns OVERRIDE_GITHUB_TOKEN
+          # first), so no event type can trip that endpoint's OIDC allowlist
+          # (claude-code-action#713). Nothing here needs an App identity: the
+          # model runs with zero tools and never reaches GitHub, and the trusted
+          # reporter below publishes with github.token. The action's own
+          # write-permission check still runs on PR events regardless of token
+          # source; the same-repository head guard in scripts/claude-review.mjs
+          # is belt-and-braces on top of it.
           github_token: ${{ github.token }}
           prompt: ${{ steps.request.outputs.prompt }}
           claude_args: ${{ steps.request.outputs.claude_args }}
