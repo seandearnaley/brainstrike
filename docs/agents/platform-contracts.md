@@ -335,6 +335,26 @@ allowlist:
   `ipc-domains/*.contract.ts` registered (push specs never), and every
   registered channel a `DESKTOP_IPC_CHANNELS` literal. A new domain or a
   migrated contract needs no edit there.
+- **`main.ts` lifecycle modules (BST-1648 step 4, bookkeeping only).**
+  `main/disposer-stack.ts` is the ONE holder of IPC-domain disposers: every
+  `registerXIpcHandlers(...)` result is `ipcDisposers.add(label, …)` (no
+  per-domain `let unregisterX` slot), and `will-quit` unwinds the stack LIFO
+  with every throw isolated and logged by label. The ordering that is
+  load-bearing is unchanged: `before-quit` runs `runGracefulShutdown` (the
+  deep module; untouched) and only then re-enters `app.quit()`, so `will-quit`
+  — and the stack — always run AFTER the graceful steps. `unregisterForgeIpc`
+  stays a graceful-shutdown step ('forge', BEFORE 'database') on purpose.
+  A second live entry under one label is a registration error; the browser
+  pane rebinds per window by retiring the previous handle first.
+  `main/logging-preferences.ts` owns the logging-preference STATE (defaults,
+  legacy migration, sanitization, persistence, Settings payload, destination
+  select/open, on-disk verification, app-ready file-logging re-enable);
+  `main.ts` keeps the boot ORDER (createLogger → watchdog → log buffer →
+  `initializeLogging` → `applyInitial`). `main/git-awareness-lifecycle.ts`
+  constructs the ONE git-inventory / forge / worktree services inside
+  `app.whenReady()` and drives the `changes:invalidated` / `forge:prUpdated`
+  pushes; `main.ts` keeps them in the slots `runGracefulShutdown` tears down.
+  Paired: `__tests__/main/{disposer-stack,logging-preferences,git-awareness-lifecycle}.test.ts`.
 
 **Error-envelope ruling (extends the `mcp:content:*` ruling in
 `docs/agents/assistant-providers.md`).** Exactly one failure shape crosses IPC

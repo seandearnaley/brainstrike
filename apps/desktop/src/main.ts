@@ -6,18 +6,12 @@ import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   addLogListener,
-  applyLoggingPreferences,
-  createDefaultLoggingPreferences,
   createLogger,
   type FileTransportConfig,
-  type InitializeLoggingOptions,
   initializeLogging,
   LogBuffer,
-  type LoggingPreferences,
-  LogLevel,
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike/types';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
@@ -30,15 +24,10 @@ import {
 } from './assistant-server/command-session-manager';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
-import { execFileGhRunner } from './assistant-server/forge-gh-client';
-import { createForgeService, type ForgeService } from './assistant-server/forge-service';
-import {
-  createGitInventoryService,
-  type GitInventoryService,
-} from './assistant-server/git-inventory-service';
+import type { ForgeService } from './assistant-server/forge-service';
+import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
-import { recordDesktopAssistantRunEvent } from './assistant-server/run-persistence';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
@@ -46,9 +35,8 @@ import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
 import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-reaper';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { isPathWithin } from './assistant-server/worktree-paths';
-import { createWorktreeService } from './assistant-server/worktree-service';
+import type { createWorktreeService } from './assistant-server/worktree-service';
 import { readWorktreeSettings, writeWorktreeSettings } from './assistant-server/worktree-settings';
-import { runWorktreeSetup } from './assistant-server/worktree-setup';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
@@ -117,8 +105,7 @@ import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
-import { createForgeIpcHandlers, createForgeRepositoryResolver } from './forge-ipc-handlers';
-import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
+import { createDatabaseRootResolver } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerBrowserIpcHandlers } from './ipc-browser';
@@ -133,7 +120,6 @@ import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
-import { registerForgeIpcHandlers } from './ipc-forge';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
@@ -167,12 +153,10 @@ import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerWorktreesIpcHandlers } from './ipc-worktrees';
 import { LlmHostManager } from './llm-host-manager';
-import {
-  cloneLoggingPreferences,
-  cloneLoggingSettingsPayload,
-  registerLoggingIpcHandlers,
-} from './logging-ipc';
-import type { LoggingSettingsPayload } from './logging-shared';
+import { registerLoggingIpcHandlers } from './logging-ipc';
+import { createDisposerStack, type DisposerHandle } from './main/disposer-stack';
+import { startGitAwarenessLifecycle } from './main/git-awareness-lifecycle';
+import { createDesktopLoggingPreferencesController } from './main/logging-preferences';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
@@ -198,7 +182,6 @@ import {
   filterDirectoryOpenCandidates,
 } from './workspace-open-queue';
 import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ipc';
-import { resolveRootCwd } from './workspace-root-cwd';
 import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
 // The running bundled entry's own on-disk path (dist/main.js in every real
@@ -211,8 +194,6 @@ const MAIN_ENTRY_PATH = __filename;
 const desktopEnvLoadResult = getDesktopEnvironmentBootstrapResult();
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
-const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
-const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
   app.commandLine,
@@ -322,268 +303,26 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
 // Note: Embedding worker configuration stays renderer-only via the hidden embedding host window.
 // Main process owns host lifecycle/IPC, but it must not execute local WASM/WebGPU embeddings.
 
-function createDesktopDefaultPreferences(): LoggingPreferences {
-  const logPath = getLogFilePath();
-  return createDefaultLoggingPreferences({
-    consoleLevel: LogLevel.WARN,
-    file: {
-      append: true,
-      destination: logPath ?? null,
-      enabled: !disableFileLogs && Boolean(logPath),
-      level: LogLevel.INFO,
-      mkdir: true,
-    },
-    includeTimestamp: true,
-    level: LogLevel.INFO,
-  });
-}
-
-function createLegacyDesktopDefaultPreferences(): LoggingPreferences {
-  const logPath = getLogFilePath();
-  return createDefaultLoggingPreferences({
-    consoleLevel: LogLevel.INFO,
-    file: {
-      append: true,
-      destination: logPath ?? null,
-      enabled: !disableFileLogs && Boolean(logPath),
-      level: LogLevel.DEBUG,
-      mkdir: true,
-    },
-    includeTimestamp: true,
-    level: LogLevel.DEBUG,
-  });
-}
-
-function areLoggingPreferencesEqual(left: LoggingPreferences, right: LoggingPreferences): boolean {
-  return (
-    left.level === right.level &&
-    left.consoleEnabled === right.consoleEnabled &&
-    left.consoleLevel === right.consoleLevel &&
-    left.includeTimestamp === right.includeTimestamp &&
-    left.file.enabled === right.file.enabled &&
-    left.file.destination === right.file.destination &&
-    left.file.level === right.file.level &&
-    left.file.append === right.file.append &&
-    left.file.mkdir === right.file.mkdir &&
-    left.redactPaths.length === right.redactPaths.length &&
-    left.redactPaths.every((path, index) => path === right.redactPaths[index])
-  );
-}
-
-function migrateStoredLoggingPreferences(stored: LoggingPreferences): LoggingPreferences {
-  const sanitizedStored = sanitizeDesktopPreferences(stored);
-  const legacyDefaults = sanitizeDesktopPreferences(createLegacyDesktopDefaultPreferences());
-  const currentDefaults = createDesktopDefaultPreferences();
-  const debugFileDefaults = sanitizeDesktopPreferences({
-    ...currentDefaults,
-    file: {
-      ...currentDefaults.file,
-      level: LogLevel.DEBUG,
-    },
-    level: LogLevel.DEBUG,
-  });
-  if (
-    areLoggingPreferencesEqual(sanitizedStored, legacyDefaults) ||
-    areLoggingPreferencesEqual(sanitizedStored, debugFileDefaults)
-  ) {
-    return sanitizeDesktopPreferences(createDesktopDefaultPreferences());
-  }
-  return sanitizedStored;
-}
-
-function mergeStoredPreferences(
-  base: LoggingPreferences,
-  stored: LoggingPreferences | undefined
-): LoggingPreferences {
-  if (!stored) {
-    return base;
-  }
-
-  return {
-    ...base,
-    ...stored,
-    file: {
-      ...base.file,
-      ...(stored.file ?? {}),
-    },
-    redactPaths: stored.redactPaths ?? base.redactPaths,
-  };
-}
-
-function sanitizeDesktopPreferences(preferences: LoggingPreferences): LoggingPreferences {
-  const normalized: LoggingPreferences = {
-    ...preferences,
-    file: { ...preferences.file },
-    redactPaths: preferences.redactPaths
-      .map((value) => value.trim())
-      .filter((value) => value.length),
-  };
-
-  const trimmedDestination = normalized.file.destination?.trim() ?? null;
-
-  if (disableFileLogs) {
-    normalized.file.enabled = false;
-    normalized.file.destination = null;
-  } else if (normalized.file.enabled) {
-    normalized.file.destination = trimmedDestination ?? getLogFilePath() ?? null;
-    if (!normalized.file.destination) {
-      normalized.file.enabled = false;
-    } else if (!isWritableLogDestination(normalized.file.destination)) {
-      normalized.file.enabled = false;
-    }
-  } else {
-    normalized.file.destination = trimmedDestination;
-  }
-
-  return normalized;
-}
-
-function readStoredLoggingPreferences(): LoggingPreferences | undefined {
-  try {
-    const store = getSettingsStore();
-    if (!store) {
-      return;
-    }
-    const record = (
-      store as ElectronStore<DesktopSettingsStoreSchema> & {
-        get: (key: string) => unknown;
-      }
-    ).get('loggingPreferences') as DesktopSettingsStoreSchema['loggingPreferences'] | undefined;
-    if (!record?.v1) {
-      return;
-    }
-    return migrateStoredLoggingPreferences(record.v1);
-  } catch {
-    return;
-  }
-}
-
-function isWritableLogDestination(destination: string): boolean {
-  try {
-    const resolved = path.resolve(destination);
-    const directory = path.dirname(resolved);
-    const stats = fs.statSync(directory);
-    if (!stats.isDirectory()) {
-      return false;
-    }
-    fs.accessSync(directory, fs.constants.W_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-interface FileStatSnapshot {
-  mtimeMs: number;
-  size: number;
-}
-
-async function readFileStatSnapshot(filePath: string): Promise<FileStatSnapshot | null> {
-  try {
-    const stats = await fs.promises.stat(filePath);
-    return {
-      mtimeMs: stats.mtimeMs,
-      size: stats.size,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function isWritableLogDestinationAsync(destination: string): Promise<boolean> {
-  try {
-    const resolved = path.resolve(destination);
-    const directory = path.dirname(resolved);
-    const stats = await fs.promises.stat(directory);
-    if (!stats.isDirectory()) {
-      return false;
-    }
-    await fs.promises.access(directory, fs.constants.W_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function sanitizeDesktopPreferencesAsync(
-  preferences: LoggingPreferences
-): Promise<LoggingPreferences> {
-  const normalized: LoggingPreferences = {
-    ...preferences,
-    file: { ...preferences.file },
-    redactPaths: preferences.redactPaths
-      .map((value) => value.trim())
-      .filter((value) => value.length),
-  };
-
-  const trimmedDestination = normalized.file.destination?.trim() ?? null;
-
-  if (disableFileLogs) {
-    normalized.file.enabled = false;
-    normalized.file.destination = null;
-  } else if (normalized.file.enabled) {
-    normalized.file.destination = trimmedDestination ?? getLogFilePath() ?? null;
-    if (!normalized.file.destination) {
-      normalized.file.enabled = false;
-    } else if (!(await isWritableLogDestinationAsync(normalized.file.destination))) {
-      normalized.file.enabled = false;
-    }
-  } else {
-    normalized.file.destination = trimmedDestination;
-  }
-
-  return normalized;
-}
-
-function persistLoggingPreferences(preferences: LoggingPreferences): boolean {
-  try {
-    const store = getSettingsStore();
-    if (!store) {
-      return false;
-    }
-    (
-      store as ElectronStore<DesktopSettingsStoreSchema> & {
-        set: (key: string, value: unknown) => void;
-      }
-    ).set('loggingPreferences', { v1: cloneLoggingPreferences(preferences) });
-    return true;
-  } catch {
-    // Persistence failures should not crash the app; preferences can be reapplied during runtime.
-    return false;
-  }
-}
-
-const defaultPreferences = createDesktopDefaultPreferences();
-const storedPreferences = readStoredLoggingPreferences();
-const initialLoggingPreferences = sanitizeDesktopPreferences(
-  mergeStoredPreferences(defaultPreferences, storedPreferences)
-);
-
-const loggingOptions: InitializeLoggingOptions = {
-  appName: 'brainstrike-desktop',
-  appVersion: app.getVersion(),
-  baseBindings: {
-    arch: process.arch,
-    electron: process.versions.electron,
-    node: process.versions.node,
-    platform: process.platform,
-    ...(initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination
-      ? { logFile: initialLoggingPreferences.file.destination }
-      : {}),
-  },
-  consoleLevel: initialLoggingPreferences.consoleLevel,
-  includeTimestamp: initialLoggingPreferences.includeTimestamp,
-  level: initialLoggingPreferences.level,
-  runtime: 'electron-main',
-};
-
 const logger = createLogger('DesktopMain');
+// Preference STATE lives in main/logging-preferences.ts (BST-1648 step 4);
+// the boot ORDER below is unchanged: controller (initial set) → watchdog →
+// log buffer → initializeLogging → applyInitial. The watchdog hook is a
+// closure over `mainWatchdogRuntime`, which is constructed a few lines down
+// and only ever reached from a later IPC-driven update.
+const loggingPreferences = createDesktopLoggingPreferencesController({
+  app,
+  createMainLogTransportConfig,
+  disableFileLogs,
+  getLogFilePath,
+  getSettingsStore,
+  logger,
+  onFilePreferencesApplied: (file) => {
+    mainWatchdogRuntime.configureLogging(file);
+  },
+  showItemInFolder: (target) => shell.showItemInFolder(target),
+  showSaveDialog: (options) => dialog.showSaveDialog(options),
+});
+const loggingOptions = loggingPreferences.createInitializeLoggingOptions();
 const mainWatchdogRuntime = createMainWatchdogRuntime({
   onDeliveryError: ({ error, message }) => {
     logger.error(
@@ -609,16 +348,6 @@ const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);
 });
 
-if (initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination) {
-  loggingOptions.file = {
-    append: initialLoggingPreferences.file.append,
-    destination: initialLoggingPreferences.file.destination,
-    level: initialLoggingPreferences.file.level,
-    mkdir: initialLoggingPreferences.file.mkdir,
-    ...createMainLogTransportConfig(),
-  };
-}
-
 try {
   initializeLogging(loggingOptions);
 } catch (error) {
@@ -627,156 +356,7 @@ try {
   });
 }
 
-let currentLoggingPreferences = initialLoggingPreferences;
-applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
-  baseBindings: {
-    logFile:
-      currentLoggingPreferences.file.enabled && currentLoggingPreferences.file.destination
-        ? currentLoggingPreferences.file.destination
-        : null,
-  },
-  fileTransport: createMainLogTransportConfig(),
-});
-persistLoggingPreferences(currentLoggingPreferences);
-
-function getLoggingCapabilities() {
-  return {
-    canSelectDestination: !disableFileLogs,
-    defaultDestination: getLogFilePath() ?? null,
-    fileLoggingSupported: !disableFileLogs,
-    reason: disableFileLogs ? 'File logging disabled by BRAINSTRIKE_DISABLE_FILE_LOGS=1' : null,
-    runtime: 'electron' as const,
-  };
-}
-
-function getLoggingSettingsPayload(): LoggingSettingsPayload {
-  return cloneLoggingSettingsPayload({
-    capabilities: getLoggingCapabilities(),
-    preferences: currentLoggingPreferences,
-  });
-}
-
-async function verifyActiveLogFile(reason: string): Promise<void> {
-  const { enabled, destination } = currentLoggingPreferences.file;
-  const defaultDestination = getLoggingCapabilities().defaultDestination;
-
-  logger.info('Desktop file logging configuration resolved', {
-    appReady: app.isReady(),
-    configuredDestination: destination,
-    defaultDestination,
-    fileLoggingEnabled: enabled,
-    reason,
-  });
-
-  if (!(enabled && destination)) {
-    logger.warn('Desktop file logging is not active', {
-      configuredDestination: destination,
-      defaultDestination,
-      fileLoggingEnabled: enabled,
-      reason,
-    });
-    return;
-  }
-
-  const before = await readFileStatSnapshot(destination);
-  logger.info('Desktop file logging verification marker', {
-    logFile: destination,
-    previousMtimeMs: before?.mtimeMs ?? null,
-    previousSizeBytes: before?.size ?? null,
-    reason,
-  });
-
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < LOG_FILE_VERIFICATION_TIMEOUT_MS) {
-    await sleep(LOG_FILE_VERIFICATION_POLL_INTERVAL_MS);
-    const after = await readFileStatSnapshot(destination);
-    if (!after) {
-      continue;
-    }
-    if (!before || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
-      logger.info('Desktop file logging verified on disk', {
-        logFile: destination,
-        mtimeMs: after.mtimeMs,
-        previousMtimeMs: before?.mtimeMs ?? null,
-        previousSizeBytes: before?.size ?? null,
-        reason,
-        sizeBytes: after.size,
-      });
-      return;
-    }
-  }
-
-  const finalStats = await readFileStatSnapshot(destination);
-  logger.error('Desktop file logging did not advance on disk after verification marker', {
-    defaultDestination,
-    existsOnDisk: finalStats !== null,
-    logFile: destination,
-    mtimeMs: finalStats?.mtimeMs ?? null,
-    previousMtimeMs: before?.mtimeMs ?? null,
-    previousSizeBytes: before?.size ?? null,
-    reason,
-    sizeBytes: finalStats?.size ?? null,
-  });
-}
-
-async function selectLogDestination(): Promise<string | null> {
-  if (!getLoggingCapabilities().canSelectDestination) {
-    return null;
-  }
-
-  const defaultPath =
-    currentLoggingPreferences.file.destination ?? getLogFilePath() ?? app.getPath('logs');
-
-  const result = await dialog.showSaveDialog({
-    buttonLabel: 'Use Log File',
-    defaultPath,
-    title: 'Choose log file location',
-  });
-
-  if (result.canceled || !result.filePath) {
-    return null;
-  }
-
-  return result.filePath;
-}
-
-async function applyAndPersistLoggingPreferences(
-  preferences: LoggingPreferences
-): Promise<LoggingSettingsPayload> {
-  const normalized = await sanitizeDesktopPreferencesAsync(preferences);
-  if (!persistLoggingPreferences(normalized)) {
-    return getLoggingSettingsPayload();
-  }
-  currentLoggingPreferences = normalized;
-  applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
-    baseBindings: {
-      logFile:
-        currentLoggingPreferences.file.enabled && currentLoggingPreferences.file.destination
-          ? currentLoggingPreferences.file.destination
-          : null,
-    },
-    fileTransport: createMainLogTransportConfig(),
-  });
-  mainWatchdogRuntime.configureLogging(normalized.file);
-  void verifyActiveLogFile('logging-preferences-updated');
-  return getLoggingSettingsPayload();
-}
-
-async function openLogDestination(target: string | null): Promise<boolean> {
-  const destination =
-    target ??
-    currentLoggingPreferences.file.destination ??
-    getLoggingCapabilities().defaultDestination;
-  if (!destination) {
-    return false;
-  }
-  try {
-    shell.showItemInFolder(destination);
-    return true;
-  } catch {
-    return false;
-  }
-}
+loggingPreferences.applyInitial();
 
 async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
   try {
@@ -821,36 +401,22 @@ let developerDatabaseResetInFlight = false;
 // — relevant only to a renderer-less/background window mounting before the
 // visible-UI menu block runs, which does not happen in the normal boot path.
 let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
-let unregisterMainIpcHandlers: null | (() => void) = null;
-let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
-let unregisterParserHostIpcHandlers: null | (() => void) = null;
-let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
-let unregisterLlmHostIpcHandlers: null | (() => void) = null;
-let unregisterLoggingIpcHandlers: null | (() => void) = null;
+// The ONE holder of IPC-domain disposers (BST-1648 step 4): every
+// registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
+// the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
+// `unregisterForgeIpc` below is the deliberate exception: it is torn down
+// inside runGracefulShutdown's 'forge' step, BEFORE 'database'.
+const ipcDisposers = createDisposerStack();
+// Per-window: the embedded browser pane's IPC is bound to the CURRENT visible
+// window (rebound on a macOS dock-reopen), so its handle is kept to retire the
+// previous binding before the next one is added.
+let browserIpcDisposer: DisposerHandle | null = null;
 // Flight Recorder P2a Task 3: the durable NDJSON backstop for warn+ records
 // from main AND from renderers/hidden hosts over IPC (see
 // registerLoggingIpcHandlers' recordDurableLog below). Constructed at
 // app-ready when file logging isn't disabled; closed as the last graceful-
 // shutdown step so it captures failures from every earlier step.
 let errorLogSink: ErrorLogSinkHandle | null = null;
-let unregisterMainPlatformIpcHandlers: null | (() => void) = null;
-let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
-let unregisterMcpIpcHandlers: null | (() => void) = null;
-let unregisterShellIpcHandlers: null | (() => void) = null;
-let unregisterClipboardIpcHandlers: null | (() => void) = null;
-let unregisterFileExportsIpcHandlers: null | (() => void) = null;
-let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
-let unregisterGitIpcHandlers: null | (() => void) = null;
-let unregisterChangesIpcHandlers: null | (() => void) = null;
-let unregisterWorktreesIpcHandlers: null | (() => void) = null;
-let unregisterBrowserIpcHandlers: null | (() => void) = null;
-let unregisterHooksIpcHandlers: null | (() => void) = null;
-let unregisterContextFilesIpcHandlers: null | (() => void) = null;
-let unregisterSkillsIpcHandlers: null | (() => void) = null;
-let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
-let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
-let unregisterTerminalIpcHandlers: null | (() => void) = null;
-let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
 let forgeService: ForgeService | undefined;
 let unregisterForgeIpc: (() => void) | undefined;
 // BST-1112: cross-workspace git worktree inventory. Constructed and started
@@ -1354,135 +920,153 @@ desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenan
   runScheduledWork: runDesktopScheduledDatabaseWork,
 });
 
-unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
-  getBufferedLogs: () => mainLogBuffer.getRecords(),
-  getState: getLoggingSettingsPayload,
-  ingestBufferedLog: (senderId, record) => {
-    mainLogBuffer.push({
-      ...record,
-      bindings: {
-        ...record.bindings,
-        forwardedFrom: 'renderer',
-        sourceWebContentsId: senderId,
-        sourceWindowRole: resolveSourceWindowRole(senderId),
-      },
-    });
-  },
-  openDestination: openLogDestination,
-  recordDurableLog: (record) => errorLogSink?.recordLogRecord(record),
-  selectDestination: selectLogDestination,
-  setPreferences: applyAndPersistLoggingPreferences,
-});
+ipcDisposers.add(
+  'logging',
+  registerLoggingIpcHandlers({
+    getBufferedLogs: () => mainLogBuffer.getRecords(),
+    getState: loggingPreferences.getSettingsPayload,
+    ingestBufferedLog: (senderId, record) => {
+      mainLogBuffer.push({
+        ...record,
+        bindings: {
+          ...record.bindings,
+          forwardedFrom: 'renderer',
+          sourceWebContentsId: senderId,
+          sourceWindowRole: resolveSourceWindowRole(senderId),
+        },
+      });
+    },
+    openDestination: loggingPreferences.openDestination,
+    recordDurableLog: (record) => errorLogSink?.recordLogRecord(record),
+    selectDestination: loggingPreferences.selectDestination,
+    setPreferences: loggingPreferences.applyAndPersist,
+  })
+);
 
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
-unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
-  chunkingHostManager,
-  embeddingHostManager,
-  getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
-  managedWorktreeAuthorizer: async (candidate) => {
-    if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
-      return 'authorized';
-    }
-    const settings = await readWorktreeSettings(storage, app.getPath('home'));
-    return isPathWithin(candidate, settings.managedDirectory)
-      ? 'managed-but-unauthorized'
-      : 'unmanaged';
-  },
-  onResetLocal: handleResetLocal,
-  onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
-  onWorkspaceRootGranted: (grantedPath: string) => {
-    pendingRootGrantSubscriber?.(grantedPath);
-  },
-});
-unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
-unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);
-unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
-unregisterLlmHostIpcHandlers = registerLlmHostIpcHandlers(llmHostManager);
-unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers({
-  crashRecovery: {
-    getSnapshot: getDesktopCrashRecoverySnapshot,
-  },
-  database: {
-    getDiagnostics: async () => await getDbHostManager().getDiagnostics(),
-  },
-  databaseScheduler: {
-    getSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
-  },
-  embeddingHost: embeddingHostManager,
-  indexing: {
-    getBackfillsInFlight: async () => {
-      const { getDesktopEmbeddingBackfillsInFlight } = await import('./ipc-embedding-backfill');
-      return getDesktopEmbeddingBackfillsInFlight();
+ipcDisposers.add(
+  'main',
+  registerIpcHandlers(fileSystem, storage, getSettingsStore, {
+    chunkingHostManager,
+    embeddingHostManager,
+    getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
+    managedWorktreeAuthorizer: async (candidate) => {
+      if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
+        return 'authorized';
+      }
+      const settings = await readWorktreeSettings(storage, app.getPath('home'));
+      return isPathWithin(candidate, settings.managedDirectory)
+        ? 'managed-but-unauthorized'
+        : 'unmanaged';
     },
-    getDimensionIndexMaintenanceSnapshot: async () => {
-      const { listDimensionIndexMaintenance, listDimensionIndexSuspensions } = await import(
-        '@brainstrike/db'
-      );
-      const db = await getDbHostManager().getDatabase();
-      const [maintenance, suspensions] = await Promise.all([
-        listDimensionIndexMaintenance(db),
-        listDimensionIndexSuspensions(db),
-      ]);
-      return { maintenance, suspensions };
+    onResetLocal: handleResetLocal,
+    onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
+    onWorkspaceRootGranted: (grantedPath: string) => {
+      pendingRootGrantSubscriber?.(grantedPath);
     },
-  },
-  llmHost: llmHostManager,
-  logging: {
-    getState: getLoggingSettingsPayload,
-  },
-  reset: {
-    getSnapshot: () => getDesktopResetDiagnosticsSnapshot(app.getPath('userData')),
-  },
-  telemetry: {
-    getRuntimeMetrics: collectBackgroundRuntimeMetrics,
-  },
-});
-unregisterShellIpcHandlers = registerShellIpcHandlers();
-unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
-unregisterFileExportsIpcHandlers = registerFileExportsIpcHandlers();
+  })
+);
+ipcDisposers.add('chunking-host', registerChunkingHostIpcHandlers(chunkingHostManager));
+ipcDisposers.add('parser-host', registerParserHostIpcHandlers(parserHostManager));
+ipcDisposers.add('embedding-host', registerEmbeddingHostIpcHandlers(embeddingHostManager));
+ipcDisposers.add('llm-host', registerLlmHostIpcHandlers(llmHostManager));
+ipcDisposers.add(
+  'desktop-diagnostics',
+  registerDesktopDiagnosticsIpcHandlers({
+    crashRecovery: {
+      getSnapshot: getDesktopCrashRecoverySnapshot,
+    },
+    database: {
+      getDiagnostics: async () => await getDbHostManager().getDiagnostics(),
+    },
+    databaseScheduler: {
+      getSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+    },
+    embeddingHost: embeddingHostManager,
+    indexing: {
+      getBackfillsInFlight: async () => {
+        const { getDesktopEmbeddingBackfillsInFlight } = await import('./ipc-embedding-backfill');
+        return getDesktopEmbeddingBackfillsInFlight();
+      },
+      getDimensionIndexMaintenanceSnapshot: async () => {
+        const { listDimensionIndexMaintenance, listDimensionIndexSuspensions } = await import(
+          '@brainstrike/db'
+        );
+        const db = await getDbHostManager().getDatabase();
+        const [maintenance, suspensions] = await Promise.all([
+          listDimensionIndexMaintenance(db),
+          listDimensionIndexSuspensions(db),
+        ]);
+        return { maintenance, suspensions };
+      },
+    },
+    llmHost: llmHostManager,
+    logging: {
+      getState: loggingPreferences.getSettingsPayload,
+    },
+    reset: {
+      getSnapshot: () => getDesktopResetDiagnosticsSnapshot(app.getPath('userData')),
+    },
+    telemetry: {
+      getRuntimeMetrics: collectBackgroundRuntimeMetrics,
+    },
+  })
+);
+ipcDisposers.add('shell', registerShellIpcHandlers());
+ipcDisposers.add('clipboard', registerClipboardIpcHandlers());
+ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
 // Lazy resolver for the same reason as `resolveSnapshotService` below: this
 // registration runs at module load, the ONE snapshot service is constructed
 // at app-ready. The checkpoint-undo engine restores from turn-start
 // snapshots (BST-1164 T4), so the handlers need the same seams as changes.
-unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers({
-  resolveSnapshotService: () => snapshotService,
-});
-unregisterGitIpcHandlers = registerGitIpcHandlers();
+ipcDisposers.add(
+  'assistant-checkpoint',
+  registerAssistantCheckpointIpcHandlers({
+    resolveSnapshotService: () => snapshotService,
+  })
+);
+ipcDisposers.add('git', registerGitIpcHandlers());
 // `resolveInventoryService` is a LAZY getter on purpose: this registration
 // runs at module load, while `gitInventoryService` is only constructed once
 // the app is ready (see `createGitInventoryService` below). Capturing the
 // value here would pin `null` forever.
-unregisterChangesIpcHandlers = registerChangesIpcHandlers(
-  createChangesIpcHandlers({
-    // T1 injection points (BST-1164): the snapshot-repository factory and the
-    // lazy service resolver are THREADED but not yet consumed — T2/T3 consume
-    // them here so neither has to edit main.ts. Lazy for the same reason as
-    // `resolveInventoryService` below.
-    createSnapshotRepository,
-    resolveInventoryService: () => gitInventoryService,
-    resolveSnapshotService: () => snapshotService,
-  })
+ipcDisposers.add(
+  'changes',
+  registerChangesIpcHandlers(
+    createChangesIpcHandlers({
+      // T1 injection points (BST-1164): the snapshot-repository factory and the
+      // lazy service resolver are THREADED but not yet consumed — T2/T3 consume
+      // them here so neither has to edit main.ts. Lazy for the same reason as
+      // `resolveInventoryService` below.
+      createSnapshotRepository,
+      resolveInventoryService: () => gitInventoryService,
+      resolveSnapshotService: () => snapshotService,
+    })
+  )
 );
-unregisterWorktreesIpcHandlers = registerWorktreesIpcHandlers(
-  createWorktreesIpcHandlers({
-    readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
-    resolveService: () => worktreeService,
-    // Apply BST-1342 containment at save time so the user learns immediately,
-    // rather than only when a worktree create later targets the saved path.
-    writeSettings: (next) =>
-      writeWorktreeSettings(storage, app.getPath('home'), next, async () => {
-        const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
-        return roots.map((root) => root.path);
-      }),
-  })
+ipcDisposers.add(
+  'worktrees',
+  registerWorktreesIpcHandlers(
+    createWorktreesIpcHandlers({
+      readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
+      resolveService: () => worktreeService,
+      // Apply BST-1342 containment at save time so the user learns immediately,
+      // rather than only when a worktree create later targets the saved path.
+      writeSettings: (next) =>
+        writeWorktreeSettings(storage, app.getPath('home'), next, async () => {
+          const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+          return roots.map((root) => root.path);
+        }),
+    })
+  )
 );
-unregisterHooksIpcHandlers = registerHooksIpcHandlers();
-unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
-unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
-unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
-unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
-unregisterTerminalIpcHandlers = registerTerminalIpc();
-unregisterNotesVaultIpcHandlers = registerNotesVaultIpc(storage);
+ipcDisposers.add('hooks', registerHooksIpcHandlers());
+ipcDisposers.add('context-files', registerContextFilesIpcHandlers());
+ipcDisposers.add('skills', registerSkillsIpcHandlers());
+ipcDisposers.add('user-commands', registerUserCommandsIpcHandlers());
+ipcDisposers.add('user-personas', registerUserPersonasIpcHandlers());
+ipcDisposers.add('terminal', registerTerminalIpc());
+ipcDisposers.add('notes-vault', registerNotesVaultIpc(storage));
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1640,6 +1224,17 @@ if (singleInstanceLockAcquired) {
     });
   }
 
+  // Push one payload to every live renderer window (ipc-mcp precedent): the
+  // git-awareness pushes can land in any window.
+  const broadcastToRenderers = (channel: string, payload: unknown): void => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed()) {
+        continue;
+      }
+      window.webContents.send(channel, payload);
+    }
+  };
+
   app.whenReady().then(async () => {
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
@@ -1690,148 +1285,22 @@ if (singleInstanceLockAcquired) {
       // handler serves it on its own origin with header-delivered policies.
       registerMcpAppShellProtocol(getMcpAppShellRegistry());
 
-      // BST-1112: cross-workspace git worktree inventory service. Constructed
-      // and started HERE, inside app.whenReady() — never at module scope.
-      // `start()` kicks off an eager build whose very first step
-      // (`loadRoots`) reaches `getDatabase()` → `getRemoteDbHostManager()` →
-      // `utilityProcess.fork`, and Electron throws
-      // "utilityProcess cannot be created before app is ready." if that spawn
-      // is attempted pre-ready. A module-scope `start()` call sits above
-      // `app.whenReady()` entirely, so every production boot would hit this
-      // rejection silently (caught by `rebuild()`'s try/catch, logged
-      // nowhere, cached as a false "no repositories" snapshot for the full
-      // TTL — see BST-1112 review). It also sat ABOVE the single-instance
-      // lock guard, so a duplicate launch would walk every workspace root and
-      // spawn git without ever calling `stop()`. Uses a PRIVATE
-      // `ElectronFileSystemAdapter` instance — never the shared `fileSystem`
-      // above and never the renderer-owned `fs:watch` IPC pipeline
-      // (`ipc-domains/file-system-watch-ipc.ts` dedupes native subscriptions
-      // on `(ownerId, resolvedPath)` ONLY; the ignore-pattern set is not part
-      // of that key, so routing this module's fixed `ignorePatterns: []`
-      // through the shared pipeline could let an unrelated registration for
-      // the same resolved path silently share this filter set). See
-      // `ipc-notes-vault.ts:66-105` for the same private-adapter + inline
-      // `DirectoryHandle` pattern.
-      const gitInventoryWatcherAdapter = new ElectronFileSystemAdapter();
-      // BST-1161 (spec §6): each watcher invalidation is pushed to every live
-      // renderer as `changes:invalidated` so git-scope changeset views and the
-      // inventory refetch without polling. The monotonic generation lets the
-      // renderer drop stale/duplicate deliveries. Broadcast (ipc-mcp
-      // precedent): the Changes surface and git panel can live in any window.
-      let changesInvalidationGeneration = 0;
-      const broadcastChangesInvalidation = (event: {
-        gitCommonDir: string;
-        repositoryRoot: string | null;
-      }): void => {
-        changesInvalidationGeneration += 1;
-        const payload: ChangesInvalidationEvent = {
-          generation: changesInvalidationGeneration,
-          gitCommonDir: event.gitCommonDir,
-          repositoryRoot: event.repositoryRoot,
-        };
-        for (const window of BrowserWindow.getAllWindows()) {
-          if (window.isDestroyed()) {
-            continue;
-          }
-          window.webContents.send(DESKTOP_IPC_CHANNELS.changes.invalidated, payload);
-        }
-      };
-      // BST-1391 (W4): forge PR awareness. ONE instance, never at module
-      // scope, same posture as GitInventoryService above. It reads the DB
-      // through db-main's provider and spawns `gh` only inside a resolved,
-      // containment-checked workspace root.
-      let forgePrUpdatedGeneration = 0;
-      // Kept as its own binding (not inlined into `resolveRepository` below)
-      // so the git-metadata watcher's `onInvalidate` callback below can also
-      // clear this resolver's per-rootId cache on the SAME commonDir signal
-      // that already drives `forgeService.onRepositoryInvalidated`.
-      const forgeRepositoryResolver = createForgeRepositoryResolver(
-        createDatabaseRootResolver(getDatabase)
-      );
-      forgeService = createForgeService({
+      // BST-1112 / BST-1391 / BST-1161: the ONE git inventory, forge, and
+      // worktree services (+ their renderer pushes) — constructed HERE, inside
+      // app.whenReady(), never at module scope (main/git-awareness-lifecycle.ts
+      // carries the full rationale). The module-scope slots below are what
+      // runGracefulShutdown's 'git-inventory' and 'forge' steps tear down.
+      const gitAwareness = startGitAwarenessLifecycle({
+        broadcast: broadcastToRenderers,
         getDatabase,
-        onPrUpdated: (event) => {
-          forgePrUpdatedGeneration += 1;
-          const payload: ForgePrUpdatedEvent = {
-            ...event,
-            generation: forgePrUpdatedGeneration,
-          };
-          for (const window of BrowserWindow.getAllWindows()) {
-            if (window.isDestroyed()) {
-              continue;
-            }
-            window.webContents.send(DESKTOP_IPC_CHANNELS.forge.prUpdated, payload);
-          }
-        },
-        resolveRepository: forgeRepositoryResolver,
-        run: execFileGhRunner,
+        homePath: app.getPath('home'),
+        logger,
+        storage,
       });
-      unregisterForgeIpc = registerForgeIpcHandlers(
-        createForgeIpcHandlers({ service: forgeService })
-      );
-      gitInventoryService = createGitInventoryService({
-        loadRoots: async () => {
-          const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
-          return roots.map((root) => ({ id: root.rootId, path: root.path }));
-        },
-        // The refs watcher moving `refs/remotes/<remote>/<branch>` is the
-        // "a push happened" signal §8 asks for: broadcast to renderers AND
-        // let the forge service refresh the repositories it already tracks.
-        onInvalidate: (event) => {
-          broadcastChangesInvalidation(event);
-          forgeService?.onRepositoryInvalidated(event.gitCommonDir);
-          forgeRepositoryResolver.invalidateResolverCache(event.gitCommonDir);
-        },
-        run: execFileGitRunner,
-        // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
-        // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —
-        // adapting with `Promise.resolve(...)` is the documented intent in that
-        // type's own doc comment in `git-inventory-watcher.ts` (no health-
-        // transition gate needed here, unlike `ipc-notes-vault.ts`'s `startWatch`,
-        // because the returned disposer is already safe to use immediately).
-        watchDirectory: (commonDir, callback, onSignal, options) =>
-          Promise.resolve(
-            gitInventoryWatcherAdapter.watchDirectory(
-              {
-                kind: 'directory',
-                name: path.basename(commonDir),
-                path: commonDir,
-                platform: 'electron',
-              },
-              callback,
-              onSignal,
-              options
-            )
-          ),
-      });
-      gitInventoryService.start();
-      worktreeService = createWorktreeService({
-        getDatabase,
-        readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
-        recordRunEvent: (runId, event) => recordDesktopAssistantRunEvent(runId, event, getDatabase),
-        resolveInventory: async (options) => {
-          if (!gitInventoryService) {
-            throw new Error('worktrees: gitInventoryService is not running');
-          }
-          // `maxAgeMs: 0` is FORCED (git-inventory-service.ts's own doc
-          // comment): it guarantees a build that started after this call, not
-          // merely a cache-bust — what reconcileWorktreesFromShell's
-          // post-command read needs to reliably see a worktree the agent's
-          // shell command just created.
-          const snapshot = await gitInventoryService.getSnapshot(
-            options?.forceFresh ? { maxAgeMs: 0 } : undefined
-          );
-          return { errors: snapshot.errors, repositories: snapshot.repositories };
-        },
-        resolveRootCwd: (rootId) =>
-          resolveRootCwd(createDatabaseRootResolver(getDatabase), rootId, 'worktrees', logger),
-        resolveRootPaths: async () => {
-          const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
-          return roots.map((root) => ({ id: root.rootId, path: root.path }));
-        },
-        run: execFileGitRunner,
-        runSetup: (setupInput) => runWorktreeSetup(setupInput),
-      });
+      forgeService = gitAwareness.forgeService;
+      unregisterForgeIpc = gitAwareness.unregisterForgeIpc;
+      gitInventoryService = gitAwareness.gitInventoryService;
+      worktreeService = gitAwareness.worktreeService;
 
       // BST-1164 (W7 T1): shadow-git snapshot backbone. Constructed HERE,
       // inside app.whenReady() — `app.getPath('userData')` is the storage
@@ -1931,33 +1400,11 @@ if (singleInstanceLockAcquired) {
       }
 
       // Re-initialize file logging now that app.getPath() is available.
-      // At module load time, app.isReady() is false so getLogFilePath()
-      // returns null and file logging defaults to disabled.
-      if (!(disableFileLogs || currentLoggingPreferences.file.enabled)) {
-        const resolvedLogPath = getLogFilePath();
-        if (resolvedLogPath) {
-          currentLoggingPreferences = {
-            ...currentLoggingPreferences,
-            file: {
-              ...currentLoggingPreferences.file,
-              destination: resolvedLogPath,
-              enabled: true,
-            },
-          };
-          applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
-            baseBindings: {
-              arch: process.arch,
-              electron: process.versions.electron,
-              logFile: resolvedLogPath,
-              node: process.versions.node,
-              platform: process.platform,
-            },
-            fileTransport: createMainLogTransportConfig(),
-          });
-          logger.debug('File logging enabled after app.ready', { logFile: resolvedLogPath });
-        }
+      const enabledLogFile = loggingPreferences.enableFileLoggingAfterReady();
+      if (enabledLogFile) {
+        logger.debug('File logging enabled after app.ready', { logFile: enabledLogFile });
       }
-      void verifyActiveLogFile('app-ready');
+      void loggingPreferences.verifyActiveLogFile('app-ready');
 
       // Construct the durable NDJSON backstop now that app.getPath() is
       // available (same app-ready gate as file logging above). Skipped
@@ -2051,10 +1498,13 @@ if (singleInstanceLockAcquired) {
         }),
       });
       registerAgentIpcHandlers();
-      unregisterMcpIpcHandlers = registerMcpIpcHandlers({
-        runtime: getDesktopMcpHostRuntime(),
-        settingsStore: getSettingsStore,
-      });
+      ipcDisposers.add(
+        'mcp',
+        registerMcpIpcHandlers({
+          runtime: getDesktopMcpHostRuntime(),
+          settingsStore: getSettingsStore,
+        })
+      );
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
       // Kick off DB initialization (utilityProcess spawn + migrations) and the
@@ -2363,20 +1813,23 @@ if (singleInstanceLockAcquired) {
         logger.error('Failed to start assistant server:', err);
       }
 
-      unregisterMainPlatformIpcHandlers = registerMainPlatformIpcHandlers({
-        getAssistantAuth: () => {
-          if (assistantUrl && assistantAuthToken) {
-            return { token: assistantAuthToken, url: assistantUrl };
-          }
-          if (assistantStartupError) {
-            return { startupError: assistantStartupError };
-          }
-          return null;
-        },
-        getAssistantUrl: () => assistantUrl,
-        getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
-        noteNextWindowReload,
-      });
+      ipcDisposers.add(
+        'main-platform',
+        registerMainPlatformIpcHandlers({
+          getAssistantAuth: () => {
+            if (assistantUrl && assistantAuthToken) {
+              return { token: assistantAuthToken, url: assistantUrl };
+            }
+            if (assistantStartupError) {
+              return { startupError: assistantStartupError };
+            }
+            return null;
+          },
+          getAssistantUrl: () => assistantUrl,
+          getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
+          noteNextWindowReload,
+        })
+      );
 
       const createMainWindow = async () => {
         // Store is guaranteed to exist after app.whenReady()
@@ -2548,14 +2001,19 @@ if (singleInstanceLockAcquired) {
         // Register for the assistant server's browser tools (BST-1176):
         // executors resolve the ACTIVE host per call through this registry.
         setActiveBrowserPaneHost(browserPaneHost);
-        unregisterBrowserIpcHandlers = registerBrowserIpcHandlers(
-          createBrowserIpcHandlers(browserPaneHost.manager)
+        // A dock-reopen recreates the window; if the previous window's `closed`
+        // handler has not yet unwound its pane registration, retire it first —
+        // the stack refuses a second live 'browser' entry (no silent overwrite).
+        browserIpcDisposer?.dispose();
+        const thisWindowBrowserIpc = ipcDisposers.add(
+          'browser',
+          registerBrowserIpcHandlers(createBrowserIpcHandlers(browserPaneHost.manager))
         );
+        browserIpcDisposer = thisWindowBrowserIpc;
         win.once('closed', () => {
           clearActiveBrowserPaneHost(browserPaneHost);
           browserPaneHost.dispose();
-          unregisterBrowserIpcHandlers?.();
-          unregisterBrowserIpcHandlers = null;
+          thisWindowBrowserIpc.dispose();
         });
         return win;
       };
@@ -2676,7 +2134,7 @@ if (singleInstanceLockAcquired) {
           try {
             mainWatchdogAttachment.attach((message) => {
               watchdog.postMessage(message);
-            }, currentLoggingPreferences.file);
+            }, loggingPreferences.current.file);
           } catch (error) {
             void watchdog.terminate().catch((terminationError: unknown) => {
               logger.error(
@@ -2826,97 +2284,18 @@ app.on('before-quit', (event) => {
 app.on('will-quit', () => {
   logger.debug('will-quit triggered');
   clearForcedProcessExitTimer();
-  if (unregisterEmbeddingHostIpcHandlers) {
-    unregisterEmbeddingHostIpcHandlers();
-    unregisterEmbeddingHostIpcHandlers = null;
+  // AFTER runGracefulShutdown (before-quit re-enters quit only once it has
+  // settled): every IPC domain's disposer unwinds here, LIFO, each throw
+  // isolated so a failing pty/watcher reap never leaves a later domain's
+  // handlers registered. Terminal's disposer also reaps every live pty and
+  // notes-vault's stops every live watcher.
+  for (const failure of ipcDisposers.disposeAll()) {
+    logger.error('IPC domain disposer failed during will-quit', {
+      error: failure.error,
+      label: failure.label,
+    });
   }
-  if (unregisterLlmHostIpcHandlers) {
-    unregisterLlmHostIpcHandlers();
-    unregisterLlmHostIpcHandlers = null;
-  }
-  if (unregisterChunkingHostIpcHandlers) {
-    unregisterChunkingHostIpcHandlers();
-    unregisterChunkingHostIpcHandlers = null;
-  }
-  if (unregisterParserHostIpcHandlers) {
-    unregisterParserHostIpcHandlers();
-    unregisterParserHostIpcHandlers = null;
-  }
-  if (unregisterMainIpcHandlers) {
-    unregisterMainIpcHandlers();
-    unregisterMainIpcHandlers = null;
-  }
-  if (unregisterDesktopDiagnosticsIpcHandlers) {
-    unregisterDesktopDiagnosticsIpcHandlers();
-    unregisterDesktopDiagnosticsIpcHandlers = null;
-  }
-  if (unregisterLoggingIpcHandlers) {
-    unregisterLoggingIpcHandlers();
-    unregisterLoggingIpcHandlers = null;
-  }
-  if (unregisterMainPlatformIpcHandlers) {
-    unregisterMainPlatformIpcHandlers();
-    unregisterMainPlatformIpcHandlers = null;
-  }
-  if (unregisterMcpIpcHandlers) {
-    unregisterMcpIpcHandlers();
-    unregisterMcpIpcHandlers = null;
-  }
-  if (unregisterShellIpcHandlers) {
-    unregisterShellIpcHandlers();
-    unregisterShellIpcHandlers = null;
-  }
-  if (unregisterClipboardIpcHandlers) {
-    unregisterClipboardIpcHandlers();
-    unregisterClipboardIpcHandlers = null;
-  }
-  unregisterFileExportsIpcHandlers?.();
-  unregisterFileExportsIpcHandlers = null;
-  if (unregisterAssistantCheckpointIpcHandlers) {
-    unregisterAssistantCheckpointIpcHandlers();
-    unregisterAssistantCheckpointIpcHandlers = null;
-  }
-  if (unregisterGitIpcHandlers) {
-    unregisterGitIpcHandlers();
-    unregisterGitIpcHandlers = null;
-  }
-  unregisterChangesIpcHandlers?.();
-  unregisterChangesIpcHandlers = null;
-  unregisterWorktreesIpcHandlers?.();
-  unregisterWorktreesIpcHandlers = null;
   worktreeService = null;
-  unregisterBrowserIpcHandlers?.();
-  unregisterBrowserIpcHandlers = null;
-  if (unregisterHooksIpcHandlers) {
-    unregisterHooksIpcHandlers();
-    unregisterHooksIpcHandlers = null;
-  }
-  if (unregisterContextFilesIpcHandlers) {
-    unregisterContextFilesIpcHandlers();
-    unregisterContextFilesIpcHandlers = null;
-  }
-  if (unregisterSkillsIpcHandlers) {
-    unregisterSkillsIpcHandlers();
-    unregisterSkillsIpcHandlers = null;
-  }
-  if (unregisterUserCommandsIpcHandlers) {
-    unregisterUserCommandsIpcHandlers();
-    unregisterUserCommandsIpcHandlers = null;
-  }
-  if (unregisterUserPersonasIpcHandlers) {
-    unregisterUserPersonasIpcHandlers();
-    unregisterUserPersonasIpcHandlers = null;
-  }
-  if (unregisterTerminalIpcHandlers) {
-    // Disposer also reaps every live pty (no orphaned shell survives quit).
-    unregisterTerminalIpcHandlers();
-    unregisterTerminalIpcHandlers = null;
-  }
-  if (unregisterNotesVaultIpcHandlers) {
-    // Disposer also stops every live notes vault watcher.
-    unregisterNotesVaultIpcHandlers();
-    unregisterNotesVaultIpcHandlers = null;
-  }
   removeLogBufferListener();
 });
 
