@@ -1,13 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClipboardService } from '../clipboard.js';
 
-interface BridgeResult {
-  error?: string;
-  ok?: boolean;
-}
-
 type MutableWindow = Window & {
-  clipboard?: { writeText?: (text: string) => Promise<BridgeResult> } | undefined;
+  clipboard?: { writeText?: (text: string) => Promise<void> } | undefined;
 };
 
 const mutableWindow = window as MutableWindow;
@@ -20,7 +15,7 @@ afterEach(() => {
 
 describe('createClipboardService', () => {
   it('prefers the Electron bridge when present', async () => {
-    const writeText = vi.fn().mockResolvedValue({ ok: true });
+    const writeText = vi.fn().mockResolvedValue(undefined);
     mutableWindow.clipboard = { writeText };
     const navigatorSpy = vi.fn();
     vi.stubGlobal('navigator', { clipboard: { writeText: navigatorSpy } });
@@ -32,40 +27,18 @@ describe('createClipboardService', () => {
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 
-  it('surfaces the bridge error message instead of silently falling back', async () => {
+  it('surfaces the unwrapped bridge failure message instead of silently falling back', async () => {
     mutableWindow.clipboard = {
-      writeText: vi.fn().mockResolvedValue({ error: 'main process rejected write', ok: false }),
+      writeText: vi
+        .fn()
+        .mockRejectedValue(new Error('clipboard locked (clipboard · write_failed)')),
     };
     const navigatorSpy = vi.fn();
     vi.stubGlobal('navigator', { clipboard: { writeText: navigatorSpy } });
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome).toEqual({ error: 'main process rejected write', ok: false });
-    expect(navigatorSpy).not.toHaveBeenCalled();
-  });
-
-  it('reports a default error when the bridge fails without a message', async () => {
-    mutableWindow.clipboard = { writeText: vi.fn().mockResolvedValue({ ok: false }) };
-    const navigatorSpy = vi.fn();
-    vi.stubGlobal('navigator', { clipboard: { writeText: navigatorSpy } });
-
-    const outcome = await createClipboardService().writeText('hello');
-
-    expect(outcome).toEqual({ error: 'Desktop clipboard bridge rejected the write', ok: false });
-    expect(navigatorSpy).not.toHaveBeenCalled();
-  });
-
-  it('reports a malformed bridge result instead of treating it as success', async () => {
-    mutableWindow.clipboard = {
-      writeText: vi.fn().mockResolvedValue(undefined as unknown as BridgeResult),
-    };
-    const navigatorSpy = vi.fn();
-    vi.stubGlobal('navigator', { clipboard: { writeText: navigatorSpy } });
-
-    const outcome = await createClipboardService().writeText('hello');
-
-    expect(outcome).toEqual({ error: 'Desktop clipboard bridge rejected the write', ok: false });
+    expect(outcome).toEqual({ error: 'clipboard locked (clipboard · write_failed)', ok: false });
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 

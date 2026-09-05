@@ -1,5 +1,4 @@
 import type {
-  AssistantPersonasListResult,
   AssistantRewindFinalization,
   AssistantRewindMode,
   AssistantRewindPreviewResult,
@@ -16,8 +15,6 @@ import type {
   McpHostWatchEvent,
   McpTaskBridge,
   McpToolPreferencesFault,
-  SkillsScanResultSummary,
-  UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import type {
   McpContentApplicationRequest,
@@ -99,6 +96,11 @@ import type {
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
+import type { clipboardContract } from '../ipc-domains/clipboard.contract';
+import type { contextFilesContract } from '../ipc-domains/context-files.contract';
+import type { skillsContract } from '../ipc-domains/skills.contract';
+import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
+import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import type { McpConfigStatus } from '../ipc-mcp';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -108,6 +110,7 @@ import type {
   NotesVaultResult,
   NotesVaultRoot,
 } from '../notes-vault-ipc-handlers';
+import type { Bridge } from '../platform/ipc-contract';
 import type {
   TerminalCreateResult,
   TerminalDataEvent,
@@ -150,9 +153,7 @@ declare global {
      * The Settings -> Subagents panel calls `list` to show built-in +
      * user-defined personas (including invalid files with their error).
      */
-    assistantPersonas?: {
-      list: () => Promise<AssistantPersonasListResult>;
-    };
+    assistantPersonas?: Bridge<typeof userPersonasContract>;
     /**
      * Embedded browser pane bridge (BST-1174). Desktop-only; absent on web.
      * MUST stay in sync with `BrowserBridge` in
@@ -264,6 +265,8 @@ declare global {
       onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
       onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
     };
+    /** Desktop-only clipboard write bridge, derived from its contract (BST-1648). */
+    clipboard?: Bridge<typeof clipboardContract>;
     commandPalette?: {
       onOpen: (callback: () => void) => () => void;
     };
@@ -286,6 +289,12 @@ declare global {
       ) => Promise<CommandSessionIpcResult>;
       write: (params: CommandSessionWriteParams) => Promise<CommandSessionIpcResult>;
     };
+    /**
+     * Desktop-only workspace context-files scan bridge (Settings → Workspace
+     * Instructions), derived from its contract (BST-1648) and pinned equal
+     * to `ContextFilesBridge` in `@brainstrike/assistant-contract`.
+     */
+    contextFiles?: Bridge<typeof contextFilesContract>;
     desktopDiagnostics?: {
       getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
     };
@@ -649,14 +658,11 @@ declare global {
      * panel and the composer's "/" menu call `scan` to list every skill
      * discovered across `.brainstrike/skills` + `.claude/skills`.
      *
-     * ⚠️ MUST stay in sync with `SkillsBridge` in
-     * `packages/assistant-contract/src/skills-bridge.ts` (shared by app-shell
-     * and settings-ui); `resolveSkillsBridge()` rejects a bridge missing any
-     * method.
+     * Derived from the desktop contract (BST-1648), which is itself pinned
+     * equal to `SkillsBridge` in `@brainstrike/assistant-contract` — nothing
+     * here can drift from the preload.
      */
-    skills?: {
-      scan: () => Promise<SkillsScanResultSummary>;
-    };
+    skills?: Bridge<typeof skillsContract>;
     /**
      * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers
      * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
@@ -703,13 +709,10 @@ declare global {
      * composer's "/" menu calls `list` to load prompt-template commands scanned
      * from `.brainstrike/commands` + `.claude/commands`.
      *
-     * ⚠️ MUST stay in sync with `UserCommandsBridge` in
-     * `packages/app-shell/src/user-commands-bridge.ts`;
-     * `resolveUserCommandsBridge()` rejects a bridge missing any method.
+     * Derived from the desktop contract (BST-1648), which is itself pinned
+     * equal to app-shell's `UserCommandsBridge` — nothing here can drift.
      */
-    userCommands?: {
-      list: () => Promise<UserSlashCommandsListResult>;
-    };
+    userCommands?: Bridge<typeof userCommandsContract>;
     /**
      * Low-friction folder connection (BST-1393). Absent on web — consumers
      * capability-check it via `resolveWorkspaceConnectBridge()`. The exposed

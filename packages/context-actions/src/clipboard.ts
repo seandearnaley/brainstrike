@@ -1,15 +1,16 @@
 import type { ActionOutcome, ClipboardService } from './types.js';
 
-interface ClipboardBridgeResult {
-  error?: string;
-  ok?: boolean;
-}
-
+/**
+ * The desktop `window.clipboard` capability (`apps/desktop/src/ipc-domains/
+ * clipboard.contract.ts`, BST-1648): `writeText` resolves on success and
+ * REJECTS with a clean Error (`message (category · code)`) when main
+ * reports a failure — the preload has already unwrapped the IPC envelope.
+ */
 interface ElectronClipboardBridge {
-  writeText?: (text: string) => Promise<ClipboardBridgeResult>;
+  writeText?: (text: string) => Promise<void>;
 }
 
-type ElectronClipboardWrite = (text: string) => Promise<ClipboardBridgeResult>;
+type ElectronClipboardWrite = (text: string) => Promise<void>;
 
 function resolveElectronClipboardWrite(): ElectronClipboardWrite | null {
   if (typeof window === 'undefined') {
@@ -25,16 +26,8 @@ async function writeViaElectronBridge(
   text: string
 ): Promise<ActionOutcome> {
   try {
-    const result = await electronWriteText(text);
-    if (result?.ok === true) {
-      return { ok: true };
-    }
-    const bridgeError =
-      typeof result?.error === 'string' && result.error.length > 0 ? result.error : null;
-    return {
-      error: bridgeError ?? 'Desktop clipboard bridge rejected the write',
-      ok: false,
-    };
+    await electronWriteText(text);
+    return { ok: true };
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : 'Desktop clipboard bridge threw',

@@ -9,13 +9,11 @@ import {
   COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
-import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
 import { WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
 import { WORKTREES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/worktrees/availability';
 import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
 import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
-import { SKILLS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/skills-bridge';
 import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -236,7 +234,10 @@ describe('preload runtime contract', () => {
     const preloadSource = readPreloadSource();
     // Each of these bridges is disabled WHOLESALE by its resolver when any
     // required method is missing from the preload surface, so the exposed key
-    // set must match the resolver's required-method list exactly.
+    // set must match the resolver's required-method list exactly. Domains
+    // migrated to contract modules (BST-1648) are pinned by key-set equality
+    // in preload-contract-bridges.test.ts + ipc-domains/leaf-contracts.test.ts
+    // instead of this source walk.
     const expectedBridgeMethods: Record<string, readonly string[]> = {
       browser: BROWSER_BRIDGE_REQUIRED_METHODS,
       changes: CHANGES_BRIDGE_REQUIRED_METHODS,
@@ -248,9 +249,7 @@ describe('preload runtime contract', () => {
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
       providerAuth: PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS,
       secrets: SECRETS_BRIDGE_REQUIRED_METHODS,
-      skills: SKILLS_BRIDGE_REQUIRED_METHODS,
       terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
-      userCommands: USER_COMMANDS_BRIDGE_REQUIRED_METHODS,
       workspace: WORKSPACE_CONNECT_BRIDGE_REQUIRED_METHODS,
       worktrees: WORKTREES_BRIDGE_REQUIRED_METHODS,
     };

@@ -14,6 +14,10 @@
  */
 
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
+import {
+  resolveContextFilesBridge,
+  type WorkspaceContextFileStatus,
+} from '@brainstrike/assistant-contract/context-files-bridge';
 import { createLogger } from '@brainstrike/logging';
 import {
   Badge,
@@ -29,30 +33,6 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const logger = createLogger('WorkspaceInstructionsSettings');
-
-interface WorkspaceContextFileStatus {
-  readonly approxTokens: number | null;
-  readonly displayName: string;
-  readonly error?: string;
-  readonly fileName: string | null;
-  readonly oversized: boolean;
-  readonly path: string | null;
-  readonly rootId: string;
-  readonly sizeBytes: number | null;
-  readonly status: 'none' | 'fits' | 'oversized' | 'error';
-}
-
-interface ContextFilesBridge {
-  readonly scan: () => Promise<WorkspaceContextFileStatus[]>;
-}
-
-function getContextFilesBridge(): ContextFilesBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = (window as Window & { contextFiles?: ContextFilesBridge }).contextFiles;
-  return bridge ?? null;
-}
 
 function formatBytes(bytes: number | null): string {
   if (bytes === null) {
@@ -112,7 +92,7 @@ export function WorkspaceInstructionsSettingsSection() {
   // claim no workspace folders are open. The applier arrows keep setState out of
   // the effect body (react-compiler-friendly data-fetch-in-effect).
   const runScan = useCallback(() => {
-    const bridge = getContextFilesBridge();
+    const bridge = resolveContextFilesBridge();
     if (!bridge) {
       return;
     }
@@ -173,7 +153,7 @@ export function WorkspaceInstructionsSettingsSection() {
             {/* The scan runs on mount; mounting/unmounting a workspace root while
                 this panel stays open leaves the list stale, so offer a manual
                 rescan (bridge is desktop-only — omitted on web). */}
-            {getContextFilesBridge() ? (
+            {resolveContextFilesBridge() ? (
               <Button
                 data-testid="context-files-rescan"
                 disabled={!masterEnabled}
