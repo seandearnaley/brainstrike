@@ -3,6 +3,7 @@ import {
   type EmbeddingSet,
   FileChunkRepository,
   FileRecordRepository,
+  getCollectionIndexingStats,
   migrate,
   wasmLoader,
 } from '@brainstrike/db';
@@ -214,6 +215,15 @@ describe('workspace collection sync large import verification', () => {
     expect(fileCount.rows[0]?.count).toBe(VALID_FILE_COUNT);
     expect(chunkCount.rows[0]?.count).toBe(expectedChunks);
     expect(jobCount.rows[0]?.count).toBe(expectedChunks);
+    // Import completion must publish chunk statistics before an embedding
+    // worker finishes any jobs; faster startup no longer hides this interval.
+    expect(await getCollectionIndexingStats(db, COLLECTION_ID)).toMatchObject({
+      chunkCount: expectedChunks,
+      dirty: false,
+      embeddedChunkCount: 0,
+      fileCount: VALID_FILE_COUNT,
+      pendingChunkCount: expectedChunks,
+    });
     expect(persistedContents.rows.some((row) => row.content.includes('\0'))).toBe(false);
     expect(invalidFileCount.rows[0]?.count).toBe(0);
     expect(progressErrors).toEqual(

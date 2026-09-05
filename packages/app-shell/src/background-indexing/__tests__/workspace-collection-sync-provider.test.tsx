@@ -83,6 +83,7 @@ const {
   resolveWorkspaceIndexingQosPolicyMock,
   registerRootMock,
   resolveDbRootIdMock,
+  refreshCollectionIndexingStatsMock,
 } = vi.hoisted(() => ({
   applyManagedCacheBatchLocalMock: vi.fn(
     async (db: {
@@ -277,6 +278,7 @@ const {
   listManagedCacheEntryMetadataMock: vi.fn(),
   processFilesMock: vi.fn(),
   readFullTreeWithOptionsMock: vi.fn(),
+  refreshCollectionIndexingStatsMock: vi.fn(async () => []),
   registerRootMock: vi.fn(async (_descriptor: unknown) => undefined),
   // Non-null by default: managed-cache identity is root_id (source_root_path
   // retired); a null dbRootId now skips the import, which would stall these
@@ -361,6 +363,7 @@ vi.mock('@brainstrike/db', () => ({
       requeueFailed: vi.fn(),
     };
   }),
+  refreshCollectionIndexingStats: refreshCollectionIndexingStatsMock,
   usePGliteDatabase: () => dbState.current,
   WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS: {
     dimensions: 384,
@@ -531,6 +534,7 @@ vi.mock('@brainstrike/vector-management', () => ({
 describe('WorkspaceCollectionSyncProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    refreshCollectionIndexingStatsMock.mockReset().mockResolvedValue([]);
     fileSystemState.isAccessLoading = false;
     fileSystemState.rootDirectoryHandle = {
       kind: 'directory',
@@ -652,15 +656,33 @@ describe('WorkspaceCollectionSyncProvider', () => {
       'background'
     );
     expect(applyManagedCacheBatchLocalMock.mock.calls[0]?.[0]).not.toBe(dbState.current);
-    expect(enqueueBackfillMock).toHaveBeenCalledWith(
-      '00000000-0000-0000-0000-000000000101',
-      expect.objectContaining({
-        source: 'background-indexing',
-      })
+    await waitFor(() =>
+      expect(enqueueBackfillMock).toHaveBeenCalledWith(
+        '00000000-0000-0000-0000-000000000101',
+        expect.objectContaining({
+          source: 'background-indexing',
+        })
+      )
     );
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('surfaces a failed import statistics refresh instead of claiming successful indexing', async () => {
+    refreshCollectionIndexingStatsMock.mockRejectedValueOnce(new Error('Stats refresh failed'));
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+        lastError: 'Stats refresh failed',
+        state: 'error',
+      })
+    );
+    expect(enqueueBackfillMock).not.toHaveBeenCalled();
   });
 
   it('coalesces refresh events while a background sync is already importing', async () => {

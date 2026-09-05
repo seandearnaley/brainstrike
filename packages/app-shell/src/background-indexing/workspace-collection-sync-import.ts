@@ -8,7 +8,7 @@ import type {
   ManagedCacheBatchMutation,
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
-import { JobQueue } from '@brainstrike/db';
+import { JobQueue, refreshCollectionIndexingStats } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
@@ -1367,6 +1367,14 @@ export async function runRootFolderCacheImport(args: {
         cumulativeChunksCreated += finalChunkingProgress.chunksCreated;
       }
     }
+    throwIfAborted(abortSignal, 'Background cache import was cancelled.');
+    // Managed-cache writes refresh before chunking. Publish the completed
+    // import's counts once, without waiting for embedding worker completion
+    // and without a full collection recount for every file or chunk batch.
+    await refreshCollectionIndexingStats(db, [collection.id], {
+      label: 'workspace import stats refresh',
+      priority: 'background',
+    });
   } finally {
     setImporting(false);
   }

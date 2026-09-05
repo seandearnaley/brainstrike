@@ -1011,6 +1011,12 @@ restoration resuming, root-set changes, pause, and unmount still cancel work.
 Provider regressions cover delayed access/registry/DB readiness beyond the old
 grace window, tree-only churn, and in-flight cancellation in
 `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx`.
+Successful root imports refresh the active collection's statistics once after
+all chunking/assignment batches finish. The earlier managed-cache refresh sees
+files before chunks exist; waiting for embedding completion would leave the
+popover claiming current zero chunks after faster startup. The real-PGlite
+large-import regression verifies 108,000 pending chunks before any embedding
+worker runs. This uses the existing rollup API and background scheduler priority.
 
 **Surfaced UI** (the composer WORKSPACE BAR below is always visible; every
 OTHER surface here is forest-mode/multi-root only, so a single root shows no
