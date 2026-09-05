@@ -200,6 +200,80 @@ describe('WorktreeMapSurface', () => {
     expect(screen.getByText('Managed')).toBeInTheDocument();
   });
 
+  it('searches checkout metadata locally and clears a no-match result', async () => {
+    const user = userEvent.setup();
+    render(<WorktreeMapSurface />);
+    const search = screen.getByRole('searchbox', { name: 'Search worktrees' });
+    await user.type(search, 'BRAINSTRIKE bright');
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
+    await user.type(search, ' absent');
+    expect(screen.queryByTestId('worktree-map-card')).not.toBeInTheDocument();
+    expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(search).toHaveValue('');
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
+  });
+
+  it('bounds large collections and resets the page when searching', async () => {
+    const user = userEvent.setup();
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: Array.from({ length: 61 }, (_, i) =>
+            card({
+              entry: {
+                ...card().entry,
+                name: `checkout-${String(i).padStart(2, '0')}`,
+                path: `/wt/${i}`,
+              },
+            })
+          ),
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(25);
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('26–50 of 61')).toBeInTheDocument();
+    await user.type(screen.getByRole('searchbox', { name: 'Search worktrees' }), 'checkout-60');
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
+    expect(screen.getByText('1–1 of 1')).toBeInTheDocument();
+  });
+
+  it('filters known attention states without treating primary or unknown status as broken', async () => {
+    const user = userEvent.setup();
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [
+            card(),
+            card({
+              entry: {
+                ...card().entry,
+                name: 'primary',
+                path: '/primary',
+                primary: true,
+                usable: false,
+              },
+            }),
+            card({ entry: { ...card().entry, name: 'checking', path: '/checking' } }),
+          ],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+    await user.click(screen.getByRole('button', { name: 'Needs attention' }));
+    expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
+    expect(screen.getByText('bright-fox')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Running' }));
+    expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
+  });
+
   it('shows dirty and ahead glyphs from the per-card status, never before it resolves', () => {
     useWorktreeMapMock.mockReturnValue({
       ...BASE_STATE,

@@ -16,8 +16,9 @@ import {
 import { WorktreeArchiveConfirmationDialog } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import { Button } from '@brainstrike/ui';
 import type { ReactElement } from 'react';
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
@@ -27,10 +28,21 @@ import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
 import { useWorktreeMap } from './use-worktree-map';
 import { useWorktreeMapCardActions } from './use-worktree-map-card-actions';
 import { WorktreeMapCard } from './worktree-map-card';
+import {
+  selectWorktreeCollection,
+  type WorktreeFilter,
+  type WorktreeSort,
+} from './worktree-map-collection';
+import { WorktreeMapPagination, WorktreeMapToolbar } from './worktree-map-toolbar';
 
 const EMPTY_STATE = "No worktrees yet — create one from the composer's Mode chip.";
 
 export function WorktreeMapSurface(): ReactElement {
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<WorktreeFilter>('all');
+  const [sort, setSort] = useState<WorktreeSort>('name');
+  const [page, setPage] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const database = usePGliteDatabase();
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
@@ -91,58 +103,125 @@ export function WorktreeMapSurface(): ReactElement {
     worktrees,
   });
 
-  if (loading && repositories.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-        Loading worktrees…
-      </div>
-    );
-  }
+  const collection = selectWorktreeCollection({
+    filter,
+    page,
+    query,
+    repositories,
+    sort,
+    statusByPath,
+  });
+  const changePage = (next: number): void => {
+    setPage(next);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  };
 
   return (
     <>
-      <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
-        {/* A stated failure, NEVER the empty state: "no worktrees" is a
+      <div className="flex h-full min-h-0 min-w-0 flex-col">
+        <WorktreeMapToolbar
+          filter={filter}
+          loading={loading}
+          onFilter={(value) => {
+            setFilter(value);
+            changePage(0);
+          }}
+          onQuery={(value) => {
+            setQuery(value);
+            changePage(0);
+          }}
+          onRefresh={() => {
+            void refresh();
+          }}
+          onSort={(value) => {
+            setSort(value);
+            changePage(0);
+          }}
+          query={query}
+          sort={sort}
+          total={collection.total}
+        />
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4" ref={scrollRef}>
+          {/* A stated failure, NEVER the empty state: "no worktrees" is a
           different, honest fact and must not stand in for "the read failed". */}
-        {error ? <p className="text-destructive text-sm">{error}</p> : null}
-        {actionError ? <p className="text-destructive text-sm">{actionError}</p> : null}
-        {repositories.length === 0 && !error ? (
-          <p className="text-muted-foreground text-sm">{EMPTY_STATE}</p>
-        ) : null}
-        {repositories.map((repositoryModel) => (
-          <section className="flex min-w-0 flex-col gap-2" key={repositoryModel.repoCommonDir}>
-            <h2 className="font-medium text-sm">{repositoryModel.repositoryName}</h2>
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {repositoryModel.cards.map((card) => (
-                <WorktreeMapCard
-                  card={card}
-                  key={card.entry.path}
-                  onAddAsRoot={onAddAsRoot}
-                  onAdopt={onAdopt}
-                  onArchive={onArchive}
-                  // Present only for the card holding the SELECTED thread's
-                  // checkout [A11] — every other card renders no such item.
-                  onHandOffToLocal={
-                    card.thread && card.thread.threadId === selectedThreadId
-                      ? () => onHandOffToLocal(card)
-                      : undefined
-                  }
-                  onNewThread={onNewThread}
-                  onOpenPullRequest={(url) => {
-                    void platform?.openExternal(url);
-                  }}
-                  onOpenTerminal={terminalAvailable ? onOpenTerminal : undefined}
-                  onOpenThread={(threadId) => selectThread(resourceId, threadId)}
-                  onReveal={(path) => {
-                    void platform?.showItemInFolder(path);
-                  }}
-                  onToggleIndexing={setWorktreeRootIndexingEnabled}
-                  status={statusByPath.get(card.entry.path)}
-                />
-              ))}
+          {error ? (
+            <p className="text-destructive text-sm" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {actionError ? (
+            <p className="text-destructive text-sm" role="alert">
+              {actionError}
+            </p>
+          ) : null}
+          {loading && repositories.length === 0 ? (
+            <p className="text-muted-foreground text-sm" role="status">
+              Loading worktrees…
+            </p>
+          ) : null}
+          {repositories.length === 0 && !error && !loading ? (
+            <p className="text-muted-foreground text-sm">{EMPTY_STATE}</p>
+          ) : null}
+          {collection.total > 0 && collection.matched === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-center">
+              <p className="font-medium text-sm">No matching worktrees</p>
+              <p className="text-muted-foreground text-xs">Try another name, branch or filter.</p>
+              <Button
+                onClick={() => {
+                  setQuery('');
+                  setFilter('all');
+                  changePage(0);
+                }}
+                size="sm"
+                variant="outline"
+              >
+                Clear filters
+              </Button>
             </div>
-          </section>
-        ))}
+          ) : null}
+          {collection.repositories.map((repositoryModel) => (
+            <section className="flex min-w-0 flex-col gap-2" key={repositoryModel.repoCommonDir}>
+              <h2 className="font-medium text-sm">{repositoryModel.repositoryName}</h2>
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {repositoryModel.cards.map((card) => (
+                  <WorktreeMapCard
+                    card={card}
+                    key={card.entry.path}
+                    onAddAsRoot={onAddAsRoot}
+                    onAdopt={onAdopt}
+                    onArchive={onArchive}
+                    // Present only for the card holding the SELECTED thread's
+                    // checkout [A11] — every other card renders no such item.
+                    onHandOffToLocal={
+                      card.thread && card.thread.threadId === selectedThreadId
+                        ? () => onHandOffToLocal(card)
+                        : undefined
+                    }
+                    onNewThread={onNewThread}
+                    onOpenPullRequest={(url) => {
+                      void platform?.openExternal(url);
+                    }}
+                    onOpenTerminal={terminalAvailable ? onOpenTerminal : undefined}
+                    onOpenThread={(threadId) => selectThread(resourceId, threadId)}
+                    onReveal={(path) => {
+                      void platform?.showItemInFolder(path);
+                    }}
+                    onToggleIndexing={setWorktreeRootIndexingEnabled}
+                    status={statusByPath.get(card.entry.path)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+        <WorktreeMapPagination
+          matched={collection.matched}
+          onPage={changePage}
+          page={collection.page}
+          pageCount={collection.pageCount}
+        />
       </div>
       {archiveConfirmation ? (
         <WorktreeArchiveConfirmationDialog confirmation={archiveConfirmation} />
