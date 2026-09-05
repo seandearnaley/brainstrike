@@ -1,0 +1,31 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/agents/assistant-providers.md",
+        "$TURBO_ROOT$/docs/agents/mcp-conformance.md",
+        "$TURBO_ROOT$/docs/agents/research/bst-1478-mcp-v2-oauth-architecture-spike.md",
+        "$TURBO_ROOT$/packages/test-utils/workspace-src-aliases.mjs",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/packages/config/*/package.json",
+        "$TURBO_ROOT$/apps/*/package.json"
+      ]
+    },
+    "test:coverage": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/agents/assistant-providers.md",
+        "$TURBO_ROOT$/docs/agents/mcp-conformance.md",
+        "$TURBO_ROOT$/docs/agents/research/bst-1478-mcp-v2-oauth-architecture-spike.md",
+        "$TURBO_ROOT$/packages/test-utils/workspace-src-aliases.mjs",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/packages/config/*/package.json",
+        "$TURBO_ROOT$/apps/*/package.json"
+      ]
+    }
+  }
+}

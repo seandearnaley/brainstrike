@@ -7,7 +7,8 @@ on:
     # the real findings are exhausted, degrades into speculative or fabricated
     # ones (observed on #1154: ~17 passes, the last citing a function that
     # doesn't exist). One review per lifecycle event; push-driven re-review can
-    # be requested explicitly via close/reopen.
+    # use targeted fix review within docs/agents/ci-quality.md's review budget.
+    # Never close/reopen solely for review: it also starts the Test pipeline.
     types: [opened, ready_for_review, reopened]
 
 jobs:

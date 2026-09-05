@@ -8,7 +8,6 @@ on:
       - opened
       - synchronize
       - reopened
-      - ready_for_review
   push:
     branches:
       - main
@@ -192,87 +191,50 @@ jobs:
     # required `Unit` fan-in below. `.turbo` cache keys include `runner.arch`,
     # so this cannot cross-restore an incompatible ARM cache layer.
     runs-on: ubicloud-standard-4
-    # Foundational PRs (e.g. changes to @brainstrike/utils or lint presets)
-    # pull in many dependent packages via pnpm's `...[ref]` filter. Keep Unit
-    # aligned with Coverage so broad but valid changes do not time out mid-run.
-    timeout-minutes: 60
-    # SHARDING (2026-07-20, wall-clock audit in
-    # docs/test-wall-clock-optimization-2026-07-20.md): on whole-repo-selection
-    # PRs the single Unit job was the entire workflow critical path (measured
-    # run 29718029263-era worst case 29718226412: Unit 42m, every other job done
-    # by ~9m), and `db#test` alone accounted for ~30m of it. HISTORICAL DETAIL,
-    # kept because it explains the ~30m figure: at audit time `db#test` was
-    # five sequential per-lane Vitest boots. PR #1807 replaced that with one
-    # `vitest run --project unit` over a migrate-once PGlite snapshot, so
-    # db#test became one invocation whose files parallelize across forks.
-    # BST-1046 now splits that one invocation with Vitest's native `--shard`
-    # inside this single package; no cross-package sharding or custom file map
-    # is involved. RE-MEASURED on the first db-touching PR after
-    # that rewrite (run 30681934145), per turbo phase:
-    #     turbo `test`             db 6m24s (1 pkg) | heavy 3m54s (3 pkgs) | rest 1m26s (11 pkgs)
-    #     turbo `test:integration` db 0 tasks/0.2s  | heavy 3m18s (3 pkgs) | —
-    #     job wall-clock           db 439s          | heavy 486s           | rest 327s
-    # Read those together, because either row alone misleads. `db#test` IS
-    # still the longest single test task by a wide margin (6m24s for ONE
-    # package vs 3m54s across three) — that is what earns the dedicated shard.
-    # But the db SHARD is no longer the workflow's long pole: heavy's JOB runs
-    # longer because it also carries an integration phase db has none of (db
-    # keeps its env-sensitive specs inside the unit project under a whole-task
-    # `cache: false`, so it has no separate integration lane). Shrinking db
-    # therefore buys no workflow wall-clock until heavy shrinks first.
-    # TWO TRAPS when re-measuring, both of which produced a wrong answer here
-    # before the logs were read:
-    #   - job durations alone rank heavy above db and invite the conclusion
-    #     that db is no longer the biggest suite. It is; the phases differ.
-    #   - a shard whose `...[ref]` filter selects nothing no-ops in seconds and
-    #     is INDISTINGUISHABLE from a fast one. Take numbers only from a PR
-    #     that actually changes that shard's packages (a #2173-era db shard
-    #     reads as 1m purely because the PR touched only packages/agent).
-    # The matrix splits the package graph across four runners so the heavy
-    # suites stop queuing behind each other:
-    #   db-1/db-2 — @brainstrike/db only (whole-task-uncached, two native
-    #               Vitest file shards of the same unit project).
-    #   heavy — the four biggest remaining suites by measured vitest duration
-    #           (desktop, ui, file-explorer-ui, app-shell).
-    #   rest  — affected-set minus the five packages above (negation filters).
-    # Filter grammar verified via `--dry=json`: `pkg...[ref]` selects pkg only
-    # when pkg-or-its-dependency-closure changed in the range (empty selection
-    # otherwise → the shard no-ops in seconds), multiple `--filter` flags
-    # union, and `!pkg` negations subtract from the selection (a negation-only
-    # filter set = everything minus). Shard membership and the two-phase
-    # split below must stay consistent — a package must never appear in two
-    # shards' positive filters, and every package named in a positive filter
-    # here must be listed as a negation in `rest` (and vice-versa: a package
-    # negated out of `rest` but given no positive shard would silently stop
-    # being tested while the fan-in check still passes). This is not a
-    # comment-only invariant: scripts/__tests__/unit-shard-partition.test.mjs
-    # parses this matrix and fails `pnpm test:scripts` (the Static job) on any
-    # such drift.
-    # The required-check name "Unit" is preserved by the `unit` fan-in job
-    # below — branch protection keeps pointing at "Unit", not at the shards.
+    # Desktop is a separate package partition: its serial unit + integration
+    # execution dominated recent runs (8m + 12m). Three native Vitest shards
+    # preserve every file and one worker per VM without making PGlite suites
+    # compete on the same host. The remaining UI packages keep their own row.
+    # DB retains its two native shards. Rest owns every other affected package.
+    # scripts/__tests__/unit-shard-partition.test.mjs verifies complete,
+    # disjoint coverage; Unit below remains the required fan-in.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
           - shard: db-1
             partition: db
-            pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
+            pr_filters: --filter="@brainstrike/db"
             push_filters: --filter="@brainstrike/db"
             vitest_shard: 1/2
           - shard: db-2
             partition: db
-            pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
+            pr_filters: --filter="@brainstrike/db"
             push_filters: --filter="@brainstrike/db"
             vitest_shard: 2/2
+          - shard: desktop-1
+            partition: desktop
+            pr_filters: --filter="@brainstrike/desktop"
+            push_filters: --filter="@brainstrike/desktop"
+            vitest_shard: 1/3
+          - shard: desktop-2
+            partition: desktop
+            pr_filters: --filter="@brainstrike/desktop"
+            push_filters: --filter="@brainstrike/desktop"
+            vitest_shard: 2/3
+          - shard: desktop-3
+            partition: desktop
+            pr_filters: --filter="@brainstrike/desktop"
+            push_filters: --filter="@brainstrike/desktop"
+            vitest_shard: 3/3
           - shard: heavy
             partition: heavy
             pr_filters: >-
-              --filter="@brainstrike/desktop...[origin/$BASE_REF]"
-              --filter="@brainstrike/ui...[origin/$BASE_REF]"
-              --filter="@brainstrike/file-explorer-ui...[origin/$BASE_REF]"
-              --filter="@brainstrike/app-shell...[origin/$BASE_REF]"
+              --filter="@brainstrike/ui"
+              --filter="@brainstrike/file-explorer-ui"
+              --filter="@brainstrike/app-shell"
             push_filters: >-
-              --filter="@brainstrike/desktop"
               --filter="@brainstrike/ui"
               --filter="@brainstrike/file-explorer-ui"
               --filter="@brainstrike/app-shell"
@@ -280,7 +242,6 @@ jobs:
           - shard: rest
             partition: rest
             pr_filters: >-
-              --filter="...[origin/$BASE_REF]"
               --filter="!@brainstrike/db"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
@@ -300,8 +261,8 @@ jobs:
           echo "::error::Quiet-head admission failed; refusing to skip the required Unit check."
           exit 1
 
-      # `fetch-depth: 0` is REQUIRED here: the turbo filter below diffs against
-      # `origin/$BASE_REF`, which needs full history. Checkout stays in the
+      # `fetch-depth: 0` is REQUIRED here: task-aware affected selection needs
+      # the exact PR base and tested checkout commits, including stacked bases. Checkout stays in the
       # caller (not the composite) — see setup-workspace/action.yml's header.
       - name: Checkout
         uses: actions/checkout@v6
@@ -388,29 +349,13 @@ jobs:
       # here fails LOUDLY on the always-clean CI runner instead of passing
       # against stale dist. The Build job below still exercises the full build.
 
-      # PR-affected unit tests routed THROUGH turbo so the remote cache
-      # (TURBO_TOKEN/TURBO_TEAM, set at the workflow `env:` block above and
-      # inherited by this step) covers test execution — the only expensive,
-      # previously-uncached CI step.
-      #
-      # `--filter="...[origin/$BASE_REF]"` is turbo's EXPLICIT git-range filter:
-      # `...[ref]` = packages changed since `ref` + their dependents. It is
-      # deliberately NOT `--affected`: turbo's `--affected` derives its own
-      # base/head and over-selects on merge commits, the exact reason the prior
-      # pnpm-filter approach spelled the range out. Turbo's task graph skips
-      # packages with no `test` script (no `--if-present` needed) and never runs
-      # the workspace-root task under a plain `turbo run` (so the old pnpm-only
-      # `!./` root exclusion is unnecessary — verified via `--dry=json`).
-      #
-      # SELECTION vs the retired `pnpm --filter "...[ref]"`: measured across four
-      # real historical ranges (HEAD~1, origin/main~10/~20/~30 — see the PR body
-      # for the exact package lists), turbo's selection is a strict SUPERSET of
-      # pnpm's. It NEVER under-selects — every package the old pnpm path would
-      # have tested is always selected, so a changed package can never be
-      # silently skipped/under-tested. On ranges whose diff touches root/global
-      # files (lockfile, pnpm-workspace.yaml) turbo may additionally pull in a
-      # few leaf config packages pnpm did not; that is safe over-selection
-      # (marginal CI time, usually a cache hit — never missed coverage).
+      # Native task-aware affected selection intersects each package partition
+      # with the exact base/checkout pair. Explicit SCM refs avoid Turbo's
+      # inferred main~1 range, including on stacked PRs and merge commits.
+      # Cross-package inputs select their actual readers without making every
+      # document a global cache dependency. ci-input-locality.test.mjs proves
+      # doc-only selection, upstream-source propagation, and partition filters.
+      # Push/manual and local checks continue to execute the complete suite.
       #
       # TURBO_TEST_MODE=unit and TEST_TIMEOUT_MULTIPLIER=2 are set EXPLICITLY
       # here so the `test` task cache key (both are in turbo.jsonc `test.env`)
@@ -454,17 +399,21 @@ jobs:
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
-          BASE_REF: ${{ github.base_ref }}
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
+          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
-          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
+          DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
 
       - name: Pull request affected integration tests
         if: github.event_name == 'pull_request'
         env:
-          BASE_REF: ${{ github.base_ref }}
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
           # This lane installed bubblewrap/socat/ripgrep above, so the
           # real-fence suites must RUN here. Set, a missing dependency is a
           # lane defect that fails collection instead of a host quirk the
@@ -472,10 +421,12 @@ jobs:
           # fence-host-gate.ts. Deliberately NOT set in the coverage lanes,
           # which install nothing and keep the loud-skip behaviour.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --concurrency=2
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
 
       # Push (main) + workflow_dispatch: full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
@@ -498,8 +449,10 @@ jobs:
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
         env:
+          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
-          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
+          DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
@@ -509,6 +462,8 @@ jobs:
         env:
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit

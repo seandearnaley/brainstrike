@@ -4,6 +4,14 @@ import { test } from 'node:test';
 
 const workflow = readFileSync('.github/workflows/test.yml', 'utf8');
 
+test('drafts already run CI; ready-for-review must not rerun the same head', () => {
+  const triggers = workflow.slice(0, workflow.indexOf('\nconcurrency:'));
+  assert.match(triggers, /- opened/);
+  assert.match(triggers, /- synchronize/);
+  assert.match(triggers, /- reopened/);
+  assert.doesNotMatch(triggers, /ready_for_review/);
+});
+
 const REQUIRED_JOBS = new Map([
   ['static', 'Static'],
   ['unit', 'Unit'],

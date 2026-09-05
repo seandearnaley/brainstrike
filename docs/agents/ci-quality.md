@@ -4,6 +4,74 @@
 
 ## PR CI FLOW
 
+### Review and CI budget
+
+Before implementation, record the start time, acceptance criteria, actual PR
+base chain, and the required checks. Check open and recently merged PRs for an
+existing fix. Review completion means every finding has a disposition, not
+that every suggestion becomes code in this PR.
+
+- Collect the complete review for one head, classify correctness/contract
+  blockers, in-scope changes, follow-ups, and stale findings, then fix the
+  in-scope batch and run local checks before one push. Do not push each comment
+  separately. Valid adjacent work gets a concrete follow-up under the tracker
+  authorization policy; it does not expand the current acceptance criteria.
+- Allow an initial whole-PR review and one re-review after the batch. A third
+  whole-PR review requires a scope checkpoint and explicit user approval.
+  Prefer a targeted review of the fix over restarting whole-diff discovery.
+- At 45 minutes, report elapsed time, exact head, remaining blockers, and the
+  next stop. At 90 minutes without an exact-head-ready PR layer, stop new
+  pushes, reviews, reruns, and merges; preserve work and present a recovery
+  plan. This budget applies to the whole delivery, including a stack.
+- Keep one CI watcher. Reuse successful evidence for the same tested head/base;
+  rerun failed jobs only after identifying an infrastructure failure that makes
+  a retry meaningful. A code correction needs a new head and its own checks.
+  Do not close/reopen PRs, toggle draft state, or push empty commits to solicit
+  another review. Those lifecycle changes can start complete pipelines.
+- Read the live ruleset and distinguish required checks from advisory work.
+  Coverage is advisory; do not wait for it to finish before declaring the
+  required gate ready. Report its current state accurately. Inspect individual
+  Unit rows for failures while the aggregate is pending, so remediation does
+  not wait behind an unrelated healthy integration row.
+- Batch lower-layer fixes before rebasing descendants once. A changing main
+  branch alone does not justify repeatedly rebasing a stack; refresh only for
+  an actual conflict, required up-to-date protection, or a relevant base change.
+  Preserve exact-head/base verification before merge, and existing merge holds.
+
+These rules apply without an installed external skill. The external
+`pr-scope-guard` may automate the audit, but is not the only place the delivery
+budget is defined. Contract: `scripts/__tests__/engineering-skills-contract.test.mjs`.
+
+### Workload boundaries
+
+The September 4 audit found desktop's serial test + integration phases on the
+critical path: run `33920421898` spent 8m11s on units and 12m22s on integration;
+the other UI integration tasks took seconds. Desktop now owns three native
+Vitest file shards on separate runners, independent of the UI `heavy` row.
+Each runner retains one fork and no file parallelism; every file still runs,
+and the required `Unit` fan-in rejects any failed or missing shard. Local runs
+without `DESKTOP_TEST_SHARD` execute the entire suite. The 30-minute job timeout
+is a failure ceiling, not a latency target. Aim for a complete PR verdict in
+15 minutes; compare queue, setup, unit, integration, and fan-in time separately.
+
+Turbo's native `affectedUsingTaskInputs` flag makes `--affected` follow
+declared task inputs and dependency edges, intersected with package partition
+filters. PR steps set `TURBO_SCM_BASE` to the event's exact base SHA and
+`TURBO_SCM_HEAD` to the tested checkout SHA; inferred ranges are forbidden. Cross-package
+contract reads belong in the consuming package's task inputs. In particular,
+`assistant-providers.md` belongs to MCP lab tests and coverage, not global
+inputs. Simply moving that path without task-aware filtering is unsafe: the
+old package-only filter misses document-only changes even when the cache hash
+is correct. `scripts/__tests__/ci-input-locality.test.mjs` executes the pinned
+Turbo binary to prove both selection and hash locality, including a negative
+control. Shared configuration and lockfile changes still receive broad checks.
+
+Draft PRs already run the full Test workflow on opened/synchronize. Marking a
+draft ready must not rerun the same code: run `33929271597` repeated successful
+run `33927789987` on the same head after PR #2962 became ready. Test therefore
+omits `ready_for_review`; reopened remains to cover commits pushed while closed.
+Review workflow lifecycle is independent of test execution.
+
 Pull requests use plain GitHub Actions workflows. There is no custom planner,
 no generated CI artifact, no CI routing labels, and no local command registry.
 
@@ -989,8 +1057,8 @@ Doctor, Claude Auto Review, and `@claude` handling use
 - quiet-head admission remains on GitHub `ubuntu-slim`
 - the lightweight Unit fan-in also uses GitHub `ubuntu-slim`
 - Static remains on the measured GitHub ARM lane
-- all four physical Unit rows use one fixed Ubicloud runner class (two DB
-  native shards plus the heavy and rest rows)
+- all seven physical Unit rows use one fixed Ubicloud runner class (two DB
+  shards, three desktop shards, and the heavy and rest rows)
 - Native Windows remains on GitHub Windows behind its affected gate
 - scheduled regression/coverage jobs remain GitHub-hosted until their existing
   baselines are green enough to support a runner comparison
@@ -1003,17 +1071,16 @@ Do not route individual shards to different providers: keeping one fixed
 runner contract avoids a provider-selection layer while preserving the exact
 partition, integration concurrency, and required `Unit` fan-in.
 
-The four physical rows still form three logical package partitions:
-`db`, `heavy`, and `rest`. Only `db` repeats its Turbo package filter; its two
-rows supply `DB_TEST_SHARD=1/2` and `DB_TEST_SHARD=2/2` to the single
-`@brainstrike/db#test` invocation, whose Vitest config applies the native
-shard. The variable is appended only to the package-level DB Turbo task:
-Turbo CLI passthrough is forbidden here because it also reaches dependency
-and transit tasks. `scripts/unit-shard-partition.mjs` rejects
-missing, duplicate, mixed-count, or divergent-filter rows, so duplicating the
-DB package cannot become a double-run or an empty half silently. Do not apply
-this pattern across packages: it is valid here because DB is one package and
-one Vitest project.
+The seven physical rows form four logical package partitions: `db`,
+`desktop`, `heavy` (UI packages), and `rest`. DB uses `DB_TEST_SHARD=1/2`
+and `2/2`; desktop uses `DESKTOP_TEST_SHARD=1/3`, `2/3`, and `3/3` for both
+unit and integration. Each variable is scoped to its owning package's Turbo
+tasks, and each native shard runs files from one package only. Turbo CLI
+passthrough is forbidden because it also reaches dependency/transit tasks.
+`scripts/unit-shard-partition.mjs` rejects missing, duplicate, mixed-count,
+or divergent-filter rows. Desktop config rejects a missing required shard;
+its environment participates in the unit cache key, so one third cannot replay
+an unsharded or different-third result.
 
 Do not add a provider-selection layer or an automatic GitHub fallback. An
 Ubicloud provisioning failure must queue or fail visibly; rollback is an
@@ -2156,7 +2223,7 @@ Turbo 2.9's stable `query affected` was also evaluated but is not a CI planner.
 Against `origin/main..HEAD` with no package change it correctly returned zero;
 against the BST-1011 root/lockfile change it returned 48 package nodes including
 the workspace root, or 46 with `--tasks test`. That offers no saving over the
-Unit job's explicit `...[origin/$BASE_REF]` filters, cannot weaken the always-on
+Unit job's native affected selection, cannot weaken the always-on
 web/desktop smoke checks, and would create a second selection/reconciliation
 seam. `scripts/run-turbo-command.mjs` also appends `--cache-dir`, which run
 commands accept but `turbo query affected` rejects. Because no repository query
