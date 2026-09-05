@@ -27,7 +27,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      id-token: write
     steps:
       # Both supported events execute default-branch orchestration. Never check
       # out a PR ref with these credentials, even into a second worktree.
@@ -51,6 +50,17 @@ jobs:
         uses: anthropics/claude-code-action@d75b94d5ad426cb8546e6628b6f5f19b84e5cce1 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Anthropic's github-app-token-exchange rejects the OIDC token of a
+          # pull_request_target event (401 "Invalid OIDC token"), so the App
+          # exchange cannot mint a token on this trigger at all — see upstream
+          # anthropics/claude-code-action#713. Supplying github_token short-
+          # circuits that exchange before it is attempted. Nothing here needs an
+          # App identity: the model runs with zero tools and never reaches
+          # GitHub, and the trusted reporter below publishes with github.token.
+          # The actor check this bypasses is re-implemented in trusted code by
+          # the same-repository head guard in scripts/claude-review.mjs.
+          # Revert both this input and the removed id-token grant if #713 closes.
+          github_token: ${{ github.token }}
           prompt: ${{ steps.request.outputs.prompt }}
           claude_args: ${{ steps.request.outputs.claude_args }}
 

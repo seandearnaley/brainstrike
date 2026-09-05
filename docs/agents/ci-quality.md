@@ -1029,11 +1029,38 @@ or replace it with a wildcard.
 
 Claude Auto Review executes `pull_request_target` and targeted
 `workflow_dispatch` events using default-branch workflow code and the event's
-exact trusted checkout. Never check out PR code, run PR scripts, load PR
-configuration, or override the action's GitHub token to bypass OIDC validation.
-The pinned Claude action retains its OIDC exchange and actor permission checks.
-The default-branch condition and preparation checks reject another dispatch
-ref, a checkout mismatch, a non-default PR base, or a stale requested head.
+exact trusted checkout. Never check out PR code, run PR scripts, or load PR
+configuration. The default-branch condition and preparation checks reject
+another dispatch ref, a checkout mismatch, a non-default PR base, or a stale
+requested head.
+
+**The Claude App OIDC exchange is unavailable on this trigger and must not be
+re-enabled.** Anthropic's `github-app-token-exchange` validates the OIDC
+`event_name` claim against an allowlist that excludes `pull_request_target`,
+answering `401 Unauthorized - Invalid OIDC token`; the action's own code
+supports the trigger, only the endpoint refuses it
+(anthropics/claude-code-action#713, open since 2025-12-02). Between 2026-09-05
+17:14 and 19:21 this failed 7/7 automatic reviews while `workflow_dispatch`
+runs minutes apart on the same pinned action SHA succeeded, which is what
+isolates the trigger from the pin. The workflow therefore passes
+`github_token: ${{ github.token }}`, which `setupGitHubToken()` returns before
+attempting any exchange, and drops the now-unusable `id-token: write` grant.
+This costs nothing: the model runs with zero tools and never reaches GitHub,
+and the trusted reporter already publishes with `github.token`.
+
+The action's actor permission check goes away with that exchange, so
+preparation re-implements it in trusted code: automatic review requires
+`head.repo.full_name` to equal the running repository. This is tighter than the
+actor check in nearly every case but is not a strict superset — a former
+collaborator whose in-repo branch still exists can reopen their own PR and pass
+the head guard where an actor check would fail. That residue is acceptable only
+because the model runs with zero tools; do not lean on this guard for anything
+that can act. A fork head, or a head
+whose fork was deleted (`repo` is `null`), receives an explicit **skipped**
+disposition and the targeted dispatch command, so a maintainer who has read the
+diff can request coverage deliberately. Restore the OIDC path — the
+`id-token: write` grant and the removed `github_token` input — only if #713
+closes; `claude-auto-review-contract.test.mjs` pins both halves.
 
 Automatic review retains the `opened`, `ready_for_review`, and `reopened`
 lifecycle and omits `synchronize`. Changes to the workflow or its orchestration
@@ -1051,9 +1078,12 @@ initial review plus one batched re-review budget above; a third whole-PR round
 needs user approval. Never close/reopen a PR, toggle its draft status, push an
 empty commit, or restart the full Test pipeline merely to request Claude review.
 A newly introduced workflow cannot be dispatched from the default branch until
-an approved merge makes it available there. Before that bootstrap, report the
+an approved merge makes it available there. The same applies to *changing* this
+workflow: `pull_request_target` always executes the default-branch copy, so a
+change to it can never be exercised by the PR proposing it, and the first live
+proof is the next PR opened after the merge. Before that bootstrap, report the
 missing live Claude coverage explicitly and obtain human review; local contract
-fixtures are not proof that a live OIDC exchange or Claude review completed.
+fixtures are not proof that a live Claude review completed.
 
 `scripts/claude-review.mjs` captures `gh pr diff`, checking the live head and
 base before and after capture. It sends that snapshot directly as prompt data.
@@ -1078,10 +1108,14 @@ The final handler records a disposition in the workflow summary and publishes
 it on the PR, tied to the requested head, scope, and run attempt. Publication
 failures remain incomplete in the summary and fail the job:
 
-- **Skipped:** the automatic self-change guard withheld Claude execution.
+- **Skipped:** the automatic self-change or untrusted-head guard withheld
+  Claude execution.
 - **Incomplete:** preparation/action failure, the 80-turn cap, cancellation,
-  an upstream OIDC skip without a successful conclusion, missing exact-run
-  structured review output, publication failure, or a changed/closed PR invalidates coverage.
+  missing exact-run structured review output, publication failure, or a
+  changed/closed PR invalidates coverage. The reporter's message still names an
+  upstream OIDC skip; that is residual defense only — no OIDC path is live
+  while `github_token` is supplied (see above) — so it must not be read as a
+  reachable cause today.
 - **Completed:** the action explicitly concluded successfully, the
   complete structured output matches the requested head/base/scope, live
   head/base checks still match, and the trusted reporter publishes the actual

@@ -12,7 +12,20 @@ test('Claude orchestration uses trusted default-branch code for automatic and ta
   assert.match(workflow, /focus:/);
   assert.match(workflow, /ref: \$\{\{ github.sha \}\}/);
   assert.match(workflow, /persist-credentials: false/);
-  assert.doesNotMatch(workflow, /ref:.*pull_request.head|github_token:/);
+  assert.doesNotMatch(workflow, /ref:.*pull_request.head/);
+});
+
+test('review authenticates without the App exchange that rejects pull_request_target', () => {
+  // Anthropic's github-app-token-exchange 401s on a pull_request_target OIDC
+  // token (anthropics/claude-code-action#713), so the App path cannot run here.
+  // The action must receive the workflow's own token and nothing broader, and
+  // the now-unusable OIDC grant must stay off the job.
+  // Assert every occurrence, not just that one good one exists: a second
+  // `github_token:` from any other source would otherwise reopen the App path.
+  const tokenInputs = workflow.match(/github_token:.*/g) ?? [];
+  assert.equal(tokenInputs.length, 1);
+  assert.match(tokenInputs[0], /^github_token: \$\{\{ github\.token \}\}$/);
+  assert.doesNotMatch(workflow, /id-token:/);
 });
 
 test('reporting always consumes explicit Claude conclusion instead of green eligibility', () => {
