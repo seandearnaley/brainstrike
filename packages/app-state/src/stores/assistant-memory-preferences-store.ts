@@ -256,15 +256,24 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
        * settings UI. Mirrors the read-time normalize in
        * `getRuntimeMemorySettings`.
        */
-      merge: (persistedState, currentState) => ({
-        ...currentState,
-        ...normalizeMemorySettings(
-          persistedState && typeof persistedState === 'object'
-            ? (persistedState as Partial<RuntimeAssistantMemorySettings>)
-            : undefined
-        ),
-        hasHydrated: true,
-      }),
+      merge: (persistedState, currentState) => {
+        // No snapshot (first run): keep whatever the user already changed while
+        // an async storage read was pending; only mark hydration complete.
+        // Spreading defaults here would silently revert those edits on desktop,
+        // where the Electron storage bridge is promise-based.
+        if (persistedState === undefined || persistedState === null) {
+          return { ...currentState, hasHydrated: true };
+        }
+        return {
+          ...currentState,
+          ...normalizeMemorySettings(
+            typeof persistedState === 'object'
+              ? (persistedState as Partial<RuntimeAssistantMemorySettings>)
+              : undefined
+          ),
+          hasHydrated: true,
+        };
+      },
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return initialMemorySettings;
