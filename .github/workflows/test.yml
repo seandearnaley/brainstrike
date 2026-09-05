@@ -1068,9 +1068,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-smoke-main-test-results
-          path: apps/desktop/test-results/
+          path: apps/desktop/blob-report/
           retention-days: 1
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   # BST-1301: make a red `main` announce itself.
   #
