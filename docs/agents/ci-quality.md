@@ -1025,24 +1025,70 @@ measurement and worker-message validation modules remain in unit coverage, and
 the web L98/F85/B73/S89 thresholds are unchanged. Do not broaden this exception
 or replace it with a wildcard.
 
-### Claude auto-review fails with a visible incomplete disposition (BST-1412)
+### Claude review coverage and trusted orchestration (BST-1412, BST-1640)
 
-Claude Auto Review is bounded to the exact pull request diff and the existing
-GitHub review surfaces: `gh pr view`, `gh pr diff`, `gh pr comment`, and the
-inline-comment MCP tool. It must not crawl the checked-out repository or use
-generic shell/git exploration. The explicit 80-turn budget remains unchanged;
-the observed `directory mismatch ... tsconfig.json` text in run `32562173635`
-was a comment printed by the action's own Bun launcher, not a Claude tool call
-or a repository tsconfig failure.
+Claude Auto Review executes `pull_request_target` and targeted
+`workflow_dispatch` events using default-branch workflow code and the event's
+exact trusted checkout. Never check out PR code, run PR scripts, load PR
+configuration, or override the action's GitHub token to bypass OIDC validation.
+The pinned Claude action retains its OIDC exchange and actor permission checks.
+The default-branch condition and preparation checks reject another dispatch
+ref, a checkout mismatch, a non-default PR base, or a stale requested head.
 
-The Claude action step uses `continue-on-error` only so a following failure
-handler can post an explicit `Claude auto-review did not complete` PR comment.
-That handler runs exclusively when the action step's outcome is `failure` and
-then exits non-zero, so successful reviews do not receive duplicate failure
-comments and incomplete reviews keep the workflow red. Contract coverage lives
-in `scripts/__tests__/claude-auto-review-contract.test.mjs`; it executes the
-handler with a fake `gh`, verifies the visible PR disposition, and proves the
-handler preserves a failing exit status.
+Automatic review retains the `opened`, `ready_for_review`, and `reopened`
+lifecycle and omits `synchronize`. Changes to the workflow or its orchestration
+script receive an explicit **skipped** disposition; a maintainer can request
+coverage with the trusted default-branch workflow:
+
+```bash
+gh workflow run claude-code-review.yml --repo seandearnaley/brainstrike --ref main \
+  -f pr_number=123 -f expected_head=<40-character-current-head> \
+  -f 'focus=Verify the specific workflow trust boundary or previously reported findings'
+```
+
+This is a targeted review, not another automatic whole-PR round. Follow the
+initial review plus one batched re-review budget above; a third whole-PR round
+needs user approval. Never close/reopen a PR, toggle its draft status, push an
+empty commit, or restart the full Test pipeline merely to request Claude review.
+A newly introduced workflow cannot be dispatched from the default branch until
+an approved merge makes it available there. Before that bootstrap, report the
+missing live Claude coverage explicitly and obtain human review; local contract
+fixtures are not proof that a live OIDC exchange or Claude review completed.
+
+`scripts/claude-review.mjs` captures `gh pr diff` as a read-only data file,
+checking the live head and base before and after capture. Claude reads only that
+snapshot and posts findings on the PR; it must not crawl the checkout or fetch
+a moving PR diff. The tool permissions permit the snapshot Read, the exact
+PR's `gh pr comment`, and (for automatic PR events) inline comments bound to the
+requested `commit_id`. Dispatch has no PR entity context in the upstream action
+and therefore uses explicit top-level file/line findings. The `dontAsk` mode
+denies unapproved tools. The model and 80-turn ceiling remain unchanged.
+
+The final handler always posts a disposition on the PR and in the workflow
+summary, tied to the requested head, scope, and run attempt:
+
+- **Skipped:** the automatic self-change guard withheld Claude execution.
+- **Incomplete:** preparation/action failure, the 80-turn cap, cancellation,
+  an upstream OIDC skip without a successful conclusion, missing exact-run
+  Claude review content, or a changed/closed PR invalidates coverage.
+- **Completed:** the action explicitly concluded successfully, an actual
+  `claude[bot]` comment contains the exact run/head marker, and live head/base
+  checks still match. The disposition links that review; it is coverage, not
+  approval, and findings still need inspection and closure.
+
+Skipped and incomplete dispositions fail the review job. `continue-on-error`
+only allows this final reporting step to run; it preserves BST-1412's red
+failure disposition. Hard runner loss or checkout failure can prevent final
+reporting; a missing disposition never counts as completion. The required Test
+checks remain separate. Any later push invalidates an older head's coverage.
+Contracts execute normal, failure, self-change, targeted, moving-head, missing
+content, and trust rejection paths in `scripts/__tests__/claude-review.test.mjs`
+and pin the workflow wiring in `claude-auto-review-contract.test.mjs`.
+
+Primary trust evidence: [Anthropic action security guidance](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/docs/security.md),
+[manual dispatch example](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/examples/manual-code-analysis.yml),
+[OIDC skip and conclusion implementation](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/src/entrypoints/run.ts),
+and [GitHub's trusted-event security guidance](https://docs.github.com/en/actions/reference/security/secure-use).
 
 ### Cost-ranked Linux x64 jobs run on Ubicloud (BST-765)
 
