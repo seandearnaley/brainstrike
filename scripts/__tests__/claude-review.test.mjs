@@ -252,7 +252,7 @@ test('moving head while capturing diff is rejected before Claude runs', (t) => {
 for (const kind of [
   'stale head',
   'untrusted ref',
-  'untrusted base',
+  'malformed base payload',
   'checkout mismatch',
   'missing focus',
 ]) {
@@ -264,7 +264,7 @@ for (const kind of [
     if (kind === 'untrusted ref') {
       f.env.GITHUB_REF = 'refs/heads/attacker';
     }
-    if (kind === 'untrusted base') {
+    if (kind === 'malformed base payload') {
       f.pr.base.repo = { full_name: 'attacker/repo' };
     }
     if (kind === 'checkout mismatch') {

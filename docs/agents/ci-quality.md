@@ -1038,9 +1038,11 @@ Claude Auto Review runs on `pull_request` (`opened`, `ready_for_review`,
   credentials, and Anthropic's App token exchange rejects its OIDC token
   regardless (anthropics/claude-code-action#713; it blacked out 7/7 automatic
   reviews on 2026-09-05 and every stacked layer). Do not switch back.
-- Drafts are reviewed exactly once, at `ready_for_review`; the job condition
-  skips `opened`/`reopened` while `draft == true`. This matches Codex, which
-  also ignores drafts, and removes the open-then-ready double review.
+- Drafts are reviewed at `ready_for_review`; the job condition skips
+  `opened`/`reopened` while `draft == true`. This matches Codex, which also
+  ignores drafts, and removes the draft-open-then-ready double review. A PR
+  opened ready, converted to draft, and marked ready again is reviewed twice;
+  that round trip is rare and not worth guarding.
 - The action receives `github_token: ${{ github.token }}`, which
   `setupGitHubToken()` returns before any App exchange, so no event type can
   depend on that endpoint's allowlist; the job carries no `id-token` grant.
@@ -1049,19 +1051,35 @@ Claude Auto Review runs on `pull_request` (`opened`, `ready_for_review`,
   write-permission check still runs on every PR event regardless of token
   source; preparation's same-repository head guard is belt-and-braces on top.
 
-**Trust model, stated honestly.** Under `pull_request`, the workflow and
-`scripts/claude-review.mjs` run from the PR's merge commit — PR-author code.
-This is accepted because every PR here is authored by the repository owner
-or their agents, the model has no tools, and the reporter emits text only.
-The residual exposure is a PR that edits the reviewer's own self-change guard;
-that is caught by a human reading workflow diffs, not by any mechanism — there
+**Trust model, stated honestly.** Under `pull_request`, this workflow file and
+`scripts/claude-review.mjs` execute from the PR's merge commit — PR-author
+code — with `secrets.CLAUDE_CODE_OAUTH_TOKEN` injected and a `pull-requests:
+write` token in scope. That is the exposure: a same-repository PR can rewrite
+these steps to do anything with that secret and token, and since PRs here are
+agent-authored, a prompt-injected agent reaches a credential by this path.
+`pull_request_target` prevented it structurally and was given up for stack
+coverage. "The model has no tools" and "the reporter emits text" constrain
+only the model and the reporter, not PR-authored YAML. Accepted because every
+PR is the owner's or their agents', and the owner reads workflow diffs; there
 is no CODEOWNERS enforcement and none would be satisfiable in a one-human repo.
-The `workflow_dispatch` path (`--ref main`) remains the trusted way to review a
-PR that touches the reviewer itself. Preparation pins each event to its one
-legitimate ref (`refs/heads/<default>` for dispatch, `refs/pull/<N>/merge` for
-`pull_request`) with a matching checkout, requires the PR base to be a branch
-of this repository (stacked layers pass; foreign bases do not), requires a
-same-repository head for automatic runs, and rechecks live head/base.
+Mitigations available if the exposure is judged too large: rotate
+`CLAUDE_CODE_OAUTH_TOKEN` on a cadence, or move the action step behind a
+protected `environment:` (a GitHub setting, not repository code). The
+`workflow_dispatch` path (`--ref main`) remains the trusted way to review a PR
+that touches the reviewer itself.
+
+Preparation pins the checkout to `GITHUB_SHA` and requires the event's ref
+(`refs/heads/<default>` for dispatch, `refs/pull/<N>/merge` for
+`pull_request`); for `pull_request` the expected ref derives from the same
+payload as `GITHUB_REF`, so the checkout equality is the load-bearing check.
+Any branch of this repository is an acceptable base — stacked layers pass; the
+base-repository comparison is a malformed-response tripwire, since GitHub
+cannot return a base outside the host repository. Automatic runs require a
+same-repository head. A fork-head `pull_request` run holds a read-only token
+regardless of the `permissions:` block, so its skipped disposition lands in the
+job summary and the job goes red, but the PR comment cannot post; the dispatch
+command in that summary still works from `main`. The repository takes no fork
+PRs, so this is accepted rather than engineered around.
 
 **Both reviewers, one budget.** Claude: one automatic review per lifecycle
 event above, plus one targeted dispatch after the fix batch. Codex: one

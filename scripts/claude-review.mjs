@@ -92,10 +92,12 @@ export function prepareReview({
     if (!['pull_request', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME)) {
       throw new Error('Only pull_request or workflow_dispatch events are supported.');
     }
-    // Each event has exactly one legitimate ref: dispatch runs the default
-    // branch's workflow; pull_request runs the workflow at the PR's own merge
-    // ref, for any base branch, so every layer of a stack is reviewed against
-    // its parent. The checkout must be that ref's commit and nothing else.
+    // Dispatch runs the default branch's workflow; pull_request runs at the
+    // PR's own merge ref, for any base branch, so every layer of a stack is
+    // reviewed against its parent. For pull_request the expected ref derives
+    // from the same payload as GITHUB_REF, so that comparison only rules out a
+    // refs/heads/* ref and cross-PR confusion; the load-bearing check is that
+    // the checkout is exactly GITHUB_SHA.
     const eventRef = targeted
       ? `refs/heads/${request.defaultBranch}`
       : `refs/pull/${request.number}/merge`;
@@ -113,9 +115,10 @@ export function prepareReview({
     }
     const pr = livePullRequest(gh, request);
     request.base = pr.base.sha;
-    // Stacked layers target another branch of this repository; that is fine —
-    // the diff is per-layer against that base. A base outside the repository
-    // is not.
+    // Any branch of this repository is an acceptable base — stacked layers are
+    // reviewed per-layer against their parent. `pr.base.repo` is the host
+    // repository by construction, so the repo comparison is a malformed-
+    // response tripwire, not an enforcing control.
     if (!shaPattern.test(request.base) || pr.base.repo?.full_name !== request.repository) {
       throw new Error('The PR base must be a branch of this repository.');
     }
@@ -179,7 +182,10 @@ export function prepareReview({
     // too long" and no disposition — observed on 131 KiB and 188 KiB diffs;
     // 84 KiB passed. Refuse visibly with the numbers instead. No narrower diff
     // is ever substituted; a PR this size needs splitting, not a shorter review.
-    const promptBytes = Buffer.byteLength(prompt, 'utf8');
+    // Measured on the JSON-encoded copy: the action also sets ALL_INPUTS, a
+    // JSON object containing the prompt, and that is the largest single
+    // variable it exports.
+    const promptBytes = Buffer.byteLength(JSON.stringify(prompt), 'utf8');
     if (promptBytes > PROMPT_BYTE_BUDGET) {
       request.disposition = 'incomplete';
       request.reason = `The captured diff is too large for the review action's environment: the prompt is ${Math.ceil(promptBytes / 1024)} KiB against a ${PROMPT_BYTE_BUDGET / 1024} KiB budget (Linux caps one environment variable at 128 KiB). Split this PR into reviewable layers; a narrower diff is never substituted.`;

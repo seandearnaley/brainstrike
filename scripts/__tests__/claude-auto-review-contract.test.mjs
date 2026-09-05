@@ -12,10 +12,11 @@ test('automatic review runs on pull_request for any base; targeted review runs t
   assert.match(workflow, /^ {2}pull_request:/m);
   assert.doesNotMatch(workflow, /^ {2}pull_request_target:/m);
   assert.match(workflow, /^ {2}workflow_dispatch:/m);
-  // Drafts are reviewed once, at ready_for_review — never at open and again at ready.
+  // Drafts are reviewed at ready_for_review, not at open. The pull_request
+  // clause must be explicit: GitHub coerces `null == false` to true.
   assert.match(
     workflow,
-    /if: \$\{\{ github\.event_name == 'workflow_dispatch' \|\| github\.event\.pull_request\.draft == false \}\}/
+    /if: \$\{\{ github\.event_name == 'workflow_dispatch' \|\| \(github\.event_name == 'pull_request' && github\.event\.pull_request\.draft == false\) \}\}/
   );
   assert.doesNotMatch(workflow, /github\.ref == format\('refs\/heads/);
   assert.match(workflow, /expected_head:/);
