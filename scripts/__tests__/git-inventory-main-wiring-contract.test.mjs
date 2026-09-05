@@ -19,7 +19,9 @@
  *      every unit test for the service itself while breaking shutdown.
  *
  * Neither of these is reachable by constructing the service in isolation, so
- * this is a raw source-text contract over `main.ts`, matching the pattern in
+ * this is a raw source-text contract over `main.ts` (and, since BST-1648
+ * step 4 moved the construction into `main/git-awareness-lifecycle.ts`, over
+ * that module for the wiring-shape checks), matching the pattern in
  * `db-test-discovery-contract.test.mjs`. It is intentionally crude — the goal
  * is a cheap tripwire, not a semantic parse of `main.ts`.
  */
@@ -31,15 +33,25 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const mainTsPath = path.join(repoRoot, 'apps/desktop/src/main.ts');
+const lifecycleTsPath = path.join(repoRoot, 'apps/desktop/src/main/git-awareness-lifecycle.ts');
 const source = readFileSync(mainTsPath, 'utf8');
+const lifecycleSource = readFileSync(lifecycleTsPath, 'utf8');
 
-function requireIndexOf(needle, description) {
-  const index = source.indexOf(needle);
+function requireIndexIn(haystack, haystackPath, needle, description) {
+  const index = haystack.indexOf(needle);
   assert.ok(
     index !== -1,
-    `expected to find ${description} in ${mainTsPath}: ${JSON.stringify(needle)}`
+    `expected to find ${description} in ${haystackPath}: ${JSON.stringify(needle)}`
   );
   return index;
+}
+
+function requireIndexOf(needle, description) {
+  return requireIndexIn(source, mainTsPath, needle, description);
+}
+
+function requireLifecycleIndexOf(needle, description) {
+  return requireIndexIn(lifecycleSource, lifecycleTsPath, needle, description);
 }
 
 test('git-inventory shutdown step runs before the database shutdown step', () => {
@@ -114,23 +126,23 @@ test('the changes:invalidated broadcast AND forge invalidation ride the same onI
   // `broadcastChangesInvalidation(event)` silently reverts the changes
   // domain to manual-refresh-only, and dropping the forge call silently
   // reverts forge PR awareness to window-focus-only polling.
-  const constructIndex = requireIndexOf(
-    'gitInventoryService = createGitInventoryService(',
+  const constructIndex = requireLifecycleIndexOf(
+    'const gitInventoryService = createGitInventoryService(',
     'the gitInventoryService construction site'
   );
-  const onInvalidateIndex = requireIndexOf(
+  const onInvalidateIndex = requireLifecycleIndexOf(
     'onInvalidate: (event) => {',
     'the onInvalidate dep wiring the composed invalidation callback'
   );
-  const broadcastCallIndex = requireIndexOf(
+  const broadcastCallIndex = requireLifecycleIndexOf(
     'broadcastChangesInvalidation(event);',
     'the onInvalidate callback invoking broadcastChangesInvalidation with the watcher event'
   );
-  const forgeInvalidateCallIndex = requireIndexOf(
-    'forgeService?.onRepositoryInvalidated(event.gitCommonDir);',
+  const forgeInvalidateCallIndex = requireLifecycleIndexOf(
+    'forgeService.onRepositoryInvalidated(event.gitCommonDir);',
     'the onInvalidate callback riding forgeService.onRepositoryInvalidated on the SAME callback'
   );
-  requireIndexOf(
+  requireLifecycleIndexOf(
     'DESKTOP_IPC_CHANNELS.changes.invalidated',
     'the changes.invalidated channel send inside broadcastChangesInvalidation'
   );
@@ -138,7 +150,7 @@ test('the changes:invalidated broadcast AND forge invalidation ride the same onI
   // construction's `onInvalidate` property, bounding the window both calls
   // must fall inside — proving they belong to the SAME callback body rather
   // than merely appearing somewhere in the file.
-  const onInvalidatePropEndIndex = requireIndexOf(
+  const onInvalidatePropEndIndex = requireLifecycleIndexOf(
     'run: execFileGitRunner,',
     "the gitInventoryService construction's run dep, closing the onInvalidate property"
   );
@@ -176,28 +188,45 @@ test('gitInventoryService is constructed and started inside app.whenReady(), nev
     'app.whenReady().then(...) must appear before the singleInstanceLockAcquired guard closes'
   );
 
-  const constructIndex = requireIndexOf(
-    'gitInventoryService = createGitInventoryService(',
-    'the gitInventoryService construction site'
+  // BST-1648 step 4: the construction + start() live in
+  // main/git-awareness-lifecycle.ts; main.ts reaches them ONLY through the
+  // startGitAwarenessLifecycle(...) call, which must sit inside whenReady.
+  const lifecycleCallIndex = requireIndexOf(
+    'const gitAwareness = startGitAwarenessLifecycle({',
+    'the startGitAwarenessLifecycle(...) call site'
   );
-  const startIndex = requireIndexOf(
-    'gitInventoryService.start();',
-    'the gitInventoryService.start() call'
+  assert.ok(
+    whenReadyIndex < lifecycleCallIndex && lifecycleCallIndex < guardEndIndex,
+    'startGitAwarenessLifecycle(...) must be INSIDE app.whenReady() — calling it at module ' +
+      'scope runs before the single-instance-lock guard and before the app is ready'
+  );
+  assert.equal(
+    source.indexOf('createGitInventoryService('),
+    -1,
+    'main.ts must not construct a GitInventoryService itself — the ONE construction site is ' +
+      'main/git-awareness-lifecycle.ts, reached only from inside app.whenReady()'
+  );
+  assert.equal(
+    source.indexOf('startGitAwarenessLifecycle('),
+    source.lastIndexOf('startGitAwarenessLifecycle('),
+    'exactly one startGitAwarenessLifecycle(...) call site in main.ts'
   );
 
-  assert.ok(
-    whenReadyIndex < constructIndex && constructIndex < guardEndIndex,
-    'gitInventoryService construction must be INSIDE app.whenReady() — constructing it at ' +
-      'module scope runs before the single-instance-lock guard and before the app is ready'
+  const constructIndex = requireLifecycleIndexOf(
+    'const gitInventoryService = createGitInventoryService(',
+    'the gitInventoryService construction site'
   );
-  assert.ok(
-    whenReadyIndex < startIndex && startIndex < guardEndIndex,
-    "gitInventoryService.start() must be INSIDE app.whenReady() — start()'s eager build " +
-      'reaches getDatabase() -> utilityProcess.fork, which Electron rejects before the app ' +
-      'is ready, silently failing on every production boot if called at module scope'
+  const startIndex = requireLifecycleIndexOf(
+    'gitInventoryService.start();',
+    'the gitInventoryService.start() call'
   );
   assert.ok(
     constructIndex < startIndex,
     'gitInventoryService must be constructed before start() is called on it'
+  );
+  assert.equal(
+    lifecycleSource.indexOf('gitInventoryService.start();'),
+    lifecycleSource.lastIndexOf('gitInventoryService.start();'),
+    'exactly one start() call — the lifecycle module never starts the inventory twice'
   );
 });
