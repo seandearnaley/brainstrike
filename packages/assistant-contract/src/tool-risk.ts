@@ -18,13 +18,9 @@
  * any runtime; that is a later step in the permission-engine work.
  */
 
-import type { ToolCategory } from './tool-categories.js';
+import type { ToolCategory, ToolRiskCategory } from './native-tools/taxonomy.js';
 
-/**
- * Risk category for a tool, used by the permission engine to decide whether a
- * tool call is allowed, requires a prompt, or is denied.
- */
-export type ToolRiskCategory = 'read' | 'edit' | 'execute' | 'mcp';
+export type { ToolRiskCategory };
 
 /** Every risk category, in taxonomy order (read → edit → execute → mcp). */
 export const TOOL_RISK_CATEGORIES: readonly ToolRiskCategory[] = ['read', 'edit', 'execute', 'mcp'];

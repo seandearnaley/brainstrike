@@ -1,47 +1,9 @@
+import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { providerCompatibleInputSchema } from '../tools/provider-compatible-input';
 import * as toolSchemas from '../tools/schemas';
-
-const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
-  'brainstrike.askUser',
-  'brainstrike.deleteWorkspaceFile',
-  'brainstrike.executeCommand',
-  'brainstrike.findWorkspaceSymbol',
-  'brainstrike.globWorkspace',
-  'brainstrike.grepSearch',
-  'brainstrike.hybridSearch',
-  'brainstrike.inspectCommandSessions',
-  'brainstrike.listEmbeddingSpaces',
-  'brainstrike.listWorkspaceContext',
-  'brainstrike.listWorktrees',
-  'brainstrike.lspInspect',
-  'brainstrike.browserGetPageText',
-  'brainstrike.browserNavigate',
-  'brainstrike.browserReadPage',
-  'brainstrike.manageCanvas',
-  'brainstrike.manageTaskList',
-  'brainstrike.manageCommandSession',
-  'brainstrike.manageWorktree',
-  'brainstrike.queryEmbeddingSpace',
-  'brainstrike.queryDiagnostics',
-  'brainstrike.querySelf',
-  'brainstrike.readToolOutputArtifact',
-  'brainstrike.readWorkspaceContext',
-  'brainstrike.readWorkspaceDirectory',
-  'brainstrike.readWorkspaceFile',
-  'brainstrike.renameWorkspaceFile',
-  'brainstrike.runPython',
-  'brainstrike.runSkillScript',
-  'brainstrike.stringReplaceWorkspaceFile',
-  'brainstrike.submitPlan',
-  'brainstrike.updateWorkspaceContextSelection',
-  'brainstrike.updateWorkspaceTapestrySelections',
-  'brainstrike.webExtract',
-  'brainstrike.webSearch',
-  'brainstrike.writeWorkspaceFile',
-] as const;
 
 const PROVIDER_JSON_SCHEMA_OPTIONS = {
   cycles: 'throw',
@@ -102,7 +64,9 @@ describe('native tool input schema catalog', () => {
       throw new TypeError('NATIVE_TOOL_INPUT_SCHEMAS must be an object');
     }
 
-    expect(Object.keys(registry).sort()).toEqual([...EXPECTED_DESKTOP_NATIVE_TOOL_IDS].sort());
+    // The catalog's inline snapshot (packages/assistant-contract native-tools.test.ts)
+    // is the ONE hand-maintained id list; this map is derived from the same definitions.
+    expect(Object.keys(registry)).toEqual([...DESKTOP_NATIVE_TOOL_IDS]);
     expect(registry).not.toHaveProperty('web.echo');
     expect(registry).not.toHaveProperty('skill');
     expect(registry).not.toHaveProperty('skill_read');

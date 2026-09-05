@@ -1,5 +1,8 @@
 import { isGuardedToolError, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  denormalizeNativeToolName,
+  STALE_REPLAYABLE_NATIVE_TOOL_IDS,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import type {
@@ -39,22 +42,11 @@ const MULTIMODAL_PART_TYPES = new Set([
 /**
  * A deliberately narrow allowlist. Verification, execution, mutation, task,
  * approval, discovery, skill, session, and unknown MCP tools stay verbatim.
+ * Membership is declared per tool (`history.staleReplayable` on its
+ * `defineNativeTool` definition) and derived here, so a new tool is verbatim
+ * unless it opts in beside its own definition.
  */
-const FILTERABLE_NATIVE_TOOL_IDS = new Set<string>([
-  NATIVE_TOOL_ID.findWorkspaceSymbol,
-  NATIVE_TOOL_ID.globWorkspace,
-  NATIVE_TOOL_ID.grepSearch,
-  NATIVE_TOOL_ID.hybridSearch,
-  NATIVE_TOOL_ID.listEmbeddingSpaces,
-  NATIVE_TOOL_ID.listWorkspaceContext,
-  NATIVE_TOOL_ID.queryEmbeddingSpace,
-  NATIVE_TOOL_ID.readToolOutputArtifact,
-  NATIVE_TOOL_ID.readWorkspaceContext,
-  NATIVE_TOOL_ID.readWorkspaceDirectory,
-  NATIVE_TOOL_ID.readWorkspaceFile,
-  NATIVE_TOOL_ID.webExtract,
-  NATIVE_TOOL_ID.webSearch,
-]);
+const FILTERABLE_NATIVE_TOOL_IDS: ReadonlySet<string> = new Set(STALE_REPLAYABLE_NATIVE_TOOL_IDS);
 
 /**
  * Original ids whose SETTLED calls may have oversized ARGS elided (2026-08-23

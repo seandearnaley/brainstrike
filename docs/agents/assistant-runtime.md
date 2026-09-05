@@ -693,9 +693,11 @@ live in `docs/agents/assistant-providers.md`.
 
 **Hosted native-tool definition and prompt budget (LIVE):**
 The runtime does not maintain a parallel provider-tool catalog.
-`@brainstrike/assistant-contract` supplies canonical ids and descriptions;
-`NATIVE_TOOL_INPUT_SCHEMAS` in `packages/agent/src/tools/schemas.ts` supplies
-the exact Zod input object for each desktop native id. The desktop registry
+`@brainstrike/assistant-contract` supplies canonical ids and descriptions from
+the per-tool `defineNativeTool` declarations (`native-tools/definitions/*.ts`,
+BST-1646); `NATIVE_TOOL_INPUT_SCHEMAS` in `packages/agent/src/tools/schemas.ts`
+is derived from those same declarations and supplies the exact Zod input object
+for each desktop native id. The desktop registry
 uses those objects directly, `validateToolInput` parses with the same map, and
 Mastra performs the Standard Schema → provider JSON Schema conversion. The
 browser-safe `NATIVE_TOOL_SCHEMAS` registry is intentionally lossy display

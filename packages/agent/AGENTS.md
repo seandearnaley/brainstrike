@@ -146,8 +146,25 @@ When adding a new tool:
     aware that the runtime may rename them internally; the original name is  
     preserved in `runtime.toolNameMap`.
     
-6. **Document your tool**. Update this AGENTS.md to describe any new tools,  
-    their purpose, limitations and usage. If the tool proxies to an external  
+6. **Declare the tool once**. A Brainstrike native tool is ONE
+    `defineNativeTool({...})` file under
+    `packages/assistant-contract/src/native-tools/definitions/` (id, model-facing
+    description, registered Zod `inputSchema`, load/risk `defaults`, discovery
+    namespace + capability family, `surfaces`, history posture, inspector
+    `returns` prose) listed once in `native-tools/index.ts`. Every registry —
+    `NATIVE_TOOL_ID`, `TOOL_DESCRIPTIONS`, `NATIVE_TOOL_DEFAULTS`,
+    `NATIVE_TOOL_INPUT_SCHEMAS`, discovery namespaces, capability families, the
+    web/local partitions, the history allowlists, and the prompt composer's
+    model-facing name map — is derived from that list; a missing facet fails at
+    definition time (`InvalidNativeToolDefinitionError` /
+    `UndeterminableToolRiskError`), never as a stale second copy. Then add the
+    tool's executor entry in `apps/desktop/src/assistant-server/assistant-tools.ts`.
+    The catalog's one inline snapshot
+    (`packages/assistant-contract/src/__tests__/native-tools.test.ts`) is the
+    only place a tool id is listed by hand.
+
+7. **Document your tool**. Update this AGENTS.md to describe any new tools,
+    their purpose, limitations and usage. If the tool proxies to an external
     service, document rate limits and visible failure behavior.
 
 ### `brainstrike.manageCanvas` tool (schema here, executed in desktop)
