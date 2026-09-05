@@ -456,8 +456,8 @@ describe('worktree collection navigation', () => {
   it('keeps primary first, sorts activity newest first, and places missing dates last', () => {
     const repositories = project([
       entry({ name: 'primary', path: '/primary' }),
-      entry({ createdAt: '2026-08-01T00:00:00Z', name: 'older', path: '/old', primary: false }),
-      entry({ createdAt: '2026-09-01T00:00:00Z', name: 'newer', path: '/new', primary: false }),
+      entry({ createdAt: '2026-08-01T00:00:00Z', name: 'alpha', path: '/old', primary: false }),
+      entry({ createdAt: '2026-09-01T00:00:00Z', name: 'zulu', path: '/new', primary: false }),
       entry({ name: 'undated', path: '/undated', primary: false }),
     ]);
     const result = selectWorktreeCollection({
@@ -473,6 +473,47 @@ describe('worktree collection navigation', () => {
       '/new',
       '/old',
       '/undated',
+    ]);
+  });
+  it('sorts linked thread activity ahead of checkout creation time', () => {
+    const repositories = buildWorktreeMap({
+      entries: [
+        entry({
+          createdAt: '2026-01-01T00:00:00Z',
+          id: 'active',
+          name: 'zulu',
+          path: '/active',
+          primary: false,
+        }),
+        entry({
+          createdAt: '2026-08-01T00:00:00Z',
+          name: 'alpha',
+          path: '/new',
+          primary: false,
+        }),
+      ],
+      indexingOptInByRootId: {},
+      prCache: new Map(),
+      runningThreadIds: new Set(),
+      threads: [
+        thread({
+          id: 'thread-active',
+          metadata: { checkoutMode: 'worktree', checkoutWorktreeId: 'active' },
+          updatedAt: new Date('2026-09-01T00:00:00Z'),
+        }),
+      ],
+    });
+    const result = selectWorktreeCollection({
+      filter: 'all',
+      page: 0,
+      query: '',
+      repositories,
+      sort: 'recent',
+      statusByPath: new Map(),
+    });
+    expect(result.repositories[0]?.cards.map((card) => card.entry.path)).toEqual([
+      '/active',
+      '/new',
     ]);
   });
   it('external excludes the primary checkout and managed checkouts', () => {

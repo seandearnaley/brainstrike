@@ -92,6 +92,12 @@ export function selectWorktreeCollection(input: {
     ...repository,
     cards: repository.cards
       .filter((card) => {
+        if (!matchesFilter(card, input.filter, input.statusByPath.get(card.entry.path))) {
+          return false;
+        }
+        if (tokens.length === 0) {
+          return true;
+        }
         const haystack = [
           repository.repositoryName,
           repository.repositoryRoot,
@@ -104,10 +110,7 @@ export function selectWorktreeCollection(input: {
         ]
           .join(' ')
           .toLocaleLowerCase();
-        return (
-          tokens.every((token) => haystack.includes(token)) &&
-          matchesFilter(card, input.filter, input.statusByPath.get(card.entry.path))
-        );
+        return tokens.every((token) => haystack.includes(token));
       })
       .sort((a, b) => compareCards(a, b, input.sort)),
   }));

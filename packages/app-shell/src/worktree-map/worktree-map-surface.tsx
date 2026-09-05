@@ -103,14 +103,15 @@ export function WorktreeMapSurface(): ReactElement {
     worktrees,
   });
 
-  const collection = selectWorktreeCollection({
-    filter,
-    page,
-    query,
-    repositories,
-    sort,
-    statusByPath,
-  });
+  const collection = useMemo(
+    () => selectWorktreeCollection({ filter, page, query, repositories, sort, statusByPath }),
+    [filter, page, query, repositories, sort, statusByPath]
+  );
+  // Keep the source page in range too: recovering async results must not
+  // restore a page the user has already been moved away from.
+  if (collection.page !== page) {
+    setPage(collection.page);
+  }
   const changePage = (next: number): void => {
     setPage(next);
     if (scrollRef.current) {
@@ -184,7 +185,10 @@ export function WorktreeMapSurface(): ReactElement {
           {collection.repositories.map((repositoryModel) => (
             <section className="flex min-w-0 flex-col gap-2" key={repositoryModel.repoCommonDir}>
               <h2 className="font-medium text-sm">{repositoryModel.repositoryName}</h2>
-              <div className="flex gap-3 overflow-x-auto pb-2">
+              <div
+                className="flex gap-3 overflow-x-auto pb-2"
+                key={`${collection.page}:${query}:${filter}:${sort}`}
+              >
                 {repositoryModel.cards.map((card) => (
                   <WorktreeMapCard
                     card={card}

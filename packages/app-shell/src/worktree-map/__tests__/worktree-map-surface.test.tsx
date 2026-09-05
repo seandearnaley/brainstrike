@@ -236,11 +236,50 @@ describe('WorktreeMapSurface', () => {
     render(<WorktreeMapSurface />);
     expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(25);
     expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    const lane = screen.getAllByTestId('worktree-map-card')[0]?.parentElement;
+    if (!lane) {
+      throw new Error('Missing checkout container');
+    }
+    lane.scrollLeft = 600;
     await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getAllByTestId('worktree-map-card')[0]?.parentElement?.scrollLeft).toBe(0);
     expect(screen.getByText('26–50 of 61')).toBeInTheDocument();
     await user.type(screen.getByRole('searchbox', { name: 'Search worktrees' }), 'checkout-60');
     expect(screen.getAllByTestId('worktree-map-card')).toHaveLength(1);
     expect(screen.getByText('1–1 of 1')).toBeInTheDocument();
+  });
+
+  it('keeps the clamped page when attention results recover after a refresh', async () => {
+    const user = userEvent.setup();
+    const cards = Array.from({ length: 51 }, (_, i) =>
+      card({ entry: { ...card().entry, name: `checkout-${i}`, path: `/wt/${i}` } })
+    );
+    const state = {
+      ...BASE_STATE,
+      repositories: [{ ...BASE_STATE.repositories[0], cards }],
+      statusByPath: new Map(
+        cards.map((item) => [
+          item.entry.path,
+          {
+            kind: 'ready',
+            value: { ahead: 0, behind: 0, clean: false },
+          },
+        ])
+      ),
+    };
+    useWorktreeMapMock.mockReturnValue(state);
+    const view = render(<WorktreeMapSurface />);
+    await user.click(screen.getByRole('button', { name: 'Needs attention' }));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('51–51 of 51')).toBeInTheDocument();
+    useWorktreeMapMock.mockReturnValue({ ...state, statusByPath: new Map() });
+    view.rerender(<WorktreeMapSurface />);
+    expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
+    useWorktreeMapMock.mockReturnValue(state);
+    view.rerender(<WorktreeMapSurface />);
+    expect(screen.getByText('1–25 of 51')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
   });
 
   it('filters known attention states without treating primary or unknown status as broken', async () => {

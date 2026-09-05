@@ -435,7 +435,8 @@ models through `selectWorktreeCollection`: tokenized case-insensitive local
 search, All/Running/Needs attention/External filters, primary-first name or
 recent-activity sorting within each repository, and a global 25-checkout page
 bound. Search/filter/sort changes return to the first page; a smaller result
-clamps the visible page. These are ephemeral React view preferences, never a
+clamps both the visible and source page so recovering async results cannot jump back.
+Page and toolbar changes reset checkout scrolling. These are ephemeral React view preferences, never a
 new persistent store or another DB/IPC query. Unknown/loading status is not an
 attention signal; the primary checkout's Local-only usability is not a fault.
 Status errors, dirty/behind checkouts, failed PR checks and unusable non-primary
