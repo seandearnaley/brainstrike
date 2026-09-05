@@ -6,6 +6,7 @@ import * as mcpIpc from '../../ipc-mcp';
 import { toMcpContentIpcFailure } from '../../mcp/content-ipc';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { loadMcpConfig } from '../../mcp-loader';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 
@@ -51,7 +52,7 @@ vi.mock('../../secrets', () => ({
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
 // The registry resolves the sender role from `event.sender.id` before any
 // payload is parsed; the mocked resolver answers `visible-ui` by default.
-const VISIBLE_UI_EVENT = { sender: { id: 1 } };
+const VISIBLE_UI_EVENT = { sender: { id: 1 }, senderFrame: createAllowlistedSenderFrame() };
 const RESOURCE_URI = 'linear://issue/BST-1585';
 const CLEAN_CLOSE = {
   callbacksClosed: 0,
@@ -346,7 +347,7 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
       const { invocations, runtime: target } = createRuntime();
       const authority = await connect(target);
       getWindowRoleByWebContentsIdMock.mockReturnValue(role);
-      const event = { sender: { id: 7 } };
+      const event = { sender: { id: 7 }, senderFrame: createAllowlistedSenderFrame() };
       for (const [channel, request] of [
         ['mcp:content:readResource', { authority, uri: RESOURCE_URI }],
         ['mcp:content:getPrompt', { authority, name: 'issue-summary' }],

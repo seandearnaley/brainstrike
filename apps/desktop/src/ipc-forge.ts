@@ -3,6 +3,11 @@ import type { ForgeIpcHandlers } from './forge-ipc-handlers';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 /**
  * Register the desktop `forge` IPC domain (BST-1391).
  *
@@ -12,15 +17,22 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 export function registerForgeIpcHandlers(handlers: ForgeIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('forge', DESKTOP_IPC_CHANNELS.forge.identity, (_event, rootId: unknown) =>
-    handlers.identity(rootId)
+  registry.registerUnauthenticatedInvoke(
+    'forge',
+    DESKTOP_IPC_CHANNELS.forge.identity,
+    UNAUTHENTICATED_SENDER_POLICY,
+    (_event, rootId: unknown) => handlers.identity(rootId)
   );
-  registry.registerInvoke('forge', DESKTOP_IPC_CHANNELS.forge.prStatus, (_event, rootId: unknown) =>
-    handlers.prStatus(rootId)
+  registry.registerUnauthenticatedInvoke(
+    'forge',
+    DESKTOP_IPC_CHANNELS.forge.prStatus,
+    UNAUTHENTICATED_SENDER_POLICY,
+    (_event, rootId: unknown) => handlers.prStatus(rootId)
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'forge',
     DESKTOP_IPC_CHANNELS.forge.refresh,
+    UNAUTHENTICATED_SENDER_POLICY,
     (_event, rootId: unknown, params: unknown) => handlers.refresh(rootId, params)
   );
 

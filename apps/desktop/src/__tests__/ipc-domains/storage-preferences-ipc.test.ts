@@ -1,6 +1,7 @@
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -39,7 +40,10 @@ function trackSender(senderId: number, role: 'embedding-host' | 'visible-ui'): v
 }
 
 function senderEvent(senderId: number): IpcMainInvokeEvent {
-  return { sender: { id: senderId } } as unknown as IpcMainInvokeEvent;
+  return {
+    sender: { id: senderId },
+    senderFrame: createAllowlistedSenderFrame(),
+  } as unknown as IpcMainInvokeEvent;
 }
 
 interface FakeStore {

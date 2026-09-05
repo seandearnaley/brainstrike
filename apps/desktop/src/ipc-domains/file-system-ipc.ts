@@ -470,15 +470,17 @@ export function registerFileSystemIpcHandlers({
   const addSelectedRoot = async (): Promise<RootDescriptor> =>
     roots.addRoot(await resolveRequestedDirectoryHandle(fileSystem));
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess,
+    { roles: ['visible-ui'] },
     async () => (await addSelectedRoot()).handle
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.readDirectory,
+    { roles: ['visible-ui'] },
     async (_event, handle: DirectoryHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
       if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
@@ -502,9 +504,10 @@ export function registerFileSystemIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.readFile,
+    { roles: ['visible-ui'] },
     async (_event, handle: FileHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
       if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
@@ -554,9 +557,10 @@ export function registerFileSystemIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.readFileByPath,
+    { roles: ['visible-ui'] },
     async (_event, absolutePath: string) => {
       const fixture = getElectronE2eFileSystemFixture();
       if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
@@ -588,28 +592,39 @@ export function registerFileSystemIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.exists,
+    { roles: ['visible-ui'] },
     async (_event, requestedPath: string) => ipcPathExists(fileSystem, requestedPath)
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () =>
-    roots.restoreLastFolder()
+  registry.registerAuthorizedInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.restoreLastFolder,
+    { roles: ['visible-ui'] },
+    async () => roots.restoreLastFolder()
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.saveLastFolder,
+    { roles: ['visible-ui'] },
     async (_event, folderPath: string) => roots.setLastFolder(folderPath)
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () =>
-    roots.restoreRoots()
+  registry.registerAuthorizedInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.restoreRoots,
+    { roles: ['visible-ui'] },
+    async () => roots.restoreRoots()
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () =>
-    addSelectedRoot()
+  registry.registerAuthorizedInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.addRoot,
+    { roles: ['visible-ui'] },
+    async () => addSelectedRoot()
   );
 
   // Picker-less: main's recent-roots ledger is the only authorization, so an
@@ -620,9 +635,10 @@ export function registerFileSystemIpcHandlers({
   // gated on the SAME recordInRecentRoots flag that decides ledger recording —
   // see onRootGranted on the `roots` construction above — so this handler
   // does not need to call it itself.
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.addRootByPath,
+    { roles: ['visible-ui'] },
     async (_event, requestedPath: unknown) => {
       if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
         throw new Error('fs:addRootByPath requires a non-empty path.');
@@ -631,13 +647,17 @@ export function registerFileSystemIpcHandlers({
     }
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.listRecentRoots, async () =>
-    roots.listRecentRoots()
+  registry.registerAuthorizedInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.listRecentRoots,
+    { roles: ['visible-ui'] },
+    async () => roots.listRecentRoots()
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.removeRoot,
+    { roles: ['visible-ui'] },
     async (_event, rootId: string) => roots.removeRoot(rootId)
   );
   return () => {

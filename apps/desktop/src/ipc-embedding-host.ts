@@ -16,6 +16,11 @@ import {
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-background-runtime-lifecycle-ipc';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager): () => void {
   const unregisterLifecycle =
     registerBackgroundRuntimeLifecycleIpcHandlers<EmbeddingHostStatusReport>({
@@ -32,9 +37,10 @@ export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager):
     });
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'embeddings',
     EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, payload) =>
       manager.queryEmbedding(assertEmbeddingHostQueryEmbeddingPayload(payload))
   );

@@ -20,6 +20,11 @@ import {
 } from './parser-host-shared';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Invoked by the visible UI and the chunking-host hidden host (dist/hidden-preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 /**
  * Register the parser host IPC handler. Returns an unregister callback so
  * the caller can clean up during shutdown.
@@ -31,9 +36,10 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 export function registerParserHostIpcHandlers(manager: ParserHostManager): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'runtime',
     PARSER_HOST_PARSE_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, payload: unknown): Promise<ParserHostParseResponse> => {
       if (!isParserHostParseRequest(payload)) {
         return {

@@ -21,6 +21,11 @@ import {
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-background-runtime-lifecycle-ipc';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void {
   const unregisterLifecycle = registerBackgroundRuntimeLifecycleIpcHandlers<LlmHostStatusReport>({
     assertStatus: LLM_HOST_STATUS_ADAPTER.assertStatus,
@@ -36,24 +41,27 @@ export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void 
   });
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'llm-host',
     LLM_HOST_WARMUP_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (event, payload: unknown) =>
       await manager.warmupRequest(
         event.sender,
         normalizeLlmHostWarmupIpcPayload(payload, () => crypto.randomUUID())
       )
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'llm-host',
     LLM_HOST_GENERATE_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (event, payload: unknown) =>
       await manager.generate(event.sender, assertLlmHostGeneratePayload(payload))
   );
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'llm-host',
     LLM_HOST_CANCEL_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (event, requestId: unknown) => {
       await manager.cancel(event.sender, assertLlmHostCancelIpcRequestId(requestId));
     }

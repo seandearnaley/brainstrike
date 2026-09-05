@@ -14,6 +14,11 @@ import type { EmbeddingHostManager } from './embedding-host-manager';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Unregistered legacy harness (BST-1233): never imported by production main and throws before registration outside NODE_ENV=test.',
+} as const;
+
 const logger = createLogger('IpcTools');
 const LEGACY_TOOLS_EXECUTE_CHANNEL = 'tools:execute';
 
@@ -505,9 +510,10 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
   logger.debug('Registering tools IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'tools',
     LEGACY_TOOLS_EXECUTE_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (
       _event,
       toolId: unknown,

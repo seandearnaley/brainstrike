@@ -14,6 +14,11 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { readProviderCredential } from './provider-api-key';
 import { SecretReadError } from './secrets';
 
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+
 const logger = createLogger('DesktopIpcAgent');
 type AgentModule = typeof import('@brainstrike/agent');
 type MaybeAsyncIterable<T> = AsyncIterable<T> | Promise<AsyncIterable<T>>;
@@ -21,9 +26,10 @@ type MaybeAsyncIterable<T> = AsyncIterable<T> | Promise<AsyncIterable<T>>;
 export function registerAgentIpcHandlers(): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'agent',
     DESKTOP_PRELOAD_IPC_CHANNELS.agent.chat,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, messages: AgentMessage[], runtime?: RuntimeData): Promise<StreamChunk[]> =>
       runAgentChat(messages, runtime)
   );
