@@ -3,6 +3,7 @@ import type { Migration } from './migration-runner';
 /** Principal-bound durable handles for the 2026 Tasks extension (BST-1562). */
 export const migration114McpTasks: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_mcp_tasks;',
+  ledgerKey: 'custom-114-mcp-tasks',
   name: 'mcp_tasks',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_mcp_tasks (

@@ -22,6 +22,7 @@ export const migration057UpdateProviderModels202607: Migration = {
     END WHERE provider_id = 'anthropic';
     UPDATE models SET sort_order = sort_order - 15 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-057-update-provider-models-2026-07',
   name: 'update_provider_models_2026_07',
   up: `
     UPDATE models SET sort_order = sort_order + 3 WHERE provider_id = 'openai';

@@ -7,6 +7,7 @@ export const migration036WorkspaceIndexSystemRole: Migration = {
     ALTER TABLE embedding_sets
       DROP COLUMN IF EXISTS system_role;
   `,
+  ledgerKey: 'custom-036-workspace-index-system-role',
   name: 'workspace_index_system_role',
   up: `
     ALTER TABLE embedding_sets

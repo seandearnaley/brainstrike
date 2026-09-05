@@ -5,6 +5,7 @@ export const migration015ModelRegistry: Migration = {
     DROP TABLE IF EXISTS models;
     DROP TABLE IF EXISTS providers;
   `,
+  ledgerKey: 'custom-015-model-registry-seed',
   name: 'model_registry',
   up: `
     -- Create providers table

@@ -21,6 +21,7 @@ import type { Migration } from './migration-runner';
 
 export const ${exportName}: Migration = {
   version: 25,
+  ledgerKey: 'custom-025-fixture',
   name: 'fixture',
   up: \`
     ${body}
@@ -89,12 +90,8 @@ describe('model catalog migration contract', () => {
     );
   });
 
-  it('requires catalog-mutating migrations to be registered in the app custom ledger', () => {
+  it('accepts catalog migrations registered only in the numbered manifest', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -105,20 +102,11 @@ const customMigrations = [
       migrationIndexSource,
     });
 
-    assert.deepEqual(result.failures, [
-      {
-        file: 'packages/db/src/migrations/025-update-provider-models-2026.ts',
-        message:
-          'Catalog-mutating migration migration025UpdateProviderModels2026 is missing from packages/db/src/drizzle/migrate.ts customMigrations.',
-      },
-    ]);
+    assert.deepEqual(result.failures, []);
   });
 
   it('fails closed when a catalog-mutating migration has no recognizable export declaration', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [];
-`,
       migrationFiles: [
         {
           file: 'packages/db/src/migrations/039-catalog-refresh.ts',
@@ -150,10 +138,6 @@ export const migration039CatalogRefresh = {
 
   it('allows catalog schema migrations that do not mutate catalog rows', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/031-provider-catalog-timestamps.ts',
@@ -167,13 +151,8 @@ const customMigrations = [
     assert.deepEqual(result.failures, []);
   });
 
-  it('requires custom migrations to stay registered in the numbered migration runner', () => {
+  it('requires catalog migrations to stay registered in the numbered manifest', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -192,11 +171,6 @@ export const migrations = [];
         message:
           'Catalog-mutating migration migration025UpdateProviderModels2026 is missing from packages/db/src/migrations/index.ts migrations.',
       },
-      {
-        file: 'packages/db/src/drizzle/migrate.ts',
-        message:
-          'Custom migration migration025UpdateProviderModels2026 is missing from packages/db/src/migrations/index.ts migrations.',
-      },
     ]);
   });
 
@@ -206,12 +180,6 @@ export const migrations = [];
 const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openrouter: {},
 };
-`,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
-  customMigration('custom-033-update-provider-models-2026-frontier', migration033UpdateProviderModels2026Frontier),
-];
 `,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
@@ -264,12 +232,6 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openrouter: {},
 };
 `,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-031-previous-catalog', migration031PreviousCatalog),
-  customMigration('custom-032-historical-refresh', migration032HistoricalRefresh),
-];
-`,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
 `,
@@ -307,12 +269,6 @@ export const migrations = [
 const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openrouter: {},
 };
-`,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-033-previous-catalog', migration033PreviousCatalog),
-  customMigration('custom-034-current-refresh', migration034CurrentRefresh),
-];
 `,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
@@ -364,13 +320,6 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
     'anthropic/claude-sonnet-4.6': 'anthropic/claude-sonnet-4.7',
   },
 };
-`,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
-  customMigration('custom-033-frontier-catalog', migration033FrontierCatalog),
-  customMigration('custom-034-next-catalog', migration034NextCatalog),
-];
 `,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
@@ -435,12 +384,6 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openrouter: {},
 };
 `,
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
-  customMigration('custom-033-frontier-refresh', migration033FrontierRefresh),
-];
-`,
       memoryPreferencesSource: `
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
 `,
@@ -476,11 +419,6 @@ export const migrations = [
 
   it('requires static provider registry models to exist in the final DB catalog', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -522,11 +460,6 @@ const PROVIDER_DEFINITIONS = [
 
   it('rejects stale final DB catalog rows for static providers', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -566,11 +499,6 @@ const PROVIDER_DEFINITIONS = [
 
   it('fails closed when static provider registry model fields are not resolvable', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',
@@ -614,11 +542,6 @@ const PROVIDER_DEFINITIONS = [
 
   it('requires static provider registry model types to match final DB catalog rows', () => {
     const result = analyzeModelCatalogMigrationContract({
-      drizzleMigrateSource: `
-const customMigrations = [
-  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
-];
-`,
       migrationFiles: [
         migrationFile(
           'packages/db/src/migrations/025-update-provider-models-2026.ts',

@@ -11,6 +11,7 @@ export const migration027ViewFilterPresets: Migration = {
   down: `
     DROP TABLE IF EXISTS view_filter_presets;
   `,
+  ledgerKey: 'custom-027-view-filter-presets-seed',
   name: 'view_filter_presets',
   up: `
     -- View filter presets table

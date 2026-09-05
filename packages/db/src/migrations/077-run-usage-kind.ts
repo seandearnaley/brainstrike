@@ -15,6 +15,7 @@ export const migration077RunUsageKind: Migration = {
     ALTER TABLE IF EXISTS brainstrike_assistant_run_usage
       DROP COLUMN IF EXISTS run_kind;
   `,
+  ledgerKey: 'custom-077-run-usage-kind',
   name: 'run_usage_kind',
   up: `
     ALTER TABLE brainstrike_assistant_run_usage

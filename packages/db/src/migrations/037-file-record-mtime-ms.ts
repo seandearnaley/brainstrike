@@ -19,6 +19,7 @@ export const migration037FileRecordMtimeMs: Migration = {
     ALTER TABLE IF EXISTS file_records
       DROP COLUMN IF EXISTS mtime_ms;
   `,
+  ledgerKey: 'custom-037-file-record-mtime-ms',
   name: 'file_record_mtime_ms',
   up: `
     ALTER TABLE IF EXISTS file_records

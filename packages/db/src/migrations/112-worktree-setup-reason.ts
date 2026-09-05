@@ -10,6 +10,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration112WorktreeSetupReason: Migration = {
   down: 'ALTER TABLE brainstrike_worktrees DROP COLUMN IF EXISTS setup_reason;',
+  ledgerKey: 'custom-112-worktree-setup-reason',
   name: 'worktree_setup_reason',
   up: 'ALTER TABLE brainstrike_worktrees ADD COLUMN IF NOT EXISTS setup_reason text;',
   version: 112,

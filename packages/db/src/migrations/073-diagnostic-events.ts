@@ -25,6 +25,7 @@ export const migration073DiagnosticEvents: Migration = {
     --> statement-breakpoint
     DROP TABLE IF EXISTS brainstrike_diagnostic_events;
   `,
+  ledgerKey: 'custom-073-diagnostic-events',
   name: 'diagnostic_events',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_diagnostic_events (

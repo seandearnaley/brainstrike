@@ -40,6 +40,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration110ForgePrCache: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_forge_prs;',
+  ledgerKey: 'custom-110-forge-pr-cache',
   name: 'forge_pr_cache',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_forge_prs (

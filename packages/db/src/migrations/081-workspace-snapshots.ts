@@ -29,6 +29,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration081WorkspaceSnapshots: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_workspace_snapshots;',
+  ledgerKey: 'custom-081-workspace-snapshots',
   name: 'workspace_snapshots',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_workspace_snapshots (

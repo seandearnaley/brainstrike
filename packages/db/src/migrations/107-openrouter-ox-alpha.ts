@@ -8,6 +8,7 @@ export const migration107OpenRouterOxAlpha: Migration = {
       AND id = 'stealth/ox-alpha';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-107-openrouter-ox-alpha',
   name: 'openrouter_ox_alpha',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'openrouter';

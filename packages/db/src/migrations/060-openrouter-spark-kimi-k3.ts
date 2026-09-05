@@ -8,6 +8,7 @@ export const migration060OpenRouterSparkKimiK3: Migration = {
       AND id IN ('meta/muse-spark-1.1', 'moonshotai/kimi-k3');
     UPDATE models SET sort_order = sort_order - 2 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-060-openrouter-spark-kimi-k3',
   name: 'openrouter_spark_kimi_k3',
   up: `
     UPDATE models SET sort_order = sort_order + 2 WHERE provider_id = 'openrouter';

@@ -8,6 +8,7 @@ export const migration072OpenRouterLing3Flash: Migration = {
       AND id = 'inclusionai/ling-3.0-flash:free';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-072-openrouter-ling-3-flash',
   name: 'openrouter_ling_3_flash',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'openrouter';

@@ -8,6 +8,7 @@ export const migration100OpenRouterGrok46: Migration = {
       AND id = 'x-ai/grok-4.6';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-100-openrouter-grok-4-6',
   name: 'openrouter_grok_4_6',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'openrouter';

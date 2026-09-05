@@ -58,6 +58,7 @@ export const migration033UpdateProviderModels2026Frontier: Migration = {
       sort_order = EXCLUDED.sort_order,
       is_enabled = models.is_enabled;
   `,
+  ledgerKey: 'custom-033-update-provider-models-2026-frontier',
   name: 'update_provider_models_2026_frontier',
   up: `
     -- Remove superseded model IDs

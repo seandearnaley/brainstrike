@@ -15,6 +15,7 @@ export const migration016TokenCache: Migration = {
   down: `
     DROP TABLE IF EXISTS file_token_cache;
   `,
+  ledgerKey: 'custom-016-token-cache',
   name: 'token_cache',
   up: `
     -- Create token cache table

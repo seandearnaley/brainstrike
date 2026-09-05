@@ -18,6 +18,7 @@ export const migration071OpenRouterJulyCodingModels: Migration = {
       );
     UPDATE models SET sort_order = sort_order - 9 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-071-openrouter-july-coding-models',
   name: 'openrouter_july_coding_models',
   up: `
     UPDATE models SET sort_order = sort_order + 9 WHERE provider_id = 'openrouter';

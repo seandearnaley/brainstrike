@@ -24,6 +24,7 @@ export const migration004AddChunksTable: Migration = {
 		-- Drop chunks table
 		DROP TABLE IF EXISTS file_chunks;
 	`,
+  ledgerKey: 'custom-004-add-chunks-table',
   name: 'add_chunks_table',
   up: async (db) => {
     await db.exec(`

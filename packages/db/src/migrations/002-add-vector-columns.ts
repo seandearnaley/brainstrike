@@ -15,6 +15,7 @@ export const migration002AddVectorColumns: Migration = {
 		DROP COLUMN IF EXISTS content,
 		DROP COLUMN IF EXISTS embedding;
 	`,
+  ledgerKey: 'custom-002-add-vector-columns',
   name: 'add_vector_columns',
   up: async (db) => {
     try {

@@ -13,6 +13,7 @@ export const migration069RunUsageCacheTokens: Migration = {
     ALTER TABLE IF EXISTS brainstrike_assistant_run_usage
       DROP COLUMN IF EXISTS cache_creation_input_tokens;
   `,
+  ledgerKey: 'custom-069-run-usage-cache-tokens',
   name: 'run_usage_cache_tokens',
   up: `
     ALTER TABLE brainstrike_assistant_run_usage

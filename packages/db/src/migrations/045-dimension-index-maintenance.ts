@@ -7,6 +7,7 @@ export const migration045DimensionIndexMaintenance: Migration = {
 
     DROP TABLE IF EXISTS embedding_dimension_index_maintenance;
   `,
+  ledgerKey: 'custom-045-dimension-index-maintenance',
   name: 'dimension_index_maintenance',
   up: `
     CREATE TABLE IF NOT EXISTS embedding_dimension_index_maintenance (

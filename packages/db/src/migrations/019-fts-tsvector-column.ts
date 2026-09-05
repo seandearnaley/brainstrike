@@ -30,6 +30,7 @@ export const migration019FtsTsvectorColumn: Migration = {
     ALTER TABLE file_chunks
       DROP COLUMN IF EXISTS content_tsvector;
   `,
+  ledgerKey: 'custom-019-fts-tsvector-column',
   name: 'fts_tsvector_column',
   up: `
     -- Add tsvector column for full-text search

@@ -57,6 +57,7 @@ export const migration075FileSymbols: Migration = {
     --> statement-breakpoint
     DROP TABLE IF EXISTS file_symbols;
   `,
+  ledgerKey: 'custom-075-file-symbols',
   name: 'file_symbols',
   up: `
     CREATE TABLE IF NOT EXISTS file_symbols (

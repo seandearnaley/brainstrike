@@ -7,6 +7,7 @@ export const migration113OpenRouterQwen38Flash: Migration = {
     WHERE provider_id = 'openrouter'
       AND id = 'qwen/qwen3.8-flash';
   `,
+  ledgerKey: 'custom-113-openrouter-qwen-3-8-flash',
   name: 'openrouter_qwen_3_8_flash',
   up: `
     INSERT INTO models

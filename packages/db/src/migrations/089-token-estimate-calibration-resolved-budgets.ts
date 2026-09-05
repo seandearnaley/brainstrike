@@ -19,6 +19,7 @@ export const migration089TokenEstimateCalibrationResolvedBudgets: Migration = {
       DROP COLUMN IF EXISTS resolved_domain_budget_tokens,
       DROP COLUMN IF EXISTS resolved_transport_budget_tokens;
   `,
+  ledgerKey: 'custom-089-token-estimate-calibration-resolved-budgets',
   name: 'token_estimate_calibration_resolved_budgets',
   up: `
     ALTER TABLE brainstrike_token_estimate_calibration

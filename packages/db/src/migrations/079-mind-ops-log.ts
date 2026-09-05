@@ -24,6 +24,7 @@ export const migration079MindOpsLog: Migration = {
   down: `
     DROP TABLE IF EXISTS brainstrike_mind_ops;
   `,
+  ledgerKey: 'custom-079-mind-ops-log',
   name: 'mind_ops_log',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_mind_ops (

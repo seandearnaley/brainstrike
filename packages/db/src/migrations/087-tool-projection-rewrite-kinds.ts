@@ -34,6 +34,7 @@ export const migration087ToolProjectionRewriteKinds: Migration = {
     ALTER TABLE IF EXISTS brainstrike_assistant_tool_projection_rewrites
       DROP COLUMN IF EXISTS kind;
   `,
+  ledgerKey: 'custom-087-tool-projection-rewrite-kinds',
   name: 'tool_projection_rewrite_kinds',
   up: `
     ALTER TABLE brainstrike_assistant_tool_projection_rewrites

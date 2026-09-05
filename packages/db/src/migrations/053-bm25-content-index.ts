@@ -30,6 +30,7 @@ export const migration053Bm25ContentIndex: Migration = {
 
     DROP EXTENSION IF EXISTS pg_textsearch;
   `,
+  ledgerKey: 'custom-053-bm25-content-index',
   name: 'bm25_content_index',
   up: `
     CREATE EXTENSION IF NOT EXISTS pg_textsearch;

@@ -83,6 +83,7 @@
     "eval:retrieval": "pnpm --filter @brainstrike/types --filter @brainstrike/queue --filter @brainstrike/indexing-contract --filter @brainstrike/tokenization --filter @brainstrike/utils run build && tsx src/evaluation/retrieval-eval-cli.ts",
     "mutation": "stryker run",
     "test": "vitest run --project unit",
+    "test:integration": "vitest run --project unit .integration.test.",
     "test:all": "vitest run",
     "test:browser": "vitest run --project browser",
     "test:coverage": "vitest run --project unit --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

@@ -39,15 +39,6 @@ function extractMigrationArrayNames(source) {
   return new Set(match[1].match(/\bmigration\d{3}[A-Za-z0-9_]*\b/g) ?? []);
 }
 
-function extractCustomMigrationNames(source) {
-  const names = new Set();
-  const pattern = /customMigration\(\s*['"][^'"]+['"]\s*,\s*(migration\d{3}[A-Za-z0-9_]*)/g;
-  for (const match of source.matchAll(pattern)) {
-    names.add(match[1]);
-  }
-  return names;
-}
-
 function getPropertyNameText(name) {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
     return name.text;
@@ -803,7 +794,6 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
 
 export function analyzeModelCatalogMigrationContract(input) {
   const migrationNames = extractMigrationArrayNames(input.migrationIndexSource);
-  const customMigrationNames = extractCustomMigrationNames(input.drizzleMigrateSource);
   const migrationSummaries = input.migrationFiles.map(summarizeMigrationFile);
   const migrationByName = new Map(
     migrationSummaries
@@ -831,24 +821,6 @@ export function analyzeModelCatalogMigrationContract(input) {
         message: `Catalog-mutating migration ${migration.exportName} is missing from packages/db/src/migrations/index.ts migrations.`,
       });
     }
-
-    if (!customMigrationNames.has(migration.exportName)) {
-      failures.push({
-        file: migration.file,
-        message: `Catalog-mutating migration ${migration.exportName} is missing from packages/db/src/drizzle/migrate.ts customMigrations.`,
-      });
-    }
-  }
-
-  for (const customMigrationName of customMigrationNames) {
-    if (migrationNames.has(customMigrationName)) {
-      continue;
-    }
-
-    failures.push({
-      file: 'packages/db/src/drizzle/migrate.ts',
-      message: `Custom migration ${customMigrationName} is missing from packages/db/src/migrations/index.ts migrations.`,
-    });
   }
 
   failures.push(...findRemovedAssistantModelRemapFailures(input, migrationSummaries));
@@ -858,7 +830,6 @@ export function analyzeModelCatalogMigrationContract(input) {
     catalogMutatingMigrations: migrationSummaries
       .filter((migration) => migration.catalogMutating)
       .map((migration) => migration.exportName ?? migration.file),
-    customMigrations: [...customMigrationNames],
     failures,
     knownMigrationCount: migrationByName.size,
     migrations: [...migrationNames],
@@ -885,7 +856,6 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
   const [
     migrationFiles,
     migrationIndexSource,
-    drizzleMigrateSource,
     assistantPreferencesSource,
     memoryPreferencesSource,
     providerRegistrySource,
@@ -893,7 +863,6 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
   ] = await Promise.all([
     readMigrationFiles(rootDir),
     readFile(path.join(rootDir, 'packages/db/src/migrations/index.ts'), 'utf8'),
-    readFile(path.join(rootDir, 'packages/db/src/drizzle/migrate.ts'), 'utf8'),
     readFile(
       path.join(rootDir, 'packages/app-state/src/stores/assistant-model-id-migrations.ts'),
       'utf8'
@@ -908,7 +877,6 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
 
   return analyzeModelCatalogMigrationContract({
     assistantPreferencesSource,
-    drizzleMigrateSource,
     memoryPreferencesSource,
     migrationFiles,
     migrationIndexSource,
@@ -924,7 +892,7 @@ async function main() {
   if (result.failures.length > 0) {
     console.error('Model catalog migration contract failed.');
     console.error(
-      'Catalog row migrations must be registered in both migration runners, and removed assistant model IDs must have preference remap decisions.'
+      'Catalog row migrations must be registered in the numbered manifest with a ledgerKey, and removed assistant model IDs must have preference remap decisions.'
     );
     for (const failure of result.failures) {
       console.error(`- ${failure.file}: ${failure.message}`);

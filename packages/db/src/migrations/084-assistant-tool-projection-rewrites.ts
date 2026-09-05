@@ -10,6 +10,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration084AssistantToolProjectionRewrites: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_assistant_tool_projection_rewrites;',
+  ledgerKey: 'custom-084-assistant-tool-projection-rewrites',
   name: 'assistant_tool_projection_rewrites',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_tool_projection_rewrites (
