@@ -2,24 +2,13 @@ import {
   __resetWorkspaceInstructionsPreferencesStoreForTests,
   useWorkspaceInstructionsPreferencesStore,
 } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
+import type { WorkspaceContextFileStatus } from '@brainstrike/assistant-contract/context-files-bridge';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { WorkspaceInstructionsSettingsSection } = await import(
   '../settings/system/workspace-instructions-settings-section'
 );
-
-interface WorkspaceContextFileStatus {
-  approxTokens: number | null;
-  displayName: string;
-  error?: string;
-  fileName: string | null;
-  oversized: boolean;
-  path: string | null;
-  rootId: string;
-  sizeBytes: number | null;
-  status: 'none' | 'fits' | 'oversized' | 'error';
-}
 
 function stubBridge(statuses: WorkspaceContextFileStatus[]) {
   Object.defineProperty(window, 'contextFiles', {

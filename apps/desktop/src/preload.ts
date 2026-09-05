@@ -5,8 +5,14 @@
 // graph, and build-main.mjs refuses a bundle that requires anything else.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+import { clipboardContract } from './ipc-domains/clipboard.contract';
+import { contextFilesContract } from './ipc-domains/context-files.contract';
+import { skillsContract } from './ipc-domains/skills.contract';
+import { userCommandsContract } from './ipc-domains/user-commands.contract';
+import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
+import { createBridgeExposer } from './platform/ipc-bridge';
 
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 type EmbeddingTelemetrySnapshot =
@@ -42,6 +48,10 @@ type McpTaskListResult = import('@brainstrike/assistant-contract').McpTaskListRe
 type McpTaskStatusChangedEvent =
   import('@brainstrike/assistant-contract').McpTaskStatusChangedEvent;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
+// Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
+// exactly `Object.keys(contract)`, each routed to its manifest channel with
+// the ONE `IpcResult` unwrap. Pinned by preload-contract-bridges.test.ts.
+const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // This set only selects the E2E-only seed channel; MAIN validates the exact
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
@@ -1243,9 +1253,7 @@ contextBridge.exposeInMainWorld('llmHost', {
 // System Clipboard helper (renderer-friendly). Writes go through main over
 // IPC: sandboxed preloads cannot require Electron's clipboard module, so a
 // direct module call here silently fails on real (non-test-mode) builds.
-contextBridge.exposeInMainWorld('clipboard', {
-  writeText: (text: string) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.clipboard.writeText, text),
-});
+exposeBridge('clipboard', clipboardContract);
 
 // File-export save bridge (desktop-only): writes export bytes into the OS
 // Downloads folder from MAIN, bypassing Chromium's blob-download pipeline
@@ -1532,9 +1540,7 @@ if (shouldExposeBridge('hooks')) {
 // AGENTS.md/AGENT.md/CLAUDE.md (size + token estimate + injection status) so the
 // user can opt an oversized file in. Web never constructs this bridge.
 if (shouldExposeBridge('contextFiles')) {
-  contextBridge.exposeInMainWorld('contextFiles', {
-    scan: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.contextFiles.scan),
-  });
+  exposeBridge('contextFiles', contextFilesContract);
 }
 
 // User-defined slash command discovery bridge (desktop-only). Capability-gated:
@@ -1543,9 +1549,7 @@ if (shouldExposeBridge('contextFiles')) {
 // bridge (no preload), so consumers must capability-check `window.userCommands`
 // rather than `isElectron()`.
 if (shouldExposeBridge('userCommands')) {
-  contextBridge.exposeInMainWorld('userCommands', {
-    list: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.userCommands.list),
-  });
+  exposeBridge('userCommands', userCommandsContract);
 }
 
 // Agent Skills discovery bridge (desktop-only). Capability-gated: the Settings
@@ -1554,9 +1558,7 @@ if (shouldExposeBridge('userCommands')) {
 // home). Web never constructs this bridge (no preload), so consumers must
 // capability-check `window.skills` rather than `isElectron()`.
 if (shouldExposeBridge('skills')) {
-  contextBridge.exposeInMainWorld('skills', {
-    scan: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.skills.scan),
-  });
+  exposeBridge('skills', skillsContract);
 }
 
 // Subagent persona discovery bridge (desktop-only). Capability-gated: the
@@ -1565,9 +1567,7 @@ if (shouldExposeBridge('skills')) {
 // bridge (no preload), so consumers must capability-check
 // `window.assistantPersonas` rather than `isElectron()`.
 if (shouldExposeBridge('assistantPersonas')) {
-  contextBridge.exposeInMainWorld('assistantPersonas', {
-    list: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.userPersonas.list),
-  });
+  exposeBridge('assistantPersonas', userPersonasContract);
 }
 
 // Terminal bridge (desktop-only): a PTY backend for a future TerminalPanel.

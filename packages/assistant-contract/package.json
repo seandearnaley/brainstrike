@@ -181,6 +181,16 @@
       "import": "./dist/skills-bridge.js",
       "require": "./dist/skills-bridge.js"
     },
+    "./personas-bridge": {
+      "types": "./dist/personas-bridge.d.ts",
+      "import": "./dist/personas-bridge.js",
+      "require": "./dist/personas-bridge.js"
+    },
+    "./context-files-bridge": {
+      "types": "./dist/context-files-bridge.d.ts",
+      "import": "./dist/context-files-bridge.js",
+      "require": "./dist/context-files-bridge.js"
+    },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
       "import": "./dist/runtime-data.js",

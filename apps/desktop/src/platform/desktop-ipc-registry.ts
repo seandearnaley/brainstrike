@@ -6,6 +6,7 @@ import {
   isAllowedDesktopIpcSenderFrameUrl,
   resolveDesktopIpcSenderFrameAllowlist,
 } from './desktop-ipc-sender-frame';
+import { type Contract, type Handlers, type IpcResult, ipcFailure, ipcOk } from './ipc-contract';
 
 export type DesktopIpcDomain =
   | 'agent'
@@ -323,4 +324,70 @@ export function createDesktopIpcRegistry({
     registerUnauthenticatedInvoke,
     unregisterAll,
   };
+}
+
+/**
+ * Registers every invoke channel of a pure contract (BST-1648). The ONLY
+ * verb a contract domain can reach is the authorized one: `spec.roles` is a
+ * non-empty tuple, so a contract channel cannot exist without a sender
+ * policy. Per channel, authorization runs first (both factors), then
+ * `spec.parseArgs` in main (throws on malformed input), then the handler
+ * with the parsed tuple. Push events are never registered here — a
+ * main→renderer push is a `webContents.send`, not a handler. A contract key
+ * without a handler, or a handler without a contract key, is a registration
+ * error (fail closed, never a silently dead channel).
+ */
+export function registerDomain<C extends Contract>(
+  registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>,
+  domain: DesktopIpcDomain,
+  contract: C,
+  handlers: Handlers<C>
+): void {
+  const handlerMap = handlers as Record<string, ((...args: never[]) => unknown) | undefined>;
+  const invokeKeys = Object.entries(contract).filter(([, spec]) => spec.kind === 'invoke');
+  for (const key of Object.keys(handlerMap)) {
+    if (!invokeKeys.some(([contractKey]) => contractKey === key)) {
+      throw new Error(`Desktop IPC domain ${domain} has a handler "${key}" with no contract key.`);
+    }
+  }
+  // Validate the whole map BEFORE touching the registry: a missing handler
+  // must not leave the domain half-registered.
+  const registrations = invokeKeys.map(([key, spec]) => {
+    const handler = handlerMap[key];
+    if (typeof handler !== 'function' || spec.kind !== 'invoke') {
+      throw new Error(`Desktop IPC domain ${domain} has no handler for contract key "${key}".`);
+    }
+    return { invoke: handler as (...args: unknown[]) => unknown, spec };
+  });
+  for (const { invoke, spec } of registrations) {
+    registry.registerAuthorizedInvoke(
+      domain,
+      spec.channel,
+      { roles: spec.roles },
+      (_event, ...raw: readonly unknown[]) => invoke(...spec.parseArgs(raw))
+    );
+  }
+}
+
+/**
+ * Runs a throw-style operation inside a contract handler and settles it as
+ * an `IpcResult`: a throw becomes `{ ok: false, error: { category, code,
+ * message } }` (logged here, in main, with the cause) instead of rejecting
+ * across IPC as Electron's formatted string.
+ */
+export async function settleIpcResult<T>(
+  failure: { readonly category: string; readonly code: string },
+  run: () => Promise<T>
+): Promise<IpcResult<T>> {
+  try {
+    return ipcOk(await run());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('Desktop IPC contract handler failed', {
+      category: failure.category,
+      code: failure.code,
+      error,
+    });
+    return ipcFailure(failure.category, failure.code, message);
+  }
 }

@@ -164,6 +164,7 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `worktrees:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
 | `vector-preferences:read|write|clear` | `embedding-host` (pre-existing; see BST-1380 below) |
+| Contract-registered leaf domains (BST-1648, `registerDomain` — authorized by construction): `clipboard:write-text`, `context-files:scan`, `skills:scan`, `user-commands:list`, `user-personas:list` | `visible-ui` |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
@@ -172,9 +173,8 @@ chunking/embedding hosts), the visible-UI-only `db:ping`, `db:live-query:*`,
 `logging:get-preferences` (all four roles), `app:power-snapshot`
 (visible UI + embedding host), `parser-host:parse` (visible UI + chunking
 host), and the visible-UI-only `mcp:*`, `notesVault:*`, `storage:*`/
-`preferences:*`, `fs:watch*`, hooks/skills/forge/user-commands/user-personas/
-clipboard/context-files/file-exports/diagnostics/assistant-checkpoint/
-embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
+`preferences:*`, `fs:watch*`, hooks/forge/file-exports/diagnostics/
+assistant-checkpoint/embedding-backfill/runtime/agent-chat channels and the hidden-host lifecycle
 controls (`*-host:ensure-started|stop|reset|get-status`, `chunking-host:chunk-*`,
 `llm-host:*`, `embedding-host:query-embedding`). `tools:execute` is the
 unregistered legacy harness (BST-1233).
@@ -202,7 +202,8 @@ load-time failures in `create-window.test.ts` and
 `renderer-host-lifecycle.test.ts`, `privileged-ipc-sender-authorization.test.ts`
 (terminal, command sessions, shell, git, changes, browser: allowed
 visible-UI, hidden, untracked, and off-allowlist frame per channel, plus the
-exact channel set), the `files` sweep in
+exact channel set), the same matrix for every contract-registered leaf domain
+in `contract-domains-sender-authorization.test.ts`, the `files` sweep in
 `ipc-domains/file-system-ipc.test.ts`, and the eight-channel `db:*` role
 matrix in `ipc-domains/db-ipc.test.ts`.
 
@@ -290,6 +291,51 @@ allowlist:
   types. `roles` is a non-empty tuple and `parseArgs` is a plain function
   that runs only in MAIN before the handler and THROWS on malformed input
   (no zod in preload, no coercion).
+- **Registering a domain is one line per side.** Main:
+  `registerDomain(registry, domain, contract, handlers)`
+  (`platform/desktop-ipc-registry.ts`) registers every invoke channel through
+  `registerAuthorizedInvoke` with `spec.roles` — a contract domain has NO
+  unauthenticated path, so Electron's "validate the sender" checklist item is
+  satisfied by construction. Per call the order is: both authorization
+  factors, then `parseArgs` in main (a throw rejects the invoke), then the
+  handler with the parsed tuple. Push events are never registered (a
+  main→renderer push is a `webContents.send`). A contract key with no handler
+  or a handler with no contract key is a registration error. Preload:
+  `exposeBridge(name, contract)` (`createBridgeExposer` in
+  `platform/ipc-bridge.ts`, electron surfaces injected) exposes exactly
+  `Object.keys(contract)`, each method routed to its manifest channel, with
+  the ONE `unwrapIpcResult` for `ipc-result` channels and subscribe-returns-
+  unsubscribe for push events. Renderer typing is derived:
+  `types/electron.d.ts` declares `window.<name>?: Bridge<typeof xContract>`,
+  and each contract pins `BridgeMatches<typeof xContract, PackageBridge> =
+  true` against the shared package interface its consumers import
+  (`SkillsBridge`, `UserCommandsBridge`, `AssistantPersonasBridge`,
+  `ContextFilesBridge`), so app-shell/settings-ui never re-declare a bridge.
+  Contract modules live at `ipc-domains/<domain>.contract.ts` and reference
+  the manifest entry (`DESKTOP_IPC_CHANNELS.<group>.<key>`) — the manifest
+  stays the one literal owner. `settleIpcResult({ category, code }, run)`
+  converts a throw-style operation into the envelope (logged in main).
+- Migrated so far: `clipboard`, `contextFiles`, `skills`, `userCommands`,
+  `userPersonas` (all `visible-ui`). Their parity tests are key-set equality,
+  not source regexes: `preload-contract-bridges.test.ts` loads the real
+  preload under a mocked `electron` and asserts each exposed key set equals
+  `Object.keys(contract)` and routes/unwraps correctly;
+  `ipc-domains/leaf-contracts.test.ts` pins `Object.keys(contract)` to the
+  package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercises `parseArgs`;
+  `platform/register-domain.test.ts` and `platform/ipc-bridge.test.ts` pin
+  the two derivations.
+- **Global manifest test (there is deliberately no registry singleton).**
+  `createDesktopIpcRegistry` rejects a duplicate channel per INSTANCE only;
+  production composes ~38 per-domain instances. `__tests__/main/
+  ipc-global-manifest.test.ts` boots the real `main.ts` (module scope and the
+  `app.whenReady()` block through window creation) under mocks, captures
+  every registry instance through the factory, and asserts over
+  `union(getSnapshot())` — the snapshot's production-shaped consumer: no
+  channel on two instances, every invoke spec of every glob-discovered
+  `ipc-domains/*.contract.ts` registered (push specs never), and every
+  registered channel a `DESKTOP_IPC_CHANNELS` literal. A new domain or a
+  migrated contract needs no edit there.
+
 **Error-envelope ruling (extends the `mcp:content:*` ruling in
 `docs/agents/assistant-providers.md`).** Exactly one failure shape crosses IPC
 as data for contract channels: `IpcResult<T> = { ok: true, value } |

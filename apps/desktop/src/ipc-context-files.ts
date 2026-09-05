@@ -1,23 +1,22 @@
+import type { WorkspaceContextFileStatus } from '@brainstrike/assistant-contract/context-files-bridge';
 import { ipcMain } from 'electron';
 import { scanWorkspaceContextFilesForReview } from './ipc-context-files-handlers';
-import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { contextFilesContract } from './ipc-domains/context-files.contract';
+import {
+  createDesktopIpcRegistry,
+  registerDomain,
+  settleIpcResult,
+} from './platform/desktop-ipc-registry';
 
-const UNAUTHENTICATED_SENDER_POLICY = {
-  reason:
-    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
-} as const;
-
-export function registerContextFilesIpcHandlers(): () => void {
+export function registerContextFilesIpcHandlers(
+  scanContextFiles: () => Promise<WorkspaceContextFileStatus[]> = () =>
+    scanWorkspaceContextFilesForReview()
+): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
-
-  registry.registerUnauthenticatedInvoke(
-    'contextFiles',
-    DESKTOP_IPC_CHANNELS.contextFiles.scan,
-    UNAUTHENTICATED_SENDER_POLICY,
-    () => scanWorkspaceContextFilesForReview()
-  );
-
+  registerDomain(registry, 'contextFiles', contextFilesContract, {
+    scan: () =>
+      settleIpcResult({ category: 'contextFiles', code: 'scan_failed' }, scanContextFiles),
+  });
   return () => {
     registry.unregisterAll();
   };

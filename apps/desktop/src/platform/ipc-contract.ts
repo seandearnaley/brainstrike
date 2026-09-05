@@ -128,3 +128,20 @@ export type Bridge<C extends Contract> = {
       ? (callback: (payload: Payload) => void) => () => void
       : never;
 };
+
+/**
+ * Compile-time proof that a contract's derived bridge is exactly the shape a
+ * shared package interface declares (mutual assignability, so a missing or
+ * extra key on either side fails `tsc`). Contract modules export
+ * `type XBridgeDerivationProof = AssertTrue<BridgeMatches<typeof xContract, XBridge>>;`
+ * — a false result violates the `extends true` constraint at compile time,
+ * and an exported type needs no runtime value.
+ */
+export type BridgeMatches<C extends Contract, Expected> = [Bridge<C>] extends [Expected]
+  ? [Expected] extends [Bridge<C>]
+    ? true
+    : false
+  : false;
+
+/** Compile-time assertion carrier: `AssertTrue<false>` is a type error. */
+export type AssertTrue<T extends true> = T;
