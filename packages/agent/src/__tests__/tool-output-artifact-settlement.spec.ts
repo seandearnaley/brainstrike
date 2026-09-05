@@ -9,7 +9,10 @@ import {
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import type { ToolsInput } from '@mastra/core/agent';
 import { describe, expect, it, vi } from 'vitest';
-import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
+import {
+  applyToolModelOutputProjections,
+  wouldTruncateMcpModelOutput,
+} from '../mastra/tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
@@ -77,6 +80,75 @@ function settlementStore(
 }
 
 describe('tool output artifact settlement', () => {
+  it.each([7900, 9042, 11_900, 12_500])(
+    'preserves every byte of a %i-character MCP result inline or in storage',
+    async (length) => {
+      const output = `${'x'.repeat(length / 2)}required-middle-criterion${'y'.repeat(length / 2)}`;
+      const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) => ({
+        ...reference(new TextEncoder().encode(input.content).byteLength),
+        format: input.format,
+      }));
+      const tools = applyToolOutputArtifactSettlement(
+        { fixture: executableTool(async () => output) },
+        {
+          getReaderToolName: () => 'registered_reader',
+          store: settlementStore(store),
+          toolNameMap: new Map(),
+          wouldTruncateModelOutput: (name, value) =>
+            wouldTruncateMcpModelOutput(name, value, ANCHOR_TOOL_RESULT_BUDGET),
+        }
+      );
+      const projected = applyToolModelOutputProjections(
+        tools,
+        new Map(),
+        undefined,
+        ANCHOR_TOOL_RESULT_BUDGET
+      );
+      const tool = projected['fixture'] as {
+        execute: (...args: unknown[]) => Promise<unknown>;
+        toModelOutput: (output: unknown) => unknown;
+      };
+      const modelOutput = tool.toModelOutput(
+        await tool.execute({}, { agent: { toolCallId: 'call-1' } })
+      );
+      if (length === 7900) {
+        expect(modelOutput).toEqual({ type: 'text', value: output });
+        expect(store).not.toHaveBeenCalled();
+        return;
+      }
+      expect(store).toHaveBeenCalledExactlyOnceWith({
+        content: output,
+        format: 'text',
+        toolCallId: 'call-1',
+      });
+      expect(modelOutput).toMatchObject({
+        type: 'json',
+        value: { next: { tool: 'registered_reader' } },
+      });
+      expect(JSON.stringify(modelOutput)).not.toContain('tool_result_truncated');
+    }
+  );
+
+  it('surfaces storage failure for an MCP result that only exceeds the model budget', async () => {
+    const tools = applyToolOutputArtifactSettlement(
+      { fixture: executableTool(async () => 'x'.repeat(9042)) },
+      {
+        store: settlementStore(async () => {
+          throw new Error('storage offline');
+        }),
+        toolNameMap: new Map(),
+        wouldTruncateModelOutput: (name, value) =>
+          wouldTruncateMcpModelOutput(name, value, ANCHOR_TOOL_RESULT_BUDGET),
+      }
+    );
+    await expect(
+      (tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }).execute(
+        {},
+        { agent: { toolCallId: 'call-1' } }
+      )
+    ).rejects.toMatchObject({ reason: 'store_failed' });
+  });
+
   it('keeps an inline result byte-exact and does not touch storage when it fits', async () => {
     const output = { evidence: 'small' };
     const store = vi.fn<ToolOutputArtifactSettlementStore['store']>();

@@ -282,7 +282,7 @@ interface ToolOutputArtifactModelPage {
     readonly input: {
       readonly cursor: string;
     };
-    readonly tool: typeof TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID;
+    readonly tool: string;
   };
   readonly offsetByte: number;
 }
@@ -401,7 +401,8 @@ function fitProviderContent(decoded: string): {
 
 function buildModelPage(
   page: ToolOutputArtifactPage,
-  source: string
+  source: string,
+  readerToolName: string
 ): ToolOutputArtifactModelProjection {
   const sourceByteLength = TEXT_ENCODER.encode(source).byteLength;
   const endByte = page.offsetByte + sourceByteLength;
@@ -421,7 +422,7 @@ function buildModelPage(
         ? {
             next: {
               input: { cursor: nextCursor },
-              tool: TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID,
+              tool: readerToolName,
             },
           }
         : { complete: true as const }),
@@ -467,7 +468,11 @@ function isToolOutputArtifactSearchResult(value: unknown): value is ToolOutputAr
   );
 }
 
-function searchContinuation(result: ToolOutputArtifactSearchResult, kept: number): string | null {
+function searchContinuation(
+  result: ToolOutputArtifactSearchResult,
+  kept: number,
+  readerToolName: string
+): string | null {
   let cursor: string | undefined;
   if (kept < result.matches.length) {
     const nextMatch = result.matches[kept];
@@ -483,14 +488,15 @@ function searchContinuation(result: ToolOutputArtifactSearchResult, kept: number
         'Tool output artifact search projection received a limited result without continuation guidance'
       );
     }
-    return `continue: reuse the prior brainstrike.readToolOutputArtifact search input with cursor=${cursor}`;
+    return `continue: reuse the prior ${readerToolName} search input with cursor=${cursor}`;
   }
   return null;
 }
 
 function projectToolOutputArtifactSearchResult(
   result: ToolOutputArtifactSearchResult,
-  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+  domainModelResultCharBudget: number,
+  readerToolName: string
 ): ToolOutputArtifactSearchProjection {
   const artifactLine = `artifact bytes ${result.offsetByte}-${result.endByte}`;
   const keptRows: string[] = [];
@@ -501,7 +507,7 @@ function projectToolOutputArtifactSearchResult(
       match.line,
       clipGrepProjectionLine(match.lineText, GREP_MATCH_LINE_MAX_CHARS, 'line')
     );
-    const continuation = searchContinuation(result, candidateKept);
+    const continuation = searchContinuation(result, candidateKept, readerToolName);
     const candidateLines = [
       formatGrepContentHeader({
         kept: candidateKept,
@@ -520,7 +526,7 @@ function projectToolOutputArtifactSearchResult(
     keptRows.push(row);
     kept = candidateKept;
   }
-  const continuation = searchContinuation(result, kept);
+  const continuation = searchContinuation(result, kept, readerToolName);
   const lines = [
     formatGrepContentHeader({
       kept,
@@ -542,36 +548,44 @@ function projectToolOutputArtifactSearchResult(
 
 export function projectToolOutputArtifactPage(
   output: ToolOutputArtifactPage,
-  domainModelResultCharBudget?: number
+  domainModelResultCharBudget?: number,
+  readerToolName?: string
 ): ToolOutputArtifactModelProjection;
 export function projectToolOutputArtifactPage(
   output: ToolOutputArtifactSearchResult,
-  domainModelResultCharBudget?: number
+  domainModelResultCharBudget?: number,
+  readerToolName?: string
 ): ToolOutputArtifactSearchProjection;
 export function projectToolOutputArtifactPage(
   output: unknown,
-  domainModelResultCharBudget?: number
+  domainModelResultCharBudget?: number,
+  readerToolName?: string
 ): ToolOutputArtifactModelOutput;
 export function projectToolOutputArtifactPage(
   output: unknown,
-  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  readerToolName: string = TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID
 ): ToolOutputArtifactModelOutput {
   if (isToolOutputArtifactSearchResult(output)) {
-    return projectToolOutputArtifactSearchResult(output, domainModelResultCharBudget);
+    return projectToolOutputArtifactSearchResult(
+      output,
+      domainModelResultCharBudget,
+      readerToolName
+    );
   }
   if (!isToolOutputArtifactPage(output)) {
     throw new TypeError('Tool output artifact reader returned an invalid page.');
   }
   const decoded = decodeToolOutputArtifactContent(output.content, output.contentEncoding);
   if (decoded.length === 0) {
-    return buildModelPage(output, decoded);
+    return buildModelPage(output, decoded, readerToolName);
   }
 
   // Completion replaces the comparatively large continuation cursor with one
   // boolean, so the fit predicate is not monotonic at the final code point.
   // Prefer the complete page when it fits before binary-searching the strictly
   // cursor-bearing prefixes.
-  const completePage = buildModelPage(output, decoded);
+  const completePage = buildModelPage(output, decoded, readerToolName);
   if (JSON.stringify(completePage).length <= domainModelResultCharBudget) {
     return completePage;
   }
@@ -582,7 +596,7 @@ export function projectToolOutputArtifactPage(
   let best: ToolOutputArtifactModelProjection | undefined;
   while (low <= high) {
     const kept = Math.floor((low + high) / 2);
-    const candidate = buildModelPage(output, codePoints.slice(0, kept).join(''));
+    const candidate = buildModelPage(output, codePoints.slice(0, kept).join(''), readerToolName);
     if (JSON.stringify(candidate).length <= domainModelResultCharBudget) {
       best = candidate;
       low = kept + 1;

@@ -14,7 +14,7 @@
  */
 
 import type { McpHostPort } from '@brainstrike/assistant-contract';
-import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
 import {
   findProviderDefinition,
   resolveTokenMeasurementCapability,
@@ -58,7 +58,7 @@ import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../plan-mode-
 import { ProjectionSafeToolCallFilter } from '../projection-safe-tool-call-filter';
 import type { ResolvedRuntimeConfiguration } from '../runtime-configuration';
 import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../token-measurement';
-import { applyToolModelOutputProjections } from '../tool-model-output';
+import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
   type ToolOutputArtifactSettlementStore,
@@ -236,6 +236,8 @@ function settleRuntimeToolOutputs(params: {
   store: ToolOutputArtifactSettlementStore | undefined;
   toolNameMap: ReadonlyMap<string, string>;
   tools: ToolsInput;
+  mcpToolNames: ReadonlySet<string>;
+  resolvedToolResultBudget: ScaledToolResultBudget;
 }): ToolsInput {
   if (!params.store) {
     return params.tools;
@@ -247,8 +249,21 @@ function settleRuntimeToolOutputs(params: {
     ...(params.inlineMaxSerializedCharsByToolName
       ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
       : {}),
+    getReaderToolName: () => {
+      const names = Object.keys(params.tools).filter(
+        (id) => params.toolNameMap.get(id) === NATIVE_TOOL_ID.readToolOutputArtifact
+      );
+      const name = names[0];
+      if (names.length !== 1 || !name) {
+        throw new Error('Durable tool output requires one eligible artifact reader.');
+      }
+      return name;
+    },
     store: params.store,
     toolNameMap: params.toolNameMap,
+    wouldTruncateModelOutput: (toolName, output) =>
+      params.mcpToolNames.has(toolName) &&
+      wouldTruncateMcpModelOutput(toolName, output, params.resolvedToolResultBudget),
   });
 }
 
@@ -571,6 +586,12 @@ export async function composeRuntimeToolMap(
   const artifactSettledTools = settleRuntimeToolOutputs({
     getDelegationToolNames: params.getDelegationToolNames,
     inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
+    mcpToolNames: new Set(
+      Object.keys(finalTools)
+        .filter((id) => !sanitizedLocalToolIds.has(id))
+        .map((id) => toolNameMap.get(id) ?? id)
+    ),
+    resolvedToolResultBudget: params.resolvedToolResultBudget,
     store: params.toolOutputArtifactStore,
     toolNameMap,
     tools: finalTools,
