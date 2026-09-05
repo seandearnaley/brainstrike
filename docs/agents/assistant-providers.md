@@ -3377,6 +3377,10 @@ The host republishes `provider.authSnapshot()` after connection settlement,
 including failure after SDK credential invalidation, so Settings does not retain
 "stored" after an `invalid_grant` removes the tokens. The host OAuth regression
 pins missing credentials and cleared granted scopes before explicit retry.
+Auth publication is owned by the latest connection attempt and is invalidated
+by explicit credential clearing. A cancelled attempt that finishes cleanup late
+cannot overwrite a replacement provider's credential facts; the host regression
+holds old cleanup open across Cancel and successful Connect to prove this.
 
 Production host composition creates the OAuth provider for stored-grant
 background discovery and explicit Connect or Reauthorize actions. Only an

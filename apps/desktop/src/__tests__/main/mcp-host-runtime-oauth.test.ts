@@ -219,6 +219,87 @@ describe('DesktopMcpHostRuntime OAuth restart', () => {
     expect(modes).toEqual([false, true]);
   });
 
+  it('keeps replacement OAuth credentials after cancelled-attempt cleanup settles late', async () => {
+    const store = createInMemoryMcpOAuthStore();
+    await store.write(createMcpOAuthStoreIdentity(oauthServer.name, oauthServer.url), {
+      [staleIssuer]: { tokens: { access_token: 'old-access', token_type: 'Bearer' }, updatedAt: 1 },
+    });
+    const cleanupEntered = Promise.withResolvers<void>();
+    const cleanupRelease = Promise.withResolvers<void>();
+    let attempt = 0;
+    runtime = createDesktopMcpHostRuntime({
+      createHttpTransportClient: (options) => {
+        const first = ++attempt === 1;
+        const provider = requireOAuthProvider(options.authProvider);
+        return {
+          ...failingTransportClient(),
+          close: async () => {
+            if (first) {
+              cleanupEntered.resolve();
+              await cleanupRelease.promise;
+            }
+          },
+          connect: async () => {
+            if (
+              !(
+                provider.saveDiscoveryState &&
+                provider.invalidateCredentials &&
+                provider.saveTokens
+              )
+            ) {
+              throw new Error('Missing SDK credential methods');
+            }
+            await provider.saveDiscoveryState({ authorizationServerUrl: staleIssuer });
+            if (first) {
+              await provider.invalidateCredentials('tokens');
+              throw new McpLifecycleFailure('authentication', 'mcp-authentication-required');
+            }
+            await provider.saveTokens(
+              {
+                access_token: 'replacement-access',
+                issuer: staleIssuer,
+                scope: 'read',
+                token_type: 'Bearer',
+              },
+              { issuer: staleIssuer }
+            );
+          },
+        };
+      },
+      oauthStore: store,
+      onInternalError: vi.fn(),
+      openExternal: vi.fn(async () => undefined),
+      resolveExtensionRegistry: () => undefined,
+    });
+    await runtime.replaceResolvedConfig({ servers: [oauthServer] });
+    const discovery = runtime.host
+      .invoke({ configuredServerId: oauthServer.name, type: 'tools/list' })
+      .catch((error: unknown) => error);
+    try {
+      await cleanupEntered.promise;
+      await runtime.host.control({ action: 'cancel', configuredServerId: oauthServer.name });
+      await expect(
+        runtime.host.control({ action: 'connect', configuredServerId: oauthServer.name })
+      ).resolves.toMatchObject({
+        auth: { credentialState: 'stored', grantedScopes: ['read'] },
+        state: 'connected',
+      });
+      cleanupRelease.resolve();
+      await discovery;
+      // Connect on the existing client returns the actor's current authority
+      // snapshot; it cannot hide a stale closure behind a cached publication.
+      await expect(
+        runtime.host.control({ action: 'connect', configuredServerId: oauthServer.name })
+      ).resolves.toMatchObject({
+        auth: { credentialState: 'stored', grantedScopes: ['read'] },
+        state: 'connected',
+      });
+    } finally {
+      cleanupRelease.resolve();
+      await discovery;
+    }
+  });
+
   it('discovers tools on the first request after restart using stored credentials without a Connect action', async () => {
     const store = createInMemoryMcpOAuthStore();
     await store.write(createMcpOAuthStoreIdentity(oauthServer.name, oauthServer.url), {

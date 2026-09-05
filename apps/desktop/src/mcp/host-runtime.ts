@@ -239,6 +239,7 @@ export class DesktopMcpHostRuntime {
         const entry = this.resolveEntry(input.config);
         const server = structuredClone(entry.server);
         let auth = structuredClone(entry.auth);
+        let authAttempt = Symbol('mcp-auth-publication');
         const updateAuth = (next: McpHostAuthSnapshot): void => {
           auth = structuredClone(next);
           entry.auth = structuredClone(next);
@@ -246,16 +247,33 @@ export class DesktopMcpHostRuntime {
         return new McpServerActor({
           auth: () => auth,
           ...(input.config.auth.type === 'oauth-user'
-            ? { clearCredentials: () => this.clearOAuthCredentials(entry, updateAuth) }
+            ? {
+                clearCredentials: () => {
+                  authAttempt = Symbol('mcp-auth-cleared');
+                  return this.clearOAuthCredentials(entry, updateAuth);
+                },
+              }
             : {}),
           configuredProtocol: input.config.configuredProtocol,
           configuredServerId: input.config.configuredServerId,
           ...(input.config.enabledTools ? { enabledTools: input.config.enabledTools } : {}),
           ...(input.config.extensions ? { extensions: input.config.extensions } : {}),
-          factory: (context) =>
-            dependencies.createActorClient
+          factory: (context) => {
+            const attempt = Symbol('mcp-auth-attempt');
+            authAttempt = attempt;
+            // Cancel permits an immediate retry before old cleanup drains. Only
+            // the latest attempt owns auth publication; late facts cannot replace
+            // the new provider's credentials or an explicit credential clear.
+            const publishAuth = (next: McpHostAuthSnapshot): void => {
+              if (authAttempt !== attempt) {
+                return;
+              }
+              updateAuth(next);
+            };
+            return dependencies.createActorClient
               ? this.createActorClient(server, context)
-              : this.createExplicitActorClient(server, context, updateAuth, entry.configRef),
+              : this.createExplicitActorClient(server, context, publishAuth, entry.configRef);
+          },
           generation: input.generation,
           onAuthorityRetired: () =>
             this.elicitationPresenter.retireServer(
