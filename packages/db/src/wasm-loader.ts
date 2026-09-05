@@ -166,15 +166,11 @@ class WasmLoader {
   }
 
   async createPGlite(dataDir?: string): Promise<PGlite> {
+    // Construction installs the factory's statically imported extensions; the
+    // cached dynamic loaders below are NOT consulted here. They still serve
+    // `createPGliteClient` (the worker client's `live` plugin) and act as a
+    // fail-fast preload, which is what `ensureWasmLoaded` provides.
     await this.ensureWasmLoaded();
-
-    // Load vector extension asynchronously
-    await Promise.all([
-      loadVectorExtension(),
-      loadLiveExtension(),
-      loadTrgmExtension(),
-      loadTextsearchExtension(),
-    ]);
 
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;

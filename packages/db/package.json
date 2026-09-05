@@ -96,8 +96,7 @@
     "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit",
-    "test:integration": "vitest run --project unit .integration.test."
+    "type-check": "tsc --noEmit"
   },
   "type": "module",
   "types": "./dist/index.d.ts"

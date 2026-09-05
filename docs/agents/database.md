@@ -806,8 +806,10 @@ enforces this ownership. The factory uses `PGlite.create()` to await engine
 readiness and preserve typed client plugin namespaces. `ENGINE_EXTENSIONS`
 is the single engine registry; `CLIENT_EXTENSIONS` contains `live`.
 
-- `wasm-loader.ts` retains cached dynamic extension loaders and HMR reset;
-  direct persistent instances cache the creation promise to prevent double-open.
+- `wasm-loader.ts` keeps its cached dynamic extension loaders and HMR reset only
+  for `createPGliteClient` (the worker client's `live` plugin) and as a fail-fast
+  preload; `createPGlite` constructs through the factory's static imports and
+  caches the creation promise for persistent instances to prevent double-open.
 - `pglite-worker-entry.ts` and `browser-first-run-bootstrap-worker.ts` use
   `createEnginePglite`; the multi-tab client installs `live`, while the
   short-lived bootstrap engines have no reactive client.

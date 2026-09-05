@@ -1,14 +1,14 @@
 // @vitest-environment node
 import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: undefined }));
 
 it('boots the desktop DB host with the real factory and complete migrated extension set', async () => {
-  const root = await mkdtemp(
-    path.resolve(import.meta.dirname, '../../../../.pglite-factory-test-')
-  );
+  // OS temp dir: a real PGlite data dir must never land in the checkout, even on a hard kill.
+  const root = await mkdtemp(path.join(tmpdir(), 'pglite-factory-test-'));
   const parentPort = Object.getOwnPropertyDescriptor(process, 'parentPort');
   Object.defineProperty(process, 'parentPort', {
     configurable: true,

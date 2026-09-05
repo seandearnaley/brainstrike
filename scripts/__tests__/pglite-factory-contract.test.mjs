@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -65,9 +65,16 @@ test('PGlite construction belongs exclusively to pglite-factory.ts', () => {
     .split('\n');
   const violations = files
     .filter((file) => isRuntimeSource(file) && file !== factoryPath)
-    .flatMap((file) =>
-      constructionViolations(file, readFileSync(path.join(repoRoot, file), 'utf8'))
-    );
+    // `--cached` lists tracked paths even when deleted in the worktree; skip those.
+    .filter((file) => existsSync(path.join(repoRoot, file)))
+    .flatMap((file) => {
+      const source = readFileSync(path.join(repoRoot, file), 'utf8');
+      // Cheap pre-filter: nothing without this text can construct or import PGlite,
+      // so the full AST parse runs only on the handful of candidate files.
+      return source.includes('PGlite') || source.includes('@electric-sql/pglite')
+        ? constructionViolations(file, source)
+        : [];
+    });
   assert.deepEqual(
     violations,
     [],
