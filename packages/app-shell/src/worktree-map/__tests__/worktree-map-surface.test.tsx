@@ -313,6 +313,57 @@ describe('WorktreeMapSurface', () => {
     expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
   });
 
+  it('shows checkout paths and explicit clean status on named rows', () => {
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      statusByPath: new Map([
+        ['/wt', { kind: 'ready', value: { ahead: null, behind: null, clean: true } }],
+      ]),
+    });
+    render(<WorktreeMapSurface />);
+    expect(screen.getByRole('article', { name: 'bright-fox' })).toBeInTheDocument();
+    expect(screen.getByText('/wt')).toBeInTheDocument();
+    expect(screen.getByText('Clean')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Not indexed' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('states that ghost checkouts are missing instead of checking forever', () => {
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [card({ entry: { ...card().entry, provenance: 'agent-reported' } })],
+        },
+      ],
+      statusByPath: new Map(),
+    });
+    render(<WorktreeMapSurface />);
+    expect(screen.getByText('Not on disk')).toBeInTheDocument();
+    expect(screen.queryByText('checking…')).not.toBeInTheDocument();
+  });
+
+  it('opens the linked thread directly and identifies the current running checkout', async () => {
+    const thread = {
+      running: true,
+      threadId: 'current-thread',
+      title: 'Improve collection navigation',
+    };
+    mockSelectedThreadByResourceId = { 'brainstrike:workspace': thread.threadId };
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [{ ...BASE_STATE.repositories[0], cards: [card({ thread })] }],
+    });
+    render(<WorktreeMapSurface />);
+    expect(screen.getByText('Current thread')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Improve collection navigation/u }));
+    expect(selectThreadMock).toHaveBeenCalledWith('brainstrike:workspace', 'current-thread');
+  });
+
   it('shows dirty and ahead glyphs from the per-card status, never before it resolves', () => {
     useWorktreeMapMock.mockReturnValue({
       ...BASE_STATE,

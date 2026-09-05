@@ -4,7 +4,7 @@
  * resolves the database, the resource, the running-thread set and the thread
  * actions from context. Every mutation it can trigger goes through a seam that
  * already exists — the checkout-intent store, the thread store, the durable
- * indexing setter, the platform bridge — so the Map owns no state of its own.
+ * indexing setter, the platform bridge — so the Map owns only ephemeral collection-view state.
  */
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import {
@@ -121,7 +121,7 @@ export function WorktreeMapSurface(): ReactElement {
 
   return (
     <>
-      <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className="@container/worktrees flex h-full min-h-0 min-w-0 flex-col">
         <WorktreeMapToolbar
           filter={filter}
           loading={loading}
@@ -184,10 +184,32 @@ export function WorktreeMapSurface(): ReactElement {
           ) : null}
           {collection.repositories.map((repositoryModel) => (
             <section className="flex min-w-0 flex-col gap-2" key={repositoryModel.repoCommonDir}>
-              <h2 className="font-medium text-sm">{repositoryModel.repositoryName}</h2>
+              <header className="flex min-w-0 items-center justify-between gap-3 px-1">
+                <div className="min-w-0">
+                  <h2 className="truncate font-medium text-sm">{repositoryModel.repositoryName}</h2>
+                  <p
+                    className="truncate text-[10px] text-muted-foreground"
+                    title={repositoryModel.repositoryRoot}
+                  >
+                    {repositoryModel.repositoryRoot}
+                  </p>
+                </div>
+                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                  {repositoryModel.cards.length} shown
+                </span>
+              </header>
               <div
-                className="flex gap-3 overflow-x-auto pb-2"
-                key={`${collection.page}:${query}:${filter}:${sort}`}
+                aria-hidden="true"
+                className="@min-[760px]/worktrees:grid hidden grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem] gap-3 border-l-2 border-l-transparent px-3 text-[10px] text-muted-foreground"
+              >
+                <span>Checkout</span>
+                <span>Git status</span>
+                <span>Thread</span>
+                <span className="text-right">Actions</span>
+              </div>
+              <div
+                className="overflow-hidden rounded-lg border border-border bg-card [&>article+article]:border-border [&>article+article]:border-t"
+                data-testid="worktree-map-rows"
               >
                 {repositoryModel.cards.map((card) => (
                   <WorktreeMapCard

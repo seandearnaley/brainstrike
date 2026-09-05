@@ -444,6 +444,19 @@ checkouts are attention signals. Repository and status loading/refresh ownership
 stay in `useWorktreeMap`. The paired collection cases live in
 `worktree-map-model.test.ts` and `worktree-map-surface.test.tsx`.
 
+**Responsive rows (BST-1636).** Repository sections use one vertical scrollport
+and full-width checkout articles, with one, two, or four columns based on the
+Worktrees container width (480px / 760px). Checkout identity/path, Git status,
+thread activity and actions keep a stable order. The action group uses 32px
+controls; the indexing toggle exposes its existing exact-root preference via
+an accessible name and `aria-pressed`. Missing-on-disk rows do not claim a
+pending Git read. A resolved clean status is explicit, and the selected linked
+thread is labeled and accented. All mutation and capability guards are unchanged.
+Paired behavior coverage remains in `worktree-map-surface.test.tsx`; the real
+large-collection/geometry regression is in
+`apps/desktop/e2e/worktree-map.desktop.test.ts`. The opt-in
+`scripts/probe-worktree-map.mjs` checks row fit instead of horizontal scrolling.
+
 **"Open in Terminal" — SHIPPED in W6 (BST-1457); the deferral and its tripwire
 are gone.** Spec §10 lists the action on a Worktree Map card, §4.1 on the Folder
 chip's root rows and §4.3 on the Mode chip's worktree menu; all three exist. The
