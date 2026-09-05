@@ -1287,9 +1287,11 @@ which was memory pressure and was genuinely fixed by serialization, two of the
 observed BST-1221 hits landed in lanes that were ALREADY serialized to a single
 worker — `@brainstrike/embeddings#test:integration` (`--maxWorkers=1
 --no-file-parallelism`, 2026-08-16, red main) and the desktop unit lane (same
-flags, 2026-08-18). Lowering worker counts is not an established fix for
-BST-1221. The native root cause remains unresolved; this reporter only
-guarantees a lost file can never read as success.
+flags, 2026-08-18). Do not "fix" BST-1221 by lowering worker counts: the
+fatal has already occurred at one worker per lane, so serialization does not
+eliminate it. This does not establish general concurrency independence. The
+native root cause remains unresolved; this reporter only guarantees a lost
+file can never read as success.
 
 **Trigger and in-repo mitigation (2026-08-26).** The dominant trigger was
 `embedding-queue-load.integration.test.ts` allocating and closing a fresh

@@ -25,7 +25,7 @@ The official `node-v24.20.0-linux-x64.tar.xz` archive was verified against
 [Node's published SHA-256 sums](https://nodejs.org/dist/v24.20.0/SHASUMS256.txt):
 
 ```text
-2f2c0da162318f0de47665410c7c8c2ed3d36c8f3105de4bbc61176c70a7cbf2
+2f2c0da162318f0de47665410c7c8c2ed3d36c8f3105de4bbc61176c70a7cbf2  node-v24.20.0-linux-x64.tar.xz
 ```
 
 Offline `addr2line -C -f` against that archive's `bin/node` resolves the
@@ -49,8 +49,8 @@ finalized is too strong.
 
 Pinned Node 24.20.0 sources show the relevant ownership and assertion paths:
 
-- [UnregisterAllocation, lines 338–341](https://github.com/nodejs/node/blob/v24.20.0/deps/v8/src/common/code-memory-access.cc#L338)
-  and [UnregisterWasmAllocation, lines 530–532](https://github.com/nodejs/node/blob/v24.20.0/deps/v8/src/common/code-memory-access.cc#L530)
+- [UnregisterAllocation, lines 338–341](https://github.com/nodejs/node/blob/v24.20.0/deps/v8/src/common/code-memory-access.cc#L338-L341)
+  and [UnregisterWasmAllocation, lines 530–532](https://github.com/nodejs/node/blob/v24.20.0/deps/v8/src/common/code-memory-access.cc#L530-L532)
   have no `Enabled()` guard. The assertion is not PKU-exclusive.
 - [WasmImportWrapperCache::Free](https://github.com/nodejs/node/blob/v24.20.0/deps/v8/src/wasm/wasm-import-wrapper-cache.cc)
   invokes the code allocator after removing wrapper cache entries.
@@ -61,11 +61,13 @@ Pinned Node 24.20.0 sources show the relevant ownership and assertion paths:
 describes Linux x64 Intel Xeon without PKU and sequential PGlite instance
 creation in one Node process. Its
 [follow-up](https://github.com/nodejs/node/issues/64500#issuecomment-5440040468)
-reports 74 fatal builds out of 1,669 with `--no-wasm-tier-up`, compared with
-3/64 before it. These are the reporter's measurements, not Brainstrike
-validation. That issue also contains a distinct SIGSEGV investigation attributed
-to a specific machine's hardware; its conclusion must not be transferred to
-Brainstrike's CHECK failure.
+reports 74 fatal builds out of 1,669 with `--no-wasm-tier-up` (about 4.4%),
+compared with 3/64 before it (about 4.7%). The small baseline limits any
+rate comparison; these observations establish continued failures, not
+statistical equality or an unchanged rate. These are the reporter's
+measurements, not Brainstrike validation. That issue also contains a distinct
+SIGSEGV investigation attributed to a specific machine's hardware; its
+conclusion must not be transferred to Brainstrike's CHECK failure.
 
 The current session has a macOS ARM host and an ARM Linux Docker engine, and
 no native Linux x64 test venue. Offline symbolization does not execute the
@@ -79,7 +81,10 @@ pnpm --filter @brainstrike/assistant-data test:integration
 pnpm --filter @brainstrike/embeddings exec vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/embedding-worker-model-resolution.integration.test.ts
 ```
 
-Keep fresh fixture isolation, proper close ownership, complete test discovery,
-and fatal/lost-file reporting. A successful run is non-reproduction. Closing
-BST-1221 still requires evidence tying a supported change to the responsible
-native boundary on the affected platform.
+Keep correct fixture ownership and `close()` discipline, prevent cross-test
+state bleed, and preserve complete test discovery and fatal/lost-file
+reporting. This does not mandate a fresh PGlite per test: preserve the
+queue-load spec's existing shared instance and scenario isolation. A
+successful run is non-reproduction. Closing BST-1221 still requires evidence
+tying a supported change to the responsible native boundary on the affected
+platform.
