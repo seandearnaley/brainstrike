@@ -214,6 +214,23 @@ describe('createHostRequestChannel', () => {
     expect(channel.size()).toBe(0);
   });
 
+  it('still rejects the request when the adapter abort hook throws', async () => {
+    const hookFailure = new Error('cancel send failed: host is gone');
+    const onAbort = vi.fn((): Error => {
+      throw hookFailure;
+    });
+    const { channel } = createChannel({ onAbort });
+    const controller = new AbortController();
+
+    const pending = observe(
+      channel.request({ id: 'req-abort-throws', kind: 'fast' }, { signal: controller.signal })
+    );
+    controller.abort('requester destroyed');
+
+    await expect(pending).resolves.toBe(hookFailure);
+    expect(channel.size()).toBe(0);
+  });
+
   it('rejects without sending when the signal is already aborted', async () => {
     const { channel, send } = createChannel();
     const controller = new AbortController();

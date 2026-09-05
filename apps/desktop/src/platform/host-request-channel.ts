@@ -234,11 +234,17 @@ export function createHostRequestChannel<TRequest, TResponse>(
             return;
           }
           release(entry);
-          reject(
-            options.onAbort
+          let abortError: Error;
+          try {
+            abortError = options.onAbort
               ? options.onAbort(request, { reason: signal.reason, requestId })
-              : toAbortError(role, requestId, signal.reason)
-          );
+              : toAbortError(role, requestId, signal.reason);
+          } catch (error) {
+            // The adapter's abort side effect failed (e.g. cancelling on a host
+            // that is already gone); the request must still settle.
+            abortError = toThrownError(error);
+          }
+          reject(abortError);
         };
         signal.addEventListener('abort', onAbort, { once: true });
         entry.releaseAbortListener = () => {
