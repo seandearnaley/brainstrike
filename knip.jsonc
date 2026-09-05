@@ -67,7 +67,6 @@
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/app/globals.css (knip does not parse CSS)
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
-        "@assistant-ui/react-data-stream",
         "@assistant-ui/react-markdown",
         "@assistant-ui/styles",
         "@radix-ui/react-accordion",
@@ -131,7 +130,6 @@
         "@fontsource-variable/geist-mono", // Imported via CSS @import in renderer/styles.css
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
-        "@assistant-ui/react-data-stream",
         "@assistant-ui/react-markdown",
         "@assistant-ui/styles",
         "@radix-ui/react-accordion",
