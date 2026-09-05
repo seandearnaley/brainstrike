@@ -90,6 +90,14 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
+// Waited on rather than counted in ticks: dispatch depth is a request-layer detail.
+async function waitForLastRequest(kind: string): Promise<PostedMessage> {
+  await vi.waitFor(() => {
+    expect(latestProcess().messages.at(-1)?.request.kind).toBe(kind);
+  });
+  return latestProcess().messages.at(-1) as PostedMessage;
+}
+
 function restoreEnvValue(key: string, value: string | undefined): void {
   if (value === undefined) {
     Reflect.deleteProperty(process.env, key);
@@ -939,14 +947,10 @@ describe('DbHostManager', () => {
       request: { kind: 'transaction:start', transactionId: expect.stringMatching(/^tx:/) },
     });
     latestProcess().reply(txStart as PostedMessage, { transactionId });
-    await flushMicrotasks();
-    await flushMicrotasks();
 
-    const commitMessage = latestProcess().messages.at(-1);
-    expect(commitMessage).toMatchObject({
-      request: { kind: 'transaction:commit', transactionId },
-    });
-    latestProcess().reply(commitMessage as PostedMessage, { committed: true });
+    const commitMessage = await waitForLastRequest('transaction:commit');
+    expect(commitMessage.request.transactionId).toBe(transactionId);
+    latestProcess().reply(commitMessage, { committed: true });
 
     await expect(resultPromise).resolves.toEqual({ value: 1 });
   });
@@ -968,13 +972,9 @@ describe('DbHostManager', () => {
       request: { kind: 'transaction:start', transactionId: expect.stringMatching(/^tx:/) },
     });
     latestProcess().reply(txStart as PostedMessage, { transactionId });
-    await flushMicrotasks();
-
-    const rollbackMessage = latestProcess().messages.at(-1);
-    expect(rollbackMessage).toMatchObject({
-      request: { kind: 'transaction:rollback', transactionId },
-    });
-    latestProcess().reply(rollbackMessage as PostedMessage, { rolledBack: true });
+    const rollbackMessage = await waitForLastRequest('transaction:rollback');
+    expect(rollbackMessage.request.transactionId).toBe(transactionId);
+    latestProcess().reply(rollbackMessage, { rolledBack: true });
 
     await expect(resultPromise).rejects.toThrow('callback failed');
   });
