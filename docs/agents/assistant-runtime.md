@@ -1237,7 +1237,11 @@ inactive when later thinking starts. The existing named tool-renderer map is
 adapted into the chain primitive's single tool slot, preserving task-list,
 subagent, and MCP result renderers. Activity wrappers remain mounted through
 completion, preserving disclosure state and tool identity. Reasoning-only groups
-omit the zero-tool step count. Tool durations and shell output remain correlated
+omit the zero-tool step count. Incomplete group status is authoritative even
+without tool calls: cancellation shows a neutral Stopped summary, while other
+incomplete reasons show Activity failed. Completed tool details remain
+accessible by expanding the activity group; packaged UI proofs follow that
+same disclosure interaction. Tool durations and shell output remain correlated
 by call id across the message, while each group's elapsed fallback uses only its
 own tool events. The turn-wide task list renders once in the first group.
 

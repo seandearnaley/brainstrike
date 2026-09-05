@@ -221,11 +221,12 @@ vi.mock('@assistant-ui/react', () => {
         };
       }) => (
         <>
-          {mockAuiState.chainOfThought.parts.map((part) => {
+          {mockAuiState.chainOfThought.parts.map((part, index) => {
             const typed = part as { type?: string; toolCallId?: string } | null;
             if (typed?.type === 'reasoning') {
               const Component = components.Reasoning ?? (() => null);
-              return <Component key="reasoning" />;
+              // biome-ignore lint/suspicious/noArrayIndexKey: stable part positions in the isolated primitive mock.
+              return <Component key={`reasoning-${index}`} />;
             }
             if (typed?.type === 'tool-call') {
               const Component = components.tools?.Fallback ?? (() => null);

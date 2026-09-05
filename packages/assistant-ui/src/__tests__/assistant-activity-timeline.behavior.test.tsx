@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import type { ChatModelAdapter } from '@assistant-ui/react';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -31,6 +32,8 @@ function expectChronologicalGroups() {
     throw new Error('Expected two activity groups.');
   }
   const text = screen.getByText('I found the issue.');
+  expect(first.contains(text)).toBe(false);
+  expect(second.contains(text)).toBe(false);
   expect(Boolean(first.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
     true
   );
@@ -42,31 +45,37 @@ function expectChronologicalGroups() {
 }
 
 describe('assistant activity chronology through the real runtime', () => {
-  it('settles the active group on cancellation without reactivating earlier activity', async () => {
-    const adapter: ChatModelAdapter = {
-      async *run({ abortSignal }) {
-        yield { content: [...firstParts, secondReasoning, ...secondTools] };
-        await new Promise<void>((resolve) => {
-          if (abortSignal.aborted) {
-            resolve();
-            return;
-          }
-          abortSignal.addEventListener('abort', () => resolve(), { once: true });
-        });
-      },
-    };
-    const user = userEvent.setup();
-    render(<Harness adapter={adapter} />);
-    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Inspect this issue.');
-    await user.click(screen.getByRole('button', { name: 'Send' }));
-    await screen.findByText('I found the issue.');
-    const { first, second } = expectChronologicalGroups();
-    expect(second).toHaveAttribute('data-active', 'true');
-    await user.click(screen.getByRole('button', { name: 'Stop' }));
-    await waitFor(() => expect(second).toHaveAttribute('data-active', 'false'));
-    expect(first).toHaveAttribute('data-active', 'false');
-    expect(screen.getAllByTestId('assistant-activity-group')).toEqual([first, second]);
-  });
+  it.each([false, true])(
+    'settles cancellation without showing success (tools: %s)',
+    async (includeTools) => {
+      const adapter: ChatModelAdapter = {
+        async *run({ abortSignal }) {
+          yield { content: [...firstParts, secondReasoning, ...(includeTools ? secondTools : [])] };
+          await new Promise<void>((resolve) => {
+            if (abortSignal.aborted) {
+              resolve();
+              return;
+            }
+            abortSignal.addEventListener('abort', () => resolve(), { once: true });
+          });
+        },
+      };
+      const user = userEvent.setup();
+      render(<Harness adapter={adapter} />);
+      await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Inspect this issue.');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+      await screen.findByText('I found the issue.');
+      const { first, second } = expectChronologicalGroups();
+      expect(second).toHaveAttribute('data-active', 'true');
+      await user.click(screen.getByRole('button', { name: 'Stop' }));
+      await waitFor(() => expect(second).toHaveAttribute('data-active', 'false'));
+      expect(first).toHaveAttribute('data-active', 'false');
+      expect(second).toHaveTextContent('Stopped');
+      expect(second).not.toHaveTextContent('Worked');
+      expect(screen.getAllByTestId('assistant-activity-group')[0]).toBe(first);
+      expect(screen.getAllByTestId('assistant-activity-group')[1]).toBe(second);
+    }
+  );
 
   it('keeps later reasoning and parallel tools after text without reactivating or remounting earlier groups', async () => {
     const think = deferred();
@@ -104,7 +113,8 @@ describe('assistant activity chronology through the real runtime', () => {
         call.release();
       });
       await waitFor(() => expect(second).toHaveTextContent('linear_list_relations'));
-      expect(screen.getAllByTestId('assistant-activity-group')).toEqual([first, second]);
+      expect(screen.getAllByTestId('assistant-activity-group')[0]).toBe(first);
+      expect(screen.getAllByTestId('assistant-activity-group')[1]).toBe(second);
       expect(first).not.toHaveTextContent('linear_list_relations');
       await act(async () => {
         finish.release();
@@ -112,7 +122,8 @@ describe('assistant activity chronology through the real runtime', () => {
       await screen.findByText('Review complete.');
       expectChronologicalGroups();
       expect(second).toHaveAttribute('data-active', 'false');
-      expect(screen.getAllByTestId('assistant-activity-group')).toEqual([first, second]);
+      expect(screen.getAllByTestId('assistant-activity-group')[0]).toBe(first);
+      expect(screen.getAllByTestId('assistant-activity-group')[1]).toBe(second);
       expect(within(first).getByText('First reasoning segment.')).toBeVisible();
     } finally {
       await act(async () => {
@@ -123,7 +134,47 @@ describe('assistant activity chronology through the real runtime', () => {
     }
   }, 20_000);
 
+  it('shows a persisted reasoning-only error as failed', async () => {
+    render(
+      <Harness
+        adapter={{
+          async run() {
+            throw new Error('Must not invoke a model.');
+          },
+        }}
+        initialMessages={[
+          {
+            content: [secondReasoning],
+            role: 'assistant',
+            status: { reason: 'error', type: 'incomplete' },
+          },
+        ]}
+      />
+    );
+    await screen.findByText('Activity failed');
+    expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
+    expect(screen.getByTestId('assistant-activity-group')).not.toHaveTextContent('Worked');
+  });
+
   it('preserves the same order and completed state when hydrated from persisted parts', async () => {
+    const event = (toolCallId: string, timestamp: string, kind: string) => ({
+      data: {
+        id: timestamp,
+        kind,
+        label: 'tool',
+        metadata: { toolCallId },
+        status: 'completed',
+        timestamp,
+      },
+      name: ASSISTANT_RUN_EVENT_DATA_NAME,
+      type: 'data' as const,
+    });
+    const events = [
+      event('first', '2026-09-05T10:00:00.000Z', 'tool.started'),
+      event('first', '2026-09-05T10:00:02.000Z', 'tool.completed'),
+      event('comments', '2026-09-05T10:00:10.000Z', 'tool.started'),
+      event('comments', '2026-09-05T10:00:14.000Z', 'tool.completed'),
+    ];
     render(
       <Harness
         adapter={{
@@ -131,7 +182,7 @@ describe('assistant activity chronology through the real runtime', () => {
             throw new Error('Hydration must not invoke a model.');
           },
         }}
-        initialMessages={[{ content: completedParts, role: 'assistant' }]}
+        initialMessages={[{ content: [...completedParts, ...events], role: 'assistant' }]}
       />
     );
     await screen.findByText('Review complete.');
@@ -139,5 +190,7 @@ describe('assistant activity chronology through the real runtime', () => {
     expect(second).toHaveAttribute('data-active', 'false');
     expect(first).toHaveTextContent('1 step');
     expect(second).toHaveTextContent('2 steps');
+    expect(within(first).getByText('for 2.0s')).toBeInTheDocument();
+    expect(within(second).getByText('for 4.0s')).toBeInTheDocument();
   });
 });

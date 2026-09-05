@@ -39,8 +39,12 @@ it.each([400, 800])(
     expect(before.second.height).toBeGreaterThan(0);
     expect(before.first.bottom).toBeLessThanOrEqual(before.text.top);
     expect(before.text.bottom).toBeLessThanOrEqual(before.second.top);
+    const toolCard = within(first).getByTestId('tool-fallback');
+    expect(toolCard).not.toBeVisible();
     const user = userEvent.setup();
     await user.click(within(first).getByRole('button', { name: 'Expand activity' }));
+    expect(toolCard).toBeVisible();
+    expect(within(toolCard).getByRole('img', { name: 'Completed' })).toBeVisible();
     await user.click(within(first).getByRole('button', { name: 'Show thinking' }));
     expect(within(first).getByText('First reasoning segment.')).toBeVisible();
     const after = measure();

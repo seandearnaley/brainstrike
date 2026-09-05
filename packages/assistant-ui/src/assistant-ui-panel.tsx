@@ -578,6 +578,10 @@ export const LocalChainOfThought = () => {
     state.chainOfThought.parts.some(isRunningReasoningPart)
   );
   const isActivityActive = useAuiState((state) => state.chainOfThought.status.type === 'running');
+  const incompleteReason = useAuiState((state) => {
+    const status = state.chainOfThought.status;
+    return status.type === 'incomplete' ? status.reason : undefined;
+  });
   // The task-list summary is turn-wide; render it once without hoisting activity.
   const isFirstChain = useAuiState((state) => {
     const firstActivity = state.message.parts.find(isActivityPart);
@@ -640,6 +644,7 @@ export const LocalChainOfThought = () => {
         <ShellOutputProvider outputs={shellOutputs}>
           <AssistantActivityGroup
             fallbackMs={activityFallbackMs}
+            incompleteReason={incompleteReason}
             isActive={isActivityActive}
             summary={toolActivity}
           >

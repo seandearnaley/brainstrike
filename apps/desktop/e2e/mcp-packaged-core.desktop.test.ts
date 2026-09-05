@@ -487,7 +487,12 @@ async function executeAssistantTool(
   }
   await approval.getByRole('button', { name: /Approve/u }).click();
   await expect(completed).toBeVisible({ timeout: 90_000 });
-  const toolCard = page.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
+  const activity = page
+    .getByTestId('assistant-activity-group')
+    .filter({ hasText: 'legacy.echo' })
+    .last();
+  await activity.getByRole('button', { exact: true, name: 'Expand activity' }).click();
+  const toolCard = activity.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
   await toolCard.getByRole('button', { exact: true, name: 'Expand details' }).click();
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
