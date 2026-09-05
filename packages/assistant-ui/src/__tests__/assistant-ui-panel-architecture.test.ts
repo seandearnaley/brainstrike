@@ -296,7 +296,8 @@ describe('assistant UI panel architecture', () => {
     // The tool-components map (by_name + Fallback) is extracted to
     // CHAIN_OF_THOUGHT_TOOL_COMPONENTS in todo-progress.tsx to stay under the
     // source-file budget above; assert the wiring there instead of inline.
-    expect(localChainOfThoughtSource).toContain('tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS');
+    expect(localChainOfThoughtSource).toContain('Fallback: ActivityToolPart');
+    expect(source).toContain('CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName]');
     expect(readSource('todo-progress.tsx')).toContain('Fallback: ToolFallback');
   });
 

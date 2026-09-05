@@ -158,6 +158,18 @@ describe('AssistantActivityGroup', () => {
     expect(screen.getByText('3.0s')).toBeInTheDocument();
   });
 
+  it('retains reasoning time when the same group resumes after a completed tool', () => {
+    const { rerender } = render(<AssistantActivityGroup isActive summary={activeSummary} />);
+    act(() => vi.advanceTimersByTime(3400));
+    rerender(<AssistantActivityGroup fallbackMs={1000} isActive={false} summary={doneSummary} />);
+    expect(screen.getByText('for 3.4s')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(500));
+    rerender(<AssistantActivityGroup fallbackMs={1000} isActive summary={activeSummary} />);
+    expect(screen.getByText('3.4s')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByText('4.4s')).toBeInTheDocument();
+  });
+
   it('renders the done summary with elapsed fallback and step count', () => {
     render(<AssistantActivityGroup fallbackMs={12_000} isActive={false} summary={doneSummary} />);
 
