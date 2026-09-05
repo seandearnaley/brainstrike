@@ -1287,22 +1287,32 @@ which was memory pressure and was genuinely fixed by serialization, two of the
 observed BST-1221 hits landed in lanes that were ALREADY serialized to a single
 worker — `@brainstrike/embeddings#test:integration` (`--maxWorkers=1
 --no-file-parallelism`, 2026-08-16, red main) and the desktop unit lane (same
-flags, 2026-08-18). Do not "fix" BST-1221 by lowering worker counts; the
-evidence says it is not concurrency-driven. The crash itself remains upstream
-(Node/V8); this reporter only guarantees it can never read as success.
+flags, 2026-08-18). Lowering worker counts is not an established fix for
+BST-1221. The native root cause remains unresolved; this reporter only
+guarantees a lost file can never read as success.
 
 **Trigger and in-repo mitigation (2026-08-26).** The dominant trigger was
 `embedding-queue-load.integration.test.ts` allocating and closing a fresh
 `memory://` PGlite per scenario (five WASM instantiate/teardown cycles per
 run). PGlite `close()` does not tear the WASM instance down synchronously —
-finalization is GC-driven and lands during the NEXT scenario's instantiation
-and load churn, which is exactly the window where V8's PKU-gated
-`ThreadIsolation` jit-page bookkeeping fatal fires on Linux x64 (macOS/arm64
-has no PKU, which is why it never reproduced locally). The spec now shares one
-instance across scenarios (closed once in `afterAll`); sibling integration
-specs that churn per-test `memory://` instances (e.g. model-resolution, ~10
-cycles) carry the same residual risk. `--no-memory-protection-keys` was tried
-and disproven (BST-1221, 2026-08-22).
+finalization can overlap a later scenario's instantiation and load. That
+overlap is a candidate trigger, not a demonstrated native root cause. The spec
+now shares one instance across scenarios (closed once in `afterAll`), reducing
+churn without establishing elimination. Sibling integration specs that create
+fresh per-test `memory://` instances retain exposure.
+
+**Native boundary correction (2026-09-05).** The exact assertion in pinned
+Node 24.20.0 is **not PKU-gated**: `UnregisterWasmAllocation` calls
+`UnregisterAllocation` without consulting `ThreadIsolation::Enabled()`.
+Symbolizing both current Linux x64 CI stacks identifies
+`WasmImportWrapperCache::Free` under `Runtime_TierUpWasmToJSWrapper` — import
+wrapper reclamation, not proof of whole-instance finalization. Clean macOS ARM
+runs establish non-reproduction, not platform exclusivity. Neither another
+fixture-sharing change nor a runtime change is established as a fix.
+`--no-memory-protection-keys` was tried and disproven in an affected
+Linux run (2026-08-22); an independent upstream investigation also reported
+continued exact CHECK failures with `--no-wasm-tier-up`. See the
+[pinned source, symbolization, and remaining evidence limits](research/bst-1221-native-fatal-evidence.md).
 
 **In-memory fixture ownership (BST-1221, 2026-09-05).**
 `wasmLoader.createPGlite('memory://...')` returns an uncached handle;
