@@ -82,7 +82,8 @@ function isDynamicImport(node: ts.CallExpression): boolean {
 }
 
 interface ValueImport {
-  readonly kind: 'import' | 'require';
+  /** `non-literal` marks a require()/import() whose argument is not a string literal. */
+  readonly kind: 'import' | 'non-literal' | 'require';
   readonly specifier: string;
 }
 
@@ -114,7 +115,13 @@ function collectValueImports(sourceFile: ts.SourceFile): ValueImport[] {
     }
     if (ts.isCallExpression(node)) {
       const specifier = stringArgument(node);
-      if (specifier !== null && isRequireCall(node)) {
+      const loadsModule = isRequireCall(node) || isDynamicImport(node);
+      if (loadsModule && specifier === null) {
+        // The bundler cannot inline a computed specifier and esbuild's node
+        // target preserves the call, so the sandboxed preload would resolve it
+        // (or fail to) at runtime. Never let it through silently.
+        imports.push({ kind: 'non-literal', specifier: node.getText(sourceFile) });
+      } else if (specifier !== null && isRequireCall(node)) {
         imports.push({ kind: 'require', specifier });
       } else if (specifier !== null && isDynamicImport(node)) {
         imports.push({ kind: 'import', specifier });
@@ -153,6 +160,15 @@ export function collectPreloadImportGraph(
       file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
     );
     for (const { kind, specifier } of collectValueImports(sourceFile)) {
+      if (kind === 'non-literal') {
+        violations.push({
+          file,
+          reason:
+            'require()/import() with a non-literal argument (the bundler cannot inline it; use a string literal)',
+          specifier,
+        });
+        continue;
+      }
       if (isRelativeSpecifier(specifier)) {
         if (kind === 'require') {
           violations.push({
