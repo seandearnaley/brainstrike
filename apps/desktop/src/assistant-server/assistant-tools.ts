@@ -22,7 +22,6 @@ import {
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   normalizeManageCanvasInput,
-  projectToolOutputArtifactPage,
   type QueryDiagnosticsInput,
   type QueryEmbeddingSpaceInput,
   type QuerySelfInput,
@@ -55,6 +54,7 @@ import { createLogger } from '@brainstrike/logging';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { resolveDesktopPythonExecutable } from '../python-runtime';
+import { createArtifactReaderModelProjection } from './artifact-reader-model-projection';
 import {
   runBrowserGetPageText,
   runBrowserNavigate,
@@ -455,8 +455,7 @@ export function buildDesktopAssistantTools(
             },
             id: NATIVE_TOOL_ID.readToolOutputArtifact,
             inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
-            toModelOutput: (output: unknown) =>
-              projectToolOutputArtifactPage(output, resolveActiveDomainCharBudget()),
+            toModelOutput: createArtifactReaderModelProjection(resolveActiveDomainCharBudget),
           },
         }
       : {}),

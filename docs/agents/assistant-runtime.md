@@ -558,8 +558,28 @@ separate path unaffected by any of the above and stays enabled.
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
 `toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained
-before an artifact envelope can reach display/transcript. A trusted per-tool
-canonical-name map may lower the inline threshold by
+before an artifact envelope can reach display/transcript.
+MCP settlement also consults the generic model projector before retaining an
+otherwise-inline result (BST-1655). A 9 KB issue can fit the 12 KB artifact
+ceiling yet exceed the final 8 KB model envelope. The projection owner compares
+its actual bounded value with complete source text, including JSON escaping and
+the domain reserve used with PostToolUse context; any loss requires settlement.
+This predicate applies only to MCP tools from the eligible runtime map. Task
+status projections and inline media keep their dedicated contracts. No second
+size constant approximates the model projection. The complete raw output is
+stored before publishing a recovery page; storage failures still fail visibly.
+Runtime settlement requires an explicit reader resolver. It resolves exactly
+one eligible reader from the canonical name map before storage; zero or
+multiple matches fail visibly without writing an artifact. Recovery pages use
+the exact callable id. MCP Apps retain their complete marker,
+origin, and ordinary result in display/transcript output so sandbox mounting
+and hydration remain valid; only the ordinary result is serialized for model
+artifact recovery. Apps media takes the existing inline media path. The eligible
+artifact reader remains on the core discovery surface, so recovery never
+requires a search call. The reader's own model projector receives
+the sanitized tool through the central projection wrapper's receiver and fits
+continuation guidance with that same id. Standalone page helpers retain their canonical-name default.
+A trusted per-tool canonical-name map may lower the inline threshold by
 serialized characters when a complete domain projection has a tighter budget.
 `brainstrike.webExtract` uses the smaller of 2400 characters and the active
 run's resolved domain-projection character budget: smaller extracts project

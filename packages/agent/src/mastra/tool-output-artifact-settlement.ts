@@ -1,4 +1,7 @@
-import { NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS } from '@brainstrike/assistant-contract';
+import {
+  NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS,
+  readMcpAppToolInvocationResult,
+} from '@brainstrike/assistant-contract';
 import {
   encodeToolOutputArtifactContent,
   encodeToolOutputArtifactCursor,
@@ -74,6 +77,8 @@ export interface ToolOutputArtifactSettlementStore {
 export interface ApplyToolOutputArtifactSettlementOptions {
   /** Delegation tools actually registered for this run, resolved after persona assembly. */
   readonly getDelegationToolNames?: () => readonly string[];
+  /** Runtime registration supplies the eligible reader's exact callable name. */
+  readonly getReaderToolName: () => string;
   /**
    * Optional stricter inline ceilings for tools whose complete model projection
    * must fit a smaller character budget than the generic transport envelope.
@@ -82,6 +87,8 @@ export interface ApplyToolOutputArtifactSettlementOptions {
   readonly inlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
   readonly store: ToolOutputArtifactSettlementStore;
   readonly toolNameMap: ReadonlyMap<string, string>;
+  /** The model-projection owner decides whether an otherwise-inline result loses data. */
+  readonly wouldTruncateModelOutput?: (toolName: string, output: unknown) => boolean;
 }
 
 interface ExecutableTool {
@@ -193,19 +200,24 @@ function createArtifactOutputs(
   reference: ToolOutputArtifactReference,
   content: string,
   completeDisplayOutput: unknown,
-  getDelegationToolNames: (() => readonly string[]) | undefined
+  getDelegationToolNames: (() => readonly string[]) | undefined,
+  readerToolName: string
 ): Pick<SettledToolOutput, 'displayOutput' | 'modelOutput'> {
   const preview = fitArtifactPreview(content);
   if (preview.endByte >= reference.byteLength) {
     return {
       displayOutput: completeDisplayOutput,
-      modelOutput: projectToolOutputArtifactPage({
-        artifactRef: reference,
-        ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
-        content: preview.preview,
-        endByte: preview.endByte,
-        offsetByte: 0,
-      }),
+      modelOutput: projectToolOutputArtifactPage(
+        {
+          artifactRef: reference,
+          ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
+          content: preview.preview,
+          endByte: preview.endByte,
+          offsetByte: 0,
+        },
+        undefined,
+        readerToolName
+      ),
     };
   }
   const nextCursor = encodeToolOutputArtifactCursor(reference, preview.endByte);
@@ -214,20 +226,24 @@ function createArtifactOutputs(
     artifactRef: reference,
     code: TOOL_OUTPUT_ARTIFACT_CODE,
     ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
-    hint: `The complete ${toolName} result is durable. Search with pattern or continue paging via brainstrike.readToolOutputArtifact using {"cursor":nextCursor}.${delegationHint}`,
+    hint: `The complete ${toolName} result is durable. Search with pattern or continue paging via ${readerToolName} using {"cursor":nextCursor}.${delegationHint}`,
     nextCursor,
     preview: preview.preview,
     truncated: true,
     version: TOOL_OUTPUT_ARTIFACT_VERSION,
   };
-  const modelOutput = projectToolOutputArtifactPage({
-    artifactRef: reference,
-    ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
-    content: preview.preview,
-    endByte: preview.endByte,
-    nextCursor,
-    offsetByte: 0,
-  });
+  const modelOutput = projectToolOutputArtifactPage(
+    {
+      artifactRef: reference,
+      ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
+      content: preview.preview,
+      endByte: preview.endByte,
+      nextCursor,
+      offsetByte: 0,
+    },
+    undefined,
+    readerToolName
+  );
   return { displayOutput, modelOutput };
 }
 
@@ -335,7 +351,9 @@ async function settleOutput(
     return output;
   }
   const hookEnvelope = readHookResultEnvelope(output);
-  const domainOutput = hookEnvelope ? hookEnvelope.result : output;
+  const displaySource = hookEnvelope ? hookEnvelope.result : output;
+  const appResult = readMcpAppToolInvocationResult(displaySource);
+  const domainOutput = appResult ? appResult.result : displaySource;
   if (readMcpMultimodalOutput(domainOutput)) {
     return output;
   }
@@ -347,7 +365,11 @@ async function settleOutput(
   const exceedsToolCharacterLimit =
     inlineMaxSerializedChars !== undefined && serialized.content.length > inlineMaxSerializedChars;
   if (
-    !(exceedsToolCharacterLimit || serialized.byteLength > TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)
+    !(
+      exceedsToolCharacterLimit ||
+      serialized.byteLength > TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES ||
+      options.wouldTruncateModelOutput?.(toolName, output)
+    )
   ) {
     return output;
   }
@@ -359,6 +381,7 @@ async function settleOutput(
     throw new ToolOutputArtifactSettlementError('missing_tool_call_id', toolName);
   }
 
+  const readerToolName = options.getReaderToolName();
   let reference: ToolOutputArtifactReference;
   try {
     reference = await options.store.store({
@@ -380,14 +403,19 @@ async function settleOutput(
       new TypeError('Artifact storage returned incoherent metadata.')
     );
   }
+  const artifactOutputs = createArtifactOutputs(
+    toolName,
+    reference,
+    serialized.content,
+    displaySource,
+    options.getDelegationToolNames,
+    readerToolName
+  );
   return createSettlementCarrier({
-    ...createArtifactOutputs(
-      toolName,
-      reference,
-      serialized.content,
-      domainOutput,
-      options.getDelegationToolNames
-    ),
+    ...artifactOutputs,
+    // Apps need their origin and complete result to mount and hydrate the sandbox.
+    // The model pages only the ordinary result, never this renderer-owned marker.
+    displayOutput: appResult ? displaySource : artifactOutputs.displayOutput,
     projectionSource: output,
   });
 }

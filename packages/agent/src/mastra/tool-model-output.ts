@@ -2,6 +2,7 @@ import {
   isGuardedToolError,
   NATIVE_TOOL_ID,
   readMcpAppToolInvocationResult,
+  readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
@@ -326,6 +327,31 @@ function createDefaultModelOutput(
     serializedCharBudget,
     defaultBudget
   );
+}
+
+/** Consult the actual generic projection before deciding whether MCP data can stay inline. */
+export function wouldTruncateMcpModelOutput(
+  toolName: string,
+  output: unknown,
+  resolvedToolResultBudget: ScaledToolResultBudget
+): boolean {
+  const envelope = readHookResultEnvelope(output);
+  const source = envelope ? envelope.result : output;
+  const appResult = readMcpAppToolInvocationResult(source);
+  const domainOutput = appResult ? appResult.result : source;
+  // Tasks have a purpose-built status projection; media has its own inline contract.
+  if (readMcpTaskToolInvocationResult(domainOutput) || readMcpMultimodalOutput(domainOutput)) {
+    return false;
+  }
+  const completeText =
+    typeof domainOutput === 'string' ? domainOutput : stringifyJsonSafe(domainOutput);
+  const projected = createDefaultModelOutput(
+    toolName,
+    domainOutput,
+    buildDefaultModelProjectionBudget(resolvedToolResultBudget),
+    Boolean(envelope?.additionalContext)
+  );
+  return projected['type'] !== 'text' || projected['value'] !== completeText;
 }
 
 function isModelContentOutput(output: unknown): output is ModelContentOutput {
@@ -754,7 +780,7 @@ function projectDefaultModelOutput(
   const envelope = readHookResultEnvelope(projectionSource);
   const persistedDomainOutput = envelope ? envelope.result : projectionSource;
   const appResult = readMcpAppToolInvocationResult(persistedDomainOutput);
-  const domainOutput = appResult?.result ?? persistedDomainOutput;
+  const domainOutput = appResult ? appResult.result : persistedDomainOutput;
   const hookContext = envelope?.additionalContext;
   const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
   const defaultProjection = createDefaultModelOutput(
@@ -858,7 +884,7 @@ function projectExistingModelOutput(
   const envelope = readHookResultEnvelope(projectionSource);
   const persistedDomainOutput = envelope ? envelope.result : projectionSource;
   const appResult = readMcpAppToolInvocationResult(persistedDomainOutput);
-  const domainOutput = appResult?.result ?? persistedDomainOutput;
+  const domainOutput = appResult ? appResult.result : persistedDomainOutput;
   const hookContext = envelope?.additionalContext;
   const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
   const boundResolvedProjection = (resolved: unknown): unknown => {
