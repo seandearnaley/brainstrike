@@ -25,6 +25,7 @@ export const migration078JobQueueDedupeActiveIndex: Migration = {
     -- it was missing; it is not the owner.
     SELECT 1;
   `,
+  ledgerKey: 'custom-078-job-queue-dedupe-active-index',
   name: 'job_queue_dedupe_active_index',
   up: `
     -- A Drizzle-migrated database may already hold duplicate ACTIVE rows per

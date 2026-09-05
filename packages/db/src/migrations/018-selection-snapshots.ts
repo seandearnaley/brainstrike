@@ -7,6 +7,7 @@ export const migration018SelectionSnapshots: Migration = {
     DROP TABLE IF EXISTS selection_snapshot_files;
     DROP TABLE IF EXISTS selection_snapshots;
   `,
+  ledgerKey: 'custom-018-selection-snapshots',
   name: 'selection_snapshots',
   up: `
     CREATE TABLE IF NOT EXISTS selection_snapshots (

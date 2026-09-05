@@ -7,6 +7,7 @@ export const migrationCallbackContractFixture: Migration = {
     // @ts-expect-error Migration callbacks do not receive lifecycle methods from PGlite.
     await db.close();
   },
+  ledgerKey: 'custom-test-migration-callback-contract',
   name: 'migration_callback_contract_fixture',
   up: async (db) => {
     await db.exec('SELECT 1;');

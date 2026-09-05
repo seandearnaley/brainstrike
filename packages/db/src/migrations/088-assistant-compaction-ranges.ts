@@ -11,6 +11,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration088AssistantCompactionRanges: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_assistant_compaction_ranges;',
+  ledgerKey: 'custom-088-assistant-compaction-ranges',
   name: 'assistant_compaction_ranges',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_compaction_ranges (

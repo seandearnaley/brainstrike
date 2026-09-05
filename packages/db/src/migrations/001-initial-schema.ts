@@ -10,6 +10,7 @@ export const migration001InitialSchema: Migration = {
 		-- Drop table
 		DROP TABLE IF EXISTS file_records;
 	`,
+  ledgerKey: 'custom-001-initial-schema',
   name: 'initial_schema',
   up: `
 		-- Create file_records table

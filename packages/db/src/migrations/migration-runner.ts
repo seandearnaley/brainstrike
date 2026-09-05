@@ -6,6 +6,8 @@ export type MigrationCallback = (db: MigrationTransactionalDb) => Promise<void>;
 
 export interface Migration {
   down?: string | MigrationCallback;
+  /** Persisted `__drizzle_migrations.hash`; must never change once shipped. */
+  readonly ledgerKey: `custom-${string}`;
   name: string;
   up: string | MigrationCallback;
   version: number;

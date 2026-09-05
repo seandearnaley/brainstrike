@@ -25,6 +25,7 @@ export const migration103OpenAiCodex: Migration = {
     DELETE FROM models WHERE provider_id = 'openai-codex';
     DELETE FROM providers WHERE id = 'openai-codex';
   `,
+  ledgerKey: 'custom-103-openai-codex',
   name: 'openai_codex',
   up: `
     INSERT INTO providers (id, name, sort_order, is_enabled) VALUES

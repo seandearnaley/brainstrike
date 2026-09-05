@@ -13,6 +13,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration055AssistantMessageParents: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_assistant_message_parents;',
+  ledgerKey: 'custom-055-assistant-message-parents',
   name: 'assistant_message_parents',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_message_parents (

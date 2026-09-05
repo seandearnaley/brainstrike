@@ -22,6 +22,7 @@ export const migration068ToolOutputArtifacts: Migration = {
     --> statement-breakpoint
     DROP TABLE IF EXISTS brainstrike_assistant_tool_output_artifacts;
   `,
+  ledgerKey: 'custom-068-tool-output-artifacts',
   name: 'tool_output_artifacts',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_tool_output_artifacts (

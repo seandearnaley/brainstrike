@@ -19,6 +19,7 @@ export const migration050AssistantTaskLists: Migration = {
   down: `
     DROP TABLE IF EXISTS brainstrike_assistant_task_lists;
   `,
+  ledgerKey: 'custom-050-assistant-task-lists',
   name: 'assistant_task_lists',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_task_lists (

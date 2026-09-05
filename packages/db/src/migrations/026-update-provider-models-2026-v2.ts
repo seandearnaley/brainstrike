@@ -5,6 +5,7 @@ export const migration026UpdateProviderModels2026V2: Migration = {
     -- Revert provider display name
     UPDATE providers SET name = 'Google' WHERE id = 'google';
   `,
+  ledgerKey: 'custom-026-update-provider-models-2026-v2',
   name: 'update_provider_models_2026_v2',
   up: `
     -- Incremental catalog corrections for hosted providers

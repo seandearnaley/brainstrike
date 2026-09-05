@@ -27,6 +27,7 @@ describe('MigrationRunner', () => {
 
   const testMigration1: Migration = {
     down: 'DROP TABLE test_table;',
+    ledgerKey: 'custom-test-testMigration1',
     name: 'test_migration_1',
     up: 'CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT);',
     version: 1,
@@ -34,12 +35,14 @@ describe('MigrationRunner', () => {
 
   const testMigration2: Migration = {
     down: 'ALTER TABLE test_table DROP COLUMN created_at;',
+    ledgerKey: 'custom-test-testMigration2',
     name: 'test_migration_2',
     up: 'ALTER TABLE test_table ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;',
     version: 2,
   };
 
   const testMigration3: Migration = {
+    ledgerKey: 'custom-test-testMigration3',
     name: 'test_migration_no_rollback',
     up: 'CREATE INDEX idx_test_name ON test_table(name);',
     version: 3,
@@ -171,6 +174,7 @@ describe('MigrationRunner', () => {
     it('should handle migration failures with rollback', async () => {
       const badMigration: Migration = {
         down: 'DROP TABLE nonexistent;',
+        ledgerKey: 'custom-test-badMigration',
         name: 'bad_migration',
         up: 'INVALID SQL SYNTAX HERE;',
         version: 99,
@@ -216,6 +220,7 @@ describe('MigrationRunner', () => {
     it('should skip rollback for unapplied migrations', async () => {
       const unappliedMigration: Migration = {
         down: 'DROP TABLE temp;',
+        ledgerKey: 'custom-test-unappliedMigration',
         name: 'unapplied',
         up: 'CREATE TABLE temp (id INTEGER);',
         version: 99,
@@ -240,6 +245,7 @@ describe('MigrationRunner', () => {
     it('should handle rollback failures', async () => {
       const badRollbackMigration: Migration = {
         down: 'INVALID ROLLBACK SQL;',
+        ledgerKey: 'custom-test-badRollbackMigration',
         name: 'bad_rollback',
         up: 'CREATE TABLE temp_table (id INTEGER);',
         version: 88,
@@ -257,6 +263,7 @@ describe('MigrationRunner', () => {
         down: async (transactionDb: PGlite) => {
           await transactionDb.exec('DROP TABLE function_rollback_table;');
         },
+        ledgerKey: 'custom-test-functionRollbackMigration',
         name: 'function_rollback',
         up: 'CREATE TABLE function_rollback_table (id INTEGER PRIMARY KEY);',
         version: 77,
@@ -329,6 +336,7 @@ describe('MigrationRunner', () => {
     it('should handle duplicate version numbers gracefully', async () => {
       const duplicateMigration: Migration = {
         down: 'DROP TABLE duplicate_table;',
+        ledgerKey: 'custom-test-duplicateMigration',
         name: 'duplicate_version',
         up: 'CREATE TABLE duplicate_table (id INTEGER);',
         version: 1, // Same as testMigration1

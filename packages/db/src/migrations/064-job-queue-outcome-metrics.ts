@@ -29,6 +29,7 @@ export const migration064JobQueueOutcomeMetrics: Migration = {
 
     ALTER TABLE job_queue_metrics DROP COLUMN IF EXISTS canceled_total;
   `,
+  ledgerKey: 'custom-064-job-queue-outcome-metrics',
   name: 'job_queue_outcome_metrics',
   up: `
     ALTER TABLE job_queue_metrics ADD COLUMN IF NOT EXISTS failed_total BIGINT NOT NULL DEFAULT 0;

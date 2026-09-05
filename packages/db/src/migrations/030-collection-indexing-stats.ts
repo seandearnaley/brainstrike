@@ -6,6 +6,7 @@ export const migration030CollectionIndexingStats: Migration = {
     --> statement-breakpoint
     DROP TABLE IF EXISTS collection_indexing_stats;
   `,
+  ledgerKey: 'custom-030-collection-indexing-stats',
   name: 'collection_indexing_stats',
   up: `
     CREATE TABLE IF NOT EXISTS collection_indexing_stats (

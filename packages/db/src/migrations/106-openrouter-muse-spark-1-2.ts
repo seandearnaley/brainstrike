@@ -8,6 +8,7 @@ export const migration106OpenRouterMuseSpark12: Migration = {
       AND id = 'meta/muse-spark-1.2';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-106-openrouter-muse-spark-1-2',
   name: 'openrouter_muse_spark_1_2',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'openrouter';

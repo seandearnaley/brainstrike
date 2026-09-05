@@ -16,6 +16,7 @@ export const migration041RootsPathIdentity: Migration = {
       ON roots(path)
       WHERE path IS NOT NULL;
   `,
+  ledgerKey: 'custom-041-roots-path-identity',
   name: 'roots_path_identity',
   up: `
     DROP INDEX IF EXISTS idx_roots_path;

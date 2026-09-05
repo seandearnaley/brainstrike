@@ -42,6 +42,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration080AssistantMessageTombstones: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_assistant_message_tombstones;',
+  ledgerKey: 'custom-080-assistant-message-tombstones',
   name: 'assistant_message_tombstones',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_message_tombstones (

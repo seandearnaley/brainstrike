@@ -40,6 +40,7 @@ export const migration115McpTaskAuthority: Migration = {
       WHERE terminal_at IS NULL;
     DROP TABLE brainstrike_mcp_task_authorities;
   `,
+  ledgerKey: 'custom-115-mcp-task-authority',
   name: 'mcp_task_authority',
   up: `
     CREATE TABLE brainstrike_mcp_task_authorities (

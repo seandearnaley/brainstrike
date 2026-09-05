@@ -10,6 +10,7 @@ export const migration059AssistantThreadGroupIcons: Migration = {
     ALTER TABLE brainstrike_assistant_thread_groups
       DROP COLUMN IF EXISTS icon;
   `,
+  ledgerKey: 'custom-059-assistant-thread-group-icons',
   name: 'assistant_thread_group_icons',
   up: `
     ALTER TABLE brainstrike_assistant_thread_groups

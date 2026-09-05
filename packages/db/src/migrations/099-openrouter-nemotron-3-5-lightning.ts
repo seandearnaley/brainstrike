@@ -8,6 +8,7 @@ export const migration099OpenRouterNemotron35Lightning: Migration = {
       AND id = 'nvidia/nemotron-3.5-lightning';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-099-openrouter-nemotron-3-5-lightning',
   name: 'openrouter_nemotron_3_5_lightning',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'openrouter';

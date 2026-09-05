@@ -13,6 +13,7 @@ export const migration043JobQueueEmbeddingSetId: Migration = {
     ALTER TABLE job_queue
       DROP COLUMN IF EXISTS embedding_set_id;
   `,
+  ledgerKey: 'custom-043-job-queue-embedding-set-id',
   name: 'job_queue_embedding_set_id',
   up: `
     ALTER TABLE job_queue

@@ -18,6 +18,7 @@ export const migration049JobQueueMetrics: Migration = {
   down: `
     DROP TABLE IF EXISTS job_queue_metrics;
   `,
+  ledgerKey: 'custom-049-job-queue-metrics',
   name: 'job_queue_metrics',
   up: `
     CREATE TABLE IF NOT EXISTS job_queue_metrics (

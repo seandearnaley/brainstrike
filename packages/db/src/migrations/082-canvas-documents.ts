@@ -14,6 +14,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration082CanvasDocuments: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_canvas_versions;',
+  ledgerKey: 'custom-082-canvas-documents',
   name: 'canvas_documents',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_canvas_versions (

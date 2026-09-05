@@ -56,6 +56,7 @@ export const migration028GemmaLocalLlm: Migration = {
       is_enabled = EXCLUDED.is_enabled,
       updated_at = CURRENT_TIMESTAMP;
   `,
+  ledgerKey: 'custom-028-gemma-local-llm',
   name: 'gemma_local_llm',
   up: `
     -- Audit note:

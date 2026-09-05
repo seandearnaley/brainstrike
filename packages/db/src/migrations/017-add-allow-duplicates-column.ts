@@ -9,6 +9,7 @@ export const migration017AddAllowDuplicatesColumn: Migration = {
     ALTER TABLE embedding_sets
       DROP COLUMN IF EXISTS allow_duplicates;
   `,
+  ledgerKey: 'custom-017-add-allow-duplicates-column',
   name: 'add_allow_duplicates_column',
   up: `
     -- Add allow_duplicates column if it doesn't exist

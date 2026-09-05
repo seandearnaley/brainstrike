@@ -13,6 +13,7 @@ export const migration012FileRecordsEmbeddingSet: Migration = {
     ALTER TABLE file_records
       DROP COLUMN IF EXISTS embedding_set_id;
   `,
+  ledgerKey: 'custom-012-file-records-embedding-set',
   name: 'file_records_embedding_set',
   up: `
     -- Add embedding_set_id to file_records

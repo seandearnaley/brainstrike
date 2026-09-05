@@ -40,6 +40,7 @@ export const migration067ThreadSearchIndex: Migration = {
     --> statement-breakpoint
     DROP TABLE IF EXISTS brainstrike_thread_search_profiles;
   `,
+  ledgerKey: 'custom-067-thread-search-index',
   name: 'thread_search_index',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_thread_search_profiles (
