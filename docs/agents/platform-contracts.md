@@ -324,6 +324,17 @@ allowlist:
   package `*_BRIDGE_REQUIRED_METHODS` resolver sets and exercises `parseArgs`;
   `platform/register-domain.test.ts` and `platform/ipc-bridge.test.ts` pin
   the two derivations.
+- **Global manifest test (there is deliberately no registry singleton).**
+  `createDesktopIpcRegistry` rejects a duplicate channel per INSTANCE only;
+  production composes ~38 per-domain instances. `__tests__/main/
+  ipc-global-manifest.test.ts` boots the real `main.ts` (module scope and the
+  `app.whenReady()` block through window creation) under mocks, captures
+  every registry instance through the factory, and asserts over
+  `union(getSnapshot())` — the snapshot's production-shaped consumer: no
+  channel on two instances, every invoke spec of every glob-discovered
+  `ipc-domains/*.contract.ts` registered (push specs never), and every
+  registered channel a `DESKTOP_IPC_CHANNELS` literal. A new domain or a
+  migrated contract needs no edit there.
 
 **Error-envelope ruling (extends the `mcp:content:*` ruling in
 `docs/agents/assistant-providers.md`).** Exactly one failure shape crosses IPC
