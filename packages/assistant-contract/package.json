@@ -81,6 +81,11 @@
       "import": "./dist/mcp-task-presentation.js",
       "require": "./dist/mcp-task-presentation.js"
     },
+    "./native-tool-schemas": {
+      "types": "./dist/native-tools/schemas/index.d.ts",
+      "import": "./dist/native-tools/schemas/index.js",
+      "require": "./dist/native-tools/schemas/index.js"
+    },
     "./citation-markers": {
       "types": "./dist/citation-markers.d.ts",
       "import": "./dist/citation-markers.js",
