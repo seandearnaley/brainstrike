@@ -3,6 +3,7 @@ import {
   isNativeToolId,
   isSkillNativeToolId,
   NATIVE_TOOL_DEFAULTS,
+  NATIVE_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
@@ -85,8 +86,11 @@ export function resolveToolDiscoverySurface(
     // callable progressive-disclosure controls. Keep those three eager; hiding
     // them behind search_tools would make Mastra's own injected instructions
     // point at unavailable tools.
+    // Artifact continuations are also direct runtime instructions. Keep the
+    // authorized reader callable without a separate discovery round trip.
+    const isArtifactReader = originalId === NATIVE_TOOL_ID.readToolOutputArtifact;
     const isDeferredNative =
-      !isProviderDefinedTool &&
+      !(isProviderDefinedTool || isArtifactReader) &&
       isNativeToolId(originalId) &&
       !isSkillNativeToolId(originalId) &&
       NATIVE_TOOL_DEFAULTS[originalId].loadingTier !== 'critical';

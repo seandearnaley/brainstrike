@@ -4682,6 +4682,9 @@ pair is not a normal function definition that catalog search may rename.
 Mastra's canonical `skill`, `skill_read`, and `skill_search` controls also stay
 eager: `SkillsProcessor` tells the model to call them directly, so deferring
 them would make Mastra's own injected instructions reference unavailable tools.
+The eligible `readToolOutputArtifact` recovery control stays eager for the same
+reason: settlement emits directly callable continuation actions. This adds no
+alias and does not bypass eligibility or permission gates.
 
 `LlmModelDefinition.nativeToolSearch` records provider-native support on the
 exact model route:

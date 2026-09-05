@@ -321,6 +321,7 @@ function createScriptedToolCallModel(args: {
         args.onToolResultPrompt?.(options.prompt);
         const continuation = args.continueWithTool?.(options.prompt);
         if (continuation) {
+          expect(options.tools?.map((tool) => tool.name)).toContain(continuation.toolName);
           return Promise.resolve({
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
@@ -1040,20 +1041,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       let modelOutput = '';
       let recovered = '';
       let readerAction: { input: { cursor: string }; tool: string } | undefined;
-      let readerLoaded = false;
       let recoveryCall = 0;
       modelHolder.current = createScriptedToolCallModel({
         continueWithTool: (prompt) => {
           if (recoveryCall > 10) {
             throw new Error('Artifact recovery did not converge.');
-          }
-          if (readerAction && !readerLoaded) {
-            readerLoaded = true;
-            return {
-              input: JSON.stringify(readerAction.input),
-              toolCallId: `recover-${recoveryCall++}`,
-              toolName: readerAction.tool,
-            };
           }
           const output = readToolResultOutput(
             prompt.filter((message) => message.role === 'tool').at(-1)
@@ -1074,13 +1066,6 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
           readerAction = page.next;
           if (!readerAction) {
             return;
-          }
-          if (!readerLoaded) {
-            return {
-              input: JSON.stringify({ query: readerAction.tool }),
-              toolCallId: `recover-search-${recoveryCall++}`,
-              toolName: 'search_tools',
-            };
           }
           return {
             input: JSON.stringify(readerAction.input),

@@ -569,7 +569,8 @@ status projections and inline media keep their dedicated contracts. No second
 size constant approximates the model projection. The complete raw output is
 stored before publishing a recovery page; storage failures still fail visibly.
 Runtime settlement resolves one eligible reader from the canonical name map,
-and pages use its exact callable id. The reader's own model projector receives
+and pages use its exact callable id. The eligible artifact reader remains on
+the core discovery surface, so recovery never requires a search call. The reader's own model projector receives
 the sanitized tool as its Mastra receiver and fits continuation guidance with
 that same id. Standalone page helpers retain their canonical-name default.
 A trusted per-tool
