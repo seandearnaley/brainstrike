@@ -1,10 +1,12 @@
 import { pathToFileURL } from 'node:url';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopIpcRegistry } from '../../platform/desktop-ipc-registry';
 import {
-  configureDesktopIpcSenderFrameAllowlist,
-  createDesktopIpcSenderFrameAllowlist,
-} from '../../platform/desktop-ipc-sender-frame';
+  configureDesktopRendererTarget,
+  createDesktopRendererTarget,
+} from '../../desktop-renderer-target';
+import { createDesktopIpcRegistry } from '../../platform/desktop-ipc-registry';
+import { createDesktopIpcSenderFrameAllowlist } from '../../platform/desktop-ipc-sender-frame';
 import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-role';
 
 type MockInvokeHandler = (event: unknown, ...args: unknown[]) => unknown;
@@ -12,11 +14,12 @@ type MockEventHandler = (event: unknown, payload: unknown) => void;
 
 const BUILT_RENDERER_PATH = '/opt/brainstrike/dist/renderer/index.html';
 const BUILT_RENDERER_URL = pathToFileURL(BUILT_RENDERER_PATH).href;
-const SENDER_FRAME_ALLOWLIST = createDesktopIpcSenderFrameAllowlist({
+const RENDERER_TARGET = createDesktopRendererTarget({
   builtRendererPath: BUILT_RENDERER_PATH,
   devRendererUrl: 'http://localhost:38181',
   launchMode: 'built',
 });
+const SENDER_FRAME_ALLOWLIST = createDesktopIpcSenderFrameAllowlist(RENDERER_TARGET);
 const UNAUTHENTICATED = { reason: 'test registration' } as const;
 
 function createMockIpcMain() {
@@ -48,7 +51,7 @@ function trackWindowRole(webContentsId: number, role: 'embedding-host' | 'visibl
 
 describe('desktop IPC registry', () => {
   afterEach(() => {
-    configureDesktopIpcSenderFrameAllowlist(null);
+    configureDesktopRendererTarget(null);
   });
 
   it('registers invoke and event channels with stable domain metadata', () => {
@@ -231,7 +234,7 @@ describe('desktop IPC registry', () => {
     clearWindowRoleByWebContentsId(8106);
   });
 
-  it('fails closed when no allowlist was injected and none was configured process-wide', async () => {
+  it('fails closed when no allowlist was injected and no renderer target was configured process-wide', async () => {
     const ipcMain = createMockIpcMain();
     const registry = createDesktopIpcRegistry({
       ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
@@ -243,13 +246,13 @@ describe('desktop IPC registry', () => {
 
     await expect(
       registeredHandler?.({ sender: { id: 8107 }, senderFrame: { url: BUILT_RENDERER_URL } })
-    ).rejects.toThrow('Desktop IPC sender-frame allowlist is not configured.');
+    ).rejects.toThrow('Desktop renderer target is not configured.');
     expect(handler).not.toHaveBeenCalled();
     clearWindowRoleByWebContentsId(8107);
   });
 
-  it('uses the process-wide allowlist when none is injected', async () => {
-    configureDesktopIpcSenderFrameAllowlist(SENDER_FRAME_ALLOWLIST);
+  it('derives the allowlist from the process-wide renderer target when none is injected', async () => {
+    configureDesktopRendererTarget(RENDERER_TARGET);
     const ipcMain = createMockIpcMain();
     const registry = createDesktopIpcRegistry({
       ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
@@ -263,6 +266,63 @@ describe('desktop IPC registry', () => {
       registeredHandler?.({ sender: { id: 8108 }, senderFrame: { url: BUILT_RENDERER_URL } })
     ).resolves.toBe('pushed');
     clearWindowRoleByWebContentsId(8108);
+  });
+
+  it('fails closed with the curated error when the sender frame url getter throws (disposed frame)', async () => {
+    const ipcMain = createMockIpcMain();
+    const registry = createRegistry(ipcMain);
+    trackWindowRole(8109, 'visible-ui');
+    const handler = vi.fn();
+    registry.registerAuthorizedInvoke('git', 'git:push', { roles: ['visible-ui'] }, handler);
+    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+    const disposedFrame = {
+      get url(): string {
+        throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+      },
+    };
+
+    await expect(
+      registeredHandler?.({ sender: { id: 8109 }, senderFrame: disposedFrame })
+    ).rejects.toThrow('Desktop IPC git:push requires a live sender frame.');
+    expect(handler).not.toHaveBeenCalled();
+    clearWindowRoleByWebContentsId(8109);
+  });
+
+  it('logs a main-process warning naming the channel and the rejected frame URL', async () => {
+    const ipcMain = createMockIpcMain();
+    const registry = createRegistry(ipcMain);
+    trackWindowRole(8110, 'visible-ui');
+    const handler = vi.fn();
+    registry.registerAuthorizedInvoke('git', 'git:push', { roles: ['visible-ui'] }, handler);
+    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      captured.push(record);
+    });
+
+    try {
+      await expect(
+        registeredHandler?.({ sender: { id: 8110 }, senderFrame: { url: 'https://evil.example/' } })
+      ).rejects.toThrow('Desktop IPC git:push rejected an unrecognized sender frame URL.');
+    } finally {
+      unsubscribe();
+      clearWindowRoleByWebContentsId(8110);
+    }
+
+    const record = captured.find(
+      (entry) =>
+        entry.scope === 'DesktopIpcRegistry' &&
+        entry.level === 'warn' &&
+        entry.args.some(
+          (arg) =>
+            typeof arg === 'object' &&
+            arg !== null &&
+            (arg as Record<string, unknown>)['channel'] === 'git:push' &&
+            (arg as Record<string, unknown>)['senderFrameUrl'] === 'https://evil.example/'
+        )
+    );
+    expect(record).toBeDefined();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('rejects empty and duplicate sender-role policies at registration', () => {

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { ProviderAuthEngine } from '../../provider-auth/provider-auth-engine';
 import {
   createAllowlistedSenderFrame,
-  reconfigureTestSenderFrameAllowlistAfterModuleReset,
+  reconfigureTestRendererTargetAfterModuleReset,
 } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 import { makeFakeSecrets } from './fake-secrets';
 
@@ -35,7 +35,7 @@ function createInvokeEvent(senderId = 4242): IpcMainInvokeEvent {
 
 async function bootstrap(engineOverrides: Partial<ProviderAuthEngine> = {}) {
   vi.resetModules();
-  await reconfigureTestSenderFrameAllowlistAfterModuleReset();
+  await reconfigureTestRendererTargetAfterModuleReset();
   const { createProviderAuthEngine } = await import('../../provider-auth/provider-auth-engine');
   const { registerProviderAuthIpcHandlers } = await import('../../ipc-domains/provider-auth');
   const { ipcMain } = await import('electron');
@@ -168,7 +168,7 @@ describe('provider-auth IPC domain', () => {
     // status a real flow produces (awaiting_browser, awaiting_device_code
     // with user code, connected with accountId) — not just idle reads.
     vi.resetModules();
-    await reconfigureTestSenderFrameAllowlistAfterModuleReset();
+    await reconfigureTestRendererTargetAfterModuleReset();
     const { createProviderAuthEngine } = await import('../../provider-auth/provider-auth-engine');
     const { registerProviderAuthIpcHandlers } = await import('../../ipc-domains/provider-auth');
     const { ipcMain } = await import('electron');

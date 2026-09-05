@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/logging';
 import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { type DesktopWindowRole, getWindowRoleByWebContentsId } from '../window-role';
 import {
@@ -40,6 +41,13 @@ export type DesktopIpcDomain =
   | 'vectorPreferences'
   | 'workspace'
   | 'worktrees';
+
+// Main-process-only signal for every authorization rejection (the renderer
+// sees a curated error that never echoes its own input). The rejected frame
+// URL is renderer-controlled; it is logged here, where the renderer cannot
+// read it, so allowlist/launch-mode drift and dev-server pathname mismatches
+// are diagnosable instead of silently bricking every authorized channel.
+const logger = createLogger('DesktopIpcRegistry');
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';
 
@@ -163,6 +171,25 @@ function formatRequiredSenderRoles(roles: readonly DesktopWindowRole[]): string 
   return roles.join(', ');
 }
 
+function readSenderFrameUrl(
+  channel: string,
+  senderFrame: NonNullable<IpcMainInvokeEvent['senderFrame']>
+): string {
+  // `WebFrameMain.url` is a getter: once the frame is gone Electron throws
+  // ("Render frame was disposed before WebFrameMain could be accessed")
+  // rather than returning null, so the read is guarded to keep the curated
+  // error contract uniform instead of leaking the raw internal message.
+  try {
+    return senderFrame.url;
+  } catch (error) {
+    logger.warn('Rejected desktop IPC invoke: sender frame was disposed', {
+      channel,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw new Error(`Desktop IPC ${channel} requires a live sender frame.`);
+  }
+}
+
 function assertAuthorizedSenderFrame(
   channel: string,
   allowlist: DesktopIpcSenderFrameAllowlist,
@@ -172,11 +199,18 @@ function assertAuthorizedSenderFrame(
   // was destroyed; an undefined property is an event that never carried one.
   // Both are unverifiable and fail closed.
   if (!senderFrame) {
+    logger.warn('Rejected desktop IPC invoke: no live sender frame', { channel });
     throw new Error(`Desktop IPC ${channel} requires a live sender frame.`);
   }
-  if (!isAllowedDesktopIpcSenderFrameUrl(allowlist, senderFrame.url)) {
+  const senderFrameUrl = readSenderFrameUrl(channel, senderFrame);
+  if (!isAllowedDesktopIpcSenderFrameUrl(allowlist, senderFrameUrl)) {
+    logger.warn('Rejected desktop IPC invoke: unrecognized sender frame URL', {
+      allowlist,
+      channel,
+      senderFrameUrl,
+    });
     // The URL is renderer-controlled; it is deliberately kept out of the
-    // message so the rejection cannot smuggle text into logs or the renderer.
+    // message so the rejection cannot smuggle text into the renderer.
     throw new Error(`Desktop IPC ${channel} rejected an unrecognized sender frame URL.`);
   }
 }
@@ -256,6 +290,12 @@ export function createDesktopIpcRegistry({
     registerInvokeChannel(domain, channel, async (event, ...args: Args) => {
       const senderRole = getWindowRoleByWebContentsId(event.sender.id);
       if (!(senderRole && allowedRoles.has(senderRole))) {
+        logger.warn('Rejected desktop IPC invoke: sender role not allowed', {
+          allowedRoles: policy.roles,
+          channel,
+          senderId: event.sender.id,
+          senderRole: senderRole ?? null,
+        });
         throw new Error(
           `Desktop IPC ${channel} requires sender role ${formatRequiredSenderRoles(policy.roles)}.`
         );

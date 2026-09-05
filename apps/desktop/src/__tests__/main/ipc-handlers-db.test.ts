@@ -481,7 +481,7 @@ describe('database IPC handlers', () => {
       embeddingSetId: 'set-1',
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -509,7 +509,7 @@ describe('database IPC handlers', () => {
       await queryHandler?.({} as unknown, 'SELECT warmup', []);
       order.length = 0;
 
-      const background = batchHandler?.({} as unknown, payload, {
+      const background = batchHandler?.(createTrustedInvokeEvent(), payload, {
         label: 'managed cache batch',
         priority: 'background',
       });
@@ -536,7 +536,7 @@ describe('database IPC handlers', () => {
     isCorruptionErrorMock.mockReturnValueOnce(true);
 
     await expect(
-      handler?.({} as unknown, {
+      handler?.(createTrustedInvokeEvent(), {
         changes: 'invalid',
         embeddingSetId: '',
       })
@@ -556,7 +556,7 @@ describe('database IPC handlers', () => {
       embeddingSetId: 'set-1',
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -581,7 +581,7 @@ describe('database IPC handlers', () => {
       ],
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -614,7 +614,7 @@ describe('database IPC handlers', () => {
       await queryHandler?.({} as unknown, 'SELECT warmup', []);
       order.length = 0;
 
-      const background = invalidationHandler?.({} as unknown, payload, {
+      const background = invalidationHandler?.(createTrustedInvokeEvent(), payload, {
         label: 'managed cache invalidation',
         priority: 'background',
       });
@@ -640,7 +640,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:managed-cache:invalidate-by-identity');
 
     await expect(
-      handler?.({} as unknown, {
+      handler?.(createTrustedInvokeEvent(), {
         embeddingSetId: '',
         targets: 'invalid',
       })
@@ -1180,7 +1180,7 @@ describe('database IPC handlers', () => {
       throw new Error('handler not registered');
     }
 
-    const result = await handler({} as unknown);
+    const result = await handler(createTrustedInvokeEvent());
 
     expect(getDbHostManagerMock).toHaveBeenCalledTimes(1);
     expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
@@ -1208,7 +1208,7 @@ describe('database IPC handlers', () => {
     const row = { test: 1, timestamp: 'now' };
     mockDb.query.mockResolvedValue({ rows: [row] });
 
-    const result = await handler?.({} as unknown);
+    const result = await handler?.(createTrustedInvokeEvent());
 
     expect(mockDb.query).toHaveBeenCalledWith('SELECT 1');
     expect(result).toEqual({
@@ -1222,7 +1222,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:test');
     mockDb.query.mockRejectedValue(new Error('oops'));
 
-    const result = await handler?.({} as unknown);
+    const result = await handler?.(createTrustedInvokeEvent());
 
     expect(result).toEqual({
       dbLocation: 'DB Host',

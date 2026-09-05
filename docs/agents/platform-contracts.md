@@ -90,28 +90,53 @@ factors (BST-1641):
    and rejected unless it maps to a declared role. Empty and duplicate
    policies are registration errors; unknown senders never inherit
    `visible-ui`.
-2. **Sender frame** — `event.senderFrame.url` must match the process-wide
-   allowlist in `apps/desktop/src/platform/desktop-ipc-sender-frame.ts`
-   (Electron's "Validate the sender of all IPC messages" checklist item). The
-   allowlist is launch-mode-exact: `built`/`test-built` accept ONLY the
-   `file://` document at `resolveBuiltRendererPath()` (`dist-root.ts`, the
-   same resolver `create-window.ts` and `renderer-host-lifecycle.ts` load
-   from), and `dev-server` accepts ONLY `DESKTOP_DEV_RENDERER_URL`'s origin +
-   pathname — so a packaged app never trusts `http://localhost:38181` and a
-   dev app never trusts a stray `file://` page. Query and fragment are ignored
-   because hidden hosts load the same document as
-   `?mode=<role>&runtimeId=…`; a sibling file or path-prefix spoof
-   (`index.html.evil`) does not match. `main.ts` configures the allowlist once
-   per boot, right after `resolveDesktopRendererLaunchMode` and before any
-   window exists. A `null`/missing `senderFrame` (Electron nulls it after the
-   frame navigated or was destroyed), an off-allowlist URL, and an
-   unconfigured allowlist ALL fail closed with a visible `Desktop IPC
-   <channel> …` error; the renderer-controlled URL is never echoed into the
-   message. `createDesktopIpcRegistry({ senderFrameAllowlist })` injects an
-   allowlist for unit tests; the desktop test setup installs a deterministic
-   one process-wide, and suites that `vi.resetModules()` reinstall it via
-   `reconfigureTestSenderFrameAllowlistAfterModuleReset` (a fresh module
-   instance is unconfigured, i.e. fail-closed — by design, not a test bug).
+2. **Sender frame** — `event.senderFrame.url` must match the allowlist in
+   `apps/desktop/src/platform/desktop-ipc-sender-frame.ts` (Electron's
+   "Validate the sender of all IPC messages" checklist item). The allowlist is
+   a pure derivation of the ONE process-wide `DesktopRendererTarget`
+   (`apps/desktop/src/desktop-renderer-target.ts`): `main.ts` resolves the
+   launch mode once (`resolveDesktopRendererLaunchMode`), builds the target,
+   and configures it before any window exists; the visible window
+   (`create-window.ts`) and the hidden hosts (`renderer-host-lifecycle.ts`)
+   load the document that target names, and the allowlist is derived from the
+   same object — so nothing re-derives the launch mode from
+   `process.argv`/`app.isPackaged`/test-mode flags on its own, and the
+   allowlist cannot trust a document the loaders never load (or reject the one
+   they do). A loader that runs before the target is configured throws
+   `Desktop renderer target is not configured.` at load time (visible window:
+   `createWindow` rejects before any `loadFile`/`loadURL`; hidden host: the
+   lifecycle reports `state: 'error'` with that `lastError`, un-retried),
+   never as every authorized channel rejecting at first invoke. The target is
+   launch-mode-exact: `built`/`test-built` accept ONLY the `file://` document
+   at `resolveBuiltRendererPath()` (`dist-root.ts`), and `dev-server` accepts
+   ONLY `DESKTOP_DEV_RENDERER_URL`'s origin + pathname — so a packaged app
+   never trusts `http://localhost:38181` and a dev app never trusts a stray
+   `file://` page. Query and fragment are ignored because hidden hosts load
+   the same document as `?mode=<role>&runtimeId=…`; the dev pathname is
+   compared for equality after trailing-slash normalization (`/desktop` ≡
+   `/desktop/`, which Vite serves interchangeably), so a sibling file, a
+   path-prefix spoof (`index.html.evil`, `/desktop-evil`) or another path
+   does not match. **Standing rule:** the renderer is a single-document app —
+   `RouterProvider` wraps a `BrowserRouter` shell with no routes, links, or
+   `navigate` calls — and must stay that way: a history (`pushState`)
+   navigation would change the frame's pathname mid-session and silently
+   drop the visible window off the dev-server allowlist. A `null`/missing
+   `senderFrame` (Electron nulls it after the frame navigated or was
+   destroyed), a `WebFrameMain.url` getter that throws (Electron throws
+   "Render frame was disposed…" for a disposed frame rather than returning
+   null), an off-allowlist URL, and an unconfigured target ALL fail closed
+   with a curated `Desktop IPC <channel> …` error; the renderer-controlled
+   URL is never echoed into that message. Every rejection (role, missing or
+   disposed frame, URL) is also logged in the main process by the
+   `DesktopIpcRegistry` scope at `warn` WITH the channel and the rejected
+   URL/sender id, where the renderer cannot read it, so allowlist drift and
+   dev-server pathname mismatches are diagnosable.
+   `createDesktopIpcRegistry({ senderFrameAllowlist })` injects an allowlist
+   for unit tests; the desktop test setup configures a deterministic target
+   process-wide (`TEST_DESKTOP_RENDERER_TARGET`), and suites that
+   `vi.resetModules()` reinstall it on the fresh instance via
+   `reconfigureTestRendererTargetAfterModuleReset` (a fresh module instance
+   is unconfigured, i.e. fail-closed — by design, not a test bug).
 
 The unauthenticated verb is deliberately the long one:
 `registerUnauthenticatedInvoke(domain, channel, { reason }, handler)` requires
@@ -136,14 +161,15 @@ source of truth for who may hold a channel; `hidden-preload.ts` exposes no
 | `changes:*` (resolveView/fileDiff/inventory/rewind*) | `visible-ui` |
 | `browser:*` (all 10 pane controls) | `visible-ui` |
 | `fs:*` under `registerFileSystemIpcHandlers` (reads, root grants incl. `fs:addRootByPath`/`fs:requestDirectoryAccess`, `fs:readFileByPath`, `fs:readFileByAbsolutePath`, `fs:removeRoot`) | `visible-ui` |
-| `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234) | `embedding-host`, `visible-ui` |
+| `db:exec`, `db:transaction` (raw SQL entry points; typed replacement is BST-1234), `db:diagnostics`, `db:scheduler:snapshot`, `db:test`, `db:managed-cache:apply-batch`, `db:managed-cache:invalidate-by-identity`, `db:chunks:insert-and-enqueue-embedding-jobs` — every `db:*` channel the embedding host's `hidden-preload.ts` bridge exposes besides the shared `db:query` | `embedding-host`, `visible-ui` |
 | `secrets:*`, `assistant:get-url`/`get-auth`, `provider-auth:*`, `worktrees:*`, `mcp:content:*`, MCP apps/task/elicitation bridges | `visible-ui` (pre-existing) |
 | `vector-preferences:read|write|clear` | `embedding-host` (pre-existing; see BST-1380 below) |
 
 Still `registerUnauthenticatedInvoke` with a stated reason (sender-role
 policy pending, tracked as the BST-1641 follow-up): `db:query` (visible UI +
-chunking/embedding hosts), the remaining `db:*` diagnostics/live-query/reset
-channels, `logging:get-preferences` (all four roles), `app:power-snapshot`
+chunking/embedding hosts), the visible-UI-only `db:ping`, `db:live-query:*`,
+`db:clearAll`, `db:resetLocal` and `db:getUserDataPath`,
+`logging:get-preferences` (all four roles), `app:power-snapshot`
 (visible UI + embedding host), `parser-host:parse` (visible UI + chunking
 host), and the visible-UI-only `mcp:*`, `notesVault:*`, `storage:*`/
 `preferences:*`, `fs:watch*`, hooks/skills/forge/user-commands/user-personas/
@@ -165,14 +191,20 @@ iframes receive no preload either, so neither can reach `ipcRenderer` at all;
 the sender-frame factor additionally rejects them by URL if that ever changes.
 
 Paired tests: `apps/desktop/src/__tests__/platform/desktop-ipc-registry.test.ts`
-(role rejection, spoofed/null/missing frame rejection with a valid
-`sender.id`, unconfigured-allowlist fail-closed, mandatory reason),
-`desktop-ipc-sender-frame.test.ts` (allowlist matching per launch mode),
-`privileged-ipc-sender-authorization.test.ts` (terminal, command sessions,
-shell, git, changes, browser: allowed visible-UI, hidden, untracked, and
-off-allowlist frame per channel, plus the exact channel set), the `files`
-sweep in `ipc-domains/file-system-ipc.test.ts`, and the `db:exec`/
-`db:transaction` role pair in `ipc-domains/db-ipc.test.ts`.
+(role rejection, spoofed/null/missing/disposed frame rejection with a valid
+`sender.id`, unconfigured-target fail-closed, the main-process warn record,
+mandatory reason), `desktop-ipc-sender-frame.test.ts` (allowlist matching
+per launch mode, trailing-slash normalization, equality-not-prefix),
+`desktop-renderer-target.test.ts` (for every launch mode and window role the
+document the loaders load is on the allowlist derived from the same target,
+and the other launch mode's document is not), the unconfigured-target
+load-time failures in `create-window.test.ts` and
+`renderer-host-lifecycle.test.ts`, `privileged-ipc-sender-authorization.test.ts`
+(terminal, command sessions, shell, git, changes, browser: allowed
+visible-UI, hidden, untracked, and off-allowlist frame per channel, plus the
+exact channel set), the `files` sweep in
+`ipc-domains/file-system-ipc.test.ts`, and the eight-channel `db:*` role
+matrix in `ipc-domains/db-ipc.test.ts`.
 
 Narrowing a manifest can silently REMOVE a capability a hidden host still
 depends on. BST-1235 dropped `electronAPI.storage` from the hidden hosts, and

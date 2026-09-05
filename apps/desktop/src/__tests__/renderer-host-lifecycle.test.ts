@@ -2,6 +2,10 @@ import type { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  configureDesktopRendererTarget,
+  createDesktopRendererTarget,
+} from '../desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_PORT } from '../desktop-renderer-url';
 import { RendererHostLifecycle, type RendererHostStatusShape } from '../renderer-host-lifecycle';
 import { assignWindowRole, getWindowRoleByWebContentsId } from '../window-role';
@@ -129,16 +133,31 @@ function createFakeWindow(id: number): FakeWindow {
   };
 }
 
+const BUILT_RENDERER_PATH = '/tmp/brainstrike/dist/renderer/index.html';
+const DEV_RENDERER_URL = `http://localhost:${DESKTOP_DEV_RENDERER_PORT}`;
+const DEV_RENDERER_TARGET = createDesktopRendererTarget({
+  builtRendererPath: BUILT_RENDERER_PATH,
+  devRendererUrl: DEV_RENDERER_URL,
+  launchMode: 'dev-server',
+});
+const BUILT_RENDERER_TARGET = createDesktopRendererTarget({
+  builtRendererPath: BUILT_RENDERER_PATH,
+  devRendererUrl: DEV_RENDERER_URL,
+  launchMode: 'built',
+});
+
 describe('RendererHostLifecycle', () => {
   const baseArgv = process.argv.filter((arg) => arg !== '--test-mode');
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default the suite to dev-server mode (how `pnpm dev` launches: the hidden
-    // hosts share the visible window's explicit launch flag). Built/packaged
-    // tests override argv. The host loads from the dev URL only in dev-server
-    // mode; built/test-built/packaged load the built renderer file.
-    process.argv = [...baseArgv, '--brainstrike-desktop-launch-mode=dev-server'];
+    // Default the suite to the dev-renderer target (how `pnpm dev` launches).
+    // The hosts load the document named by the process-wide target `main.ts`
+    // configures — the same object the visible window and the IPC
+    // sender-frame allowlist use (BST-1641) — so built/packaged tests
+    // configure the built target rather than driving argv.
+    process.argv = [...baseArgv];
+    configureDesktopRendererTarget(DEV_RENDERER_TARGET);
     Reflect.deleteProperty(process.env, 'CI');
     setAppPackaged(false);
   });
@@ -196,6 +215,39 @@ describe('RendererHostLifecycle', () => {
         fallbackApplied: true,
       },
     });
+  });
+
+  it('fails at load time, before any load call, when no renderer target is configured', async () => {
+    const hostWindow = createFakeWindow(40);
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+    configureDesktopRendererTarget(null);
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          active: false,
+          lastError: null,
+          runtimeId: 'chunking-host:stopped',
+          state: 'stopped',
+        }),
+      mode: 'chunking-host',
+      role: 'chunking-host',
+      statusEventName: 'chunking-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    const status = await lifecycle.ensureStarted();
+
+    expect(status.state).toBe('error');
+    expect(status.lastError).toBe('Desktop renderer target is not configured.');
+    expect(hostWindow.loadFile).not.toHaveBeenCalled();
+    expect(hostWindow.loadURL).not.toHaveBeenCalled();
   });
 
   it('assigns the host role before beginning renderer load', async () => {
@@ -414,59 +466,15 @@ describe('RendererHostLifecycle', () => {
     );
   });
 
-  it('loads packaged host windows from the renderer file with strict query params', async () => {
+  it('loads host windows from the built renderer target file with strict query params', async () => {
     const hostWindow = createFakeWindow(142);
     hostWindow.loadFile.mockResolvedValue(undefined);
-    // No explicit launch flag → isPackaged resolves to 'built' (loads the file).
-    process.argv = [...baseArgv];
+    // Built, test-built, and packaged launches all configure a built target.
+    // The `pnpm start` regression (unpackaged + `--launch-mode=built` once
+    // pointed the hosts at a dev server that wasn't running) is now pinned at
+    // the single resolver: `desktop-launch-mode.test.ts`.
+    configureDesktopRendererTarget(BUILT_RENDERER_TARGET);
     setAppPackaged(true);
-
-    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
-      Object.assign(this, hostWindow);
-    });
-    Object.assign(BrowserWindow, {
-      getAllWindows: vi.fn(() => [hostWindow]),
-    });
-
-    const lifecycle = new RendererHostLifecycle({
-      createStatus,
-      createStoppedStatus: () =>
-        createStatus({
-          active: false,
-          lastError: null,
-          runtimeId: 'embedding-host:stopped',
-          state: 'stopped',
-        }),
-      mode: 'embedding-host',
-      role: 'embedding-host',
-      statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
-    });
-
-    await lifecycle.ensureStarted({ waitForRunning: false });
-
-    expect(hostWindow.loadFile).toHaveBeenCalledWith(
-      path.join('/tmp/brainstrike/dist/renderer/index.html'),
-      expect.objectContaining({
-        query: expect.objectContaining({
-          mode: 'embedding-host',
-          runtimeId: expect.stringContaining('embedding-host:'),
-        }),
-      })
-    );
-    expect(hostWindow.loadURL).not.toHaveBeenCalled();
-  });
-
-  it('loads the built renderer file for hosts when --launch-mode=built is set unpackaged (pnpm start)', async () => {
-    // Regression: the host previously branched on `app.isPackaged || --test-mode`
-    // and IGNORED `--brainstrike-desktop-launch-mode=built`, so `pnpm start`
-    // (unpackaged, built) pointed every hidden host at the dev server
-    // (localhost:38181) that isn't running → ERR_CONNECTION_REFUSED → background
-    // embedding/llm/chunking hosts dead while the visible window loaded fine.
-    const hostWindow = createFakeWindow(143);
-    hostWindow.loadFile.mockResolvedValue(undefined);
-    process.argv = [...baseArgv, '--brainstrike-desktop-launch-mode=built'];
-    setAppPackaged(false);
 
     MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);

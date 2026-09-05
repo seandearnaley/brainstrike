@@ -43,10 +43,9 @@ const VISIBLE_ONLY_SENDER_POLICY = {
   reason:
     'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
 } as const;
-const EMBEDDING_HOST_SHARED_SENDER_POLICY = {
-  reason:
-    'Invoked by the visible UI and the embedding-host hidden host (dist/hidden-preload.js); sender-role policy pending (BST-1641 follow-up).',
-} as const;
+// Every `db:*` channel `hidden-preload.ts` exposes to the embedding host besides
+// the shared `db:query` (chunking host: `db:query` only; llm host: no db bridge).
+const EMBEDDING_HOST_SHARED_SENDER_POLICY = { roles: ['embedding-host', 'visible-ui'] } as const;
 
 interface DatabaseHostWindowMatcher {
   readonly isHostWindow: (window: BrowserWindow) => boolean;
@@ -572,7 +571,7 @@ export function registerDatabaseIpcHandlers(
   registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.exec,
-    { roles: ['embedding-host', 'visible-ui'] },
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       sql: string,
@@ -603,7 +602,7 @@ export function registerDatabaseIpcHandlers(
   registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.transaction,
-    { roles: ['embedding-host', 'visible-ui'] },
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       statements: TransactionStatement[],
@@ -745,7 +744,7 @@ export function registerDatabaseIpcHandlers(
     })
   );
 
-  registry.registerUnauthenticatedInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.diagnostics,
     EMBEDDING_HOST_SHARED_SENDER_POLICY,
@@ -755,14 +754,14 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerUnauthenticatedInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.schedulerSnapshot,
     EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async () => getDesktopDatabaseWorkSchedulerSnapshot()
   );
 
-  registry.registerUnauthenticatedInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
     EMBEDDING_HOST_SHARED_SENDER_POLICY,
@@ -782,10 +781,10 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerUnauthenticatedInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
-    VISIBLE_ONLY_SENDER_POLICY,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
       const parsedPayload = parseManagedCacheInvalidationsArgs(payload);
       return runScheduledDatabaseWork(
@@ -802,7 +801,7 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerUnauthenticatedInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
     EMBEDDING_HOST_SHARED_SENDER_POLICY,
@@ -822,7 +821,7 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerUnauthenticatedInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.test,
     EMBEDDING_HOST_SHARED_SENDER_POLICY,

@@ -38,6 +38,7 @@ vi.mock('electron', () => ({
 const { transactionSpy } = vi.hoisted(() => ({ transactionSpy: vi.fn() }));
 const { dbHostManagerMock } = vi.hoisted(() => ({
   dbHostManagerMock: {
+    getDiagnostics: vi.fn(async () => ({ hostState: 'ready' })),
     getLiveQueryDiagnosticsForTests: vi.fn(async () => ({
       hostLiveQueryCount: 2,
       managerLiveQueryCount: 2,
@@ -94,7 +95,7 @@ describe('database IPC domain', () => {
       success: true,
     });
     await expect(
-      handlers.get('db:scheduler:snapshot')?.({} as IpcMainInvokeEvent)
+      handlers.get('db:scheduler:snapshot')?.(createTrustedInvokeEvent())
     ).resolves.toMatchObject({
       queued: { background: 0, foreground: 0, normal: 0 },
       runningPriority: null,
@@ -229,7 +230,7 @@ describe('database IPC domain', () => {
     const now = new Date().toISOString();
     await expect(
       handlers.get('db:chunks:insert-and-enqueue-embedding-jobs')?.(
-        {} as IpcMainInvokeEvent,
+        createTrustedInvokeEvent(),
         {
           chunks: [
             {
@@ -277,7 +278,7 @@ describe('database IPC domain', () => {
 
   it('rejects malformed atomic chunk/job payloads before DB host scheduling', async () => {
     await expect(
-      handlers.get('db:chunks:insert-and-enqueue-embedding-jobs')?.({} as IpcMainInvokeEvent, {
+      handlers.get('db:chunks:insert-and-enqueue-embedding-jobs')?.(createTrustedInvokeEvent(), {
         chunks: [],
         fileRecordId: 'file-1',
         options: {
@@ -291,25 +292,81 @@ describe('database IPC domain', () => {
     expect(dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs).not.toHaveBeenCalled();
   });
 
-  // BST-1641: raw SQL entry points are sender-authorized for exactly the roles
-  // that hold `electronAPI.db.exec` / `runTransaction` in a preload manifest —
-  // the embedding host and the visible UI. Reaching the SQL guard proves the
-  // handler ran; the chunking/llm hosts and untracked senders never get there.
+  // BST-1641: every `db:*` channel the embedding host holds in
+  // `hidden-preload.ts` (`exposeEmbeddingElectronApiBridge`) besides the
+  // shared `db:query` is sender-authorized for exactly the roles that hold it
+  // in a preload manifest — the embedding host and the visible UI (the
+  // chunking host holds only `db:query`; the llm host has no db bridge).
+  // Each accepted case proves the handler ran (a guard it throws, or a result
+  // only it produces); the chunking/llm hosts and untracked senders never get
+  // there.
   describe('sender authorization', () => {
-    const CASES = [
-      ['db:exec', [''], 'db:exec SQL must be a non-empty string.'],
-      ['db:transaction', [[]], 'db:transaction requires a non-empty statements array.'],
-    ] as const;
+    type Invoke = () => Promise<unknown> | unknown;
+    const rejectsWith =
+      (guard: string) =>
+      async (invoke: Invoke): Promise<void> => {
+        await expect(invoke()).rejects.toThrow(guard);
+      };
+    const CASES: ReadonlyArray<
+      readonly [
+        channel: string,
+        args: readonly unknown[],
+        accepted: (invoke: Invoke) => Promise<void>,
+      ]
+    > = [
+      ['db:exec', [''], rejectsWith('db:exec SQL must be a non-empty string.')],
+      [
+        'db:transaction',
+        [[]],
+        rejectsWith('db:transaction requires a non-empty statements array.'),
+      ],
+      [
+        'db:diagnostics',
+        [],
+        async (invoke) => {
+          await expect(invoke()).resolves.toEqual({ hostState: 'ready' });
+        },
+      ],
+      [
+        'db:scheduler:snapshot',
+        [],
+        async (invoke) => {
+          await expect(invoke()).resolves.toMatchObject({ runningPriority: null });
+        },
+      ],
+      [
+        'db:managed-cache:apply-batch',
+        [null],
+        rejectsWith('Managed cache batch payload must be an object.'),
+      ],
+      [
+        'db:managed-cache:invalidate-by-identity',
+        [null],
+        rejectsWith('Managed cache invalidation payload must be an object.'),
+      ],
+      [
+        'db:chunks:insert-and-enqueue-embedding-jobs',
+        [null],
+        rejectsWith('Atomic chunk/job enqueue payload must be an object.'),
+      ],
+      [
+        'db:test',
+        [],
+        async (invoke) => {
+          await expect(invoke()).resolves.toMatchObject({ dbLocation: 'DB Host' });
+        },
+      ],
+    ];
 
     it.each(CASES)(
       '%s accepts the embedding host and the visible UI',
-      async (channel, args, guard) => {
-        await expect(
+      async (channel, args, accepted) => {
+        await accepted(() =>
           handlers.get(channel)?.(createTrustedInvokeEvent('embedding-host'), ...args)
-        ).rejects.toThrow(guard);
-        await expect(
+        );
+        await accepted(() =>
           handlers.get(channel)?.(createTrustedInvokeEvent('visible-ui'), ...args)
-        ).rejects.toThrow(guard);
+        );
       }
     );
 
