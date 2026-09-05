@@ -82,12 +82,30 @@ export const useLoggingPreferencesStore = create<LoggingPreferencesState>()(
       },
     }),
     {
+      /**
+       * BST-1645: `hasHydrated` is marked HERE, not in `onRehydrateStorage`.
+       *
+       * `createBrowserJsonStorage().getItem` is synchronous, so zustand's
+       * persist middleware resolves hydration DURING `create(...)` — while the
+       * module-level `useLoggingPreferencesStore` binding is still in its
+       * temporal dead zone. The old rehydrate callback called
+       * `useLoggingPreferencesStore.setState` and threw a ReferenceError that
+       * zustand swallowed (it re-invokes the callback as `(undefined, error)`,
+       * whose `if (!error)` guard then declines), so `hasHydrated` never became
+       * true on the app's real hydration path. Same bug as #2086; see
+       * `import-settings-store.ts`.
+       *
+       * `merge` needs no module binding and runs on every hydration, including
+       * the version-matched case where `migrate` never runs. A storage read
+       * that rejects skips `merge` entirely, so `hasHydrated` still stays false
+       * on failure — the behaviour the old `if (!error)` guard intended.
+       */
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...(persistedState as Partial<LoggingPreferencesState> | undefined),
+        hasHydrated: true,
+      }),
       name: STORE_NAME,
-      onRehydrateStorage: () => (_state, error) => {
-        if (!error) {
-          useLoggingPreferencesStore.setState({ hasHydrated: true });
-        }
-      },
       partialize: (state) => ({
         preferences: state.preferences,
       }),
