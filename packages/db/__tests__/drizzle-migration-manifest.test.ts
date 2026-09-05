@@ -48,3 +48,21 @@ it('throws at derivation time for an unfolded callback migration without executi
     migrations.pop();
   }
 });
+
+it('throws at derivation time when a migration reuses a shipped ledger key', async () => {
+  const { migrations } = await import('../src/migrations/index.js');
+  // A new migration cloned from the previous one and left with its ledgerKey.
+  migrations.push({
+    ledgerKey: 'custom-115-mcp-task-authority',
+    name: 'duplicate-key-test',
+    up: 'SELECT 116;',
+    version: 116,
+  });
+  try {
+    await expect(import('../src/drizzle/migrate.js')).rejects.toThrow(
+      'Drizzle migration "duplicate-key-test" reuses ledger key "custom-115-mcp-task-authority"'
+    );
+  } finally {
+    migrations.pop();
+  }
+});

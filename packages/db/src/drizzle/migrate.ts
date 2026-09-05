@@ -109,10 +109,29 @@ function toDrizzleMigration(migration: Migration): DrizzleMigration {
 }
 
 // Append-only persisted keys live on the numbered migrations. The shipped
-// keys are frozen independently in drizzle-ledger-keys.test.ts.
-export const customMigrations: DrizzleMigration[] = migrations
-  .filter((migration) => !FOLDED_INTO_DRIZZLE_SNAPSHOT.has(migration.version))
-  .map(toDrizzleMigration);
+// keys are frozen independently in drizzle-ledger-keys.test.ts. Keys are
+// scattered across one file per migration, so uniqueness is enforced here at
+// derivation time: a cloned migration that kept its source's ledgerKey would
+// otherwise be silently skipped on every profile that already recorded it.
+function deriveCustomMigrations(source: readonly Migration[]): DrizzleMigration[] {
+  const derived: DrizzleMigration[] = [];
+  const seenLedgerKeys = new Set<string>();
+  for (const migration of source) {
+    if (FOLDED_INTO_DRIZZLE_SNAPSHOT.has(migration.version)) {
+      continue;
+    }
+    if (seenLedgerKeys.has(migration.ledgerKey)) {
+      throw new Error(
+        `Drizzle migration "${migration.name}" reuses ledger key "${migration.ledgerKey}"; ledger keys must be unique.`
+      );
+    }
+    seenLedgerKeys.add(migration.ledgerKey);
+    derived.push(toDrizzleMigration(migration));
+  }
+  return derived;
+}
+
+export const customMigrations: DrizzleMigration[] = deriveCustomMigrations(migrations);
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
 

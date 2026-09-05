@@ -106,7 +106,12 @@ const shippedLedgerKeys = [
 ];
 
 it('preserves all 95 shipped custom ledger keys in order', () => {
-  expect(customMigrations.map((migration) => migration.hash)).toEqual(shippedLedgerKeys);
+  // Prefix-only: appending a new migration must never require editing this oracle,
+  // so the fast way out of a red test is never "paste the derived list back".
+  expect(
+    customMigrations.slice(0, shippedLedgerKeys.length).map((migration) => migration.hash)
+  ).toEqual(shippedLedgerKeys);
+  expect(customMigrations.length).toBeGreaterThanOrEqual(shippedLedgerKeys.length);
 });
 
 it('preserves the original customMigration object shape', () => {
