@@ -700,8 +700,9 @@ is derived from those same declarations and supplies the exact Zod input object
 for each desktop native id. The desktop registry
 uses those objects directly, `validateToolInput` parses with the same map, and
 Mastra performs the Standard Schema → provider JSON Schema conversion. The
-browser-safe `NATIVE_TOOL_SCHEMAS` registry is intentionally lossy display
-metadata and MUST NOT enter execution, validation, or provider registration.
+browser-safe `NATIVE_TOOL_SCHEMAS` registry is lossy display metadata derived
+from those same Zod objects (`toToolSchemaDisplay`, BST-1646) and MUST NOT
+enter execution, validation, or provider registration.
 
 The hosted surface is guarded at both sides of Mastra's conversion boundary.
 The authored full-registry red baseline must fit within 7,900 `o200k_base`

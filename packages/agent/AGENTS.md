@@ -157,9 +157,16 @@ When adding a new tool:
     web/local partitions, the history allowlists, and the prompt composer's
     model-facing name map — is derived from that list; a missing facet fails at
     definition time (`InvalidNativeToolDefinitionError` /
-    `UndeterminableToolRiskError`), never as a stale second copy. Then add the
-    tool's executor entry in `apps/desktop/src/assistant-server/assistant-tools.ts`.
-    The catalog's one inline snapshot
+    `UndeterminableToolRiskError`), never as a stale second copy. The settings
+    inspector display (`NATIVE_TOOL_SCHEMAS`) is derived from the definition's
+    `inputSchema` too: parameter prose is the schema's `.describe()` text, and
+    an optional `display` map on the definition adds inspector-only prose that
+    is never sent to the model. Then add the tool's executor entry to the
+    exhaustive `NATIVE_TOOL_EXECUTORS` map
+    (`apps/desktop/src/assistant-server/native-tool-executors-*.ts`) — a
+    definition without an entry is a compile error, and
+    `buildDesktopAssistantTools` folds the catalog through that map. The
+    catalog's one inline snapshot
     (`packages/assistant-contract/src/__tests__/native-tools.test.ts`) is the
     only place a tool id is listed by hand.
 

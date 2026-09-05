@@ -13,6 +13,11 @@ export const inspectCommandSessions = defineNativeTool({
   description:
     'List persistent command sessions in one open workspace root, or read bounded incremental PTY output. Continue a truncated list with offset and output with nextCursor; use read cursor -1 to attach at the live tail without replay. Read-only and workspace-scoped; command text, stdin, cwd, and PTY output are redacted from durable history',
   discovery: { family: 'command sessions', namespace: 'sessions' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    operation:
+      'Exactly one operation: {action:"list", offset?}, or {action:"read", sessionId, cursor?}.',
+  },
   history: { recencyPrunable: true },
   id: 'brainstrike.inspectCommandSessions',
   inputSchema: providerCompatibleInputSchema(InspectCommandSessionsInputSchema),

@@ -12,6 +12,10 @@ export const readWorkspaceFile = defineNativeTool({
   },
   description:
     'Read a file from a chosen open workspace root as bounded, line-numbered pages with a short thread-scoped continuation handle. For later pages pass only cursor (and optional maxChars); omit path/root/startLine/endLine',
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    root: 'Folder name or id to read from when multiple folders are open; omit on continuation to reuse the cursor-bound root',
+  },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.readWorkspaceFile',
   inputSchema: providerCompatibleInputSchema(ReadWorkspaceFileInputSchema),

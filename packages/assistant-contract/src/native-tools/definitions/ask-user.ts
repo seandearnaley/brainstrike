@@ -17,6 +17,10 @@ export const askUser = defineNativeTool({
   },
   description:
     'Ask the user a clarifying question and WAIT for their answer (the run pauses). Provide options for a structured choice (selectionMode multi_select allows several), or omit options for a free-text question',
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    options: 'Optional choices; each has a label and optional description. Omit for free-text.',
+  },
   id: 'brainstrike.askUser',
   // Already wrapped in providerCompatibleInputSchema at its declaration: the
   // suspending-tool factory (`createAskUserTool`) registers this exact object.

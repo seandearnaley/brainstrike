@@ -12,6 +12,13 @@ export const readToolOutputArtifact = defineNativeTool({
   },
   description: 'Page/grep; never alter or recreate the cursor.',
   discovery: { family: 'tool-output artifacts', namespace: 'artifacts' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    caseSensitive: 'Case-sensitive search (default false).',
+    isRegex: 'Treat pattern as JavaScript regex (default false).',
+    maxBytes: 'Optional UTF-8 source-byte page target (4-8000; default 6000).',
+    pattern: 'Literal or JavaScript regex pattern for the next artifact slice.',
+  },
   history: { recencyPrunable: true, staleReplayable: true },
   id: 'brainstrike.readToolOutputArtifact',
   inputSchema: providerCompatibleInputSchema(ReadToolOutputArtifactCursorInputSchema),

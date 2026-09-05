@@ -21,6 +21,10 @@ export const skill = defineNativeTool({
   description:
     "Activate an Agent Skill by name: loads the skill's full SKILL.md instructions into the conversation, plus a listing of its bundled references/scripts/assets. Read-only; activate proactively when a task matches a skill's description",
   discovery: { namespace: 'skills' },
+  // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
+  display: {
+    name: 'The skill name from the available-skills list (or its directory path when two skills share a name).',
+  },
   id: 'skill',
   // The provider contract `skill-tools.ts` imposes over Mastra's own schema.
   inputSchema: z.object({ name: z.string() }),
