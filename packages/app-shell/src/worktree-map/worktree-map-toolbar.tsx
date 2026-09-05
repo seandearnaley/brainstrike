@@ -63,7 +63,8 @@ export function WorktreeMapToolbar({
             aria-label="Search worktrees"
             className="h-8 pl-8 text-xs"
             onChange={(event) => onQuery(event.target.value)}
-            placeholder="Search name, branch, path or thread…"
+            placeholder="Search worktrees…"
+            title="Search checkout name, branch, path, repository or thread"
             type="search"
             value={query}
           />
@@ -72,7 +73,7 @@ export function WorktreeMapToolbar({
           Sort
           <select
             aria-label="Sort worktrees"
-            className="min-w-0 bg-background text-foreground outline-offset-2"
+            className="h-full min-w-0 bg-background text-foreground outline-offset-2"
             onChange={(event) => {
               const value = event.target.value;
               if (value !== 'name' && value !== 'recent') {

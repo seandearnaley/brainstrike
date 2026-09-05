@@ -92,28 +92,23 @@ async function readCards(page) {
     [...document.querySelectorAll('[data-testid="worktree-map-card"]')].map((card) => {
       const rect = card.getBoundingClientRect();
       const newThread = card.querySelector('[data-testid="worktree-map-new-thread"]');
-      const badge = card.querySelector('.self-start.text-\\[10px\\]');
+      const badge = card.querySelector('[data-testid="worktree-map-indexing"]');
       const prButton = [...card.querySelectorAll('button')].find((button) =>
         /^#\d+/u.test((button.textContent ?? '').trim())
       );
-      const disabledReasonEl = card.querySelector('p.text-destructive');
+      const disabledReasonEl = card.querySelector('[data-testid="worktree-map-disabled-reason"]');
       return {
-        branchLabel: card.querySelector('.text-muted-foreground.text-xs')?.textContent ?? null,
+        branchLabel: card.querySelector('[data-testid="worktree-map-branch"]')?.textContent ?? null,
         disabledReasonText: disabledReasonEl?.textContent ?? null,
         glyphAriaLabels: [...card.querySelectorAll('[role="img"]')].map((glyph) =>
           glyph.getAttribute('aria-label')
         ),
-        indexingBadgeText: badge?.textContent ?? null,
-        name: card.querySelector('span.truncate.font-medium')?.textContent ?? null,
+        indexingBadgeText: badge?.getAttribute('aria-label') ?? null,
+        name: card.querySelector('h3')?.textContent ?? null,
         newThreadDisabled: newThread?.hasAttribute('disabled') ?? null,
         newThreadTitle: newThread?.getAttribute('title') ?? null,
         provenanceLabel:
-          card.querySelector('[class*="border-input"], [class*="text-foreground"]')?.textContent ??
-          // The provenance Badge's exact class list is a shadcn implementation
-          // detail; fall back to any `<span>` sibling of the name if the class
-          // probe misses so this never silently reports null for a real value.
-          [...card.querySelectorAll('header span')].at(-1)?.textContent ??
-          null,
+          card.querySelector('[data-testid="worktree-map-provenance"]')?.textContent ?? null,
         prPillText: prButton?.textContent?.trim() ?? null,
         rect: { height: Math.round(rect.height), width: Math.round(rect.width) },
       };
@@ -124,10 +119,12 @@ async function readCards(page) {
 /** The lane's own scroll metrics, per repository section, plus the page body's. */
 async function readLaneMetrics(page) {
   return await page.evaluate(() => {
-    const lanes = [...document.querySelectorAll('section .overflow-x-auto')].map((lane) => ({
-      clientWidth: lane.clientWidth,
-      scrollWidth: lane.scrollWidth,
-    }));
+    const lanes = [...document.querySelectorAll('[data-testid="worktree-map-rows"]')].map(
+      (lane) => ({
+        clientWidth: lane.clientWidth,
+        scrollWidth: lane.scrollWidth,
+      })
+    );
     return {
       bodyClientWidth: document.body.clientWidth,
       bodyScrollWidth: document.body.scrollWidth,
@@ -150,6 +147,9 @@ async function readCardColorsInBothThemes(page) {
     if (!card) {
       return null;
     }
+    // Measure destination colors, not the first frame of the row's hover transition.
+    const previousTransition = card.style.transition;
+    card.style.transition = 'none';
     const root = document.documentElement;
     const hadDark = root.classList.contains('dark');
     const hadLight = root.classList.contains('light');
@@ -171,6 +171,7 @@ async function readCardColorsInBothThemes(page) {
     if (hadLight) {
       root.classList.add('light');
     }
+    card.style.transition = previousTransition;
     return { dark, light };
   });
 }
@@ -338,31 +339,25 @@ const probes = {
   async 'indexing-toggle'(page) {
     await openWorktreeMapTab(page);
     const card = page.locator('[data-testid="worktree-map-card"]').first();
-    const badgeButton = card.locator('button', { hasText: /indexed|Indexing enabled/u });
-    // Idempotent baseline: the check asserts the ENABLE direction
-    // ("flips to Indexing enabled"), so start from "Not indexed" even if a
-    // prior run of this probe against the same live session left it enabled.
-    if ((await badgeButton.textContent())?.includes('Indexing enabled')) {
+    const badgeButton = card.getByTestId('worktree-map-indexing');
+    if ((await badgeButton.getAttribute('aria-pressed')) === 'true') {
       await badgeButton.click();
       await page.waitForFunction(
         () =>
           document
-            .querySelector('[data-testid="worktree-map-card"]')
-            ?.textContent?.includes('Not indexed') === true,
-        { timeout: 15_000 }
+            .querySelector('[data-testid="worktree-map-indexing"]')
+            ?.getAttribute('aria-pressed') === 'false'
       );
     }
-    const before = await badgeButton.textContent();
+    const before = await badgeButton.getAttribute('aria-label');
     await badgeButton.click();
     await page.waitForFunction(
-      (previous) =>
+      () =>
         document
-          .querySelector('[data-testid="worktree-map-card"]')
-          ?.textContent?.includes('Indexing enabled') !== previous.includes('Indexing enabled'),
-      before,
-      { timeout: 15_000 }
+          .querySelector('[data-testid="worktree-map-indexing"]')
+          ?.getAttribute('aria-pressed') === 'true'
     );
-    const after = await badgeButton.textContent();
+    const after = await badgeButton.getAttribute('aria-label');
     record('indexing-toggle.badge-flips', { after, before }, (v) => v.before !== v.after);
 
     // The store persists through `window.electronAPI.storage` (main-process
@@ -461,8 +456,10 @@ const probes = {
 
     await page.setViewportSize({ height: 900, width: 420 });
     const narrow = await readLaneMetrics(page);
-    record('narrow-pane.lane-scrolls-narrow', narrow, (v) =>
-      v.lanes.some((lane) => lane.scrollWidth > lane.clientWidth)
+    record(
+      'narrow-pane.rows-fit-narrow',
+      narrow,
+      (v) => v.lanes.length > 0 && v.lanes.every((lane) => lane.scrollWidth <= lane.clientWidth + 1)
     );
     record(
       'narrow-pane.narrow-body-no-overflow',

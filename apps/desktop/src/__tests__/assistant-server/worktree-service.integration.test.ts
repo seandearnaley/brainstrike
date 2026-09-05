@@ -716,7 +716,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
       usable: false,
     });
     expect(listed.value.find((entry) => entry.path === unmanagedInRootPath)).toMatchObject({
-      disabledReason: 'Created outside BrainStrike — adopting it is coming with the Worktree Map.',
+      disabledReason: 'Use Worktrees → Adopt to manage this checkout.',
       managed: false,
       remedy: null,
       usable: false,
