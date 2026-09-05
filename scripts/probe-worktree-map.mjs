@@ -147,6 +147,9 @@ async function readCardColorsInBothThemes(page) {
     if (!card) {
       return null;
     }
+    // Measure destination colors, not the first frame of the row's hover transition.
+    const previousTransition = card.style.transition;
+    card.style.transition = 'none';
     const root = document.documentElement;
     const hadDark = root.classList.contains('dark');
     const hadLight = root.classList.contains('light');
@@ -168,6 +171,7 @@ async function readCardColorsInBothThemes(page) {
     if (hadLight) {
       root.classList.add('light');
     }
+    card.style.transition = previousTransition;
     return { dark, light };
   });
 }
