@@ -1,7 +1,66 @@
+import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+
+type ProviderWriteOutcome = 'success' | 'rejected' | 'immediate-rejected' | 'failed' | 'navigation';
+
+async function installCollectibleProviderWrite(
+  page: Page,
+  outcome: ProviderWriteOutcome
+): Promise<void> {
+  await page.evaluate((writeOutcome) => {
+    const globals = window as Window & {
+      __pendingProviderWrite?: WeakRef<Promise<SecretsWriteResult> & { settle: () => void }>;
+      __providerConfigured?: boolean;
+    };
+    globals.__pendingProviderWrite = undefined;
+    globals.__providerConfigured = false;
+    Reflect.set(globals, '__brainstrikeTestHooks__', {
+      notifySecretsChanged: () => {},
+      setAssistantModel: () => {
+        globals.__providerConfigured = true;
+      },
+    });
+    Reflect.set(globals, 'secrets', {
+      saveKey: () => {
+        let resolve: ((value: SecretsWriteResult) => void) | undefined;
+        let reject: ((error: Error) => void) | undefined;
+        const completion = Object.assign(
+          new Promise<SecretsWriteResult>((resolveWrite, rejectWrite) => {
+            resolve = resolveWrite;
+            reject = rejectWrite;
+          }),
+          {
+            settle: () => {
+              if (!(resolve && reject)) {
+                throw new Error('Provider write resolvers are unavailable');
+              }
+              if (writeOutcome === 'rejected') {
+                reject(new Error('Provider write was rejected'));
+                return;
+              }
+              resolve(writeOutcome === 'failed' ? { error: 'unknown_error', ok: false } : true);
+            },
+          }
+        );
+        // Deliberately let the caller own the pending operation. This is the
+        // V8 inspector lifetime reproducer's WeakRef/resolver contract, at
+        // the public assistant setup seam instead of a disconnected snippet.
+        globals.__pendingProviderWrite = new WeakRef(completion);
+        if (writeOutcome === 'immediate-rejected') {
+          if (!reject) {
+            throw new Error('Provider write rejecter is unavailable');
+          }
+          reject(new Error('Provider write was rejected'));
+        }
+        return completion;
+      },
+    });
+  }, outcome);
+}
 
 test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ window }) => {
@@ -107,5 +166,81 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     await expect(window.getByText('Hello from desktop assistant!').first()).toBeVisible({
       timeout: 15_000,
     });
+  });
+
+  test('assistant provider setup owns pending writes and releases them on every outcome', async ({
+    electronApp,
+  }) => {
+    // The production contextBridge is frozen. Use a separate Electron renderer
+    // to control the writer lifetime without changing the app's real bridge.
+    const isolatedPage = electronApp.app.waitForEvent('window');
+    await electronApp.app.evaluate(({ BrowserWindow }) => {
+      const window = new BrowserWindow({ show: false });
+      return window.loadURL('about:blank');
+    });
+    const page = await isolatedPage;
+    const session = await page.context().newCDPSession(page);
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    try {
+      for (const outcome of [
+        'success',
+        'rejected',
+        'immediate-rejected',
+        'failed',
+        'navigation',
+      ] as const) {
+        await test.step(outcome, async () => {
+          await installCollectibleProviderWrite(page, outcome);
+          const setup = setupAssistantMock(page).then(
+            () => ({ error: null }),
+            (error: unknown) => ({ error: String(error) })
+          );
+          await page.waitForFunction(
+            () => Reflect.get(window, '__pendingProviderWrite') !== undefined
+          );
+          if (outcome === 'navigation') {
+            await page.reload();
+            expect((await setup).error).toContain('Execution context was destroyed');
+            return;
+          }
+          if (outcome !== 'immediate-rejected') {
+            await session.send('HeapProfiler.collectGarbage');
+          }
+          const pendingWriteIsAlive = await page.evaluate(() => {
+            const completion = Reflect.get(window, '__pendingProviderWrite').deref();
+            if (!completion) {
+              return false;
+            }
+            completion.settle();
+            return true;
+          });
+          const result = await setup;
+          if (outcome === 'success') {
+            expect(result.error).toBeNull();
+          } else {
+            expect(result.error).toContain(
+              outcome === 'rejected' || outcome === 'immediate-rejected'
+                ? 'Provider write was rejected'
+                : 'Assistant provider key save failed: unknown_error'
+            );
+          }
+          expect(pageErrors).toEqual([]);
+          expect(pendingWriteIsAlive).toBe(true);
+          expect(await page.evaluate(() => Reflect.get(window, '__providerConfigured'))).toBe(
+            outcome === 'success'
+          );
+          await session.send('HeapProfiler.collectGarbage');
+          expect(
+            await page.evaluate(
+              () => Reflect.get(window, '__pendingProviderWrite').deref() === undefined
+            )
+          ).toBe(true);
+        });
+      }
+    } finally {
+      await session.detach();
+      await page.close();
+    }
   });
 });
