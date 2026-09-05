@@ -249,6 +249,16 @@ Workspace indexing QoS ownership:
   the shared policy remains free of Electron imports.
 - Invalid power snapshots throw through the shared normalization/validation
   contract. Do not add implicit environment defaults at an import boundary.
+- QoS observers log initial observations and state transitions at info; a
+  reason-only transition uses the distinct debug message `Workspace indexing
+  QoS reason changed` (BST-1337). The observer retains the latest reason even
+  with debug disabled. Each loop owns its observer; logging never controls
+  scheduling. `accelerator-idle` can change pipeline overlap, stream capacity,
+  and app-shell batch sizes while staying `balanced` (worker claim size stays
+  16). This is capacity feedback, not a pause/resume edge; foreground, memory,
+  battery, and thermal constraints still take precedence immediately. Do not
+  add a telemetry debounce that delays those constraints. Coverage:
+  `packages/indexing-contract/src/__tests__/workspace-indexing-qos.test.ts`.
 
 Embedding queue factory registration (visible renderer):
 - `TransformersBackend.initialize` (local-model semantic search, prompt-library
