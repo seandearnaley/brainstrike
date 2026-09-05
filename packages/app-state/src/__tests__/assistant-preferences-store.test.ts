@@ -1023,6 +1023,15 @@ describe('assistant-preferences-store', () => {
   });
 
   describe('model migration notices (BST-565)', () => {
+    // Seeds come from the live catalog so the tests cannot silently depend on
+    // one specific id staying retired.
+    const [retiredOpenRouterId, openRouterTarget] = Object.entries(
+      MODEL_ID_MIGRATIONS.openrouter
+    ).find(([from]) => from === 'google/gemini-2.5-pro') ?? ['', ''];
+    const [retiredAnthropicId, anthropicTarget] = Object.entries(
+      MODEL_ID_MIGRATIONS.anthropic
+    )[0] ?? ['', ''];
+
     function seedSnapshot(
       state: Record<string, unknown>,
       version: number
@@ -1052,15 +1061,16 @@ describe('assistant-preferences-store', () => {
       };
     }
 
-    it('records a notice when a retired per-provider selection is remapped', async () => {
+    it('records a notice when the selected model was a retired id', async () => {
+      expect(retiredOpenRouterId).toBe('google/gemini-2.5-pro');
       const { rehydrate, readPersisted } = seedSnapshot(
         {
           enabledModelsByProvider: {
-            openrouter: ['google/gemini-2.5-pro', 'anthropic/claude-sonnet-4.6'],
+            openrouter: [retiredOpenRouterId, 'anthropic/claude-sonnet-4.6'],
           },
-          modelsByProvider: { openrouter: 'google/gemini-2.5-pro' },
+          modelsByProvider: { openrouter: retiredOpenRouterId },
           providerSettings: {},
-          selectedModel: 'openrouter::google/gemini-2.5-pro',
+          selectedModel: `openrouter::${retiredOpenRouterId}`,
         },
         5
       );
@@ -1070,19 +1080,58 @@ describe('assistant-preferences-store', () => {
       const store = useAssistantPreferencesStore.getState();
       // The silent Pro → Flash downgrade this ticket exists for is now visible.
       expect(store.modelMigrationNotices).toEqual([
-        {
-          from: 'google/gemini-2.5-pro',
-          provider: 'openrouter',
-          to: 'google/gemini-2.5-flash',
-        },
+        { from: retiredOpenRouterId, provider: 'openrouter', to: openRouterTarget },
       ]);
-      expect(store.modelsByProvider['openrouter']).toBe('google/gemini-2.5-flash');
-      expect(store.selectedModel).toBe('openrouter::google/gemini-2.5-flash');
+      expect(store.selectedModel).toBe(`openrouter::${openRouterTarget}`);
       // Session-only: the notice never lands in storage, so it cannot replay.
       expect(await readPersisted()).not.toHaveProperty('modelMigrationNotices');
     });
 
-    it('records nothing when the saved selections are all current', async () => {
+    it('reports the model the user actually lands on when the remap target is not enabled', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          // The Flash target is NOT enabled, so the selection falls back.
+          enabledModelsByProvider: { openrouter: ['anthropic/claude-sonnet-4.6'] },
+          modelsByProvider: { openrouter: retiredOpenRouterId },
+          providerSettings: {},
+          selectedModel: `openrouter::${retiredOpenRouterId}`,
+        },
+        5
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      expect(store.selectedModel).toBe('openrouter::anthropic/claude-sonnet-4.6');
+      expect(store.modelMigrationNotices).toEqual([
+        { from: retiredOpenRouterId, provider: 'openrouter', to: 'anthropic/claude-sonnet-4.6' },
+      ]);
+    });
+
+    it('ignores retired ids under providers the user is not running on', async () => {
+      // modelsByProvider is seeded with a default for EVERY provider, so a
+      // retired default under an untouched provider is not a user choice.
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: {
+            anthropic: ['claude-sonnet-4-6'],
+            openrouter: [retiredOpenRouterId, 'anthropic/claude-sonnet-4.6'],
+          },
+          modelsByProvider: { anthropic: 'claude-sonnet-4-6', openrouter: retiredOpenRouterId },
+          providerSettings: {},
+          selectedModel: 'anthropic::claude-sonnet-4-6',
+        },
+        5
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      expect(store.modelsByProvider['openrouter']).toBe(openRouterTarget);
+      expect(store.modelMigrationNotices).toEqual([]);
+    });
+
+    it('records nothing when the saved selection is current', async () => {
       const { rehydrate } = seedSnapshot(
         {
           enabledModelsByProvider: { openrouter: ['anthropic/claude-sonnet-4.6'] },
@@ -1098,44 +1147,28 @@ describe('assistant-preferences-store', () => {
       expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toEqual([]);
     });
 
-    it('does not notify for retired ids that were merely enabled, not selected', async () => {
+    it('takeModelMigrationNotices returns the list and clears it atomically', async () => {
       const { rehydrate } = seedSnapshot(
         {
-          enabledModelsByProvider: {
-            openrouter: ['google/gemini-2.5-pro', 'anthropic/claude-sonnet-4.6'],
-          },
-          modelsByProvider: { openrouter: 'anthropic/claude-sonnet-4.6' },
+          enabledModelsByProvider: { anthropic: [retiredAnthropicId, anthropicTarget] },
+          modelsByProvider: { anthropic: retiredAnthropicId },
           providerSettings: {},
-          selectedModel: 'openrouter::anthropic/claude-sonnet-4.6',
-        },
-        5
-      );
-
-      await rehydrate();
-
-      expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toEqual([]);
-    });
-
-    it('dismissModelMigrationNotices clears the list and is a no-op when empty', async () => {
-      const { rehydrate } = seedSnapshot(
-        {
-          enabledModelsByProvider: { anthropic: ['claude-sonnet-4-5'] },
-          modelsByProvider: { anthropic: 'claude-sonnet-4-5' },
-          providerSettings: {},
-          selectedModel: 'anthropic::claude-sonnet-4-5',
+          selectedModel: `anthropic::${retiredAnthropicId}`,
         },
         5
       );
       await rehydrate();
-      expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toHaveLength(1);
 
-      useAssistantPreferencesStore.getState().dismissModelMigrationNotices();
+      const taken = useAssistantPreferencesStore.getState().takeModelMigrationNotices();
+      expect(taken).toEqual([
+        { from: retiredAnthropicId, provider: 'anthropic', to: anthropicTarget },
+      ]);
       const cleared = useAssistantPreferencesStore.getState().modelMigrationNotices;
       expect(cleared).toEqual([]);
 
-      useAssistantPreferencesStore.getState().dismissModelMigrationNotices();
-      // Same reference: an already-empty dismiss must not publish a new state
-      // (the toast hook calls dismiss unconditionally after hydration).
+      // A second take (StrictMode re-run, sibling mount) gets nothing and
+      // publishes no new state.
+      expect(useAssistantPreferencesStore.getState().takeModelMigrationNotices()).toEqual([]);
       expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toBe(cleared);
     });
   });

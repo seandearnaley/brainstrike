@@ -235,11 +235,14 @@ When changing the model catalog:
    - INVARIANT: never use `is_enabled = EXCLUDED.is_enabled` for a catalog refresh — it clobbers the user's toggle. Force on/off only for a deliberate (e.g. security) swap.
 4. Remap dropped IDs in the preference stores so persisted selections don't dangle:
    - MODEL_ID_MIGRATIONS in packages/app-state/src/stores/assistant-model-id-migrations.ts (bump `ASSISTANT_PREFERENCES_STORE_VERSION` in `assistant-preferences-store-version.ts`)
-   - A remap that changes a user's SELECTED per-provider model is not silent:
-     the persist migration records it in session-only `modelMigrationNotices`
-     and `useModelMigrationNotices` (app-shell) toasts it once, then dismisses
-     (BST-565 — an OpenRouter Pro → Flash swap is a capability downgrade the
-     user must see). Enabled-list-only remaps stay quiet.
+   - A remap that changes the user's SELECTED model is not silent: the
+     persist migration records it in session-only `modelMigrationNotices`
+     and `useModelMigrationNotices` (mounted once in app-shell's `AppLayout`)
+     takes-and-clears it into one toast (BST-565 — an OpenRouter Pro → Flash
+     swap is a capability downgrade the user must see). Retired defaults under
+     providers the user is not running on, and enabled-list-only remaps, stay
+     quiet: `modelsByProvider` is seeded for every provider and is not
+     evidence of intent.
    - MEMORY_MODEL_TARGET_MIGRATIONS in packages/app-state/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
    - The guard canonicalizes discovered migration identifiers with
      `path.posix.join` so diagnostics and downstream checks are platform-neutral.

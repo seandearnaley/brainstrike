@@ -83,6 +83,16 @@ vi.mock('@brainstrike/ui', () => ({
   ),
 }));
 
+const { useModelMigrationNoticesMock } = vi.hoisted(() => ({
+  useModelMigrationNoticesMock: vi.fn(),
+}));
+
+// BST-565: the retired-model toast hook is session-wide and lives HERE (not in
+// a per-thread wrapper). Mocked so the layout test needs no toast plumbing.
+vi.mock('../hooks/use-model-migration-notices', () => ({
+  useModelMigrationNotices: useModelMigrationNoticesMock,
+}));
+
 // Mock the status items. AppLayout imports the direct modules so React Doctor
 // can verify there is no status-items barrel import in the production path.
 vi.mock('../status-items/database-status-item', () => ({
@@ -168,6 +178,16 @@ describe('AppLayout', () => {
         .compareDocumentPosition(screen.getByTestId('workspace-root-status-item')) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it('mounts the session-wide retired-model notice hook exactly once (BST-565)', () => {
+    useModelMigrationNoticesMock.mockClear();
+    render(
+      <AppLayout config={mockConfig} currentPath="/">
+        <div>child</div>
+      </AppLayout>
+    );
+    expect(useModelMigrationNoticesMock).toHaveBeenCalledTimes(1);
   });
 
   it('should pass correct props to NavigationSidebar', () => {

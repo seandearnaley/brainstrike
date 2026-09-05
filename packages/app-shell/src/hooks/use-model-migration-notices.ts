@@ -6,23 +6,26 @@ import { useEffect } from 'react';
 /**
  * BST-565. When the persist migration replaces a retired model id in the
  * user's saved selection, the store records the remap in session-only
- * `modelMigrationNotices`. Surfaces each one as a toast exactly once, then
- * dismisses them. The dismiss is unconditional and the store treats an
- * already-empty list as a no-op, so hydration order and re-renders cannot
- * repeat a toast.
+ * `modelMigrationNotices`. Surfaces each one as a toast exactly once.
+ *
+ * Mounted ONCE, in `AppLayout`, so it is present for the whole session
+ * (including before any assistant thread is open) and never duplicated per
+ * thread tab. The effect subscribes to the list only as a trigger and
+ * takes-and-clears from the live store, so StrictMode's re-run and any
+ * concurrent mount race to a single non-empty take.
  */
 export function useModelMigrationNotices(): void {
   const notices = useAssistantPreferencesStore((state) => state.modelMigrationNotices);
-  const dismiss = useAssistantPreferencesStore((state) => state.dismissModelMigrationNotices);
   const { toast } = useToast();
 
   useEffect(() => {
-    for (const notice of notices) {
+    const pending =
+      notices.length > 0 ? useAssistantPreferencesStore.getState().takeModelMigrationNotices() : [];
+    for (const notice of pending) {
       toast({
         description: `${getProviderDisplayName(notice.provider)} no longer offers ${notice.from}. Your selection was moved to ${notice.to} — pick another model if that is not what you want.`,
         title: 'Saved model replaced',
       });
     }
-    dismiss();
-  }, [dismiss, notices, toast]);
+  }, [notices, toast]);
 }
