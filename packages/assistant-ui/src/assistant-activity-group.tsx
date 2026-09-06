@@ -1,4 +1,4 @@
-import type { MessagePartStatus } from '@assistant-ui/react';
+import type { MessageStatus } from '@assistant-ui/react';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Square } from 'lucide-react';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
@@ -45,7 +45,15 @@ function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number
 interface AssistantActivityGroupProps {
   children?: ReactNode;
   fallbackMs?: number | undefined;
-  incompleteReason?: Extract<MessagePartStatus, { type: 'incomplete' }>['reason'] | undefined;
+  // Derived from MessageStatus, not MessagePartStatus. The value this prop
+  // receives is `state.chainOfThought.status.reason` — a MESSAGE-level status —
+  // and through @assistant-ui/react 0.15.14 the two incomplete-reason unions
+  // were identical, so typing it from the part-level union compiled by
+  // coincidence. 0.15.18 dropped `'tool-calls'` from the PART union while
+  // keeping it on the message union, and the mismatch surfaced as TS2322 at the
+  // one call site. Naming the union the value actually comes from is the fix;
+  // widening or casting here would just re-hide the coupling.
+  incompleteReason?: Extract<MessageStatus, { type: 'incomplete' }>['reason'] | undefined;
   /** True while the turn is still producing tool activity (keeps it expanded). */
   isActive: boolean;
   summary: ToolActivitySummary;

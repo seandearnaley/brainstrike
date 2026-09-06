@@ -9,7 +9,10 @@ const baseProps = {
   addResult: () => {},
   args: { text: 'hello' },
   argsText: '{"text":"hello"}',
-  respondToApproval: () => {},
+  // 0.15.18 made respondToApproval async (Promise<void>); the stub has to
+  // match the contract it is standing in for. Same change as the sibling
+  // tool-fallback-panel.test.tsx.
+  respondToApproval: () => Promise.resolve(),
   resume: () => {},
   status: { type: 'complete' as const },
   toolCallId: 'browser-tool-call',

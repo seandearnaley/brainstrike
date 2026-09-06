@@ -32,17 +32,18 @@ catalog:
   # instance/container roles) behind Bedrock's `credentialProvider` seam.
   # Node-only — imported ONLY beside the provider factory, never from the
   # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
-  '@aws-sdk/credential-providers': 3.1111.0
-  '@assistant-ui/react': '~0.15.13'
-  '@assistant-ui/react-markdown': ^0.14.10
+  '@aws-sdk/credential-providers': 3.1127.0
+  '@assistant-ui/react': '~0.15.18'
+  '@assistant-ui/react-markdown': ^0.14.14
   '@assistant-ui/styles': ^0.3.7
   # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
   # implementation (eslint/prettier/lint-staged/globby all use it); already
   # present transitively, promoted to a direct dep so the walk can rely on it.
   '@babel/core': ^8.0.1
-  '@electric-sql/pglite': 0.5.5
-  '@electric-sql/pglite-pg_textsearch': 0.0.7
-  '@electric-sql/pglite-pgvector': 0.0.6
+  '@codemirror/state': ^6.7.4
+  '@electric-sql/pglite': 0.5.8
+  '@electric-sql/pglite-pg_textsearch': 0.0.10
+  '@electric-sql/pglite-pgvector': 0.0.9
   '@fontsource-variable/geist': ^5.3.0
   '@fontsource-variable/geist-mono': ^5.3.0
   '@huggingface/transformers': ^4.2.0
@@ -78,8 +79,8 @@ catalog:
   '@swc/core': ~1.15.47
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
-  '@tanstack/react-table': ^9.1.2
-  '@tanstack/react-virtual': ^3.14.9
+  '@tanstack/react-table': ^9.2.4
+  '@tanstack/react-virtual': ^3.14.10
   '@testing-library/dom': ^10.4.1
   '@testing-library/jest-dom': ^7.0.1
   '@testing-library/react': ^16.3.3
@@ -103,11 +104,11 @@ catalog:
   glob: ^13.0.6
   happy-dom: ^20.14.0
   idb: ^8.0.3
-  ignore: 7.0.5
+  ignore: 7.0.8
   jsdom: 30.0.1
   jszip: ^3.10.1
   knip: ^6.34.0
-  lucide-react: ^1.31.0
+  lucide-react: ^1.41.0
   mermaid: ^11.17.1
   minimatch: ^10.2.6
   node-addon-api: 8.9.2
@@ -120,8 +121,8 @@ catalog:
   pino: ^10.3.1
   playwright: ^1.63.0
   react-hotkeys-hook: ^5.3.3
-  react-resizable-panels: ^4.12.2
-  react-router-dom: ^7.18.2
+  react-resizable-panels: ^4.12.3
+  react-router-dom: ^7.18.3
   react-shiki: ^0.11.1
   remark-gfm: ^4.0.1
   shiki: ^4.4.3
