@@ -39,6 +39,21 @@ const DB_ROOT_A_ID = 'db-root-a';
 const DB_ROOT_B_ID = 'db-root-b';
 const ROOT_B_COMPOSITE_KEY = encodeFileSelection(ROOT_B_PATH, FILE_PATH);
 
+/**
+ * A `source: 'background-indexing'` run the host still reports as in flight
+ * while no service instance tracks it — the state a provider remount leaves
+ * behind after BST-1654's `detach()`.
+ */
+const DETACHED_BACKFILL: {
+  embeddingSetId: string;
+  progress: { current: number; total: number } | null;
+  requestId: string;
+} = {
+  embeddingSetId: 'set-1',
+  progress: { current: 12, total: 40 },
+  requestId: 'background-indexing-backfill:detached',
+};
+
 function createTestQosPolicy(
   policy: Omit<
     WorkspaceIndexingQosPolicy,
@@ -4176,5 +4191,138 @@ describe('WorkspaceCollectionSyncService', () => {
     // if the short-circuit fired before the scan it was never called.
     expect(deps.fileRecordRepository.listManagedCacheEntryMetadata).not.toHaveBeenCalled();
     expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
+  // BST-1654: teardown ownership. `cancel()` is a deliberate stop (pause,
+  // disable, restart) and must kill the host run. `detach()` is a requester
+  // going away — it must release this renderer's local work and progress
+  // subscription while the durable `source: 'background-indexing'` run keeps
+  // going.
+  describe('detach()', () => {
+    function createBackfillDeps(unsubscribeProgress: () => void) {
+      return createDeps({
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+          })),
+        },
+        subscribeToBackfillProgress: vi.fn(() => unsubscribeProgress),
+      });
+    }
+
+    async function syncOnce(service: WorkspaceCollectionSyncService): Promise<void> {
+      await service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+    }
+
+    it('releases the tracked backfill without cancelling the host run', async () => {
+      const unsubscribeProgress = vi.fn();
+      const deps = createBackfillDeps(unsubscribeProgress);
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await syncOnce(service);
+      expect(deps.enqueueBackfill).toHaveBeenCalledWith(
+        'set-1',
+        expect.objectContaining({ source: 'background-indexing' })
+      );
+
+      await service.detach();
+
+      expect(deps.cancelBackfill).not.toHaveBeenCalled();
+      expect(unsubscribeProgress).toHaveBeenCalledTimes(1);
+    });
+
+    it('is idempotent, and a later cancel still stops the run it detached from', async () => {
+      const deps = createBackfillDeps(vi.fn());
+      deps.getBackfillsInFlight = vi.fn(async () => [DETACHED_BACKFILL]);
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await syncOnce(service);
+      await service.detach();
+      await service.detach();
+      expect(deps.cancelBackfill).not.toHaveBeenCalled();
+
+      await service.cancel();
+
+      expect(deps.cancelBackfill).toHaveBeenCalledWith('set-1');
+    });
+
+    it('still cancels the host run for an explicit cancel()', async () => {
+      const deps = createBackfillDeps(vi.fn());
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await syncOnce(service);
+      await service.cancel();
+
+      expect(deps.cancelBackfill).toHaveBeenCalledWith('set-1');
+    });
+  });
+
+  // BST-1654 (review round 3): detachment means "this provider instance stops
+  // tracking the run", never "nobody can stop the run any more". A deliberate
+  // stop arriving after a detach lands on a service whose `activeBackfill` is
+  // null — a fresh provider instance never tracked the durable run — so it must
+  // enumerate the host's in-flight `background-indexing` runs and cancel them
+  // regardless of local tracking. Otherwise pause and disable leave embedding
+  // and database work burning after an explicit user stop.
+  describe('cancellation authority over a detached run', () => {
+    function createUntrackingDeps(
+      inFlight: readonly (typeof DETACHED_BACKFILL)[]
+    ): WorkspaceCollectionSyncServiceDependencies {
+      return createDeps({
+        getBackfillsInFlight: vi.fn(async () => [...inFlight]),
+      });
+    }
+
+    it('cancels a detached host run on an explicit cancel() with nothing tracked', async () => {
+      const deps = createUntrackingDeps([DETACHED_BACKFILL]);
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await service.cancel();
+
+      expect(deps.cancelBackfill).toHaveBeenCalledWith('set-1');
+    });
+
+    it('cancels a detached host run when background indexing is disabled', async () => {
+      const deps = createUntrackingDeps([DETACHED_BACKFILL]);
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await service.sync({
+        enabled: false,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+
+      expect(deps.cancelBackfill).toHaveBeenCalledWith('set-1');
+    });
+
+    it('leaves in-flight runs background indexing does not own alone', async () => {
+      const deps = createUntrackingDeps([
+        {
+          embeddingSetId: 'set-2',
+          progress: null,
+          requestId: 'manual-backfill:1',
+        },
+      ]);
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await service.cancel();
+
+      expect(deps.cancelBackfill).not.toHaveBeenCalled();
+    });
+
+    it('does not cancel a detached host run on detach()', async () => {
+      const deps = createUntrackingDeps([DETACHED_BACKFILL]);
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await service.detach();
+
+      expect(deps.cancelBackfill).not.toHaveBeenCalled();
+    });
   });
 });

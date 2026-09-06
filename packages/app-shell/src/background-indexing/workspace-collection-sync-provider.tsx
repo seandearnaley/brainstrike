@@ -47,7 +47,6 @@ import {
   type FileSystemChange,
 } from '@brainstrike/types';
 import {
-  type BackgroundIndexingPolicyPreset,
   getBackgroundWorkArbiterSnapshot,
   getBackgroundWorkPauseReasonLabels,
   registerBackgroundWorkPauseHandler,
@@ -78,13 +77,13 @@ import {
 } from './workspace-index-blocked-error';
 import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
 import {
-  buildWorkspaceCoverageExpectedFiles,
-  classifyMissingCoverageFiles,
-  readIndexedRelativePathsByRoot,
-  resolveMissingCoverageFiles,
-  type WorkspaceCoverageExpectedFile,
-  type WorkspaceCoverageGapClassification,
-} from './workspace-index-coverage-audit';
+  createCoverageAuditKey,
+  createCoverageStatusPatch,
+  createUnresolvedRootCoverageMessage,
+  readIndexedFileCountsByRoot,
+  startWorkspaceCoverageAudit,
+  WORKSPACE_COVERAGE_AUDIT_MESSAGE,
+} from './workspace-index-coverage-audit-runner';
 import { runWorkspaceIndexStageBenchmark } from './workspace-index-debug-benchmark';
 import {
   countExpectedWorkspaceIndexFiles,
@@ -96,6 +95,7 @@ import {
   type WorkspaceIndexDebugSnapshot,
   type WorkspaceIndexDebugSummary,
 } from './workspace-index-debug-harness';
+import { createMountedRootIdentityKey, getActiveRootHandles } from './workspace-root-handles';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 
@@ -124,8 +124,6 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
 const BACKGROUND_PRESSURE_POLL_MS = 50;
 const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
-const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
-  'Verifying Workspace Index coverage before reporting idle.';
 
 interface BackgroundIndexingPreferencesPersistApi {
   readonly hasHydrated?: () => boolean;
@@ -194,547 +192,6 @@ function createClearedProgressPatch(): Pick<
     queueProgress: null,
     scanSummary: null,
   };
-}
-
-interface WorkspaceCoverageAuditTarget {
-  readonly dbRootId: string;
-  readonly expectedFileCount: number;
-  readonly expectedFiles: readonly WorkspaceCoverageExpectedFile[];
-  readonly rootPath: string;
-}
-
-type WorkspaceCoverageAuditOutcome =
-  | {
-      readonly kind: 'complete';
-      readonly unindexableFileCount: number;
-    }
-  | {
-      readonly kind: 'incomplete';
-      readonly gapsByRoot: ReadonlyMap<string, WorkspaceCoverageGapClassification>;
-      readonly indexedCounts: ReadonlyMap<string, number>;
-      readonly message: string;
-      readonly missingTargets: readonly WorkspaceCoverageAuditTarget[];
-      readonly unindexableFileCount: number;
-    }
-  | {
-      readonly kind: 'unresolved-root';
-      readonly message: string;
-      readonly rootPath: string;
-    }
-  | {
-      readonly kind: 'truncated-root';
-      readonly message: string;
-      readonly rootPath: string;
-    };
-type WorkspaceCoverageIncompleteOutcome = Extract<
-  WorkspaceCoverageAuditOutcome,
-  { readonly kind: 'incomplete' }
->;
-type WorkspaceCoverageUnverifiableOutcome = Extract<
-  WorkspaceCoverageAuditOutcome,
-  { readonly kind: 'truncated-root' | 'unresolved-root' }
->;
-type WorkspaceCoverageAuditTargetResult =
-  | WorkspaceCoverageAuditTarget
-  | WorkspaceCoverageUnverifiableOutcome;
-
-function parseDatabaseCount(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'bigint') {
-    return Number(value);
-  }
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
-function readRootIdFromCountRow(row: unknown): string | null {
-  if (!(row && typeof row === 'object')) {
-    return null;
-  }
-  const record = row as Record<string, unknown>;
-  const rootId = record['root_id'] ?? record['rootId'];
-  return typeof rootId === 'string' && rootId.length > 0 ? rootId : null;
-}
-
-function readFileCountFromCountRow(row: unknown): number {
-  if (!(row && typeof row === 'object')) {
-    return 0;
-  }
-  const record = row as Record<string, unknown>;
-  return parseDatabaseCount(record['file_count'] ?? record['fileCount'] ?? record['count']);
-}
-
-function isUnverifiableAuditOutcome(
-  value: WorkspaceCoverageAuditTargetResult
-): value is WorkspaceCoverageUnverifiableOutcome {
-  return 'kind' in value && (value.kind === 'unresolved-root' || value.kind === 'truncated-root');
-}
-
-function isWorkspaceCoverageAuditTarget(
-  value: WorkspaceCoverageAuditTargetResult
-): value is WorkspaceCoverageAuditTarget {
-  return !isUnverifiableAuditOutcome(value);
-}
-
-async function readIndexedFileCountsByRoot(args: {
-  collectionId: string;
-  db: DbHandle;
-  rootIds: readonly string[];
-}): Promise<Map<string, number>> {
-  if (args.rootIds.length === 0) {
-    return new Map();
-  }
-  const rootPlaceholders = args.rootIds.map((_, index) => `$${index + 2}`).join(', ');
-  const result = await args.db.query(
-    `
-      SELECT root_id, COUNT(*) AS file_count
-      FROM file_records
-      WHERE embedding_set_id = $1
-        AND root_id IN (${rootPlaceholders})
-      GROUP BY root_id
-    `,
-    [args.collectionId, ...args.rootIds]
-  );
-  const counts = new Map<string, number>();
-  for (const row of Array.isArray(result.rows) ? result.rows : []) {
-    const rootId = readRootIdFromCountRow(row);
-    if (rootId) {
-      counts.set(rootId, readFileCountFromCountRow(row));
-    }
-  }
-  return counts;
-}
-
-const COVERAGE_MESSAGE_MISSING_PATH_SAMPLE_LIMIT = 3;
-
-function describeCoverageGapForMessage(
-  gap: WorkspaceCoverageGapClassification | undefined
-): string {
-  if (!gap) {
-    return '';
-  }
-  const parts: string[] = [];
-  if (gap.genuinelyMissing.length > 0) {
-    const sample = gap.genuinelyMissing.slice(0, COVERAGE_MESSAGE_MISSING_PATH_SAMPLE_LIMIT);
-    const remainder = gap.genuinelyMissing.length - sample.length;
-    parts.push(
-      `missing files include: ${sample.join(', ')}${remainder > 0 ? ` (+${remainder} more)` : ''}`
-    );
-  }
-  if (gap.unclassifiedCount > 0) {
-    parts.push(`${gap.unclassifiedCount} additional missing files were not classified`);
-  }
-  if (gap.contentExcluded.length > 0) {
-    parts.push(`${gap.contentExcluded.length} files are unindexable by content policy`);
-  }
-  return parts.length > 0 ? `; ${parts.join('; ')}` : '';
-}
-
-function buildCoverageAuditMessage(args: {
-  gapsByRoot: ReadonlyMap<string, WorkspaceCoverageGapClassification>;
-  missingTargets: readonly WorkspaceCoverageAuditTarget[];
-  indexedCounts: ReadonlyMap<string, number>;
-}): string {
-  const firstMissing = args.missingTargets[0];
-  const rootSummary = args.missingTargets
-    .slice(0, 3)
-    .map((target) => {
-      const indexedFileCount = args.indexedCounts.get(target.dbRootId) ?? 0;
-      const gapSummary = describeCoverageGapForMessage(args.gapsByRoot.get(target.dbRootId));
-      return `${target.rootPath} (${indexedFileCount}/${target.expectedFileCount} files indexed${gapSummary})`;
-    })
-    .join('; ');
-  const extraCount =
-    args.missingTargets.length > 3 ? `; +${args.missingTargets.length - 3} more` : '';
-  return `Workspace Index coverage is incomplete after the pipeline reported idle: ${rootSummary}${extraCount}. A full recovery sync is required before this index can be treated as complete.${
-    firstMissing ? ` First incomplete root: ${firstMissing.rootPath}.` : ''
-  }`;
-}
-
-function getActiveRootHandles(args: {
-  rootDirectoryHandle: DirectoryHandle | null;
-  rootDirectoryHandles: readonly DirectoryHandle[];
-}): readonly DirectoryHandle[] {
-  if (args.rootDirectoryHandles.length > 0) {
-    return args.rootDirectoryHandles;
-  }
-  return args.rootDirectoryHandle ? [args.rootDirectoryHandle] : [];
-}
-
-function createMountedRootIdentityKey(
-  handle: DirectoryHandle,
-  rootIdByPath: ReadonlyMap<string, string>
-): string {
-  const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path) ?? null;
-  return JSON.stringify([adapterRootId, handle.path]);
-}
-
-function createCoverageAuditKey(args: {
-  collectionId: string;
-  handles: readonly DirectoryHandle[];
-  policyPreset: BackgroundIndexingPolicyPreset;
-  rootIdByPath: ReadonlyMap<string, string>;
-}): string {
-  const rootsKey = args.handles
-    .map((handle) => `${handle.path}:${handle.rootId ?? args.rootIdByPath.get(handle.path) ?? ''}`)
-    .join('|');
-  return `${args.collectionId}:${args.policyPreset}:${rootsKey}`;
-}
-
-function createCoverageRecoveryAttemptKey(args: {
-  auditKey: string;
-  outcome: WorkspaceCoverageIncompleteOutcome;
-}): string {
-  const mismatchKey = args.outcome.missingTargets
-    .map((target) => {
-      const indexedFileCount = args.outcome.indexedCounts.get(target.dbRootId) ?? 0;
-      return `${target.dbRootId}:${target.rootPath}:${indexedFileCount}/${target.expectedFileCount}`;
-    })
-    .sort()
-    .join('|');
-  return `${args.auditKey}:${mismatchKey}`;
-}
-
-function createCoverageStatusPatch(args: {
-  activeRootPath: string | null;
-  collectionId: string;
-  lastError: string | null;
-  state: 'error' | 'idle' | 'waiting';
-  unindexableFileCount?: number;
-}): WorkspaceCollectionSyncStatusPatch {
-  return {
-    activeRootPath: args.activeRootPath,
-    currentFilePath: null,
-    lastError: args.lastError,
-    managedCollectionId: args.collectionId,
-    pauseReasons: [],
-    queuedFiles: 0,
-    state: args.state,
-    ...(args.unindexableFileCount === undefined
-      ? {}
-      : { unindexableFileCount: args.unindexableFileCount }),
-  };
-}
-
-function createUnresolvedRootCoverageMessage(rootPath: string): string {
-  return `Workspace Index coverage cannot be verified because root ${rootPath} has no resolved database root id.`;
-}
-
-function createTruncatedRootCoverageMessage(
-  rootPath: string,
-  truncatedDirectoryCount: number
-): string {
-  return `Workspace Index coverage cannot be verified for root ${rootPath}: ${truncatedDirectoryCount} director${truncatedDirectoryCount === 1 ? 'y listing was' : 'y listings were'} truncated at the enumeration cap, so the expected file set is a partial prefix.`;
-}
-
-async function buildCoverageAuditTargets(args: {
-  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
-  handles: readonly DirectoryHandle[];
-  policyPreset: BackgroundIndexingPolicyPreset;
-  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
-  rootIdByPath: ReadonlyMap<string, string>;
-}): Promise<readonly WorkspaceCoverageAuditTarget[] | WorkspaceCoverageAuditOutcome> {
-  const targetResults: WorkspaceCoverageAuditTargetResult[] = await Promise.all(
-    args.handles.map(async (handle) => {
-      const adapterRootId = handle.rootId ?? args.rootIdByPath.get(handle.path);
-      const dbRootId = await args.resolveDbRootId(handle.path, adapterRootId);
-      if (!dbRootId) {
-        return {
-          kind: 'unresolved-root',
-          message: createUnresolvedRootCoverageMessage(handle.path),
-          rootPath: handle.path,
-        };
-      }
-      const expected = await countExpectedWorkspaceIndexFiles({
-        fileSystemAdapter: args.fileSystemAdapter,
-        includeFiles: false,
-        policyPreset: args.policyPreset,
-        rootHandle: handle,
-      });
-      if (expected.truncatedDirectoryPaths.length > 0) {
-        // The expected set is a partial prefix; a fully-indexed prefix must
-        // not verify the root complete.
-        return {
-          kind: 'truncated-root',
-          message: createTruncatedRootCoverageMessage(
-            handle.path,
-            expected.truncatedDirectoryPaths.length
-          ),
-          rootPath: handle.path,
-        };
-      }
-      // Deduped by normalized relative path: file_records rows are keyed by
-      // (rootId, relativePath), so the DB can never hold more rows than the
-      // deduped expected set — a raw node count would over-count.
-      const expectedFiles = buildWorkspaceCoverageExpectedFiles({
-        fileNodes: expected.fileNodes,
-        rootPath: handle.path,
-      });
-      return {
-        dbRootId,
-        expectedFileCount: expectedFiles.length,
-        expectedFiles,
-        rootPath: handle.path,
-      };
-    })
-  );
-  const unverifiableRoot = targetResults.find(isUnverifiableAuditOutcome);
-  if (unverifiableRoot) {
-    return unverifiableRoot;
-  }
-  return targetResults.filter(isWorkspaceCoverageAuditTarget);
-}
-
-function isCoverageAuditOutcome(
-  value: readonly WorkspaceCoverageAuditTarget[] | WorkspaceCoverageAuditOutcome
-): value is WorkspaceCoverageAuditOutcome {
-  return !Array.isArray(value);
-}
-
-async function runWorkspaceCoverageAudit(args: {
-  collectionId: string;
-  db: DbHandle;
-  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
-  handles: readonly DirectoryHandle[];
-  isCurrent: () => boolean;
-  policyPreset: BackgroundIndexingPolicyPreset;
-  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
-  rootIdByPath: ReadonlyMap<string, string>;
-}): Promise<WorkspaceCoverageAuditOutcome | null> {
-  if (!args.isCurrent()) {
-    return null;
-  }
-  const targets = await buildCoverageAuditTargets(args);
-  if (args.isCurrent()) {
-    if (isCoverageAuditOutcome(targets)) {
-      return targets;
-    }
-  } else {
-    return null;
-  }
-  if (!args.isCurrent()) {
-    return null;
-  }
-  // Compare SETS of relative paths, not counts: the DB is the source of truth
-  // for what was indexed, and the on-disk walk for what should be. The set
-  // difference names the actual missing files, which the content gate below
-  // then classifies — a count comparison cannot distinguish "pipeline missed a
-  // file" from "this file is legitimately unindexable".
-  const indexedPathsByRoot = await readIndexedRelativePathsByRoot({
-    collectionId: args.collectionId,
-    db: args.db,
-    rootIds: targets.map((target) => target.dbRootId),
-  });
-  if (!args.isCurrent()) {
-    return null;
-  }
-
-  const indexedCounts = new Map<string, number>();
-  const gapsByRoot = new Map<string, WorkspaceCoverageGapClassification>();
-  const missingTargets: WorkspaceCoverageAuditTarget[] = [];
-  const coveredContentExclusions: Array<{
-    contentExcluded: WorkspaceCoverageGapClassification['contentExcluded'];
-    rootPath: string;
-  }> = [];
-  // Roots are classified SEQUENTIALLY on purpose: each classification reads
-  // missing files from disk with its own bounded concurrency, and this audit
-  // runs as background QoS work — fanning out across roots would multiply IO
-  // against foreground work for no user-visible gain.
-  for (const target of targets) {
-    const indexedRelativePaths = indexedPathsByRoot.get(target.dbRootId) ?? new Set<string>();
-    const missingFiles = resolveMissingCoverageFiles({
-      expectedFiles: target.expectedFiles,
-      indexedRelativePaths,
-    });
-    indexedCounts.set(target.dbRootId, target.expectedFiles.length - missingFiles.length);
-    if (missingFiles.length === 0) {
-      continue;
-    }
-    // Re-apply the import pipeline's content gate to the missing files: a file
-    // the gate refuses (null bytes, binary content, unreadable, too large) can
-    // never be indexed and therefore counts as covered, not missing.
-    const gap = await classifyMissingCoverageFiles({
-      fileSystemAdapter: args.fileSystemAdapter,
-      missingFiles,
-      rootPath: target.rootPath,
-    });
-    if (!args.isCurrent()) {
-      return null;
-    }
-    if (gap.genuinelyMissing.length === 0 && gap.unclassifiedCount === 0) {
-      coveredContentExclusions.push({
-        contentExcluded: gap.contentExcluded,
-        rootPath: target.rootPath,
-      });
-      continue;
-    }
-    gapsByRoot.set(target.dbRootId, gap);
-    missingTargets.push(target);
-  }
-
-  if (coveredContentExclusions.length > 0) {
-    logger.info(
-      'Workspace Index idle coverage audit: unindexable files excluded from coverage by content policy',
-      {
-        collectionId: args.collectionId,
-        roots: coveredContentExclusions.map((entry) => ({
-          contentExcluded: entry.contentExcluded,
-          rootPath: entry.rootPath,
-        })),
-      }
-    );
-  }
-  const unindexableFileCount =
-    coveredContentExclusions.reduce((sum, entry) => sum + entry.contentExcluded.length, 0) +
-    [...gapsByRoot.values()].reduce((sum, gap) => sum + gap.contentExcluded.length, 0);
-  if (missingTargets.length === 0) {
-    return { kind: 'complete', unindexableFileCount };
-  }
-  return {
-    gapsByRoot,
-    indexedCounts,
-    kind: 'incomplete',
-    message: buildCoverageAuditMessage({ gapsByRoot, indexedCounts, missingTargets }),
-    missingTargets,
-    unindexableFileCount,
-  };
-}
-
-function applyWorkspaceCoverageAuditOutcome(args: {
-  activeRootPath: string | null;
-  auditKey: string;
-  collectionId: string;
-  markAuditVerified: (auditKey: string) => void;
-  outcome: WorkspaceCoverageAuditOutcome;
-  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): string | null {
-  if (args.outcome.kind === 'complete') {
-    args.markAuditVerified(args.auditKey);
-    args.setStatus(
-      createCoverageStatusPatch({
-        activeRootPath: args.activeRootPath,
-        collectionId: args.collectionId,
-        lastError: null,
-        state: 'idle',
-        unindexableFileCount: args.outcome.unindexableFileCount,
-      })
-    );
-    return null;
-  }
-  if (args.outcome.kind === 'unresolved-root' || args.outcome.kind === 'truncated-root') {
-    logger.warn(args.outcome.message, { rootPath: args.outcome.rootPath });
-    args.setStatus(
-      createCoverageStatusPatch({
-        activeRootPath: args.outcome.rootPath,
-        collectionId: args.collectionId,
-        lastError: args.outcome.message,
-        state: 'waiting',
-      })
-    );
-    return null;
-  }
-  applyWorkspaceCoverageIncompleteOutcome({
-    collectionId: args.collectionId,
-    outcome: args.outcome,
-    setStatus: args.setStatus,
-  });
-  return createCoverageRecoveryAttemptKey({ auditKey: args.auditKey, outcome: args.outcome });
-}
-
-function applyWorkspaceCoverageIncompleteOutcome(args: {
-  collectionId: string;
-  outcome: WorkspaceCoverageIncompleteOutcome;
-  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): void {
-  logger.warn('Workspace Index idle coverage audit found incomplete roots', {
-    collectionId: args.collectionId,
-    missingRoots: args.outcome.missingTargets.map((target) => {
-      const gap = args.outcome.gapsByRoot.get(target.dbRootId);
-      return {
-        contentExcluded: gap?.contentExcluded ?? [],
-        expectedFileCount: target.expectedFileCount,
-        genuinelyMissing: gap?.genuinelyMissing ?? [],
-        indexedFileCount: args.outcome.indexedCounts.get(target.dbRootId) ?? 0,
-        rootPath: target.rootPath,
-        unclassifiedCount: gap?.unclassifiedCount ?? 0,
-      };
-    }),
-  });
-  args.setStatus(
-    createCoverageStatusPatch({
-      activeRootPath: args.outcome.missingTargets[0]?.rootPath ?? null,
-      collectionId: args.collectionId,
-      lastError: args.outcome.message,
-      state: 'waiting',
-      unindexableFileCount: args.outcome.unindexableFileCount,
-    })
-  );
-}
-
-function startWorkspaceCoverageAudit(args: {
-  activeRootPath: string | null;
-  auditKey: string;
-  clearInFlightAudit: (auditKey: string) => void;
-  collectionId: string;
-  db: DbHandle;
-  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
-  handles: readonly DirectoryHandle[];
-  isCurrent: () => boolean;
-  markAuditVerified: (auditKey: string) => void;
-  policyPreset: BackgroundIndexingPolicyPreset;
-  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
-  rootIdByPath: ReadonlyMap<string, string>;
-  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): Promise<string | null> {
-  return runWorkspaceCoverageAudit({
-    collectionId: args.collectionId,
-    db: args.db,
-    fileSystemAdapter: args.fileSystemAdapter,
-    handles: args.handles,
-    isCurrent: args.isCurrent,
-    policyPreset: args.policyPreset,
-    resolveDbRootId: args.resolveDbRootId,
-    rootIdByPath: args.rootIdByPath,
-  })
-    .then((outcome) => {
-      if (!outcome) {
-        return null;
-      }
-      return applyWorkspaceCoverageAuditOutcome({
-        activeRootPath: args.activeRootPath,
-        auditKey: args.auditKey,
-        collectionId: args.collectionId,
-        markAuditVerified: args.markAuditVerified,
-        outcome,
-        setStatus: args.setStatus,
-      });
-    })
-    .catch((error: unknown) => {
-      if (!args.isCurrent()) {
-        return null;
-      }
-      const message = `Workspace Index coverage audit failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-      logger.error(message, { error });
-      args.setStatus(
-        createCoverageStatusPatch({
-          activeRootPath: args.activeRootPath,
-          collectionId: args.collectionId,
-          lastError: message,
-          state: 'error',
-        })
-      );
-      return null;
-    })
-    .finally(() => {
-      args.clearInFlightAudit(args.auditKey);
-    });
 }
 
 interface WorkspaceIndexingPowerBridge {
@@ -1698,7 +1155,7 @@ export function WorkspaceCollectionSyncProvider({
       // the error/blocked transition set below (BST-1257) — logging here too
       // recorded every incident twice under different scopes.
       // Focused path read live via ref (BST-1268): a focus-only change must
-      // not change this callback's identity — the unmount-cancel effect and
+      // not change this callback's identity — the teardown-detach effect and
       // triggerSync both depend on it.
       const activeRootPath = rootDirectoryHandleRef.current?.path ?? null;
       if (isWorkspaceIndexBlockedError(error)) {
@@ -2138,7 +1595,11 @@ export function WorkspaceCollectionSyncProvider({
         syncLoopGenerationRef.current += 1;
         syncLoopActiveRef.current = false;
         pendingSyncScopeRef.current = null;
-        void service.cancel();
+        // Reported, not fire-and-forget: cancel now asks the host to stop
+        // untracked background-indexing runs (BST-1654) and can reject.
+        void service.cancel().catch((error) => {
+          reportAsyncError('cancel', error);
+        });
         setSyncStatus({
           activeRootPath: rootDirectoryHandle.path,
           currentFilePath: null,
@@ -3141,11 +2602,16 @@ export function WorkspaceCollectionSyncProvider({
     triggerSync({ mode: 'full' }, { restartActive: true });
   }, [backgroundWorkSnapshot, triggerSync]);
 
+  // Teardown detaches, it does not cancel (BST-1654). This cleanup runs on
+  // unmount AND on every `service` identity change, so cancelling here tied the
+  // lifetime of a host-owned `source: 'background-indexing'` run to a React
+  // memo dependency list. The renderer-side loop still stops; the durable
+  // backfill survives and the next sync re-attaches to it.
   useEffect(
     () => () => {
       invalidateActiveSyncLoopFromEffect();
-      void service?.cancel().catch((error) => {
-        reportAsyncError('cancel', error);
+      void service?.detach().catch((error) => {
+        reportAsyncError('detach', error);
       });
     },
     [reportAsyncError, service]
@@ -3181,9 +2647,11 @@ export function WorkspaceCollectionSyncProvider({
     [managedCollectionId]
   );
 
-  // Recovery point for a backfill killed while the window was hidden (e.g. a
-  // top-level navigation mid-backfill): re-sync on return to visibility so the
-  // 0-changes coverage check can re-enqueue any missing embedding work.
+  // Recovery point for renderer-side work lost while the window was hidden (a
+  // hard reload tearing down the page mid-run): re-sync on return to visibility
+  // so the 0-changes coverage check can re-enqueue any missing embedding work.
+  // An ordinary unmount detaches instead of cancelling (BST-1654), so this is
+  // no longer the only thing standing between a user and a dead backfill.
   useResyncOnReturnToVisibility(triggerSync);
 
   return (

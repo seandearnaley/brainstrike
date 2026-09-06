@@ -16,10 +16,12 @@ export const RESYNC_ON_VISIBILITY_SETTLE_MS = 3000;
  * Invoke `triggerResync` after the document transitions from hidden to visible
  * and stays visible for {@link RESYNC_ON_VISIBILITY_SETTLE_MS}.
  *
- * Why this exists: a backfill canceled while the window is hidden (e.g. a
- * top-level navigation tearing down the renderer that requested it mid-run) has
- * no re-request path until the next sync cycle — and a freshly reloaded,
- * background-throttled window may never start one. Returning to visibility is
+ * Why this exists: renderer-side scan/import work lost while the window is
+ * hidden (a reload, or a web target whose worker dies with the page) has no
+ * re-request path until the next sync cycle — and a freshly reloaded,
+ * background-throttled window may never start one. Provider teardown itself no
+ * longer cancels the host-owned backfill (BST-1654 — it detaches), so this is a
+ * recovery path for hard teardowns, not for ordinary unmounts. Returning to visibility is
  * the reliable recovery point: the re-triggered sync's 0-changes branch runs the
  * coverage check and re-enqueues the missing embedding work. (An in-flight
  * main-process backfill is NOT cancelled by the re-triggered sync — `sync()`
