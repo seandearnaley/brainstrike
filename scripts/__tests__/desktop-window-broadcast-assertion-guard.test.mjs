@@ -476,6 +476,57 @@ it('notifies', () => {
   assert.deepEqual(violations, []);
 });
 
+// BST-1624. Not every apps/desktop send site routes through the window
+// listing. src/terminal-ipc-handlers.ts sends to a WebContents held in its own
+// live-terminal registry; the host managers and the browser pane host do the
+// same with a WebContents they already own. A test for one of those supplies
+// the WebContents itself, so condition (1) of the rule — a window listing stub
+// that resolves empty — is absent, and the guard is silent.
+//
+// That silence is correct, not a miss. The vacuous green this guard polices
+// needs a listing a test can hollow out; there is no listing here to hollow.
+// Widening the rule to "any send assertion" would flag every one of those
+// files while removing no false green, which is the waiver-inflation failure
+// mode the precision block above exists to prevent.
+//
+// The cost of the limit is a REPORTING one, and it has already been paid once:
+// BST-1622's audit no-opped all 27 `.webContents.send(` sites and ran the
+// desktop suite, and the two terminal sites showed no failure — so they were
+// filed as untested (BST-1624). They are not. `apps/desktop`'s `test` script
+// carries `--exclude "**/*.integration.test.*"`, and the terminal broadcast's
+// coverage lives entirely in terminal-ipc-handlers.integration.test.ts. Re-run
+// with both sites no-opped: the unit lane is 4388/4388 green, and the
+// integration lane fails 4 tests on `owner.exitEvents` and `aggregatedData`.
+// A survival observed in one lane is evidence about that lane only.
+const REGISTRY_ROUTED_TEST = `const send = vi.fn();
+// The owner WebContents is handed to the handler directly: a live-terminal
+// registry entry, not a BrowserWindow listing.
+const owner = { isDestroyed: () => false, webContents: { send } };
+
+it('pushes terminal output to its owner', () => {
+  writeToTerminal(owner, 'HELLO');
+  expect(send).toHaveBeenCalledWith('terminal:data', { data: 'HELLO', terminalId: 't1' });
+});
+`;
+
+test('known blind spot: a registry-routed send with no window listing is outside the rule', async () => {
+  // Both directions, so the silence is attributable. The recorder and the
+  // assertion are the shapes the guard DOES recognise — `send` installed into
+  // a `webContents` object, asserted via `expect(send)` — so the listing stub
+  // is the only variable between the two runs. Without it the guard is quiet;
+  // add it and the same file trips. An earlier draft of this test used a
+  // FakeWebContents CLASS and asserted on its recorded-events array, which the
+  // guard does not recognise as a recorder at all: it passed for the wrong
+  // reason and stayed green even with the empty listing added.
+  assert.deepEqual(await violationsFor('registry-routed.test.ts', REGISTRY_ROUTED_TEST), []);
+
+  const withEmptyListing = await violationsFor(
+    'registry-routed-with-listing.test.ts',
+    `${EMPTY_LISTING_MOCK}\n${REGISTRY_ROUTED_TEST}`
+  );
+  assert.equal(withEmptyListing.length, 1);
+});
+
 // ## unit-level shapes
 
 test('classifyWindowListingStubs reads each stub form and refuses to guess', () => {

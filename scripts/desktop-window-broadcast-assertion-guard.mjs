@@ -1,7 +1,7 @@
 // BST-1622: a desktop main-process test may not assert on what the renderer was
 // told while stubbing the window listing empty.
 //
-// Every main -> renderer broadcast in apps/desktop iterates
+// The main -> renderer broadcasts this guard is about iterate
 // `BrowserWindow.getAllWindows()` (src/ipc-mcp.ts, src/mcp/lifecycle-control.ts,
 // src/ipc-domains/db-ipc.ts, src/assistant-server/workspace-context-tools.ts and
 // eight sites in src/main.ts). Every one is a `for (const window of ...)` loop.
@@ -9,6 +9,15 @@
 // what the renderer received — `expect(send).toHaveBeenCalledWith(...)` and,
 // worse, its `.not.` twin — passes whether or not the production code sends
 // anything. The test reports a green it never earned.
+//
+// SCOPE, stated because an earlier version of this comment over-claimed
+// "every main -> renderer broadcast" (BST-1624). It is not every send site.
+// Others — src/terminal-ipc-handlers.ts, the host managers, the browser pane
+// host — send through a WebContents the caller already holds, with no listing
+// involved. Those are outside the rule ON PURPOSE, not by oversight: the
+// vacuous-green mechanism above needs a listing that a test can stub empty,
+// and a test for a directly-held WebContents supplies that object itself, so
+// there is nothing to hollow out. See the paired "known blind spot" test.
 //
 // WHY A REAL PARSE RATHER THAN A SCANNER (review of #2951). The first version of
 // this guard matched tokens, read the ~90 characters after them, and hand-rolled
