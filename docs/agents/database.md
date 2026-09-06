@@ -620,8 +620,9 @@ Deliberate omissions, all load-bearing:
 - **No foreign keys, and NOT in `THREAD_DELETE_SIDECAR_TABLES`.** A worktree
   outlives its thread on purpose — cascading it would orphan a directory of
   uncommitted work. Thread delete offers "also archive its worktree" instead.
-- **Not mirrored in `buildAssistantThreadRunsSchemaSql`.** That mirror exists
-  only for registered thread-delete sidecars.
+- **Not part of the assistant memory schema probe.** That probe covers the
+  relations the assistant repository reads or writes — the run tables plus every
+  registered thread-delete sidecar (BST-1651).
 
 Registered in both runners and in `BRAINSTRIKE_RESET_TABLES`. Factory reset
 clears the ROWS; deleting the worktree DIRECTORIES is a separate, explicitly

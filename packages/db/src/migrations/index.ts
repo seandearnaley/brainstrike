@@ -115,6 +115,8 @@ import { migration113OpenRouterQwen38Flash } from './113-openrouter-qwen-3-8-fla
 import { migration114McpTasks } from './114-mcp-tasks.js';
 import { migration115McpTaskAuthority } from './115-mcp-task-authority.js';
 import { migration116AnthropicClaudeOpus5 } from './116-anthropic-claude-opus-5.js';
+import { migration117MastraMemorySchema } from './117-mastra-memory-schema.js';
+import { migration118AssistantThreadRuns } from './118-assistant-thread-runs.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -236,6 +238,8 @@ export const migrations: Migration[] = [
   migration114McpTasks,
   migration115McpTaskAuthority,
   migration116AnthropicClaudeOpus5,
+  migration117MastraMemorySchema,
+  migration118AssistantThreadRuns,
 ];
 
 // Export base migrations (without chunks table) for test environments

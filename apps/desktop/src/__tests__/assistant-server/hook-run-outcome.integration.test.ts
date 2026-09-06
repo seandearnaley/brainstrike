@@ -21,7 +21,7 @@
 // assistant-data package, the same convention as
 // run-usage-live-loop.integration.test.ts; placement is interim per R04 (BST-984).
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import { recordDesktopAssistantHookRunOutcome } from '../../assistant-server/run-persistence';
@@ -45,6 +45,8 @@ async function readOutcome(db: Awaited<ReturnType<typeof wasmLoader.createPGlite
 describe('recordDesktopAssistantHookRunOutcome (real PGlite)', () => {
   async function setup(name: string) {
     const db = await wasmLoader.createPGlite(`memory://hook-run-outcome-${name}-${Date.now()}`);
+    // Migrations 117/118 own the assistant schema (BST-1651).
+    await migrate(db);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     // thread_runs carries an FK to the (Mastra) threads table, so a real
     // thread row must exist first — same shape as production.

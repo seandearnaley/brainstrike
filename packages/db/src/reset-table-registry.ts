@@ -170,6 +170,11 @@ export type ResetTable =
  * const — because module-scope initializers run at bundle chunk
  * initialization, where the contract chunk is not guaranteed to have evaluated
  * (`scripts/verify-mastra-schema-init-order.mjs`, BST-558/#1988).
+ *
+ * Four of the six are migration-backed since BST-1651 (migration 117). Only
+ * `mastra_vectors` and `mastra_workflow_snapshot` are still created lazily, by
+ * Mastra's vector store and workflow storage respectively — see
+ * {@link getLazyMastraResetTables}.
  */
 export function getMastraResetTables(): readonly MastraResetTable[] {
   return [
@@ -180,6 +185,16 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
     MASTRA_VECTOR_TABLE,
     MASTRA_WORKFLOW_TABLE,
   ];
+}
+
+/**
+ * The Mastra relations that a fully migrated database still does NOT contain,
+ * because nothing but Mastra's own vector store and workflow storage creates
+ * them. The reset-coverage sweep uses this to tell a legitimately-absent
+ * relation from a registry name that has rotted.
+ */
+export function getLazyMastraResetTables(): readonly MastraResetTable[] {
+  return [MASTRA_VECTOR_TABLE, MASTRA_WORKFLOW_TABLE];
 }
 
 /** The full 41-relation reset set (26 Brainstrike + 9 core + the Mastra six). */
@@ -221,9 +236,8 @@ export const RESET_EXCLUDED_TABLES = {
   _migrations:
     'schema-validation-only ledger (db-migration-authority); never production, never cleared',
   brainstrike_assistant_run_events:
-    'bootstrap-only DDL (assistant-memory-repository); FK ON DELETE CASCADE from brainstrike_assistant_thread_runs AND mastra_threads',
-  brainstrike_assistant_thread_runs:
-    'bootstrap-only DDL (assistant-memory-repository); FK ON DELETE CASCADE from mastra_threads',
+    'migration 118; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs AND mastra_threads',
+  brainstrike_assistant_thread_runs: 'migration 118; FK ON DELETE CASCADE from mastra_threads',
   brainstrike_thread_search_profiles:
     'singleton search profile — configuration, intentionally survives (platform-contracts)',
   file_relationships: 'FK ON DELETE CASCADE from file_records (migration 003)',
