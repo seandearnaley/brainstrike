@@ -488,23 +488,70 @@ function ensureRootLogger(): PinoLogger {
   return rootLogger;
 }
 
+/**
+ * Rebuild a non-extensible Error as an extensible equivalent.
+ *
+ * `pino.stdSerializers.err` tags its input with a `Symbol(circular-ref-tag)`
+ * before walking it, which throws a `TypeError` on a frozen Error. Copying the
+ * prototype, the non-enumerable `message`/`stack`/`cause`, and every own
+ * enumerable property preserves the serialized shape without mutating the
+ * caller's object.
+ */
+function toExtensibleError(value: Error): Error {
+  const copy = Object.create(Object.getPrototypeOf(value) as object) as Error;
+  Object.assign(copy, value);
+  copy.message = value.message;
+  if (value.stack !== undefined) {
+    copy.stack = value.stack;
+  }
+  if (value.cause !== undefined) {
+    copy.cause = value.cause;
+  }
+  return copy;
+}
+
+/**
+ * Serializer for the `err` and `error` binding keys.
+ *
+ * `Error.prototype.message` and `.stack` are non-enumerable, so an Error that
+ * reaches JSON serialization unserialized collapses to its own enumerable
+ * properties alone — the loudest failures log as the quietest lines.
+ *
+ * The gate is `instanceof Error` rather than pino's own `isErrorLike` (which is
+ * merely `typeof value.message === 'string'`). Structured failures that carry a
+ * `message` but are not Errors — JSON-RPC rejections such as
+ * `{ code: -32000, message: '...' }` — are ordinary log payloads here and must
+ * reach the transport byte-identical, not wearing a synthetic empty `stack` and
+ * a self-referential `raw`. This matches the `instanceof Error` gates already
+ * used by `sanitizeBrowserConsoleValue` and `redactSensitiveLogValue`.
+ */
+function serializeErrorBinding(value: unknown): unknown {
+  if (!(value instanceof Error)) {
+    return value;
+  }
+  return pino.stdSerializers.err(Object.isExtensible(value) ? value : toExtensibleError(value));
+}
+
+const logSerializers: NonNullable<LoggerOptions['serializers']> = {
+  // Redact sensitive fields
+  apiKey: () => '[REDACTED]',
+  authorization: () => '[REDACTED]',
+  cookie: () => '[REDACTED]',
+  err: serializeErrorBinding,
+  error: serializeErrorBinding,
+  password: () => '[REDACTED]',
+  req: pino.stdSerializers.req,
+  res: pino.stdSerializers.res,
+  secret: () => '[REDACTED]',
+  token: () => '[REDACTED]',
+};
+
 function createRootLogger(): PinoLogger {
   const resolvedLevel = currentLevel;
   const baseOptions: LoggerOptions = {
     base: resolveBaseBindings(internalConfig),
     level: resolvedLevel,
-    serializers: {
-      // Redact sensitive fields
-      apiKey: () => '[REDACTED]',
-      authorization: () => '[REDACTED]',
-      cookie: () => '[REDACTED]',
-      err: pino.stdSerializers.err,
-      password: () => '[REDACTED]',
-      req: pino.stdSerializers.req,
-      res: pino.stdSerializers.res,
-      secret: () => '[REDACTED]',
-      token: () => '[REDACTED]',
-    },
+    serializers: logSerializers,
     timestamp: internalConfig.includeTimestamp ? pino.stdTimeFunctions.isoTime : false,
   };
 
@@ -945,6 +992,7 @@ export const __loggerTesting = {
   isRootTransportEnabled: () => ensureRootLogger().isLevelEnabled(currentLevel),
   normalizePinoLogArgs,
   sanitizeBrowserConsoleValue,
+  serializers: logSerializers,
   writePinoLog,
 };
 
