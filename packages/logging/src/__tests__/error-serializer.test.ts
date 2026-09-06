@@ -460,3 +460,51 @@ describe('the redaction boundary around direct pino access', () => {
     expect(serialized['token']).toBe('super-secret');
   });
 });
+
+/**
+ * `Object.prototype.toString` performs `Get(O, @@toStringTag)`, so it runs
+ * arbitrary user code. `redactSensitiveLogValue` runs on every logged argument
+ * and sits OUTSIDE the try/catch in `logInternal`, so an exception there
+ * escapes the logging call itself — masking the very failure being reported.
+ * The file's own invariant is that logging must never break app flow.
+ */
+describe('the Error-object test cannot be weaponised by a logged value', () => {
+  function withHostileStringTag(): object {
+    const hostile = {};
+    Object.defineProperty(hostile, Symbol.toStringTag, {
+      get() {
+        throw new Error('hostile @@toStringTag');
+      },
+    });
+    return hostile;
+  }
+
+  it('does not throw when a logged value has a throwing @@toStringTag', () => {
+    const hostile = withHostileStringTag();
+    // Precondition: this value is otherwise harmless to the redactor's own walk,
+    // so any throw is attributable to the Error-object test alone.
+    expect(() => Object.entries(hostile)).not.toThrow();
+    expect(hostile instanceof Error).toBe(false);
+
+    expect(() => redactSensitiveLogValue({ error: hostile })).not.toThrow();
+  });
+
+  it('does not break the logging call itself', () => {
+    expect(() => {
+      createLogger('HostileTag').error('failed', { error: withHostileStringTag() });
+    }).not.toThrow();
+  });
+
+  it('treats a value whose @@toStringTag is forged as an error object', () => {
+    // Documented consequence, not an endorsement: `[object Error]` IS forgeable.
+    // The tag is a heuristic for cross-realm detection, and the cost of a forgery
+    // is only that empty `message`/`name`/`stack` keys appear. No data is lost
+    // and nothing sensitive is exposed, so the trade is worth cross-realm support.
+    const forged = { [Symbol.toStringTag]: 'Error', detail: 'not really an error' };
+
+    const redacted = redactSensitiveLogValue(forged) as Record<string, unknown>;
+
+    expect(redacted['detail']).toBe('not really an error');
+    expect(redacted['message']).toBeUndefined();
+  });
+});
