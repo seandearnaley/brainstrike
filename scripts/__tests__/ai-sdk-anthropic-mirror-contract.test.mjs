@@ -168,11 +168,19 @@ function isCloser(source, index, stack) {
  * `null` on an unbalanced source keeps the failure loud rather than handing
  * back a truncated slice that parses into a plausible-looking subset.
  *
- * Worth knowing when reading the rest of this file: a mis-scan here is LOUD,
- * not silent. A corrupted slice makes `sliceAfter` return null or a body that
+ * Worth knowing when reading the rest of this file: a BRACKET mis-scan here is
+ * LOUD. A corrupted slice makes `sliceAfter` return null or a body that
  * `topLevelFields` cannot parse, `thinkingTypes` comes back empty, and the
  * pinned real-tree assertions fail with "must be re-derived, not skipped".
- * There is no path where a bad scan quietly narrows the answer.
+ *
+ * That is a claim about UNBALANCED input, and it does not extend to every kind
+ * of mis-scan — an earlier version of this comment said "there is no path where
+ * a bad scan quietly narrows the answer", which was wrong. A brace inside a
+ * string literal (`z.ZodLiteral<"a{b">`) desynchronises this stack, and while
+ * that particular case is loud, the SILENT ones came from the comment stripper,
+ * which is why it is quote-aware. These scanners are still string-unaware; the
+ * protection against that is that an unbalanced result fails the pinned
+ * assertions, not that it cannot happen.
  */
 function sliceBalanced(source, openIndex) {
   const stack = [];
@@ -203,7 +211,40 @@ function sliceBalanced(source, openIndex) {
  * on that staying true.
  */
 function stripBlockComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/[^\n]*/gu, '');
+  // Line comments are stripped per line, and ONLY outside a string literal.
+  // A blanket /\/\/[^\n]*/ deletes real declaration text the moment a literal
+  // contains `//` — a URL-valued enum member is the ordinary way that happens.
+  // `b: "https://x"; c: z.ZodString;` would become `b: "https:` with the
+  // terminating `;` eaten, merging two fields into one chunk and dropping the
+  // second from topLevelFields with no signal. Brackets stay balanced through
+  // that, so nothing downstream notices: it is silent narrowing, which is the
+  // class this whole contract exists to prevent.
+  const withoutBlocks = source.replace(/\/\*[\s\S]*?\*\//gu, '');
+  return withoutBlocks
+    .split('\n')
+    .map((line) => {
+      let quote = null;
+      for (let index = 0; index < line.length; index += 1) {
+        const char = line[index];
+        if (quote) {
+          if (char === '\\') {
+            index += 1;
+          } else if (char === quote) {
+            quote = null;
+          }
+          continue;
+        }
+        if (char === '"' || char === "'" || char === '`') {
+          quote = char;
+          continue;
+        }
+        if (char === '/' && line[index + 1] === '/') {
+          return line.slice(0, index);
+        }
+      }
+      return line;
+    })
+    .join('\n');
 }
 
 /** The balanced body of the first `bracket` that follows `marker`. */
@@ -267,10 +308,28 @@ function topLevelFields(objectBody) {
  * compares VALUES, never optionality.
  */
 function extractZodEnumValues(typeExpression) {
-  const enumBody = sliceAfter(typeExpression, 'z.ZodEnum<', '{');
-  return unique(
-    [...(enumBody ?? '').matchAll(/: "(?<value>[^"]+)"/gu)].map((match) => match.groups.value)
-  );
+  // EVERY `z.ZodEnum<` in the expression, not just the first. Reading one would
+  // report a NARROWER upstream set than reality if a value union is ever spelled
+  // as `z.ZodUnion<[z.ZodEnum<…>, z.ZodEnum<…>]>` — and a mirror that is
+  // genuinely narrower than the provider would then compare clean. That is this
+  // contract's own bug class, inverted. The pinned assertions catch it for
+  // today's shape, but those are exactly what gets edited during an upgrade.
+  const values = [];
+  let cursor = 0;
+  for (;;) {
+    const found = typeExpression.indexOf('z.ZodEnum<', cursor);
+    if (found === -1) {
+      break;
+    }
+    const body = sliceAfter(typeExpression.slice(found), 'z.ZodEnum<', '{');
+    if (body !== null) {
+      values.push(
+        ...[...body.matchAll(/: "(?<value>[^"]+)"/gu)].map((match) => match.groups.value)
+      );
+    }
+    cursor = found + 'z.ZodEnum<'.length;
+  }
+  return unique(values);
 }
 
 /**
@@ -706,9 +765,12 @@ test('money control: unreadable upstream declarations fail instead of passing va
 // dist/index.d.ts carries no JSDoc today, so without this the stripping would be
 // unfalsifiable — removing it leaves every real-tree case green, which is not
 // evidence of anything.
-function syntheticDeclaration({ jsdoc = '' } = {}) {
+function syntheticDeclaration({ jsdoc = '', urlField = '', splitEnum = false } = {}) {
+  const effort = splitEnum
+    ? 'z.ZodOptional<z.ZodUnion<[z.ZodEnum<{ low: "low" }>, z.ZodEnum<{ medium: "medium"; high: "high" }>]>>'
+    : 'z.ZodOptional<z.ZodEnum<{ low: "low"; medium: "medium"; high: "high" }>>';
   return `declare const anthropicLanguageModelOptions: z.ZodObject<{
-	effort: z.ZodOptional<z.ZodEnum<{ low: "low"; medium: "medium"; high: "high" }>>;${jsdoc}
+	effort: ${effort};${urlField}${jsdoc}
 	thinking: z.ZodOptional<z.ZodUnion<readonly [z.ZodDiscriminatedUnion<[z.ZodObject<{
 		type: z.ZodLiteral<"adaptive">;
 		display: z.ZodOptional<z.ZodEnum<{ omitted: "omitted"; summarized: "summarized" }>>;
@@ -718,6 +780,28 @@ function syntheticDeclaration({ jsdoc = '' } = {}) {
 }, $strip>;
 `;
 }
+
+test('scanner: a `//` inside a string literal does not eat the rest of the field', () => {
+  // The silent case, and the reason the line stripper is quote-aware. A blanket
+  // /\/\/[^\n]*/ turns `docs: "https://x";` into `docs: "https:` — the
+  // terminating `;` goes with it, `splitTopLevel` then sees ONE chunk spanning
+  // two fields, and `topLevelFields` keeps the first and drops the second with
+  // no signal. Brackets stay balanced throughout, so nothing downstream notices.
+  const documented = extractUpstreamUnions(
+    syntheticDeclaration({ urlField: '\n\tdocs: z.ZodLiteral<"https://example.invalid/a">;' })
+  );
+  assert.deepEqual(documented.effort, ['high', 'low', 'medium']);
+  assert.deepEqual(documented.thinkingTypes, ['adaptive', 'disabled']);
+  assert.deepEqual(documented.adaptiveDisplay, ['omitted', 'summarized']);
+});
+
+test('scanner: a value union spelled as two enums reports BOTH sets', () => {
+  // Reading only the first `z.ZodEnum<` would report `['low']` — a NARROWER
+  // upstream than reality, against which a genuinely narrow mirror compares
+  // clean. That is this contract's own bug class, inverted.
+  const split = extractUpstreamUnions(syntheticDeclaration({ splitEnum: true }));
+  assert.deepEqual(split.effort, ['high', 'low', 'medium']);
+});
 
 test('scanner: a JSDoc block inside the declaration body does not blind the scan', () => {
   // Measured: without stripBlockComments this returns effort=[] and
