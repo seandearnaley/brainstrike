@@ -108,7 +108,9 @@ describe('ToolFallback', () => {
     args: { input: 'test' },
     argsText: '{"input":"test"}',
     part: {},
-    respondToApproval: () => {},
+    // 0.15.18 made respondToApproval async (Promise<void>); the stub has to
+    // match the contract it is standing in for.
+    respondToApproval: () => Promise.resolve(),
     resume: () => {},
     status: { type: 'complete' as const },
     toolCallId: 'test-call-id',

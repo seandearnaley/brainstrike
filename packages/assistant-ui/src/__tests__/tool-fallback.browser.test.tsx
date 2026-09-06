@@ -9,7 +9,7 @@ const baseProps = {
   addResult: () => {},
   args: { text: 'hello' },
   argsText: '{"text":"hello"}',
-  respondToApproval: () => {},
+  respondToApproval: () => Promise.resolve(),
   resume: () => {},
   status: { type: 'complete' as const },
   toolCallId: 'browser-tool-call',
