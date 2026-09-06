@@ -169,10 +169,18 @@ function describeCoverageGapForMessage(
     );
   }
   if (gap.unclassifiedCount > 0) {
-    parts.push(`${gap.unclassifiedCount} additional missing files were not classified`);
+    parts.push(
+      `${gap.unclassifiedCount} additional missing file${
+        gap.unclassifiedCount === 1 ? ' was' : 's were'
+      } not classified`
+    );
   }
   if (gap.contentExcluded.length > 0) {
-    parts.push(`${gap.contentExcluded.length} files are unindexable by content policy`);
+    parts.push(
+      `${gap.contentExcluded.length} file${
+        gap.contentExcluded.length === 1 ? ' is' : 's are'
+      } unindexable by content policy`
+    );
   }
   return parts.length > 0 ? `; ${parts.join('; ')}` : '';
 }

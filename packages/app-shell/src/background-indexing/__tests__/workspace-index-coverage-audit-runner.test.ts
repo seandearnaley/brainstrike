@@ -377,9 +377,33 @@ describe('startWorkspaceCoverageAudit incomplete outcome', () => {
     const { statuses } = await runAudit({ db });
 
     const lastError = statuses.at(-1)?.lastError ?? '';
-    expect(lastError).toContain('1 additional missing files were not classified');
-    expect(lastError).toContain('1 files are unindexable by content policy');
+    expect(lastError).toContain('1 additional missing file was not classified');
+    expect(lastError).toContain('1 file is unindexable by content policy');
     expect(statuses.at(-1)?.unindexableFileCount).toBe(1);
+  });
+
+  it('pluralizes the unclassified remainder and the content-exclusion count', async () => {
+    // 202 missing files: 2 past the classification read budget (200), and 2 of
+    // the read files refused by the content gate.
+    const missing = Array.from({ length: 202 }, (_, index) => `missed-${index}.ts`);
+    setTree(ROOT_PATH, missing);
+    const { db } = createDb({ 'db-root:/workspace/root': [] });
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request, index) => [
+          request.compositeKey,
+          index < 2
+            ? { message: 'Binary file - preview not available', status: 'inaccessible' as const }
+            : { content: 'export const value = 1;', status: 'accessible' as const },
+        ])
+      )
+    );
+
+    const { statuses } = await runAudit({ db });
+
+    const lastError = statuses.at(-1)?.lastError ?? '';
+    expect(lastError).toContain('2 additional missing files were not classified');
+    expect(lastError).toContain('2 files are unindexable by content policy');
   });
 
   it('summarizes at most three incomplete roots and counts the rest', async () => {
