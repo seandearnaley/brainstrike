@@ -6,9 +6,24 @@ import pino from 'pino';
  * non-enumerable slots and would be lost by an ordinary enumerable walk?
  *
  * Wider than `instanceof Error`, which is realm-bound: an Error from a
- * `node:vm` context, a worker, or a dual-loaded class hierarchy fails it.
- * `[object Error]` reads the `[[ErrorData]]` internal slot, which no plain
- * object can fake.
+ * `node:vm` context, a worker, or a dual-loaded class hierarchy fails it. The
+ * `[object Error]` tag is the only cross-realm brand check available in a
+ * browser-safe package (`node:util`'s `isNativeError` is Node-only).
+ *
+ * Two properties of that tag are worth stating plainly, because both are easy
+ * to get wrong:
+ *
+ * 1. **It is forgeable.** `{ [Symbol.toStringTag]: 'Error' }` also reports
+ *    `[object Error]`. The cost of a forgery is only that empty
+ *    `message`/`name`/`stack` keys appear on the redacted object — no data is
+ *    lost and nothing sensitive is exposed — so it is an acceptable price for
+ *    cross-realm support.
+ * 2. **Reading it runs user code.** `Object.prototype.toString` performs
+ *    `Get(O, @@toStringTag)`, so a throwing getter (or a Proxy that rejects the
+ *    read) would throw from here. That is intolerable: this predicate runs
+ *    inside `redactSensitiveLogValue`, on every logged argument, *outside* the
+ *    try/catch in `logInternal` — so an exception would escape the logging call
+ *    and mask the failure being reported. Hence the guard below.
  *
  * Shared with `redactSensitiveLogValue`, which sits *earlier* in the pipeline
  * and must answer this same question identically. If the redactor declines a
@@ -16,7 +31,18 @@ import pino from 'pino';
  * by the time the serializer runs and cannot be recovered (BST-1662).
  */
 export function isErrorObject(value: unknown): value is Error {
-  return value instanceof Error || Object.prototype.toString.call(value) === '[object Error]';
+  if (value instanceof Error) {
+    return true;
+  }
+  try {
+    return Object.prototype.toString.call(value) === '[object Error]';
+  } catch {
+    // A value that sabotages its own introspection is not an Error we can read
+    // anything from. Treating it as a plain object costs nothing — the ordinary
+    // enumerable walk still redacts and logs it — whereas rethrowing here would
+    // take down the log call that was reporting the real problem.
+    return false;
+  }
 }
 
 /**

@@ -55,7 +55,16 @@ Error binding keys (`err` and `error`):
 - **Two gates, one shared core.** `isErrorObject` (`instanceof Error ||
   [object Error]`) is exported from `log-serializers.ts` and used by BOTH
   `redactSensitiveLogValue` and the serializer, so the two can never disagree
-  about what an Error object is. The serializer then composes a *wider* gate on
+  about what an Error object is.
+- The `[object Error]` half **must stay inside a try/catch.**
+  `Object.prototype.toString` performs `Get(O, @@toStringTag)` and therefore
+  runs user code; a throwing getter or a rejecting Proxy would throw from
+  `redactSensitiveLogValue`, which runs on every logged argument *outside* the
+  try/catch in `logInternal` — so it would escape the log call and mask the
+  failure being reported. The tag is also **forgeable**
+  (`{ [Symbol.toStringTag]: 'Error' }`); the cost is only empty
+  `message`/`name`/`stack` keys, which is an acceptable price for the only
+  cross-realm brand check available in a browser-safe package. The serializer then composes a *wider* gate on
   top of it, adding the flattened `message`+`stack` shape. This asymmetry is
   deliberate and load-bearing in both directions:
   - The redactor must not be narrower, or it strips a cross-realm Error's
