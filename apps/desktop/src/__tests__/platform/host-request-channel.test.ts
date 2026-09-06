@@ -4,13 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerWarnMock = vi.hoisted(() => vi.fn());
 const loggerErrorMock = vi.hoisted(() => vi.fn());
+const loggerDebugMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({
-      debug: vi.fn(),
+      debug: loggerDebugMock,
       error: loggerErrorMock,
       fatal: vi.fn(),
       info: vi.fn(),
@@ -330,7 +331,7 @@ describe('createHostRequestChannel', () => {
     );
   });
 
-  it('logs late progress the same way and never invokes a settled onProgress', async () => {
+  it('never invokes a settled onProgress, and does not warn per trailing frame', async () => {
     const { channel } = createChannel();
     const onProgress = vi.fn();
 
@@ -339,11 +340,37 @@ describe('createHostRequestChannel', () => {
     );
     await vi.advanceTimersByTimeAsync(50);
     await pending;
+    // The timeout itself warns once; the trailing frames are what must not.
+    loggerWarnMock.mockClear();
 
-    channel.accept({ id: 'req-late-progress', type: 'progress' });
+    // A streaming host still has frames in flight when its request is
+    // cancelled or expires. That is expected, not a correlation fault, so one
+    // abandoned request must not produce one warning per frame.
+    for (let index = 0; index < 4; index += 1) {
+      channel.accept({ id: 'req-late-progress', type: 'progress' });
+    }
 
     expect(onProgress).not.toHaveBeenCalled();
-    expect(loggerWarnMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).not.toHaveBeenCalled();
+    expect(loggerDebugMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('never routes trailing progress to the adapter ledger, only terminal responses', async () => {
+    const onLateResponse = vi.fn<(requestId: string, response: TestResponse) => void>();
+    const { channel } = createChannel({ onLateResponse });
+
+    const pending = observe(channel.request({ id: 'req-trailing', kind: 'fast' }));
+    await vi.advanceTimersByTimeAsync(50);
+    await pending;
+
+    channel.accept({ id: 'req-trailing', type: 'progress' });
+    expect(onLateResponse).not.toHaveBeenCalled();
+
+    // The ledger exists to reason about answers, so a terminal response still
+    // reaches it.
+    const late: TestResponse = { id: 'req-trailing', type: 'result' };
+    channel.accept(late);
+    expect(onLateResponse).toHaveBeenCalledWith('req-trailing', late);
   });
 
   it('routes late responses to onLateResponse when the adapter owns a ledger', async () => {
