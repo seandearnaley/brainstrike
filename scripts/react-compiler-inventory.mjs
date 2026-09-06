@@ -29,8 +29,18 @@ import { transformSync as oxcTransformSync } from 'oxc-transform-react';
 
 export const BACKENDS = ['babel', 'oxc'];
 
+/**
+ * Stamped into every inventory and required by `--diff`. Bump it whenever the record shape
+ * changes: a baseline written by an older script would otherwise diff against a newer one and
+ * report a confident, wrong "0 regressed".
+ */
+export const INVENTORY_FORMAT = 2;
+
 /** Mirrors `ReactCompilerConfig` in apps/web/vite.config.mts and apps/desktop/vite.config.mts. */
 export const COMPILATION_MODE = 'infer';
+
+/** Display label for a function the inventory could not name. Never used as a diff key. */
+const ANONYMOUS_NAME = '(anonymous)';
 
 const COMPILER_RUNTIME_MODULE = 'react/compiler-runtime';
 const BASE_PARSER_PLUGINS = ['typescript', 'explicitResourceManagement'];
@@ -85,32 +95,42 @@ function parse(code, filename) {
   });
 }
 
-/** The name the compiler output attributes a function to, mirroring how `infer` names them. */
+/**
+ * The name the compiler output attributes a function to, mirroring how `infer` names them, or
+ * `null` when there is none. Returning `null` matters: an unnamed function has no identity that
+ * survives a re-run, so the diff must drop it rather than key it (see `compiledKeys`).
+ */
 function inferFunctionName(nodePath) {
-  if (nodePath.node.id?.name) {
-    return nodePath.node.id.name;
+  const node = nodePath.node;
+  if (node.id?.name) {
+    return node.id.name;
+  }
+  // `ObjectMethod`/`ClassMethod` ARE the function node, so their name is their own key. The
+  // parent walk below starts at `ObjectExpression`/`ClassBody` and would never reach it.
+  if (node.key?.type === 'Identifier') {
+    return node.key.name;
+  }
+  if (node.key?.type === 'StringLiteral') {
+    return node.key.value;
   }
   let current = nodePath.parentPath;
   while (current) {
-    const node = current.node;
-    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') {
-      return node.id.name;
+    const parent = current.node;
+    if (parent.type === 'VariableDeclarator' && parent.id.type === 'Identifier') {
+      return parent.id.name;
     }
     if (
-      (node.type === 'ObjectProperty' ||
-        node.type === 'ObjectMethod' ||
-        node.type === 'ClassMethod' ||
-        node.type === 'ClassProperty') &&
-      node.key?.type === 'Identifier'
+      (parent.type === 'ObjectProperty' || parent.type === 'ClassProperty') &&
+      parent.key?.type === 'Identifier'
     ) {
-      return node.key.name;
+      return parent.key.name;
     }
     if (
-      node.type === 'CallExpression' ||
-      node.type === 'TSAsExpression' ||
-      node.type === 'TSSatisfiesExpression' ||
-      node.type === 'TSNonNullExpression' ||
-      node.type === 'ParenthesizedExpression'
+      parent.type === 'CallExpression' ||
+      parent.type === 'TSAsExpression' ||
+      parent.type === 'TSSatisfiesExpression' ||
+      parent.type === 'TSNonNullExpression' ||
+      parent.type === 'ParenthesizedExpression'
     ) {
       current = current.parentPath;
       continue;
@@ -164,7 +184,9 @@ function readCacheSlotCount(functionNode, bindingName) {
 
 /**
  * Every function in `code` that owns a `react/compiler-runtime` cache slot — i.e. every
- * function the React Compiler actually memoized.
+ * function the React Compiler actually memoized. `name` is `null` when the function cannot be
+ * named: this runs over COMPILED OUTPUT, whose line numbers differ per backend and shift on any
+ * unrelated edit, so a line number is a label and never an identity.
  */
 export function collectCompiledFunctions(code, filename = 'output.tsx') {
   const ast = parse(code, filename);
@@ -180,10 +202,7 @@ export function collectCompiledFunctions(code, filename = 'output.tsx') {
       if (memoSlots === null) {
         return;
       }
-      compiled.push({
-        memoSlots,
-        name: inferFunctionName(nodePath) ?? `(anonymous)@${nodePath.node.loc?.start.line ?? 0}`,
-      });
+      compiled.push({ memoSlots, name: inferFunctionName(nodePath) });
     },
   });
   return compiled;
@@ -286,13 +305,26 @@ function runOxc(filename, source) {
   return { code: result.code };
 }
 
-/** Inventory a single module. Throws on an unknown backend — never guesses one. */
-export function inventorySource({ backend, filename, source }) {
+/** Throws on an unknown backend — never guesses one. */
+export function assertKnownBackend(backend) {
   if (!BACKENDS.includes(backend)) {
     throw new Error(
       `Unknown React Compiler backend "${backend}". Expected one of: ${BACKENDS.join(', ')}.`
     );
   }
+}
+
+/**
+ * Whether the diff may key this record. A function with no name, or one sharing its name with
+ * another function in the same file, has no identity the diff can match across two inventories.
+ */
+function isMatchable(name, duplicateNames) {
+  return name !== null && !duplicateNames.has(name);
+}
+
+/** Inventory a single module. Throws on an unknown backend — never guesses one. */
+export function inventorySource({ backend, filename, source }) {
+  assertKnownBackend(backend);
 
   const sourceFunctions = indexSourceFunctions(source, filename);
   const functions = [];
@@ -301,12 +333,14 @@ export function inventorySource({ backend, filename, source }) {
     backend === 'babel' ? runBabel(filename, source) : runOxc(filename, source);
 
   for (const compiled of collectCompiledFunctions(code, filename)) {
-    const position = sourceFunctions.byName.get(compiled.name);
+    const name = compiled.name;
+    const position = name === null ? undefined : sourceFunctions.byName.get(name);
     functions.push({
-      ambiguousName: sourceFunctions.duplicateNames.has(compiled.name),
+      ambiguousName: name !== null && sourceFunctions.duplicateNames.has(name),
       line: position?.line ?? null,
+      matchable: isMatchable(name, sourceFunctions.duplicateNames),
       memoSlots: compiled.memoSlots,
-      name: compiled.name,
+      name: name ?? ANONYMOUS_NAME,
       status: 'compiled',
     });
   }
@@ -324,13 +358,15 @@ export function inventorySource({ backend, filename, source }) {
       const named = start
         ? sourceFunctions.byLocation.get(`${start.line}:${start.column}`)
         : undefined;
-      const name = named?.name ?? `(anonymous)@${start?.line ?? 0}`;
-      const key = `${name}@${start?.line ?? 0}:${start?.column ?? 0}`;
+      const name = named?.name ?? null;
+      // Grouping is by SOURCE location, which is a stable identity even when the name is not.
+      const key = `${name ?? ANONYMOUS_NAME}@${start?.line ?? 0}:${start?.column ?? 0}`;
       const existing = bailouts.get(key);
       const record = existing ?? {
-        ambiguousName: named?.name ? sourceFunctions.duplicateNames.has(named.name) : false,
+        ambiguousName: name !== null && sourceFunctions.duplicateNames.has(name),
         line: start?.line ?? null,
-        name,
+        matchable: isMatchable(name, sourceFunctions.duplicateNames),
+        name: name ?? ANONYMOUS_NAME,
         reasons: [],
         status: 'bailed',
       };
@@ -402,10 +438,13 @@ export function collectSourceFiles(repoRoot = REPO_ROOT, roots = SOURCE_ROOTS) {
 }
 
 export function buildInventory({ backend, repoRoot = REPO_ROOT, onProgress }) {
+  // Before the walk, not per file: the per-file try/catch below would otherwise turn a typo'd
+  // backend into one identical failure per source file and an inventory that looks empty.
+  assertKnownBackend(backend);
+
   const files = collectSourceFiles(repoRoot);
   const functions = [];
   const failures = [];
-  let bailoutReasonsSupported = true;
   let scanned = 0;
 
   for (const file of files) {
@@ -413,7 +452,6 @@ export function buildInventory({ backend, repoRoot = REPO_ROOT, onProgress }) {
     const source = readFileSync(absolute, 'utf8');
     try {
       const report = inventorySource({ backend, filename: absolute, source });
-      bailoutReasonsSupported = report.bailoutReasonsSupported;
       for (const entry of report.functions) {
         functions.push({ file, ...entry });
       }
@@ -430,11 +468,13 @@ export function buildInventory({ backend, repoRoot = REPO_ROOT, onProgress }) {
 
   return {
     backend,
-    bailoutReasonsSupported,
+    // A pure function of the backend, so it stays correct even when every file failed.
+    bailoutReasonsSupported: backend === 'babel',
     compilationMode: COMPILATION_MODE,
     failures,
     fileCount: files.length,
     functions,
+    inventoryFormat: INVENTORY_FORMAT,
     summary: {
       bailed: functions.filter((entry) => entry.status === 'bailed').length,
       compiled: functions.filter((entry) => entry.status === 'compiled').length,
@@ -442,19 +482,73 @@ export function buildInventory({ backend, repoRoot = REPO_ROOT, onProgress }) {
   };
 }
 
+const FAILURE_PREVIEW = 5;
+
+/**
+ * A file that failed to analyse is indistinguishable from a file with no compiled functions,
+ * so an inventory carrying failures cannot be reported or diffed — it would read as a
+ * confident "nothing regressed there".
+ */
+export function assertInventoryComplete(inventory, label = 'inventory') {
+  if (inventory.failures.length === 0) {
+    return;
+  }
+  const preview = inventory.failures
+    .slice(0, FAILURE_PREVIEW)
+    .map((failure) => `  ${failure.file}: ${failure.message}`)
+    .join('\n');
+  throw new Error(
+    `${inventory.failures.length} file(s) failed to analyse in the ${label} — refusing to ` +
+      `report an inventory that would read as "no compiled functions there":\n${preview}`
+  );
+}
+
+function assertDiffable(inventory, label) {
+  if (inventory.inventoryFormat !== INVENTORY_FORMAT) {
+    throw new Error(
+      `The ${label} inventory is format ${inventory.inventoryFormat ?? 'unversioned'}; this ` +
+        `script reads format ${INVENTORY_FORMAT}. Regenerate it with the current script.`
+    );
+  }
+  assertInventoryComplete(inventory, `${label} inventory`);
+}
+
+/**
+ * Compiled functions keyed by `file::name`, minus every record with no stable identity within
+ * its file. Keying an anonymous or duplicated name makes an unchanged pair report as a
+ * regression AND a win at once, so those records are dropped and counted, never folded away.
+ */
 function compiledKeys(inventory) {
+  const occurrences = new Map();
+  for (const entry of inventory.functions) {
+    if (entry.status !== 'compiled' || !entry.matchable) {
+      continue;
+    }
+    const key = `${entry.file}::${entry.name}`;
+    occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
+  }
+
   const keys = new Map();
+  let unmatchable = 0;
   for (const entry of inventory.functions) {
     if (entry.status !== 'compiled') {
       continue;
     }
-    keys.set(`${entry.file}::${entry.name}`, entry);
+    const key = `${entry.file}::${entry.name}`;
+    if (!entry.matchable || occurrences.get(key) > 1) {
+      unmatchable += 1;
+      continue;
+    }
+    keys.set(key, entry);
   }
-  return keys;
+  return { keys, unmatchable };
 }
 
 /** Regressions are functions that compiled in `baseline` and no longer compile in `candidate`. */
 export function diffInventories(baseline, candidate) {
+  assertDiffable(baseline, 'baseline');
+  assertDiffable(candidate, 'candidate');
+
   const before = compiledKeys(baseline);
   const after = compiledKeys(candidate);
 
@@ -463,21 +557,21 @@ export function diffInventories(baseline, candidate) {
   const stillBailed = [];
   let unchanged = 0;
 
-  for (const [key, entry] of before) {
-    if (after.has(key)) {
+  for (const [key, entry] of before.keys) {
+    if (after.keys.has(key)) {
       unchanged += 1;
       continue;
     }
     regressions.push({ key, ...entry });
   }
-  for (const [key, entry] of after) {
-    if (!before.has(key)) {
+  for (const [key, entry] of after.keys) {
+    if (!before.keys.has(key)) {
       wins.push({ key, ...entry });
     }
   }
   for (const entry of baseline.functions) {
     const key = `${entry.file}::${entry.name}`;
-    if (entry.status === 'bailed' && !after.has(key)) {
+    if (entry.status === 'bailed' && entry.matchable && !after.keys.has(key)) {
       stillBailed.push({ key, ...entry });
     }
   }
@@ -488,6 +582,7 @@ export function diffInventories(baseline, candidate) {
     regressions,
     stillBailed,
     unchanged,
+    unmatchable: { baseline: before.unmatchable, candidate: after.unmatchable },
     wins,
   };
 }
@@ -534,6 +629,10 @@ async function main(argv) {
       `${diff.stillBailed.length} function(s) bailed under ${diff.baselineBackend} and are ` +
         `still not memoized under ${diff.candidateBackend}\n`
     );
+    process.stdout.write(
+      `${diff.unmatchable.baseline} baseline and ${diff.unmatchable.candidate} candidate ` +
+        'compiled function(s) have no stable name and are outside this comparison\n'
+    );
     if (diff.regressions.length > 0) {
       throw new Error(`${diff.regressions.length} function(s) regressed from compiled to bailed`);
     }
@@ -541,6 +640,7 @@ async function main(argv) {
   }
 
   const backend = requireFlag(argv, '--backend');
+  assertKnownBackend(backend);
   const out = requireFlag(argv, '--out');
   const started = Date.now();
   const inventory = buildInventory({
@@ -552,6 +652,9 @@ async function main(argv) {
     },
   });
   inventory.elapsedMs = Date.now() - started;
+  // Nothing is written when part of the tree failed to analyse: the file would otherwise be a
+  // usable-looking baseline whose gaps read as "no compiled functions there".
+  assertInventoryComplete(inventory);
   writeJson(out, inventory);
   process.stdout.write(
     `${backend}: ${inventory.fileCount} files, ${inventory.summary.compiled} compiled, ` +

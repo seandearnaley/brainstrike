@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-const { collectCompiledFunctions, diffInventories, inventorySource, BACKENDS } = await import(
-  '../react-compiler-inventory.mjs'
-);
+const {
+  assertInventoryComplete,
+  buildInventory,
+  collectCompiledFunctions,
+  diffInventories,
+  inventorySource,
+  BACKENDS,
+  INVENTORY_FORMAT,
+} = await import('../react-compiler-inventory.mjs');
+
+/** A minimal well-formed inventory: the diff refuses anything it cannot read. */
+function inventory(backend, functions) {
+  return { backend, failures: [], functions, inventoryFormat: INVENTORY_FORMAT };
+}
 
 const COMPILED_OUTPUT = `
 import { c as _c } from "react/compiler-runtime";
@@ -58,21 +69,21 @@ test('collectCompiledFunctions follows a renamed compiler-runtime binding', () =
 });
 
 test('diffInventories names regressions and wins in both directions', () => {
-  const baseline = {
-    backend: 'babel',
-    functions: [
-      { file: 'a.tsx', name: 'Kept', status: 'compiled' },
-      { file: 'a.tsx', name: 'Lost', status: 'compiled' },
-      { file: 'a.tsx', name: 'StillBailed', reason: 'Todo: ??=', status: 'bailed' },
-    ],
-  };
-  const candidate = {
-    backend: 'oxc',
-    functions: [
-      { file: 'a.tsx', name: 'Kept', status: 'compiled' },
-      { file: 'a.tsx', name: 'Gained', status: 'compiled' },
-    ],
-  };
+  const baseline = inventory('babel', [
+    { file: 'a.tsx', matchable: true, name: 'Kept', status: 'compiled' },
+    { file: 'a.tsx', matchable: true, name: 'Lost', status: 'compiled' },
+    {
+      file: 'a.tsx',
+      matchable: true,
+      name: 'StillBailed',
+      reason: 'Todo: ??=',
+      status: 'bailed',
+    },
+  ]);
+  const candidate = inventory('oxc', [
+    { file: 'a.tsx', matchable: true, name: 'Kept', status: 'compiled' },
+    { file: 'a.tsx', matchable: true, name: 'Gained', status: 'compiled' },
+  ]);
 
   const diff = diffInventories(baseline, candidate);
 
@@ -99,6 +110,122 @@ test('an unknown backend throws instead of silently picking one', () => {
     /Unknown React Compiler backend "swc"/u
   );
   assert.deepEqual(BACKENDS, ['babel', 'oxc']);
+});
+
+test('buildInventory rejects an unknown backend BEFORE it scans a single file', () => {
+  // The per-file try/catch used to funnel this throw into `failures`, so a typo'd --backend
+  // produced one identical failure per source file, wrote the JSON, and exited 0.
+  assert.throws(
+    () =>
+      buildInventory({ backend: 'swc', repoRoot: '/react-compiler-inventory-no-such-repo-root' }),
+    /Unknown React Compiler backend "swc"/u
+  );
+});
+
+test('an inventory with analysis failures is refused, not reported as an absence', () => {
+  assert.throws(
+    () =>
+      assertInventoryComplete({
+        failures: [{ file: 'a.tsx', message: 'Unexpected token' }],
+        summary: { bailed: 0, compiled: 0 },
+      }),
+    /1 file\(s\) failed to analyse/u
+  );
+  assert.equal(
+    assertInventoryComplete({ failures: [], summary: { bailed: 0, compiled: 0 } }),
+    undefined
+  );
+});
+
+const METHOD_OUTPUT = `
+import { c as _c } from "react/compiler-runtime";
+export const handlers = {
+  Row(t0) {
+    const $ = _c(2);
+    return $[0];
+  },
+};
+export class Panel {
+  Body(t0) {
+    const $ = _c(3);
+    return $[0];
+  }
+}
+`;
+
+test('collectCompiledFunctions names object and class methods from their own key', () => {
+  // `ObjectMethod`/`ClassMethod` ARE the function node, so the parent walk starts at
+  // `ObjectExpression`/`ClassBody` and never sees the key. They used to land in the
+  // anonymous bucket, which the diff cannot match across backends.
+  assert.deepEqual(
+    collectCompiledFunctions(METHOD_OUTPUT).map((entry) => entry.name),
+    ['Row', 'Body']
+  );
+});
+
+const ANONYMOUS_OUTPUT = `
+import { c as _c } from "react/compiler-runtime";
+export default function (t0) {
+  const $ = _c(2);
+  return $[0];
+}
+`;
+
+test('collectCompiledFunctions reports an unnameable function as null, never as a line number', () => {
+  // This runs over COMPILED OUTPUT: an output line number is not an identity. Babel and oxc
+  // emit different layouts, so naming by line makes an identical pair of inventories report
+  // the same function as both a regression and a win.
+  assert.deepEqual(
+    collectCompiledFunctions(ANONYMOUS_OUTPUT).map((entry) => entry.name),
+    [null]
+  );
+});
+
+test('diffInventories drops records it cannot identify instead of inventing a key', () => {
+  const baseline = inventory('babel', [
+    { file: 'a.tsx', line: 12, matchable: false, name: '(anonymous)', status: 'compiled' },
+    { file: 'a.tsx', line: 1, matchable: true, name: 'Kept', status: 'compiled' },
+    { file: 'a.tsx', line: 20, matchable: false, name: 'Twin', status: 'compiled' },
+    { file: 'a.tsx', line: 40, matchable: false, name: 'Twin', status: 'compiled' },
+  ]);
+  const candidate = inventory('oxc', [
+    { file: 'a.tsx', line: 31, matchable: false, name: '(anonymous)', status: 'compiled' },
+    { file: 'a.tsx', line: 1, matchable: true, name: 'Kept', status: 'compiled' },
+    { file: 'a.tsx', line: 20, matchable: false, name: 'Twin', status: 'compiled' },
+    { file: 'a.tsx', line: 40, matchable: false, name: 'Twin', status: 'compiled' },
+  ]);
+
+  const diff = diffInventories(baseline, candidate);
+
+  assert.deepEqual(diff.regressions, []);
+  assert.deepEqual(diff.wins, []);
+  assert.equal(diff.unchanged, 1);
+  assert.deepEqual(diff.unmatchable, { baseline: 3, candidate: 3 });
+});
+
+test('diffInventories refuses an inventory written by an older script', () => {
+  const stale = { backend: 'babel', failures: [], functions: [] };
+  assert.throws(
+    () => diffInventories(stale, inventory('oxc', [])),
+    /baseline inventory is format unversioned/u
+  );
+  assert.throws(
+    () => diffInventories(inventory('babel', []), stale),
+    /candidate inventory is format unversioned/u
+  );
+});
+
+test('diffInventories refuses an inventory that failed to analyse part of the tree', () => {
+  const broken = {
+    backend: 'oxc',
+    failures: [{ file: 'a.tsx', message: 'Unexpected token' }],
+    functions: [],
+    inventoryFormat: INVENTORY_FORMAT,
+  };
+  assert.throws(
+    () => diffInventories(inventory('babel', []), broken),
+    /1 file\(s\) failed to analyse/u
+  );
 });
 
 const MIXED_FIXTURE = `
