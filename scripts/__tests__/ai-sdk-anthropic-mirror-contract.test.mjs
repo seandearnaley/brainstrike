@@ -135,25 +135,26 @@ const CLOSING_BRACKETS = new Map([
 /**
  * Whether the character at `index` closes the innermost open bracket.
  *
- * The `=` check is why this is a function rather than an inline comparison. In a
- * `.d.ts`, `>` is both a generic's closer and the tail of `=>`, so a function
- * type nested directly inside a generic — `z.ZodType<(a: string) => void>` —
- * would pop the `<` frame one bracket early.
+ * There is deliberately NO special case for the `>` of an arrow type, and the
+ * reason is a proof rather than a measurement. An earlier version carried one
+ * defensively, on the theory that `z.ZodType<() => void>` could pop the frame
+ * `<` opened and truncate the slice.
  *
- * Stated honestly: this is DEFENSIVE, not a proven fix. Probed with and without
- * it against `z.ZodType<() => void>`, the same with a braced parameter, and both
- * before and after the `thinking` field — identical extraction every time,
- * because the mis-pop is self-correcting (the type's real `>` then matches
- * nothing and is skipped). No failing shape could be constructed, so unlike
- * `stripBlockComments` there is no test that goes red without it. It costs one
- * branch and removes the class; the pinned real-tree assertions remain the thing
- * that would actually catch a desync.
+ * It cannot, at any call site in this file. Truncation requires the mis-pop to
+ * EMPTY the stack, so the outermost opener handed to `sliceBalanced` would have
+ * to be `<`. Every entry point opens a brace or a square bracket instead — the
+ * options declaration, the discriminated union, each union member, and each
+ * enum body. So an arrow's `>` can only pop an INNER `<` frame, after which the
+ * type's own closing `>` matches nothing and is skipped, and the slice still
+ * ends at the right outermost closer.
+ *
+ * That is why no fixture could be built that went red without the guard: it was
+ * unreachable. It is removed rather than kept as code no test can exercise. If a
+ * call site is ever added that opens with an angle bracket, this reasoning
+ * expires with it.
  */
 function isCloser(source, index, stack) {
-  if (stack.length === 0 || source[index] !== stack.at(-1)) {
-    return false;
-  }
-  return !(source[index] === '>' && source[index - 1] === '=');
+  return stack.length > 0 && source[index] === stack.at(-1);
 }
 
 /**
