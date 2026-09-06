@@ -279,13 +279,19 @@ describe('resolveValidatedPath', () => {
   // merely proving the call does not throw. `platform` is pinned so the unix
   // system-directory check behaves identically on every CI runner.
   it('resolves a would-be sensitive user path when HOME and USERPROFILE are absent', async () => {
-    const originalHome = process.env['HOME'];
-    const originalUserProfile = process.env['USERPROFILE'];
-
-    vi.stubEnv('HOME', undefined as unknown as string);
-    vi.stubEnv('USERPROFILE', undefined as unknown as string);
-
     try {
+      vi.stubEnv('HOME', undefined);
+      vi.stubEnv('USERPROFILE', undefined);
+
+      // Self-guarding, because this test is worthless if the stub does not
+      // truly unset. `vi.stubEnv(name, undefined)` DELETES the key; if it ever
+      // regressed to assigning the string "undefined", `isSensitiveUserPath`
+      // would take its home-PRESENT branch, `path.join('undefined', '.ssh')`
+      // would not throw, and the mutant this test exists to kill would survive
+      // a green run — coverage that looks earned and is not. Fail here first.
+      expect(process.env['HOME']).toBeUndefined();
+      expect(process.env['USERPROFILE']).toBeUndefined();
+
       const wouldBeSensitive = path.join(tempDir, '.ssh', 'id_rsa');
 
       const result = await resolveValidatedPath({
@@ -294,14 +300,17 @@ describe('resolveValidatedPath', () => {
         requestedPath: wouldBeSensitive,
       });
 
+      // No `rootDir`, so with `allowMissing` the validator returns the
+      // resolved candidate before it ever calls `fs.realpath`. That is why
+      // this compares against `path.resolve` and not the realpath the
+      // rootDir-based tests above use: on macOS `os.tmpdir()` sits under a
+      // /var -> /private/var symlink, and realpathing here would compare the
+      // wrong thing.
       expect(result).toEqual({ ok: true, path: path.resolve(wouldBeSensitive) });
     } finally {
-      if (originalHome !== undefined) {
-        process.env['HOME'] = originalHome;
-      }
-      if (originalUserProfile !== undefined) {
-        process.env['USERPROFILE'] = originalUserProfile;
-      }
+      // `vi.unstubAllEnvs()` restores from the snapshot taken at stub time; a
+      // manual save/restore alongside it would be dead code, since this runs
+      // last and overwrites it either way.
       vi.unstubAllEnvs();
     }
   });
