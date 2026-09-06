@@ -16,9 +16,12 @@ export function getActiveRootHandles(args: {
 }
 
 /**
- * Stable identity for a mounted root: the adapter root id when one is known,
- * otherwise the path. Two handles for the same root compare equal across
- * re-renders even when the object identity changes.
+ * Stable identity for a mounted root. Keys on BOTH the adapter root id (when
+ * one is known, else null) AND the path — not one or the other. Including both
+ * is deliberate: two roots can share a path with different ids, or share an id
+ * with different paths, and either collision would make distinct roots compare
+ * equal. Two handles for the same root compare equal across re-renders even
+ * when the object identity changes.
  */
 export function createMountedRootIdentityKey(
   handle: DirectoryHandle,

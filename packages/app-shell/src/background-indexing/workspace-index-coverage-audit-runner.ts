@@ -1,3 +1,20 @@
+/**
+ * Coverage-audit ORCHESTRATION.
+ *
+ * This is the outer half of a two-layer audit and is deliberately NOT merged
+ * with `./workspace-index-coverage-audit`, which owns the pure primitives
+ * (expected-file construction, missing-file resolution, gap classification).
+ * Everything here is orchestration those primitives must not know about:
+ * assembling audit targets from the mounted roots, treating an unresolved db
+ * root id or a truncated directory enumeration as first-class *unverifiable*
+ * outcomes rather than gaps, composing user-facing messages and status
+ * patches, and keying recovery attempts so one incomplete result triggers at
+ * most one recovery sync.
+ *
+ * It lived inline in `workspace-collection-sync-provider.tsx` and never needed
+ * React (BST-1654).
+ */
+
 import type { WorkspaceCollectionSyncStatusPatch } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
@@ -19,22 +36,6 @@ import { countExpectedWorkspaceIndexFiles } from './workspace-index-debug-harnes
 // keeps this scope from its own file.
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 
-/**
- * Coverage-audit ORCHESTRATION.
- *
- * This is the outer half of a two-layer audit and is deliberately NOT merged
- * with `./workspace-index-coverage-audit`, which owns the pure primitives
- * (expected-file construction, missing-file resolution, gap classification).
- * Everything here is orchestration those primitives must not know about:
- * assembling audit targets from the mounted roots, treating an unresolved db
- * root id or a truncated directory enumeration as first-class *unverifiable*
- * outcomes rather than gaps, composing user-facing messages and status
- * patches, and keying recovery attempts so one incomplete result triggers at
- * most one recovery sync.
- *
- * It lived inline in `workspace-collection-sync-provider.tsx` and never needed
- * React (BST-1654).
- */
 export const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
   'Verifying Workspace Index coverage before reporting idle.';
 
