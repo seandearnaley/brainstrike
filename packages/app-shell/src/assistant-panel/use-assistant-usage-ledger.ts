@@ -304,34 +304,57 @@ export function useAssistantUsageLedger({
         useContextUsageStore.getState().clearLiveRunUsage(threadId);
         return;
       }
-      assistantThreadRepository
-        .recordRunUsage({
-          ...(usage.billedCostUsd === undefined ? {} : { billedCostUsd: usage.billedCostUsd }),
-          ...pickCacheTokenFields(usage),
-          inputTokens: usage.inputTokens,
-          model: runContext.model,
-          outputTokens: usage.outputTokens,
-          provider: runContext.provider,
-          resourceId: memoryResourceId,
-          // Request-start root (null when unattributed) — same snapshot source
-          // as model/provider, so cost is attributable per workspace root.
-          rootId: runContext.rootId,
-          runId: runContext.runId,
-          threadId: selectedMemoryThreadId,
-        })
-        // Re-read the cumulative total from the write's OWN completion so the
-        // SELECT provably follows the INSERT (not racing it on the PGlite queue).
-        .then(() => refreshCumulativeUsage())
-        .catch((error: unknown) => {
-          // Never swallow silently — durable usage is best-effort relative to the
-          // turn, but a failure must be observable.
-          assistantUsageWriteBackLogger.warn('Failed to persist durable run usage', { error });
-        })
-        // Clear the live sum only AFTER the refreshed cumulative absorbed the
-        // run's row (clearing earlier makes the thread total dip and jump).
-        .finally(() => {
-          useContextUsageStore.getState().clearLiveRunUsage(threadId);
+      // From here the run has stopped streaming, so `thread.isRunning` is already
+      // false, but the live sum must stay visible until the refreshed cumulative
+      // absorbs the row below. Claimed only now, past the no-sink guard: without a
+      // durable write there is no window to protect. The release is structural —
+      // `finally` for the chain, `catch` for a SYNCHRONOUS throw that never
+      // reaches it — because a claim that outlives its sum is strictly worse than
+      // no claim at all: it holds the reader gate open on an idle thread and the
+      // headline stays inflated until some later run on that thread settles.
+      try {
+        // Inside the `try`: zustand assigns the next state and THEN notifies
+        // synchronously, so a throwing subscriber escapes `set` with the claim
+        // already taken. Clearing when nothing was claimed is a defined no-op,
+        // so one `catch` covers both "claimed then threw" and "never claimed".
+        useContextUsageStore.getState().beginLiveRunUsageSettle(threadId);
+        assistantThreadRepository
+          .recordRunUsage({
+            ...(usage.billedCostUsd === undefined ? {} : { billedCostUsd: usage.billedCostUsd }),
+            ...pickCacheTokenFields(usage),
+            inputTokens: usage.inputTokens,
+            model: runContext.model,
+            outputTokens: usage.outputTokens,
+            provider: runContext.provider,
+            resourceId: memoryResourceId,
+            // Request-start root (null when unattributed) — same snapshot source
+            // as model/provider, so cost is attributable per workspace root.
+            rootId: runContext.rootId,
+            runId: runContext.runId,
+            threadId: selectedMemoryThreadId,
+          })
+          // Re-read the cumulative total from the write's OWN completion so the
+          // SELECT provably follows the INSERT (not racing it on the PGlite queue).
+          .then(() => refreshCumulativeUsage())
+          .catch((error: unknown) => {
+            // Never swallow silently — durable usage is best-effort relative to the
+            // turn, but a failure must be observable.
+            assistantUsageWriteBackLogger.warn('Failed to persist durable run usage', { error });
+          })
+          // Clear the live sum only AFTER the refreshed cumulative absorbed the
+          // run's row (clearing earlier makes the thread total dip and jump).
+          .finally(() => {
+            useContextUsageStore.getState().clearLiveRunUsage(threadId);
+          });
+      } catch (error) {
+        // A SYNCHRONOUS throw never reaches the chain's `finally`, so the claim
+        // would outlive the sum and hold the gate open on an idle thread.
+        // Release FIRST: a throwing logger must not be what strands it.
+        useContextUsageStore.getState().clearLiveRunUsage(threadId);
+        assistantUsageWriteBackLogger.warn('Failed to start the durable run usage write', {
+          error,
         });
+      }
     },
     [
       assistantThreadRepository,

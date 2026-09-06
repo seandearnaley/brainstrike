@@ -306,6 +306,44 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     expect(screen.getByTestId('context-usage-cost')).not.toHaveTextContent(/excl\. live/);
   });
 
+  it('keeps the live sum through the settle window after the stream finishes (BST-1652)', () => {
+    // `isRunning` goes false at STREAM FINISH, but the writer holds the live sum
+    // until the durable row is absorbed by a refreshed cumulative. Gating on
+    // `isRunning` alone drops the whole run from the headline for that window and
+    // jumps it back when the refresh lands — the dip the writer's ordering exists
+    // to prevent, on EVERY run rather than in an edge case.
+    act(() => {
+      useContextUsageStore
+        .getState()
+        .recordLiveStepUsage('t1', { inputTokens: 90_000, outputTokens: 10_000 });
+      useContextUsageStore.getState().beginLiveRunUsageSettle('t1');
+    });
+    render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} isRunning={false} />);
+    const trigger = screen.getByTestId('context-usage-trigger');
+    // Still the WITH-live figure, exactly as while streaming — no dip to 1.1M.
+    expect(trigger).toHaveTextContent(/1\.2M tokens/);
+    expect(trigger).toHaveTextContent(/live/);
+  });
+
+  it('drops the live sum once the settle completes, without a second clear call', () => {
+    // The settle claim exists only to keep this sum visible, so releasing the sum
+    // must release the claim — otherwise a stranded sum could hide behind a
+    // settle marker no one clears, which is the bug the `isRunning` gate closed.
+    act(() => {
+      useContextUsageStore
+        .getState()
+        .recordLiveStepUsage('t1', { inputTokens: 90_000, outputTokens: 10_000 });
+      useContextUsageStore.getState().beginLiveRunUsageSettle('t1');
+      useContextUsageStore.getState().clearLiveRunUsage('t1');
+    });
+    expect(useContextUsageStore.getState().settlingRunUsageByThread).toEqual({});
+
+    render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} isRunning={false} />);
+    const trigger = screen.getByTestId('context-usage-trigger');
+    expect(trigger).toHaveTextContent(/1\.1M tokens/);
+    expect(trigger).not.toHaveTextContent(/live/);
+  });
+
   it('shows the live headline during a NEW thread first run (zero durable baseline)', () => {
     // A repo-backed thread with no rows yet supplies the honest ZERO baseline
     // (EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY in app-shell) — the first run's

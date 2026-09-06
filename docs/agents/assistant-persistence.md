@@ -860,13 +860,34 @@ Runtime invariants:
   settle-clear both land on the newly selected thread.
   A fourth path used to sweep on thread selection; BST-1652 replaced it with a
   READER-side gate, because a sweep is an effect and an effect fires after
-  paint. `ContextUsageMeter` gates the recorded sum on `isRunning` and passes
-  the gated value to the popover. **The gate and the run-start reset are a
-  required pair and neither covers the other's case**: the gate hides a
-  stranded sum while the thread is idle, and the reset removes it before the
-  next run on that thread can expose and accumulate onto it. Without the reset,
-  a new run re-opens the gate on the retained tokens and the headline stays
-  inflated with its cost suppressed for the whole run. A repo-backed
+  paint. `ContextUsageMeter` gates the recorded sum on `isRunning === true ||
+  settlingRunUsageByThread[key]` and passes the gated value to the popover.
+  **The gate and the run-start reset are a required pair and neither covers the
+  other's case**: the gate hides a stranded sum while the thread is idle, and
+  the reset removes it before the next run on that thread can expose and
+  accumulate onto it. Without the reset, a new run re-opens the gate on the
+  retained tokens and the headline stays inflated with its cost suppressed for
+  the whole run.
+  The settle marker is the gate's other half, and it is not optional:
+  `isRunning` goes false at STREAM FINISH, while `handleUsage` deliberately
+  holds the live sum until the post-write refresh absorbs the row. Gating on
+  `isRunning` alone drops the whole run from the headline for that window and
+  jumps it back when the refresh lands — the same dip the write ordering exists
+  to prevent, on EVERY run rather than in an edge case. `handleUsage` claims
+  the window with `beginLiveRunUsageSettle` once past the no-sink guard —
+  without a durable write there is nothing to protect — and the release is
+  STRUCTURAL: the chain's `finally` plus a `catch` for a synchronous throw that
+  never reaches it. That is not belt-and-braces. A claim that outlives its sum
+  is strictly worse than no claim, because it holds the gate open on an idle
+  thread and the headline stays inflated until some later run on that thread
+  settles; the run-start reset is the second self-heal, since
+  `clearLiveRunUsage` drops the marker together with the sum.
+  The claim is keyed to the SELECTED thread, like every other write here
+  (`selectedMemoryThreadId ?? 'active'`), so the thread a user walked away from
+  mid-stream never enters the window — but the claim for the finishing run
+  lands on whatever thread is selected when it settles. A stranded sum on THAT
+  thread is briefly visible for the duration of the durable write, then wiped
+  by the same `clearLiveRunUsage`. A repo-backed
   thread with no rows yet hydrates the honest ZERO baseline
   (`EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY`) so the FIRST run's live steps
   render as the thread total; a failed load stays null (never $0). While live
