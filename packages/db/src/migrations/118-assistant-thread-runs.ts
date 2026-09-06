@@ -14,6 +14,19 @@ import type { Migration } from './migration-runner';
  * which is what turns a schema mismatch from a silent, latent corruption into a
  * named, immediate error (`AssistantMemorySchemaMissingError`).
  *
+ * THE UPGRADE PATH DECIDES THE SHAPE OF THIS MIGRATION. Every install that has
+ * ever run the assistant already has both relations, created by the bootstrap
+ * this ticket retired, and this migration runs over them. A bare `CREATE TABLE`
+ * would error there — for every existing user — so it is not an option. The
+ * conditional create skips instead, and skipping is only correct because the
+ * statements below then apply every difference between what a shipped bootstrap
+ * era left and what this migration declares. That convergence is verified, not
+ * assumed: `assistant-run-schema-upgrade-path.test.ts` seeds each shipped era,
+ * runs the chain, and requires the resulting catalog — columns with their
+ * ORDINALS, indexes, and constraints — to equal a freshly-migrated one. Any
+ * column added here later needs its matching `ALTER` or that test goes red,
+ * which is the point.
+ *
  * ADDITIVE STATEMENTS ARE LOAD-BEARING, not defensive noise. An install that
  * predates BST-1163 has a `thread_runs` table without `turn_message_id`, and
  * `CREATE TABLE IF NOT EXISTS` will not add it — the `ALTER … ADD COLUMN IF NOT
