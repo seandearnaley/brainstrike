@@ -221,6 +221,66 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
     expect(actual.delegation).toBeDefined();
   });
 
+  /**
+   * BST-1649 review finding 2, second half: the per-leg parity cases run on a
+   * `{ provider: 'anthropic' }` fixture, and several fragments return `{}` for
+   * it. A fragment that contributes nothing is a fragment the whole-object
+   * comparison cannot see — deleting
+   * `...buildGenerationProviderOptionsOption(runtimeData)` from
+   * `buildStreamOptions` left the entire suite green, because both sides were
+   * spreading the same empty object.
+   *
+   * This case runs the comparison on a fixture where every data-valued
+   * fragment yields a distinguishable key, and pins that fact first, so a
+   * future fixture edit that quietly re-empties one fails HERE rather than
+   * turning the oracle vacuous again. The closure-valued fragments
+   * (`experimental_generateMessageId`, `delegation`) stay out for the reason
+   * the module docblock gives: a fresh closure is never `toEqual` another.
+   */
+  it('compares an object every data-valued fragment actually contributes to', () => {
+    const runtimeData = {
+      agentLoop: { inputTokenLimit: 4096, maxSteps: 7 },
+      modelSettings: { temperature: 0.3 },
+      provider: 'anthropic',
+      providerOptions: { anthropic: { thinking: { budgetTokens: 1024, type: 'enabled' } } },
+    } as unknown as RuntimeData;
+    const runtime = makeRuntime();
+    const abortSignal = new AbortController().signal;
+    const memoryOption = { resource: 'thread-1', thread: 'thread-1' };
+
+    const expected = {
+      ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
+      abortSignal,
+      memory: memoryOption,
+      ...buildModelSettingsOption(runtimeData),
+      ...buildGenerationProviderOptionsOption(runtimeData),
+    };
+
+    // The oracle is only as good as the keys it carries. Assert the coverage
+    // BEFORE the equality, so an empty fragment cannot pass as agreement.
+    expect(Object.keys(expected).sort()).toEqual([
+      'abortSignal',
+      'inputProcessors',
+      'maxSteps',
+      'memory',
+      'modelSettings',
+      'providerOptions',
+    ]);
+
+    const actual = buildStreamOptions({
+      abortSignal,
+      delegationOutcomes: undefined,
+      delegationUsage: undefined,
+      leg: 'initial',
+      memoryOption,
+      requireToolApproval: undefined,
+      runtime,
+      runtimeData,
+    });
+
+    expect(actual).toEqual(expected);
+  });
+
   it('builds no delegation config when delegationUsage is absent', () => {
     const createDelegationConfigSpy = vi.spyOn(subagentDelegation, 'createDelegationConfig');
     const runtime = makeRuntime();
