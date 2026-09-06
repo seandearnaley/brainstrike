@@ -34,6 +34,13 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // compared, because both mirrors hand-copy `'omitted' | 'summarized'` and the
 // app emits those at runtime — a release re-spelling them while leaving the
 // `adaptive` discriminant alone would otherwise pass.
+//
+// 4.0.49 added a SECOND, undiscriminated member alongside the discriminated
+// union: `{ type?: never; blockBinding: … }`, a shape that carries no `type`
+// literal at all. It is outside this contract's scope by construction — there
+// is no discriminant to compare — and the mirrors deliberately do not grow it
+// here. Adopting `blockBinding` is a feature decision about what the app emits,
+// not a drift this guard is entitled to force.
 const PROVIDER_PACKAGE = '@ai-sdk/anthropic';
 const MIRROR_ROOTS = ['apps', 'packages'];
 const MIRROR_ROOT_LABEL = MIRROR_ROOTS.map((root) => `${root}/*/src`).join(' or ');
@@ -118,35 +125,135 @@ function unique(values) {
   return [...new Set(values)].sort();
 }
 
+const CLOSING_BRACKETS = new Map([
+  ['<', '>'],
+  ['[', ']'],
+  ['{', '}'],
+  ['(', ')'],
+]);
+
 /**
- * The `display` values of the upstream `adaptive` variant.
+ * The text inside the bracket that opens at `openIndex`, or `null` when the
+ * source never balances.
  *
- * Scoped to that variant rather than searched across the whole `thinking`
- * block: `display` is currently unique to `adaptive`, but a future release
- * adding a same-named field to another variant must not silently merge into
- * this set. The slice runs from the `adaptive` discriminant to the `$strip`
- * marker that closes its ZodObject.
+ * Anchored regexes stopped being able to read this declaration at 4.0.49:
+ * `thinking` is no longer a bare `ZodDiscriminatedUnion` but a `ZodUnion`
+ * wrapping one plus an undiscriminated sibling, so the union body sits two
+ * bracket levels deeper and a lazy `[\s\S]*?` stops at whichever `]>>;` comes
+ * first rather than at the matching one. A depth scan reads the real nesting;
+ * `null` on an unbalanced source keeps the failure loud rather than handing
+ * back a truncated slice that parses into a plausible-looking subset.
  */
-function extractUpstreamAdaptiveDisplay(thinkingBlock) {
-  const adaptiveStart = thinkingBlock.indexOf('type: z.ZodLiteral<"adaptive">');
-  if (adaptiveStart === -1) {
+function sliceBalanced(source, openIndex) {
+  const stack = [];
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index];
+    const closing = CLOSING_BRACKETS.get(char);
+    if (closing !== undefined) {
+      stack.push(closing);
+      continue;
+    }
+    if (stack.length > 0 && char === stack.at(-1)) {
+      stack.pop();
+      if (stack.length === 0) {
+        return source.slice(openIndex + 1, index);
+      }
+    }
+  }
+  return null;
+}
+
+/** The balanced body of the first `bracket` that follows `marker`. */
+function sliceAfter(source, marker, bracket) {
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) {
+    return null;
+  }
+  const openIndex = source.indexOf(bracket, markerIndex + marker.length);
+  return openIndex === -1 ? null : sliceBalanced(source, openIndex);
+}
+
+/**
+ * Splits on `separator` occurrences sitting at bracket depth 0.
+ *
+ * This is what lets the extractor talk about a declaration's OWN members:
+ * `anthropicLanguageModelOptions` nests a second `thinking` field inside
+ * `fallbacks`, and the `adaptive` variant nests a `blockBinding` object, so a
+ * flat scan would fold those into the top-level answer.
+ */
+function splitTopLevel(source, separator) {
+  const parts = [];
+  const stack = [];
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const closing = CLOSING_BRACKETS.get(char);
+    if (closing !== undefined) {
+      stack.push(closing);
+      continue;
+    }
+    if (stack.length > 0 && char === stack.at(-1)) {
+      stack.pop();
+      continue;
+    }
+    if (stack.length === 0 && char === separator) {
+      parts.push(source.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(source.slice(start));
+  return parts;
+}
+
+/** The `name -> type expression` pairs declared directly in a `{…}` type body. */
+function topLevelFields(objectBody) {
+  const fields = new Map();
+  for (const declaration of splitTopLevel(objectBody, ';')) {
+    const named = /^\s*(?<name>[A-Za-z_$][\w$]*)\??:(?<type>[\s\S]*)$/u.exec(declaration);
+    if (named) {
+      fields.set(named.groups.name, named.groups.type);
+    }
+  }
+  return fields;
+}
+
+/**
+ * The literal values of a `z.ZodEnum<{…}>` type expression.
+ *
+ * Tolerates a `ZodOptional` (or any other) wrapper on purpose: this contract
+ * compares VALUES, never optionality.
+ */
+function extractZodEnumValues(typeExpression) {
+  const enumBody = sliceAfter(typeExpression, 'z.ZodEnum<', '{');
+  return unique(
+    [...(enumBody ?? '').matchAll(/: "(?<value>[^"]+)"/gu)].map((match) => match.groups.value)
+  );
+}
+
+/**
+ * The top-level fields of each member of the `thinking` discriminated union.
+ *
+ * Reads the `ZodDiscriminatedUnion` specifically rather than the whole
+ * `thinking` expression, so the undiscriminated `blockBinding`-only sibling
+ * 4.0.49 added is not mistaken for a variant, and so the `display` compared
+ * below is unambiguously the `adaptive` one — a future release adding a
+ * same-named field to another variant must not silently merge into that set.
+ */
+function extractUpstreamThinkingVariants(thinkingType) {
+  const unionMembers = sliceAfter(thinkingType, 'z.ZodDiscriminatedUnion<', '[');
+  if (unionMembers === null) {
     return [];
   }
-  const adaptiveEnd = thinkingBlock.indexOf('z.core.$strip>', adaptiveStart);
-  const adaptiveBlock = thinkingBlock.slice(
-    adaptiveStart,
-    adaptiveEnd === -1 ? undefined : adaptiveEnd
-  );
-  // Tolerates `display` becoming required: only the ZodEnum body is required to
-  // match, not the ZodOptional wrapper.
-  const displayBlock = /display: (?:z\.ZodOptional<)?z\.ZodEnum<\{(?<body>[\s\S]*?)\}>/u.exec(
-    adaptiveBlock
-  );
-  return unique(
-    [...(displayBlock?.groups?.body ?? '').matchAll(/: "(?<value>[^"]+)";/gu)].map(
-      (match) => match.groups.value
-    )
-  );
+  return splitTopLevel(unionMembers, ',')
+    .map((member) => sliceAfter(member, 'z.ZodObject<', '{'))
+    .filter((body) => body !== null)
+    .map((body) => topLevelFields(body));
+}
+
+/** The `type: z.ZodLiteral<"…">` discriminant of one union variant, if it has one. */
+function readDiscriminant(variantFields) {
+  const literal = /^\s*z\.ZodLiteral<"(?<value>[^"]+)">\s*$/u.exec(variantFields.get('type') ?? '');
+  return literal?.groups?.value ?? null;
 }
 
 /**
@@ -178,37 +285,27 @@ function extractMirrorAdaptiveDisplay(thinkingBody) {
  * `dist/index.d.ts` is the right source rather than `src/`: it is what `tsc`
  * loads for our code, so it is the shape the mirrors are actually claiming to
  * match. Both properties are read out of the `anthropicLanguageModelOptions`
- * declaration specifically — `thinking` also appears further down the same file
- * as an unrelated `ZodRecord` on the raw request body.
+ * declaration specifically, and out of its OWN top-level fields — `thinking`
+ * appears again inside that declaration's `fallbacks` entry as a `ZodRecord`,
+ * and again further down the file on the raw request body.
  */
 export function extractUpstreamUnions(declarationSource) {
-  const declarationStart = declarationSource.indexOf(
-    'declare const anthropicLanguageModelOptions:'
+  const optionsBody = sliceAfter(
+    declarationSource,
+    'declare const anthropicLanguageModelOptions:',
+    '{'
   );
-  if (declarationStart === -1) {
+  if (optionsBody === null) {
     return { adaptiveDisplay: [], effort: [], thinkingTypes: [] };
   }
-  const nextDeclaration = declarationSource.indexOf('\ndeclare ', declarationStart + 1);
-  const block = declarationSource.slice(
-    declarationStart,
-    nextDeclaration === -1 ? undefined : nextDeclaration
-  );
-  const effortBlock = /\n {4}effort: z\.ZodOptional<z\.ZodEnum<\{(?<body>[\s\S]*?)\}>>;/u.exec(
-    block
-  );
-  const thinkingBlock =
-    /\n {4}thinking: z\.ZodOptional<z\.ZodDiscriminatedUnion<\[(?<body>[\s\S]*?)\]>>;/u.exec(block);
+  const fields = topLevelFields(optionsBody);
+  const variants = extractUpstreamThinkingVariants(fields.get('thinking') ?? '');
+  const adaptive = variants.find((variant) => readDiscriminant(variant) === 'adaptive');
   return {
-    adaptiveDisplay: extractUpstreamAdaptiveDisplay(thinkingBlock?.groups?.body ?? ''),
-    effort: unique(
-      [...(effortBlock?.groups?.body ?? '').matchAll(/: "(?<value>[^"]+)";/gu)].map(
-        (match) => match.groups.value
-      )
-    ),
+    adaptiveDisplay: extractZodEnumValues(adaptive?.get('display') ?? ''),
+    effort: extractZodEnumValues(fields.get('effort') ?? ''),
     thinkingTypes: unique(
-      [
-        ...(thinkingBlock?.groups?.body ?? '').matchAll(/type: z\.ZodLiteral<"(?<value>[^"]+)">/gu),
-      ].map((match) => match.groups.value)
+      variants.map((variant) => readDiscriminant(variant)).filter((value) => value !== null)
     ),
   };
 }
@@ -559,12 +656,12 @@ test('extraction: reads the real provider declaration and the real mirrors', () 
   assert.match(installedVersion, /^\d+\.\d+\.\d+$/u);
   assert.deepEqual(upstream.effort, ['high', 'low', 'max', 'medium', 'xhigh']);
   assert.deepEqual(upstream.thinkingTypes, ['adaptive', 'disabled', 'enabled']);
-  assert.deepEqual(upstream.adaptiveDisplay, ['omitted', 'summarized']);
+  assert.deepEqual(upstream.adaptiveDisplay, ['omitted', 'summarized', 'updates']);
   const agentMirror = mirrors.find((mirror) => mirror.file === 'packages/agent/src/types.ts');
   assert.ok(agentMirror, 'expected the packages/agent mirror to be discovered');
   assert.deepEqual(agentMirror.effort, ['high', 'low', 'max', 'medium', 'xhigh']);
   assert.deepEqual(agentMirror.thinkingTypes, ['adaptive', 'disabled', 'enabled']);
-  assert.deepEqual(agentMirror.adaptiveDisplay, ['omitted', 'summarized']);
+  assert.deepEqual(agentMirror.adaptiveDisplay, ['omitted', 'summarized', 'updates']);
   assert.deepEqual(agentMirror.annotatedVersions, [installedVersion]);
 });
 

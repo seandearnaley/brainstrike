@@ -23,7 +23,7 @@
 /**
  * THE reasoning-effort vocabulary, weakest to strongest.
  *
- * Mirrors the `reasoningEffort` enum of the installed `@ai-sdk/openai` (4.0.42)
+ * Mirrors the `reasoningEffort` enum of the installed `@ai-sdk/openai` (4.0.49)
  * chat-options declaration; policed by
  * `scripts/__tests__/ai-sdk-openai-mirror-contract.test.mjs`.
  *
@@ -56,7 +56,7 @@ export const OPENAI_REASONING_EFFORT_VALUES = [
 export type OpenAiReasoningEffort = (typeof OPENAI_REASONING_EFFORT_VALUES)[number];
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 /**
- * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39).
+ * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.49).
  * `xhigh`/`max` are real wire values — omitting them made the picker offer a
  * strictly narrower range than the provider accepts.
  *
