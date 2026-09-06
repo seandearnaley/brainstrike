@@ -812,7 +812,7 @@ jobs:
     # is the drift check; bump together with the pins in test.yml/web-e2e.yml/
     # performance.yml).
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --user 1001
     timeout-minutes: 20
     env:
@@ -927,7 +927,7 @@ jobs:
     # composite's install command for this one caller is the documented trap;
     # this job's setup stays bespoke literal YAML on purpose.
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
       # `--user 1001` (pwuser) is the configuration shown in Playwright's
       # official GitHub Actions container example. The browsers under
       # /ms-playwright are owned by this user; it is the documented, tested path.
