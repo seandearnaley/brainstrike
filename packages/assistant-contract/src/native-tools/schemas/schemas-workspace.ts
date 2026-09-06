@@ -62,13 +62,15 @@ const CANVAS_TITLE_MAX = 500;
 const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('create'),
-    html: canvasHtml().describe('Initial HTML content for version 1'),
+    html: canvasHtml().describe('Initial HTML content for version 1 (max 8 MB of UTF-8)'),
     title: z.string().min(1).max(CANVAS_TITLE_MAX).describe('Canvas document title'),
   }),
   z.object({
     action: z.literal('update'),
     canvasId: z.string().min(1).describe('Canvas document id'),
-    newString: canvasHtml().describe('Replacement HTML substring; empty deletes the match'),
+    newString: canvasHtml().describe(
+      'Replacement HTML substring; empty deletes the match (max 8 MB of UTF-8)'
+    ),
     oldString: canvasHtml({ minLength: 1 }).describe(
       'Exact HTML substring that must occur exactly once in the latest version'
     ),
@@ -76,7 +78,7 @@ const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('rewrite'),
     canvasId: z.string().min(1).describe('Canvas document id'),
-    html: canvasHtml().describe('Complete HTML content for the new version'),
+    html: canvasHtml().describe('Complete HTML content for the new version (max 8 MB of UTF-8)'),
   }),
   z.object({ action: z.literal('list') }),
 ]);
@@ -104,8 +106,12 @@ export const ManageCanvasInputSchema = z
   .object({
     action: z.enum(['create', 'update', 'rewrite', 'list']).describe('Canvas operation'),
     canvasId: z.string().min(1).optional().describe('Required for update and rewrite'),
-    html: canvasHtml().optional().describe('Complete HTML; required for create and rewrite'),
-    newString: canvasHtml().optional().describe('Update replacement; may be empty'),
+    html: canvasHtml()
+      .optional()
+      .describe('Complete HTML; required for create and rewrite (max 8 MB of UTF-8)'),
+    newString: canvasHtml()
+      .optional()
+      .describe('Update replacement; may be empty (max 8 MB of UTF-8)'),
     oldString: canvasHtml({ minLength: 1 })
       .optional()
       .describe('Update target; must occur exactly once'),

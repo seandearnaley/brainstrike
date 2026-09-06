@@ -124,6 +124,30 @@ describe('canvas repository', () => {
   // document plus an individually valid replacement lands above the ceiling,
   // and repeated updates would keep growing it — so the composed result is
   // checked before insertion. Both strings here pass the schema on their own.
+  // The choke point covers CREATE too, not just the composing path. Before the
+  // check moved into insertVersion, create and rewrite were bounded by the input
+  // schema alone — so any caller reaching the repository without parsing first
+  // was unbounded.
+  it('refuses a create whose html exceeds the byte ceiling', async () => {
+    let inserted = false;
+    const db = createFakeDatabase(() => {
+      inserted = true;
+      return [{ canvasId: 'canvas-1', version: 1 }];
+    });
+
+    const result = await createCanvas(db, {
+      createdBy: 'assistant',
+      // Under .max() as a code-point count, over it as bytes.
+      html: '\u{1F600}'.repeat(3_000_000),
+      resourceId: 'resource-1',
+      threadId: 'thread-1',
+      title: 'Too big',
+    });
+
+    expect(result).toEqual({ error: 'too_large', ok: false });
+    expect(inserted).toBe(false);
+  });
+
   it('refuses an update whose COMPOSED html exceeds the byte ceiling', async () => {
     // The BASE has to be under the ceiling, or this proves nothing about
     // composition — an already-oversized document would be refused whatever the

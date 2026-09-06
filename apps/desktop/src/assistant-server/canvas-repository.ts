@@ -1,4 +1,5 @@
 import {
+  CANVAS_HTML_MAX_BYTES,
   CANVAS_VERSIONS_TABLE,
   canvasHtmlWithinByteCeiling,
 } from '@brainstrike/assistant-contract';
@@ -122,6 +123,14 @@ async function insertVersion(
     readonly version: number;
   }
 ): Promise<CanvasMutationResult> {
+  // The ceiling is enforced HERE, not per write path, because this is the only
+  // place html reaches the text column. `create` and `rewrite` are otherwise
+  // bounded by the input schema alone, and `update` composes a document larger
+  // than either field it was given — one check at the choke point covers all
+  // three and removes the asymmetry.
+  if (!canvasHtmlWithinByteCeiling(input.html)) {
+    return { error: 'too_large', ok: false };
+  }
   const id = generateWorkspaceSnapshotId();
   let result: { rows: CanvasMutationSuccess[] };
   try {
@@ -232,16 +241,20 @@ export async function applyUpdate(
     return { error: 'ambiguous_match', ok: false };
   }
 
+  // Reject the clearly-oversized composition BEFORE materialising it. UTF-8
+  // bytes >= UTF-16 units, so a unit count over the ceiling is over it in bytes
+  // too — sparing a ~14 MB intermediate on exactly the hostile path the byte
+  // predicate goes to some length not to allocate for. Anything below this
+  // bound still gets insertVersion's exact check.
+  if (
+    latest.html.length - input.oldString.length + input.newString.length >
+    CANVAS_HTML_MAX_BYTES
+  ) {
+    return { error: 'too_large', ok: false };
+  }
   const html = `${latest.html.slice(0, firstMatch)}${input.newString}${latest.html.slice(
     firstMatch + input.oldString.length
   )}`;
-  // The schema bounds each FIELD; only this path composes one. A near-limit
-  // document plus an individually valid replacement lands above the ceiling,
-  // and repeated updates would keep growing it, so the composed result is
-  // checked against the same number before it is stored.
-  if (!canvasHtmlWithinByteCeiling(html)) {
-    return { error: 'too_large', ok: false };
-  }
   return await insertVersion(db, {
     canvasId: latest.canvasId,
     createdBy: 'assistant',

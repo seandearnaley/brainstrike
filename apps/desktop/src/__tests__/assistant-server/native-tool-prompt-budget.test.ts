@@ -640,7 +640,14 @@ describe('desktop native tool provider prompt budget', () => {
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns
       // summaries, never content. Both are deliberate hardening spends.
-      manageCanvasDefinitionTokens: 234,
+      //
+      // 234 → 254: the five canvas html descriptions now say "(max 8 MB of
+      // UTF-8)". The emitted `maxLength: 8000000` is a CHARACTER count and the
+      // enforced ceiling is bytes, so without this the model was told a limit
+      // roughly four times looser than the one it will actually hit — a 2.1M
+      // emoji document sits inside `maxLength` and is refused. Twenty tokens to
+      // stop the model discovering the real unit from a failed call.
+      manageCanvasDefinitionTokens: 254,
       manageWorktreeDefinitionTokens: 278,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {

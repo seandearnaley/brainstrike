@@ -4509,13 +4509,22 @@ envelope.
 counted in UTF-8 BYTES.** Two places enforce it, in different packages, from one
 constant in `mastra-memory-schema.ts` beside `CANVAS_VERSIONS_TABLE`:
 
-- the `manageCanvas` input schema bounds each incoming HTML **field**;
-- `applyUpdate` in the desktop canvas repository bounds the **composed** result
-  and returns `too_large`, because it is the only path that can produce a
-  document larger than any field it was handed — a near-limit document plus an
-  individually valid replacement, repeated.
+- the `manageCanvas` input schema bounds each incoming HTML **field**, which is
+  also what puts `maxLength` in front of the model;
+- `insertVersion` in the desktop canvas repository bounds what actually reaches
+  the text column, and returns `too_large`. It sits at the choke point on
+  purpose: `create` and `rewrite` would otherwise be bounded by the schema
+  alone, and `update` composes a document larger than either field it was handed
+  — a near-limit document plus an individually valid replacement, repeated.
+  `applyUpdate` additionally rejects an over-ceiling composition before
+  materialising it, which is an allocation guard rather than a second authority.
 
-Both halves are load-bearing and neither is redundant. `manage-canvas-tool.ts`
+Both halves are load-bearing and neither is redundant. `too_large` is the one
+failure a model cannot retry its way out of, so `manage-canvas-tool.ts` attaches
+a hint naming the limit and telling it to shrink the replacement or start a new
+canvas; the descriptions carry `(max 8 MB of UTF-8)` for the same reason, since
+the emitted `maxLength` is a character count and would otherwise advertise a
+ceiling about four times looser than the enforced one. `manage-canvas-tool.ts`
 has no size enforcement of its own, so unlike the workspace-file content fields
 — which sit above an authoritative ~2 MB byte cap in the desktop tool and
 therefore use `.max()` only as a loose outer guard — canvas has nothing
