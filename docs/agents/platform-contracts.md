@@ -55,6 +55,21 @@ Sensitive data:
 - Structured arguments and listener bindings are recursively redacted before transport,
   buffering, or display; transport serializers alone are not a sufficient boundary.
 - Add more via redactPaths.
+- **Host payloads are never logged, only their shape.** Background-host traffic
+  carries user data — the parser host relays source text and ASTs — so a message
+  that fails its type guard is described, never dumped:
+  `parser-host-manager.ts`'s `summarizeMalformedMessage` logs `messageType` plus
+  `keyCount`/`keys`/`type` for an object and `length` for an array (an array's
+  keys would be as unbounded as the payload), and nothing else. Every field is
+  bounded, because the *shape* is content-controlled too: a mis-serialized frame
+  can carry source text in a key or in `type`. Counts are exact; the strings
+  behind them are truncated (20 keys, 64 characters). This is a real-fault path,
+  not normal traffic: `parser-host-entry` posts `ParserHostParseResponse` frames
+  only. Any new host adapter that logs an unrecognized frame follows the same
+  rule. Paired tests in `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`:
+  "logs a malformed host message at warn as a shape summary, never the payload",
+  "bounds the shape summary when the shape itself carries the payload", and
+  "summarizes a null, primitive and array frame by shape alone".
 
 Testing:
 - Use addLogListener instead of mocking console.

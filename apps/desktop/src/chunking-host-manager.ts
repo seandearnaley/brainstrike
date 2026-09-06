@@ -45,6 +45,16 @@ export class ChunkingHostManager {
   constructor() {
     this.requests = createHostRequestChannel<ChunkingHostRequest, ChunkingHostResponseReport>({
       isProgress: isProgressReport,
+      // `channel` and `type` are what identify WHICH late report arrived
+      // (chunk-result vs chunk-batch-complete vs progress); the channel's
+      // default late-response log carries only the request id.
+      onLateResponse: (requestId, report) => {
+        logger.warn('Received chunking host response for unknown request', {
+          channel: report.channel,
+          requestId,
+          type: report.type,
+        });
+      },
       requestId: (request) => request.requestId,
       responseId: (report) => report.requestId,
       role: 'Chunking host',

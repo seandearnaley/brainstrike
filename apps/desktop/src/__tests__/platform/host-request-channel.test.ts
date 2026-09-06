@@ -3,6 +3,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerWarnMock = vi.hoisted(() => vi.fn());
+const loggerErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
@@ -10,7 +11,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     ...actual,
     createLogger: () => ({
       debug: vi.fn(),
-      error: vi.fn(),
+      error: loggerErrorMock,
       fatal: vi.fn(),
       info: vi.fn(),
       trace: vi.fn(),
@@ -63,6 +64,7 @@ describe('createHostRequestChannel', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     loggerWarnMock.mockReset();
+    loggerErrorMock.mockReset();
   });
 
   afterEach(() => {
@@ -70,11 +72,21 @@ describe('createHostRequestChannel', () => {
   });
 
   it('never imports Electron: the module must be constructible before app.whenReady', () => {
-    const source = readFileSync(
-      path.resolve(import.meta.dirname, '../../platform/host-request-channel.ts'),
-      'utf8'
-    );
-    expect(source).not.toMatch(/from ['"]electron['"]/u);
+    const modulePath = path.resolve(import.meta.dirname, '../../platform/host-request-channel.ts');
+    let source: string;
+    try {
+      source = readFileSync(modulePath, 'utf8');
+    } catch (error) {
+      throw new Error(
+        `This guard reads the channel source directly; expected it at ${modulePath}. If the module moved, update this path.`,
+        { cause: error }
+      );
+    }
+    // Anchored on the import forms, so the module's own prose may name Electron
+    // without failing this guard: `from 'electron'`, `require('electron')`,
+    // `await import('electron')`, backtick specifiers, and subpaths such as
+    // 'electron/main'.
+    expect(source).not.toMatch(/(?:from|import\(|require\()\s*['"`]electron(?:\/|['"`])/u);
   });
 
   it('sends the request and resolves with the terminal response for that id', async () => {
@@ -460,5 +472,85 @@ describe('createHostRequestChannel', () => {
 
     await expect(pending).resolves.toMatchObject({ message: 'ledger exploded' });
     expect(channel.size()).toBe(0);
+  });
+  it('logs and settles when the terminate hook throws instead of escaping the timer callback', async () => {
+    const terminateFailure = new Error('kill failed: the host is already gone');
+    const { channel } = createChannel({
+      onTimeout: (request) => ({
+        error: new Error(`transaction ${request.id} timed out`),
+        policy: 'terminate',
+        terminate: () => {
+          throw terminateFailure;
+        },
+      }),
+    });
+
+    const timedOut = observe(channel.request({ id: 'tx-throw', kind: 'fast' }));
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(timedOut).resolves.toMatchObject({ message: 'transaction tx-throw timed out' });
+    expect(channel.size()).toBe(0);
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'Test host terminate hook failed while handling a request timeout',
+      expect.objectContaining({ error: terminateFailure, requestId: 'tx-throw', role: 'Test host' })
+    );
+  });
+
+  it('isolates a throwing onLateResponse so the transport listener keeps working', async () => {
+    const hookFailure = new Error('ledger lookup failed');
+    const onLateResponse = vi.fn((): void => {
+      throw hookFailure;
+    });
+    const { channel } = createChannel({ onLateResponse });
+
+    const pending = observe(channel.request({ id: 'req-late-throws', kind: 'fast' }));
+    await vi.advanceTimersByTimeAsync(50);
+    await pending;
+
+    expect(() => {
+      channel.accept({ id: 'req-late-throws', type: 'result' });
+    }).not.toThrow();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'Test host late-response hook failed',
+      expect.objectContaining({
+        error: hookFailure,
+        requestId: 'req-late-throws',
+        role: 'Test host',
+      })
+    );
+  });
+
+  it('isolates a throwing onProgress and still re-arms the deadline', async () => {
+    const hookFailure = new Error('progress forwarding failed');
+    const onProgress = vi.fn((): void => {
+      throw hookFailure;
+    });
+    const { channel } = createChannel();
+
+    const pending = observe(
+      channel.request({ id: 'req-progress-throws', kind: 'fast' }, { onProgress })
+    );
+    await vi.advanceTimersByTimeAsync(30);
+
+    expect(() => {
+      channel.accept({ id: 'req-progress-throws', type: 'progress' });
+    }).not.toThrow();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'Test host progress hook failed',
+      expect.objectContaining({
+        error: hookFailure,
+        requestId: 'req-progress-throws',
+        role: 'Test host',
+      })
+    );
+
+    // The re-arm happens before the hook runs, so a throwing consumer cannot
+    // shorten the deadline: the original 50ms window has passed by now.
+    await vi.advanceTimersByTimeAsync(30);
+    expect(channel.has('req-progress-throws')).toBe(true);
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(pending).resolves.toMatchObject({
+      message: 'Test host request req-progress-throws timed out after 50ms.',
+    });
   });
 });
