@@ -133,6 +133,30 @@ const CLOSING_BRACKETS = new Map([
 ]);
 
 /**
+ * Whether the character at `index` closes the innermost open bracket.
+ *
+ * The `=` check is why this is a function rather than an inline comparison. In a
+ * `.d.ts`, `>` is both a generic's closer and the tail of `=>`, so a function
+ * type nested directly inside a generic — `z.ZodType<(a: string) => void>` —
+ * would pop the `<` frame one bracket early.
+ *
+ * Stated honestly: this is DEFENSIVE, not a proven fix. Probed with and without
+ * it against `z.ZodType<() => void>`, the same with a braced parameter, and both
+ * before and after the `thinking` field — identical extraction every time,
+ * because the mis-pop is self-correcting (the type's real `>` then matches
+ * nothing and is skipped). No failing shape could be constructed, so unlike
+ * `stripBlockComments` there is no test that goes red without it. It costs one
+ * branch and removes the class; the pinned real-tree assertions remain the thing
+ * that would actually catch a desync.
+ */
+function isCloser(source, index, stack) {
+  if (stack.length === 0 || source[index] !== stack.at(-1)) {
+    return false;
+  }
+  return !(source[index] === '>' && source[index - 1] === '=');
+}
+
+/**
  * The text inside the bracket that opens at `openIndex`, or `null` when the
  * source never balances.
  *
@@ -159,7 +183,7 @@ function sliceBalanced(source, openIndex) {
       stack.push(closing);
       continue;
     }
-    if (stack.length > 0 && char === stack.at(-1)) {
+    if (isCloser(source, index, stack)) {
       stack.pop();
       if (stack.length === 0) {
         return source.slice(openIndex + 1, index);
@@ -179,7 +203,7 @@ function sliceBalanced(source, openIndex) {
  * on that staying true.
  */
 function stripBlockComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//gu, '');
+  return source.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/[^\n]*/gu, '');
 }
 
 /** The balanced body of the first `bracket` that follows `marker`. */
@@ -211,7 +235,7 @@ function splitTopLevel(source, separator) {
       stack.push(closing);
       continue;
     }
-    if (stack.length > 0 && char === stack.at(-1)) {
+    if (isCloser(source, index, stack)) {
       stack.pop();
       continue;
     }
@@ -316,7 +340,7 @@ export function extractUpstreamUnions(rawDeclarationSource) {
     '{'
   );
   if (optionsBody === null) {
-    return { adaptiveDisplay: [], effort: [], thinkingTypes: [] };
+    return { adaptiveDisplay: [], effort: [], fieldCount: 0, thinkingTypes: [] };
   }
   const fields = topLevelFields(optionsBody);
   const variants = extractUpstreamThinkingVariants(fields.get('thinking') ?? '');
@@ -324,6 +348,7 @@ export function extractUpstreamUnions(rawDeclarationSource) {
   return {
     adaptiveDisplay: extractZodEnumValues(adaptive?.get('display') ?? ''),
     effort: extractZodEnumValues(fields.get('effort') ?? ''),
+    fieldCount: fields.size,
     thinkingTypes: unique(
       variants.map((variant) => readDiscriminant(variant)).filter((value) => value !== null)
     ),
@@ -707,6 +732,16 @@ test('extraction: reads the real provider declaration and the real mirrors', () 
   // would make every comparison above trivially true.
   const { installedVersion, mirrors, upstream } = loadActualState();
   assert.match(installedVersion, /^\d+\.\d+\.\d+$/u);
+  // A floor on the field map itself. topLevelFields drops any `;`-separated
+  // chunk that does not start with an identifier, which is right for index
+  // signatures and stray text but means a `readonly`-prefixed or quoted member
+  // vanishes with no signal. The pinned unions below catch a drop of `effort` or
+  // `thinking`; this catches a scan that quietly collapsed to a handful of
+  // fields while those two happened to survive.
+  assert.ok(
+    upstream.fieldCount >= 5,
+    `expected the options declaration to expose several top-level fields, read ${upstream.fieldCount}`
+  );
   assert.deepEqual(upstream.effort, ['high', 'low', 'max', 'medium', 'xhigh']);
   assert.deepEqual(upstream.thinkingTypes, ['adaptive', 'disabled', 'enabled']);
   assert.deepEqual(upstream.adaptiveDisplay, ['omitted', 'summarized', 'updates']);
