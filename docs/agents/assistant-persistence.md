@@ -997,7 +997,7 @@ handle (BST-972 A1/A2) — and all gated on `if (runId)`):
 | `recordDesktopAssistantRunEvent` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
 | `recordDesktopAssistantHookRunOutcome` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | THROWS (deliberate) |
 | `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
-| `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | `to_regclass` probe → `runsTableMissing: true`, no-op |
+| `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | 0 rows, empty sweep. A MISSING RELATION is not a case: migration 118 owns the table and `getDatabase()` resolves only after `migrate()`, so an unmigrated database raises 42P01 into main's own `catch` (BST-1651 retired the `runsTableMissing` report, which had reduced that state to an `info` line) |
 
 Run-critical desktop reads and event writes use the existing foreground `DatabaseWorkScheduler`
 lane. A run-scoped `mastra_workflow_snapshot` SELECT and same-id event upsert may retry once for
@@ -1272,8 +1272,10 @@ Three rulings the SQL depends on (do not relitigate):
   `status = 'running'` would make this projection permanently EMPTY. For the
   same reason it needs no web startup-reap gating (unlike the active-run
   projection above): the reap only corrects stale `running` rows, and this query
-  reads none. It is gated on the schema bootstrap alone, because
-  `brainstrike_assistant_run_events` is renderer-lazy.
+  reads none. It is gated on `schemaReady` alone — which since BST-1651 means
+  the thread repository's schema probe has passed, not that a renderer
+  bootstrap has created `brainstrike_assistant_run_events`. Migration 118
+  creates that table.
 
 Note that `tool.started` counts as a resolution HERE and deliberately does not
 in `assistant-run-event-derivation.ts`: the timeline asks whether the pause row
@@ -1311,8 +1313,11 @@ separate from both the run-event timeline and app-wide diagnostic events:
 terminal classification and bounded provider response evidence needed for
 forensics.
 
-The numbered migration cannot add an FK to the renderer-lazy
-`brainstrike_assistant_thread_runs` parent. The canonical
+The table is FK-less, a shape inherited from when the parent was created at
+runtime and NOT revisited by BST-1651 (migration 118 now creates
+`brainstrike_assistant_thread_runs`, so an FK has become expressible; adding one
+would be its own migration and its own ticket). Until then the parent link is
+enforced in code, not by the schema. The canonical
 `AssistantRunErrorRepository.record` therefore derives `thread_id` and
 `resource_id` from the durable renderer-minted parent run; callers provide
 neither. A missing parent returns no row and THROWS. A conflict on `run_id`
@@ -1583,9 +1588,14 @@ finalizes the rewind.
   hidden message keeps the ORIGINAL batch's row (`ON CONFLICT DO NOTHING`), so
   undoing the newer rewind cannot resurrect what the older one hid.
 - **THE FILE-REVERT RANGE PREFERS THE STORED RUN↔TURN LINK** (BST-1163):
-  `brainstrike_assistant_thread_runs.turn_message_id` (nullable; bootstrap
-  CREATE + idempotent `ADD COLUMN IF NOT EXISTS` upgrade, NO numbered
-  migration) records the user message whose turn each run belongs to. It is
+  `brainstrike_assistant_thread_runs.turn_message_id` (nullable; created by
+  MIGRATION 118, whose `ADD COLUMN IF NOT EXISTS` is the upgrade path for
+  installs that predate BST-1163) records the user message whose turn each run
+  belongs to. Because the chain guarantees the column, the main-process
+  `information_schema` COLUMN probe that used to guard every read of it was
+  retired by BST-1651 — `resolveRewindRunRange` and `resolveRewindMessageForRun`
+  now reference `turn_message_id` unconditionally, and NULL-link rows are
+  handled by the query's own `CASE`, not by a schema branch. It is
   stamped at `createThreadRun` — the transport resolves the per-leg turn
   anchor (`resolveTurnAnchorMessageId` in `data-stream-runtime.ts`: the last
   REAL user message, approval action echoes excluded) and threads it through
@@ -1805,8 +1815,9 @@ the provider prompt — while leaving every raw message physically unchanged in
   `created_at`. The exact ordered ID set is stored because persisted message
   IDs are opaque client-supplied strings or UUIDv4 values, not sortable range
   keys. Registered in BOTH migration runners (numbered `index.ts` + drizzle
-  `customMigrations` in `migrate.ts`) and in the renderer-lazy bootstrap SQL
-  alongside 083/084/086/087, plus `THREAD_DELETE_SIDECAR_TABLES` and the
+  `customMigrations` in `migrate.ts`) — the renderer-lazy bootstrap SQL this
+  originally also had to mirror was retired by BST-1651, so migrations are now
+  the only registration — plus `THREAD_DELETE_SIDECAR_TABLES` and the
   factory-reset registry (thread-scoped, FK-less state must be wired into both
   per `docs/agents/database.md` / `platform-contracts.md`).
 - **Message-list exclusion, not deletion — extends the Layer 1/2 overlay

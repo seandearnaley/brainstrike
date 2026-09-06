@@ -1336,10 +1336,9 @@ if (singleInstanceLockAcquired) {
               database as unknown as EditCheckpointDatabase,
               mainProcessStartedAt
             );
-            if (reapReport.runsTableMissing || reapReport.reaped.length > 0) {
+            if (reapReport.reaped.length > 0) {
               logger.info('Startup thread-run reap completed', {
                 reapedRunIds: reapReport.reaped.map((row) => row.id),
-                runsTableMissing: reapReport.runsTableMissing,
               });
             }
           } catch (reapError) {
@@ -1386,7 +1385,6 @@ if (singleInstanceLockAcquired) {
             refOnlyPruned: gcReport.refOnlyPruned.length,
             ringTrimmed: gcReport.ringTrimmed,
             skippedInaccessibleRoots: gcReport.skippedInaccessibleRoots.length,
-            threadsTableMissing: gcReport.threadsTableMissing,
           });
         } catch (error) {
           logger.error('Workspace snapshot orphan sweep failed', { error, snapshotsBaseDir });

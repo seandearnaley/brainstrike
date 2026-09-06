@@ -58,7 +58,6 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
 
     const report = await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT);
 
-    expect(report.runsTableMissing).toBe(false);
     expect(report.reaped).toEqual([{ id: 'run-orphan', threadId: THREAD_ID }]);
     const row = await db.query<{
       completedAt: string | null;
@@ -155,7 +154,18 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     expect(await hasInFlightThreadRun(asHandle(db), THREAD_ID)).toBe(true);
   });
 
-  it('reports a missing runs table instead of creating it (schema ownership stays with migrations)', async () => {
+  /**
+   * NOT a supported input — a FAILURE-MODE pin (BST-1651).
+   *
+   * Migration 118 owns the run header, and neither runtime can hand this sweep
+   * a handle that predates migrations: desktop's `getDatabase()` awaits
+   * `migrate()` before it resolves, and web gates the reap behind
+   * `schemaReady`. The `DROP` manufactures a state the product cannot enter,
+   * only to pin that it surfaces AS ITSELF. The retired `runsTableMissing`
+   * report turned exactly this — a database that was never migrated — into an
+   * `info` line in main and a benign `{ reaped: [] }` here.
+   */
+  it('lets an unmigrated database raise 42P01 as itself instead of reporting a benign sweep', async () => {
     const rootPath = await makeTempDir();
     const { db } = await createRewindFixture({ 'root-1': rootPath }, 'reaper-no-table');
     // Both relations, in dependency order. Migration 118 creates them
@@ -166,9 +176,14 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');
 
-    const report = await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT);
+    const rejection = await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT).then(
+      () => null,
+      (error: unknown) => error
+    );
 
-    expect(report).toEqual({ reaped: [], runsTableMissing: true });
+    // The code, never the prose: 42P01 is `undefined_table`.
+    expect((rejection as { code?: string } | null)?.code).toBe('42P01');
+    // Schema ownership stays with migrations: the sweep never creates it.
     const probe = await db.query<{ exists: string | null }>(
       "SELECT to_regclass('brainstrike_assistant_thread_runs')::text AS exists"
     );

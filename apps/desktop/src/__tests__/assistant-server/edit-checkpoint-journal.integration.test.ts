@@ -238,23 +238,38 @@ describe('undo worklist + reverted stamping', () => {
 });
 
 describe('listRunRangeCheckpoints', () => {
-  it('returns a typed runs-unavailable error when the runs table is absent, and issues no DDL', async () => {
-    // An unmigrated database is the only one without these relations now, and
-    // it lacks both: migration 118 creates the run header and its event
-    // timeline together, and the timeline's foreign key means the parent
-    // cannot be dropped alone.
+  /**
+   * NOT a supported input — a FAILURE-MODE pin (BST-1651).
+   *
+   * Migration 118 owns the run header, and `getDatabase()` cannot resolve a
+   * handle before `migrate()` has run (`db-main.ts`), so main never sees this
+   * relation absent. The `DROP` below manufactures a state the product cannot
+   * enter, purely to pin how the module behaves if it ever did: it raises the
+   * missing-relation error AS ITSELF. There is deliberately no probe, no
+   * `runs-unavailable:` envelope, and no bootstrap — a soft answer here would
+   * dress "this database was never migrated" up as an empty view, which is the
+   * silent degradation the retired probe had become.
+   */
+  it('lets an unmigrated database raise 42P01 as itself, and still issues no DDL', async () => {
+    // Both relations go: 118 creates the run header and its event timeline
+    // together, and the timeline's foreign key means the parent cannot be
+    // dropped alone.
     await db.query('DROP TABLE brainstrike_assistant_run_events');
     await db.query(`DROP TABLE ${RUNS_TABLE}`);
     expect(await runsTableIsPresent()).toBe(false);
 
-    const result = await listRunRangeCheckpoints(db, { fromRunId: 'run-a', threadId: THREAD });
+    const rejection = await listRunRangeCheckpoints(db, {
+      fromRunId: 'run-a',
+      threadId: THREAD,
+    }).then(
+      () => null,
+      (error: unknown) => error
+    );
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/runs-unavailable/);
-    }
-    // The read-only invariant: a probe miss must never fall through to a
-    // bootstrap. The table must still be absent after the call.
+    // The code, never the prose: 42P01 is `undefined_table`.
+    expect((rejection as { code?: string } | null)?.code).toBe('42P01');
+    // The read-only invariant survives the probe's removal: a failed read must
+    // never fall through to a bootstrap.
     expect(await runsTableIsPresent()).toBe(false);
   });
 

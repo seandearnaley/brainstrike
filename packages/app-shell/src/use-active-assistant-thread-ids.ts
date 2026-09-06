@@ -84,10 +84,12 @@ function startWebStartupReap(database: DbHandle, store: WebStartupReapStore): vo
   publishWebStartupReap(store, { error: null, status: 'pending' });
   store.promise = Promise.resolve()
     .then(async () => {
+      // No missing-relation branch: this only runs behind `schemaReady`, which
+      // means the thread repository's schema probe has already passed on this
+      // handle. An unmigrated database rejects here and publishes an `error`
+      // snapshot, exactly as it did through the retired `runsTableMissing`
+      // throw (BST-1651).
       const report = await reapOrphanedAssistantThreadRuns(database, getRendererBootedAt());
-      if (report.runsTableMissing) {
-        throw new Error('Web assistant run cleanup could not find the bootstrapped runs table.');
-      }
       if (report.reaped.length > 0) {
         logger.info('Web startup marked orphaned assistant runs failed', {
           runIds: report.reaped.map((run) => run.id),

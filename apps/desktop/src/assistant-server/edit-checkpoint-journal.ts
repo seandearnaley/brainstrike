@@ -273,42 +273,21 @@ interface RunAnchorRow {
 }
 
 /**
- * `to_regclass` PROBE for `brainstrike_assistant_thread_runs` — never a
- * try/catch on `undefined_table` (42P01). The house gotcha (see
- * `docs/agents/assistant-persistence.md`): catching 42P01 INSIDE a
- * transaction cannot tolerate absence, because the failed statement already
- * aborted the transaction — a subsequent COMMIT silently ROLLBACKs, which
- * would make an honest "table not there yet" indistinguishable from a
- * quietly-discarded read. `to_regclass` returns NULL for an absent relation
- * instead of raising, so the probe can never poison a transaction, and it
- * works identically whether or not this call happens to run inside one.
- * `RUNS_TABLE` is a fixed constant (never caller-supplied), so a stale name
- * can't masquerade as "absent" the way an interpolated user string could.
- * Deliberately UNQUALIFIED (no `public.` prefix): the bootstrap DDL that
- * creates this table resolves the name via `search_path`, same as every
- * other `to_regclass` probe in this codebase (`memory-store.ts`,
- * `063-index-consolidation.ts`) — a hardcoded `public.` schema prefix would
- * report "absent" for a table that exists under a different `search_path`.
- */
-async function runsTableExists(db: EditCheckpointDatabase): Promise<boolean> {
-  const probe = await db.query<{ present: boolean }>(
-    `SELECT to_regclass('${RUNS_TABLE}') IS NOT NULL AS present`
-  );
-  return probe.rows[0]?.present === true;
-}
-
-/**
  * Resolve the journal entries for every run in `[fromRunId, toRunId]` of one
  * thread (`toRunId` omitted ⇒ open-ended to the latest run), and return them
  * oldest-first as a `GitResult`-style envelope.
  *
  * READ-ONLY: this never creates `brainstrike_assistant_thread_runs` and never
- * writes a run. That table is renderer-lazy bootstrap-only DDL, and the runId
+ * writes a run. MIGRATION 118 owns that table (BST-1651), and the runId
  * provenance invariant (`docs/agents/assistant-persistence.md`, settled)
  * forbids a second producer — `repository.createThreadRun` is the sole one.
- * A fresh profile with no assistant use yet will not have the table; that is
- * reported as a visible `runs-unavailable` error, never silently bootstrapped
- * or coerced into an empty result.
+ * There is deliberately NO absence handling: `getDatabase()` cannot resolve a
+ * handle until `migrate()` has run (`db-main.ts`), so the only database that
+ * lacks the relation is one that was never migrated, and that raises 42P01 as
+ * itself rather than being softened into an envelope. The `runs-unavailable:`
+ * probe this function used to open with described a renderer-lazy bootstrap
+ * that no longer exists; it reported "no assistant run has been recorded on
+ * this profile" for a relation every migrated profile now has.
  *
  * Range membership is a row-value comparison on `(started_at, id)`, never on
  * `id` alone: `id` is a UUID with no relationship to run order, so sorting or
@@ -328,22 +307,17 @@ async function runsTableExists(db: EditCheckpointDatabase): Promise<boolean> {
  * reading of the plan's "empty range ⇒ ok:true" rule, not an accident.
  * Only a MISSING anchor run (a `fromRunId`/`toRunId` that does not exist in
  * THIS thread — an id that belongs to a different thread counts as missing,
- * never a cross-thread leak) is an error; it is prefixed `run-anchor-missing:`
- * (mirroring the `runs-unavailable:` prefix above) and names which id and
- * which thread, so callers can distinguish "no assistant history yet" from
- * "that run is gone" without parsing prose.
+ * never a cross-thread leak) is an error, and since the `runs-unavailable:`
+ * probe was retired it is the ONLY typed error this function produces. It is
+ * prefixed `run-anchor-missing:` — one of the stable machine-readable markers
+ * registered in `changeset-diff-service.ts` — and names which id and which
+ * thread, so callers can tell "that run is gone" from an honest empty range
+ * without parsing prose.
  */
 export async function listRunRangeCheckpoints(
   db: EditCheckpointDatabase,
   params: RunRangeCheckpointsParams
 ): Promise<GitResult<AssistantEditCheckpointRecord[]>> {
-  if (!(await runsTableExists(db))) {
-    return {
-      error: `runs-unavailable: "${RUNS_TABLE}" does not exist yet (no assistant run has been recorded on this profile).`,
-      ok: false,
-    };
-  }
-
   const anchorIds = Array.from(
     new Set(params.toRunId ? [params.fromRunId, params.toRunId] : [params.fromRunId])
   );

@@ -41,11 +41,13 @@
  *   treats any non-terminal status as in flight; the reaper matching only
  *   the literal `'running'` keeps that posture — a future status this module
  *   does not understand stays refused, never silently "recovered".
- * - It never creates the table. The runs schema is renderer-bootstrapped
- *   (settled ruling, docs/agents/assistant-persistence.md § RUN-EVENT /
- *   THREAD-RUN SCHEMA OWNERSHIP); main may only UPDATE, so a missing
- *   relation is probed with `to_regclass` and reported, exactly like the
- *   rewind repository's own probes.
+ * - It never creates the table. MIGRATION 118 owns the runs schema (revised
+ *   ruling, docs/agents/assistant-persistence.md § RUN-EVENT / THREAD-RUN
+ *   SCHEMA OWNERSHIP, 2026-09-05); main may only UPDATE. It no longer probes
+ *   for the relation either: `getDatabase()` cannot resolve a handle until
+ *   `migrate()` has run (`db-main.ts`), so the only database that lacks it
+ *   was never migrated, and that raises 42P01 into the caller's `catch`
+ *   rather than the `info`-level `runsTableMissing` report it used to return.
  */
 import {
   ORPHANED_THREAD_RUN_ERROR,
@@ -58,8 +60,6 @@ export { ORPHANED_THREAD_RUN_ERROR, REAP_CLOCK_SKEW_MARGIN_MS };
 
 export interface ThreadRunReapReport {
   readonly reaped: readonly { readonly id: string; readonly threadId: string }[];
-  /** True when the renderer bootstrap has never run on this profile. */
-  readonly runsTableMissing: boolean;
 }
 
 /**
