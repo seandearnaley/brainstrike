@@ -185,14 +185,27 @@ export class WorkerStorage {
     opId?: number
   ) {
     const lastOp = this.activeSaveOps.get(key) ?? 0;
-    // BST-459: `opId` is optional in the protocol, so `undefined` — not `0` —
-    // is the "sender did not sequence this write" signal. Both checks below
-    // test existence rather than truthiness: a truthy test would treat a
-    // legitimate `opId: 0` as unsequenced and fail this guard OPEN, letting a
-    // stale write clobber a newer one. The in-repo producer emits `Date.now()`
-    // (see worker-storage.worker.mjs), which is never 0, but `StorageRequest`
-    // is exported and any monotonic counter starting at 0 would hit this.
-    if (opId !== undefined && opId < lastOp) {
+    // BST-459. The question both checks below ask is "did the sender give this
+    // write a usable sequence number?", and `Number.isFinite` is the predicate
+    // that answers it. Neither of the two obvious shorthands does:
+    //
+    //   `opId && …`            treats `0` as unsequenced. 0 is a legal value of
+    //                          the declared `opId?: number`, so a stale write
+    //                          carrying it was APPLIED over a newer one — this
+    //                          guard failing open, which is the ticket's bug.
+    //   `opId !== undefined`   admits anything else that arrives. The payload
+    //                          crosses postMessage and is not type-checked at
+    //                          runtime: `NaN` would be recorded, and since
+    //                          `x < NaN` is always false the guard would then
+    //                          stop firing for that key until the next valid
+    //                          write; `''` would compare as 0 and SKIP a write
+    //                          that should have landed.
+    //
+    // The in-repo producer emits `Date.now()` (worker-storage.worker.mjs), so
+    // none of this is reachable today — but `StorageRequest` is exported, and
+    // the natural move to a monotonic counter starts at 0.
+    const sequenced = opId !== undefined && Number.isFinite(opId);
+    if (sequenced && opId < lastOp) {
       this.worker?.postMessage({
         id,
         operation: 'setItem',
@@ -201,12 +214,7 @@ export class WorkerStorage {
       });
       return;
     }
-    // Recording `opId: 0` is behaviourally identical to leaving the entry
-    // absent, because the read above defaults to 0 — so this arm is not
-    // independently observable and no test can pin it. It is written
-    // existence-first anyway so the pair reads as one contract; a lone
-    // truthiness check here would look like the bug fixed above.
-    if (opId !== undefined) {
+    if (sequenced) {
       this.activeSaveOps.set(key, opId);
     }
 

@@ -192,7 +192,7 @@ describe('WorkerStorage – coverage boost', () => {
       Reflect.deleteProperty(globalThis, 'localStorage');
     }
     if (originalErrorEvent) {
-      setGlobalSlot('ErrorEvent', originalErrorEvent as typeof MockErrorEvent);
+      setGlobalSlot('ErrorEvent', originalErrorEvent);
     } else {
       Reflect.deleteProperty(globalThis, 'ErrorEvent');
     }
@@ -707,6 +707,82 @@ describe('WorkerStorage – coverage boost', () => {
         });
       });
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+    });
+
+    // The two cases that make `Number.isFinite` the predicate rather than a
+    // bare `opId !== undefined`. The payload crosses postMessage and is not
+    // type-checked at runtime, so neither value is excluded by the declared
+    // `opId?: number`.
+    it('does not let a NaN opId poison the ordering baseline for its key', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      const send = (id: string, opId: number, value: string) => {
+        mockWorker.emitMessage({
+          id,
+          key: 'nan-key',
+          operation: 'setItem',
+          opId,
+          type: 'storage_request',
+          value,
+        });
+      };
+
+      send('high', 100, 'newest');
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('nan-key', 'newest');
+      });
+
+      // Recorded as the baseline, `NaN` makes every later `opId < NaN` false
+      // and the guard stops firing for this key.
+      send('garbage', Number.NaN, 'garbage');
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('nan-key', 'garbage');
+      });
+
+      mockLocalStorage.setItem.mockClear();
+
+      send('stale', 50, 'stale');
+      await vi.waitFor(() => {
+        expect(mockWorker.postMessage).toHaveBeenCalledWith({
+          id: 'stale',
+          operation: 'setItem',
+          success: true,
+          type: 'storage_response',
+        });
+      });
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+    });
+
+    it('does not skip a write whose opId is a non-numeric value that coerces low', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      mockWorker.emitMessage({
+        id: 'high',
+        key: 'coerce-key',
+        operation: 'setItem',
+        opId: 100,
+        type: 'storage_request',
+        value: 'newest',
+      });
+
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('coerce-key', 'newest');
+      });
+
+      // `'' < 100` is `0 < 100` — a relational comparison coerces, so an
+      // unsequenced write would be dropped as if it were stale.
+      mockWorker.emitMessage({
+        id: 'empty-string',
+        key: 'coerce-key',
+        operation: 'setItem',
+        opId: '' as unknown as number,
+        type: 'storage_request',
+        value: 'later',
+      });
+
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('coerce-key', 'later');
+      });
     });
   });
 

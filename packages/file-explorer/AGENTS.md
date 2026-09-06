@@ -164,6 +164,27 @@ This pattern makes the URL **relative to the module**, allowing bundlers (Vite/r
 > * In dev/prod, Vite transforms `new URL(..., import.meta.url)` to the right path and emits the worker asset; we also map `*.worker.js` in `tsup` so the file is copied for runtime loading. ([vitejs][6])
 > * The adapter auto-disables the Worker in SSR/tests/Electron/headless and falls back to immediate storage.
 
+### Write ordering (`opId`) — protocol contract
+
+`StorageRequest.opId` sequences `setItem` requests so a late-arriving stale
+write cannot clobber a newer one. It is **optional**, and the rules are:
+
+* **`undefined` is the only "unsequenced" signal.** `0` is a legal sequence
+  number, not an absence. A truthiness test (`if (opId)`) conflates the two and
+  fails the guard OPEN for `opId: 0` — the stale write wins. This was BST-459.
+* **`Number.isFinite(opId)` is the predicate**, not `opId !== undefined`. The
+  request crosses `postMessage` and is not type-checked at runtime, so the
+  declared `opId?: number` does not exclude `NaN` (recorded as the baseline it
+  makes every later `opId < NaN` false, disabling the guard for that key) or
+  `''` (compares as `0`, so a write that should land is dropped as stale).
+  Anything non-finite is treated as unsequenced and simply proceeds.
+* **Equal `opId`s proceed.** The comparison is strictly `<`, deliberately: the
+  in-repo producer emits `Date.now()`, so two saves in the same millisecond
+  share an id and both must land.
+* The producer is `worker-storage.worker.mjs`. If it ever moves off
+  `Date.now()` to a monotonic counter, that counter starts at `0` — which is
+  exactly the case the first rule protects.
+
 ---
 
 ## React / subscription guidance (for consumers)
