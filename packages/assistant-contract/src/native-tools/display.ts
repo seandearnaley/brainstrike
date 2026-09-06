@@ -66,6 +66,25 @@ function unionBranches(schema: JsonSchema): readonly JsonSchema[] | undefined {
   });
 }
 
+/**
+ * The same nullability, spelled the other way. Zod 4.4 emitted `.nullable()` /
+ * `.nullish()` as an `anyOf` carrying a `{ type: 'null' }` branch, which
+ * `unionBranches` drops; Zod 4.5.0 (colinhacks/zod#6412 and the surrounding
+ * JSON Schema work) emits a type ARRAY instead — `type: ['string', 'null']`.
+ * Rewriting the array into the branch list `unionBranches` would have produced
+ * keeps one resolution path for both spellings, so a heterogeneous array and a
+ * heterogeneous union stay indistinguishable rather than acquiring two
+ * different answers. Sibling keywords ride along on each branch, which is what
+ * keeps `type: ['array', 'null']` resolving its `items`.
+ */
+function typeArrayBranches(schema: JsonSchema): readonly JsonSchema[] | undefined {
+  const raw = schema['type'];
+  if (!Array.isArray(raw)) {
+    return;
+  }
+  return raw.flatMap((entry) => (entry === 'null' ? [] : [{ ...schema, type: entry }]));
+}
+
 interface ResolvedType {
   readonly arrayItemType?: ParameterType;
   readonly enumValues?: readonly string[];
@@ -89,7 +108,7 @@ function resolveType(schema: JsonSchema, path: string): ResolvedType {
   if ('const' in schema) {
     return { enumValues: [String(schema['const'])], type: 'enum' };
   }
-  const branches = unionBranches(schema);
+  const branches = unionBranches(schema) ?? typeArrayBranches(schema);
   if (branches) {
     const resolved = branches.map((branch) => resolveType(branch, path));
     const merged = mergeEnums(resolved);

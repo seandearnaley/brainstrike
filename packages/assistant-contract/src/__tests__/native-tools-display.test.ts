@@ -117,6 +117,37 @@ describe('toToolSchemaDisplay', () => {
     });
   });
 
+  // Zod spells nullability two ways across versions and the resolver must not
+  // care which it is handed. 4.4 emitted `anyOf: [{type:'string'},{type:'null'}]`;
+  // 4.5 emits `type: ['string','null']`. The case above only proves whichever
+  // form the pinned Zod happens to produce, so it would have gone quiet on the
+  // 4.4 -> 4.5 bump rather than failing. These assert the shapes directly.
+  it('resolves a JSON Schema type array the same way it resolves a nullable union', () => {
+    const display = toToolSchemaDisplay(
+      probe(
+        z.object({
+          bounded: z.string().min(2).max(8).nullable().describe('bounded nullable'),
+          items: z.array(z.number()).nullish().describe('nullable array'),
+          plain: z.string().nullable().describe('nullable string'),
+        })
+      )
+    );
+    const byName = new Map(display.parameters.map((parameter) => [parameter.name, parameter]));
+    // Pin the assumption this case exists to cover: the installed Zod really
+    // does emit the array spelling. If a later Zod goes back to `anyOf`, this
+    // fails here and says so, instead of the case quietly passing through the
+    // union path and proving nothing.
+    expect(z.toJSONSchema(z.object({ p: z.string().nullable() })).properties?.['p']).toMatchObject({
+      type: ['string', 'null'],
+    });
+    // `.nullable()` is still a required key — present, possibly null — where
+    // `.nullish()` is optional. The type is what nullability must not change.
+    expect(byName.get('plain')).toMatchObject({ required: true, type: 'string' });
+    expect(byName.get('items')).toMatchObject({ arrayItemType: 'number', type: 'array' });
+    // Facets still resolve off a nullable scalar rather than being dropped.
+    expect(byName.get('bounded')).toMatchObject({ maxLength: 8, minLength: 2, type: 'string' });
+  });
+
   it('merges a top-level discriminated union: every branch field, required only when required everywhere', () => {
     const display = toToolSchemaDisplay(
       probe(
