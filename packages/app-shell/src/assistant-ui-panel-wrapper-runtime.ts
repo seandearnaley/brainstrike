@@ -839,29 +839,6 @@ export function hasValidProviderModelSelection(args: {
   return args.isModelEnabled(args.currentProvider, currentModelName);
 }
 
-export function resolveLocalRuntimeSelection(args: {
-  currentProvider: SupportedProvider;
-  currentSelectedModel: string | null;
-  isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
-  providerHasEnabledModels: (provider: SupportedProvider) => boolean;
-  selectModelForProvider: (provider: SupportedProvider) => void;
-}): boolean {
-  if (!isLocalRuntimeProvider(args.currentProvider)) {
-    return false;
-  }
-
-  const currentModelName = resolveModelNameFromComposite(args.currentSelectedModel);
-  if (currentModelName && args.isModelEnabled(args.currentProvider, currentModelName)) {
-    return true;
-  }
-
-  if (args.providerHasEnabledModels(args.currentProvider)) {
-    args.selectModelForProvider(args.currentProvider);
-    return true;
-  }
-  return false;
-}
-
 export type LocalRuntimeStatusMap = Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
 export type LocalRuntimeModelCatalogMap = Partial<
   Record<LocalRuntimeId, LocalRuntimeModelCatalogState>

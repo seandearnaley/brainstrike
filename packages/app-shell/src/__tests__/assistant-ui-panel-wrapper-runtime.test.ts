@@ -28,7 +28,6 @@ import {
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveHostedMemoryBackendAvailable,
-  resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveOpenRouterMetadataDisabledReason,
   resolveProviderModelSelection,
@@ -936,7 +935,7 @@ describe('assistant runtime helpers', () => {
     expect(dataWithoutOthers).not.toHaveProperty('selectionFilePathsFromOtherRoots');
   });
 
-  it('resolves provider and local runtime model selections', () => {
+  it('resolves provider model selections', () => {
     const models = [
       {
         contextWindow: 200_000,
@@ -970,18 +969,6 @@ describe('assistant runtime helpers', () => {
         providerModelIds: ['fixed'],
       })
     ).toBe(false);
-
-    const selectModelForProvider = vi.fn();
-    expect(
-      resolveLocalRuntimeSelection({
-        currentProvider: 'ollama',
-        currentSelectedModel: null,
-        isModelEnabled: () => false,
-        providerHasEnabledModels: () => true,
-        selectModelForProvider,
-      })
-    ).toBe(true);
-    expect(selectModelForProvider).toHaveBeenCalledWith('ollama');
   });
 
   it('maps loaded local runtime catalogs into LLM provider models', () => {

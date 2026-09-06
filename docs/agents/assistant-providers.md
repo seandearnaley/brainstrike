@@ -1029,6 +1029,25 @@ cannot leave a disappeared provider selected forever.
 Keep the authority, refresh, ordering, teardown, and failure controls in
 `use-configured-assistant-providers.test.tsx` when this boundary changes.
 
+**The reconcile itself is a pure decision, not an effect (BST-1652).**
+`packages/app-shell/src/assistant-panel/model-selection-reconcile.ts` takes a
+plain input snapshot and returns one `{kind: 'keep' | 'select' | 'clear'; reason}`
+value; `use-model-selection-reconcile.ts` is the only thing that applies it and
+holds no policy of its own. Branch ORDER is load-bearing — built-in-local
+seeding, then the discovery pause above, then provider availability, then the
+local-runtime leg, then registry re-selection — and every branch has a named
+reason with a unit test in `assistant-panel/__tests__/`, so a new case belongs
+in the pure module (testable without React or PGlite) rather than in the hook.
+A `select`/`clear` is logged at debug with its reason; `keep` is the steady
+state and is not logged. The mount-level oracle stays
+`assistant-ui-panel-wrapper-provider-seeds.test.tsx`.
+
+One deliberate wart is preserved and pinned: built-in-local seeding is gated on
+the RENDER-captured selection (`renderedSelectedModel`) while every other branch
+reads the live store, exactly as the pre-extraction effect did. Collapsing the
+two is a separate, deliberate change — not a cleanup to fold into an unrelated
+edit.
+
 The mounted assistant wrapper keys local-runtime status and model-catalog
 refreshes to the immutable Ollama / LM Studio settings snapshots; unrelated
 provider settings do not trigger local probes. Changing activation, base URL,

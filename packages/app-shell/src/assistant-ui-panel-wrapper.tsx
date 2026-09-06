@@ -78,6 +78,8 @@ import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@b
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
+import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
+import { useModelSelectionReconcile } from './assistant-panel/use-model-selection-reconcile';
 import { webBodyLimitProps } from './assistant-request-body-limit';
 import {
   buildTapestryRangesForUpdate,
@@ -96,14 +98,12 @@ import {
   buildProviderOptionsWhenReady,
   copyProviderSettingsMap,
   type FixedProviderModels,
-  findFirstProviderWithEnabledModels,
   formatToolLabel,
   getBuiltInLocalPreferenceModelIds,
   getEnabledBuiltInLocalRegistryModelIds,
   getRuntimeProviderLlmModels,
   getToolDescription,
   hasContextBreakdownChannel,
-  hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
@@ -115,10 +115,8 @@ import {
   resolveComposerAttachmentsAvailability,
   resolveEffectiveObservationalMemorySettings,
   resolveHostedMemoryBackendAvailable,
-  resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
-  resolveProviderModelSelection,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -630,69 +628,17 @@ export function AssistantUiPanelWrapper({
     [pathToClientRootId, setTapestryRangesForKey]
   );
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onRootTreeSelectionUpdate) {
-      return;
-    }
-
-    const unsubscribe = window.tools.onRootTreeSelectionUpdate(
-      (payload: AssistantSelectionUpdatePayload) => {
-        handleSelectionUpdate(payload);
-      }
-    );
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleSelectionUpdate]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onPreviewContextSelectionUpdate) {
-      return;
-    }
-
-    const unsubscribe = window.tools.onPreviewContextSelectionUpdate(
-      (payload: AssistantSelectionUpdatePayload) => {
-        handleSelectionUpdate(payload);
-      }
-    );
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleSelectionUpdate]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onWorkspaceContextSelectionUpdate) {
-      return;
-    }
-
-    const unsubscribe = window.tools.onWorkspaceContextSelectionUpdate(
-      (payload: AssistantWorkspaceContextSelectionUpdatePayload) => {
-        handleSelectionUpdate(payload);
-      }
-    );
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleSelectionUpdate]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onWorkspaceContextTapestryUpdate) {
-      return;
-    }
-
-    const unsubscribe = window.tools.onWorkspaceContextTapestryUpdate(
-      (payload: AssistantWorkspaceTapestryUpdatePayload) => {
-        handleTapestryUpdate(payload);
-      }
-    );
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleTapestryUpdate]);
+  // Selection write-back bridge (BST-1652): one subscription over every
+  // available channel instead of four copy-pasted effects. See
+  // `assistant-panel/tool-update-subscriptions.ts`.
+  useEffect(
+    () =>
+      subscribeAssistantToolUpdates({
+        onSelectionUpdate: handleSelectionUpdate,
+        onTapestryUpdate: handleTapestryUpdate,
+      }),
+    [handleSelectionUpdate, handleTapestryUpdate]
+  );
 
   const nativeToolIds = resolveAdvertisedNativeToolIds({
     desktopBridgeAvailable: hasDesktopRuntimeBridge(),
@@ -1136,120 +1082,23 @@ export function AssistantUiPanelWrapper({
     [enabledBuiltInLocalModelIds, enabledModelIds, getProviderLlmModels]
   );
 
-  const selectModelForProvider = useCallback(
-    (provider: SupportedProvider) => {
-      const modelToSelect =
-        resolveProviderModelSelection({
-          getProviderLlmModels,
-          isModelEnabled,
-          provider,
-        }) ?? (provider === 'local' ? enabledBuiltInLocalModelIds[0] : undefined);
-      if (!modelToSelect) {
-        return;
-      }
-      setModel(`${provider}::${modelToSelect}`);
-    },
-    [enabledBuiltInLocalModelIds, getProviderLlmModels, isModelEnabled, setModel]
-  );
-
-  const shouldSkipSelectionReconcile = useCallback(
-    (currentProvider: SupportedProvider | null) =>
-      providerDiscoveryState === 'idle' ||
-      providerDiscoveryState === 'loading' ||
-      (configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider)),
-    [configuredProviders, providerDiscoveryState]
-  );
-
-  const hasValidCurrentModelSelection = useCallback(
-    (currentProvider: SupportedProvider) =>
-      hasValidProviderModelSelection({
-        currentProvider,
-        currentSelectedModel: getSelectedModel(),
-        isModelEnabled,
-        providerModelIds: getProviderLlmModels(currentProvider).map((model) => model.id),
-      }),
-    [getProviderLlmModels, getSelectedModel, isModelEnabled]
-  );
-
-  const handleLocalRuntimeSelection = useCallback(
-    (currentProvider: SupportedProvider): boolean =>
-      resolveLocalRuntimeSelection({
-        currentProvider,
-        currentSelectedModel: getSelectedModel(),
-        isModelEnabled,
-        providerHasEnabledModels,
-        selectModelForProvider,
-      }),
-    [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
-  );
-
-  const seedBuiltInLocalModelSelection = useCallback((): boolean => {
-    if (selectedModel !== null || !configuredProviders.includes('local')) {
-      return false;
-    }
-    const localModel = enabledBuiltInLocalModelIds[0];
-    if (!(localModel && enabledModelIds.has(localModel))) {
-      return false;
-    }
-    setModel(`local::${localModel}`);
-    return true;
-  }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
-
-  useEffect(() => {
-    if (seedBuiltInLocalModelSelection()) {
-      return;
-    }
-
-    const currentProvider = getSelectedProvider();
-    if (shouldSkipSelectionReconcile(currentProvider)) {
-      return;
-    }
-
-    // Case 1: Current provider is no longer available
-    if (currentProvider && !configuredProviders.includes(currentProvider)) {
-      if (isLocalRuntimeProvider(currentProvider)) {
-        return;
-      }
-      clearModel();
-      return;
-    }
-
-    if (currentProvider && handleLocalRuntimeSelection(currentProvider)) {
-      return;
-    }
-
-    // Case 2: Current provider exists and has enabled models - nothing to do
-    if (
-      currentProvider &&
-      providerHasEnabledModels(currentProvider) &&
-      hasValidCurrentModelSelection(currentProvider)
-    ) {
-      return;
-    }
-
-    // Case 3: Find the first provider with enabled models
-    const next = findFirstProviderWithEnabledModels(configuredProviders, providerHasEnabledModels);
-    if (next) {
-      selectModelForProvider(next);
-      return;
-    }
-
-    // Case 4: No providers with enabled models, clear selection
-    if (currentProvider) {
-      clearModel();
-    }
-  }, [
-    configuredProviders,
-    enabledModelIds,
-    handleLocalRuntimeSelection,
-    hasValidCurrentModelSelection,
-    getSelectedProvider,
+  // Model reconcile (BST-1652). The DECISION is a pure function in
+  // `assistant-panel/model-selection-reconcile.ts` — every branch unit-tested
+  // without React — and this hook only applies it. Previously this was ~115
+  // lines of `useCallback` helpers plus an effect whose only observation seam
+  // was mounting the whole panel.
+  useModelSelectionReconcile({
     clearModel,
-    providerHasEnabledModels,
-    seedBuiltInLocalModelSelection,
-    selectModelForProvider,
-    shouldSkipSelectionReconcile,
-  ]);
+    configuredProviders,
+    discoveryState: providerDiscoveryState,
+    enabledBuiltInLocalModelIds,
+    enabledModelIds,
+    getProviderLlmModels,
+    getSelectedModel,
+    getSelectedProvider,
+    renderedSelectedModel: selectedModel,
+    setModel,
+  });
 
   const { handleModelChange, providerDraft } = useAssistantModelChange({
     currentModel,
