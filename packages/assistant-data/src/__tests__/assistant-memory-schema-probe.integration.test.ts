@@ -75,6 +75,22 @@ describe('assistant memory schema probe (real PGlite)', () => {
     expect(thread.resourceId).toBe('workspace-a');
   });
 
+  it('names roots too, so a cross-root read cannot raise a raw missing-relation error', async () => {
+    // `roots` is not assistant-owned — migration 039 creates it — but
+    // CROSS_ROOT_USAGE_AGGREGATION_SQL joins it. A handle carrying every
+    // assistant relation but no roots table must still fail as the named
+    // error, not as a raw 42P01 from deep inside getCrossRootUsage().
+    const db = await createMigratedTestPGlite(nextDataDir('schema-probe-roots'));
+    await db.query('DROP TABLE roots CASCADE');
+
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    await expect(repository.listThreads('workspace-a')).rejects.toBeInstanceOf(
+      AssistantMemorySchemaMissingError
+    );
+    await expect(repository.listThreads('workspace-a')).rejects.toThrow(/roots/u);
+  });
+
   it('works against a migrated database', async () => {
     const db = await createMigratedTestPGlite(nextDataDir('schema-probe-migrated'));
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);

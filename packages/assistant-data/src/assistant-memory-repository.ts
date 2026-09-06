@@ -713,6 +713,8 @@ const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
+/** Workspace roots (migration 039); joined by the cross-root usage rollup. */
+const ROOTS_TABLE = 'roots';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
 const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 /**
@@ -740,6 +742,13 @@ export function requiredAssistantMemoryRelations(): readonly string[] {
       ASSISTANT_RUN_OUTCOMES_TABLE,
       ASSISTANT_EDIT_CHECKPOINTS_TABLE,
       MIND_OPS_TABLE,
+      // `roots` is not assistant-owned (migration 039 creates it), but
+      // CROSS_ROOT_USAGE_AGGREGATION_SQL reads it through `LEFT JOIN roots`.
+      // Without it here, a handle carrying every assistant relation but no
+      // roots table passes the probe and then raises a raw missing-relation
+      // error from getCrossRootUsage() instead of the named one — the exact
+      // inconsistent failure this probe exists to remove.
+      ROOTS_TABLE,
       ...THREAD_DELETE_SIDECAR_TABLES.map((sidecar) => sidecar.table),
     ]),
   ].sort();
