@@ -1,0 +1,115 @@
+# TEMPORARY DIAGNOSTIC — BST-1221. Delete with its branch once the rate is known.
+#
+# Measures how often the V8 WASM-teardown fatal
+# (`Check failed: jit_page_->allocations_.erase(addr) == 1`) reproduces on the
+# configuration that actually fails. A 120-run local loop on darwin/arm64 found
+# ZERO: `ThreadIsolation` is V8's W^X JIT-page hardening and its flag is
+# `--memory-protection-keys (protect code memory with PKU if available)` — PKU is
+# Intel MPK, x86-64 only — so the failing bookkeeping path is not exercised the
+# same way off this runner class. Hence: same `ubicloud-standard-4`, same Node
+# (`.nvmrc` via setup-workspace), same turbo invocation as `Unit (heavy)`.
+#
+# Not a routing label, planner, or proof artifact (AGENTS.md § CI): it produces
+# no artifact and gates nothing. It is reachable ONLY by pushing a `v8-repro/**`
+# branch, and `test.yml` runs on `pull_request` + `push: main`, so such a branch
+# costs nothing else as long as no PR is opened for it.
+#
+# Cost: LANES x ITERATIONS integration runs. The default 10 x 5 = 50 is sized to
+# resolve a single-digit-percent rate, at roughly 150 runner-minutes.
+name: V8 WASM teardown repro (BST-1221)
+
+on:
+  push:
+    branches:
+      - 'v8-repro/**'
+
+# Deliberately no `concurrency` block: lanes are independent samples and a
+# second push must not cancel a measurement already in flight.
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  ITERATIONS: '5'
+
+jobs:
+  repro:
+    name: repro (lane ${{ matrix.lane }})
+    # The same explicit 4-vCPU/16-GB class as `Unit (heavy)`, where every
+    # recorded occurrence landed. Runner class is part of the hypothesis, not an
+    # incidental choice — occurrence 4 crashed after a 108k-chunk PGlite import
+    # on exactly this box.
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 45
+    strategy:
+      # Every lane is an independent sample; one crashing must not cancel the
+      # rest, or the run reports a rate computed from a truncated denominator.
+      fail-fast: false
+      matrix:
+        lane: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Loop the app-shell integration lane
+        env:
+          # Mirrors the `Push and manual integration tests` step in test.yml so
+          # the child processes see the same environment the crash occurred in.
+          BRAINSTRIKE_FENCE_DEPS_REQUIRED: '1'
+          COVERAGE: 'false'
+          TEST_TIMEOUT_MULTIPLIER: '2'
+          TURBO_TEST_MODE: unit
+        run: |
+          # No `set -e`: a crashing iteration is the DATA POINT, not a reason to
+          # stop sampling. Every iteration runs; the tally decides the outcome.
+          fatals=0
+          other=0
+          for i in $(seq 1 "$ITERATIONS"); do
+            log="$RUNNER_TEMP/iter-$i.log"
+            # Byte-identical to the heavy shard's integration phase, narrowed to
+            # the one package. `test:integration` is `cache: false` in
+            # turbo.jsonc, so every iteration really executes.
+            node scripts/run-test-command.mjs -- \
+              pnpm turbo run test:integration \
+              --filter="@brainstrike/app-shell" --concurrency=2 \
+              > "$log" 2>&1
+            code=$?
+
+            # Key off the repo's OWN classifier verdict rather than a second,
+            # parallel grep that could drift from it (scripts/run-test-command.mjs,
+            # added for this ticket in #2661).
+            if grep -q 'BRAINSTRIKE_CI_VERDICT=V8_WASM_JIT_TEARDOWN_FATAL' "$log"; then
+              fatals=$((fatals + 1))
+              echo "::warning title=V8 fatal::lane ${{ matrix.lane }} iteration $i reproduced the teardown fatal"
+              echo "----- lane ${{ matrix.lane }} iter $i: fatal excerpt -----"
+              grep -B 5 -A 25 'Check failed: jit_page_' "$log" | head -60
+              echo "----- test files reported (a killed worker leaves one with NO verdict) -----"
+              grep -E 'Test Files|Tests ' "$log" | tail -4
+            elif [ "$code" -ne 0 ]; then
+              other=$((other + 1))
+              echo "::warning title=Non-fatal failure::lane ${{ matrix.lane }} iteration $i exited $code without the fatal signature"
+              grep -E 'AssertionError|✕|Test Files' "$log" | head -20
+            fi
+          done
+
+          echo "lane=${{ matrix.lane }} iterations=$ITERATIONS fatals=$fatals other_failures=$other"
+          {
+            echo "| lane | iterations | V8 fatals | other failures |"
+            echo "| --- | --- | --- | --- |"
+            echo "| ${{ matrix.lane }} | $ITERATIONS | $fatals | $other |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # The job's own success means "the sample completed", never "no crash
+          # occurred" — the tally above is the result. Failing here would make a
+          # successful measurement look like a broken workflow.
+          exit 0
