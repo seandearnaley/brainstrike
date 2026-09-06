@@ -51,7 +51,6 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const state = useSyncExternalStore(runtime.subscribe, runtime.getState, runtime.getState);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: run once on mount/unmount; initialization guarded inside the runtime
   useEffect(() => {
     // No automatic initialization in prod/dev - only when explicitly requested.
     // In test environments, eagerly initialize to simplify test timing and ensure
@@ -67,7 +66,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     return () => {
       void runtime.dispose();
     };
-  }, []);
+    // `runtime` is created once by the lazy useState initializer, so this is a
+    // mount/unmount effect in practice. Depending on it rather than suppressing
+    // the rule keeps that honest: if the runtime identity ever did change, the
+    // old one would be disposed and the new one started, which is correct.
+  }, [runtime]);
 
   const contextValue = useMemo<DbContextValue>(
     () => ({
