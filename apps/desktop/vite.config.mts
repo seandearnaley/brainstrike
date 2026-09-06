@@ -18,9 +18,8 @@ import {
   isZustandModule,
 } from '@brainstrike/build-utils';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
-import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
-import react, { reactCompilerPreset } from '@vitejs/plugin-react';
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
@@ -36,9 +35,18 @@ const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
 const wasmPath = findPGliteWasm(__dirname);
 
-// React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
+// React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles.
+// BST-1659: run by `oxc-transform-react` (Rust) through @vitejs/plugin-react, not Babel.
 const ReactCompilerConfig = { compilationMode: 'infer' } as const;
-const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
+
+/**
+ * `@vitejs/plugin-react` defaults to excluding `/node_modules/` alone, but `cacheDir` below
+ * puts the dep-optimizer output in `apps/desktop/.vite`, OUTSIDE node_modules. Without the
+ * second pattern the compiler and the Fast Refresh transform would run over pre-bundled
+ * dependency chunks. This restores the exclusions the removed `@rolldown/plugin-babel` pass
+ * carried.
+ */
+const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
 
 export default defineConfig({
   base: './', // Use relative paths for Electron
@@ -133,11 +141,9 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react({
+      compiler: ReactCompilerConfig,
+      exclude: reactTransformExclude,
       jsxRuntime: 'automatic',
-    }),
-    babel({
-      exclude: [/[\\/]\.vite[\\/]/, /[\\/]node_modules[\\/]/],
-      presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(),
     viteStaticCopy({
