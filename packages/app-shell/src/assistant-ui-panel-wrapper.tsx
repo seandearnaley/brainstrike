@@ -14,10 +14,7 @@ import {
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import {
-  buildPermissionToolGateSnapshotInput,
-  usePermissionPolicyStore,
-} from '@brainstrike/app-state/stores/permission-policy-store';
+import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
 import {
@@ -889,36 +886,18 @@ export function AssistantUiPanelWrapper({
     hasDesktopRuntimeBridge() && desktopAssistantBackendAvailable && hasDesktopLlmHost()
       ? 'data-stream'
       : 'local-runtime';
-  // Permission enforcement (OPT-IN). Subscribe to the persisted posture so the
-  // request snapshot stays in sync; the serializable input is only attached to
-  // the request when the user enabled `enforce`. Scoped to the desktop
-  // data-stream transport — only it POSTs to the assistant server that runs the
-  // runtime permission gate (web's in-renderer local runtime has no server, so
-  // there is nothing to enforce against; tracked as a follow-up).
-  const permissionEnforce = usePermissionPolicyStore((state) => state.enforce);
-  const permissionPolicies = usePermissionPolicyStore((state) => state.policies);
-  const permissionYolo = usePermissionPolicyStore((state) => state.yolo);
-  const permissionSessionGrants = usePermissionPolicyStore((state) => state.sessionGrants);
-  const permissionPerToolOverrides = usePermissionPolicyStore((state) => state.perToolOverrides);
-  const permissionPolicyRequest = useMemo(() => {
-    if (!(permissionEnforce && localChatTransport === 'data-stream')) {
-      return;
-    }
-    return buildPermissionToolGateSnapshotInput({
-      enforce: permissionEnforce,
-      perToolOverrides: permissionPerToolOverrides,
-      policies: permissionPolicies,
-      sessionGrants: permissionSessionGrants,
-      yolo: permissionYolo,
-    });
-  }, [
-    localChatTransport,
-    permissionEnforce,
-    permissionPolicies,
-    permissionYolo,
-    permissionSessionGrants,
-    permissionPerToolOverrides,
-  ]);
+  // Permission enforcement (OPT-IN) is deliberately NOT read during render.
+  // `prepareRequestData` (hooks/use-assistant-request-lifecycle.ts) is the SOLE
+  // producer of `permissionPolicyRequest`: it reads the live store at
+  // request-composition time and sets the field unconditionally (to the
+  // snapshot, or to `undefined` when the posture is off or the transport is not
+  // the desktop data-stream server that runs the gate). A render-time snapshot
+  // could therefore never reach the wire — it would be overwritten — while a
+  // subscription to `sessionGrants`/`perToolOverrides` re-rendered the whole
+  // panel on exactly the interaction that must stay responsive: granting
+  // "Always allow" / "Allow <category> this session" to unblock a suspended
+  // run. See `assistant-ui-panel-wrapper-store-subscription.test.tsx` and the
+  // "permission-policy freshness at the request-composition seam" suite.
 
   // Hook-trust attestation (desktop hooks). Subscribe to the persisted approvals
   // so the wire snapshot stays in sync; the server independently re-hashes disk.
@@ -1089,7 +1068,6 @@ export function AssistantUiPanelWrapper({
     memoryResourceId,
     modelSettings: effectiveModelSettings,
     observationalMemorySettings,
-    permissionPolicyRequest,
     planMode,
     providerOptions,
     requestedReasoningEffort: selectedProviderSettings?.reasoningEffort,

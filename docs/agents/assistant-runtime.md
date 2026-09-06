@@ -2090,7 +2090,25 @@ later hydration retries resolution and genuine adapter failures remain visible.
 
 Flow (desktop assistant server → agent runtime):
 1. The renderer attaches the persisted policy snapshot to the request only when
-   `enforce` is true. `resolveRequestPermissionPolicy` (agent) builds the trusted
+   `enforce` is true. **ONE producer, at request-composition time (BST-1652 — do
+   not add a second):** `prepareRequestData`
+   (`packages/app-shell/src/hooks/use-assistant-request-lifecycle.ts`) calls
+   `getPermissionToolGateSnapshotInput()` against the LIVE store and sets
+   `permissionPolicyRequest` unconditionally — to the snapshot when
+   `permissionEnforceable` (the desktop data-stream transport) and `enforce`,
+   otherwise to `undefined`, which `JSON.stringify` drops. That fresh read is
+   what closes the grant→resume race ("Always allow" flips the store and
+   approves the pending call in the SAME synchronous handler, with no re-render
+   in between). Consequently `buildAssistantRequestData` deliberately does NOT
+   take or emit the field and `assistant-ui-panel-wrapper.tsx` deliberately does
+   NOT subscribe to the permission-policy store during render: a render-time
+   value could only be overwritten, while the subscription re-rendered the whole
+   assistant panel on every grant. Pinned from both sides by
+   `use-assistant-request-lifecycle.test.ts` ("permission-policy freshness at the
+   request-composition seam"), the "never attaches permissionPolicyRequest" case
+   in `assistant-ui-panel-wrapper-runtime.test.ts`, and the commit counters in
+   `assistant-ui-panel-wrapper-store-subscription.test.tsx`.
+   `resolveRequestPermissionPolicy` (agent) builds the trusted
    `PermissionToolGateSnapshot` with a SERVER-built `riskByTool`
    (`buildNativeToolRiskMap`) — the client never classifies tool risk.
 2. `filterToolsByPermissionWithMetadata` (`packages/agent/src/mastra/permission-tool-gate.ts`)

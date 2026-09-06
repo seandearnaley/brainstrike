@@ -1,9 +1,13 @@
 import './assistant-ui-panel-wrapper-test-support';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import {
+  __resetPermissionPolicyStoreForTests,
+  usePermissionPolicyStore,
+} from '@brainstrike/app-state/stores/permission-policy-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { Profiler } from 'react';
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import { loadTestLocalLlmBackend } from './assistant-ui-panel-wrapper-test-support';
@@ -24,6 +28,10 @@ import { loadTestLocalLlmBackend } from './assistant-ui-panel-wrapper-test-suppo
  * wrapper subscribes to that field.
  */
 describe('AssistantUiPanelWrapper store subscription', () => {
+  afterEach(() => {
+    __resetPermissionPolicyStoreForTests();
+  });
+
   const renderCountingPanel = async () => {
     let commits = 0;
 
@@ -76,6 +84,46 @@ describe('AssistantUiPanelWrapper store subscription', () => {
 
     const commits = panel.commitsSince(() => {
       useAssistantPreferencesStore.setState({ modelsByProvider: { openai: 'gpt-5.2' } });
+    });
+
+    expect(commits).toBe(0);
+  });
+
+  /**
+   * BST-1652.
+   *
+   * Tool approval is the HITL path: "Always allow <tool>" and "Allow
+   * <category> this session" are recorded into the permission-policy store by
+   * the grant handlers the wrapper hands to `ToolApprovalGrantProvider`, in
+   * the SAME synchronous handler that then approves the pending call and
+   * resumes the run.
+   *
+   * The renderer's permission snapshot has exactly ONE producer:
+   * `prepareRequestData` (use-assistant-request-lifecycle.ts) reads the live
+   * store via `getPermissionToolGateSnapshotInput()` at request-composition
+   * time and unconditionally overwrites `requestData.permissionPolicyRequest`
+   * — precisely so a grant reaches THIS run without waiting for a re-render
+   * (its own suite pins that: "permission-policy freshness at the
+   * request-composition seam"). A render-time subscription therefore cannot
+   * change any bytes on the wire; all it can do is re-render the whole panel
+   * — including the streaming message list — at the moment the user is
+   * unblocking a paused run.
+   */
+  test('does not re-render when a session permission grant is recorded', async () => {
+    const panel = await renderCountingPanel();
+
+    const commits = panel.commitsSince(() => {
+      usePermissionPolicyStore.getState().grantSessionCategory('execute');
+    });
+
+    expect(commits).toBe(0);
+  });
+
+  test('does not re-render when a per-tool permission override is recorded', async () => {
+    const panel = await renderCountingPanel();
+
+    const commits = panel.commitsSince(() => {
+      usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
     });
 
     expect(commits).toBe(0);
