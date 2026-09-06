@@ -7,6 +7,7 @@ const {
   collectCompiledFunctions,
   diffInventories,
   inventorySource,
+  isMatchable,
   BACKENDS,
   INVENTORY_FORMAT,
 } = await import('../react-compiler-inventory.mjs');
@@ -244,9 +245,11 @@ test('two functions sharing a name in one file are marked unmatchable at the sou
 });
 
 test('a duplicated key is dropped even when the record claims to be matchable', () => {
-  // The diff never trusts the producer's flag alone: an inventory written by an older or
-  // buggy producer must not be able to hide a loss. Baseline compiles `Twin` twice and the
-  // candidate only once — folding them onto one key reports "unchanged" and loses the other.
+  // The diff does not trust the producer's flag alone for COMPILED records: it recounts
+  // compiled occurrences per key, so an older or buggy producer cannot fold two compiled
+  // functions onto one key. (A compiled/bailed name collision is not recounted — the
+  // producer's source-side duplicate detection already covers both statuses.) Baseline
+  // compiles `Twin` twice and the candidate once: folding them reports "unchanged".
   const baseline = inventory('babel', [
     { file: 'a.tsx', line: 20, matchable: true, name: 'Twin', status: 'compiled' },
     { file: 'a.tsx', line: 40, matchable: true, name: 'Twin', status: 'compiled' },
@@ -261,6 +264,78 @@ test('a duplicated key is dropped even when the record claims to be matchable', 
   assert.deepEqual(diff.regressions, []);
   assert.deepEqual(diff.wins, []);
   assert.deepEqual(diff.unmatchable, { baseline: 2, candidate: 1 });
+});
+
+test('a name is matchable only when it is real, unique, and present in the source', () => {
+  const noDuplicates = new Set();
+
+  assert.equal(isMatchable('Row', noDuplicates, true), true);
+  assert.equal(isMatchable(null, noDuplicates, true), false, 'an unnameable function has no key');
+  assert.equal(
+    isMatchable('Row', new Set(['Row']), true),
+    false,
+    'a name shared inside one file cannot identify one of them'
+  );
+  // Names come from the COMPILED output. One a backend synthesized (an outlined helper, a
+  // hoisted temp) has no source function behind it, and two backends need not spell it the
+  // same way — keying it reports one function as a regression AND a win.
+  assert.equal(
+    isMatchable('_temp$1', noDuplicates, false),
+    false,
+    'a name absent from the source is not an identity'
+  );
+});
+
+test('a loss on a name too ambiguous to attribute is reported, not silently dropped', () => {
+  // Baseline compiles `Twin` twice, candidate compiles it zero times. Both keys are
+  // dropped as ambiguous, so `regressions` is empty — and without this bucket the diff
+  // prints "0 regressed" and exits 0 while two functions lost memoization.
+  const baseline = inventory('babel', [
+    { file: 'a.tsx', line: 20, matchable: true, name: 'Twin', status: 'compiled' },
+    { file: 'a.tsx', line: 40, matchable: true, name: 'Twin', status: 'compiled' },
+  ]);
+  const candidate = inventory('oxc', []);
+
+  const diff = diffInventories(baseline, candidate);
+
+  assert.deepEqual(diff.regressions, []);
+  assert.deepEqual(diff.ambiguousLosses, [{ baseline: 2, candidate: 0, key: 'a.tsx::Twin' }]);
+});
+
+test('gaining coverage on an ambiguous name is not reported as a loss', () => {
+  // The mirror of the cross-side drop: ambiguous in the CANDIDATE, unique in the baseline.
+  // The key must leave both sides — keeping the baseline's would manufacture a regression.
+  const baseline = inventory('babel', [
+    { file: 'a.tsx', line: 20, matchable: true, name: 'Twin', status: 'compiled' },
+  ]);
+  const candidate = inventory('oxc', [
+    { file: 'a.tsx', line: 20, matchable: true, name: 'Twin', status: 'compiled' },
+    { file: 'a.tsx', line: 40, matchable: true, name: 'Twin', status: 'compiled' },
+  ]);
+
+  const diff = diffInventories(baseline, candidate);
+
+  assert.deepEqual(diff.regressions, []);
+  assert.deepEqual(diff.wins, []);
+  assert.deepEqual(diff.ambiguousLosses, []);
+  assert.equal(diff.unchanged, 0);
+  assert.deepEqual(diff.unmatchable, { baseline: 1, candidate: 2 });
+});
+
+test('a bailout is not called "still not memoized" when the candidate compiled that name', () => {
+  // `stillBailed` asks a question about the CANDIDATE, so it must not be answered from a
+  // key map that ambiguity emptied two statements earlier.
+  const baseline = inventory('babel', [
+    { file: 'a.tsx', line: 5, matchable: true, name: 'Foo', reasons: [], status: 'bailed' },
+  ]);
+  const candidate = inventory('oxc', [
+    { file: 'a.tsx', line: 5, matchable: true, name: 'Foo', status: 'compiled' },
+    { file: 'a.tsx', line: 9, matchable: true, name: 'Foo', status: 'compiled' },
+  ]);
+
+  const diff = diffInventories(baseline, candidate);
+
+  assert.deepEqual(diff.stillBailed, []);
 });
 
 test('diffInventories refuses an inventory written by an older script', () => {

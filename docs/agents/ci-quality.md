@@ -3120,12 +3120,23 @@ and the same plugin now owns the JSX transform and Fast Refresh injection.
   failed to parse is indistinguishable from a file with no compiled functions; and `--diff`
   rejects a baseline stamped with an older `inventoryFormat`. Regenerate baselines after
   touching the script rather than diffing against a stale one.
-- **Only a function with a stable name is compared.** The diff keys on `file::name`, and the
-  names come from the COMPILED OUTPUT, whose line numbers differ per backend. A function that
-  cannot be named, or that shares its name with another function in the same file, is marked
-  `matchable: false` and reported as an explicit "outside this comparison" count rather than
-  keyed on a line number — otherwise one unchanged function surfaces as a regression AND a win.
-  Both current inventories carry zero such records, so the numbers below are not softened by it.
+- **Only a function with an identity on BOTH sides is compared.** The diff keys on
+  `file::name`, and the names come from the COMPILED OUTPUT, whose line numbers differ per
+  backend. Three kinds of record are marked `matchable: false`: one that cannot be named, one
+  sharing its name with another function in the same file, and one whose name does not appear
+  in the source at all (a name the backend synthesized — two backends need not spell it the
+  same way). Keying any of them surfaces one unchanged function as a regression AND a win.
+  Matchability is then judged across the comparison, not per side: a key ambiguous in either
+  inventory is dropped from both, because keeping the unambiguous side manufactures a win out
+  of the other side's collapse. Such records are reported as an explicit "outside this
+  comparison" count.
+  **Dropping a key is not the same as having nothing to say about it.** Per-key compiled
+  multiplicities are compared for every dropped key, and any key the candidate compiles fewer
+  times than the baseline is reported as an ambiguous coverage loss and fails the command —
+  otherwise a file that compiled `Row` twice and now compiles it never would print "0
+  regressed" and exit 0, which is the false green this instrument exists to refuse.
+  Both current inventories carry zero unmatchable records, so the numbers below are not
+  softened by any of it; the rules are what keep that checkable rather than assumed.
 - **The measurement is output-based, so it is identical across backends**: compile a module,
   then record every function that received a `react/compiler-runtime` cache slot. Only the
   Babel backend can also name the functions the compiler *attempted and failed*, with a reason,

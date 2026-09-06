@@ -317,11 +317,17 @@ export function assertKnownBackend(backend) {
 }
 
 /**
- * Whether the diff may key this record. A function with no name, or one sharing its name with
- * another function in the same file, has no identity the diff can match across two inventories.
+ * Whether the diff may key this record. A function with no name, one sharing its name with
+ * another function in the same file, or one whose name does not appear in the source at all,
+ * has no identity the diff can match across two inventories.
+ *
+ * The third case is the subtle one: names come from the COMPILED output, so a name a backend
+ * synthesized (an outlined helper, a hoisted temp) has no source function behind it. Two
+ * backends need not spell such a name the same way, and keying it would report the same
+ * underlying function as a regression on one spelling and a win on the other.
  */
-function isMatchable(name, duplicateNames) {
-  return name !== null && !duplicateNames.has(name);
+export function isMatchable(name, duplicateNames, hasSourcePosition) {
+  return name !== null && !duplicateNames.has(name) && hasSourcePosition;
 }
 
 /** Inventory a single module. Throws on an unknown backend — never guesses one. */
@@ -340,7 +346,7 @@ export function inventorySource({ backend, filename, source }) {
     functions.push({
       ambiguousName: name !== null && sourceFunctions.duplicateNames.has(name),
       line: position?.line ?? null,
-      matchable: isMatchable(name, sourceFunctions.duplicateNames),
+      matchable: isMatchable(name, sourceFunctions.duplicateNames, position !== undefined),
       memoSlots: compiled.memoSlots,
       name: name ?? ANONYMOUS_NAME,
       status: 'compiled',
@@ -367,7 +373,9 @@ export function inventorySource({ backend, filename, source }) {
       const record = existing ?? {
         ambiguousName: name !== null && sourceFunctions.duplicateNames.has(name),
         line: start?.line ?? null,
-        matchable: isMatchable(name, sourceFunctions.duplicateNames),
+        // Bailouts are keyed off a SOURCE location, so a named one is in the index by
+        // construction — there is no synthesized-name case on this branch.
+        matchable: isMatchable(name, sourceFunctions.duplicateNames, named !== undefined),
         name: name ?? ANONYMOUS_NAME,
         reasons: [],
         status: 'bailed',
@@ -522,12 +530,16 @@ function assertDiffable(inventory, label) {
  */
 function compiledKeys(inventory) {
   const occurrences = new Map();
+  const compiledCounts = new Map();
   for (const entry of inventory.functions) {
-    if (entry.status !== 'compiled' || !entry.matchable) {
+    if (entry.status !== 'compiled') {
       continue;
     }
     const key = `${entry.file}::${entry.name}`;
-    occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
+    compiledCounts.set(key, (compiledCounts.get(key) ?? 0) + 1);
+    if (entry.matchable) {
+      occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
+    }
   }
 
   const keys = new Map();
@@ -545,7 +557,28 @@ function compiledKeys(inventory) {
     }
     keys.set(key, entry);
   }
-  return { keys, unmatchable, unmatchableKeys };
+  return { compiledCounts, keys, unmatchable, unmatchableKeys };
+}
+
+/**
+ * Coverage lost on keys the comparison had to drop. Dropping an ambiguous key is right —
+ * it cannot be attributed to one function — but staying silent about it is not: a file
+ * that compiled `Row` twice in the baseline and not at all in the candidate has lost two
+ * functions' memoization, and the per-key detail the `unmatchable` scalars throw away is
+ * the only thing that can see it. Reported and fail-worthy, because "0 regressed" from an
+ * instrument that cannot see this class of loss is the false green the tool exists to
+ * refuse.
+ */
+function findAmbiguousCoverageLosses(before, after, droppedKeys) {
+  const losses = [];
+  for (const key of droppedKeys) {
+    const baseline = before.compiledCounts.get(key) ?? 0;
+    const candidate = after.compiledCounts.get(key) ?? 0;
+    if (candidate < baseline) {
+      losses.push({ baseline, candidate, key });
+    }
+  }
+  return losses.sort((a, b) => a.key.localeCompare(b.key));
 }
 
 /**
@@ -557,7 +590,8 @@ function compiledKeys(inventory) {
 function dropKeysAmbiguousOnEitherSide(before, after) {
   let baseline = before.unmatchable;
   let candidate = after.unmatchable;
-  for (const key of new Set([...before.unmatchableKeys, ...after.unmatchableKeys])) {
+  const droppedKeys = new Set([...before.unmatchableKeys, ...after.unmatchableKeys]);
+  for (const key of droppedKeys) {
     if (before.keys.delete(key)) {
       baseline += 1;
     }
@@ -565,7 +599,7 @@ function dropKeysAmbiguousOnEitherSide(before, after) {
       candidate += 1;
     }
   }
-  return { baseline, candidate };
+  return { droppedKeys, unmatchable: { baseline, candidate } };
 }
 
 /** Regressions are functions that compiled in `baseline` and no longer compile in `candidate`. */
@@ -575,7 +609,11 @@ export function diffInventories(baseline, candidate) {
 
   const before = compiledKeys(baseline);
   const after = compiledKeys(candidate);
-  const unmatchable = dropKeysAmbiguousOnEitherSide(before, after);
+  // Snapshot BEFORE the drop: `stillBailed` below asks "did the candidate compile this?",
+  // which is a fact about the candidate, not about whether the pair could be keyed.
+  const candidateCompiledKeys = new Set(after.compiledCounts.keys());
+  const { droppedKeys, unmatchable } = dropKeysAmbiguousOnEitherSide(before, after);
+  const ambiguousLosses = findAmbiguousCoverageLosses(before, after, droppedKeys);
 
   const regressions = [];
   const wins = [];
@@ -596,12 +634,13 @@ export function diffInventories(baseline, candidate) {
   }
   for (const entry of baseline.functions) {
     const key = `${entry.file}::${entry.name}`;
-    if (entry.status === 'bailed' && entry.matchable && !after.keys.has(key)) {
+    if (entry.status === 'bailed' && entry.matchable && !candidateCompiledKeys.has(key)) {
       stillBailed.push({ key, ...entry });
     }
   }
 
   return {
+    ambiguousLosses,
     baselineBackend: baseline.backend,
     candidateBackend: candidate.backend,
     regressions,
@@ -656,10 +695,20 @@ async function main(argv) {
     );
     process.stdout.write(
       `${diff.unmatchable.baseline} baseline and ${diff.unmatchable.candidate} candidate ` +
-        'compiled function(s) have no stable name and are outside this comparison\n'
+        'compiled function(s) are outside this comparison ' +
+        '(unnameable, not present in the source, ambiguous, or ambiguous on the other side)\n'
     );
-    if (diff.regressions.length > 0) {
-      throw new Error(`${diff.regressions.length} function(s) regressed from compiled to bailed`);
+    for (const loss of diff.ambiguousLosses) {
+      process.stdout.write(
+        `  ! ${loss.key}: ${loss.baseline} compiled -> ${loss.candidate}, ` +
+          'lost on a name too ambiguous to attribute\n'
+      );
+    }
+    if (diff.ambiguousLosses.length > 0 || diff.regressions.length > 0) {
+      throw new Error(
+        `${diff.regressions.length} function(s) regressed from compiled to bailed, and ` +
+          `${diff.ambiguousLosses.length} ambiguous name(s) lost coverage`
+      );
     }
     return;
   }
