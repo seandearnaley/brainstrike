@@ -125,11 +125,17 @@ describe('canvas repository', () => {
   // and repeated updates would keep growing it — so the composed result is
   // checked before insertion. Both strings here pass the schema on their own.
   it('refuses an update whose COMPOSED html exceeds the byte ceiling', async () => {
-    const nearLimit = 'a'.repeat(CANVAS_HTML_MAX_BYTES - 10);
+    // The BASE has to be under the ceiling, or this proves nothing about
+    // composition — an already-oversized document would be refused whatever the
+    // replacement was. Asserted rather than assumed, because getting this wrong
+    // is invisible: the test still passes.
+    const slot = '<!--slot-->';
+    const base = `${'a'.repeat(CANVAS_HTML_MAX_BYTES - 4_000_000)}${slot}`;
+    expect(new TextEncoder().encode(base).length).toBeLessThan(CANVAS_HTML_MAX_BYTES);
     let inserted = false;
     const db = createFakeDatabase((_call, index) => {
       if (index === 0) {
-        return [versionRow({ html: `${nearLimit}<!--slot-->`, version: 3 })];
+        return [versionRow({ html: base, version: 3 })];
       }
       inserted = true;
       return [{ canvasId: 'canvas-1', version: 4 }];
@@ -137,10 +143,10 @@ describe('canvas repository', () => {
 
     const result = await applyUpdate(db, {
       canvasId: 'canvas-1',
-      // Individually fine — 1M code points, well under .max() — but 4 MB of
-      // UTF-8 on top of a document already near the limit.
-      newString: '\u{1F600}'.repeat(1_000_000),
-      oldString: '<!--slot-->',
+      // Individually fine — 1.5M code points, well under .max() — but 6 MB of
+      // UTF-8 replacing 11 bytes, which carries an in-bounds document over.
+      newString: '\u{1F600}'.repeat(1_500_000),
+      oldString: slot,
       threadId: 'thread-1',
     });
 

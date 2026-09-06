@@ -1,6 +1,6 @@
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
-import { CANVAS_HTML_MAX_BYTES, canvasHtmlUtf8Bytes } from '../../mastra-memory-schema.js';
+import { CANVAS_HTML_MAX_BYTES, canvasHtmlWithinByteCeiling } from '../../mastra-memory-schema.js';
 
 // ============================================================================
 // Workspace Tool Schemas
@@ -26,25 +26,27 @@ const ROOT_WRITE_GUARD_DESCRIPTION =
  * `.max()` alone does not deliver a byte bound. Zod counts CODE POINTS (4.5;
  * UTF-16 code units before that), so `.max(8_000_000)` admits eight million
  * astral characters — 31 MB of UTF-8, four times the documented limit, and
- * double what the same line admitted under Zod 4.4. `.max()` stays as a cheap
- * pre-filter that rejects the obvious cases without measuring; the refinement
- * is the authority.
+ * double what the same line admitted under Zod 4.4. It is kept because it is
+ * what puts `maxLength` in the emitted JSON Schema, NOT as a short-circuit:
+ * measured on Zod 4.5, a string failing `.max()` still reaches the refinement,
+ * because 4 runs checks non-abortively. The refinement is the authority and is
+ * always reached.
  *
- * `minLength` is a PARAMETER rather than something a caller chains on, because
- * `.refine()` returns a ZodEffects that `.min()` cannot extend. Expressing the
- * non-empty constraint as a second refinement instead drops `minLength: 1` from
- * the emitted JSON Schema — refinements are not representable there — which
- * silently narrows what the MODEL is told while leaving parsing unchanged. Not
- * hypothetical: it moved the recorded native-tool prompt budget and failed
- * `native-tool-prompt-budget.test.ts`. Applying the minimum before the
- * refinement keeps the wire contract byte-identical.
+ * `minLength` is a PARAMETER rather than something a caller chains on for one
+ * empirical reason: expressing the non-empty constraint as a second refinement
+ * drops `minLength: 1` from the emitted JSON Schema — refinements are not
+ * representable there — which silently narrows what the MODEL is told while
+ * leaving parsing unchanged. That moved the recorded native-tool prompt budget
+ * and failed `native-tool-prompt-budget.test.ts`. (It is NOT because `.refine()`
+ * blocks chaining: under Zod 4 it returns the same ZodString and `.min()`
+ * chains fine. Zod 3's ZodEffects behaviour no longer applies.)
  */
 function canvasHtml(options?: { readonly minLength?: number }) {
   const bounded =
     options?.minLength === undefined
       ? z.string().max(CANVAS_HTML_MAX_BYTES)
       : z.string().min(options.minLength).max(CANVAS_HTML_MAX_BYTES);
-  return bounded.refine((value) => canvasHtmlUtf8Bytes(value) <= CANVAS_HTML_MAX_BYTES, {
+  return bounded.refine(canvasHtmlWithinByteCeiling, {
     message: `canvas HTML exceeds ${CANVAS_HTML_MAX_BYTES} UTF-8 bytes`,
   });
 }

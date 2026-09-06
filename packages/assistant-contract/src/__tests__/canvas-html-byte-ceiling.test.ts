@@ -26,7 +26,10 @@ function create(html: string) {
 
 describe('canvas HTML byte ceiling', () => {
   it('rejects an astral payload that is under the code-point limit but over the byte limit', () => {
-    // 3M code points — comfortably under .max(8_000_000) — but 12 MB of UTF-8.
+    // 3M emoji: 3M code points and 6M UTF-16 units — both comfortably under
+    // .max(8_000_000) — but 12 MB of UTF-8. `.length` is UTF-16 units, which is
+    // the larger of the two counts Zod might use, so asserting on it bounds
+    // both.
     const html = EMOJI.repeat(3_000_000);
     expect(html.length).toBeLessThan(MAX_BYTES);
     expect(new TextEncoder().encode(html).length).toBeGreaterThan(MAX_BYTES);
@@ -40,10 +43,17 @@ describe('canvas HTML byte ceiling', () => {
   });
 
   it('pins the Zod behaviour this guard exists for', () => {
-    // If a future Zod goes back to counting bytes, or to UTF-16 units, the
-    // premise above changes and this says so rather than the comment rotting.
-    // 10 emoji = 10 code points, 20 UTF-16 units, 40 bytes.
+    // These have to DISCRIMINATE between the three candidate units, or they
+    // cannot detect the drift they exist to catch. 11 emoji is 11 code points,
+    // 22 UTF-16 units and 44 bytes, so `max(21)` accepts it only if Zod counts
+    // code points — it would reject under UTF-16 units (what 4.4 did) and under
+    // bytes. A case like `max(19)` against 20 emoji looks similar and proves
+    // nothing: 20 / 40 / 80 all exceed 19, so it fails whichever unit is in use.
+    expect(z.string().max(21).safeParse(EMOJI.repeat(11)).success).toBe(true);
+    // And the other direction: 11 code points is over `max(10)` under every
+    // unit, which pins that `.max()` is still counting SOMETHING string-shaped
+    // rather than having become a no-op.
+    expect(z.string().max(10).safeParse(EMOJI.repeat(11)).success).toBe(false);
     expect(z.string().max(10).safeParse(EMOJI.repeat(10)).success).toBe(true);
-    expect(z.string().max(19).safeParse(EMOJI.repeat(20)).success).toBe(false);
   });
 });

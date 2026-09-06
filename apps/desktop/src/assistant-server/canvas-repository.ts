@@ -1,7 +1,6 @@
 import {
-  CANVAS_HTML_MAX_BYTES,
   CANVAS_VERSIONS_TABLE,
-  canvasHtmlUtf8Bytes,
+  canvasHtmlWithinByteCeiling,
 } from '@brainstrike/assistant-contract';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 
@@ -240,7 +239,7 @@ export async function applyUpdate(
   // document plus an individually valid replacement lands above the ceiling,
   // and repeated updates would keep growing it, so the composed result is
   // checked against the same number before it is stored.
-  if (canvasHtmlUtf8Bytes(html) > CANVAS_HTML_MAX_BYTES) {
+  if (!canvasHtmlWithinByteCeiling(html)) {
     return { error: 'too_large', ok: false };
   }
   return await insertVersion(db, {
