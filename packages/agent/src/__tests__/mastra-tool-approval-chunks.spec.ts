@@ -18,11 +18,11 @@ import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from '../mastra/agent-streaming';
+import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import { TOOL_CALL_DECLINED_MESSAGE } from '../mastra/tool-event-mapper';
 import { DataStreamCode } from '../stream/data-stream-codes';
 import { DataStreamMapper } from '../stream/data-stream-mapper';

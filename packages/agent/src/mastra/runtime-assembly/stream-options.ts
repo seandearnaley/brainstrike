@@ -299,9 +299,11 @@ export interface BuildStreamOptionsParams {
    * Ignored on the `resume` leg regardless of what is passed — resume never
    * legitimately computes one (Mastra's per-leg re-check has its own rider,
    * see `createToolResumeTurnAttempt`), and the suppression is structural
-   * here rather than left to every call site remembering to omit it.
+   * here rather than left to every call site remembering to omit it. Required
+   * (not `?`) so every leg passes it explicitly, matching the sibling
+   * `delegationOutcomes`/`delegationUsage`/`memoryOption` fields.
    */
-  requireToolApproval?: ApprovalGate;
+  requireToolApproval: ApprovalGate | undefined;
   runId?: string;
   runtime: MastraAgentRuntime;
   runtimeData: RuntimeData | undefined;

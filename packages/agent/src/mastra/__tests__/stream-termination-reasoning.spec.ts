@@ -8,7 +8,8 @@ import type { ToolLifecycleState } from '../tool-lifecycle-processors';
  * The user-visible half of the reasoning phase.
  *
  * Driven through `makeStreamWatchdogTermination` — the exported seam
- * `agent-streaming.ts` actually calls — rather than the private message helper,
+ * `turn-attempts.ts` actually calls (moved out of `agent-streaming.ts` by
+ * BST-1649) — rather than the private message helper,
  * so this covers the WIRING and not just the string. A phase the watchdog
  * reports but the termination path never translates would leave the user with
  * text that contradicts what happened.

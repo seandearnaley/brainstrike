@@ -68,6 +68,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       delegationUsage: undefined,
       leg: 'initial',
       memoryOption: undefined,
+      requireToolApproval: undefined,
       runtime,
       runtimeData,
     });
@@ -174,6 +175,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       delegationUsage: undefined,
       leg: 'initial',
       memoryOption: { resource: 'r1', thread: 't1' },
+      requireToolApproval: undefined,
       runtime,
       runtimeData: undefined,
     });
@@ -185,6 +187,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       delegationUsage: undefined,
       leg: 'initial',
       memoryOption: undefined,
+      requireToolApproval: undefined,
       runtime,
       runtimeData: undefined,
     });
@@ -203,6 +206,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       delegationUsage: { onChildUsage } as never,
       leg: 'initial',
       memoryOption: undefined,
+      requireToolApproval: undefined,
       runtime,
       runtimeData: undefined,
     });
@@ -227,6 +231,7 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
       delegationUsage: undefined,
       leg: 'initial',
       memoryOption: undefined,
+      requireToolApproval: undefined,
       runtime,
       runtimeData: undefined,
     });

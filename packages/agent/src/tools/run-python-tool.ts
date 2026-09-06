@@ -394,8 +394,9 @@ async function removeScratchDir(scratchDir: string): Promise<RunPythonScratchCle
  *   resuming ANY suspension of an approval-gated tool: Mastra re-checks the
  *   gate on every resume leg and converts a resume without `approved: true`
  *   into its generic denial before execute() runs. The repo's resume
- *   transport attaches it for ask-gated tools (agent-streaming.ts); it is a
- *   statement of fact — the call WAS approved at its pre-execution gate.
+ *   transport attaches it for ask-gated tools (`attempt-legs.ts`,
+ *   `createToolResumeTurnAttempt`); it is a statement of fact — the call WAS
+ *   approved at its pre-execution gate.
  */
 const RunPythonNetworkSuspendSchema = z
   .object({

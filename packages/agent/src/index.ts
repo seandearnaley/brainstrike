@@ -176,10 +176,6 @@ export {
   type McpAppAdmissionObserver,
 } from './mastra/agent-runtime';
 export {
-  type DiscoveredSuspendedApproval,
-  type DiscoveredSuspendedPause,
-  type ListSuspendedRunsResult,
-  listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
@@ -248,6 +244,12 @@ export {
   MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
+export {
+  type DiscoveredSuspendedApproval,
+  type DiscoveredSuspendedPause,
+  type ListSuspendedRunsResult,
+  listSuspendedMastraRuns,
+} from './mastra/suspended-run-discovery';
 export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
 export {
   attachToolCallTelemetryMetadata,
