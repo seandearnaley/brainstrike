@@ -217,6 +217,13 @@ describe('gen-model-catalog-migration', () => {
       migrationIndexSource: MIGRATION_INDEX_SOURCE,
       providerCatalog: catalog([llmModel()]),
     };
+    // Mutating the exported Set is deliberate, not a shortcut waiting to be
+    // refactored into an injected predicate — the reasoning is recorded at the
+    // export in `model-catalog-migration-contract.mjs`. In short: both
+    // assertions below read the SAME allowlist, and that shared reading is the
+    // property under test, so a residue predicate the planner accepted from a
+    // caller could prove this green against a rule the checker never sees. The
+    // finally is load-bearing; keep it.
     STATIC_CATALOG_STALE_ROW_ALLOWLIST.add('openai::gpt-seeded');
 
     try {
