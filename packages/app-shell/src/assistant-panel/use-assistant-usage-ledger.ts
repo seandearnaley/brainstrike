@@ -297,6 +297,11 @@ export function useAssistantUsageLedger({
       // in-flight run's request-start usage context. A missing piece means we
       // cannot attribute the row honestly, so we skip the durable write (the
       // zustand sink still ran).
+      // From here the run has stopped streaming, so `thread.isRunning` is already
+      // false, but the live sum must stay visible until the refreshed cumulative
+      // absorbs the row below. Claim it for the reader; `clearLiveRunUsage`
+      // releases the claim on every exit, including the early return.
+      useContextUsageStore.getState().beginLiveRunUsageSettle(threadId);
       const runContext = getActiveRunUsageContext();
       if (!(assistantThreadRepository && selectedMemoryThreadId && runContext)) {
         // No durable sink → no refreshed cumulative will absorb the live sum;

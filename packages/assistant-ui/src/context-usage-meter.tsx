@@ -219,6 +219,7 @@ export const ContextUsageMeter = ({
   // durable cumulative figure until the run's own row lands and the settle
   // path clears it (see context-usage-store.ts).
   const recordedLiveRunUsage = useContextUsageStore((s) => s.liveRunUsageByThread[key]);
+  const isSettlingRunUsage = useContextUsageStore((s) => s.settlingRunUsageByThread[key] === true);
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -288,7 +289,15 @@ export const ContextUsageMeter = ({
   // starts on that thread, so the writer resets the sum at run start
   // (`prepareRequestAndResetLiveUsage` in the app-shell usage ledger) — a real
   // event, not an effect. Both are required; neither covers the other's case.
-  const liveRunUsage = isRunning === true ? recordedLiveRunUsage : undefined;
+  //
+  // `isRunning` alone is also too NARROW at the other end: it goes false at
+  // stream finish, while the writer holds the live sum until the durable row is
+  // absorbed by a refreshed cumulative. Gating on it alone drops the whole run
+  // from the headline for that window and jumps it back when the refresh lands
+  // — the dip the writer's ordering exists to prevent, on every run rather than
+  // in an edge case. `settlingRunUsageByThread` is the writer saying "this sum
+  // is still mine"; a run the user walked away from never enters it.
+  const liveRunUsage = isRunning === true || isSettlingRunUsage ? recordedLiveRunUsage : undefined;
   const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
   const trigger = resolveTriggerDisplay({
     cumulativeUsage,

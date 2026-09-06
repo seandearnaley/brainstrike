@@ -153,6 +153,46 @@ describe('useAssistantUsageLedger', () => {
     });
   });
 
+  it('claims the live sum for the settle window before the durable write, and releases it after', async () => {
+    // `thread.isRunning` is already false by the time handleUsage runs, so
+    // without this claim the reader hides the run's tokens until the refreshed
+    // cumulative lands and the headline dips and jumps on every run. Deferring
+    // the write lets the window be observed rather than raced through.
+    let releaseWrite: () => void = () => undefined;
+    const writeLanded = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const recordRunUsage = vi.fn(async () => {
+      await writeLanded;
+    });
+    const input = createInput({
+      assistantThreadRepository: createRepositoryStub({ recordRunUsage }),
+    });
+    const { result } = renderHook(() => useAssistantUsageLedger(input));
+    act(() => {
+      result.current.handleStepUsage({ inputTokens: 400, outputTokens: 40 });
+    });
+
+    act(() => {
+      result.current.handleUsage(USAGE);
+    });
+    await waitFor(() => expect(recordRunUsage).toHaveBeenCalledTimes(1));
+
+    // Mid-window: the run has finished streaming and its row is not absorbed yet.
+    expect(useContextUsageStore.getState().settlingRunUsageByThread[THREAD_ID]).toBe(true);
+    expect(useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID]).toEqual({
+      inputTokens: 400,
+      outputTokens: 40,
+    });
+
+    releaseWrite();
+    await waitFor(() =>
+      expect(useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID]).toBeUndefined()
+    );
+    // The claim must not outlive the sum it protects.
+    expect(useContextUsageStore.getState().settlingRunUsageByThread[THREAD_ID]).toBeUndefined();
+  });
+
   it('starts the live sum from zero when a new run begins on a thread holding a stranded one', async () => {
     // A run the user switches away from mid-stream never settles under the
     // thread it started on: handleStepUsage AND both settle-side clears key off
