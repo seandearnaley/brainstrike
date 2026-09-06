@@ -24,6 +24,14 @@ const viteLogger = createLogger('WebViteConfig');
 // BST-1659: run by `oxc-transform-react` (Rust) through @vitejs/plugin-react, not Babel.
 const ReactCompilerConfig = { compilationMode: 'infer' } as const;
 
+/**
+ * `@vitejs/plugin-react` defaults to excluding `/node_modules/` alone, but `cacheDir` below
+ * puts the dep-optimizer output in `apps/web/.vite`, OUTSIDE node_modules. Without the second
+ * pattern the compiler and the Fast Refresh transform would run over pre-bundled dependency
+ * chunks. This restores the exclusions the removed `@rolldown/plugin-babel` pass carried.
+ */
+const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
+
 // Keep config concise; avoid noisy debug printing in dev
 
 // The Tailwind CSS content paths are now managed by `tailwind.config.js`.
@@ -183,6 +191,7 @@ export default defineConfig({
     topLevelAwait(),
     react({
       compiler: ReactCompilerConfig,
+      exclude: reactTransformExclude,
       // Ensure consistent development transforms for React Compiler
       jsxRuntime: 'automatic',
     }),

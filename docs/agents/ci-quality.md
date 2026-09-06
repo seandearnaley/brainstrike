@@ -3070,6 +3070,40 @@ change. The Babel detour (`@rolldown/plugin-babel` + `reactCompilerPreset`) is g
 apps; `@vitejs/plugin-react` ≥ 6.1.0 with the optional peer `oxc-transform-react` replaces it,
 and the same plugin now owns the JSX transform and Fast Refresh injection.
 
+- **oxc is not "preferred" — it is the only backend `react({ compiler })` has.** This matters
+  because `babel-plugin-react-compiler` and `@rolldown/plugin-babel` stay resolvable next to
+  `@vitejs/plugin-react` through workspace-root peer resolution even though both app manifests
+  dropped them, so "Babel is out of the app builds" needs proof rather than absence.
+  `createReactCompilerPlugin` in `@vitejs/plugin-react@6.1.1` contains a single
+  `await import('oxc-transform-react')` and no Babel branch; a missing package is
+  `this.error(...)`, a hard build failure, never a fallback. `reactCompilerPreset` (the Babel
+  path) is only reachable if a config calls it and feeds it to `@rolldown/plugin-babel` —
+  neither app does. Confirmed three ways on 2026-09-06: the plugin source above; the build's own
+  `PLUGIN_TIMINGS` block naming `vite:react-compiler transform (1656 calls)` with no
+  `@rolldown/plugin-babel` row; and by mutation — hiding `oxc-transform-react` from
+  `node_modules` and the plugin's peer directory, with `babel-plugin-react-compiler@1.0.0` left
+  in place, fails `vite build` with `React Compiler requires the optional 'oxc-transform-react'
+  package`. Re-run that mutation rather than trusting a version bump.
+- **Restore the `.vite` exclusion whenever `cacheDir` moves out of `node_modules`.**
+  `@vitejs/plugin-react` defaults to `exclude: /\/node_modules\//`, but both apps set
+  `cacheDir: <app>/.vite`, so the dep-optimizer output sits OUTSIDE `node_modules` and the
+  default would let the compiler and the Fast Refresh transform run over pre-bundled dependency
+  chunks in dev. Both configs pass `exclude: [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/]`,
+  which is what the removed `@rolldown/plugin-babel` pass carried. This is a dev-path
+  correctness guard: the production bundle is byte-identical with and without it (1283 cache
+  sentinels either way).
+- **What else the filter swap changed, and what it did not.** The compiler's eligible extension
+  set narrowed from `/\.(?:[jt]sx?|[cm][jt]s)(?:$|\?)/` (`@rolldown/plugin-babel`'s default) to
+  `/\.[tj]sx?$/`, dropping `.mjs`/`.cjs`/`.mts`/`.cts`; the only first-party module of that
+  shape in either app graph is a worker, so nothing was lost. `.ts` is NOT excluded — mapping
+  the built bundle's `react.memo_cache_sentinel` sites back through a `--sourcemap` build lands
+  on `.ts` modules (`packages/db/src/use-db.ts`, `packages/ui/src/hooks/use-copy-to-clipboard.ts`
+  and peers) at roughly the inventory's own 17% `.ts` share, so there is no category-level
+  `.ts` loss hiding under a net bundle-wide gain. The compiler's position in the pipeline did
+  NOT change either: `@rolldown/plugin-babel` and `vite:react-compiler` are both
+  `enforce: 'pre'`, and Vite orders every pre plugin ahead of the core `vite:oxc` JSX transform,
+  so both passes saw real JSX rather than `_jsx(...)` calls. Do not attribute the 978 → 1130
+  delta to a transform-ordering change.
 - **A bailout is silent in BOTH backends, and no build flag changes that.** `infer` skips any
   function it cannot analyse and emits nothing. `oxc-transform-react` 0.148.0 returns only
   *fatal* diagnostics in `TransformResult.errors`, which stay empty for an ordinary bailout, and
@@ -3080,6 +3114,18 @@ and the same plugin now owns the JSX transform and Fast Refresh injection.
   `--diff <baseline.json> <candidate.json>`, which exits nonzero when a function that compiled
   in the baseline no longer compiles. Run the diff before any compiler-toolchain change.
   `scripts/__tests__/react-compiler-inventory.test.mjs` guards it under `pnpm test:scripts`.
+- **The instrument refuses to report a false green.** An unknown `--backend` is rejected before
+  the walk (it used to become one identical per-file failure, a written JSON and exit 0); an
+  inventory carrying ANY analysis failure is neither written nor diffed, because a file that
+  failed to parse is indistinguishable from a file with no compiled functions; and `--diff`
+  rejects a baseline stamped with an older `inventoryFormat`. Regenerate baselines after
+  touching the script rather than diffing against a stale one.
+- **Only a function with a stable name is compared.** The diff keys on `file::name`, and the
+  names come from the COMPILED OUTPUT, whose line numbers differ per backend. A function that
+  cannot be named, or that shares its name with another function in the same file, is marked
+  `matchable: false` and reported as an explicit "outside this comparison" count rather than
+  keyed on a line number — otherwise one unchanged function surfaces as a regression AND a win.
+  Both current inventories carry zero such records, so the numbers below are not softened by it.
 - **The measurement is output-based, so it is identical across backends**: compile a module,
   then record every function that received a `react/compiler-runtime` cache slot. Only the
   Babel backend can also name the functions the compiler *attempted and failed*, with a reason,
@@ -3103,9 +3149,11 @@ Measured on 2026-09-06 over 2177 first-party source files (`apps/web/src`,
 | functions bailed | 258 | not reportable |
 | compiler pass, single-threaded | 11.6 s | 1.02 s |
 
-The migration diff was **0 regressions, 152 newly compiled**. End to end in the `apps/web`
-bundle, `react.memo_cache_sentinel` sites went 1081 → 1287. 106 functions that Babel bailed on
-are still not memoized.
+The migration diff was **0 regressions, 152 newly compiled**, with 0 records on either side
+that the diff could not identify. End to end in the `apps/web` bundle,
+`react.memo_cache_sentinel` sites went 1081 (Babel, measured before the migration) → 1283
+(`grep -ro 'react\.memo_cache_sentinel' apps/web/dist | wc -l` on the current tree). 106
+functions that Babel bailed on are still not memoized.
 
 - **Our largest components are NOT compiled, under either backend.** The eleven largest
   first-party files each have their principal component or hook bailing:

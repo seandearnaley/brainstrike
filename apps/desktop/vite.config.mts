@@ -39,6 +39,15 @@ const wasmPath = findPGliteWasm(__dirname);
 // BST-1659: run by `oxc-transform-react` (Rust) through @vitejs/plugin-react, not Babel.
 const ReactCompilerConfig = { compilationMode: 'infer' } as const;
 
+/**
+ * `@vitejs/plugin-react` defaults to excluding `/node_modules/` alone, but `cacheDir` below
+ * puts the dep-optimizer output in `apps/desktop/.vite`, OUTSIDE node_modules. Without the
+ * second pattern the compiler and the Fast Refresh transform would run over pre-bundled
+ * dependency chunks. This restores the exclusions the removed `@rolldown/plugin-babel` pass
+ * carried.
+ */
+const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
+
 export default defineConfig({
   base: './', // Use relative paths for Electron
   build: {
@@ -133,6 +142,7 @@ export default defineConfig({
     topLevelAwait(),
     react({
       compiler: ReactCompilerConfig,
+      exclude: reactTransformExclude,
       jsxRuntime: 'automatic',
     }),
     tailwindcss(),

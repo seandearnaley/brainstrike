@@ -57,9 +57,11 @@ function parserPluginsFor(filename) {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * Source roots the two app bundles feed through the React Compiler. The Vite `babel()` plugin
- * excludes only `node_modules` and `.vite`, so every first-party module in the graph is a
- * candidate.
+ * Source roots the two app bundles feed through the React Compiler. `@vitejs/plugin-react`
+ * runs the compiler over `/\.[tj]sx?$/` minus `node_modules` and `.vite`, so every first-party
+ * `.ts`/`.tsx` module in the graph is a candidate. This walk deliberately ignores the plugin's
+ * `code` gate (`forwardRef|memo|\b(?:[A-Z]|use[A-Z0-9])`), which is identical for both
+ * backends: including the modules it skips keeps the two inventories comparable.
  */
 export const SOURCE_ROOTS = ['apps/web/src', 'apps/desktop/src/renderer', 'packages'];
 
