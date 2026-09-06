@@ -486,10 +486,14 @@ it('notifies', () => {
 
 // BST-1624. Not every apps/desktop send site routes through the window
 // listing. src/terminal-ipc-handlers.ts sends to a WebContents held in its own
-// live-terminal registry; the host managers and the browser pane host do the
-// same with a WebContents they already own. A test for one of those supplies
-// the WebContents itself, so condition (1) of the rule — a window listing stub
-// that resolves empty — is absent, and the guard is silent.
+// live-terminal registry, and a test for it supplies that WebContents itself,
+// so condition (1) of the rule — a window listing stub that resolves empty —
+// is absent and the guard is silent.
+//
+// Whether a given site qualifies is a property of the CALL SITE, not the file:
+// llm-host-manager.ts and chunking-host-manager.ts both reach
+// getAllWindows() despite reading as point-to-point, so they are IN scope. The
+// guard header carries the full criterion.
 //
 // That silence is correct, not a miss. The vacuous green this guard polices
 // needs a listing a test can hollow out; there is no listing here to hollow.

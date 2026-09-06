@@ -11,13 +11,31 @@
 // anything. The test reports a green it never earned.
 //
 // SCOPE, stated because an earlier version of this comment over-claimed
-// "every main -> renderer broadcast" (BST-1624). It is not every send site.
-// Others — src/terminal-ipc-handlers.ts, the host managers, the browser pane
-// host — send through a WebContents the caller already holds, with no listing
-// involved. Those are outside the rule ON PURPOSE, not by oversight: the
-// vacuous-green mechanism above needs a listing that a test can stub empty,
-// and a test for a directly-held WebContents supplies that object itself, so
-// there is nothing to hollow out. See the paired "known blind spot" test.
+// "every main -> renderer broadcast" (BST-1624). It is not every send site —
+// and the boundary is a property of the CALL SITE, not of the file:
+//
+//   IN scope   the WebContents comes out of `BrowserWindow.getAllWindows()`,
+//              so a test can stub that listing empty and hollow the send out.
+//   OUT        the caller already holds the WebContents, so a test supplies
+//              that object itself and there is nothing to hollow. The verified
+//              example is `src/terminal-ipc-handlers.ts`, which sends to a
+//              WebContents held in its own live-terminal registry (BST-1624).
+//
+// Read the call site; do not infer routing from a file's name or role. Two
+// sends that read as point-to-point are listing-routed and firmly IN scope:
+// `llm-host-manager.ts` broadcasts load progress with
+// `for (const window of ElectronBrowserWindow.getAllWindows())`, and
+// `chunking-host-manager.ts` resolves its requester through
+// `BrowserWindow.getAllWindows().find(…)`, which yields null under an empty
+// listing. A third group — `renderer-host-lifecycle.ts`, `mcp/task-bridge.ts`,
+// `mcp/elicitation-bridge.ts` — iterates the ROLE registry
+// `getTrackedWindowsByRole('visible-ui')`, a different listing this guard does
+// not model in either direction.
+//
+// That correction is itself the third instance of this ticket's defect: a
+// blanket "the host managers are registry-routed" claim was wrong, caught in
+// review of #3042. Hence the criterion above rather than another file list.
+// See the paired "known blind spot" test.
 //
 // WHY A REAL PARSE RATHER THAN A SCANNER (review of #2951). The first version of
 // this guard matched tokens, read the ~90 characters after them, and hand-rolled
