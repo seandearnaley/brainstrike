@@ -1,6 +1,5 @@
 import type {
   WorkspaceCollectionSyncChunkingProgress,
-  WorkspaceCollectionSyncScanSummary,
   WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type {
@@ -29,7 +28,7 @@ import {
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
 import {
-  getSupersededBackgroundBackfillIds,
+  type BackgroundBackfillSnapshot,
   needsEmbeddingBackfill,
   selectRecoverableBackgroundBackfill,
 } from '@brainstrike/pipeline';
@@ -38,6 +37,10 @@ import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
+  cancelSupersededBackgroundBackfills,
+  classifyEnqueueContinuation,
+} from './workspace-collection-sync-cancel';
+import {
   type ChunkingRedispatchTerminalError,
   ChunkingRedispatchTracker,
   type PreparedChangesSummary,
@@ -45,6 +48,7 @@ import {
 } from './workspace-collection-sync-import';
 import {
   createAbortError,
+  createScanSummary,
   createThrottledProgressReporter,
   dispatchQueueDrainedEvent,
   isAbortError,
@@ -240,6 +244,19 @@ export class WorkspaceCollectionSyncService {
   private readonly chunkingRedispatchTracker = new ChunkingRedispatchTracker();
   private readonly terminalChunkingErrorsByScope = new Map<string, TerminalChunkingErrorScope>();
   private currentAbortController: AbortController | null = null;
+  /**
+   * Scoped to the host-owned backfill, deliberately NOT the renderer loop (BST-1654
+   * follow-up). Web has no host process: `enqueueBackfill` resolves only when the run
+   * finishes and merges this signal into it, so aborting this kills the backfill.
+   * `detach()` must leave it alone; `cancel()` and a superseding `sync()` abort it.
+   */
+  private currentBackfillAbortController: AbortController | null = null;
+  /**
+   * The set the CURRENT pass is syncing — assigned before its first await, cleared by
+   * every stop. The only ownership signal armed early enough to tell a stale
+   * continuation a replacement for its own set is under way.
+   */
+  private currentSyncCollectionId: string | null = null;
   private runId = 0;
 
   constructor(private readonly deps: WorkspaceCollectionSyncServiceDependencies) {}
@@ -346,24 +363,21 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
-  private createScanSummary(
-    prepared: Pick<
-      PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
-    >
-  ): WorkspaceCollectionSyncScanSummary {
-    return {
-      changedFiles: prepared.changes.length,
-      discoveredFiles: prepared.totalFiles,
-      excludedEntries: prepared.excludedEntries,
-      truncatedDirectories: prepared.truncatedDirectoryPaths.length,
-      unchangedFiles: prepared.unchangedCount,
-    };
-  }
-
   private async resetActiveWork(options: { cancelTrackedBackfill: boolean }): Promise<void> {
     this.currentAbortController?.abort();
     this.currentAbortController = null;
+    // No pass owns a set after a stop: leaving it set would make `cancel()` read as
+    // "a replacement is running" and the orphan it exists to kill would survive.
+    this.currentSyncCollectionId = null;
+
+    // Only a deliberate stop reaches the run itself. `detach()` leaves the
+    // backfill controller intact and unaborted so a web run — whose promise IS
+    // the run — survives navigation, and so a later `cancel()` on this same
+    // instance can still abort it directly.
+    if (options.cancelTrackedBackfill) {
+      this.currentBackfillAbortController?.abort();
+      this.currentBackfillAbortController = null;
+    }
 
     const trackedBackfill = this.activeBackfill;
     this.activeBackfill = null;
@@ -427,17 +441,24 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
-  private async cancelHostBackgroundBackfills(args: {
-    exceptEmbeddingSetId?: string;
-    inFlightBackfills: Array<{
-      embeddingSetId: string;
-      progress: { current: number; total: number } | null;
-      requestId: string;
-    }>;
-  }): Promise<void> {
-    for (const embeddingSetId of getSupersededBackgroundBackfillIds(args)) {
-      await this.deps.cancelBackfill(embeddingSetId);
+  /**
+   * The single way a pass lets go of its backfill tracking: unsubscribe once, and clear
+   * the one-per-service `activeBackfill` slot only when it still holds THIS pass's entry
+   * — clearing it unconditionally unsubscribes whichever run replaced it. A nullish
+   * token never claims the slot; two passes that got none are not the same pass.
+   */
+  private releaseBackfillTracking(unsubscribe: (() => void) | null): void {
+    unsubscribe?.();
+    if (unsubscribe && this.activeBackfill?.unsubscribe === unsubscribe) {
+      this.activeBackfill = null;
     }
+  }
+
+  private cancelHostBackgroundBackfills(args: {
+    exceptEmbeddingSetId?: string;
+    inFlightBackfills: readonly BackgroundBackfillSnapshot[];
+  }): Promise<void> {
+    return cancelSupersededBackgroundBackfills(this.deps, args);
   }
 
   /**
@@ -725,7 +746,7 @@ export class WorkspaceCollectionSyncService {
       pauseReasons: [],
       processedFiles: prepared.unchangedCount,
       queuedFiles: prepared.changes.length,
-      scanSummary: this.createScanSummary(prepared),
+      scanSummary: createScanSummary(prepared),
     });
   }
 
@@ -833,7 +854,7 @@ export class WorkspaceCollectionSyncService {
         ? {
             processedFiles: args.summary.totalFiles,
             queuedFiles: 0,
-            scanSummary: this.createScanSummary(args.summary),
+            scanSummary: createScanSummary(args.summary),
           }
         : {
             queuedFiles: 0,
@@ -892,13 +913,14 @@ export class WorkspaceCollectionSyncService {
       processedFiles: args.summary.totalFiles,
       queuedFiles: 0,
       queueProgress: null,
-      scanSummary: this.createScanSummary(args.summary),
+      scanSummary: createScanSummary(args.summary),
       state: 'embedding',
     });
   }
 
   private async enqueueManagedBackfill(args: {
     abortSignal: AbortSignal;
+    backfillAbortSignal: AbortSignal;
     chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
     collection: EmbeddingSet;
     qosPolicy: WorkspaceIndexingQosPolicy;
@@ -945,7 +967,7 @@ export class WorkspaceCollectionSyncService {
           managedCollectionName: args.collection.name ?? null,
           requestId: progress.requestId,
           rootPath: args.rootPath,
-          scanSummary: this.createScanSummary(args.summary),
+          scanSummary: createScanSummary(args.summary),
           state: 'embedding',
           total: progress.total,
           ...(progress.message ? { message: progress.message } : {}),
@@ -969,12 +991,11 @@ export class WorkspaceCollectionSyncService {
     };
 
     const enqueueResult = await this.deps.enqueueBackfill(args.collection.id, {
-      signal: args.abortSignal,
+      signal: args.backfillAbortSignal,
       source: 'background-indexing',
     });
     if ('canceled' in enqueueResult) {
-      this.activeBackfill?.unsubscribe?.();
-      this.activeBackfill = null;
+      this.releaseBackfillTracking(unsubscribeBackfillProgress);
       // Desktop main now resolves a benign { canceled: true } for a deliberate
       // cancellation instead of rejecting the IPC call. Re-raise it locally as an
       // abort so the existing upstream cancellation handling (isAbortError →
@@ -984,6 +1005,33 @@ export class WorkspaceCollectionSyncService {
       throw createAbortError('Embedding backfill was canceled before it started.');
     }
     const { requestId } = enqueueResult;
+    // `currentSyncCollectionId` is set synchronously at the top of `sync()`, so it is
+    // already armed while a replacement is still scanning; the tracked slot and the
+    // backfill controller are both armed too late to close that window.
+    // `classifyEnqueueContinuation` documents what each outcome means.
+    const continuation = classifyEnqueueContinuation({
+      backfillAborted: args.backfillAbortSignal.aborted,
+      loopAborted: args.abortSignal.aborted,
+      supersededForThisSet:
+        this.currentSyncCollectionId === args.collection.id &&
+        this.currentBackfillAbortController?.signal !== args.backfillAbortSignal,
+    });
+    if (continuation !== 'proceed') {
+      this.releaseBackfillTracking(unsubscribeBackfillProgress);
+      if (continuation === 'cancel-orphan') {
+        // A refused cancel must not turn a deliberate stop into a sync FAILURE: every
+        // other exit here throws an abort, and upstream classifies on that.
+        await this.deps.cancelBackfill(args.collection.id).catch((error: unknown) => {
+          this.deps.log?.warn('Failed to cancel an orphaned background indexing backfill', {
+            embeddingSetId: args.collection.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+        throw createAbortError('Embedding backfill was canceled while it was being enqueued.');
+      }
+      throwIfAborted(args.abortSignal);
+      throw createAbortError('A replacement sync took over this embedding set.');
+    }
     if (terminalBackfillRequestId === requestId) {
       throwIfAborted(args.abortSignal);
       return;
@@ -1034,7 +1082,7 @@ export class WorkspaceCollectionSyncService {
       processedFiles: summary.unchangedCount,
       queuedFiles: summary.changes.length,
       queueProgress: null,
-      scanSummary: this.createScanSummary(summary),
+      scanSummary: createScanSummary(summary),
       state: 'importing',
     });
   }
@@ -1122,6 +1170,7 @@ export class WorkspaceCollectionSyncService {
 
   private async finishSyncWithoutChanges(args: {
     abortSignal: AbortSignal;
+    backfillAbortSignal: AbortSignal;
     context: ResolvedSyncContext;
     prepared: PreparedChangesSummary;
     request: WorkspaceCollectionSyncRequest;
@@ -1141,6 +1190,7 @@ export class WorkspaceCollectionSyncService {
     throwIfAborted(args.abortSignal);
     await this.enqueueManagedBackfill({
       abortSignal: args.abortSignal,
+      backfillAbortSignal: args.backfillAbortSignal,
       chunkingProgress: null,
       collection: args.context.collection,
       qosPolicy: await this.resolveQosPolicyForNewWork({
@@ -1156,6 +1206,7 @@ export class WorkspaceCollectionSyncService {
 
   private async runSyncPass(args: {
     abortSignal: AbortSignal;
+    backfillAbortSignal: AbortSignal;
     context: ResolvedSyncContext;
     request: WorkspaceCollectionSyncRequest;
     runId: number;
@@ -1219,6 +1270,7 @@ export class WorkspaceCollectionSyncService {
     if (prepared.changes.length === 0) {
       await this.finishSyncWithoutChanges({
         abortSignal: args.abortSignal,
+        backfillAbortSignal: args.backfillAbortSignal,
         context: args.context,
         prepared,
         request: args.request,
@@ -1238,7 +1290,7 @@ export class WorkspaceCollectionSyncService {
       phase: 'import',
     });
     this.setImportingStatus(args.context, prepared);
-    const scanSummary = this.createScanSummary(prepared);
+    const scanSummary = createScanSummary(prepared);
     let latestImportProgress: EnhancedImportProgress | null = null;
 
     // Progress fires once per FILE READ — thousands of times on a large
@@ -1306,6 +1358,7 @@ export class WorkspaceCollectionSyncService {
     }
     await this.enqueueManagedBackfill({
       abortSignal: args.abortSignal,
+      backfillAbortSignal: args.backfillAbortSignal,
       chunkingProgress,
       collection: args.context.collection,
       qosPolicy: await this.resolveQosPolicyForNewWork({
@@ -1323,6 +1376,7 @@ export class WorkspaceCollectionSyncService {
 
   async sync(request: WorkspaceCollectionSyncRequest): Promise<void> {
     const currentRunId = ++this.runId;
+    this.currentSyncCollectionId = request.enabled ? request.managedCollectionId : null;
     this.retainTerminalChunkingErrorsForCollection(
       request.enabled ? request.managedCollectionId : null
     );
@@ -1330,6 +1384,11 @@ export class WorkspaceCollectionSyncService {
     const previousTrackedBackfill = this.activeBackfill;
     this.currentAbortController?.abort();
     this.currentAbortController = null;
+    // A superseding pass re-enqueues unconditionally, so the previous pass's
+    // backfill must not outlive it (on web a second enqueue for the same set
+    // throws "already running"). Unlike `detach()`, this is a stop.
+    this.currentBackfillAbortController?.abort();
+    this.currentBackfillAbortController = null;
     this.activeBackfill = null;
     previousTrackedBackfill?.unsubscribe?.();
 
@@ -1398,12 +1457,15 @@ export class WorkspaceCollectionSyncService {
 
     const abortController = new AbortController();
     this.currentAbortController = abortController;
+    const backfillAbortController = new AbortController();
+    this.currentBackfillAbortController = backfillAbortController;
     this.deps.onDebugStage?.('sync:set-scanning-status', { runId: currentRunId });
     this.setScanningStatus(context, null, { resetProgress: true });
 
     try {
       await this.runSyncPass({
         abortSignal: abortController.signal,
+        backfillAbortSignal: backfillAbortController.signal,
         context,
         request,
         runId: currentRunId,
