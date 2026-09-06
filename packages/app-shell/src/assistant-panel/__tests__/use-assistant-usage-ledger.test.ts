@@ -80,6 +80,7 @@ function createInput(
     getProviderLlmModels: () => [],
     localChatTransport: 'data-stream',
     memoryResourceId: 'resource-1',
+    prepareRequestData: async () => ({ memory: {} }),
     refreshThreadsAfterRun: () => {},
     selectedMemoryThreadId: THREAD_ID,
     selectedProvider: 'openai',
@@ -150,6 +151,46 @@ describe('useAssistantUsageLedger', () => {
       inputTokens: 500,
       outputTokens: 50,
     });
+  });
+
+  it('starts the live sum from zero when a new run begins on a thread holding a stranded one', async () => {
+    // A run the user switches away from mid-stream never settles under the
+    // thread it started on: handleStepUsage AND both settle-side clears key off
+    // the CURRENT selection, so the partial sum is stranded on the thread the
+    // user left. The meter's isRunning gate hides it only while that thread is
+    // idle — the next run on it flips isRunning true, re-exposing the stranded
+    // tokens and accumulating the new run's steps on top of them for the whole
+    // run (the headline stays inflated and its cost stays suppressed).
+    // Composing a request IS a run starting, so the sum resets there.
+    const prepareRequestData = vi.fn(async () => ({ memory: {} }));
+    const input = createInput({ prepareRequestData });
+    const { result } = renderHook(() => useAssistantUsageLedger(input));
+    await waitFor(() => expect(result.current.cumulativeUsage).not.toBeNull());
+
+    // Strand a partial sum on this thread, as a mid-stream switch away would.
+    act(() => {
+      result.current.handleStepUsage({ inputTokens: 90_000, outputTokens: 10_000 });
+    });
+    expect(useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID]).toBeDefined();
+
+    // The user comes back and sends again: a new run starts on this thread.
+    await act(async () => {
+      await result.current.prepareRequestAndResetLiveUsage();
+    });
+    expect(useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID]).toBeUndefined();
+    expect(prepareRequestData).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleStepUsage({ inputTokens: 400, outputTokens: 40 });
+    });
+    const live = useContextUsageStore.getState().liveRunUsageByThread[THREAD_ID];
+    expect(live).toEqual({ inputTokens: 400, outputTokens: 40 });
+    // The meter's headline is `cumulativeUsage.totalTokens + live` — the new
+    // run's 440 tokens on the durable 1,100, NOT the stranded 100,000 too.
+    const headlineTokens =
+      (result.current.cumulativeUsage?.totalTokens ?? 0) +
+      (live ? live.inputTokens + live.outputTokens : 0);
+    expect(headlineTokens).toBe(1540);
   });
 
   it('settles the live sum on a non-completed terminal status only', async () => {

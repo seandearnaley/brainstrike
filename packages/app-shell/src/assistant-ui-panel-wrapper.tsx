@@ -1258,6 +1258,7 @@ export function AssistantUiPanelWrapper({
     handleContextBreakdown,
     handleStepUsage,
     handleUsage,
+    prepareRequestAndResetLiveUsage,
   } = useAssistantUsageLedger({
     assistantThreadRepository,
     completePreparedRequest,
@@ -1265,6 +1266,7 @@ export function AssistantUiPanelWrapper({
     getProviderLlmModels,
     localChatTransport,
     memoryResourceId,
+    prepareRequestData: prepareRequestDataWithFinalization,
     refreshThreadsAfterRun,
     selectedMemoryThreadId,
     selectedProvider,
@@ -1478,7 +1480,7 @@ export function AssistantUiPanelWrapper({
                 onUsage={handleUsage}
                 pickerModels={pickerModels}
                 pickerProviders={pickerProviders}
-                prepareRequestData={prepareRequestDataWithFinalization}
+                prepareRequestData={prepareRequestAndResetLiveUsage}
                 providerGroups={providerGroups}
                 providerSettings={effectiveProviderSettings}
                 recentModels={validRecentModels}

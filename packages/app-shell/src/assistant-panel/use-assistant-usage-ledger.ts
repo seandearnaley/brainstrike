@@ -15,12 +15,16 @@
  *     EXISTING (capability, never an `isElectron()` check). Web simply has no
  *     durable sink; it is never faked and never $0.
  *
- * The live step sum has TWO clear paths, both on the settle side:
+ * The live step sum has THREE clear paths. Two settle the run that produced it:
  * `handleUsage` (only AFTER the post-write refresh, so the total never dips
  * and jumps) and the wrapped `completePreparedRequest` on a cancelled/failed
  * terminal status (the abort-gated usage tap never delivers those runs'
- * finish). A sum stranded by a mid-run thread switch is NOT swept here — the
- * meter gates it on `isRunning` at the reader instead (BST-1652).
+ * finish). Both key off the CURRENT selection, so a mid-stream thread switch
+ * strands the partial sum on the thread the user left; the third path is the
+ * wrapped `prepareRequestData` — a run STARTING on a thread owns that thread's
+ * live sum from zero, so it resets it first (BST-1652). The meter's `isRunning`
+ * gate covers the idle half of the same fact: a stranded sum is invisible until
+ * a run starts, and a starting run clears it before it can be read as its own.
  */
 
 import { parseAssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
@@ -59,6 +63,16 @@ type CompletePreparedRequest = (
   error?: string
 ) => Promise<void>;
 
+/**
+ * The wrapper's request-composition seam (rewind finalization already composed
+ * in). Structural mirror of `changes/use-rewind-finalization.ts` — the ledger
+ * wraps it, never replaces it.
+ */
+type PrepareRequestData = (
+  abortSignal?: AbortSignal,
+  turnAnchorMessageId?: string | null
+) => Promise<Record<string, unknown>>;
+
 export interface UseAssistantUsageLedgerInput {
   /** Desktop PGlite-backed repo, or null on web (no durable sink). */
   readonly assistantThreadRepository: AssistantThreadRepository | null;
@@ -71,6 +85,8 @@ export interface UseAssistantUsageLedgerInput {
   ) => readonly LlmProviderModelDefinition[];
   readonly localChatTransport: 'data-stream' | 'local-runtime';
   readonly memoryResourceId: string;
+  /** Request composition — the run-start event; the ledger wraps it to reset the live sum. */
+  readonly prepareRequestData: PrepareRequestData;
   /** Thread recency/ordering refresh fired after each turn's usage lands. */
   readonly refreshThreadsAfterRun: () => void;
   readonly selectedMemoryThreadId: string | undefined;
@@ -86,6 +102,8 @@ export interface AssistantUsageLedger {
   readonly handleContextBreakdown: (data: unknown) => void;
   readonly handleStepUsage: (step: { inputTokens: number; outputTokens: number }) => void;
   readonly handleUsage: (usage: AssistantRunUsagePayload) => void;
+  /** `prepareRequestData` wrapped to reset the thread's live sum at run start. */
+  readonly prepareRequestAndResetLiveUsage: PrepareRequestData;
 }
 
 export function useAssistantUsageLedger({
@@ -95,6 +113,7 @@ export function useAssistantUsageLedger({
   getProviderLlmModels,
   localChatTransport,
   memoryResourceId,
+  prepareRequestData,
   refreshThreadsAfterRun,
   selectedMemoryThreadId,
   selectedProvider,
@@ -137,6 +156,29 @@ export function useAssistantUsageLedger({
       }
     },
     [clearThreadLiveRunUsage, completePreparedRequest]
+  );
+
+  // Run-start reset (review fix): the run about to be composed owns this
+  // thread's live sum from zero. Anything still under the key belongs to an
+  // EARLIER run that never settled here — a mid-stream thread switch re-keys
+  // both handleStepUsage and both settle-side clears to the newly selected
+  // thread, so the run the user walked away from leaves its partial sum
+  // behind. The meter's `isRunning` gate hides that only while the thread is
+  // idle: without this reset the new run would flip the gate open on the
+  // stranded tokens and then accumulate its own steps ON TOP of them, leaving
+  // the headline inflated and its cost suppressed for the whole run.
+  //
+  // Cleared SYNCHRONOUSLY, before the underlying preparation (which awaits a
+  // run-row write) — the reset must not trail the render that turns the gate
+  // on. Runs are serialized per prepared request ('Cannot start a hosted
+  // assistant run while another run is in progress'), so a live sum that is
+  // genuinely this thread's own in-flight accumulation cannot exist here.
+  const prepareRequestAndResetLiveUsage = useCallback<PrepareRequestData>(
+    (abortSignal, turnAnchorMessageId) => {
+      clearThreadLiveRunUsage();
+      return prepareRequestData(abortSignal, turnAnchorMessageId);
+    },
+    [clearThreadLiveRunUsage, prepareRequestData]
   );
 
   const resolveModelPricing = useCallback<ModelPricingResolver>(
@@ -316,5 +358,6 @@ export function useAssistantUsageLedger({
     handleContextBreakdown,
     handleStepUsage,
     handleUsage,
+    prepareRequestAndResetLiveUsage,
   };
 }

@@ -281,9 +281,13 @@ export const ContextUsageMeter = ({
   //
   // BST-1652: the sum is only "in-flight" while a run actually is. A run the
   // user switched away from mid-stream may never settle, stranding its partial
-  // sum on that thread key; `isRunning` is the reader-side truth, so the
-  // strandedness is derived away here rather than swept by an effect on the
-  // writer side (an effect runs after paint — one frame of phantom tokens).
+  // sum on that thread key. `isRunning` is the reader-side truth for the IDLE
+  // half — no run, no live component — and it is derived, not swept, because a
+  // sweeping effect only fires after paint (one frame of phantom tokens).
+  // It is NOT the whole answer: the gate opens again the moment a NEW run
+  // starts on that thread, so the writer resets the sum at run start
+  // (`prepareRequestAndResetLiveUsage` in the app-shell usage ledger) — a real
+  // event, not an effect. Both are required; neither covers the other's case.
   const liveRunUsage = isRunning === true ? recordedLiveRunUsage : undefined;
   const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
   const trigger = resolveTriggerDisplay({
