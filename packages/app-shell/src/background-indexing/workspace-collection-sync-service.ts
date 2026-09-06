@@ -240,6 +240,15 @@ export class WorkspaceCollectionSyncService {
   private readonly chunkingRedispatchTracker = new ChunkingRedispatchTracker();
   private readonly terminalChunkingErrorsByScope = new Map<string, TerminalChunkingErrorScope>();
   private currentAbortController: AbortController | null = null;
+  /**
+   * Scoped to the host-owned backfill, deliberately NOT to the renderer loop
+   * (BST-1654 follow-up). On web there is no host process: `enqueueBackfill`
+   * resolves only when the run finishes and merges this signal into the run
+   * itself, so aborting it kills the backfill. `detach()` must therefore leave
+   * this alone — aborting the renderer loop's controller is enough to release
+   * local work — while `cancel()` and a superseding `sync()` still abort it.
+   */
+  private currentBackfillAbortController: AbortController | null = null;
   private runId = 0;
 
   constructor(private readonly deps: WorkspaceCollectionSyncServiceDependencies) {}
@@ -365,6 +374,15 @@ export class WorkspaceCollectionSyncService {
     this.currentAbortController?.abort();
     this.currentAbortController = null;
 
+    // Only a deliberate stop reaches the run itself. `detach()` leaves the
+    // backfill controller intact and unaborted so a web run — whose promise IS
+    // the run — survives navigation, and so a later `cancel()` on this same
+    // instance can still abort it directly.
+    if (options.cancelTrackedBackfill) {
+      this.currentBackfillAbortController?.abort();
+      this.currentBackfillAbortController = null;
+    }
+
     const trackedBackfill = this.activeBackfill;
     this.activeBackfill = null;
     trackedBackfill?.unsubscribe?.();
@@ -427,6 +445,16 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  /**
+   * Failure-isolated by construction (BST-1654 follow-up). A sequential loop
+   * that lets the first rejection escape stops asking the host to cancel
+   * anything after it, so one uncooperative run silently spares every later
+   * one — "the user pressed pause and indexing kept running", which is the
+   * exact failure the enumeration exists to prevent. Every enumerated run gets
+   * its cancel attempted; only then do the failures surface, aggregated, so a
+   * stop that could not be fully delivered still rejects at the caller instead
+   * of looking like it worked.
+   */
   private async cancelHostBackgroundBackfills(args: {
     exceptEmbeddingSetId?: string;
     inFlightBackfills: Array<{
@@ -435,9 +463,28 @@ export class WorkspaceCollectionSyncService {
       requestId: string;
     }>;
   }): Promise<void> {
+    const failures: Array<{ embeddingSetId: string; error: unknown }> = [];
     for (const embeddingSetId of getSupersededBackgroundBackfillIds(args)) {
-      await this.deps.cancelBackfill(embeddingSetId);
+      try {
+        await this.deps.cancelBackfill(embeddingSetId);
+      } catch (error) {
+        failures.push({ embeddingSetId, error });
+      }
     }
+    if (failures.length === 0) {
+      return;
+    }
+    const failedSetIds = failures.map((failure) => failure.embeddingSetId);
+    this.deps.log?.warn('Failed to cancel background indexing backfills', {
+      embeddingSetIds: failedSetIds,
+      errors: failures.map((failure) =>
+        failure.error instanceof Error ? failure.error.message : String(failure.error)
+      ),
+    });
+    throw new AggregateError(
+      failures.map((failure) => failure.error),
+      `Failed to cancel background indexing backfill(s) for embedding set(s): ${failedSetIds.join(', ')}.`
+    );
   }
 
   /**
@@ -899,6 +946,7 @@ export class WorkspaceCollectionSyncService {
 
   private async enqueueManagedBackfill(args: {
     abortSignal: AbortSignal;
+    backfillAbortSignal: AbortSignal;
     chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
     collection: EmbeddingSet;
     qosPolicy: WorkspaceIndexingQosPolicy;
@@ -969,7 +1017,7 @@ export class WorkspaceCollectionSyncService {
     };
 
     const enqueueResult = await this.deps.enqueueBackfill(args.collection.id, {
-      signal: args.abortSignal,
+      signal: args.backfillAbortSignal,
       source: 'background-indexing',
     });
     if ('canceled' in enqueueResult) {
@@ -984,6 +1032,19 @@ export class WorkspaceCollectionSyncService {
       throw createAbortError('Embedding backfill was canceled before it started.');
     }
     const { requestId } = enqueueResult;
+    // The stop-before-the-run-existed orphan (BST-1654 follow-up). A `cancel()`
+    // that lands while this enqueue is in flight enumerates the host BEFORE the
+    // run exists, so its sweep cannot see it, and the desktop host drops the
+    // signal at the IPC boundary rather than honouring it — the run comes back
+    // alive with nothing left to stop it. The backfill signal is aborted only
+    // by a deliberate stop or a superseding sync (never by `detach()`), so an
+    // abort here means this brand-new run is already orphaned: cancel it.
+    if (args.backfillAbortSignal.aborted) {
+      this.activeBackfill?.unsubscribe?.();
+      this.activeBackfill = null;
+      await this.deps.cancelBackfill(args.collection.id);
+      throw createAbortError('Embedding backfill was canceled while it was being enqueued.');
+    }
     if (terminalBackfillRequestId === requestId) {
       throwIfAborted(args.abortSignal);
       return;
@@ -1122,6 +1183,7 @@ export class WorkspaceCollectionSyncService {
 
   private async finishSyncWithoutChanges(args: {
     abortSignal: AbortSignal;
+    backfillAbortSignal: AbortSignal;
     context: ResolvedSyncContext;
     prepared: PreparedChangesSummary;
     request: WorkspaceCollectionSyncRequest;
@@ -1141,6 +1203,7 @@ export class WorkspaceCollectionSyncService {
     throwIfAborted(args.abortSignal);
     await this.enqueueManagedBackfill({
       abortSignal: args.abortSignal,
+      backfillAbortSignal: args.backfillAbortSignal,
       chunkingProgress: null,
       collection: args.context.collection,
       qosPolicy: await this.resolveQosPolicyForNewWork({
@@ -1156,6 +1219,7 @@ export class WorkspaceCollectionSyncService {
 
   private async runSyncPass(args: {
     abortSignal: AbortSignal;
+    backfillAbortSignal: AbortSignal;
     context: ResolvedSyncContext;
     request: WorkspaceCollectionSyncRequest;
     runId: number;
@@ -1219,6 +1283,7 @@ export class WorkspaceCollectionSyncService {
     if (prepared.changes.length === 0) {
       await this.finishSyncWithoutChanges({
         abortSignal: args.abortSignal,
+        backfillAbortSignal: args.backfillAbortSignal,
         context: args.context,
         prepared,
         request: args.request,
@@ -1306,6 +1371,7 @@ export class WorkspaceCollectionSyncService {
     }
     await this.enqueueManagedBackfill({
       abortSignal: args.abortSignal,
+      backfillAbortSignal: args.backfillAbortSignal,
       chunkingProgress,
       collection: args.context.collection,
       qosPolicy: await this.resolveQosPolicyForNewWork({
@@ -1330,6 +1396,11 @@ export class WorkspaceCollectionSyncService {
     const previousTrackedBackfill = this.activeBackfill;
     this.currentAbortController?.abort();
     this.currentAbortController = null;
+    // A superseding pass re-enqueues unconditionally, so the previous pass's
+    // backfill must not outlive it (on web a second enqueue for the same set
+    // throws "already running"). Unlike `detach()`, this is a stop.
+    this.currentBackfillAbortController?.abort();
+    this.currentBackfillAbortController = null;
     this.activeBackfill = null;
     previousTrackedBackfill?.unsubscribe?.();
 
@@ -1398,12 +1469,15 @@ export class WorkspaceCollectionSyncService {
 
     const abortController = new AbortController();
     this.currentAbortController = abortController;
+    const backfillAbortController = new AbortController();
+    this.currentBackfillAbortController = backfillAbortController;
     this.deps.onDebugStage?.('sync:set-scanning-status', { runId: currentRunId });
     this.setScanningStatus(context, null, { resetProgress: true });
 
     try {
       await this.runSyncPass({
         abortSignal: abortController.signal,
+        backfillAbortSignal: backfillAbortController.signal,
         context,
         request,
         runId: currentRunId,

@@ -137,6 +137,15 @@ Vector device preference is ONE canonical record (BST-1380):
      killed a user's backfill on navigation. The next `sync()` re-attaches via
      `selectRecoverableBackgroundBackfill`; `useResyncOnReturnToVisibility`
      remains the recovery path for hard teardowns only.
+   - The renderer loop and the backfill therefore need SEPARATE abort
+     controllers, and the signal handed to `enqueueBackfill` is the backfill's.
+     On desktop the signal dies at the IPC boundary, so sharing one controller
+     looked harmless; on web there is no host process — `enqueueLocalBackfill`
+     merges the caller's signal into the run and awaits it, so the promise IS
+     the run and aborting that signal kills the backfill. While they shared a
+     controller, `detach()` still destroyed the run on web: the original bug,
+     unfixed on that path. `detach()` aborts only the renderer loop; `cancel()`
+     and a superseding `sync()` abort both.
    - Detaching drops tracking, never cancellation authority. An explicit pause
      or disable cancels in-flight `background-indexing` runs regardless of which
      provider instance is mounted, so `cancel()` and the disabled `sync()` path
@@ -147,6 +156,18 @@ Vector device preference is ONE canonical record (BST-1380):
      left alone, and an undeliverable stop rejects instead of reporting success.
      Never make `detach()` the answer to a deliberate stop: trading the
      navigation bug for "pause does not stop indexing" is the worse half.
+   - That enumeration sweep MUST be failure-isolated. A `for … await` loop that
+     lets the first rejection escape never attempts the cancels behind it, so
+     one uncooperative run silently spares every later one — "pause did not stop
+     indexing" reappearing through a different door. Attempt every enumerated
+     run, then surface the failures together (`AggregateError`); isolation must
+     not become silent success.
+   - A stop that lands while an `enqueueBackfill` is in flight cannot be closed
+     by the sweep alone: it enumerates a host that cannot report the run yet,
+     and the cancel it fires for the speculative `pending:` tracking entry races
+     ahead of the run's creation. `enqueueManagedBackfill` therefore re-checks
+     the backfill signal once the enqueue resolves and cancels the freshly
+     created run, so at least one cancel is ordered AFTER the run exists.
    - A backfill suspends the dimension HNSW index before enqueueing. Every
      interruption after that point, including producer faults and timeouts,
      must either restore the index immediately when the scoped set has drained
