@@ -55,12 +55,14 @@ describe('app-shell assistant contract boundary', () => {
    *    `src/assistant-panel/`, or the package that owns the behavior. Raising
    *    the number is not the fix; it is the failure this test exists to catch.
    *  - When the file legitimately shrinks, LOWER the number in the same commit.
-   *    Drifting more than `RE_BASELINE_SLACK` below the recorded size fails too,
-   *    so recovered headroom cannot be quietly banked for a future feature.
+   *    The budget is an EXACT pin, not a ceiling: shrinking below it fails just
+   *    as growing past it does. A tolerance band would let a file shrink by a
+   *    few lines without re-baselining, and a later change could then add those
+   *    lines back while still passing — which is precisely the banked headroom
+   *    this test exists to prevent.
    */
   const WRAPPER_LINE_BUDGET = 1732;
   const WRAPPER_TEST_LINE_BUDGET = 2097;
-  const RE_BASELINE_SLACK = 40;
 
   function expectShrinkOnly(source: string, budget: number, label: string): void {
     const lineCount = source.split('\n').length;
@@ -75,7 +77,7 @@ describe('app-shell assistant contract boundary', () => {
       lineCount,
       `${label} shrank to ${lineCount} lines. Lower its budget from ${budget} to ${lineCount} ` +
         'in this same commit so the headroom cannot be spent on the next feature.'
-    ).toBeGreaterThan(budget - RE_BASELINE_SLACK);
+    ).toBeGreaterThanOrEqual(budget);
   }
 
   it('keeps the assistant panel wrapper within a shrink-only source-file budget', () => {
