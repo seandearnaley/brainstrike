@@ -303,8 +303,12 @@ async function purgeQueuesAndSetsTx(tx: {
 
 export interface PgliteDirectTransportOptions {
   /**
-   * The resolved data dir. Read through a thunk, not captured, so it always
-   * reflects the current provider props (the old `resolvedPath` closure).
+   * The resolved data dir (the old `resolvedPath` closure). A thunk so the path
+   * is resolved on use rather than at construction, but the provider builds it
+   * in a lazy `useState` initializer, so it closes over the props of the FIRST
+   * render — the mount-time contract `DbProvider` documents. A later `dbPath`
+   * change is deliberately not tracked: honouring it would mean re-opening onto
+   * a different database under live repositories.
    */
   readonly getDataDir: () => string;
 }

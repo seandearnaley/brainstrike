@@ -154,8 +154,12 @@ async function testElectronConnection(electronDB: ElectronDatabaseAPI): Promise<
 
 export interface ElectronIpcTransportOptions {
   /**
-   * The `useElectronIPC` opt-in. Read through a thunk, not captured, so the
-   * probe always reflects the current provider props.
+   * The `useElectronIPC` opt-in. A thunk so the transport never holds a value it
+   * cannot re-read, but the provider builds it in a lazy `useState` initializer,
+   * so it closes over the props of the FIRST render — the mount-time contract
+   * `DbProvider` documents. It does not track later prop changes, and must not:
+   * re-opening a transport would swap the database out from under live
+   * repositories.
    */
   readonly isEnabled: () => boolean;
 }
