@@ -145,7 +145,8 @@ describe('electron main test harness', () => {
         destroyed,
       ] as unknown as ReturnType<typeof electronMainMock.BrowserWindow.getAllWindows>);
 
-      // The exact loop every main -> renderer broadcast in this app runs.
+      // The exact loop every LISTING-ROUTED broadcast in this app runs.
+      // (Registry-routed sends never reach a listing at all — BST-1624.)
       const listing =
         electronMainMock.BrowserWindow.getAllWindows() as unknown as RecordingWindow[];
       for (const listed of listing) {

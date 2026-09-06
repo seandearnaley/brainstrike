@@ -269,10 +269,14 @@ let nextRecordingWindowId = 1;
  * A `BrowserWindow`-shaped stand-in that records what main sent to the
  * renderer.
  *
- * Every main -> renderer broadcast in this app iterates
+ * The listing-routed main -> renderer broadcasts iterate
  * `BrowserWindow.getAllWindows()` (`ipc-mcp.ts`, `mcp/lifecycle-control.ts`,
  * `ipc-domains/db-ipc.ts`, `assistant-server/workspace-context-tools.ts` and
  * eight sites in `main.ts`), and every one is a `for (const window of …)` loop.
+ * That is not every send site in the app (BST-1624): `terminal-ipc-handlers.ts`,
+ * the host managers and the browser pane host send to a `WebContents` the
+ * caller already holds, so they never consult the listing and this harness has
+ * nothing to say about them.
  * A test that asserts what the renderer was told therefore needs at least one
  * window in that listing: with `getAllWindows: () => []` the loop body never
  * runs, and the assertion — `.not.toHaveBeenCalled()` above all — passes

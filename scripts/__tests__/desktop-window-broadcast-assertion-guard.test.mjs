@@ -497,6 +497,15 @@ it('notifies', () => {
 // files while removing no false green, which is the waiver-inflation failure
 // mode the precision block above exists to prevent.
 //
+// The converse is a real cost and has a route: a registry-routed test that also
+// happens to stub the listing empty for unrelated reasons IS flagged, because
+// the guard fires on co-location rather than on causation. That is deliberate —
+// tightening it would cost more precision than it buys — and the second half of
+// this test locks the behaviour in. If you hit it, add a reasoned entry to
+// EMPTY_WINDOW_SEND_ASSERTION_WAIVERS in the guard, next to the
+// workspace-open-lifecycle one; stale entries fail the real-tree test above, so
+// the waiver cannot outlive its reason.
+//
 // The cost of the limit is a REPORTING one, and it has already been paid once.
 // BST-1622's audit no-opped every `.webContents.send(` site and ran the desktop
 // suite; the two terminal sites showed no failure, so they were filed as
