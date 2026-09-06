@@ -2903,6 +2903,32 @@ running:
 
 ---
 
+## SHRINK-ONLY FILE BUDGETS (BST-1652)
+
+`packages/app-shell/src/__tests__/assistant-contract-boundary.test.ts` guards
+`assistant-ui-panel-wrapper.tsx` and its executable test with a budget that runs
+ONE WAY. This is a deliberate reversal, not an oversight, and it should not be
+softened back into a ceiling with headroom.
+
+The previous budget was a cap that got raised roughly twenty times, 1,500 →
+1,905, each raise justified in-file as "the wrapper only adds ONE hook call and
+ONE prop". Individually true; collectively it made the most-churned file in the
+repo the seam every assistant feature had to cross, and made crossing it free.
+An instrument that records growth is not a guard.
+
+The rule:
+
+- The recorded number is the file's CURRENT line count, never an allowance.
+  Growth past it fails. The fix for a failure is to put the code in a hook or a
+  module (`src/assistant-panel/` for panel-scoped logic), not to raise the number.
+- Shrinking more than `RE_BASELINE_SLACK` (40) below the number ALSO fails, with
+  a message naming the new number. Lower it in the same commit; recovered
+  headroom must not be bankable by the next feature.
+- Both directions must be able to fail. Verify that before trusting the budget —
+  a budget that can only pass is not evidence.
+
+Apply the same shape to any new file-size guard rather than reintroducing a cap.
+
 ## REACT DOCTOR (LINT + DEAD CODE)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
