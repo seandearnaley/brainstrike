@@ -817,8 +817,8 @@ Runtime invariants:
 - Thread-total headline + run-kind attribution (BST-953): every
   `brainstrike_assistant_run_usage` row carries `run_kind`
   (`'chat' | 'subagent' | 'compaction-summary' | 'om-observation' |
-  'om-reflection'`, migrations 077/090 + the repository bootstrap mirror;
-  CHECK-constrained, default `'chat'`). TWO
+  'om-reflection'`, migrations 077/090, sole author since BST-1651 retired the
+  repository bootstrap mirror; CHECK-constrained, default `'chat'`). TWO
   writers, never overlapping: the renderer writes ONLY parent `'chat'` rows
   (the `handleUsage` message-finish tap); the desktop server writes ONLY child
   rows, from the `child-run-usage` StreamChunk
@@ -875,22 +875,94 @@ Runtime invariants:
 
 ---
 
-## RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP (settled 2026-07-24 — do not relitigate)
+## RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP (revised 2026-09-05, BST-1651)
 
 `brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events` are
-created ONLY by the renderer's lazy `ASSISTANT_THREAD_RUNS_SCHEMA_SQL` bootstrap
-(`packages/assistant-data/src/assistant-memory-repository.ts`, memoized per DB handle
-in the `assistantThreadSchemaInitPromises` WeakMap and awaited by every
-repository method). They have NO numbered migration, and must not get one: both
-carry `ON DELETE CASCADE` FKs to parents no migration creates (the Mastra
-threads table, and the runs row itself). An FK-less migration would either
-break the bare-PGlite migration suite or permanently diverge fresh-vs-upgraded
-installs and leak orphan rows — the same trade-off `brainstrike_assistant_edit_checkpoints`
-resolved in the other direction by deliberately dropping its FKs for migration 052.
+created by **migration 118**, and NOTHING creates them at runtime.
 
-Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which IS
-migration-backed (062, registered in both runners) *and* mirrored in the
-bootstrap SQL.
+**This supersedes the 2026-07-24 ruling** that they must never get a numbered
+migration. That ruling was correct for its premise and the premise is gone: both
+tables carry `ON DELETE CASCADE` FKs to parents no migration created (the Mastra
+threads table, and the runs row itself), so the only options then were an FK-less
+migration or a runtime bootstrap. **Migration 117 now creates Mastra's memory
+schema**, so 118 declares both FKs exactly as the bootstrap did. Do not restore
+the bootstrap.
+
+### The repository PROBES; it never creates (do not relitigate)
+
+`createPgliteAssistantThreadRepository` used to `exec` a ~590-line
+`CREATE TABLE IF NOT EXISTS` mirror of migrations 046-095 on first use per
+handle. The mirror was required to stay byte-identical to those migrations by
+hand, and **nothing could observe a violation**: on a migrated database the
+`IF NOT EXISTS` never fires, so a divergence stayed invisible until a user hit a
+column the two had shaped differently. Retiring it found one that had already
+shipped — `brainstrike_assistant_tool_projection_rewrites` had `kind` at ordinal
+5 on a bootstrapped database and ordinal 8 on a migrated one, because migration
+084 creates the table and 087 ADDs the column.
+
+The replacement is a `to_regclass` probe over every relation the repository
+reads or writes (the explicit run tables plus every entry of
+`THREAD_DELETE_SIDECAR_TABLES`, which the thread-delete cascade references
+unconditionally), memoized per handle in the
+`assistantThreadSchemaProbePromises` WeakMap and awaited by every repository
+method. A missing relation throws `AssistantMemorySchemaMissingError` naming it.
+
+- `to_regclass` ONLY — it returns NULL for an absent relation instead of raising,
+  so one statement answers for the whole set.
+- **No `IF NOT EXISTS`, no catch-and-create, no create-if-missing fallback.** A
+  missing relation means migrations did not run. Creating it quietly is exactly
+  how the divergence above was manufactured.
+- A FAILED probe drops its memo so the handle re-probes; only success is cached.
+- Additive statements that used to reach old installs through the bootstrap's
+  per-init re-run now live in migration 118: `thread_runs.turn_message_id`
+  (`ADD COLUMN IF NOT EXISTS`, BST-1163), the two partial approval indexes, and
+  the `DROP INDEX IF EXISTS` of the pre-BST-1440 `…_approval_answer_idx`.
+
+### 118 must CONVERGE, because every existing install already has these tables
+
+The fresh database is the easy case. The one that decides this migration is the
+install that has been running the assistant for months: the retired bootstrap
+already created both relations there, and 118 is about to run over them.
+
+- A bare `CREATE TABLE` **errors on upgrade for every existing user**. It is not
+  an option and never was.
+- A conditional `CREATE TABLE` **skips**, and by itself that is exactly the
+  silent drift this ticket deletes — preserved on precisely the installs that
+  matter. So the conditional create is only half the migration. The other half
+  is the additive statements above, which must cover every difference between
+  what a shipped bootstrap era left and what the create declares.
+
+That obligation is what makes the additive statements load-bearing rather than
+defensive noise, and it is CHECKED, not asserted:
+`assistant-run-schema-upgrade-path.test.ts` (db) seeds a database the way each
+shipped bootstrap era actually left it — pre-BST-1163 (no `turn_message_id`),
+BST-1404 (the `run_id`-shaped answer index), and the final BST-1440 shape — runs
+the chain over it, and asserts the resulting catalog is IDENTICAL to a
+freshly-migrated one: columns WITH THEIR ORDINALS, indexes, and constraints
+including the `thread_id` foreign key. Column ordinal is in the comparison
+deliberately; it is the projection the `tool_projection_rewrites` divergence
+above hid in.
+
+Its seeds are frozen history, identified by the commit that shipped them. If a
+future change to 118 makes that test fail, the bug is the missing forward
+statement — **never** the seed.
+
+Paired coverage: `assistant-memory-schema-probe.integration.test.ts`
+(assistant-data), `mastra-schema-migration-parity.test.ts` and
+`assistant-run-schema-upgrade-path.test.ts` (db).
+
+### Test fixtures are not a licence to reshape these tables
+
+Three suites used to stand up their own copy of the run header because the
+chain did not create it, and all three dropped the `thread_id` foreign key or
+most of the column set to keep the fixture small — a fourth schema authority,
+below the mirror the ticket set out to remove, and the reason the FK looked
+"new" when 118 landed. It is not new: the run header has carried
+`brainstrike_assistant_thread_runs_thread_id_fkey` since it first shipped
+(2026-06-20). Seed a `mastra_threads` parent row; never re-declare the table.
+
+Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which has been
+migration-backed since 062.
 
 `pr.opened` / `pr.checks` / `pr.merged` (BST-1391) are the only run-event
 kinds not produced by the agent stream. They are appended to the thread's MOST
@@ -1199,16 +1271,16 @@ asks whether the user still has to answer (a tool that started was approved).
 Both sides of that anti-join are served by two PARTIAL indexes on
 `brainstrike_assistant_run_events` — `…_approval_pause_idx`
 `(resource_id, thread_id) WHERE kind = 'tool.approval.requested'` and
-`…_approval_answer_idx`
-`(resource_id, thread_id, (metadata->>'toolCallId'), run_id)` over the four
-answer kinds (`run_id` trails so the same-run `tool.started` exclusion above
-stays on the index). Every pre-existing index on that table leads with
-`thread_id` or `run_id`, so without these the query full-scanned the largest
-assistant table twice on every `run_events` notify. They live in
-`buildAssistantThreadRunsSchemaSql` and NOWHERE else: this table admits no
-numbered migration (see RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP above), and the
-`IF NOT EXISTS` bootstrap re-runs per handle init, so existing installs pick
-them up — the same upgrade path as that blob's `turn_message_id` ADD COLUMN.
+`…_approval_answer_at_idx`
+`(resource_id, thread_id, (metadata->>'toolCallId'), occurred_at)` over the four
+answer kinds (`occurred_at` trails so the postdating comparison above stays on
+the index). Every pre-existing index on that table leads with `thread_id` or
+`run_id`, so without these the query full-scanned the largest assistant table
+twice on every `run_events` notify. They live in **migration 118** and nowhere
+else, alongside the `DROP INDEX IF EXISTS` that retires the pre-BST-1440
+`run_id`-shaped answer index — `CREATE INDEX IF NOT EXISTS` keys off the NAME,
+so an install carrying the old one is upgraded by that DROP and the renamed
+CREATE, which is the same upgrade path as 118's `turn_message_id` ADD COLUMN.
 
 Paired coverage: `packages/app-shell/src/__tests__/use-threads-awaiting-approval.test.ts`
 (query text) and `…/use-threads-awaiting-approval.integration.test.ts` (real
@@ -1220,8 +1292,8 @@ query would fail — a substring assertion cannot catch that class of error).
 ### RUN ERROR PROVIDER FORENSICS (Flight Recorder P3)
 
 `brainstrike_assistant_run_errors` is the durable one-row-per-run provider
-failure summary (migration 076, registered in both runners and mirrored
-byte-for-byte in `ASSISTANT_THREAD_RUNS_SCHEMA_SQL`). It is deliberately
+failure summary (migration 076, registered in both runners and sole author
+since BST-1651 retired the bootstrap mirror). It is deliberately
 separate from both the run-event timeline and app-wide diagnostic events:
 `run_events` describes lifecycle presentation, while `run_errors` retains the
 terminal classification and bounded provider response evidence needed for
@@ -1273,8 +1345,8 @@ tombstone seam, deliberately nothing more (no engine choice, no write-path op
 emission — that is engine territory):
 
 - **Where state lives:** `brainstrike_mind_ops` (migration 079 in BOTH
-  runners; also bootstrapped by the assistant memory repository for the
-  bare-PGlite harness — keep the shapes byte-identical). Append-only:
+  runners; migration-owned since BST-1651 retired the repository's bootstrap
+  mirror). Append-only:
   `seq BIGSERIAL` is the lamport-ish local order; `entity_kind` ∈
   {`thread`, `prompt_item`} and `op` = `delete` are CHECK-constrained on
   purpose — widening the vocabulary is a conscious migration, never a drift
@@ -1316,9 +1388,10 @@ provider-request boundary without mutating Mastra-owned message content.
 
 - **Where state lives:**
   `brainstrike_assistant_tool_projection_rewrites` (migration 084 plus the
-  migration-087 kind extension in BOTH runners and the final-shape-equivalent
-  app-shell bootstrap mirror; no FKs because
-  numbered migrations run without Mastra's lazy tables). `tool_call_id` is the
+  migration-087 `kind` extension, sole authors since BST-1651 retired the
+  bootstrap mirror — that mirror declared `kind` inline, so a bootstrapped
+  database had it at ordinal 5 where a migrated one has it at ordinal 8; no FKs
+  because migrations run without Mastra's lazy tables). `tool_call_id` is the
   primary key; `thread_id` owns cleanup; `rewrite_id` groups one committed
   batch for diagnostics; `superseded_by_tool_call_id` is the live-evidence
   guard; `marker_text` is the exact compact replay; `original_chars` records
@@ -1477,9 +1550,8 @@ one-level redo is exact and the messages only die when the next user message
 finalizes the rewind.
 
 - **Where state lives:** `brainstrike_assistant_message_tombstones` (migration
-  080 in BOTH runners plus the byte-identical app-shell bootstrap mirror; no
-  FKs — migration 055 message-parents precedent, since numbered migrations run
-  against a bare schema with no Mastra tables). Columns:
+  080 in BOTH runners, sole author since BST-1651 retired the bootstrap
+  mirror; no FKs — migration 055 message-parents precedent). Columns:
   `message_id` (PRIMARY KEY), `thread_id`, `rewind_id` (NOT NULL),
   `revert_id` (NULLABLE), `tombstoned_at`. Indexed on `(thread_id)` for the
   read-path anti-join and `(rewind_id)` for batch redo. Registered in
@@ -1914,8 +1986,8 @@ in the same thread.
 ## CANVAS DOCUMENT VERSIONS (BST-1173)
 
 Persisted Canvas HTML is application-owned, local-first state in
-`brainstrike_canvas_versions` (migration 082 in BOTH runners plus the
-byte-identical app-shell bootstrap mirror). Rows sharing `canvas_id` form one
+`brainstrike_canvas_versions` (migration 082 in BOTH runners, sole author since
+BST-1651 retired the bootstrap mirror). Rows sharing `canvas_id` form one
 document and the greatest integer `version` is current. Row ids and canvas ids
 are app-side uuidv7 values; timestamps are read as `created_at::text`; and
 `created_by` is CHECK-constrained to `assistant | user` and validated again on
@@ -2030,8 +2102,8 @@ The ratio remains reconciliation evidence, not permission to tune
 `APPROX_CHARS_PER_TOKEN`.
 
 The table is FK-less because numbered migrations cannot depend on the lazy
-assistant parents. The renderer bootstrap mirrors migration 086 because its
-thread-delete CTE references every sidecar unconditionally;
+assistant parents. The repository's thread-delete CTE references every sidecar
+unconditionally, which is why the table is part of the schema PROBE (BST-1651);
 `THREAD_DELETE_SIDECAR_TABLES` removes thread-owned rows, and the reset registry
 owns all table-enumerating fresh-start paths. Scheduled database maintenance
 prunes rows after 60 days on both idle and active-queue passes, using the
@@ -2054,8 +2126,8 @@ checked-in lens rather than an inlined copy.
 Per-run cost/outcome analytics over tables the assistant already writes.
 
 - **Experiment treatments (BST-1250, recursive self-improvement phase 2A):**
-  `brainstrike_assistant_run_treatments` (migration 093 + byte-identical
-  bootstrap mirror in `assistant-memory-repository.ts`; no FKs; retained on
+  `brainstrike_assistant_run_treatments` (migration 093, sole author since
+  BST-1651 retired the bootstrap mirror; no FKs; retained on
   thread delete like run_outcomes, cleared on factory reset via the db reset
   registry; sole index is `(created_at)` — the lens's only predicate). One
   row per hosted run, `run_id` PK. Normal legs record DETACHED (`void`) from
@@ -2087,8 +2159,8 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   `run-treatment-persistence.integration.test.ts`,
   `search-lens-experiment-outcome-correlation.test.ts`.
 
-- **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 062 +
-  byte-identical bootstrap in `ASSISTANT_THREAD_RUNS_SCHEMA_SQL`; no FKs, purged
+- **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 062, sole
+  author since BST-1651 retired the bootstrap mirror; no FKs, purged
   on factory reset via db-ipc `OptionalRelationTable`). At most ONE label per
   run (`verdict` succeeded/failed/mixed, upserted on run_id) with provenance
   `source` (`user` | `edit_revert` | `hook`) and bounded `detail` (2000 chars,

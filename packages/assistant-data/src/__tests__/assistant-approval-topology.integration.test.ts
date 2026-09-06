@@ -9,7 +9,7 @@ import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from '../assistant-memory-repository';
-import { createTestPGlite } from './helpers/test-pglite';
+import { createMigratedTestPGlite } from './helpers/test-pglite';
 
 /**
  * BST-1243: approval/suspend flows must never corrupt durable branch topology.
@@ -162,7 +162,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
 
   async function makeHarness(prefix: string) {
     pgliteDataDir = createPgliteTestDataDir(prefix);
-    const db = (await createTestPGlite(pgliteDataDir)) as DbHandle;
+    const db = (await createMigratedTestPGlite(pgliteDataDir)) as DbHandle;
     const repository = createPgliteAssistantThreadRepository(db);
     const thread = await repository.createThread('workspace-a');
     const makeAdapter = () =>

@@ -775,8 +775,8 @@ Both probe-helper unions derive from the registry
 'file_records'>`) — keep them derived, and keep them closed unions.
 
 `brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events`
-(renderer-lazy bootstrap DDL in `assistant-memory-repository.ts`, created by no
-migration) are in NO list on purpose: both cascade from `mastra_threads`
+(migration 118 since BST-1651; previously renderer-lazy bootstrap DDL) are in NO
+list on purpose: both cascade from `mastra_threads`
 (`ON DELETE CASCADE`), which every list clears. If that FK is ever dropped —
 migration 052 dropped its FKs for exactly this kind of reason — they start
 silently surviving reset; move them into the registry in the same change.
@@ -787,13 +787,16 @@ removes the relations with the whole database rather than issuing
 table-by-table `DELETE`s. Do not add a redundant SQL purge to that
 directory-delete path.
 
-These relations are application-created lazily rather than guaranteed by the
-numbered migration runner: the memory store creates threads, messages,
-resources, and observational memory; the vector store creates vectors; and the
-workflow store creates workflow snapshots. A never-used assistant can therefore
-legitimately lack any or all of them. Every table-enumerating reset path must
-PROBE each relation before deleting it; absence is the only tolerated case, and
-every genuine probe or delete failure stays visible.
+Two of these relations are still application-created lazily rather than
+guaranteed by the migration chain: the vector store creates `mastra_vectors` and
+the workflow store creates `mastra_workflow_snapshot`, so a never-used assistant
+can legitimately lack either. Migration 117 (BST-1651) moved the four MEMORY
+relations — threads, messages, resources, observational memory — into the chain,
+though `PgliteMemoryStore.initialize()` still applies the same contract DDL
+idempotently because standing its own schema up is Mastra's storage contract.
+Every table-enumerating reset path must still PROBE each relation before deleting
+it; absence is the only tolerated case, and every genuine probe or delete failure
+stays visible.
 
 `mastra_workflow_snapshot` has an UNBOUNDED lifetime — its only deletes are
 `deleteWorkflowRunById` (no production caller) and `dangerouslyClearAll`
@@ -876,8 +879,18 @@ property access throws, but a bare interpolation such as `${MASTRA_VECTOR_TABLE}
 splices the literal string `undefined` into the DDL, and in the renderer reset
 paths an undefined table name would make `to_regclass('undefined')` return NULL — the
 permanent silent skip described above. Build SQL inside the function that
-executes it (`buildAssistantThreadRunsSchemaSql`,
-`buildMastraVectorSchemaSql`).
+executes it (`buildMastraVectorSchemaSql`; and `requiredAssistantMemoryRelations`
+in `assistant-memory-repository.ts`, which reads the same constants to build its
+`to_regclass` probe list — the schema-mirroring builder that originally tripped
+this defect was retired in BST-1651, but the rule is the reason its replacement
+is a function too).
+
+The same rule is why migration 117 carries a LITERAL copy of Mastra's memory DDL
+instead of importing `MASTRA_MEMORY_SCHEMA_SQL`: `deriveCustomMigrations()` reads
+every `migration.up` during module-scope evaluation of `drizzle/migrate.ts`, and
+an uninitialized binding there would splice the string `undefined` into a
+migration. The copy is pinned to the contract at the CATALOG level by
+`packages/db/__tests__/mastra-schema-migration-parity.test.ts`.
 
 Nothing else catches this class: `tsc` types ESM live bindings identically
 either way, the schema module imports nothing so there is no source cycle to

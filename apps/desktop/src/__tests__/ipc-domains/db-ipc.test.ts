@@ -1,4 +1,3 @@
-import { buildAssistantThreadRunsSchemaSql } from '@brainstrike/assistant-data';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -71,7 +70,7 @@ vi.mock('../../db-host-manager', () => ({
   getDbHostManager: vi.fn(() => dbHostManagerMock),
 }));
 
-import { assertRendererSql, registerDatabaseIpcHandlers } from '../../ipc-domains/db-ipc';
+import { registerDatabaseIpcHandlers } from '../../ipc-domains/db-ipc';
 
 describe('database IPC domain', () => {
   let unregisterDatabaseHandlers: (() => void) | null = null;
@@ -171,15 +170,6 @@ describe('database IPC domain', () => {
         'ALTER TABLE file_records DROP COLUMN path'
       )
     ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
-  });
-
-  it('accepts the assistant thread renderer bootstrap SQL', () => {
-    const bootstrapSql = buildAssistantThreadRunsSchemaSql();
-
-    expect(bootstrapSql).toMatch(
-      /ADD COLUMN IF NOT EXISTS prompt_baseline_tokens integer\s+CHECK \(prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0\)/u
-    );
-    expect(() => assertRendererSql('db:exec', bootstrapSql)).not.toThrow();
   });
 
   it('validates the db:transaction statement list and guards each statement SQL', async () => {

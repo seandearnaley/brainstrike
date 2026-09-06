@@ -1,5 +1,5 @@
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { getLedgerCostTrend, getModelComparison } from '../run-ledger-analytics';
@@ -17,6 +17,9 @@ describe('run ledger analytics (real PGlite)', () => {
   async function seedWorkspace(dataDirName: string) {
     pgliteDataDir = createPgliteTestDataDir(dataDirName);
     const db = await wasmLoader.createPGlite(pgliteDataDir);
+    // Migrations 117/118 own the assistant schema; the repository probes for it
+    // rather than creating it (BST-1651).
+    await migrate(db);
     onTestFinished(async () => {
       await db.close();
       expect(db.closed).toBe(true);

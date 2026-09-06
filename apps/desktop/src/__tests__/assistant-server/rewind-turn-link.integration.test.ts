@@ -40,13 +40,10 @@ afterEach(async () => {
 
 async function seedLinkedResumedTurnThread(databaseName: string): Promise<RewindFixture> {
   const rootPath = await makeTempDir();
+  // `createRewindFixture` seeds THREAD_ID's `mastra_threads` row — every run
+  // needs that parent, so the shared fixture owns it rather than each suite.
   const fixture = await createRewindFixture({ 'root-1': rootPath }, databaseName);
   const { db } = fixture;
-  await db.query(
-    `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
-     VALUES ($1, 'workspace-rewind', 'rewind thread', NOW(), NOW())`,
-    [THREAD_ID]
-  );
   await insertRun(db, {
     completedAt: '2026-01-01T00:01:20Z',
     id: 'run-a1',

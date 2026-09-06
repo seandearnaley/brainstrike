@@ -51,21 +51,24 @@ function writeInput(overrides: Partial<EditCheckpointInput> = {}): EditCheckpoin
 }
 
 /**
- * The runs table is renderer-lazy bootstrap-only DDL (never a numbered
- * migration), so `migrate(db)` in `beforeEach` below never creates it. Tests
- * that exercise `listRunRangeCheckpoints`' anchor resolution create a minimal
- * stand-in here — same shape the production bootstrap SQL uses for the three
- * columns the range query reads (id/thread_id/started_at), without the FK to
- * the Mastra threads table this journal module never touches.
+ * Migration 118 creates the runs table, so `migrate(db)` in `beforeEach`
+ * already has it. What a run still needs is its `mastra_threads` parent: the
+ * table's `thread_id` foreign key has been there since the run header first
+ * shipped, and only this suite's three-column stand-in — a hand-rolled copy of
+ * bootstrap DDL, written when the chain did not create the table — ever let a
+ * run hang off a thread that did not exist.
+ *
+ * Both threads are seeded together: the anchor-resolution cases below pair
+ * `THREAD` with a `thread-2` decoy that pins thread scoping.
  */
-async function createRunsTable(): Promise<void> {
-  await db.query(`
-    CREATE TABLE ${RUNS_TABLE} (
-      id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      started_at TIMESTAMPTZ NOT NULL
-    )
-  `);
+async function seedRunThreads(): Promise<void> {
+  for (const threadId of [THREAD, 'thread-2']) {
+    await db.query(
+      `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, NOW(), NOW())`,
+      [threadId, RESOURCE, `Thread ${threadId}`]
+    );
+  }
 }
 
 /**
@@ -79,11 +82,13 @@ async function insertRun(input: {
   startedAt: Date | string;
   threadId?: string;
 }): Promise<void> {
-  await db.query(`INSERT INTO ${RUNS_TABLE} (id, thread_id, started_at) VALUES ($1, $2, $3)`, [
-    input.id,
-    input.threadId ?? THREAD,
-    input.startedAt,
-  ]);
+  await db.query(
+    `INSERT INTO ${RUNS_TABLE}
+       (id, resource_id, thread_id, provider, model, runtime_kind, status,
+        started_at, created_at, updated_at)
+     VALUES ($1, $2, $3, 'anthropic', 'test-model', 'hosted', 'completed', $4, NOW(), NOW())`,
+    [input.id, RESOURCE, input.threadId ?? THREAD, input.startedAt]
+  );
 }
 
 async function runsTableIsPresent(): Promise<boolean> {
@@ -233,7 +238,13 @@ describe('undo worklist + reverted stamping', () => {
 });
 
 describe('listRunRangeCheckpoints', () => {
-  it('returns a typed runs-unavailable error when the runs table was never bootstrapped, and issues no DDL', async () => {
+  it('returns a typed runs-unavailable error when the runs table is absent, and issues no DDL', async () => {
+    // An unmigrated database is the only one without these relations now, and
+    // it lacks both: migration 118 creates the run header and its event
+    // timeline together, and the timeline's foreign key means the parent
+    // cannot be dropped alone.
+    await db.query('DROP TABLE brainstrike_assistant_run_events');
+    await db.query(`DROP TABLE ${RUNS_TABLE}`);
     expect(await runsTableIsPresent()).toBe(false);
 
     const result = await listRunRangeCheckpoints(db, { fromRunId: 'run-a', threadId: THREAD });
@@ -252,7 +263,7 @@ describe('listRunRangeCheckpoints', () => {
     const at = (offsetMs: number): Date => new Date(base + offsetMs);
 
     beforeEach(async () => {
-      await createRunsTable();
+      await seedRunThreads();
       await insertRun({ id: 'run-a', startedAt: at(0) });
       await insertRun({ id: 'run-b', startedAt: at(1000) });
       await insertRun({ id: 'run-c', startedAt: at(2000) });
@@ -379,7 +390,7 @@ describe('listRunRangeCheckpoints', () => {
 
   it('valid anchors with zero journal rows yield an empty view, not an error', async () => {
     const zeroRowsBase = Date.now();
-    await createRunsTable();
+    await seedRunThreads();
     await insertRun({ id: 'run-i', startedAt: new Date(zeroRowsBase) });
     await insertRun({ id: 'run-j', startedAt: new Date(zeroRowsBase + 1000) });
 
@@ -397,7 +408,7 @@ describe('listRunRangeCheckpoints', () => {
     // a raw SQL-literal string so the DB stores the full microsecond value
     // from the start (see `insertRun`'s doc comment).
     const preciseStartedAt = '2026-08-04 04:15:00.123456+00';
-    await createRunsTable();
+    await seedRunThreads();
     await insertRun({ id: 'run-precise', startedAt: preciseStartedAt });
     await recordEditCheckpoint(
       db,
@@ -427,7 +438,7 @@ describe('listRunRangeCheckpoints', () => {
   it('same-millisecond runs: the id tiebreak makes range membership deterministic', async () => {
     const tieBase = Date.now();
     const tied = new Date(tieBase + 5000);
-    await createRunsTable();
+    await seedRunThreads();
     await insertRun({ id: 'run-before', startedAt: new Date(tieBase + 4000) });
     // Two runs sharing the exact same started_at; 'run-e' sorts before 'run-f'.
     await insertRun({ id: 'run-e', startedAt: tied });

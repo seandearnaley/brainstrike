@@ -5,7 +5,7 @@ import {
   createPgliteAssistantThreadRepository,
   sanitizeThreadMetadataForTest,
 } from '../assistant-memory-repository';
-import { createTestPGlite } from './helpers/test-pglite';
+import { createMigratedTestPGlite } from './helpers/test-pglite';
 
 let pgliteDataDir: string | undefined;
 
@@ -39,7 +39,7 @@ describe('forge metadata', () => {
 describe('checkout metadata', () => {
   it('removes persisted worktree keys when handing a thread back to local', async () => {
     pgliteDataDir = `memory://thread-metadata-local-handoff-${crypto.randomUUID()}`;
-    const db = await createTestPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -62,7 +62,7 @@ describe('checkout metadata', () => {
 
   it('rejects checkout keys from bulk repository updates before writing', async () => {
     pgliteDataDir = `memory://thread-metadata-bulk-checkout-${crypto.randomUUID()}`;
-    const db = await createTestPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -137,7 +137,7 @@ describe('checkout metadata', () => {
 
   it('removes a stale branch on a detached worktree-to-worktree transition', async () => {
     pgliteDataDir = `memory://thread-metadata-worktree-transition-${crypto.randomUUID()}`;
-    const db = await createTestPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
