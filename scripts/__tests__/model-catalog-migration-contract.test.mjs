@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { analyzeModelCatalogMigrationContract } from '../model-catalog-migration-contract.mjs';
+import {
+  analyzeModelCatalogMigrationContract,
+  CATALOG_FILE,
+} from '../model-catalog-migration-contract.mjs';
 
 const migrationIndexSource = `
 import { migration025UpdateProviderModels2026 } from './025-update-provider-models-2026.js';
@@ -38,12 +41,27 @@ const databaseContract = readFileSync(
 );
 
 describe('model catalog migration contract', () => {
-  it('documents the provider registry static-literal requirement in the database contract', () => {
+  it('documents the JSON catalog source and its enforcing script in the database contract', () => {
     assert.match(
       databaseContract,
-      /^\s+- packages\/assistant-contract\/src\/provider-registry\.ts\n\s+- Keep `PROVIDER_DEFINITIONS` as an array literal, each provider entry as an object literal, each provider's `models` property as an array literal, and each model entry as an object literal\. `scripts\/model-catalog-migration-contract\.mjs` AST-parses those structural nodes; scalar provider\/model fields may reference resolvable string constants\.$/m,
-      'docs/agents/database.md must keep the complete provider-registry literal-shape rule next ' +
-        'to its source path and name the enforcing script. Update the doc and assertion together.'
+      /^\s+- packages\/assistant-contract\/src\/provider-catalog\.json$/m,
+      'docs/agents/database.md must name the catalog data file as the source to edit. ' +
+        'Update the doc and assertion together.'
+    );
+    assert.match(
+      databaseContract,
+      /`scripts\/model-catalog-migration-contract\.mjs`[^\n]*read it with `JSON\.parse`/,
+      'the doc must say the contract script READS the JSON rather than AST-parsing a literal'
+    );
+    assert.match(
+      databaseContract,
+      /`packages\/assistant-contract\/src\/provider-catalog-schema\.ts` does, at module load, and THROWS/,
+      'the doc must record that the Zod schema replaced tsc as the catalog row check and fails closed'
+    );
+    assert.doesNotMatch(
+      databaseContract,
+      /AST-parses those structural nodes/,
+      'the retired BST-1143 literal-shape rule must not linger in the contract'
     );
   });
 
@@ -433,27 +451,17 @@ export const migrations = [
   migration025UpdateProviderModels2026,
 ];
 `,
-      providerRegistrySource: `
-const PROVIDER_DEFINITIONS = [
-  {
-    id: 'openai',
-    models: [
-      { id: 'gpt-next', type: 'llm' },
-    ],
-  },
-  {
-    id: 'ollama',
-    models: [],
-  },
-];
-`,
+      providerCatalog: [
+        { id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] },
+        { id: 'ollama', models: [] },
+      ],
     });
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
+        file: CATALOG_FILE,
         message:
-          'Static provider-registry model openai::gpt-next is missing from the final DB model catalog.',
+          'Static catalog model openai::gpt-next is missing from the final DB model catalog.',
       },
     ]);
   });
@@ -476,28 +484,71 @@ export const migrations = [
   migration025UpdateProviderModels2026,
 ];
 `,
-      providerRegistrySource: `
-const PROVIDER_DEFINITIONS = [
-  {
-    id: 'openai',
-    models: [
-      { id: 'gpt-next', type: 'llm' },
-    ],
-  },
-];
-`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
     });
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message:
-          'Final DB model catalog row openai::gpt-old is missing from provider-registry.ts; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.',
+        file: CATALOG_FILE,
+        message: `Final DB model catalog row openai::gpt-old is missing from ${CATALOG_FILE}; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
       },
     ]);
   });
 
-  it('fails closed when static provider registry model fields are not resolvable', () => {
+  it('rejects stale final DB catalog rows whose whole provider left the catalog', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}'),
+              ('embed-retired', 'cohere', 'Embed Retired', '{"type":"embedding"}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: CATALOG_FILE,
+        message: `Final DB model catalog row cohere::embed-retired is missing from ${CATALOG_FILE}; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.`,
+      },
+    ]);
+  });
+
+  it('exempts the transformers residue that migration 021 renamed with an UPDATE', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}'),
+              ('Xenova/bge-small-en-v1.5', 'transformers', 'BGE Small', '{"type":"embedding"}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
+    });
+
+    assert.deepEqual(result.failures, []);
+  });
+
+  it('fails closed when static catalog model fields are malformed', () => {
     const result = analyzeModelCatalogMigrationContract({
       migrationFiles: [
         migrationFile(
@@ -514,29 +565,52 @@ export const migrations = [
   migration025UpdateProviderModels2026,
 ];
 `,
-      providerRegistrySource: `
-const PROVIDER_DEFINITIONS = [
-  {
-    id: 'openai',
-    models: [
-      { id: UNKNOWN_MODEL_ID, type: 'llm' },
-      { id: 'gpt-known', type: UNKNOWN_MODEL_TYPE },
-    ],
-  },
-];
-`,
+      providerCatalog: [
+        {
+          id: 'openai',
+          models: [{ type: 'llm' }, { id: 'gpt-known', type: 7 }],
+        },
+      ],
     });
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: 'Static provider-registry model for openai has an unresolvable id expression.',
+        file: CATALOG_FILE,
+        message: 'A model entry for openai is missing a string id.',
       },
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
-        message:
-          'Static provider-registry model openai::gpt-known has an unresolvable type expression.',
+        file: CATALOG_FILE,
+        message: 'Catalog model openai::gpt-known is missing a string type.',
       },
+    ]);
+  });
+
+  it('fails closed when the catalog file is not a JSON array', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [],
+      migrationIndexSource: 'export const migrations = [];',
+      providerCatalog: { openai: [] },
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: CATALOG_FILE,
+        message: 'The provider catalog must be a JSON array of provider objects.',
+      },
+    ]);
+  });
+
+  it('fails closed when a provider entry has no models array', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      migrationFiles: [],
+      migrationIndexSource: 'export const migrations = [];',
+      providerCatalog: [{ id: 'openai' }, 'openrouter', { models: [] }],
+    });
+
+    assert.deepEqual(result.failures, [
+      { file: CATALOG_FILE, message: 'Provider openai must declare a models array.' },
+      { file: CATALOG_FILE, message: 'Provider catalog entries must be objects.' },
+      { file: CATALOG_FILE, message: 'Provider catalog entry is missing a string id.' },
     ]);
   });
 
@@ -557,23 +631,14 @@ export const migrations = [
   migration025UpdateProviderModels2026,
 ];
 `,
-      providerRegistrySource: `
-const PROVIDER_DEFINITIONS = [
-  {
-    id: 'openai',
-    models: [
-      { id: 'gpt-next', type: 'llm' },
-    ],
-  },
-];
-`,
+      providerCatalog: [{ id: 'openai', models: [{ id: 'gpt-next', type: 'llm' }] }],
     });
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/assistant-contract/src/provider-registry.ts',
+        file: CATALOG_FILE,
         message:
-          'Static provider-registry model openai::gpt-next has type llm, but the final DB model catalog has type embedding.',
+          'Static catalog model openai::gpt-next has type llm, but the final DB model catalog has type embedding.',
       },
     ]);
   });
