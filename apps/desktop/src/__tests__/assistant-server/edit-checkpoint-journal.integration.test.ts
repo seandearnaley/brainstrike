@@ -258,16 +258,11 @@ describe('listRunRangeCheckpoints', () => {
     await db.query(`DROP TABLE ${RUNS_TABLE}`);
     expect(await runsTableIsPresent()).toBe(false);
 
-    const rejection = await listRunRangeCheckpoints(db, {
-      fromRunId: 'run-a',
-      threadId: THREAD,
-    }).then(
-      () => null,
-      (error: unknown) => error
-    );
-
-    // The code, never the prose: 42P01 is `undefined_table`.
-    expect((rejection as { code?: string } | null)?.code).toBe('42P01');
+    // The code, never the prose: 42P01 is `undefined_table`. `rejects` also
+    // fails loudly if the call ever RESOLVES again.
+    await expect(
+      listRunRangeCheckpoints(db, { fromRunId: 'run-a', threadId: THREAD })
+    ).rejects.toMatchObject({ code: '42P01' });
     // The read-only invariant survives the probe's removal: a failed read must
     // never fall through to a bootstrap.
     expect(await runsTableIsPresent()).toBe(false);

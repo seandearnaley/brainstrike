@@ -70,6 +70,14 @@ function makeFixture(options: FixtureOptions) {
   );
   const deletedByIds: string[][] = [];
   const deletedThreads: string[] = [];
+  /**
+   * Ordered log of the two things whose RELATIVE ORDER is the mass-delete
+   * guard (BST-1651). The sweep no longer probes for `mastra_threads`; it
+   * relies on the only read of that relation happening before anything is
+   * deleted. That is an ordering invariant with no type to enforce it, so it
+   * is asserted directly below rather than left to a comment.
+   */
+  const events: string[] = [];
   const prunedThreads: { rootId: string; threadId: string }[] = [];
   const prunedHistories: { boundaries: readonly string[]; rootId: string }[] = [];
 
@@ -81,6 +89,7 @@ function makeFixture(options: FixtureOptions) {
         return { rows: [...rowsByThread.keys()].map((threadId) => ({ threadId }) as T) };
       }
       if (sql.includes('FROM mastra_threads')) {
+        events.push('read:mastra_threads');
         // An unmigrated database, faked at the only statement that reads the
         // relation. Real PGlite raises 42P01 here; the sweep has no probe to
         // soften it (BST-1651).
@@ -125,10 +134,12 @@ function makeFixture(options: FixtureOptions) {
 
   const repository = {
     deleteByIds: vi.fn(async (ids: readonly string[]) => {
+      events.push('delete:byIds');
       deletedByIds.push([...ids]);
       return ids.length;
     }),
     deleteForThread: vi.fn(async (threadId: string) => {
+      events.push('delete:forThread');
       deletedThreads.push(threadId);
       const rows = rowsByThread.get(threadId) ?? [];
       rowsByThread.delete(threadId);
@@ -184,6 +195,7 @@ function makeFixture(options: FixtureOptions) {
     deletedByIds,
     deletedThreads,
     deps,
+    events,
     finalizeBatch: () => {
       outstanding.current = null;
     },
@@ -235,15 +247,40 @@ describe('runSnapshotStartupGc', () => {
       threadsTablePresent: false,
     });
 
-    const rejection = await runSnapshotStartupGc(fixture.deps).then(
-      () => null,
-      (error: unknown) => error
-    );
-
-    expect((rejection as { code?: string } | null)?.code).toBe('42P01');
+    // The code, never the prose: 42P01 is `undefined_table`.
+    await expect(runSnapshotStartupGc(fixture.deps)).rejects.toMatchObject({ code: '42P01' });
     expect(fixture.deletedThreads).toEqual([]);
     expect(fixture.deletedByIds).toEqual([]);
     expect(fixture.prunedThreads).toEqual([]);
+  });
+
+  /**
+   * The mass-delete guard is an ORDERING invariant, and this is what enforces
+   * it (BST-1651 review, #3022 finding 4).
+   *
+   * With the `to_regclass` refusal retired, "an unmigrated database deletes
+   * nothing" holds only because the single `mastra_threads` read happens
+   * before the classify/delete phase. Nothing in the type system says so — the
+   * delete phase legitimately still holds the `db` handle (`purgeDeadThread`,
+   * `survivingChainBoundaries`), so it cannot be made unexpressible without a
+   * much larger refactor. Asserting the order directly is what makes a second
+   * reader added below the delete phase fail here instead of silently
+   * reintroducing mass-delete-on-absence.
+   */
+  it('reads mastra_threads BEFORE any delete — the ordering the mass-delete guard now rests on', async () => {
+    const fixture = makeFixture({
+      liveThreads: [],
+      rowsByThread: { 'thread-dead': turnRows('thread-dead', 1) },
+    });
+
+    await runSnapshotStartupGc(fixture.deps);
+
+    const firstRead = fixture.events.indexOf('read:mastra_threads');
+    const firstDelete = fixture.events.findIndex((event) => event.startsWith('delete:'));
+    // Both must actually have happened, or the ordering claim is vacuous.
+    expect(firstRead).toBeGreaterThanOrEqual(0);
+    expect(firstDelete).toBeGreaterThanOrEqual(0);
+    expect(firstRead).toBeLessThan(firstDelete);
   });
 
   it('is a quiet no-op on a fresh profile — an empty ledger never reads mastra_threads at all', async () => {

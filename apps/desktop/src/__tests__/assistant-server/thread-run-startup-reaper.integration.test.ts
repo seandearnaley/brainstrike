@@ -176,13 +176,11 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');
 
-    const rejection = await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT).then(
-      () => null,
-      (error: unknown) => error
-    );
-
-    // The code, never the prose: 42P01 is `undefined_table`.
-    expect((rejection as { code?: string } | null)?.code).toBe('42P01');
+    // The code, never the prose: 42P01 is `undefined_table`. `rejects` also
+    // fails loudly if the sweep ever RESOLVES again.
+    await expect(reapOrphanedThreadRuns(asHandle(db), BOOTED_AT)).rejects.toMatchObject({
+      code: '42P01',
+    });
     // Schema ownership stays with migrations: the sweep never creates it.
     const probe = await db.query<{ exists: string | null }>(
       "SELECT to_regclass('brainstrike_assistant_thread_runs')::text AS exists"
