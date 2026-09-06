@@ -169,15 +169,25 @@ This pattern makes the URL **relative to the module**, allowing bundlers (Vite/r
 `StorageRequest.opId` sequences `setItem` requests so a late-arriving stale
 write cannot clobber a newer one. It is **optional**, and the rules are:
 
-* **`undefined` is the only "unsequenced" signal.** `0` is a legal sequence
-  number, not an absence. A truthiness test (`if (opId)`) conflates the two and
-  fails the guard OPEN for `opId: 0` — the stale write wins. This was BST-459.
-* **`Number.isFinite(opId)` is the predicate**, not `opId !== undefined`. The
-  request crosses `postMessage` and is not type-checked at runtime, so the
-  declared `opId?: number` does not exclude `NaN` (recorded as the baseline it
-  makes every later `opId < NaN` false, disabling the guard for that key) or
-  `''` (compares as `0`, so a write that should land is dropped as stale).
-  Anything non-finite is treated as unsequenced and simply proceeds.
+* **`0` is a legal sequence number, not an absence.** A truthiness test
+  (`if (opId)`) conflates the two and fails the guard OPEN for `opId: 0` — the
+  stale write wins. This was BST-459.
+* **The predicate is `opId !== undefined && Number.isFinite(opId)`, and both
+  conjuncts are load-bearing.** The first is what narrows the type for
+  TypeScript — `Number.isFinite` is typed `(number: unknown) => boolean`, not a
+  type predicate, so it contributes no narrowing and dropping the `!==
+  undefined` would break compilation at `opId < lastOp`. The second rejects
+  garbage: the request crosses `postMessage` and is not type-checked at
+  runtime, so the declared `opId?: number` does not exclude `NaN` (recorded as
+  the baseline, it makes every later `opId < NaN` false and disables the guard
+  for that key until the next valid write) or `''` (compares as `0`, so a write
+  that should land is dropped as stale). Anything non-finite is treated the
+  same as absent and simply proceeds unsequenced.
+* **Sequence numbers are assumed non-negative**, because the absent baseline is
+  `0` (`activeSaveOps.get(key) ?? 0`). A first write carrying a negative finite
+  `opId` is therefore dropped as stale. Harmless for a `Date.now()` producer or
+  a counter starting at 0, and unchanged from the pre-BST-459 behaviour — noted
+  so the assumption is stated rather than discovered.
 * **Equal `opId`s proceed.** The comparison is strictly `<`, deliberately: the
   in-repo producer emits `Date.now()`, so two saves in the same millisecond
   share an id and both must land.
