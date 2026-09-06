@@ -225,6 +225,31 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * server leaves `permissionPolicy` unset (passthrough). It carries NO
    * `riskByTool` — tool risk classification is server-owned, never client-
    * supplied. Cleared from the runtime before the agent is built. Agent-only.
+   *
+   * WIRE SHAPE (canonical note — neighbours point here) — read the VALUE, never
+   * key presence. The sole producer (`prepareRequestData` in
+   * `use-assistant-request-lifecycle.ts`) writes this key UNCONDITIONALLY: the
+   * snapshot when the transport is permission-enforceable and `enforce` is set,
+   * otherwise an explicit `undefined`. The shape therefore DIVERGES by vantage
+   * point — PRESENT-and-undefined on the producer's object, absent on the wire
+   * once `JSON.stringify` drops it. That is not the presence-means-on
+   * convention some neighbours (e.g. `subagentPersonasRequest`) use, where the
+   * key is genuinely omitted.
+   *
+   * Being precise about where that bites: a server consumer reading the
+   * DESERIALIZED request would get the right answer from a
+   * `'permissionPolicyRequest' in runtimeData` check today — but only because
+   * serialization happens to erase the difference. The same check is already
+   * wrong for anything reading the producer's object before it is serialized,
+   * and would silently turn enforcement on for an opted-out user the moment a
+   * non-serializing or in-process transport appears. Pass the value to
+   * `resolveRequestPermissionPolicy`, which treats absent and `undefined`
+   * identically, and the distinction never matters.
+   *
+   * `tsc` cannot catch drift here: `exactOptionalPropertyTypes` (on repo-wide)
+   * would REJECT that explicit `undefined` against this `?:` declaration, and
+   * the producer only escapes it because `prepareRequestData` is typed
+   * `Promise<Record<string, unknown>>`.
    */
   permissionPolicyRequest?: AssistantPermissionPolicyRequest;
   /**
