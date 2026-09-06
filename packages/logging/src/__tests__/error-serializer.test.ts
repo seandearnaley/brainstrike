@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm';
 import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import { __loggerTesting, redactSensitiveLogValue } from '../logger.js';
@@ -8,13 +9,18 @@ import { __loggerTesting, redactSensitiveLogValue } from '../logger.js';
  * this pins: `Error.prototype.message` and `.stack` are non-enumerable, so the
  * loss only happens during genuine JSON serialization.
  */
-function captureLogRecord(bindings: Record<string, unknown>): Record<string, unknown> {
+type PinoSerializers = NonNullable<NonNullable<Parameters<typeof pino>[0]>['serializers']>;
+
+function captureWith(
+  serializers: PinoSerializers,
+  bindings: Record<string, unknown>
+): Record<string, unknown> {
   const lines: string[] = [];
   const logger = pino(
     {
       base: null,
       level: 'trace',
-      serializers: __loggerTesting.serializers,
+      serializers,
       timestamp: false,
     },
     {
@@ -28,6 +34,10 @@ function captureLogRecord(bindings: Record<string, unknown>): Record<string, unk
 
   expect(lines).toHaveLength(1);
   return JSON.parse(lines[0] as string) as Record<string, unknown>;
+}
+
+function captureLogRecord(bindings: Record<string, unknown>): Record<string, unknown> {
+  return captureWith(__loggerTesting.serializers, bindings);
 }
 
 describe('the `error` binding key', () => {
@@ -168,5 +178,98 @@ describe('the redact-then-serialize pipeline used by every call site', () => {
 
     expect(serialized['token']).toBe('[REDACTED]');
     expect(serialized['message']).toBe('unauthorized');
+  });
+
+  /**
+   * Regression guard. `redactSensitiveLogValue` hands pino a *plain object*
+   * carrying the Error's message and stack, so the serializer only reaches
+   * pino's std error handling if its gate accepts that redacted shape. Gating
+   * on `instanceof Error` alone silently skipped it, which dropped `type` and
+   * — the real loss — flattened cause text out of `message`/`stack`.
+   */
+  it('keeps pino error shape and flattened cause text for `err`', () => {
+    const wrapped = new Error('outer', { cause: new Error('root cause') });
+    const serialized = captureThroughProductionPipeline({ err: wrapped })['err'] as Record<
+      string,
+      unknown
+    >;
+
+    expect(serialized['type']).toBe('Object');
+    expect(serialized['message']).toBe('outer: root cause');
+    expect(serialized['stack']).toEqual(expect.stringContaining('caused by:'));
+  });
+
+  it('keeps pino error shape and flattened cause text for `error`', () => {
+    const wrapped = new Error('outer', { cause: new Error('root cause') });
+    const serialized = captureThroughProductionPipeline({ error: wrapped })['error'] as Record<
+      string,
+      unknown
+    >;
+
+    expect(serialized['type']).toBe('Object');
+    expect(serialized['message']).toBe('outer: root cause');
+  });
+});
+
+describe('no regression against the transport schema `err` had before', () => {
+  /**
+   * `err` was previously bound to bare `pino.stdSerializers.err`. For anything
+   * error-shaped the output must stay byte-identical, or the established
+   * transport schema breaks for existing `{ err }` call sites. Non-error
+   * payloads are where the two deliberately diverge, so they are excluded.
+   */
+  it.each([
+    ['plain Error', new Error('boom')],
+    ['Error with cause', new Error('outer', { cause: new Error('root cause') })],
+    ['Error with own props', Object.assign(new Error('sql'), { code: '42P01' })],
+  ])('matches bare pino.stdSerializers.err for %s', (_label, input) => {
+    const redacted = redactSensitiveLogValue({ err: input }) as Record<string, unknown>;
+
+    const baseline = captureWith({ err: pino.stdSerializers.err }, redacted)['err'];
+    const current = captureLogRecord(redacted)['err'];
+
+    expect(current).toEqual(baseline);
+  });
+});
+
+describe('error values the `instanceof Error` gate alone would miss', () => {
+  it('serializes a genuine cross-realm Error', () => {
+    const crossRealm = runInNewContext('new Error("cross realm boom")') as Error;
+    // Precondition: this is what makes the test meaningful.
+    expect(crossRealm instanceof Error).toBe(false);
+
+    const serialized = captureLogRecord({ error: crossRealm })['error'] as Record<string, unknown>;
+
+    expect(serialized['message']).toBe('cross realm boom');
+    expect(serialized['stack']).toEqual(expect.stringContaining('Error: cross realm boom'));
+  });
+
+  it('serializes a frozen Error without losing message, stack or own properties', () => {
+    const frozen = Object.freeze(Object.assign(new Error('frozen boom'), { code: '42P01' }));
+    const serialized = captureLogRecord({ error: frozen })['error'] as Record<string, unknown>;
+
+    expect(serialized['message']).toBe('frozen boom');
+    expect(serialized['stack']).toEqual(expect.stringContaining('Error: frozen boom'));
+    expect(serialized['code']).toBe('42P01');
+  });
+
+  it('does not mutate the Error it serializes', () => {
+    const frozen = Object.freeze(new Error('untouched'));
+    captureLogRecord({ error: frozen });
+
+    expect(Object.isFrozen(frozen)).toBe(true);
+    expect(Object.getOwnPropertySymbols(frozen)).toHaveLength(0);
+  });
+
+  it('preserves own non-enumerable data when copying a frozen Error', () => {
+    // `AggregateError.errors` is own-non-enumerable and drives pino's
+    // `aggregateErrors` output, so an enumerable-only copy would drop it.
+    const aggregate = Object.freeze(
+      new AggregateError([new Error('first'), new Error('second')], 'both failed')
+    );
+    const serialized = captureLogRecord({ error: aggregate })['error'] as Record<string, unknown>;
+
+    expect(serialized['message']).toBe('both failed');
+    expect(serialized['aggregateErrors']).toHaveLength(2);
   });
 });

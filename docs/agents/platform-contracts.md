@@ -35,6 +35,34 @@ Structured logs:
   export, so one malformed record never crashes the viewer, silently disappears,
   or breaks export.
 
+Error binding keys (`err` and `error`):
+- Both keys share one serializer. `error` is the key the overwhelming majority
+  of call sites use; leaving it unbound made the two diverge.
+- **`logInternal` redacts before Pino.** Every argument passes through
+  `redactSensitiveLogValue` first, which copies an Error's non-enumerable
+  `message`/`stack` onto a *plain object*. That redacted object — not a live
+  `Error` — is what reaches the serializer from every call site. An
+  `instanceof Error` gate therefore skips Pino's std handling entirely and
+  silently drops `type` plus the flattened cause text from `message`/`stack`.
+  Do not narrow the gate to `instanceof` (regressed once; see PR #3025).
+- The gate accepts real Errors, cross-realm Errors (`[object Error]`, which
+  `instanceof` misses across `node:vm`/worker boundaries), and the redacted
+  representation (string `message` **and** string `stack`). It deliberately
+  stays narrower than Pino's own `isErrorLike` (`typeof value.message ===
+  'string'`): structured failures that merely carry a message — JSON-RPC
+  rejections such as `{ code: -32000, message: '...' }` — must reach the
+  transport byte-identical.
+- `pino.stdSerializers.err` **mutates its input**, tagging it with
+  `Symbol(circular-ref-tag)` before walking, so a frozen input throws
+  `TypeError`. Non-extensible values are serialized via a descriptor-faithful
+  copy. A logger that throws while logging an error masks the original failure.
+- For anything error-shaped, output must stay byte-identical to bare
+  `pino.stdSerializers.err`; `error-serializer.test.ts` pins this against a real
+  Pino instance writing to a capture stream.
+- Known gap, not a regression: `redactSensitiveLogValue` gates on
+  `instanceof Error`, so a cross-realm Error logged through the public API loses
+  `message`/`stack` at the redaction step, before the serializer can help.
+
 Scoped loggers:
 - createLogger('FileImporter')
 
