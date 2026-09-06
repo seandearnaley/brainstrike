@@ -1532,7 +1532,9 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   `baseUrl`/`apiToken`, which would serialize into the request body), the
   bedrock namespace carries only `reasoningConfig`, which is precisely what
   Mastra must forward to the SDK. So it is deliberately NOT added to
-  `buildGenerationProviderOptionsOption`'s strip list in `agent-streaming.ts`.
+  `buildGenerationProviderOptionsOption`'s strip list in
+  `runtime-assembly/stream-options.ts` (moved out of `agent-streaming.ts` by
+  BST-1649).
   If a future Bedrock ticket adds transport-ish fields (endpoint override,
   credentials), replicate the ollama/lmstudio stripping at that point.
 - **Replayed history is normalized for Converse

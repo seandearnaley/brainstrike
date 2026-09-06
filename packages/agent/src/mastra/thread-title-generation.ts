@@ -23,7 +23,10 @@ import {
 } from '../providers/prompt-transform-proxy';
 import type { AgentMessage, RuntimeData } from '../types';
 import type { MastraAgentRuntime } from './agent-runtime';
-import { buildGenerationProviderOptionsOption, buildModelSettingsOption } from './agent-streaming';
+import {
+  buildGenerationProviderOptionsOption,
+  buildModelSettingsOption,
+} from './runtime-assembly/stream-options';
 
 const logger = createLogger('MastraAgent');
 
