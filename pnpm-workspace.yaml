@@ -40,6 +40,7 @@ catalog:
   # implementation (eslint/prettier/lint-staged/globby all use it); already
   # present transitively, promoted to a direct dep so the walk can rely on it.
   '@babel/core': ^8.0.1
+  '@codemirror/state': ^6.7.4
   '@electric-sql/pglite': 0.5.8
   '@electric-sql/pglite-pg_textsearch': 0.0.10
   '@electric-sql/pglite-pgvector': 0.0.9
@@ -139,7 +140,6 @@ catalog:
   yaml: ^2.9.0
   zod: ^4.5.4
   zustand: ^5.0.15
-  '@codemirror/state': ^6.7.4
 overrides:
   react: ^19.2.8
   react-dom: ^19.2.8
