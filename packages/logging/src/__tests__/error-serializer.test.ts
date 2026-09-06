@@ -1,7 +1,13 @@
 import { runInNewContext } from 'node:vm';
 import pino from 'pino';
 import { describe, expect, it } from 'vitest';
-import { __loggerTesting, redactSensitiveLogValue } from '../logger.js';
+import {
+  __loggerTesting,
+  addLogListener,
+  createLogger,
+  type LogRecord,
+  redactSensitiveLogValue,
+} from '../logger.js';
 
 /**
  * These tests exercise the production serializer map through a *real* pino
@@ -271,5 +277,85 @@ describe('error values the `instanceof Error` gate alone would miss', () => {
 
     expect(serialized['message']).toBe('both failed');
     expect(serialized['aggregateErrors']).toHaveLength(2);
+  });
+});
+
+/**
+ * BST-1662. The serializer and the redactor each decide "is this an Error?",
+ * and `logInternal` runs the redactor *first*. The redactor is therefore the
+ * gate that decides whether an Error's diagnostics survive at all: it copies
+ * `message`/`name`/`stack` out of their non-enumerable slots onto a plain
+ * object. If it declines, those fields are already gone by the time the
+ * (wider) serializer gate sees the value, so the serializer cannot recover
+ * them. The two gates must agree about what counts as an Error object.
+ */
+describe('the redactor and the serializer agree about what an Error is', () => {
+  function logThroughPublicApi(bindings: Record<string, unknown>): Record<string, unknown> {
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+    try {
+      createLogger('Bst1662').error('failed', bindings);
+    } finally {
+      unsubscribe();
+    }
+    expect(records).toHaveLength(1);
+    // `addLogListener` receives exactly the redacted arguments `logInternal`
+    // hands to pino, so this is the real public path, not a reconstruction.
+    return records[0]?.args.at(-1) as Record<string, unknown>;
+  }
+
+  it('keeps a cross-realm Error intact through redaction', () => {
+    const crossRealm = runInNewContext('new Error("cross realm boom")') as Error;
+    expect(crossRealm instanceof Error).toBe(false);
+
+    const redacted = redactSensitiveLogValue(crossRealm) as Record<string, unknown>;
+
+    expect(redacted['message']).toBe('cross realm boom');
+    expect(redacted['stack']).toEqual(expect.stringContaining('Error: cross realm boom'));
+  });
+
+  it('keeps a cross-realm Error intact through the full public logging path', () => {
+    const crossRealm = runInNewContext('new Error("cross realm via api")') as Error;
+
+    const logged = logThroughPublicApi({ error: crossRealm })['error'] as Record<string, unknown>;
+
+    expect(logged['message']).toBe('cross realm via api');
+    expect(logged['stack']).toEqual(expect.stringContaining('Error: cross realm via api'));
+  });
+
+  it('still redacts sensitive properties on a cross-realm Error', () => {
+    const crossRealm = runInNewContext(
+      'Object.assign(new Error("cross realm auth"), { token: "super-secret" })'
+    ) as Error;
+
+    const redacted = redactSensitiveLogValue(crossRealm) as Record<string, unknown>;
+
+    expect(redacted['token']).toBe('[REDACTED]');
+    expect(redacted['message']).toBe('cross realm auth');
+  });
+
+  it('walks the cause chain of a cross-realm Error', () => {
+    const crossRealm = runInNewContext(
+      'new Error("outer", { cause: new Error("root cause") })'
+    ) as Error;
+
+    const redacted = redactSensitiveLogValue(crossRealm) as Record<string, unknown>;
+    const cause = redacted['cause'] as Record<string, unknown>;
+
+    expect(cause['message']).toBe('root cause');
+  });
+
+  it('does not decorate a plain object that merely looks error-shaped', () => {
+    // The redactor sits *before* flattening, so it must stay narrower than the
+    // serializer: a plain object's message/stack are already enumerable and the
+    // ordinary walk copies them. Widening here would bolt on a `name` key.
+    const shaped = { message: 'looks like one', stack: 'not really' };
+
+    const redacted = redactSensitiveLogValue(shaped) as Record<string, unknown>;
+
+    expect(redacted).toEqual(shaped);
+    expect(Object.hasOwn(redacted, 'name')).toBe(false);
   });
 });

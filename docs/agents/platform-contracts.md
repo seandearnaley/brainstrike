@@ -52,6 +52,19 @@ Error binding keys (`err` and `error`):
   'string'`): structured failures that merely carry a message — JSON-RPC
   rejections such as `{ code: -32000, message: '...' }` — must reach the
   transport byte-identical.
+- **Two gates, one shared core.** `isErrorObject` (`instanceof Error ||
+  [object Error]`) is exported from `log-serializers.ts` and used by BOTH
+  `redactSensitiveLogValue` and the serializer, so the two can never disagree
+  about what an Error object is. The serializer then composes a *wider* gate on
+  top of it, adding the flattened `message`+`stack` shape. This asymmetry is
+  deliberate and load-bearing in both directions:
+  - The redactor must not be narrower, or it strips a cross-realm Error's
+    diagnostics before the serializer can act — nothing downstream can recover
+    non-enumerable fields once dropped.
+  - The redactor must not be wider, or a caller's ordinary
+    `{ message, stack }` payload gets a spurious `name` bolted on; before
+    flattening, those fields are already enumerable and the normal walk copies
+    them.
 - `pino.stdSerializers.err` **mutates its input**, tagging it with
   `Symbol(circular-ref-tag)` before walking, so a frozen input throws
   `TypeError`. Non-extensible values are serialized via a descriptor-faithful
@@ -59,9 +72,8 @@ Error binding keys (`err` and `error`):
 - For anything error-shaped, output must stay byte-identical to bare
   `pino.stdSerializers.err`; `error-serializer.test.ts` pins this against a real
   Pino instance writing to a capture stream.
-- Known gap, not a regression: `redactSensitiveLogValue` gates on
-  `instanceof Error`, so a cross-realm Error logged through the public API loses
-  `message`/`stack` at the redaction step, before the serializer can help.
+- Open question, tracked by BST-1663: whether error logging that bypasses
+  `logInternal` and reaches Pino directly needs to be redaction-safe.
 
 Scoped loggers:
 - createLogger('FileImporter')

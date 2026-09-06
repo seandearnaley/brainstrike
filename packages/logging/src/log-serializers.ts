@@ -2,21 +2,36 @@ import type { LoggerOptions } from 'pino';
 import pino from 'pino';
 
 /**
+ * Is this a genuine Error *object* — one whose `message`/`stack` live in
+ * non-enumerable slots and would be lost by an ordinary enumerable walk?
+ *
+ * Wider than `instanceof Error`, which is realm-bound: an Error from a
+ * `node:vm` context, a worker, or a dual-loaded class hierarchy fails it.
+ * `[object Error]` reads the `[[ErrorData]]` internal slot, which no plain
+ * object can fake.
+ *
+ * Shared with `redactSensitiveLogValue`, which sits *earlier* in the pipeline
+ * and must answer this same question identically. If the redactor declines a
+ * value the serializer would have accepted, the diagnostics are already gone
+ * by the time the serializer runs and cannot be recovered (BST-1662).
+ */
+export function isErrorObject(value: unknown): value is Error {
+  return value instanceof Error || Object.prototype.toString.call(value) === '[object Error]';
+}
+
+/**
  * Does this value carry an Error's diagnostic payload?
  *
- * Deliberately wider than `instanceof Error` in two directions, each covering a
- * shape that reaches this serializer in practice:
+ * The serializer's gate is deliberately wider than `isErrorObject`, because it
+ * runs *after* `redactSensitiveLogValue` has flattened Errors: `logInternal`
+ * hands pino a plain object carrying the Error's `message`/`stack` copied out
+ * of their non-enumerable slots. That flattened object is what actually arrives
+ * here from every call site, so gating on the Error-object test alone would
+ * skip pino's std handling and drop `type` plus the flattened cause text.
  *
- * 1. **Cross-realm Errors.** `instanceof` is realm-bound, so an Error from a
- *    `node:vm` context, a worker, or a dual-loaded class hierarchy fails it.
- *    `[object Error]` reads the `[[ErrorData]]` internal slot, which plain
- *    objects never have.
- * 2. **The redacted representation.** `logInternal` runs every argument through
- *    `redactSensitiveLogValue` before pino sees it, which copies an Error's
- *    non-enumerable `message`/`stack` onto a *plain object*. That object is what
- *    actually arrives here from every call site, so an `instanceof` gate would
- *    skip pino's std handling entirely and drop `type` plus the flattened cause
- *    text from `message`/`stack`.
+ * The redactor must NOT use this wider test. It runs before flattening, where a
+ * plain object's `message`/`stack` are already enumerable and copied by the
+ * ordinary walk; accepting them there would only bolt on a spurious `name`.
  *
  * Still narrower than pino's own `isErrorLike` (`typeof value.message === 'string'`):
  * requiring a string `stack` as well keeps structured failures that merely carry
@@ -25,7 +40,7 @@ import pino from 'pino';
  * wearing a synthetic empty `stack` and a self-referential `raw`.
  */
 function carriesErrorDiagnostics(value: unknown): boolean {
-  if (value instanceof Error || Object.prototype.toString.call(value) === '[object Error]') {
+  if (isErrorObject(value)) {
     return true;
   }
   if (typeof value !== 'object' || value === null) {
