@@ -312,8 +312,12 @@ export function useAssistantUsageLedger({
       // reaches it — because a claim that outlives its sum is strictly worse than
       // no claim at all: it holds the reader gate open on an idle thread and the
       // headline stays inflated until some later run on that thread settles.
-      useContextUsageStore.getState().beginLiveRunUsageSettle(threadId);
       try {
+        // Inside the `try`: zustand assigns the next state and THEN notifies
+        // synchronously, so a throwing subscriber escapes `set` with the claim
+        // already taken. Clearing when nothing was claimed is a defined no-op,
+        // so one `catch` covers both "claimed then threw" and "never claimed".
+        useContextUsageStore.getState().beginLiveRunUsageSettle(threadId);
         assistantThreadRepository
           .recordRunUsage({
             ...(usage.billedCostUsd === undefined ? {} : { billedCostUsd: usage.billedCostUsd }),
@@ -345,10 +349,11 @@ export function useAssistantUsageLedger({
       } catch (error) {
         // A SYNCHRONOUS throw never reaches the chain's `finally`, so the claim
         // would outlive the sum and hold the gate open on an idle thread.
+        // Release FIRST: a throwing logger must not be what strands it.
+        useContextUsageStore.getState().clearLiveRunUsage(threadId);
         assistantUsageWriteBackLogger.warn('Failed to start the durable run usage write', {
           error,
         });
-        useContextUsageStore.getState().clearLiveRunUsage(threadId);
       }
     },
     [
