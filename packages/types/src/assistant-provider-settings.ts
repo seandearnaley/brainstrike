@@ -68,7 +68,7 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /**
  * Mirrors the `reasoningConfig.maxReasoningEffort` enum of the installed
- * `@ai-sdk/amazon-bedrock` (5.0.57). Structurally identical to
+ * `@ai-sdk/amazon-bedrock` (5.0.76). Structurally identical to
  * `AnthropicEffort` today and deliberately declared separately: they mirror
  * two independent upstream packages, so aliasing one to the other would make
  * an upgrade to either silently redefine the other's picker.

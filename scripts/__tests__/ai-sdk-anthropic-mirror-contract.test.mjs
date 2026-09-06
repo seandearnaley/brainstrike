@@ -340,13 +340,20 @@ export function extractUpstreamUnions(rawDeclarationSource) {
     '{'
   );
   if (optionsBody === null) {
-    return { adaptiveDisplay: [], effort: [], fieldCount: 0, thinkingTypes: [] };
+    return {
+      adaptiveDisplay: [],
+      adaptiveFieldCount: 0,
+      effort: [],
+      fieldCount: 0,
+      thinkingTypes: [],
+    };
   }
   const fields = topLevelFields(optionsBody);
   const variants = extractUpstreamThinkingVariants(fields.get('thinking') ?? '');
   const adaptive = variants.find((variant) => readDiscriminant(variant) === 'adaptive');
   return {
     adaptiveDisplay: extractZodEnumValues(adaptive?.get('display') ?? ''),
+    adaptiveFieldCount: adaptive?.size ?? 0,
     effort: extractZodEnumValues(fields.get('effort') ?? ''),
     fieldCount: fields.size,
     thinkingTypes: unique(
@@ -738,6 +745,16 @@ test('extraction: reads the real provider declaration and the real mirrors', () 
   // vanishes with no signal. The pinned unions below catch a drop of `effort` or
   // `thinking`; this catches a scan that quietly collapsed to a handful of
   // fields while those two happened to survive.
+  // The adaptive variant's OWN fields, not just the declaration's. Variant
+  // extraction reads the first `z.ZodObject<` per union member, so an upstream
+  // that ever expresses a variant as an intersection or `.extend()` chain would
+  // emit two objects and the second's fields — a `display` that moved there
+  // included — would be dropped in silence. The declaration-level floor below
+  // cannot see that; this can.
+  assert.ok(
+    upstream.adaptiveFieldCount >= 2,
+    `expected the adaptive variant to expose at least type and display, read ${upstream.adaptiveFieldCount}`
+  );
   assert.ok(
     upstream.fieldCount >= 5,
     `expected the options declaration to expose several top-level fields, read ${upstream.fieldCount}`
