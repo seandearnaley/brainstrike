@@ -16,16 +16,12 @@
  * disposition inventory, `processMastraStreamPart`, and
  * `warnForUnrecognizedMastraStreamPart`.
  *
+ * BST-1649 moved thread-title generation to `thread-title-generation.ts`
+ * (called from `streamAttemptChunks` via `ensureMastraThreadTitleGeneration`).
+ *
  * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md R6.
  */
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import {
-  getLlmModelDefinition,
-  listProviderLlmModels,
-  resolveOpenRouterCodingMaxOutputTokens,
-  resolveOpenRouterOutputWindow,
-  resolveOpenRouterReasoningActive,
-} from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
@@ -33,31 +29,15 @@ import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
-import type {
-  Agent,
-  AgentMemoryOption,
-  DelegationConfig,
-  MastraDBMessage,
-} from '@mastra/core/agent';
+import type { Agent, AgentMemoryOption, MastraDBMessage } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
-import { SkillsProcessor } from '@mastra/core/processors';
-import { RequestContext } from '@mastra/core/request-context';
 import type { ChunkType } from '@mastra/core/stream';
-import { canOverwriteThreadTitle } from '../pglite-mastra-memory/thread-title-policy';
-import { attachThreadTitleSaveAbortSignal } from '../pglite-mastra-memory/thread-title-save-cancellation';
-import {
-  extractProviderRunError,
-  isContextOverflowProviderErrorCode,
-} from '../provider-error-metadata';
+import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from '../providers/native-web-search';
-import {
-  type ModelProviderOptions,
-  wrapModelWithCallTransform,
-} from '../providers/prompt-transform-proxy';
 import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
@@ -86,9 +66,6 @@ import {
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
 } from './agent-runtime';
-import { buildBedrockMessageHygieneInputProcessor } from './bedrock-message-hygiene';
-import { buildCompactionOverlayInputProcessor } from './compaction-overlay-processor';
-import { buildProviderHistoryCompatInputProcessor } from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
@@ -106,13 +83,17 @@ import {
 } from './mastra-chunk-decoding';
 import { makeMcpDiscoverySkipChunks } from './mcp-discovery-diagnostics';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
-import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
-import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
-import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
-import type { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
 import { computePromptBreakdown } from './prompt-breakdown';
-import { createAssistantMessageIdGenerator } from './runtime-assembly/assistant-message-id';
+import {
+  type ApprovalGate,
+  assertNoUnsupportedDirectStreamOptions,
+  type BrainstrikeAgentStreamOptions,
+  buildAssistantStreamMessageIdOption,
+  buildGenerationProviderOptionsOption,
+  buildModelSettingsOption,
+  buildToolLoopOptions,
+} from './runtime-assembly/stream-options';
 import {
   accumulateSteppedUsage,
   readOpenRouterBilledCost,
@@ -143,6 +124,7 @@ import {
   createDelegationOutcomeCapture,
   type DelegationOutcomeCapture,
 } from './subagent-delegation';
+import { ensureMastraThreadTitleGeneration } from './thread-title-generation';
 import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
 import {
   COMPLETED_FINISH_REASONS,
@@ -162,18 +144,8 @@ import {
   resolveDelegationPersona,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
-import { buildToolProjectionRewriteInputProcessor } from './tool-projection-rewrite-processor';
-import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
-const MASTRA_THREAD_TITLE_LIFECYCLE_TIMEOUT_MS = 30_000;
-
-class MastraThreadTitleTimeoutError extends Error {
-  constructor() {
-    super('Mastra thread title generation exceeded its lifecycle budget.');
-    this.name = 'MastraThreadTitleTimeoutError';
-  }
-}
 
 type DynamicMastraChunkType =
   | `agent-execution-event-${string}`
@@ -1098,247 +1070,6 @@ function* makeResumedStartChunks(
 }
 
 /**
- * Per-call approval decision, matching Mastra's `RequireToolApproval` union
- * (`boolean | (ctx) => boolean`). The function form gates approval per tool call;
- * the resume leg uses it to exempt Mastra-internal tools (see
- * {@link resolveResumeApprovalGate}).
- */
-type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
-
-interface BrainstrikeAgentStreamOptions {
-  abortSignal?: AbortSignal;
-  delegation?: DelegationConfig;
-  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
-  experimental_generateMessageId?: () => string;
-  inputProcessors?: unknown[];
-  maxSteps?: number;
-  memory?: AgentMemoryOption;
-  modelSettings?: RuntimeData['modelSettings'];
-  providerOptions?: RuntimeData['providerOptions'];
-  requireToolApproval?: ApprovalGate;
-}
-
-/**
- * Default OpenRouter output window when the client sent no explicit
- * `modelSettings.maxOutputTokens` (BST-1170). Reasoning tokens are output
- * tokens on OpenRouter, so the window is sized for the reasoning state the
- * request actually carries: an active-reasoning request on a catalogued model
- * with a vendor-documented completion window reserves that window; everything
- * else keeps the coding ceiling. Undeclared routes have no recorded facts and
- * keep the ceiling — the base contract, not a per-model guess.
- */
-function resolveOpenRouterBackstopMaxOutputTokens(runtimeData: RuntimeData): number {
-  const modelId = runtimeData.model?.trim() || getDefaultModel('openrouter');
-  const definition = listProviderLlmModels('openrouter').find(({ id }) => id === modelId);
-  if (!definition) {
-    return resolveOpenRouterCodingMaxOutputTokens();
-  }
-  const reasoning = runtimeData.providerOptions?.openrouter?.reasoning;
-  const explicitEffort = reasoning?.enabled === false ? 'none' : reasoning?.effort;
-  return resolveOpenRouterOutputWindow(
-    definition,
-    resolveOpenRouterReasoningActive(definition, explicitEffort)
-  );
-}
-
-function buildModelSettingsOption(
-  runtimeData: RuntimeData | undefined
-): Pick<BrainstrikeAgentStreamOptions, 'modelSettings'> {
-  let modelSettings = runtimeData?.modelSettings;
-  if (runtimeData?.provider === 'openrouter') {
-    modelSettings = {
-      maxOutputTokens: resolveOpenRouterBackstopMaxOutputTokens(runtimeData),
-      ...modelSettings,
-    };
-  } else if (runtimeData?.provider === 'local') {
-    const modelId = runtimeData.model?.trim() || getDefaultModel('local');
-    const definition = getLlmModelDefinition('local', modelId);
-    if (definition.maxOutputTokens === undefined) {
-      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-        context: { model: modelId, provider: 'local' },
-        detail: `Local model ${modelId} has no maxOutputTokens registry budget`,
-      });
-    }
-    modelSettings = {
-      maxOutputTokens: definition.maxOutputTokens,
-      ...modelSettings,
-    };
-  }
-  return modelSettings ? { modelSettings } : {};
-}
-
-/**
- * Keep Brainstrike's local-server transport settings out of Mastra generation
- * options. Mastra namespaces compatible-provider options by the model id's
- * first segment, so forwarding `providerOptions.ollama` or `.lmstudio` would
- * serialize `baseUrl` and `apiToken` into the chat-completions request body.
- */
-function buildGenerationProviderOptionsOption(
-  runtimeData: RuntimeData | undefined
-): Pick<BrainstrikeAgentStreamOptions, 'providerOptions'> {
-  const providerOptions = runtimeData?.providerOptions;
-  if (!providerOptions) {
-    return {};
-  }
-  if (providerOptions.ollama === undefined && providerOptions.lmstudio === undefined) {
-    return { providerOptions };
-  }
-
-  const generationProviderOptions = Object.fromEntries(
-    Object.entries(providerOptions).filter(
-      ([namespace]) => namespace !== 'ollama' && namespace !== 'lmstudio'
-    )
-  ) as NonNullable<RuntimeData['providerOptions']>;
-  if (Object.keys(generationProviderOptions).length === 0) {
-    return {};
-  }
-  return { providerOptions: generationProviderOptions };
-}
-
-function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | undefined): {
-  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
-  experimental_generateMessageId?: () => string;
-} {
-  const assistantMessageId = runtimeData?.assistantMessageId;
-  if (!assistantMessageId) {
-    return {};
-  }
-  return {
-    // The stream and persistence paths each consume their own one-shot
-    // generator. Sharing one would make whichever Mastra path runs first force
-    // the other to a UUID, breaking visible/persisted identity alignment.
-    // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
-    experimental_generateMessageId: createAssistantMessageIdGenerator(assistantMessageId).generate,
-  };
-}
-
-/**
- * Matches the maximum user-selectable loop limit. The settings UI labels an
- * unset value as the default, so the runtime must not substitute a smaller
- * hidden cap that ends real coding tasks after only a handful of tool calls.
- */
-const DEFAULT_AGENT_MAX_STEPS = 100;
-const UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS = [
-  'activeTools',
-  'clientTools',
-  'inputProcessors',
-  'outputProcessors',
-  'prepareStep',
-  'structuredOutput',
-  'toolChoice',
-  'toolsets',
-] as const;
-
-function assertNoUnsupportedDirectStreamOptions(options: MastraAgentRuntimeOptions): void {
-  const providedUnsupportedKeys = UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS.filter((key) =>
-    Object.hasOwn(options, key)
-  );
-  if (providedUnsupportedKeys.length === 0) {
-    return;
-  }
-
-  throw createMastraAgentError('mastra_agent_unsupported_stream_option', {
-    context: { unsupportedOptions: providedUnsupportedKeys },
-    detail: `Unsupported Mastra stream option(s): ${providedUnsupportedKeys.join(', ')}`,
-  });
-}
-
-function resolvePositiveIntegerOption(value: unknown, fieldName: string): number | undefined {
-  if (value === undefined || value === null) {
-    return;
-  }
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
-    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      context: { fieldName, value },
-      detail: `${fieldName} must be a positive finite number`,
-    });
-  }
-  return Math.floor(value);
-}
-
-function buildToolLoopOptions(
-  runtimeData: RuntimeData | undefined,
-  toolSearchProcessor: BrainstrikeToolSearchProcessor | undefined,
-  toolHistoryFilter: ProjectionSafeToolCallFilter | undefined
-): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
-  const agentLoop = runtimeData?.agentLoop;
-  const maxSteps = resolvePositiveIntegerOption(agentLoop?.maxSteps, 'agentLoop.maxSteps');
-  const inputTokenLimit = resolvePositiveIntegerOption(
-    agentLoop?.inputTokenLimit,
-    'agentLoop.inputTokenLimit'
-  );
-  // ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules (strip
-  // foreign/unsupported reasoning before a provider that would reject it — the
-  // only place cross-provider reasoning incompatibility is handled) fire ONLY
-  // from `inputProcessors`, never `errorProcessors` (verified against the
-  // compiled loop). It rides the SAME per-call array as the TokenLimiter so the
-  // per-call replacement doesn't drop either; their hooks are disjoint stages,
-  // so token trimming is unaffected. Excluded for the local provider.
-  const historyCompat = buildProviderHistoryCompatInputProcessor(runtimeData?.provider ?? '');
-  const openAIToolSearchHistoryCompat = buildOpenAIToolSearchHistoryCompatInputProcessor(
-    runtimeData?.provider ?? ''
-  );
-  // BST-1354: Converse-API shape rules (no empty text/reasoning blocks,
-  // constrained tool-call ids) applied to the REPLAYED prompt only. Runs after
-  // the history-compat rewrites so it also cleans whatever they produced.
-  const bedrockMessageHygiene = buildBedrockMessageHygieneInputProcessor(
-    runtimeData?.provider ?? ''
-  );
-  // Mastra's sealed-boundary re-key can leave the same assistant response
-  // persisted under two message ids; OpenAI rejects any request that carries
-  // an item id twice (BST-1095). Runs LAST among the compat processors so it
-  // sees the item references the earlier rewrites produced.
-  const openAIDuplicateItemCompat = buildOpenAIDuplicateItemCompatInputProcessor(
-    runtimeData?.provider ?? ''
-  );
-  const toolProjectionRewrite = buildToolProjectionRewriteInputProcessor(
-    runtimeData?.toolProjectionRewriteLookup,
-    runtimeData?.memory?.threadId
-  );
-  const compactionOverlay = buildCompactionOverlayInputProcessor(
-    runtimeData?.compactionOverlayLookup,
-    runtimeData?.memory?.threadId
-  );
-  const tokenLimiter = inputTokenLimit
-    ? new ProjectionAwareTokenLimiter({
-        limit: inputTokenLimit,
-        strategy: 'truncate',
-        trimMode: 'contiguous',
-      })
-    : undefined;
-  // Agent Skills metadata injection (progressive disclosure level 1): Mastra's
-  // own SkillsProcessor puts the <available_skills> block into the system
-  // message each input step. It rides the SAME per-call inputProcessors array
-  // as the TokenLimiter (per-call options REPLACE the Agent-config array, so it
-  // cannot live on the Agent config) and runs FIRST so the limiter counts the
-  // injected block. Excluded for the built-in local provider — mirrors the
-  // tool-map gate in createMastraAgentRuntime.
-  const skillsProcessor =
-    runtimeData?.workspaceSkills && runtimeData.provider !== 'local'
-      ? new SkillsProcessor({ skills: runtimeData.workspaceSkills })
-      : undefined;
-  const inputProcessors: unknown[] = [
-    skillsProcessor,
-    toolSearchProcessor,
-    toolHistoryFilter,
-    toolProjectionRewrite,
-    // Adjacent for readability only: processInputStep always runs before the
-    // rewrite processor's processLLMRequest, independent of array position.
-    compactionOverlay,
-    historyCompat,
-    openAIToolSearchHistoryCompat,
-    openAIDuplicateItemCompat,
-    bedrockMessageHygiene,
-    tokenLimiter,
-  ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
-
-  return {
-    maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-    ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
-  };
-}
-
-/**
  * Name a raw Mastra part for the stall diagnostic. Knowing WHAT the provider
  * last sent before going quiet (`reasoning-delta` vs `tool-call-delta` vs
  * `step-start`) is the difference between diagnosing a stall from a debug
@@ -2012,467 +1743,6 @@ function makeResumedRunEventChunk(
     `Attempt ${attempt} of ${maxAttempts}, carrying ${carriedMessages} completed message${carriedMessages === 1 ? '' : 's'} forward.`,
     { attempt, carriedMessages, maxAttempts }
   );
-}
-
-function startMastraThreadTitleGeneration({
-  memory,
-  messages,
-  runtime,
-  runtimeData,
-}: {
-  memory: MastraMemory | undefined;
-  messages: AgentMessage[] | undefined;
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-}): Promise<void> | undefined {
-  if (!(memory && messages?.length)) {
-    return;
-  }
-  return runBoundedMastraThreadTitleGeneration({ memory, messages, runtime, runtimeData });
-}
-
-function ensureMastraThreadTitleGeneration({
-  eligible,
-  memory,
-  messages,
-  runtime,
-  runtimeData,
-  task,
-}: {
-  eligible: boolean;
-  memory: MastraMemory | undefined;
-  messages: AgentMessage[] | undefined;
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-  task: Promise<void> | undefined;
-}): Promise<void> | undefined {
-  if (!(eligible && !task)) {
-    return task;
-  }
-  return startMastraThreadTitleGeneration({ memory, messages, runtime, runtimeData });
-}
-
-async function runBoundedMastraThreadTitleGeneration(options: {
-  memory: MastraMemory;
-  messages: AgentMessage[];
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-}): Promise<void> {
-  const controller = new AbortController();
-  const lifecycle = { signal: controller.signal };
-  const operation = generateMastraThreadTitle({ ...options, lifecycle });
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      operation,
-      new Promise<void>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          const error = new MastraThreadTitleTimeoutError();
-          controller.abort(error);
-          reject(error);
-        }, MASTRA_THREAD_TITLE_LIFECYCLE_TIMEOUT_MS);
-      }),
-    ]);
-  } catch (error) {
-    if (error instanceof MastraThreadTitleTimeoutError) {
-      logger.error('Mastra thread title generation timed out', {
-        code: 'mastra_thread_title_generation_timeout',
-        ...(options.runtimeData?.model ? { model: options.runtimeData.model } : {}),
-        ...(options.runtimeData?.provider ? { provider: options.runtimeData.provider } : {}),
-        resourceId: options.runtimeData?.memory?.resourceId,
-        stage: 'provider',
-        threadId: options.runtimeData?.memory?.threadId,
-      });
-      return;
-    }
-    logger.error('Mastra thread title lifecycle failed', {
-      code: 'mastra_thread_title_lifecycle_failed',
-      errorName: readMastraThreadTitleErrorName(error),
-      resourceId: options.runtimeData?.memory?.resourceId,
-      stage: 'lifecycle',
-      threadId: options.runtimeData?.memory?.threadId,
-    });
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-    if (!controller.signal.aborted) {
-      controller.abort(new Error('Mastra thread title lifecycle settled.'));
-    }
-    // Observe a late rejection if a non-compliant provider ignores AbortSignal.
-    void operation.catch(() => undefined);
-  }
-}
-
-async function generateMastraThreadTitle({
-  lifecycle,
-  memory,
-  messages,
-  runtime,
-  runtimeData,
-}: {
-  lifecycle: { signal: AbortSignal };
-  memory: MastraMemory;
-  messages: AgentMessage[];
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-}): Promise<void> {
-  const threadId = runtimeData?.memory?.threadId;
-  const resourceId = runtimeData?.memory?.resourceId;
-  if (!(threadId && resourceId)) {
-    return;
-  }
-  const preflight = await readMastraThreadTitlePreflight({
-    lifecycle,
-    memory,
-    resourceId,
-    runtimeData,
-    threadId,
-  });
-  if (!preflight) {
-    return;
-  }
-  const userMessages = makeMastraThreadTitleMessages(messages);
-  if (userMessages.length === 0) {
-    return;
-  }
-  const titleRequest = {
-    messages: userMessages,
-    ...(typeof preflight.titleConfig === 'object' && preflight.titleConfig.instructions
-      ? { instructions: preflight.titleConfig.instructions }
-      : {}),
-    ...(typeof preflight.titleConfig === 'object' && preflight.titleConfig.model
-      ? { model: preflight.titleConfig.model }
-      : {}),
-  };
-  const normalizedTitle = await requestMastraThreadTitle({
-    lifecycle,
-    resourceId,
-    runtime,
-    runtimeData,
-    threadId,
-    titleRequest,
-  });
-  if (!normalizedTitle) {
-    return;
-  }
-  await persistMastraThreadTitle({
-    lifecycle,
-    memory,
-    normalizedTitle,
-    preflight,
-    resourceId,
-    threadId,
-  });
-}
-
-async function readMastraThreadTitlePreflight({
-  lifecycle,
-  memory,
-  resourceId,
-  runtimeData,
-  threadId,
-}: {
-  lifecycle: { signal: AbortSignal };
-  memory: MastraMemory;
-  resourceId: string;
-  runtimeData: RuntimeData | undefined;
-  threadId: string;
-}): Promise<
-  | {
-      memoryConfig: NonNullable<RuntimeData['memory']>['memoryOptions'];
-      thread: NonNullable<Awaited<ReturnType<MastraMemory['getThreadById']>>>;
-      titleConfig: NonNullable<ReturnType<MastraMemory['getMergedThreadConfig']>['generateTitle']>;
-    }
-  | undefined
-> {
-  const memoryConfig = runtimeData?.memory?.memoryOptions;
-  let titleConfig: ReturnType<MastraMemory['getMergedThreadConfig']>['generateTitle'];
-  try {
-    titleConfig = memory.getMergedThreadConfig(memoryConfig).generateTitle;
-  } catch (error) {
-    logMastraThreadTitleFailure(lifecycle.signal, 'Mastra thread title configuration is invalid', {
-      code: 'mastra_thread_title_config_invalid',
-      errorName: readMastraThreadTitleErrorName(error),
-      resourceId,
-      stage: 'config',
-      threadId,
-    });
-    return;
-  }
-  if (!titleConfig) {
-    return;
-  }
-  try {
-    const thread = await memory.getThreadById({ threadId });
-    if (lifecycle.signal.aborted || !(thread && canOverwriteThreadTitle(thread))) {
-      return;
-    }
-    return { memoryConfig, thread, titleConfig };
-  } catch (error) {
-    logMastraThreadTitlePersistenceFailure({
-      error,
-      resourceId,
-      signal: lifecycle.signal,
-      stage: 'persistence-read',
-      threadId,
-    });
-    return;
-  }
-}
-
-function makeMastraThreadTitleMessages(messages: AgentMessage[]): AgentMessage[] {
-  return messages
-    .filter((message) => message.role === 'user')
-    .map((message) => ({
-      ...message,
-      // Mastra's title formatter accepts textual UI parts. File/tool parts are
-      // not title input and some versions attempt text-only operations on them.
-      parts: message.parts.filter((part) => part.type === 'text'),
-    }))
-    .filter((message) => message.parts.length > 0);
-}
-
-async function requestMastraThreadTitle({
-  lifecycle,
-  resourceId,
-  runtime,
-  runtimeData,
-  threadId,
-  titleRequest,
-}: {
-  lifecycle: { signal: AbortSignal };
-  resourceId: string;
-  runtime: MastraAgentRuntime;
-  runtimeData: RuntimeData | undefined;
-  threadId: string;
-  titleRequest: Parameters<MastraAgentRuntime['agent']['generateTitleFromUserMessage']>[0];
-}): Promise<string | undefined> {
-  const maxAttempts = runtimeData?.provider === 'openrouter' ? 2 : 1;
-  const requestContext = new RequestContext();
-  let titleModel: Awaited<ReturnType<MastraAgentRuntime['agent']['getModel']>>;
-  try {
-    titleModel = await runtime.agent.getModel({
-      requestContext,
-      ...(titleRequest.model ? { modelConfig: titleRequest.model } : {}),
-    });
-  } catch (error) {
-    if (!lifecycle.signal.aborted) {
-      logMastraThreadTitleProviderFailure({
-        attempt: 1,
-        error,
-        lifecycle,
-        resourceId,
-        runtimeData,
-        threadId,
-      });
-    }
-    return;
-  }
-  const activeProviderOptions = buildGenerationProviderOptionsOption(runtimeData).providerOptions;
-  const maxOutputTokens = buildModelSettingsOption(runtimeData).modelSettings?.maxOutputTokens;
-  const cancellableModel = wrapModelWithCallTransform(titleModel, (params) => ({
-    ...params,
-    abortSignal: lifecycle.signal,
-    ...(params.maxOutputTokens === undefined && maxOutputTokens !== undefined
-      ? { maxOutputTokens }
-      : {}),
-    ...mergeMastraThreadTitleProviderOptions(params.providerOptions, activeProviderOptions),
-  }));
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    let title: string | undefined;
-    try {
-      title = await runtime.agent.generateTitleFromUserMessage({
-        ...titleRequest,
-        model: cancellableModel,
-        requestContext,
-      });
-    } catch (error) {
-      if (lifecycle.signal.aborted) {
-        return;
-      }
-      logMastraThreadTitleProviderFailure({
-        attempt,
-        error,
-        lifecycle,
-        resourceId,
-        runtimeData,
-        threadId,
-      });
-      return;
-    }
-    if (lifecycle.signal.aborted) {
-      return;
-    }
-    if (title?.trim()) {
-      return title.trim();
-    }
-    logger.warn('Mastra thread title generation returned no text', {
-      attempt,
-      code: 'mastra_thread_title_invalid_output',
-      maxAttempts,
-      ...(runtimeData?.model ? { model: runtimeData.model } : {}),
-      ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
-      resourceId,
-      retrying: attempt < maxAttempts,
-      stage: 'invalid-output',
-      threadId,
-    });
-  }
-  return;
-}
-
-function mergeMastraThreadTitleProviderOptions(
-  current: ModelProviderOptions | undefined,
-  active: unknown
-): Pick<{ providerOptions?: ModelProviderOptions }, 'providerOptions'> {
-  const activeOptions = readMastraThreadTitleProviderOptions(active);
-  const namespaces = new Set([...Object.keys(current ?? {}), ...Object.keys(activeOptions)]);
-  if (namespaces.size === 0) {
-    return {};
-  }
-  const providerOptions: ModelProviderOptions = {};
-  for (const namespace of namespaces) {
-    providerOptions[namespace] = {
-      ...(current?.[namespace] ?? {}),
-      ...(activeOptions[namespace] ?? {}),
-    };
-  }
-  return { providerOptions };
-}
-
-function readMastraThreadTitleProviderOptions(value: unknown): ModelProviderOptions {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    return {};
-  }
-  const providerOptions: ModelProviderOptions = {};
-  for (const [namespace, options] of Object.entries(value)) {
-    if (options && typeof options === 'object' && !Array.isArray(options)) {
-      providerOptions[namespace] = { ...(options as Record<string, unknown>) };
-    }
-  }
-  return providerOptions;
-}
-
-function logMastraThreadTitleProviderFailure({
-  attempt,
-  error,
-  lifecycle,
-  resourceId,
-  runtimeData,
-  threadId,
-}: {
-  attempt: number;
-  error: unknown;
-  lifecycle: { signal: AbortSignal };
-  resourceId: string;
-  runtimeData: RuntimeData | undefined;
-  threadId: string;
-}): void {
-  if (lifecycle.signal.aborted) {
-    return;
-  }
-  const providerError = extractProviderRunError(error);
-  logger.error('Mastra thread title provider request failed', {
-    attempt,
-    code: 'mastra_thread_title_provider_failed',
-    ...(providerError.httpStatus === undefined ? {} : { httpStatus: providerError.httpStatus }),
-    ...(runtimeData?.model ? { model: runtimeData.model } : {}),
-    ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
-    providerErrorCode: providerError.code,
-    ...(providerError.providerRequestId
-      ? { providerRequestId: providerError.providerRequestId }
-      : {}),
-    resourceId,
-    stage: 'provider',
-    threadId,
-  });
-}
-
-async function persistMastraThreadTitle({
-  lifecycle,
-  memory,
-  normalizedTitle,
-  preflight,
-  resourceId,
-  threadId,
-}: {
-  lifecycle: { signal: AbortSignal };
-  memory: MastraMemory;
-  normalizedTitle: string;
-  preflight: {
-    memoryConfig: NonNullable<RuntimeData['memory']>['memoryOptions'];
-    thread: NonNullable<Awaited<ReturnType<MastraMemory['getThreadById']>>>;
-  };
-  resourceId: string;
-  threadId: string;
-}): Promise<void> {
-  try {
-    await memory.saveThread({
-      ...(preflight.memoryConfig ? { memoryConfig: preflight.memoryConfig } : {}),
-      thread: attachThreadTitleSaveAbortSignal(
-        {
-          ...preflight.thread,
-          title: normalizedTitle,
-          updatedAt: new Date(),
-        },
-        lifecycle.signal
-      ),
-    });
-  } catch (error) {
-    logMastraThreadTitlePersistenceFailure({
-      error,
-      resourceId,
-      signal: lifecycle.signal,
-      stage: 'persistence-write',
-      threadId,
-    });
-  }
-}
-
-function logMastraThreadTitlePersistenceFailure({
-  error,
-  resourceId,
-  signal,
-  stage,
-  threadId,
-}: {
-  error: unknown;
-  resourceId: string;
-  signal: AbortSignal;
-  stage: 'persistence-read' | 'persistence-write';
-  threadId: string;
-}): void {
-  logMastraThreadTitleFailure(signal, 'Mastra thread title persistence failed', {
-    code: 'mastra_thread_title_persistence_failed',
-    ...readMastraThreadTitleDatabaseDiagnostic(error),
-    errorName: readMastraThreadTitleErrorName(error),
-    resourceId,
-    stage,
-    threadId,
-  });
-}
-
-function logMastraThreadTitleFailure(
-  signal: AbortSignal,
-  message: string,
-  diagnostic: Record<string, unknown>
-): void {
-  if (!signal.aborted) {
-    logger.error(message, diagnostic);
-  }
-}
-
-function readMastraThreadTitleErrorName(error: unknown): string {
-  return error instanceof Error ? error.name : 'UnknownError';
-}
-
-function readMastraThreadTitleDatabaseDiagnostic(error: unknown): { databaseCode?: string } {
-  if (!(error && typeof error === 'object')) {
-    return {};
-  }
-  const code = (error as { code?: unknown }).code;
-  return typeof code === 'string' && code.length <= 64 ? { databaseCode: code } : {};
 }
 
 /** Yield the queued child-usage chunks for this leg's delegation capture, if any. */

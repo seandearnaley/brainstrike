@@ -144,7 +144,8 @@ below are LIVE.
 4. **Mastra error-processor layer (LIVE)** —
    `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
    `buildToolLoopOptions` (`new Agent` in `agent-runtime.ts`; the tool-loop
-   options in `agent-streaming.ts`). Adopts three `@mastra/core`
+   options in `runtime-assembly/stream-options.ts`, moved out of
+   `agent-streaming.ts` by BST-1649). Adopts three `@mastra/core`
    built-ins that recover on EMITTED provider/API errors — disjoint from the
    guard (tool-execute failures) and watchdog (silent stalls), so no
    double-wrapping:

@@ -174,10 +174,10 @@ Today exactly two product imports exist:
 
 - `packages/agent/src/mastra/tool-search-runtime.ts` uses
   `MASTRA_THREAD_ID_KEY` to expose Mastra's thread identifier to tool search.
-- `packages/agent/src/mastra/agent-streaming.ts` creates a fresh, empty
-  `RequestContext` for thread-title model resolution and generation. That
-  context remains Mastra-only: Brainstrike does not add product or
-  `RuntimeData` fields to it.
+- `packages/agent/src/mastra/thread-title-generation.ts` (moved out of
+  `agent-streaming.ts` by BST-1649) creates a fresh, empty `RequestContext` for
+  thread-title model resolution and generation. That context remains
+  Mastra-only: Brainstrike does not add product or `RuntimeData` fields to it.
 
 Zero of `RuntimeData`'s 43 contract fields
 (`packages/assistant-contract/src/runtime-data.ts:216-342`) travel through either
