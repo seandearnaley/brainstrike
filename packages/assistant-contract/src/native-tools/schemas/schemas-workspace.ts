@@ -11,10 +11,38 @@ const ROOT_QUALIFIER_DESCRIPTION =
 const ROOT_WRITE_GUARD_DESCRIPTION =
   'Open-folder name/id. Omit for the Focused folder; an explicit root always wins.';
 
-// Same explicit outer DoS guard as the workspace-file content fields below
-// (8 MB): canvas html is written verbatim into a text column and rendered in
-// the sandbox; unbounded payloads are a storage + context hazard.
-const CANVAS_HTML_MAX = 8_000_000;
+// Canvas html is written verbatim into a text column and rendered in the
+// sandbox; unbounded payloads are a storage + context hazard.
+//
+// This ceiling is enforced in BYTES, which the workspace-file fields below
+// deliberately do NOT do — and the difference is the point. Those carry an
+// authoritative ~2 MB UTF-8 byte cap in the desktop tool, so their `.max()` is
+// an outer guard sitting well above it. `manage-canvas-tool.ts` has no size
+// enforcement at all, so for canvas the schema IS the ceiling.
+//
+// `.max()` alone does not deliver it. Zod counts CODE POINTS (4.5; UTF-16 code
+// units before that), not bytes, so `.max(8_000_000)` admits eight million
+// astral characters — 31 MB of UTF-8, four times the documented limit, and
+// double what the same schema admitted under Zod 4.4. The byte check is what
+// makes the number in the name true.
+const CANVAS_HTML_MAX_BYTES = 8_000_000;
+
+/**
+ * A canvas HTML field: bounded by UTF-8 bytes rather than by whatever unit the
+ * installed Zod happens to count.
+ *
+ * The `.max()` stays as a cheap pre-filter — it rejects the obvious cases
+ * without measuring — but the refinement is the authority, and it is the reason
+ * an all-emoji payload cannot quadruple the ceiling.
+ */
+function canvasHtml() {
+  return z
+    .string()
+    .max(CANVAS_HTML_MAX_BYTES)
+    .refine((value) => Buffer.byteLength(value, 'utf8') <= CANVAS_HTML_MAX_BYTES, {
+      message: `canvas HTML exceeds ${CANVAS_HTML_MAX_BYTES} UTF-8 bytes`,
+    });
+}
 const CANVAS_TITLE_MAX = 500;
 
 // Branches deliberately STRIP (zod default) rather than `.strict()`:
@@ -27,26 +55,21 @@ const CANVAS_TITLE_MAX = 500;
 const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('create'),
-    html: z.string().max(CANVAS_HTML_MAX).describe('Initial HTML content for version 1'),
+    html: canvasHtml().describe('Initial HTML content for version 1'),
     title: z.string().min(1).max(CANVAS_TITLE_MAX).describe('Canvas document title'),
   }),
   z.object({
     action: z.literal('update'),
     canvasId: z.string().min(1).describe('Canvas document id'),
-    newString: z
-      .string()
-      .max(CANVAS_HTML_MAX)
-      .describe('Replacement HTML substring; empty deletes the match'),
-    oldString: z
-      .string()
-      .min(1)
-      .max(CANVAS_HTML_MAX)
+    newString: canvasHtml().describe('Replacement HTML substring; empty deletes the match'),
+    oldString: canvasHtml()
+      .refine((value) => value.length > 0, { message: 'oldString must not be empty' })
       .describe('Exact HTML substring that must occur exactly once in the latest version'),
   }),
   z.object({
     action: z.literal('rewrite'),
     canvasId: z.string().min(1).describe('Canvas document id'),
-    html: z.string().max(CANVAS_HTML_MAX).describe('Complete HTML content for the new version'),
+    html: canvasHtml().describe('Complete HTML content for the new version'),
   }),
   z.object({ action: z.literal('list') }),
 ]);
@@ -74,20 +97,10 @@ export const ManageCanvasInputSchema = z
   .object({
     action: z.enum(['create', 'update', 'rewrite', 'list']).describe('Canvas operation'),
     canvasId: z.string().min(1).optional().describe('Required for update and rewrite'),
-    html: z
-      .string()
-      .max(CANVAS_HTML_MAX)
-      .optional()
-      .describe('Complete HTML; required for create and rewrite'),
-    newString: z
-      .string()
-      .max(CANVAS_HTML_MAX)
-      .optional()
-      .describe('Update replacement; may be empty'),
-    oldString: z
-      .string()
-      .min(1)
-      .max(CANVAS_HTML_MAX)
+    html: canvasHtml().optional().describe('Complete HTML; required for create and rewrite'),
+    newString: canvasHtml().optional().describe('Update replacement; may be empty'),
+    oldString: canvasHtml()
+      .refine((value) => value.length > 0, { message: 'oldString must not be empty' })
       .optional()
       .describe('Update target; must occur exactly once'),
     title: z.string().min(1).max(CANVAS_TITLE_MAX).optional().describe('Required for create'),
@@ -165,7 +178,9 @@ export const WriteWorkspaceFileInputSchema = z
   .object({
     content: z
       // Outer DoS guard only; the desktop tool enforces the authoritative ~2 MB
-      // UTF-8 BYTE cap (this counts UTF-16 code units, so it sits well above it).
+      // UTF-8 BYTE cap. This counts CODE POINTS (Zod 4.5; UTF-16 code units
+      // before that) and sits well above the real cap either way, which is why
+      // the unit does not matter HERE the way it does for canvas above.
       .string()
       .max(8_000_000)
       .describe('Full UTF-8 content (up to ~2 MB); overwrites an existing file'),
@@ -181,7 +196,8 @@ export const StringReplaceWorkspaceFileInputSchema = z
     newStr: z.string().max(8_000_000).describe('Replacement text; empty deletes the matched block'),
     oldStr: z
       // Outer DoS guard only; the desktop tool reads the file under the same
-      // ~2 MB BYTE cap as readWorkspaceFile (this counts UTF-16 code units).
+      // ~2 MB BYTE cap as readWorkspaceFile. This counts CODE POINTS (Zod 4.5;
+      // UTF-16 code units before that), well above that cap either way.
       .string()
       .min(1)
       .max(8_000_000)
