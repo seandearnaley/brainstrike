@@ -513,12 +513,22 @@ it('notifies', () => {
 // The cost of the limit is a REPORTING one, and it has already been paid once.
 // BST-1622's audit no-opped every `.webContents.send(` site and ran the desktop
 // suite; the two terminal sites showed no failure, so they were filed as
-// untested (BST-1624). They are not. `apps/desktop`'s `test` script carries
-// `--exclude "**/*.integration.test.*"`, and the terminal broadcast's coverage
-// lives entirely in terminal-ipc-handlers.integration.test.ts, which that
-// script cannot see. Re-run with both sites no-opped and the unit lane stays
-// fully green while the integration lane fails on `owner.exitEvents` and
-// `aggregatedData`.
+// untested (BST-1624). They are not — and the coverage is spread across two
+// lanes the audit did not run, which is the whole point:
+//
+//   terminal-ipc-handlers.integration.test.ts  the only UNIT/INTEGRATION
+//     coverage, and `apps/desktop`'s `test` script carries
+//     `--exclude "**/*.integration.test.*"`, so that script cannot see it.
+//   e2e/terminal-panel.desktop.test.ts         also observes both events
+//     end-to-end: it asserts the echoed marker reaches `.xterm-rows`
+//     (terminal:data) and that the `terminal-panel-exited` overlay appears
+//     (terminal:exit). Neither of those two is tagged `@smoke` — only the
+//     header-cwd test is, and that one reads the create result, not the
+//     broadcast — so they run in the scheduled/dispatched FULL regression,
+//     not on every PR.
+//
+// Re-run with both sites no-opped and the unit lane stays fully green while
+// the integration lane fails on `owner.exitEvents` and `aggregatedData`.
 //
 // (Measured 2026-09-06 at 232620de2: 4388/4388 unit green, 4 integration
 // failures. Quoted for provenance, not as a contract — those totals move with
