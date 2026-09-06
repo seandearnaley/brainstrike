@@ -481,7 +481,6 @@
         "packages/db/__tests__/file-chunk-repository.test.ts",
         "packages/db/__tests__/managed-cache-batch.test.ts",
         "packages/db/src/database-work-scheduler.ts",
-        "packages/db/src/db-provider.tsx",
         "packages/db/src/queue/job-queue.ts",
         "packages/embedding-worker/src/embedding.worker.ts",
         "packages/embedding-worker/test/embedding.worker.runtime.spec.ts",

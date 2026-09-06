@@ -39,7 +39,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const DESKTOP_SOURCE = path.join(repoRoot, 'apps/desktop/src/ipc-domains/db-ipc.ts');
-const RENDERER_SOURCE = path.join(repoRoot, 'packages/db/src/db-provider.tsx');
+const RENDERER_SOURCE = path.join(repoRoot, 'packages/db/src/pglite-direct-transport.ts');
 const REGISTRY_SOURCE = path.join(repoRoot, 'packages/db/src/reset-table-registry.ts');
 
 function readSource(sourcePath) {
@@ -91,8 +91,8 @@ test('both sides import ResetTable from the registry', () => {
   assert.match(
     readSource(RENDERER_SOURCE),
     /import type \{ FactoryResetOnlyTable, ResetTable \} from '\.\/reset-table-registry\.js'/u,
-    'db-provider.tsx must import ResetTable from ./reset-table-registry.js (relative — ' +
-      'a package must never import its own barrel).'
+    'pglite-direct-transport.ts must import ResetTable from ./reset-table-registry.js ' +
+      '(relative — a package must never import its own barrel).'
   );
   assert.match(
     readSource(DESKTOP_SOURCE),

@@ -907,17 +907,25 @@ seams, per surface:
   settled before idle but its handle registration lands after the drain's
   snapshot: a sealed `register()` immediately initiates unsubscribe and the
   drain joins those late unsubscribes before returning; a failed reset
-  unseals on barrier release. `DbProvider.resetPGliteState` therefore runs
-  barrier → idle → seal → unsubscribeAll → purge → close, and the prod
-  unmount close joins the in-flight initialization promise plus the same
-  idle → seal → unsubscribeAll drain before `closeDirectConnection`
-  (`connectionRef` is populated before `migrate()`, so unmount-mid-init is
-  otherwise a close under running migration statements). A failed idle join
+  unseals on barrier release. Both orderings now live in ONE React-free
+  module, `packages/db/src/database-runtime.ts` (BST-1653):
+  `createDatabaseRuntime().factoryReset` runs barrier → idle → seal →
+  unsubscribeAll → purge → close, and `dispose()` (the prod unmount close)
+  joins the in-flight initialization promise plus the same
+  `drainDatabaseWorkForClose` before running the closer that
+  `DatabaseTransport.detachConnection()` handed back (the direct transport
+  registers its connection before `migrate()`, so unmount-mid-init is
+  otherwise a close under running migration statements; the EARLIER half of
+  that window — a client that finishes being created after dispose — is
+  covered by `DatabaseTransportOpenContext.isDisposed`). A failed idle join
   aborts/skips the close loudly — never close over a drain you could not
   complete; past the seal the close is committed and unsubscribe failures
   warn and proceed. Pinned by
-  `packages/db/__tests__/db-reset-drain.test.ts`, the BST-1329 cases in
-  `factory-reset.test.tsx`, and `db-provider-lifecycle.test.tsx`.
+  `packages/db/__tests__/db-reset-drain.test.ts` and
+  `packages/db/__tests__/database-runtime.test.ts` (the invariants, with fake
+  transports and no React); `factory-reset.test.tsx` and
+  `db-provider-lifecycle.test.tsx` stay as the thin mount-level wiring
+  checks.
 
 ### The test snapshot `globalSetup` lives on ONE project — do not hoist it
 
@@ -974,8 +982,8 @@ store:
 
 Layers:
 - Orchestration (probe/marker/lock/recovery):
-  `packages/db/src/browser-first-run-bootstrap.ts`, wired in `db-provider.tsx`'s
-  `initializeDirectPGlite` for `idb://` paths.
+  `packages/db/src/browser-first-run-bootstrap.ts`, wired in
+  `pglite-direct-transport.ts`'s `open()` for `idb://` paths.
 - Pipeline (memory migrate → dump → strict load → flush) over injectable PGlite
   constructors: `browser-first-run-bootstrap-pipeline.ts`.
 - Production execution: a DEDICATED plain worker
