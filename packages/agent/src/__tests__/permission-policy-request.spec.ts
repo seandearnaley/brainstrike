@@ -229,8 +229,8 @@ describe('resolveRequestPermissionPolicy', () => {
 /**
  * Wire-shape contract for `RuntimeData['permissionPolicyRequest']` — the
  * RESOLVER half. Full rationale lives on the field declaration in `../types.ts`;
- * the PRODUCER half is pinned by "leaves the key PRESENT with an undefined
- * value" in
+ * the PRODUCER half is pinned by "leaves the opt-in keys PRESENT with undefined
+ * values" in
  * `packages/app-shell/src/__tests__/use-assistant-request-lifecycle.test.ts`.
  *
  * In short: the producer always writes the key, so consumers must read the
@@ -238,11 +238,12 @@ describe('resolveRequestPermissionPolicy', () => {
  * explicit `undefined`, and that an opted-in snapshot survives serialization.
  */
 describe('permissionPolicyRequest wire-shape contract (absent key vs explicit undefined)', () => {
-  // Value type tracks `RuntimeData` so a contract change breaks this test; the
-  // `| undefined` widening is local, because `exactOptionalPropertyTypes` makes
-  // a plain `?:` property reject the explicit `undefined` the producer writes.
+  // Value type tracks `RuntimeData`, so a contract change breaks this test. The
+  // indexed access already reads as `AssistantPermissionPolicyRequest |
+  // undefined`, which is what lets this accept the producer's explicit
+  // `undefined` under `exactOptionalPropertyTypes`.
   interface RuntimeDataFieldReader {
-    permissionPolicyRequest?: RuntimeData['permissionPolicyRequest'] | undefined;
+    permissionPolicyRequest?: RuntimeData['permissionPolicyRequest'];
   }
 
   const enforcing: AssistantPermissionPolicyRequest = {
@@ -261,8 +262,9 @@ describe('permissionPolicyRequest wire-shape contract (absent key vs explicit un
   });
 
   it('still carries an opted-in snapshot across the JSON boundary', () => {
-    // Models the renderer → server transport, NOT a deep clone: `structuredClone`
-    // would PRESERVE an undefined-valued key and defeat the point of the pin.
+    // `JSON.parse(JSON.stringify(...))` models the renderer → server transport.
+    // `structuredClone` is NOT a substitute anywhere in this contract: it
+    // preserves undefined-valued keys, which is the very thing under test.
     const serialized = JSON.parse(
       JSON.stringify({ permissionPolicyRequest: enforcing } satisfies RuntimeDataFieldReader)
     ) as RuntimeDataFieldReader;

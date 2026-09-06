@@ -2110,26 +2110,26 @@ Flow (desktop assistant server → agent runtime):
    request-composition seam"), the "never attaches permissionPolicyRequest" case
    in `assistant-ui-panel-wrapper-runtime.test.ts`, and the commit counters in
    `assistant-ui-panel-wrapper-store-subscription.test.tsx`.
+   `resolveRequestPermissionPolicy` (agent) builds the trusted
+   `PermissionToolGateSnapshot` with a SERVER-built `riskByTool`
+   (`buildNativeToolRiskMap`) — the client never classifies tool risk.
 
    WIRE SHAPE — the field's disappearance for an opted-out request is a
-   JSON-BOUNDARY ASSUMPTION, NOT the presence-means-on rule some neighbouring
-   opt-in fields (`subagentPersonasRequest`, which genuinely omits its key) use.
-   The key is always present on the producer's object; only serialization
-   removes it, and `planMode` is written the same way. Read the VALUE — pass it
-   to `resolveRequestPermissionPolicy`, which treats an absent key and an
-   explicit `undefined` identically. Full rationale (including why
-   `exactOptionalPropertyTypes` never catches drift here) is on the field
-   declaration in `packages/agent/src/types.ts`. Pinned from both ends: "leaves
-   the opt-in keys PRESENT with undefined values"
+   JSON-BOUNDARY ASSUMPTION, NOT the presence-means-non-default rule that a
+   neighbouring opt-in field (`subagentPersonasRequest`) uses by genuinely
+   omitting its key. Here the key is always present on the producer's object
+   and only serialization removes it; `planMode` is written the same way. Read
+   the VALUE — pass it to `resolveRequestPermissionPolicy`, which treats an
+   absent key and an explicit `undefined` identically. Full rationale
+   (including why `exactOptionalPropertyTypes` never catches drift here) is on
+   the field declaration in `packages/agent/src/types.ts`. Pinned from both
+   ends: "leaves the opt-in keys PRESENT with undefined values"
    (`use-assistant-request-lifecycle.test.ts`) fixes the producer's shape, and
    the "wire-shape contract" cases
    (`packages/agent/src/__tests__/permission-policy-request.spec.ts`) fix the
    resolver's indifference to it. The unconditional write is load-bearing and
    must NOT be simplified to conditional spread: it has to clobber a stale
    snapshot inherited from `requestData`, not skip it.
-   `resolveRequestPermissionPolicy` (agent) builds the trusted
-   `PermissionToolGateSnapshot` with a SERVER-built `riskByTool`
-   (`buildNativeToolRiskMap`) — the client never classifies tool risk.
 2. `filterToolsByPermissionWithMetadata` (`packages/agent/src/mastra/permission-tool-gate.ts`)
    gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
    `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL

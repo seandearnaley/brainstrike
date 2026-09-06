@@ -847,9 +847,14 @@ describe('useAssistantRequestLifecycle', () => {
       // This producer is NOT presence-means-on: an off posture is an explicit
       // `undefined`, so the key is here and only the JSON boundary removes it.
       // Rationale on the field declaration in `packages/agent/src/types.ts`.
-      // `planMode` is written the same way, so it is pinned here too — the
-      // stale claim this PR removes was itself an unpinned comment.
+      // `planMode` is written the same way and is pinned here too, so neither
+      // comment can go stale unnoticed.
+      //
+      // Both fields are driven to their off posture through the LIVE store
+      // (not the availability gate), which is the path the producer's
+      // fresh-read comments actually defend.
       usePermissionPolicyStore.getState().setEnforce(false);
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
       const repository = createRepositoryStub({
         createThreadRun: vi.fn(async (input) => ({
           ...input,
@@ -866,7 +871,7 @@ describe('useAssistantRequestLifecycle', () => {
           memoryResourceId: 'workspace-a',
           modelSettings: undefined,
           permissionEnforceable: true,
-          planModeAvailable: false,
+          planModeAvailable: true,
           providerOptions: undefined,
           requestData: baseRequestData,
           resolvedModelName: 'gpt-5.2',
@@ -879,17 +884,18 @@ describe('useAssistantRequestLifecycle', () => {
 
       expect('permissionPolicyRequest' in prepared).toBe(true);
       expect(prepared['permissionPolicyRequest']).toBeUndefined();
-      // planModeAvailable=false above, so this is the off posture for planMode.
       expect('planMode' in prepared).toBe(true);
       expect(prepared['planMode']).toBeUndefined();
 
-      // Assert the serialized payload directly rather than round-tripping it:
-      // this is the wire boundary, not a deep clone, and `structuredClone`
-      // would KEEP both undefined-valued keys.
+      // Serializing is what actually removes the keys, so assert on the parsed
+      // payload — a substring check over the raw JSON would false-fail if any
+      // value ever contained these names. `structuredClone` is NOT a substitute
+      // for the round trip: it preserves undefined-valued keys.
       const wirePayload = JSON.stringify(prepared);
+      const overTheWire = JSON.parse(wirePayload) as Record<string, unknown>;
 
-      expect(wirePayload).not.toContain('"permissionPolicyRequest"');
-      expect(wirePayload).not.toContain('"planMode"');
+      expect('permissionPolicyRequest' in overTheWire).toBe(false);
+      expect('planMode' in overTheWire).toBe(false);
     });
   });
 });
