@@ -1,4 +1,8 @@
-import { CANVAS_VERSIONS_TABLE } from '@brainstrike/assistant-contract';
+import {
+  CANVAS_HTML_MAX_BYTES,
+  CANVAS_VERSIONS_TABLE,
+  canvasHtmlUtf8Bytes,
+} from '@brainstrike/assistant-contract';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 
 export interface CanvasDatabase {
@@ -47,6 +51,7 @@ export type CanvasRepositoryError =
   | 'ambiguous_match'
   | 'no_match'
   | 'not_found'
+  | 'too_large'
   | 'version_conflict';
 export interface CanvasRepositoryFailure {
   readonly error: CanvasRepositoryError;
@@ -231,6 +236,13 @@ export async function applyUpdate(
   const html = `${latest.html.slice(0, firstMatch)}${input.newString}${latest.html.slice(
     firstMatch + input.oldString.length
   )}`;
+  // The schema bounds each FIELD; only this path composes one. A near-limit
+  // document plus an individually valid replacement lands above the ceiling,
+  // and repeated updates would keep growing it, so the composed result is
+  // checked against the same number before it is stored.
+  if (canvasHtmlUtf8Bytes(html) > CANVAS_HTML_MAX_BYTES) {
+    return { error: 'too_large', ok: false };
+  }
   return await insertVersion(db, {
     canvasId: latest.canvasId,
     createdBy: 'assistant',

@@ -1,5 +1,6 @@
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
+import { CANVAS_HTML_MAX_BYTES, canvasHtmlUtf8Bytes } from '../../mastra-memory-schema.js';
 
 // ============================================================================
 // Workspace Tool Schemas
@@ -11,37 +12,41 @@ const ROOT_QUALIFIER_DESCRIPTION =
 const ROOT_WRITE_GUARD_DESCRIPTION =
   'Open-folder name/id. Omit for the Focused folder; an explicit root always wins.';
 
-// Canvas html is written verbatim into a text column and rendered in the
-// sandbox; unbounded payloads are a storage + context hazard.
-//
-// This ceiling is enforced in BYTES, which the workspace-file fields below
-// deliberately do NOT do — and the difference is the point. Those carry an
-// authoritative ~2 MB UTF-8 byte cap in the desktop tool, so their `.max()` is
-// an outer guard sitting well above it. `manage-canvas-tool.ts` has no size
-// enforcement at all, so for canvas the schema IS the ceiling.
-//
-// `.max()` alone does not deliver it. Zod counts CODE POINTS (4.5; UTF-16 code
-// units before that), not bytes, so `.max(8_000_000)` admits eight million
-// astral characters — 31 MB of UTF-8, four times the documented limit, and
-// double what the same schema admitted under Zod 4.4. The byte check is what
-// makes the number in the name true.
-const CANVAS_HTML_MAX_BYTES = 8_000_000;
-
 /**
- * A canvas HTML field: bounded by UTF-8 bytes rather than by whatever unit the
+ * A canvas HTML field, bounded by UTF-8 BYTES rather than by whatever unit the
  * installed Zod happens to count.
  *
- * The `.max()` stays as a cheap pre-filter — it rejects the obvious cases
- * without measuring — but the refinement is the authority, and it is the reason
- * an all-emoji payload cannot quadruple the ceiling.
+ * The workspace-file fields below deliberately do NOT do this, and the
+ * difference is the point: they sit above an authoritative ~2 MB byte cap in
+ * the desktop tool, so their `.max()` is an outer guard well above the real
+ * limit and its unit is irrelevant. `manage-canvas-tool.ts` has no size
+ * enforcement of its own, so for canvas the only ceilings are this schema and
+ * the composed-result check in the desktop canvas repository.
+ *
+ * `.max()` alone does not deliver a byte bound. Zod counts CODE POINTS (4.5;
+ * UTF-16 code units before that), so `.max(8_000_000)` admits eight million
+ * astral characters — 31 MB of UTF-8, four times the documented limit, and
+ * double what the same line admitted under Zod 4.4. `.max()` stays as a cheap
+ * pre-filter that rejects the obvious cases without measuring; the refinement
+ * is the authority.
+ *
+ * `minLength` is a PARAMETER rather than something a caller chains on, because
+ * `.refine()` returns a ZodEffects that `.min()` cannot extend. Expressing the
+ * non-empty constraint as a second refinement instead drops `minLength: 1` from
+ * the emitted JSON Schema — refinements are not representable there — which
+ * silently narrows what the MODEL is told while leaving parsing unchanged. Not
+ * hypothetical: it moved the recorded native-tool prompt budget and failed
+ * `native-tool-prompt-budget.test.ts`. Applying the minimum before the
+ * refinement keeps the wire contract byte-identical.
  */
-function canvasHtml() {
-  return z
-    .string()
-    .max(CANVAS_HTML_MAX_BYTES)
-    .refine((value) => Buffer.byteLength(value, 'utf8') <= CANVAS_HTML_MAX_BYTES, {
-      message: `canvas HTML exceeds ${CANVAS_HTML_MAX_BYTES} UTF-8 bytes`,
-    });
+function canvasHtml(options?: { readonly minLength?: number }) {
+  const bounded =
+    options?.minLength === undefined
+      ? z.string().max(CANVAS_HTML_MAX_BYTES)
+      : z.string().min(options.minLength).max(CANVAS_HTML_MAX_BYTES);
+  return bounded.refine((value) => canvasHtmlUtf8Bytes(value) <= CANVAS_HTML_MAX_BYTES, {
+    message: `canvas HTML exceeds ${CANVAS_HTML_MAX_BYTES} UTF-8 bytes`,
+  });
 }
 const CANVAS_TITLE_MAX = 500;
 
@@ -62,9 +67,9 @@ const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
     action: z.literal('update'),
     canvasId: z.string().min(1).describe('Canvas document id'),
     newString: canvasHtml().describe('Replacement HTML substring; empty deletes the match'),
-    oldString: canvasHtml()
-      .refine((value) => value.length > 0, { message: 'oldString must not be empty' })
-      .describe('Exact HTML substring that must occur exactly once in the latest version'),
+    oldString: canvasHtml({ minLength: 1 }).describe(
+      'Exact HTML substring that must occur exactly once in the latest version'
+    ),
   }),
   z.object({
     action: z.literal('rewrite'),
@@ -99,8 +104,7 @@ export const ManageCanvasInputSchema = z
     canvasId: z.string().min(1).optional().describe('Required for update and rewrite'),
     html: canvasHtml().optional().describe('Complete HTML; required for create and rewrite'),
     newString: canvasHtml().optional().describe('Update replacement; may be empty'),
-    oldString: canvasHtml()
-      .refine((value) => value.length > 0, { message: 'oldString must not be empty' })
+    oldString: canvasHtml({ minLength: 1 })
       .optional()
       .describe('Update target; must occur exactly once'),
     title: z.string().min(1).max(CANVAS_TITLE_MAX).optional().describe('Required for create'),

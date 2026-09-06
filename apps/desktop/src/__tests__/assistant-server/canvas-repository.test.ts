@@ -1,3 +1,4 @@
+import { CANVAS_HTML_MAX_BYTES } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
   applyUpdate,
@@ -117,6 +118,51 @@ describe('canvas repository', () => {
         threadId: 'thread-1',
       })
     ).resolves.toEqual({ error: 'not_found', ok: false });
+  });
+
+  // The schema bounds each FIELD; only applyUpdate COMPOSES one. A near-limit
+  // document plus an individually valid replacement lands above the ceiling,
+  // and repeated updates would keep growing it — so the composed result is
+  // checked before insertion. Both strings here pass the schema on their own.
+  it('refuses an update whose COMPOSED html exceeds the byte ceiling', async () => {
+    const nearLimit = 'a'.repeat(CANVAS_HTML_MAX_BYTES - 10);
+    let inserted = false;
+    const db = createFakeDatabase((_call, index) => {
+      if (index === 0) {
+        return [versionRow({ html: `${nearLimit}<!--slot-->`, version: 3 })];
+      }
+      inserted = true;
+      return [{ canvasId: 'canvas-1', version: 4 }];
+    });
+
+    const result = await applyUpdate(db, {
+      canvasId: 'canvas-1',
+      // Individually fine — 1M code points, well under .max() — but 4 MB of
+      // UTF-8 on top of a document already near the limit.
+      newString: '\u{1F600}'.repeat(1_000_000),
+      oldString: '<!--slot-->',
+      threadId: 'thread-1',
+    });
+
+    expect(result).toEqual({ error: 'too_large', ok: false });
+    expect(inserted).toBe(false);
+  });
+
+  it('still allows an update that stays within the ceiling', async () => {
+    const db = createFakeDatabase((_call, index) =>
+      index === 0
+        ? [versionRow({ html: '<p><!--slot--></p>', version: 3 })]
+        : [{ canvasId: 'canvas-1', version: 4 }]
+    );
+
+    await expect(
+      applyUpdate(db, {
+        canvasId: 'canvas-1',
+        newString: '\u{1F600}'.repeat(1000),
+        oldString: '<!--slot-->',
+        threadId: 'thread-1',
+      })
+    ).resolves.toEqual({ canvasId: 'canvas-1', version: 4 });
   });
 
   it('maps a unique-constraint race to a structured retryable version_conflict', async () => {

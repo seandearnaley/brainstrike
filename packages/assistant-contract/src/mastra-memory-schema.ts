@@ -208,6 +208,29 @@ export const WORKSPACE_SNAPSHOTS_TABLE = 'brainstrike_workspace_snapshots';
 export const CANVAS_VERSIONS_TABLE = 'brainstrike_canvas_versions';
 
 /**
+ * Storage ceiling for a single canvas document, in UTF-8 BYTES.
+ *
+ * It lives beside the table rather than beside the schema because two places
+ * enforce it and they are in different packages: the \`manageCanvas\` input
+ * schema bounds each incoming FIELD, and the desktop repository bounds the
+ * COMPOSED result of an update — which is the only path that can produce a
+ * document larger than any field it was given. One constant, so the two cannot
+ * drift.
+ */
+export const CANVAS_HTML_MAX_BYTES = 8_000_000;
+
+/**
+ * UTF-8 byte length.
+ *
+ * \`TextEncoder\`, not Node's \`Buffer\`: this package is a shared contract that
+ * ships to the renderer and the hosted web bundle, where \`Buffer\` is not a
+ * global and would be a ReferenceError the first time a canvas payload is
+ * parsed.
+ */
+export const canvasHtmlUtf8Bytes = (value: string): number =>
+  new TextEncoder().encode(value).length;
+
+/**
  * Privacy-safe per-tool model-output telemetry (BST-1190, migration 083 in
  * BOTH runners plus the app-shell bootstrap mirror). The mirror is required
  * because the repository's thread-delete CTE references every registered

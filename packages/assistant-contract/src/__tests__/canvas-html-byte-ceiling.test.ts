@@ -29,13 +29,13 @@ describe('canvas HTML byte ceiling', () => {
     // 3M code points — comfortably under .max(8_000_000) — but 12 MB of UTF-8.
     const html = EMOJI.repeat(3_000_000);
     expect(html.length).toBeLessThan(MAX_BYTES);
-    expect(Buffer.byteLength(html, 'utf8')).toBeGreaterThan(MAX_BYTES);
+    expect(new TextEncoder().encode(html).length).toBeGreaterThan(MAX_BYTES);
     expect(create(html).success).toBe(false);
   });
 
   it('still accepts an ASCII payload just under the ceiling', () => {
     const html = 'a'.repeat(MAX_BYTES - 1);
-    expect(Buffer.byteLength(html, 'utf8')).toBeLessThanOrEqual(MAX_BYTES);
+    expect(new TextEncoder().encode(html).length).toBeLessThanOrEqual(MAX_BYTES);
     expect(create(html).success).toBe(true);
   });
 
