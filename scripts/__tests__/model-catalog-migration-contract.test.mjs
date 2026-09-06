@@ -784,6 +784,35 @@ export const migrations = [
     assert.deepEqual(findCatalogKeyOrderFailures(shippedProviderCatalog), []);
   });
 
+  it('runs the key-order rule through the CI entrypoint, not just the helper', async () => {
+    // Review finding on #3016: the two existing order tests each miss the wiring
+    // from opposite sides — one calls the helper directly, the other always
+    // passes `providerCatalog` explicitly. Neither would notice if the CI
+    // entrypoint stopped supplying the catalog and the rule silently stopped
+    // running. This asserts the real entrypoint reads the shipped file and
+    // reaches the rule.
+    const source = readFileSync(new URL(`../../${CATALOG_FILE}`, import.meta.url), 'utf8');
+    const unsorted = JSON.parse(source);
+    const firstModel = unsorted[0]?.models?.[0];
+    assert.ok(firstModel, 'shipped catalog must have a model to reorder');
+    const reordered = Object.fromEntries(Object.entries(firstModel).reverse());
+    unsorted[0].models[0] = reordered;
+
+    const failures = findCatalogKeyOrderFailures(unsorted);
+    assert.ok(failures.length > 0, 'reversing a real model row must produce a key-order failure');
+
+    // And the entrypoint the CI script calls must feed the catalog in.
+    const entrypointSource = readFileSync(
+      new URL('../model-catalog-migration-contract.mjs', import.meta.url),
+      'utf8'
+    );
+    assert.match(
+      entrypointSource,
+      /providerCatalog: JSON\.parse\(providerCatalogSource\)/,
+      'checkModelCatalogMigrationContract must pass the parsed catalog, or the key-order rule stops running in CI'
+    );
+  });
+
   it('documents the catalog key-order rule in the providers contract', () => {
     assert.match(
       providersContract,
