@@ -14,8 +14,12 @@
 # branch, and `test.yml` runs on `pull_request` + `push: main`, so such a branch
 # costs nothing else as long as no PR is opened for it.
 #
-# Cost: LANES x ITERATIONS integration runs. The default 10 x 5 = 50 is sized to
-# resolve a single-digit-percent rate, at roughly 150 runner-minutes.
+# Cost, MEASURED rather than guessed (run 34050913155): setup is ~70s per lane
+# and each iteration ~40s, so a lane is 70 + 40*ITERATIONS seconds. Setup
+# therefore dominates at low iteration counts — 10 x 5 bought only 50 samples
+# for ~46 runner-minutes, whereas 10 x 30 buys 300 for ~210. Raise ITERATIONS,
+# not lanes: the first 95 samples put the crash rate near 1%, so a few hundred
+# are needed to catch one with the classifier armed.
 name: V8 WASM teardown repro (BST-1221)
 
 on:
@@ -35,7 +39,7 @@ env:
   TURBO_CACHE_DIR: .turbo
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-  ITERATIONS: '5'
+  ITERATIONS: '30'
 
 jobs:
   repro:
