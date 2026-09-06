@@ -497,9 +497,9 @@ it('notifies', () => {
 //
 // That silence is correct, not a miss. The vacuous green this guard polices
 // needs a listing a test can hollow out; there is no listing here to hollow.
-// Widening the rule to "any send assertion" would flag every one of those
-// files while removing no false green, which is the waiver-inflation failure
-// mode the precision block above exists to prevent.
+// Widening the rule to "any send assertion" would flag every test of a
+// directly-held send while removing no false green, which is the
+// waiver-inflation failure mode the precision block above exists to prevent.
 //
 // The converse is a real cost and has a route: a registry-routed test that also
 // happens to stub the listing empty for unrelated reasons IS flagged, because
@@ -517,7 +517,9 @@ it('notifies', () => {
 // lanes the audit did not run, which is the whole point:
 //
 //   terminal-ipc-handlers.integration.test.ts  the only UNIT/INTEGRATION
-//     coverage, and `apps/desktop`'s `test` script carries
+//     coverage OF THE BROADCAST (privileged-ipc-sender-authorization.test.ts
+//     covers the inbound terminal channels, not these two outbound events),
+//     and `apps/desktop`'s `test` script carries
 //     `--exclude "**/*.integration.test.*"`, so that script cannot see it.
 //   e2e/terminal-panel.desktop.test.ts         also observes both events
 //     end-to-end: it asserts the echoed marker reaches `.xterm-rows`

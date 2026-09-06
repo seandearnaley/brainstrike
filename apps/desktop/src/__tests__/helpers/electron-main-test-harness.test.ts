@@ -145,8 +145,11 @@ describe('electron main test harness', () => {
         destroyed,
       ] as unknown as ReturnType<typeof electronMainMock.BrowserWindow.getAllWindows>);
 
-      // The exact loop every LISTING-ROUTED broadcast in this app runs.
-      // (Registry-routed sends never reach a listing at all — BST-1624.)
+      // The loop shape the getAllWindows()-ITERATING broadcasts run. Not
+      // every listing-routed send is this shape — chunking-host-manager.ts
+      // picks one window out of the listing with .find() rather than looping —
+      // and terminal-ipc-handlers.ts never consults a listing at all
+      // (BST-1624). An empty listing hollows out all three regardless.
       const listing =
         electronMainMock.BrowserWindow.getAllWindows() as unknown as RecordingWindow[];
       for (const listed of listing) {
