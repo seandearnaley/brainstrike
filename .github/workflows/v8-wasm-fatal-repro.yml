@@ -14,12 +14,25 @@
 # branch, and `test.yml` runs on `pull_request` + `push: main`, so such a branch
 # costs nothing else as long as no PR is opened for it.
 #
-# Cost, MEASURED rather than guessed (run 34050913155): setup is ~70s per lane
-# and each iteration ~40s, so a lane is 70 + 40*ITERATIONS seconds. Setup
-# therefore dominates at low iteration counts — 10 x 5 bought only 50 samples
-# for ~46 runner-minutes, whereas 10 x 30 buys 300 for ~210. Raise ITERATIONS,
-# not lanes: the first 95 samples put the crash rate near 1%, so a few hundred
-# are needed to catch one with the classifier armed.
+# ROUND 4 — the FULL heavy shard, after the narrowed lane was falsified.
+#
+# Rounds 1-3 looped ONLY `@brainstrike/app-shell` `test:integration` and got 0
+# CHECK fatals in 396 samples (95% upper bound 0.76%). That is evidence the
+# trigger is NOT the 108k-chunk import in isolation. The shard that actually
+# crashes runs BOTH phases across THREE packages, so this round reproduces that
+# instead: `test` (concurrency=4) then `test:integration` (concurrency=2), over
+# ui + file-explorer-ui + app-shell.
+#
+# `--force` on the `test` phase is load-bearing. `test` is CACHEABLE in
+# turbo.jsonc, so from iteration 2 on it would replay a logged green without
+# executing anything — the loop would silently stop sampling the very phase this
+# round was added to cover. `test:integration` is already `cache: false` and is
+# left byte-identical to CI.
+#
+# Cost, from the measured heavy job (5m42s total, ~70s of it setup): ~5 min per
+# iteration. 20 lanes x 3 = 60 samples, ~20 min wall clock, ~320 runner-minutes.
+# Lanes rather than iterations this time because the per-iteration cost now
+# dwarfs setup, so widening shortens wall clock at the same total spend.
 name: V8 WASM teardown repro (BST-1221)
 
 on:
@@ -39,7 +52,7 @@ env:
   TURBO_CACHE_DIR: .turbo
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-  ITERATIONS: '30'
+  ITERATIONS: '3'
 
 jobs:
   repro:
@@ -49,13 +62,13 @@ jobs:
     # incidental choice — occurrence 4 crashed after a 108k-chunk PGlite import
     # on exactly this box.
     runs-on: ubicloud-standard-4
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       # Every lane is an independent sample; one crashing must not cancel the
       # rest, or the run reports a rate computed from a truncated denominator.
       fail-fast: false
       matrix:
-        lane: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        lane: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -65,10 +78,10 @@ jobs:
         with:
           turbo-cache: 'true'
 
-      - name: Loop the app-shell integration lane
+      - name: Loop the full heavy shard
         env:
-          # Mirrors the `Push and manual integration tests` step in test.yml so
-          # the child processes see the same environment the crash occurred in.
+          # Mirrors the heavy shard's own step env in test.yml so the child
+          # processes see the environment the crash occurred in.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: '1'
           COVERAGE: 'false'
           TEST_TIMEOUT_MULTIPLIER: '2'
@@ -87,21 +100,36 @@ jobs:
           segv=0
           for i in $(seq 1 "$ITERATIONS"); do
             log="$RUNNER_TEMP/iter-$i.log"
-            # Byte-identical to the heavy shard's integration phase, narrowed to
-            # the one package. `test:integration` is `cache: false` in
-            # turbo.jsonc, so every iteration really executes.
+            # BOTH phases, same order, filters and concurrencies as the heavy
+            # shard. `--force` only on `test`: it is cacheable, so without it
+            # every iteration after the first would replay a cached green and
+            # execute nothing.
+            node scripts/run-test-command.mjs -- \
+              pnpm turbo run test \
+              --filter="@brainstrike/ui" \
+              --filter="@brainstrike/file-explorer-ui" \
+              --filter="@brainstrike/app-shell" \
+              --concurrency=4 --force \
+              > "$log" 2>&1
+            unit_code=$?
             node scripts/run-test-command.mjs -- \
               pnpm turbo run test:integration \
-              --filter="@brainstrike/app-shell" --concurrency=2 \
-              > "$log" 2>&1
-            code=$?
+              --filter="@brainstrike/ui" \
+              --filter="@brainstrike/file-explorer-ui" \
+              --filter="@brainstrike/app-shell" \
+              --concurrency=2 \
+              >> "$log" 2>&1
+            int_code=$?
+            # Either phase crashing is a sample; report the nonzero one.
+            code=$unit_code
+            [ "$code" -eq 0 ] && code=$int_code
 
             # Key off the repo's OWN classifier verdict rather than a second,
             # parallel grep that could drift from it (scripts/run-test-command.mjs,
             # added for this ticket in #2661).
             if grep -q 'BRAINSTRIKE_CI_VERDICT=V8_WASM_JIT_TEARDOWN_FATAL' "$log"; then
               fatals=$((fatals + 1))
-              echo "::warning title=V8 fatal::lane ${{ matrix.lane }} iteration $i reproduced the teardown fatal (exit $code)"
+              echo "::warning title=V8 fatal::lane ${{ matrix.lane }} iteration $i reproduced the teardown fatal (test=$unit_code integration=$int_code)"
               echo "----- lane ${{ matrix.lane }} iter $i: fatal excerpt -----"
               grep -B 5 -A 25 'Check failed: jit_page_' "$log" | head -60
               echo "----- test files reported (a killed worker leaves one with NO verdict) -----"
@@ -119,7 +147,7 @@ jobs:
                 139) kind='SIGSEGV (NOT the CHECK path; abort would be 134)' ;;
                 *) kind='ordinary nonzero exit' ;;
               esac
-              echo "::warning title=Non-fatal failure::lane ${{ matrix.lane }} iteration $i exited $code — $kind, no classifier verdict"
+              echo "::warning title=Non-fatal failure::lane ${{ matrix.lane }} iteration $i exited $code (test=$unit_code integration=$int_code) — $kind, no classifier verdict"
               echo "----- signature probes -----"
               echo "jit_page CHECK : $(grep -c 'Check failed: jit_page_' "$log")"
               echo "V8_Fatal       : $(grep -c 'V8_Fatal' "$log")"
