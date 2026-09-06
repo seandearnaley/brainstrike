@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const EXPECTED_REACT_DOCTOR_VERSION = '0.9.11';
+const EXPECTED_REACT_DOCTOR_VERSION = '0.9.13';
 const MINIMUM_RENAME_AWARE_VERSION = [0, 8, 2];
 
 function parseStableVersion(version) {
