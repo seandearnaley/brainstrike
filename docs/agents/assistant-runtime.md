@@ -900,8 +900,9 @@ ordering, persisted marker identity, and marker-free model projection;
 
 ### ATTEMPTS VS TURNS (BST-1409)
 
-A turn may span several provider ATTEMPTS. `runTurnAttempts` (agent-streaming.ts)
-owns the turn; `streamAttemptChunks` owns one attempt and now PROPAGATES a
+A turn may span several provider ATTEMPTS. `runTurnAttempts` (`turn-attempts.ts`,
+moved out of `agent-streaming.ts` by BST-1649) owns the turn; `streamAttemptChunks`
+(still in `agent-streaming.ts`) owns one attempt and now PROPAGATES a
 watchdog error instead of deciding the turn's fate. `runtime.dispose()` moved to
 the turn's `finally` and has exactly one owner across all three legs — the
 runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
@@ -2252,7 +2253,8 @@ Flow (desktop assistant server → agent runtime):
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
    resume so the ask tools keep their per-tool flag. Because run-wide
    `requireToolApproval: true` would suspend EVERY tool call on the resumed leg,
-   `resolveResumeApprovalGate` (agent-streaming.ts) substitutes the FUNCTION form of
+   `resolveResumeApprovalGate` (`attempt-legs.ts`, moved out of `agent-streaming.ts`
+   by BST-1649) substitutes the FUNCTION form of
    the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:

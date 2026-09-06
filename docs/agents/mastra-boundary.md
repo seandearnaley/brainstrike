@@ -254,11 +254,15 @@ Two stages, and both are Brainstrike-owned:
    | `tool-approval-chunks.ts` | `tool-call-approval` / `tool-call-suspended` PAUSES — well-formed approval, well-formed suspend (registered or not), and the malformed-pause termination |
    | `stream-termination.ts` | abnormal-ending POLICY: provider error, tripwire, stream stall, tool-call-input timeout |
 
-   `agent-streaming.ts` keeps the R6 dispatch itself, the OM data-part mapping, the
-   entry points, and the tool-loop options — that file is pinned by name in
+   `agent-streaming.ts` keeps the R6 dispatch itself, the OM data-part mapping, and
+   the public entry points — that file is pinned by name in
    `scripts/mastra-stream-chunk-contract.mjs`, so the `ChunkType` import, the
    disposition inventory, `processMastraStreamPart`, and
-   `warnForUnrecognizedMastraStreamPart` must not move out of it.
+   `warnForUnrecognizedMastraStreamPart` must not move out of it. The tool-loop /
+   stream-option builders moved to `runtime-assembly/stream-options.ts`, and the
+   turn/attempt model + three attempt-leg factories moved to `turn-attempts.ts` /
+   `attempt-legs.ts` (BST-1649) — none of those three modules are part of the
+   pinned contract.
 
    Provider-error CLASSIFICATION was never part of this file: `../provider-error-metadata.ts`
    owns the bounded `runError` extractor and `mastra-chunk-decoding.ts` owns
@@ -463,7 +467,7 @@ package or the live tree at `8b6ccb92b`.
 | A bespoke desktop SSE MCP client needs replacing | Removed in #1593; the file is an 11-line shim over the SDK adapter |
 | `@mastra/mcp` is present and duplicates a lifecycle | Not a dependency anywhere |
 | Stream mapping is missing "cache chunks" | No such chunk type; prompt-cache usage is already on `message-finish.usage` |
-| Structured object result is a reachable gap | `object`/`object-result` exist but are unreachable — `structuredOutput` is a rejected option (`agent-streaming.ts`, the rejected-option guard) |
+| Structured object result is a reachable gap | `object`/`object-result` exist but are unreachable — `structuredOutput` is a rejected option (`runtime-assembly/stream-options.ts`'s `assertNoUnsupportedDirectStreamOptions`, called from `agent-streaming.ts`) |
 | Evals are gated on the deployment boundary | `runEvals`/`createScorer` are in core; no server or storage required |
 | Mastra Editor requires Mastra Cloud | `source: 'code'` is git-backed JSON |
 | A CI eval entrypoint shipped in #1088 | The CLI is wired into **no** workflow; the eval logic is gated via vitest under `unit-shard` instead |

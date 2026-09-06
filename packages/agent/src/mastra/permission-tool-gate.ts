@@ -264,7 +264,8 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     // interception). The flag+suspension combination is viable when the
     // tool's resume payload is a plain OBJECT, because the resume transport
     // attaches the `approved: true` rider Mastra's per-leg re-check demands
-    // (agent-streaming.ts, createToolResumeIteratorFromRuntime): run_python's
+    // (attempt-legs.ts, createToolResumeTurnAttempt — moved out of
+    // agent-streaming.ts by BST-1649): run_python's
     // Gate B, submitPlan, and askUser's `{answer}` envelope
     // (AskUserResumeData) all qualify. Only a LEGACY pre-envelope askUser
     // resume — a bare string/array from a run suspended before the envelope
