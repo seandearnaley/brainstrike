@@ -2205,8 +2205,11 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   outcome label. `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` are the
   exported single source of truth (same convention as
   `CROSS_ROOT_USAGE_AGGREGATION_SQL`); the strict mapper THROWS on malformed
-  aggregates. Both are optional on `AssistantThreadRepository` (read-only/test
-  repositories) and required on `BulkAssistantThreadRepository`.
+  aggregates. Both are REQUIRED members of `AssistantThreadRepository` —
+  BST-1651 removed the six optional methods and the
+  `BulkAssistantThreadRepository` companion they existed for, because there is
+  one implementation and it has them all; a partial test double casts through
+  `as unknown as` instead.
 
 - **Ledger panel:** the Task Ledger renders inside the existing **Cost
   Tracking settings category** (`createCostTrackingSettingsCategory` in

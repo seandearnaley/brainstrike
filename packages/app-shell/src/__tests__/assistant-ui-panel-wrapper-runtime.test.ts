@@ -65,16 +65,22 @@ function createRepositoryStub(
     },
     createThreadRun,
     deleteThread: async () => {},
+    deleteThreads: async () => {},
     getCrossRootUsage: async () => [],
+    getRunLedger: async () => [],
     getThreadCumulativeUsage: async () => null,
+    getThreadRunTurnMessageId: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
     listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: async () => [],
     listThreads: async () => [],
+    recordMessageParent: async () => {},
+    recordRunOutcome: async () => {},
     recordRunUsage: async () => {},
     renameThread: async () => {},
     updateThreadMetadata: async () => {},
+    updateThreadsMetadata: async () => {},
   };
 }
 

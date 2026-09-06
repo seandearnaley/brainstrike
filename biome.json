@@ -460,7 +460,6 @@
         "packages/app-shell/src/__tests__/git-panel.test.tsx",
         "packages/app-shell/src/__tests__/renderer-long-task-telemetry.test.ts",
         "packages/app-shell/src/__tests__/threads-panel.test.tsx",
-        "packages/assistant-data/src/assistant-memory-repository.ts",
         "packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts",
         "packages/app-shell/src/assistant-ui-panel-wrapper.tsx",
         "packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-import.test.ts",

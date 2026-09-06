@@ -29,8 +29,9 @@ const MAX_LINES = 1000;
 // preview-panel.tsx and its suite under the cap; BST-1258 took it 122 -> 120
 // by splitting workspace-tab-host.tsx into the workspace tabs modules; BST-1650
 // took it 120 -> 119 by moving the provider catalog rows out of
-// provider-registry.ts into provider-catalog.json.)
-const MAX_BASELINE_ENTRIES = 119;
+// provider-registry.ts into provider-catalog.json; BST-1651 took it 119 -> 118
+// by splitting assistant-memory-repository.ts into the assistant-memory modules.)
+const MAX_BASELINE_ENTRIES = 118;
 
 function isRuleOff(configured) {
   return configured === 'off' || configured?.level === 'off';

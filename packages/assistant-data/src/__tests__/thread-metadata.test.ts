@@ -67,7 +67,7 @@ describe('checkout metadata', () => {
     const thread = await repository.createThread('workspace-a');
 
     await expect(
-      repository.updateThreadsMetadata?.([thread.id], { checkoutMode: 'local' })
+      repository.updateThreadsMetadata([thread.id], { checkoutMode: 'local' })
     ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout state.');
 
     const [reloaded] = await repository.listThreads('workspace-a');

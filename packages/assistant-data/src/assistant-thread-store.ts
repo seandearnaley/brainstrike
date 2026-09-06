@@ -289,24 +289,6 @@ function requireLoadedThreads(
   }
 }
 
-function requireBulkDelete(
-  repository: AssistantThreadRepository
-): NonNullable<AssistantThreadRepository['deleteThreads']> {
-  if (!repository.deleteThreads) {
-    throw new Error('Assistant thread repository does not support atomic bulk deletion.');
-  }
-  return repository.deleteThreads;
-}
-
-function requireBulkMetadataUpdate(
-  repository: AssistantThreadRepository
-): NonNullable<AssistantThreadRepository['updateThreadsMetadata']> {
-  if (!repository.updateThreadsMetadata) {
-    throw new Error('Assistant thread repository does not support atomic bulk metadata updates.');
-  }
-  return repository.updateThreadsMetadata;
-}
-
 function selectActiveThreadAfterDelete({
   currentOpenThreadIds,
   deletedThreadId,
@@ -646,7 +628,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         requireThreadIdBatch(threadIds);
         const loadedThreads = get().threadsByResourceId[resourceId] ?? [];
         requireLoadedThreads(loadedThreads, threadIds);
-        await requireBulkDelete(repository)(threadIds);
+        await repository.deleteThreads(threadIds);
         const deletedThreadIds = new Set(threadIds);
         set((state) => {
           const remainingThreads = (state.threadsByResourceId[resourceId] ?? []).filter(
@@ -961,7 +943,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         assertBulkThreadMetadataPatch(metadata);
         const loadedThreads = get().threadsByResourceId[resourceId] ?? [];
         requireLoadedThreads(loadedThreads, threadIds);
-        await requireBulkMetadataUpdate(repository)(threadIds, metadata);
+        await repository.updateThreadsMetadata(threadIds, metadata);
         const updatedThreadIds = new Set(threadIds);
         set((state) => ({
           threadsByResourceId: {

@@ -24,9 +24,6 @@ async function labelRunOutcomeFromJournal(
   runId: string,
   entries: readonly AssistantEditCheckpointRecord[]
 ): Promise<void> {
-  if (!repository.recordRunOutcome) {
-    return;
-  }
   const runEntries = entries.filter(
     (entry) => entry.runId === runId && isRevertibleCaptureStatus(entry.captureStatus)
   );

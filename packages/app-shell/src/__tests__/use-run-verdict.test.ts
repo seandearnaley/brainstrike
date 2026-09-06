@@ -3,10 +3,8 @@ import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useRunVerdictBinding } from '../hooks/use-run-verdict';
 
-function repositoryWith(recordRunOutcome?: ReturnType<typeof vi.fn>): AssistantThreadRepository {
-  return {
-    ...(recordRunOutcome ? { recordRunOutcome } : {}),
-  } as unknown as AssistantThreadRepository;
+function repositoryWith(recordRunOutcome: ReturnType<typeof vi.fn>): AssistantThreadRepository {
+  return { recordRunOutcome } as unknown as AssistantThreadRepository;
 }
 
 describe('useRunVerdictBinding', () => {
@@ -42,14 +40,15 @@ describe('useRunVerdictBinding', () => {
     );
   });
 
-  it('is null without the repository capability, resourceId, or threadId', () => {
+  // BST-1651: `recordRunOutcome` is no longer optional on the repository, so
+  // the affordance can only be missing for the three reasons that genuinely
+  // mean "there is nothing to label yet". It can no longer disappear because a
+  // repository shape lost a method — that would have removed the verdict
+  // control silently, which is exactly the degradation this codebase forbids.
+  it('is null without a repository, resourceId, or threadId', () => {
     const recordRunOutcome = vi.fn();
     expect(
       renderHook(() => useRunVerdictBinding(null, 'workspace-a', 'thread-1')).result.current
-    ).toBeNull();
-    expect(
-      renderHook(() => useRunVerdictBinding(repositoryWith(), 'workspace-a', 'thread-1')).result
-        .current
     ).toBeNull();
     expect(
       renderHook(() => useRunVerdictBinding(repositoryWith(recordRunOutcome), null, 'thread-1'))

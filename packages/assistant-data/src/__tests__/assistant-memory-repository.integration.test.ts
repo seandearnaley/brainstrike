@@ -32,8 +32,11 @@ function makeMessagesOnlyRepository(): AssistantThreadRepository {
     createThread: vi.fn(),
     createThreadRun: vi.fn(),
     deleteThread: vi.fn(),
+    deleteThreads: vi.fn(),
     getCrossRootUsage: vi.fn(async () => []),
+    getRunLedger: vi.fn(async () => []),
     getThreadCumulativeUsage: vi.fn(async () => null),
+    getThreadRunTurnMessageId: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(),
     listMessages: vi.fn(async () => [
       {
@@ -46,9 +49,12 @@ function makeMessagesOnlyRepository(): AssistantThreadRepository {
     listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: vi.fn(async () => []),
     listThreads: vi.fn(),
+    recordMessageParent: vi.fn(),
+    recordRunOutcome: vi.fn(),
     recordRunUsage: vi.fn(),
     renameThread: vi.fn(),
     updateThreadMetadata: vi.fn(),
+    updateThreadsMetadata: vi.fn(),
   };
 }
 
@@ -323,8 +329,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -343,9 +352,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
 
     const adapter = createAssistantThreadHistoryAdapter({
@@ -582,16 +594,22 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -614,17 +632,22 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordMessageParent,
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -663,8 +686,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -677,9 +703,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -697,8 +726,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -728,9 +760,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
         } satisfies AssistantRunEvent,
       ]),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -770,8 +805,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -802,9 +840,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -836,8 +877,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -887,9 +931,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -925,8 +972,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -959,9 +1009,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -990,8 +1043,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -1021,9 +1077,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -1061,8 +1120,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -1092,9 +1154,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -1119,8 +1184,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
         createThread: vi.fn(),
         createThreadRun: vi.fn(),
         deleteThread: vi.fn(),
+        deleteThreads: vi.fn(),
         getCrossRootUsage: vi.fn(async () => []),
+        getRunLedger: vi.fn(async () => []),
         getThreadCumulativeUsage: vi.fn(async () => null),
+        getThreadRunTurnMessageId: vi.fn(async () => null),
         listLatestThreadRuns: vi.fn(),
         listMessages: vi.fn(async () => [
           {
@@ -1139,9 +1207,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
         listThreadCheckpoints: vi.fn(async () => []),
         listThreadRunEvents: vi.fn(async () => []),
         listThreads: vi.fn(),
+        recordMessageParent: vi.fn(),
+        recordRunOutcome: vi.fn(),
         recordRunUsage: vi.fn(),
         renameThread: vi.fn(),
         updateThreadMetadata: vi.fn(),
+        updateThreadsMetadata: vi.fn(),
       } as Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'];
     }
 
@@ -1233,16 +1304,22 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
+      deleteThreads: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
+      getRunLedger: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => args.messages),
       listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => args.runEvents ?? []),
       listThreads: vi.fn(),
+      recordMessageParent: vi.fn(),
+      recordRunOutcome: vi.fn(),
       recordRunUsage: vi.fn(),
       renameThread: vi.fn(),
       updateThreadMetadata: vi.fn(),
+      updateThreadsMetadata: vi.fn(),
     } as Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'];
   }
 
@@ -3469,7 +3546,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ] as const;
 
     for (const edge of edges) {
-      await repository.recordMessageParent?.({
+      await repository.recordMessageParent({
         ...edge,
         resourceId: 'workspace-a',
         threadId: thread.id,
@@ -3524,7 +3601,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       { messageId: 'assistant-original', parentId: 'user-reused' },
       { messageId: 'assistant-regenerated', parentId: 'user-reused' },
     ] as const) {
-      await repository.recordMessageParent?.({
+      await repository.recordMessageParent({
         ...edge,
         resourceId: 'workspace-a',
         threadId: thread.id,
@@ -3604,7 +3681,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
-    await repository.recordMessageParent?.({
+    await repository.recordMessageParent({
       messageId: 'assistant-regenerated',
       parentId: 'user-reused',
       resourceId: 'workspace-a',
@@ -3788,13 +3865,13 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         rewriteId: 'rewrite-tool-turn',
       } as const;
       await db.query('DELETE FROM mastra_messages WHERE thread_id = $1', [threadId]);
-      await repository.recordMessageParent?.({
+      await repository.recordMessageParent({
         messageId: 'assistant-final',
         parentId: 'user-tool-turn',
         resourceId: 'workspace-a',
         threadId,
       });
-      await repository.recordMessageParent?.({
+      await repository.recordMessageParent({
         messageId: 'summary-after-tool-turn',
         parentId: null,
         resourceId: 'workspace-a',
@@ -3895,7 +3972,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         'workspace-a',
       ]
     );
-    await repository.recordMessageParent?.({
+    await repository.recordMessageParent({
       messageId: 'message-delete',
       parentId: null,
       resourceId: 'workspace-a',

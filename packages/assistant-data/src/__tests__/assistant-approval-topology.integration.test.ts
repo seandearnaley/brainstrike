@@ -280,7 +280,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
     // Pre-restart state: user turn persisted with its edge; the assistant
     // suspended at an approval, so its row exists but its edge was never
     // appended. The app then restarted.
-    await repository.recordMessageParent?.({
+    await repository.recordMessageParent({
       messageId: 'user-1',
       parentId: null,
       resourceId: 'workspace-a',
@@ -532,7 +532,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       { messageId: 'user-2', parentId: 'assistant-1' },
       { messageId: 'assistant-2', parentId: 'user-2' },
     ] as const) {
-      await seedRepository.recordMessageParent?.({
+      await seedRepository.recordMessageParent({
         ...edge,
         resourceId: 'workspace-a',
         threadId,
@@ -675,13 +675,13 @@ describe('approval/suspend branch topology (BST-1243)', () => {
     ] as const) {
       await insertMastraMessage(db, { createdAt, id, role, text, threadId });
     }
-    await repository.recordMessageParent?.({
+    await repository.recordMessageParent({
       messageId: 'user-1',
       parentId: null,
       resourceId: 'workspace-a',
       threadId,
     });
-    await repository.recordMessageParent?.({
+    await repository.recordMessageParent({
       messageId: 'user-2',
       parentId: 'assistant-a',
       resourceId: 'workspace-a',
