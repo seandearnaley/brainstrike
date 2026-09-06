@@ -81,8 +81,24 @@ Error binding keys (`err` and `error`):
 - For anything error-shaped, output must stay byte-identical to bare
   `pino.stdSerializers.err`; `error-serializer.test.ts` pins this against a real
   Pino instance writing to a capture stream.
-- Open question, tracked by BST-1663: whether error logging that bypasses
-  `logInternal` and reaches Pino directly needs to be redaction-safe.
+- **`logInternal` is the only redaction-safe entry point** (ruling, BST-1663).
+  The error serializer hoists an error's own enumerable properties into the
+  record, but the `token`/`secret`/`password`/`apiKey` serializers are keyed at
+  the **top level** only, so a sensitive property hanging off an Error lands at
+  `error.token` and they never match it. The only thing that redacts it is
+  `redactSensitiveLogValue`, which `logInternal` runs on every argument.
+- Do **not** add a second redaction pass inside the serializer. Two redaction
+  implementations that can disagree is a worse failure mode than one plus a
+  guarded boundary — the leak would then depend on which path a caller took.
+- The boundary is enforced, not just documented. `error-serializer.test.ts`
+  scans the package **entry point** (`index.ts`, not just `logger.ts`) for any
+  exported Pino logger, and drives a real `createLogger(...).error(...)` with a
+  token-bearing Error to prove the call actually routes through `logInternal`
+  and comes back `[REDACTED]` — a wrapper's *shape* proves nothing about where
+  its methods write. Both guards are mutation-checked. The suite also pins the
+  un-redacted direct-to-Pino behavior so the hazard stays visible rather than
+  theoretical; if a change ever makes direct Pino access redaction-safe, flip
+  that test and update this ruling with it.
 
 Scoped loggers:
 - createLogger('FileImporter')

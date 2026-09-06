@@ -1,6 +1,7 @@
 import { runInNewContext } from 'node:vm';
 import pino from 'pino';
 import { describe, expect, it } from 'vitest';
+import * as packageEntryPoint from '../index.js';
 import {
   __loggerTesting,
   addLogListener,
@@ -357,6 +358,106 @@ describe('the redactor and the serializer agree about what an Error is', () => {
 
     expect(redacted).toEqual(shaped);
     expect(Object.hasOwn(redacted, 'name')).toBe(false);
+  });
+});
+
+/**
+ * BST-1663. `pino.stdSerializers.err` hoists an error's own enumerable
+ * properties into the record, but the `token`/`secret`/`password`/`apiKey`
+ * serializers are keyed at the **top level** only — a sensitive property
+ * hanging off an Error lands at `error.token`, which they never match.
+ *
+ * The only thing that redacts it is `redactSensitiveLogValue`, which
+ * `logInternal` runs on every argument. So the boundary is: **`logInternal` is
+ * the only redaction-safe entry point.** These tests make that boundary
+ * explicit and enforced rather than merely documented — the ruling on BST-1663
+ * is to keep one redaction implementation plus a guarded seam, not to add a
+ * second redaction pass inside the serializer that could drift from the first.
+ */
+describe('the redaction boundary around direct pino access', () => {
+  function looksLikePinoLogger(value: unknown): boolean {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+    const candidate = value as Record<string, unknown>;
+    return typeof candidate['child'] === 'function' && candidate['levels'] !== undefined;
+  }
+
+  it('detects a real pino logger, so an empty leak list means something', () => {
+    // Without this, `leaked === []` below could just mean the detector is broken.
+    expect(looksLikePinoLogger(pino())).toBe(true);
+    expect(looksLikePinoLogger({ error: () => undefined })).toBe(false);
+  });
+
+  it('exposes no raw pino logger anywhere on the public surface', () => {
+    // Scans the package ENTRY POINT, not just `logger.ts`: consumers import
+    // `@brainstrike/logging`, and `index.ts` re-exports several modules. A
+    // logger.ts-only scan would miss a leak added to any of the others.
+    const leaked = Object.entries(packageEntryPoint)
+      .filter(([, exported]) => looksLikePinoLogger(exported))
+      .map(([name]) => name);
+
+    expect(leaked).toEqual([]);
+  });
+
+  it('hands callers a wrapper, not a pino logger', () => {
+    const scoped = createLogger('Bst1663');
+
+    expect(Object.keys(scoped).sort()).toEqual([
+      'debug',
+      'error',
+      'fatal',
+      'info',
+      'trace',
+      'warn',
+    ]);
+    expect(looksLikePinoLogger(scoped)).toBe(false);
+  });
+
+  it('routes a scoped logger call through logInternal, redaction included', () => {
+    // The wrapper's *shape* proves nothing about where its methods write. This
+    // drives a real `createLogger(...).error(...)` and reads what came out.
+    // `emitLogRecord` runs at the end of `logInternal`, so if those methods ever
+    // wrote straight to pino, no record would arrive and this fails.
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+    try {
+      createLogger('Bst1663Routing').error('auth failed', {
+        error: Object.assign(new Error('unauthorized'), { token: 'super-secret' }),
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(records).toHaveLength(1);
+    const bindings = records[0]?.args.at(-1) as Record<string, unknown> | undefined;
+    const logged = bindings?.['error'] as Record<string, unknown> | undefined;
+
+    expect(logged?.['token']).toBe('[REDACTED]');
+    expect(logged?.['message']).toBe('unauthorized');
+  });
+
+  it('redacts a sensitive error property through the supported entry point', () => {
+    const authError = Object.assign(new Error('unauthorized'), { token: 'super-secret' });
+    const serialized = captureThroughProductionPipeline({ error: authError })['error'] as Record<
+      string,
+      unknown
+    >;
+
+    expect(serialized['token']).toBe('[REDACTED]');
+  });
+
+  it('does NOT redact when the serializer is driven without logInternal', () => {
+    // Characterization of the documented hazard, not an endorsement: this is
+    // why `logInternal` is the only supported entry point. If a future change
+    // makes direct-to-pino logging redaction-safe, this test should flip and
+    // the contract note should be updated with it.
+    const authError = Object.assign(new Error('unauthorized'), { token: 'super-secret' });
+    const serialized = captureLogRecord({ error: authError })['error'] as Record<string, unknown>;
+
+    expect(serialized['token']).toBe('super-secret');
   });
 });
 
