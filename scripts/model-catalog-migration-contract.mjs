@@ -24,6 +24,23 @@ const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'googl
 // catalog refresh. Earlier migrations are historical input used to reconstruct
 // the catalog snapshot; future deletions from this version onward are enforced.
 const REMOVED_MODEL_REMAP_CONTRACT_START_VERSION = 33;
+// Module-level MUTABLE state, and `gen-model-catalog-migration.test.mjs` adds
+// to it under try/finally because an empty allowlist has no other way to
+// exercise its own wiring. The BST-1650 follow-up weighed that against making
+// the residue predicate injectable into `planModelCatalogMigration`, and the
+// try/finally WINS — do not "fix" it into a parameter:
+//
+//   The property under test is that the generator and the contract checker
+//   consult the SAME allowlist. A planner that accepted its own residue
+//   predicate could be proved green against a rule the checker never sees,
+//   which is the exact divergence `isHistoricalCatalogResidue` was extracted to
+//   make impossible and that `docs/agents/database.md` states as a contract. A
+//   seam that lets a test fake the coupling it is asserting is worse than the
+//   mutation it replaces — and it would add a parameter no production call site
+//   ever passes.
+//
+// `node --test` runs a file's tests sequentially, and the finally restores the
+// Set, so the blast radius is the one test that opts in.
 export const STATIC_CATALOG_STALE_ROW_ALLOWLIST = new Set([]);
 // Providers whose final-snapshot rows are RECONSTRUCTION RESIDUE rather than a
 // pending catalog deletion. Migration 021 renamed `transformers` to `local`
