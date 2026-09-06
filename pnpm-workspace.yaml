@@ -40,8 +40,6 @@ catalog:
   # implementation (eslint/prettier/lint-staged/globby all use it); already
   # present transitively, promoted to a direct dep so the walk can rely on it.
   '@babel/core': ^8.0.1
-  '@babel/plugin-transform-runtime': ^8.0.1
-  '@babel/runtime': ^8.0.0
   '@electric-sql/pglite': 0.5.5
   '@electric-sql/pglite-pg_textsearch': 0.0.7
   '@electric-sql/pglite-pgvector': 0.0.6
@@ -62,7 +60,6 @@ catalog:
   '@radix-ui/react-scroll-area': ^1.2.18
   '@radix-ui/react-tabs': ^1.1.21
   '@radix-ui/react-toast': ^1.2.23
-  '@rolldown/plugin-babel': ^0.2.3
   '@shikijs/langs': ^4.4.3
   '@shikijs/themes': ^4.4.3
   '@smithy/eventstream-codec': ^4.5.2
@@ -92,7 +89,7 @@ catalog:
   '@types/react-dom': ^19.2.4
   '@typescript/native': 'npm:typescript@7.0.2'
   '@typescript/old': 'npm:typescript@6.0.3'
-  '@vitejs/plugin-react': ^6.0.5
+  '@vitejs/plugin-react': ^6.1.1
   '@vitest/browser-playwright': ^4.1.10
   '@vitest/coverage-v8': ^4.1.10
   '@vitest/ui': ^4.1.10
@@ -116,6 +113,8 @@ catalog:
   node-addon-api: 8.9.2
   node-gyp: 13.0.1
   oxc-parser: ^0.144.0
+  # BST-1659: optional peer of @vitejs/plugin-react, powering `react({ compiler: true })`.
+  oxc-transform-react: ^0.148.0
   pino: ^10.3.1
   playwright: ^1.62.1
   react-hotkeys-hook: ^5.3.3

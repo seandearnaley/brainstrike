@@ -4,10 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { createLogger } from '@brainstrike/logging';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
-import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
-import react, { reactCompilerPreset } from '@vitejs/plugin-react';
+import react from '@vitejs/plugin-react';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
@@ -21,7 +20,8 @@ const require = createRequire(import.meta.url);
 const pinoBrowserPath = require.resolve('pino/browser.js');
 const viteLogger = createLogger('WebViteConfig');
 
-// React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
+// React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles.
+// BST-1659: run by `oxc-transform-react` (Rust) through @vitejs/plugin-react, not Babel.
 const ReactCompilerConfig = { compilationMode: 'infer' } as const;
 
 // Keep config concise; avoid noisy debug printing in dev
@@ -45,7 +45,6 @@ const {
   isSanitizedPersistMergeModule,
   isZustandModule,
 } = await import('@brainstrike/build-utils');
-const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
@@ -183,12 +182,9 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react({
+      compiler: ReactCompilerConfig,
       // Ensure consistent development transforms for React Compiler
       jsxRuntime: 'automatic',
-    }),
-    babel({
-      exclude: [/[\\/]\.vite[\\/]/, /[\\/]node_modules[\\/]/],
-      presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js
     viteStaticCopy({
