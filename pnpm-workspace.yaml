@@ -108,7 +108,7 @@ catalog:
   jszip: ^3.10.1
   knip: ^6.34.0
   lucide-react: ^1.31.0
-  mermaid: ^11.17.2
+  mermaid: ^11.17.1
   minimatch: ^10.2.6
   node-addon-api: 8.9.2
   node-gyp: 13.0.2
