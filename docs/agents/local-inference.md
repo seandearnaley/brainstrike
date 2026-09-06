@@ -124,6 +124,19 @@ Vector device preference is ONE canonical record (BST-1380):
    - Admitted manual backfill jobs use the queue's earliest runnable ordering,
      so an older unrelated embedding-set backlog cannot strand them behind the
      backfill drain timeout.
+   - A `source: 'background-indexing'` backfill is owned by the host runtime,
+     never by the React tree that requested it (BST-1654). The renderer's
+     `WorkspaceCollectionSyncService` exposes two distinct teardowns and callers
+     must not conflate them: `cancel()` is a deliberate stop (manual pause,
+     indexing disabled, restart-active) and cancels the host run; `detach()` is
+     the requester going away and releases only local state — it aborts the
+     renderer-side loop and drops the progress subscription while the durable
+     run keeps going. The provider's teardown effect MUST call `detach()`: it
+     re-runs on every `service` identity change, so cancelling there tied a
+     host-owned run's lifetime to a React memo dependency list and silently
+     killed a user's backfill on navigation. The next `sync()` re-attaches via
+     `selectRecoverableBackgroundBackfill`; `useResyncOnReturnToVisibility`
+     remains the recovery path for hard teardowns only.
    - A backfill suspends the dimension HNSW index before enqueueing. Every
      interruption after that point, including producer faults and timeouts,
      must either restore the index immediately when the scoped set has drained
