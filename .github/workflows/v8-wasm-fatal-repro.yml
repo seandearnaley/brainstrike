@@ -70,10 +70,17 @@ jobs:
           TEST_TIMEOUT_MULTIPLIER: '2'
           TURBO_TEST_MODE: unit
         run: |
-          # No `set -e`: a crashing iteration is the DATA POINT, not a reason to
-          # stop sampling. Every iteration runs; the tally decides the outcome.
+          # GitHub runs `run:` steps as `bash --noprofile --norc -e -o pipefail`,
+          # so errexit is ON unless turned off HERE. Without this the loop aborts
+          # at the first crashing iteration — which is the one sample that
+          # matters — before the classifier ever runs, and the run reports a
+          # bare exit code with no signature. (Measured: run 34050527494 lane 5
+          # died 139 and produced no tally.) A crashing iteration is the DATA
+          # POINT, not a reason to stop sampling.
+          set +e +o pipefail
           fatals=0
           other=0
+          segv=0
           for i in $(seq 1 "$ITERATIONS"); do
             log="$RUNNER_TEMP/iter-$i.log"
             # Byte-identical to the heavy shard's integration phase, narrowed to
@@ -90,23 +97,40 @@ jobs:
             # added for this ticket in #2661).
             if grep -q 'BRAINSTRIKE_CI_VERDICT=V8_WASM_JIT_TEARDOWN_FATAL' "$log"; then
               fatals=$((fatals + 1))
-              echo "::warning title=V8 fatal::lane ${{ matrix.lane }} iteration $i reproduced the teardown fatal"
+              echo "::warning title=V8 fatal::lane ${{ matrix.lane }} iteration $i reproduced the teardown fatal (exit $code)"
               echo "----- lane ${{ matrix.lane }} iter $i: fatal excerpt -----"
               grep -B 5 -A 25 'Check failed: jit_page_' "$log" | head -60
               echo "----- test files reported (a killed worker leaves one with NO verdict) -----"
               grep -E 'Test Files|Tests ' "$log" | tail -4
             elif [ "$code" -ne 0 ]; then
               other=$((other + 1))
-              echo "::warning title=Non-fatal failure::lane ${{ matrix.lane }} iteration $i exited $code without the fatal signature"
-              grep -E 'AssertionError|✕|Test Files' "$log" | head -20
+              # 134 = SIGABRT, which is what a V8 CHECK/V8_Fatal produces.
+              # 139 = SIGSEGV, a DIFFERENT death worth telling apart rather than
+              # lumping in. The runner is ephemeral and this workflow uploads no
+              # artifact, so everything needed to classify it is dumped INLINE
+              # here or it is lost with the VM.
+              [ "$code" -eq 139 ] && segv=$((segv + 1))
+              case "$code" in
+                134) kind='SIGABRT (V8_Fatal/abort — the CHECK path)' ;;
+                139) kind='SIGSEGV (NOT the CHECK path; abort would be 134)' ;;
+                *) kind='ordinary nonzero exit' ;;
+              esac
+              echo "::warning title=Non-fatal failure::lane ${{ matrix.lane }} iteration $i exited $code — $kind, no classifier verdict"
+              echo "----- signature probes -----"
+              echo "jit_page CHECK : $(grep -c 'Check failed: jit_page_' "$log")"
+              echo "V8_Fatal       : $(grep -c 'V8_Fatal' "$log")"
+              echo "ThreadIsolation: $(grep -c 'ThreadIsolation' "$log")"
+              echo "AssertionError : $(grep -cE 'AssertionError|✕' "$log")"
+              echo "----- last 80 lines -----"
+              tail -80 "$log"
             fi
           done
 
-          echo "lane=${{ matrix.lane }} iterations=$ITERATIONS fatals=$fatals other_failures=$other"
+          echo "lane=${{ matrix.lane }} iterations=$ITERATIONS fatals=$fatals other_failures=$other segv=$segv"
           {
-            echo "| lane | iterations | V8 fatals | other failures |"
-            echo "| --- | --- | --- | --- |"
-            echo "| ${{ matrix.lane }} | $ITERATIONS | $fatals | $other |"
+            echo "| lane | iterations | V8 fatals | other failures | of which SIGSEGV |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "| ${{ matrix.lane }} | $ITERATIONS | $fatals | $other | $segv |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           # The job's own success means "the sample completed", never "no crash
