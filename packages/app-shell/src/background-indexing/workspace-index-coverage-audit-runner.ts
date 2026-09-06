@@ -223,12 +223,24 @@ function createCoverageRecoveryAttemptKey(args: {
   return `${args.auditKey}:${mismatchKey}`;
 }
 
+/**
+ * `unindexableFileCount` is three-valued on purpose, because the store
+ * shallow-merges each patch and the count is rendered right next to
+ * `lastError`:
+ *   - a number publishes what THIS audit verified;
+ *   - `null` publishes an explicit "unknown", clearing whatever the previous
+ *     audit published — required whenever the outcome is unverifiable, or the
+ *     user reads a hard count beside "coverage cannot be verified";
+ *   - omitting the key keeps the previous value, and is ONLY correct while an
+ *     audit is still running (the in-progress `waiting` patch), where the last
+ *     verified count is still the best answer available.
+ */
 export function createCoverageStatusPatch(args: {
   activeRootPath: string | null;
   collectionId: string;
   lastError: string | null;
   state: 'error' | 'idle' | 'waiting';
-  unindexableFileCount?: number;
+  unindexableFileCount?: number | null;
 }): WorkspaceCollectionSyncStatusPatch {
   return {
     activeRootPath: args.activeRootPath,
@@ -457,6 +469,9 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         collectionId: args.collectionId,
         lastError: args.outcome.message,
         state: 'waiting',
+        // Nothing was verified: publish the absence so a count from an earlier
+        // audit cannot survive next to "coverage cannot be verified".
+        unindexableFileCount: null,
       })
     );
     return null;
@@ -551,6 +566,8 @@ export function startWorkspaceCoverageAudit(args: {
           collectionId: args.collectionId,
           lastError: message,
           state: 'error',
+          // A failed audit verified nothing either.
+          unindexableFileCount: null,
         })
       );
       return null;
