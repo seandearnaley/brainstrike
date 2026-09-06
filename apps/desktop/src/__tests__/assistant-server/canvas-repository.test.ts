@@ -1,3 +1,4 @@
+import { CANVAS_HTML_MAX_BYTES } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
   applyUpdate,
@@ -44,6 +45,8 @@ function createFakeDatabase(
     },
   };
 }
+
+const slotMarker = '<!--slot-->';
 
 describe('canvas repository', () => {
   it('creates version one with app-side uuidv7 ids and exact SQL parameters', async () => {
@@ -117,6 +120,111 @@ describe('canvas repository', () => {
         threadId: 'thread-1',
       })
     ).resolves.toEqual({ error: 'not_found', ok: false });
+  });
+
+  // The schema bounds each FIELD; only applyUpdate COMPOSES one. A near-limit
+  // document plus an individually valid replacement lands above the ceiling,
+  // and repeated updates would keep growing it — so the composed result is
+  // checked before insertion. Both strings here pass the schema on their own.
+  // The choke point covers CREATE too, not just the composing path. Before the
+  // check moved into insertVersion, create and rewrite were bounded by the input
+  // schema alone — so any caller reaching the repository without parsing first
+  // was unbounded.
+  it('refuses a create whose html exceeds the byte ceiling', async () => {
+    let inserted = false;
+    const db = createFakeDatabase(() => {
+      inserted = true;
+      return [{ canvasId: 'canvas-1', version: 1 }];
+    });
+
+    const result = await createCanvas(db, {
+      createdBy: 'assistant',
+      // Under .max() as a code-point count, over it as bytes.
+      html: '\u{1F600}'.repeat(3_000_000),
+      resourceId: 'resource-1',
+      threadId: 'thread-1',
+      title: 'Too big',
+    });
+
+    expect(result).toEqual({ error: 'too_large', ok: false });
+    expect(inserted).toBe(false);
+  });
+
+  it('refuses an update whose COMPOSED html exceeds the byte ceiling', async () => {
+    // The BASE has to be under the ceiling, or this proves nothing about
+    // composition — an already-oversized document would be refused whatever the
+    // replacement was. Asserted rather than assumed, because getting this wrong
+    // is invisible: the test still passes.
+    const base = `${'a'.repeat(CANVAS_HTML_MAX_BYTES - 4_000_000)}${slotMarker}`;
+    expect(new TextEncoder().encode(base).length).toBeLessThan(CANVAS_HTML_MAX_BYTES);
+    let inserted = false;
+    const db = createFakeDatabase((_call, index) => {
+      if (index === 0) {
+        return [versionRow({ html: base, version: 3 })];
+      }
+      inserted = true;
+      return [{ canvasId: 'canvas-1', version: 4 }];
+    });
+
+    const result = await applyUpdate(db, {
+      canvasId: 'canvas-1',
+      // Individually fine — 1.5M code points, well under .max() — but 6 MB of
+      // UTF-8 replacing 11 bytes, which carries an in-bounds document over.
+      newString: '\u{1F600}'.repeat(1_500_000),
+      oldString: slotMarker,
+      threadId: 'thread-1',
+    });
+
+    expect(result).toEqual({ error: 'too_large', ok: false });
+    expect(inserted).toBe(false);
+  });
+
+  // Reaches the PRE-CHECK, which the case above does not: 5,000,011 - 11 +
+  // 4,000,000 UTF-16 units is 9,000,000, over the ceiling before any encoding.
+  // The case above lands at 7,000,000 units and is caught by insertVersion.
+  //
+  // Stated plainly: no assertion can DISTINGUISH the two paths, because the
+  // pre-check is an allocation guard, not a correctness one — deleting it leaves
+  // insertVersion to reject the same input with the same result, and only the
+  // transient ~18 MB composition differs. So this covers the branch and pins the
+  // behaviour; it cannot be mutated red on its own, and pretending otherwise
+  // would be the kind of decorative guard this repo refuses elsewhere.
+  it('refuses an oversized composition before materialising it', async () => {
+    let inserted = false;
+    const db = createFakeDatabase((_call, index) => {
+      if (index === 0) {
+        return [versionRow({ html: `${'a'.repeat(5_000_000)}${slotMarker}`, version: 3 })];
+      }
+      inserted = true;
+      return [{ canvasId: 'canvas-1', version: 4 }];
+    });
+
+    const result = await applyUpdate(db, {
+      canvasId: 'canvas-1',
+      newString: '\u{1F600}'.repeat(2_000_000),
+      oldString: slotMarker,
+      threadId: 'thread-1',
+    });
+
+    expect(result).toEqual({ error: 'too_large', ok: false });
+    expect(inserted).toBe(false);
+  });
+
+  it('still allows an update that stays within the ceiling', async () => {
+    const db = createFakeDatabase((_call, index) =>
+      index === 0
+        ? [versionRow({ html: '<p><!--slot--></p>', version: 3 })]
+        : [{ canvasId: 'canvas-1', version: 4 }]
+    );
+
+    await expect(
+      applyUpdate(db, {
+        canvasId: 'canvas-1',
+        newString: '\u{1F600}'.repeat(1000),
+        oldString: '<!--slot-->',
+        threadId: 'thread-1',
+      })
+    ).resolves.toEqual({ canvasId: 'canvas-1', version: 4 });
   });
 
   it('maps a unique-constraint race to a structured retryable version_conflict', async () => {

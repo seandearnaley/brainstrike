@@ -1,5 +1,6 @@
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
+import { CANVAS_HTML_MAX_BYTES, canvasHtmlWithinByteCeiling } from '../../mastra-memory-schema.js';
 
 // ============================================================================
 // Workspace Tool Schemas
@@ -11,10 +12,44 @@ const ROOT_QUALIFIER_DESCRIPTION =
 const ROOT_WRITE_GUARD_DESCRIPTION =
   'Open-folder name/id. Omit for the Focused folder; an explicit root always wins.';
 
-// Same explicit outer DoS guard as the workspace-file content fields below
-// (8 MB): canvas html is written verbatim into a text column and rendered in
-// the sandbox; unbounded payloads are a storage + context hazard.
-const CANVAS_HTML_MAX = 8_000_000;
+/**
+ * A canvas HTML field, bounded by UTF-8 BYTES rather than by whatever unit the
+ * installed Zod happens to count.
+ *
+ * The workspace-file fields below deliberately do NOT do this, and the
+ * difference is the point: they sit above an authoritative ~2 MB byte cap in
+ * the desktop tool, so their `.max()` is an outer guard well above the real
+ * limit and its unit is irrelevant. `manage-canvas-tool.ts` has no size
+ * enforcement of its own, so for canvas the only ceilings are this schema and
+ * the composed-result check in the desktop canvas repository.
+ *
+ * `.max()` alone does not deliver a byte bound. Zod counts CODE POINTS (4.5;
+ * UTF-16 code units before that), so `.max(8_000_000)` admits eight million
+ * astral characters — 31 MB of UTF-8, four times the documented limit, and
+ * double what the same line admitted under Zod 4.4. It is kept because it is
+ * what puts `maxLength` in the emitted JSON Schema, NOT as a short-circuit:
+ * measured on Zod 4.5, a string failing `.max()` still reaches the refinement,
+ * because 4 runs checks non-abortively. The refinement is the authority and is
+ * always reached.
+ *
+ * `minLength` is a PARAMETER rather than something a caller chains on for one
+ * empirical reason: expressing the non-empty constraint as a second refinement
+ * drops `minLength: 1` from the emitted JSON Schema — refinements are not
+ * representable there — which silently narrows what the MODEL is told while
+ * leaving parsing unchanged. That moved the recorded native-tool prompt budget
+ * and failed `native-tool-prompt-budget.test.ts`. (It is NOT because `.refine()`
+ * blocks chaining: under Zod 4 it returns the same ZodString and `.min()`
+ * chains fine. Zod 3's ZodEffects behaviour no longer applies.)
+ */
+function canvasHtml(options?: { readonly minLength?: number }) {
+  const bounded =
+    options?.minLength === undefined
+      ? z.string().max(CANVAS_HTML_MAX_BYTES)
+      : z.string().min(options.minLength).max(CANVAS_HTML_MAX_BYTES);
+  return bounded.refine(canvasHtmlWithinByteCeiling, {
+    message: `canvas HTML exceeds ${CANVAS_HTML_MAX_BYTES} UTF-8 bytes`,
+  });
+}
 const CANVAS_TITLE_MAX = 500;
 
 // Branches deliberately STRIP (zod default) rather than `.strict()`:
@@ -27,26 +62,23 @@ const CANVAS_TITLE_MAX = 500;
 const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('create'),
-    html: z.string().max(CANVAS_HTML_MAX).describe('Initial HTML content for version 1'),
+    html: canvasHtml().describe('Initial HTML content for version 1 (max 8 MB of UTF-8)'),
     title: z.string().min(1).max(CANVAS_TITLE_MAX).describe('Canvas document title'),
   }),
   z.object({
     action: z.literal('update'),
     canvasId: z.string().min(1).describe('Canvas document id'),
-    newString: z
-      .string()
-      .max(CANVAS_HTML_MAX)
-      .describe('Replacement HTML substring; empty deletes the match'),
-    oldString: z
-      .string()
-      .min(1)
-      .max(CANVAS_HTML_MAX)
-      .describe('Exact HTML substring that must occur exactly once in the latest version'),
+    newString: canvasHtml().describe(
+      'Replacement HTML substring; empty deletes the match (max 8 MB of UTF-8)'
+    ),
+    oldString: canvasHtml({ minLength: 1 }).describe(
+      'Exact HTML substring that must occur exactly once in the latest version'
+    ),
   }),
   z.object({
     action: z.literal('rewrite'),
     canvasId: z.string().min(1).describe('Canvas document id'),
-    html: z.string().max(CANVAS_HTML_MAX).describe('Complete HTML content for the new version'),
+    html: canvasHtml().describe('Complete HTML content for the new version (max 8 MB of UTF-8)'),
   }),
   z.object({ action: z.literal('list') }),
 ]);
@@ -74,20 +106,13 @@ export const ManageCanvasInputSchema = z
   .object({
     action: z.enum(['create', 'update', 'rewrite', 'list']).describe('Canvas operation'),
     canvasId: z.string().min(1).optional().describe('Required for update and rewrite'),
-    html: z
-      .string()
-      .max(CANVAS_HTML_MAX)
+    html: canvasHtml()
       .optional()
-      .describe('Complete HTML; required for create and rewrite'),
-    newString: z
-      .string()
-      .max(CANVAS_HTML_MAX)
+      .describe('Complete HTML; required for create and rewrite (max 8 MB of UTF-8)'),
+    newString: canvasHtml()
       .optional()
-      .describe('Update replacement; may be empty'),
-    oldString: z
-      .string()
-      .min(1)
-      .max(CANVAS_HTML_MAX)
+      .describe('Update replacement; may be empty (max 8 MB of UTF-8)'),
+    oldString: canvasHtml({ minLength: 1 })
       .optional()
       .describe('Update target; must occur exactly once'),
     title: z.string().min(1).max(CANVAS_TITLE_MAX).optional().describe('Required for create'),
@@ -165,7 +190,9 @@ export const WriteWorkspaceFileInputSchema = z
   .object({
     content: z
       // Outer DoS guard only; the desktop tool enforces the authoritative ~2 MB
-      // UTF-8 BYTE cap (this counts UTF-16 code units, so it sits well above it).
+      // UTF-8 BYTE cap. This counts CODE POINTS (Zod 4.5; UTF-16 code units
+      // before that) and sits well above the real cap either way, which is why
+      // the unit does not matter HERE the way it does for canvas above.
       .string()
       .max(8_000_000)
       .describe('Full UTF-8 content (up to ~2 MB); overwrites an existing file'),
@@ -181,7 +208,8 @@ export const StringReplaceWorkspaceFileInputSchema = z
     newStr: z.string().max(8_000_000).describe('Replacement text; empty deletes the matched block'),
     oldStr: z
       // Outer DoS guard only; the desktop tool reads the file under the same
-      // ~2 MB BYTE cap as readWorkspaceFile (this counts UTF-16 code units).
+      // ~2 MB BYTE cap as readWorkspaceFile. This counts CODE POINTS (Zod 4.5;
+      // UTF-16 code units before that), well above that cap either way.
       .string()
       .min(1)
       .max(8_000_000)

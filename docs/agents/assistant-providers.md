@@ -4529,6 +4529,47 @@ semantics; real models bundle fields, and rejecting them broke the feature and
 burned retry tokens). Only genuinely unknown keys fail, at the strict provider
 envelope.
 
+**The canvas storage ceiling is `CANVAS_HTML_MAX_BYTES` (8 MB), and it is
+counted in UTF-8 BYTES.** Two places enforce it, in different packages, from one
+constant in `mastra-memory-schema.ts` beside `CANVAS_VERSIONS_TABLE`:
+
+- the `manageCanvas` input schema bounds each incoming HTML **field**, which is
+  also what puts `maxLength` in front of the model;
+- `insertVersion` in the desktop canvas repository bounds what actually reaches
+  the text column, and returns `too_large`. It sits at the choke point on
+  purpose: `create` and `rewrite` would otherwise be bounded by the schema
+  alone, and `update` composes a document larger than either field it was handed
+  — a near-limit document plus an individually valid replacement, repeated.
+  `applyUpdate` additionally rejects an over-ceiling composition before
+  materialising it, which is an allocation guard rather than a second authority.
+
+Both halves are load-bearing and neither is redundant. `too_large` is the one
+failure a model cannot retry its way out of, so `manage-canvas-tool.ts` attaches
+a hint naming the limit and telling it to shrink the replacement or start a new
+canvas; the descriptions carry `(max 8 MB of UTF-8)` for the same reason, since
+the emitted `maxLength` is a character count and would otherwise advertise a
+ceiling about four times looser than the enforced one.
+
+One consequence on existing data, stated because neither the schema nor the
+hint implies it: a row written before this ceiling existed can sit above it —
+the old `.max(8_000_000)` counted UTF-16 units and admitted well over 8 MB of
+UTF-8 for BMP-heavy content. Such a row is update-locked except for an update
+that brings it under the ceiling in one shot, and `rewrite` is the deterministic
+way out, which is why the hint names it. `manage-canvas-tool.ts`
+has no size enforcement of its own, so unlike the workspace-file content fields
+— which sit above an authoritative ~2 MB byte cap in the desktop tool and
+therefore use `.max()` only as a loose outer guard — canvas has nothing
+underneath these two checks.
+
+`.max()` alone is not a byte bound: Zod counts code points (4.5; UTF-16 code
+units before that), so `.max(8_000_000)` admits eight million astral characters,
+31 MB of UTF-8. The `minLength` on `oldString` is applied to the string BEFORE
+the byte refinement, because a refinement is not representable in JSON Schema
+and expressing it as one silently drops `minLength: 1` from what the model is
+told. Paired tests: `canvas-html-byte-ceiling.test.ts` (field) and
+`canvas-repository.test.ts` (composed). Both use astral input deliberately —
+an ASCII case passes with or without the enforcement.
+
 `brainstrike.queryDiagnostics` is a desktop-only, explicit `read`-risk native
 tool over `brainstrike_diagnostic_events`. Its `mode` is required:
 `events` returns newest matching rows and `fingerprints` groups recurring
