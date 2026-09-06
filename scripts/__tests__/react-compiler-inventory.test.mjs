@@ -204,6 +204,30 @@ test('diffInventories drops records it cannot identify instead of inventing a ke
   assert.deepEqual(diff.unmatchable, { baseline: 3, candidate: 3 });
 });
 
+const DUPLICATE_BAILOUT_FIXTURE = `
+import { useState } from 'react';
+
+export function makeFirst() {
+  function Row({ items }) {
+    const [n] = useState(0);
+    let acc;
+    acc ??= items.join(',');
+    return <li>{acc}{n}</li>;
+  }
+  return Row;
+}
+
+export function makeSecond() {
+  function Row({ items }) {
+    const [n] = useState(0);
+    let acc;
+    acc ??= items.join('-');
+    return <li>{acc}{n}</li>;
+  }
+  return Row;
+}
+`;
+
 const DUPLICATE_NAME_FIXTURE = `
 import { useState } from 'react';
 
@@ -423,6 +447,128 @@ test('an ambiguous bailout does not manufacture a regression in the mirror direc
   assert.deepEqual(diff.regressions, []);
   assert.deepEqual(diff.wins, []);
   assert.deepEqual(diff.ambiguousLosses, [{ baseline: 1, candidate: 0, key: 'a.tsx::Row' }]);
+  // The two buckets answer different questions and DELIBERATELY both count this record:
+  // `unmatchable` says it left the keyed comparison, `ambiguousLosses` says coverage
+  // was lost on that name. Pinned so a later summary line cannot quietly conflate them.
+  assert.deepEqual(diff.unmatchable, { baseline: 1, candidate: 0 });
+});
+
+test('an unambiguous compiled record survives an ambiguous BAILED name in the same file', () => {
+  // Where the "displayed totals stay compiled-only" claim is actually exercised: the key
+  // enters the filter through the bailout path, and the compiled record it removes is
+  // what the counter must attribute — not the bailed records that flagged it.
+  const baseline = inventory('babel', [
+    {
+      ambiguousName: false,
+      file: 'a.tsx',
+      line: 1,
+      matchable: true,
+      name: 'Kept',
+      status: 'compiled',
+    },
+    {
+      ambiguousName: false,
+      file: 'a.tsx',
+      line: 20,
+      matchable: true,
+      name: 'Row',
+      status: 'compiled',
+    },
+    {
+      ambiguousName: true,
+      file: 'a.tsx',
+      line: 30,
+      matchable: false,
+      name: 'Row',
+      reasons: [],
+      status: 'bailed',
+    },
+    {
+      ambiguousName: true,
+      file: 'a.tsx',
+      line: 40,
+      matchable: false,
+      name: 'Row',
+      reasons: [],
+      status: 'bailed',
+    },
+  ]);
+  const candidate = inventory('oxc', [
+    {
+      ambiguousName: false,
+      file: 'a.tsx',
+      line: 1,
+      matchable: true,
+      name: 'Kept',
+      status: 'compiled',
+    },
+    {
+      ambiguousName: false,
+      file: 'a.tsx',
+      line: 20,
+      matchable: true,
+      name: 'Row',
+      status: 'compiled',
+    },
+  ]);
+
+  const diff = diffInventories(baseline, candidate);
+
+  assert.equal(diff.unchanged, 1, 'the unrelated `Kept` pair is still compared');
+  assert.deepEqual(diff.regressions, []);
+  assert.deepEqual(diff.wins, []);
+  assert.deepEqual(diff.ambiguousLosses, [], 'both sides compile `Row` once — nothing lost');
+  // One compiled record dropped per side; the two bailed records are NOT counted.
+  assert.deepEqual(diff.unmatchable, { baseline: 1, candidate: 1 });
+});
+
+test('a name ambiguous among bailouts on BOTH sides is a clean no-op', () => {
+  const records = [
+    {
+      ambiguousName: true,
+      file: 'a.tsx',
+      line: 5,
+      matchable: false,
+      name: 'Row',
+      reasons: [],
+      status: 'bailed',
+    },
+    {
+      ambiguousName: true,
+      file: 'a.tsx',
+      line: 9,
+      matchable: false,
+      name: 'Row',
+      reasons: [],
+      status: 'bailed',
+    },
+  ];
+
+  const diff = diffInventories(inventory('babel', records), inventory('oxc', records));
+
+  assert.deepEqual(diff.regressions, []);
+  assert.deepEqual(diff.wins, []);
+  assert.deepEqual(diff.ambiguousLosses, []);
+  assert.deepEqual(diff.stillBailed, [], 'an unattributable bailout is not a claim either');
+  assert.deepEqual(diff.unmatchable, { baseline: 0, candidate: 0 });
+});
+
+test('the producer flags a shared name on BAILED records, not just compiled ones', () => {
+  // The fix above is inert unless this holds. Both `Row`s bail on the same `??=`
+  // construct, so neither ever reaches the compiled path that first needed the flag.
+  const report = inventorySource({
+    backend: 'babel',
+    filename: '/repo/dup-bail.jsx',
+    source: DUPLICATE_BAILOUT_FIXTURE,
+  });
+  const rows = report.functions.filter((entry) => entry.name === 'Row');
+
+  assert.equal(rows.length, 2);
+  for (const row of rows) {
+    assert.equal(row.status, 'bailed');
+    assert.equal(row.ambiguousName, true, 'a bailed record must carry the shared-name flag');
+    assert.equal(row.matchable, false);
+  }
 });
 
 test('diffInventories refuses an inventory written by an older script', () => {

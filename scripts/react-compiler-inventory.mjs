@@ -539,11 +539,15 @@ function compiledKeys(inventory) {
   // filtering only: the displayed unmatchable totals stay compiled-only, which falls
   // out of `dropKeysAmbiguousOnEitherSide` counting a key only when it actually
   // removes a compiled one.
+  // `ambiguousName` is written onto BAILED records too (from the same source-side
+  // duplicate index), so this is not a no-op — and an older baseline that predates the
+  // field cannot silently skip the filter, because `assertDiffable` rejects any
+  // inventory without the current `inventoryFormat` before the diff runs.
   const ambiguousBailedKeys = new Set();
   for (const entry of inventory.functions) {
     const key = `${entry.file}::${entry.name}`;
     if (entry.status !== 'compiled') {
-      if (entry.ambiguousName) {
+      if (entry.status === 'bailed' && entry.ambiguousName) {
         ambiguousBailedKeys.add(key);
       }
       continue;
@@ -555,7 +559,7 @@ function compiledKeys(inventory) {
   }
 
   const keys = new Map();
-  const unmatchableKeys = ambiguousBailedKeys;
+  const unmatchableKeys = new Set(ambiguousBailedKeys);
   let unmatchable = 0;
   for (const entry of inventory.functions) {
     if (entry.status !== 'compiled') {
