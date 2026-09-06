@@ -143,6 +143,12 @@ const CLOSING_BRACKETS = new Map([
  * first rather than at the matching one. A depth scan reads the real nesting;
  * `null` on an unbalanced source keeps the failure loud rather than handing
  * back a truncated slice that parses into a plausible-looking subset.
+ *
+ * Worth knowing when reading the rest of this file: a mis-scan here is LOUD,
+ * not silent. A corrupted slice makes `sliceAfter` return null or a body that
+ * `topLevelFields` cannot parse, `thinkingTypes` comes back empty, and the
+ * pinned real-tree assertions fail with "must be re-derived, not skipped".
+ * There is no path where a bad scan quietly narrows the answer.
  */
 function sliceBalanced(source, openIndex) {
   const stack = [];
@@ -161,6 +167,19 @@ function sliceBalanced(source, openIndex) {
     }
   }
   return null;
+}
+
+/**
+ * Block comments are stripped before any scanning. A `<`, `[` or unpaired
+ * bracket inside a JSDoc block — `{@link <https://…>}` is the ordinary way this
+ * shows up — desynchronizes the bracket stack, and the same text breaks
+ * `topLevelFields`, which requires each `;`-separated chunk to start with an
+ * identifier and so drops any field a comment precedes. Generated zod-inference
+ * types carry no JSDoc today; this removes the whole class rather than relying
+ * on that staying true.
+ */
+function stripBlockComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//gu, '');
 }
 
 /** The balanced body of the first `bracket` that follows `marker`. */
@@ -289,7 +308,8 @@ function extractMirrorAdaptiveDisplay(thinkingBody) {
  * appears again inside that declaration's `fallbacks` entry as a `ZodRecord`,
  * and again further down the file on the raw request body.
  */
-export function extractUpstreamUnions(declarationSource) {
+export function extractUpstreamUnions(rawDeclarationSource) {
+  const declarationSource = stripBlockComments(rawDeclarationSource);
   const optionsBody = sliceAfter(
     declarationSource,
     'declare const anthropicLanguageModelOptions:',
@@ -647,6 +667,39 @@ test('money control: unreadable upstream declarations fail instead of passing va
   assert.match(violations.join('\n'), /could not read the @ai-sdk\/anthropic `effort` enum/u);
   assert.match(violations.join('\n'), /could not read the @ai-sdk\/anthropic `thinking`/u);
   assert.match(violations.join('\n'), /found no hand-mirrored @ai-sdk\/anthropic unions/u);
+});
+
+// A synthetic declaration in the 4.0.49 shape, so the comment stripping below
+// is exercised on input that actually contains what it guards against. The real
+// dist/index.d.ts carries no JSDoc today, so without this the stripping would be
+// unfalsifiable — removing it leaves every real-tree case green, which is not
+// evidence of anything.
+function syntheticDeclaration({ jsdoc = '' } = {}) {
+  return `declare const anthropicLanguageModelOptions: z.ZodObject<{
+	effort: z.ZodOptional<z.ZodEnum<{ low: "low"; medium: "medium"; high: "high" }>>;${jsdoc}
+	thinking: z.ZodOptional<z.ZodUnion<readonly [z.ZodDiscriminatedUnion<[z.ZodObject<{
+		type: z.ZodLiteral<"adaptive">;
+		display: z.ZodOptional<z.ZodEnum<{ omitted: "omitted"; summarized: "summarized" }>>;
+	}, $strip>, z.ZodObject<{ type: z.ZodLiteral<"disabled">; }, $strip>]>, z.ZodObject<{
+		type: z.ZodOptional<z.ZodNever>;
+	}, $strip>]>>;
+}, $strip>;
+`;
+}
+
+test('scanner: a JSDoc block inside the declaration body does not blind the scan', () => {
+  // Measured: without stripBlockComments this returns effort=[] and
+  // thinkingTypes=[], because the unpaired `{` and `<` desynchronize the bracket
+  // stack and topLevelFields then sees no identifier-led chunk. Loud, but it
+  // would refuse a legitimate upstream release that merely documented a field.
+  const documented = extractUpstreamUnions(
+    syntheticDeclaration({ jsdoc: '\n\t/** doc { unpaired and <https://example.invalid/a[b> */' })
+  );
+  assert.deepEqual(documented.thinkingTypes, ['adaptive', 'disabled']);
+  assert.deepEqual(documented.adaptiveDisplay, ['omitted', 'summarized']);
+  assert.deepEqual(documented.effort, ['high', 'low', 'medium']);
+  // The undocumented form reads identically — stripping changes nothing else.
+  assert.deepEqual(extractUpstreamUnions(syntheticDeclaration()), documented);
 });
 
 test('extraction: reads the real provider declaration and the real mirrors', () => {
