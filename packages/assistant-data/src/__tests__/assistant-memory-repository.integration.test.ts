@@ -4622,20 +4622,11 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
-    // The aggregation LEFT JOINs roots for display names (production has the
-    // roots table from migration 039). Seed it: root-a is named, root-b is
-    // deliberately absent so the join MISS surfaces a null name (not a crash).
-    await db.query(
-      `CREATE TABLE IF NOT EXISTS roots (
-        id text PRIMARY KEY,
-        kind text,
-        display_name text NOT NULL,
-        path text,
-        status text,
-        created_at timestamptz,
-        last_verified_at timestamptz
-      )`
-    );
+    // The aggregation LEFT JOINs roots for display names; migration 039 creates
+    // that table, so the database already has it (BST-1651 removed the local
+    // CREATE, which was one more hand-mirrored copy of a migration). root-a is
+    // named, root-b is deliberately absent so the join MISS surfaces a null
+    // name rather than crashing.
     await db.query(
       `INSERT INTO roots (id, kind, display_name, path)
        VALUES ('root-a', 'path', 'project-alpha', '/tmp/project-alpha')`
@@ -4741,11 +4732,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
-    // roots exists in production (migration 039); the aggregation joins it.
-    await db.query(
-      'CREATE TABLE IF NOT EXISTS roots (id text PRIMARY KEY, display_name text NOT NULL)'
-    );
-
+    // roots comes from migration 039; the aggregation joins it.
     await expect(repository.getCrossRootUsage('never-seen')).resolves.toEqual([]);
   });
 
