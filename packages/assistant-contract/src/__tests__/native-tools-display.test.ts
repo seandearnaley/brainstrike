@@ -117,6 +117,86 @@ describe('toToolSchemaDisplay', () => {
     });
   });
 
+  // Zod spells nullability two ways across versions and the resolver must not
+  // care which it is handed. 4.4 emitted `anyOf: [{type:'string'},{type:'null'}]`;
+  // 4.5 emits `type: ['string','null']`. The case above only proves whichever
+  // form the pinned Zod happens to produce, so it would have gone quiet on the
+  // 4.4 -> 4.5 bump rather than failing. These assert the shapes directly.
+  it('resolves a JSON Schema type array the same way it resolves a nullable union', () => {
+    const display = toToolSchemaDisplay(
+      probe(
+        z.object({
+          bounded: z.string().min(2).max(8).nullable().describe('bounded nullable'),
+          items: z.array(z.number()).nullish().describe('nullable array'),
+          plain: z.string().nullable().describe('nullable string'),
+        })
+      )
+    );
+    const byName = new Map(display.parameters.map((parameter) => [parameter.name, parameter]));
+    // Pin the assumption this case exists to cover: the installed Zod really
+    // does emit the array spelling. If a later Zod goes back to `anyOf`, this
+    // fails here and says so, instead of the case quietly passing through the
+    // union path and proving nothing.
+    expect(z.toJSONSchema(z.object({ p: z.string().nullable() })).properties?.['p']).toMatchObject({
+      type: ['string', 'null'],
+    });
+    // `.nullable()` is still a required key — present, possibly null — where
+    // `.nullish()` is optional. The type is what nullability must not change.
+    expect(byName.get('plain')).toMatchObject({ required: true, type: 'string' });
+    expect(byName.get('items')).toMatchObject({ arrayItemType: 'number', type: 'array' });
+    // Facets still resolve off a nullable scalar rather than being dropped.
+    expect(byName.get('bounded')).toMatchObject({ maxLength: 8, minLength: 2, type: 'string' });
+  });
+
+  // The claim the resolver's comment actually makes is that the two spellings
+  // agree, and every nullable case above is one-type-plus-null — which cannot
+  // distinguish them. A genuinely heterogeneous schema can: it is the case where
+  // the branch list has more than one surviving member, and where spreading
+  // sibling facets onto every branch could have mattered.
+  // `.meta()` writes straight into the emitted JSON Schema, which is how a
+  // hand-authored or third-party spelling can be exercised through the ordinary
+  // public API instead of a test-only export.
+  it('gives a heterogeneous type array the same answer as the equivalent union', () => {
+    const typeOf = (schema: z.ZodType, name: string) =>
+      toToolSchemaDisplay(probe(schema)).parameters.find((parameter) => parameter.name === name)
+        ?.type;
+    const asUnion = typeOf(
+      z.object({ mixed: z.union([z.string().min(2), z.number()]).describe('either') }),
+      'mixed'
+    );
+    const asTypeArray = typeOf(
+      z.object({
+        mixed: z
+          .string()
+          .describe('either')
+          .meta({ minLength: 2, type: ['string', 'number'] }),
+      }),
+      'mixed'
+    );
+    // Heterogeneous either way, so neither spelling resolves to a single scalar.
+    expect(asTypeArray).toBe(asUnion);
+    expect(asUnion).toBe('object');
+  });
+
+  // A schema whose only type is `null` has no displayable type in EITHER
+  // spelling. Before this was pinned, both `unionBranches` and
+  // `typeArrayBranches` returned a truthy empty list, so the branch path
+  // resolved them as `object` — a silently wrong answer where a throw is
+  // correct.
+  it('refuses a null-only schema in both spellings rather than calling it an object', () => {
+    // Only the type-array spellings are reachable here: `.meta({ anyOf: … })`
+    // MERGES with the emitted `type: 'string'` rather than replacing it, so it
+    // produces a string carrying a null branch — not a null-only union — and
+    // resolving that as `string` is correct. The `anyOf` side of the same rule
+    // is covered by `unionBranches` returning undefined on an empty list.
+    const nullOnlySpellings = [{ type: ['null'] }, { type: [] }] as const;
+    for (const spelling of nullOnlySpellings) {
+      expect(() =>
+        toToolSchemaDisplay(probe(z.object({ nothing: z.string().meta(spelling) })))
+      ).toThrow(/no displayable type/u);
+    }
+  });
+
   it('merges a top-level discriminated union: every branch field, required only when required everywhere', () => {
     const display = toToolSchemaDisplay(
       probe(

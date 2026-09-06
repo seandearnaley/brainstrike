@@ -54,16 +54,47 @@ function asSchema(value: unknown): JsonSchema | undefined {
     : undefined;
 }
 
-/** `anyOf`/`oneOf` branches, with JSON `null` branches (Zod `.nullable()`/`.nullish()`) dropped. */
+/**
+ * `anyOf`/`oneOf` branches, with JSON `null` branches (Zod `.nullable()`/
+ * `.nullish()`) dropped.
+ *
+ * Returns `undefined` — not `[]` — when nothing survives the drop, because the
+ * caller tests the result for truthiness. A union of nothing but `null` has no
+ * displayable type, and an empty list here would take it down the branch path
+ * and silently resolve it as `object`. `undefined` falls through to the switch,
+ * which throws. Same rule in `typeArrayBranches`, so both spellings of "null and
+ * nothing else" fail identically.
+ */
 function unionBranches(schema: JsonSchema): readonly JsonSchema[] | undefined {
   const raw = schema['oneOf'] ?? schema['anyOf'];
   if (!Array.isArray(raw)) {
     return;
   }
-  return raw.flatMap((branch) => {
+  const branches = raw.flatMap((branch) => {
     const candidate = asSchema(branch);
     return candidate && candidate['type'] !== 'null' ? [candidate] : [];
   });
+  return branches.length > 0 ? branches : undefined;
+}
+
+/**
+ * The same nullability, spelled the other way. Zod 4.4 emitted `.nullable()` /
+ * `.nullish()` as an `anyOf` carrying a `{ type: 'null' }` branch, which
+ * `unionBranches` drops; Zod 4.5.0 (colinhacks/zod#6412 and the surrounding
+ * JSON Schema work) emits a type ARRAY instead — `type: ['string', 'null']`.
+ * Rewriting the array into the branch list `unionBranches` would have produced
+ * keeps one resolution path for both spellings, so a heterogeneous array and a
+ * heterogeneous union stay indistinguishable rather than acquiring two
+ * different answers. Sibling keywords ride along on each branch, which is what
+ * keeps `type: ['array', 'null']` resolving its `items`.
+ */
+function typeArrayBranches(schema: JsonSchema): readonly JsonSchema[] | undefined {
+  const raw = schema['type'];
+  if (!Array.isArray(raw)) {
+    return;
+  }
+  const branches = raw.flatMap((entry) => (entry === 'null' ? [] : [{ ...schema, type: entry }]));
+  return branches.length > 0 ? branches : undefined;
 }
 
 interface ResolvedType {
@@ -89,7 +120,11 @@ function resolveType(schema: JsonSchema, path: string): ResolvedType {
   if ('const' in schema) {
     return { enumValues: [String(schema['const'])], type: 'enum' };
   }
-  const branches = unionBranches(schema);
+  // `anyOf`/`oneOf` wins when a schema carries BOTH it and a type array. Both
+  // together are legal JSON Schema; the union keyword is the more specific
+  // statement, and Zod emits exactly one of the two, so this only arbitrates
+  // hand-authored input.
+  const branches = unionBranches(schema) ?? typeArrayBranches(schema);
   if (branches) {
     const resolved = branches.map((branch) => resolveType(branch, path));
     const merged = mergeEnums(resolved);
