@@ -275,12 +275,46 @@ describe('native tool input schema catalog', () => {
     }
   });
 
-  it('rejects unsupported provider-normalization shapes with tool and JSON paths', () => {
-    const unsupportedExamples = [
+  // Zod 4.5 stopped being able to PRODUCE this shape. Through 4.4,
+  // `z.intersection(...)` emitted `allOf`; 4.5 merges intersections to match
+  // TypeScript (colinhacks/zod#6412) and emits a plain merged object. The
+  // rejection branch is still correct and still reachable — a hand-authored or
+  // third-party tool schema can carry `allOf` — so the fixture is now the JSON
+  // Schema itself rather than something derived from Zod. Deriving it left the
+  // branch UNEXERCISED while the test still passed its other case, which is the
+  // failure mode worth avoiding here.
+  it('rejects an allOf intersection, whatever produced it', () => {
+    expect(
+      collectUnsupportedProviderSchemaShapes(
+        {
+          allOf: [
+            { properties: { left: { type: 'string' } }, type: 'object' },
+            { properties: { right: { type: 'string' } }, type: 'object' },
+          ],
+          type: 'object',
+        },
+        'example-0'
+      )
+    ).toEqual(['example-0 at $.allOf: allOf intersections are unsupported']);
+  });
+
+  // Pins the reason the case above no longer derives its fixture from Zod. If a
+  // later Zod goes back to emitting `allOf` for intersections, this fails and
+  // says so, instead of the comment quietly rotting.
+  it('records that the installed Zod merges intersections instead of emitting allOf', () => {
+    const intersection = z.toJSONSchema(
       z.intersection(
         z.object({ left: z.string().optional() }),
         z.object({ right: z.string().optional() })
       ),
+      PROVIDER_JSON_SCHEMA_OPTIONS
+    );
+    expect(intersection).not.toHaveProperty('allOf');
+    expect(collectUnsupportedProviderSchemaShapes(intersection, 'merged')).toEqual([]);
+  });
+
+  it('rejects unsupported provider-normalization shapes with tool and JSON paths', () => {
+    const unsupportedExamples = [
       z.object({
         files: z.record(z.string(), z.object({ note: z.string().optional() }).strict()),
       }),
@@ -294,8 +328,7 @@ describe('native tool input schema catalog', () => {
         )
       )
     ).toEqual([
-      'example-0 at $.allOf: allOf intersections are unsupported',
-      'example-1 at $.properties.files.additionalProperties: structured additionalProperties is unsupported',
+      'example-0 at $.properties.files.additionalProperties: structured additionalProperties is unsupported',
     ]);
 
     const unsupportedCatalogShapes = Object.entries(toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS).flatMap(
