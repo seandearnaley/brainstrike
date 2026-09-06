@@ -435,7 +435,7 @@ describe('assistant-stream-helpers', () => {
 
     expect(res.status).toBe(200);
     expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
-      expect.objectContaining({ apiKey: 'key' })
+      expect.objectContaining({ credential: { key: 'key', source: 'env', type: 'api_key' } })
     );
     expect(receivedRuntime).toEqual({ provider: 'openai' });
   });

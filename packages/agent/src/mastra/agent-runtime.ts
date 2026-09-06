@@ -1,4 +1,4 @@
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { type McpHostPort, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
@@ -8,12 +8,15 @@ import type { MastraMemory } from '@mastra/core/memory';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
+import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
+import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 import type { AgentHookRunner } from '../tools/hook-runner';
+import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData } from '../types';
 import {
@@ -22,6 +25,7 @@ import {
 } from './anthropic-instruction-cache';
 import {
   buildContextBudgetNote,
+  buildCurrentDateNote,
   buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
@@ -29,6 +33,8 @@ import {
 } from './default-instructions';
 import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import type { McpAppToolAdmissionCapability } from './mcp-app-tool-call';
+import type { McpDiscoverySkip } from './mcp-discovery-diagnostics';
 import type { McpRuntimeClient } from './mcp-runtime-client';
 import type { PermissionAskToolMetadata, PermissionToolGateSnapshot } from './permission-tool-gate';
 import { createPersonaPinnedModelResolver } from './persona-pinned-model';
@@ -51,6 +57,14 @@ import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './to
 
 export interface MastraAgentRuntimeOptions {
   /**
+   * Provider auth input for the run's language model (BST-1352). A DIRECT
+   * option by contract — never read from `runtime`: RuntimeData must not carry
+   * auth inputs (RequestContext.toJSON drops functions, so a custom_fetch
+   * closure riding RuntimeData would vanish silently). Absent falls back to
+   * the legacy runtime/env key resolution.
+   */
+  authInput?: ProviderAuthInput;
+  /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed OUTSIDE the
    * guard and BEFORE the permission gate. Overrides `runtime.hookRunner` when
    * both are present. OPTIONAL — absent means no hooks (production default).
@@ -59,7 +73,18 @@ export interface MastraAgentRuntimeOptions {
   /** @internal Rehydrate context-backed deferred tools before a fresh resume runtime executes. */
   hydrateToolDiscoveryFromMemory?: boolean;
   instructions?: string;
+  /** Live-run observer for the Apps ordinary-tool admission capability. */
+  mcpAppAdmission?: McpAppAdmissionObserver;
   mcpConfig?: McpConfig;
+  /** Host-owned MCP authority. Runtime disposal releases only its adapter lease. */
+  mcpHost?: McpHostPort;
+  /**
+   * Trusted host capability that owns MCP Tasks (BST-1566): a task-creating
+   * tool result is tracked by it and the tool settles on the bounded task
+   * presentation. Absent (web, no host) keeps every MCP call synchronous and a
+   * task result becomes a hard error rather than an untracked task.
+   */
+  mcpTaskTracking?: McpTaskTrackingCapability;
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
   memory?: MastraMemory;
@@ -104,6 +129,10 @@ export interface MastraAgentRuntimeOptions {
   tools?: ToolsInput;
 }
 
+export interface McpAppAdmissionObserver {
+  register(admission: McpAppToolAdmissionCapability): () => void;
+}
+
 export interface MastraAgentRuntime {
   agent: Agent;
   /**
@@ -131,7 +160,20 @@ export interface MastraAgentRuntime {
    * `brainstrike.context-breakdown` data part.
    */
   instructionBreakdown: InstructionBreakdown;
+  /** App-originated admission captured from this runtime's admitted tool map. */
+  mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient?: McpRuntimeClient;
+  /**
+   * Every MCP server that contributed ZERO tools to this run (BST-1602) —
+   * discovery lost its timeout race, or that server's `listTools` failed. Empty
+   * when discovery was healthy or no MCP client existed.
+   *
+   * REQUIRED, never optional: an empty array means "discovery was healthy",
+   * which must stay distinguishable from "nobody looked". Consumed by the fresh
+   * turn's stream prelude, which mints one `mcp.tools.unavailable` run event per
+   * entry. Content-free, like {@link tokenDiagnostics} and {@link toolDiscovery}.
+   */
+  mcpDiscoverySkips: readonly McpDiscoverySkip[];
   /**
    * Whether a permission-policy snapshot was enforced when this runtime built its
    * tool map. It DISAMBIGUATES an empty {@link askTools}: empty because a policy
@@ -152,6 +194,15 @@ export interface MastraAgentRuntime {
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
   toolDiscovery?: ToolDiscoveryMetadata;
+  /**
+   * How long each tool's `execute` ACTUALLY ran, keyed by tool-call id.
+   *
+   * The stream mapper stamps it onto the terminal tool run event, because
+   * wall-clock between `tool.started` and that event is not execution time for
+   * an approval-gated call — the gate suspends before `execute` is invoked, so
+   * the gap spans the human approval wait. See tool-execution-durations.ts.
+   */
+  toolExecutionDurations: ToolExecutionDurations;
   /** Hosted-only transient filter for safely projected stale tool history. */
   toolHistoryFilter: ProjectionSafeToolCallFilter | undefined;
   toolNameMap: Map<string, string>;
@@ -163,12 +214,12 @@ const logger = createLogger('MastraAgent');
 
 function instantiateLanguageModel(
   provider: string,
-  apiKey: string | undefined,
+  auth: ProviderAuthInput | undefined,
   modelName: string,
   runtime: RuntimeData | undefined
 ): MastraModelConfig {
   try {
-    return createProvider(provider, apiKey, modelName, runtime);
+    return createProvider(provider, auth, modelName, runtime);
   } catch (error) {
     if (isMastraAgentError(error)) {
       throw error;
@@ -248,6 +299,12 @@ export function convertMessagesToMastra(
 function composeRuntimeInstructions(params: {
   budgetNote: string | null;
   instructionsOverride: string | undefined;
+  /**
+   * Prompt-assembly clock. Injected rather than read inside the builder so the
+   * composed instructions stay a pure function of their inputs and the date
+   * line is assertable without freezing global time.
+   */
+  now: Date;
   personaSummaries: DelegationPersonaSummary[] | undefined;
   planModeActive: boolean;
   provider: string;
@@ -264,7 +321,17 @@ function composeRuntimeInstructions(params: {
           toolDiscoveryEnabled: params.toolDiscoveryEnabled,
           ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
         }));
-  const stableText = [resolvedInstructions, params.budgetNote]
+  // Composed OUTSIDE the branch, deliberately. Threading the clock into
+  // `buildDefaultInstructions` left the two other supported paths — the
+  // built-in local model and a caller-supplied `instructionsOverride` —
+  // shipping dateless prompts, which is the exact behaviour this prevents. The
+  // local path arguably needs it most: a small local model is the least able to
+  // recover from not knowing the date.
+  //
+  // Lands in `stableText` (the CACHED half) beside the budget note: a date
+  // moves at most once a day, so it cannot churn the cached prefix the way a
+  // timestamp would.
+  const stableText = [resolvedInstructions, buildCurrentDateNote(params.now), params.budgetNote]
     .filter((part): part is string => Boolean(part))
     .join('\n');
   const combinedText = [stableText, params.taskListNote]
@@ -333,14 +400,33 @@ function createPersistedDiscoveryMessageLoader(params: {
   };
 }
 
+/**
+ * An app-free run can never mount an app: registering it would only detach
+ * into a host watch on disposal and supersede the thread's still-mounted app
+ * admission for nothing.
+ */
+function registerAppCapableAdmission(
+  registry: MastraAgentRuntimeOptions['mcpAppAdmission'],
+  admission: McpAppToolAdmissionCapability
+): (() => void) | undefined {
+  if (admission.appCapableToolCount === 0) {
+    return;
+  }
+  return registry?.register(admission);
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
   const {
+    authInput,
     runtime,
     instructions,
     model,
     mcpConfig,
+    mcpHost,
+    mcpAppAdmission,
+    mcpTaskTracking,
     tools: localTools,
     mcpTimeoutMs,
     permissionPolicy,
@@ -356,9 +442,21 @@ export async function createMastraAgentRuntime(
     hydrateToolDiscoveryFromMemory,
   } = options;
 
+  // BST-1352 review finding 7: `resolved` wins over live resolution, so a
+  // DIFFERENT authInput passed alongside it would be silently dropped — the
+  // exact vanishing-closure hazard the direct-parameter rule exists to
+  // prevent. Same-reference is the legitimate pre-resolved case
+  // (initializeMastraRuntime spreads options + resolved together).
+  if (resolved && authInput && resolved.authInput !== authInput) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail:
+        'Both resolved and authInput were supplied with different auth inputs; ' +
+        'pass exactly one authority (a silently preferred one would drop the other auth closure).',
+    });
+  }
   let runtimeResolution: ResolvedRuntimeConfiguration;
   try {
-    runtimeResolution = resolved ?? resolveRuntimeConfiguration(runtime);
+    runtimeResolution = resolved ?? resolveRuntimeConfiguration(runtime, authInput);
   } catch (err) {
     logger.error('mastra runtime configuration failed', {
       code: 'mastra_agent_runtime_configuration_failed',
@@ -366,7 +464,7 @@ export async function createMastraAgentRuntime(
     });
     throw err;
   }
-  const { runtime: sanitizedRuntime, provider: normalizedProvider, apiKey } = runtimeResolution;
+  const { runtime: sanitizedRuntime, provider: normalizedProvider } = runtimeResolution;
 
   const resolvedMcpConfig = mcpConfig ?? sanitizedRuntime.mcpConfig;
 
@@ -387,7 +485,12 @@ export async function createMastraAgentRuntime(
   const modelName = model ?? getDefaultModel(normalizedProvider);
   const languageModel =
     modelOverride ??
-    instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
+    instantiateLanguageModel(
+      normalizedProvider,
+      runtimeResolution.authInput,
+      modelName,
+      sanitizedRuntime
+    );
 
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
   // Resolve once per run. Static catalog models use their declared context
@@ -399,18 +502,23 @@ export async function createMastraAgentRuntime(
     artifactSettledTools,
     askTools,
     guardedTools,
+    mcpAppToolAdmission,
     mcpClient,
+    mcpDiscoverySkips,
     resilienceConfig,
     sanitizedLocalToolIds,
+    toolExecutionDurations,
     toolNameMap,
   } = await composeRuntimeToolMap({
-    apiKey,
+    auth: runtimeResolution.authInput,
     getDelegationToolNames: () => registeredDelegationToolNames,
     hasStorage: Boolean(storage),
     hookRunner,
     inlineMaxSerializedCharsByToolName: toolOutputArtifactInlineMaxSerializedCharsByToolName,
     localTools,
     mcpConfig: resolvedMcpConfig,
+    mcpHost,
+    mcpTaskTracking,
     mcpTimeoutMs,
     permissionSnapshot,
     planModeActive,
@@ -490,7 +598,9 @@ export async function createMastraAgentRuntime(
     provider: normalizedProvider,
     resolvedToolResultBudget,
     resolvePinnedModel: createPersonaPinnedModelResolver({
-      apiKey,
+      // The parent's FULL auth input (not just its key string), so a
+      // same-provider pin reuses custom_fetch/aws auth intact (BST-1352).
+      auth: runtimeResolution.authInput,
       instantiate: instantiateLanguageModel,
       parentProvider: normalizedProvider,
       runtime: sanitizedRuntime,
@@ -518,6 +628,7 @@ export async function createMastraAgentRuntime(
   const composedInstructions = composeRuntimeInstructions({
     budgetNote,
     instructionsOverride: instructions,
+    now: new Date(),
     personaSummaries: instructionPersonaSummaries,
     planModeActive,
     provider: normalizedProvider,
@@ -561,6 +672,10 @@ export async function createMastraAgentRuntime(
     storage,
     runtime?.assistantMessageId
   );
+  const invalidateMcpAppAdmission = registerAppCapableAdmission(
+    mcpAppAdmission,
+    mcpAppToolAdmission
+  );
 
   return {
     agent,
@@ -568,10 +683,13 @@ export async function createMastraAgentRuntime(
     askTools,
     delegationToolPersonas,
     dispose: async () => {
+      invalidateMcpAppAdmission?.();
       await mastra?.shutdown();
       await mcpClient?.disconnect();
     },
     instructionBreakdown,
+    mcpAppToolAdmission,
+    mcpDiscoverySkips,
     // Present iff a policy snapshot gated this run's tool map — the signal the
     // resume gate uses to tell all-allowed (empty askTools) from a genuine
     // global-approval run (see resolveResumeApprovalGate / MastraAgentRuntime).
@@ -581,6 +699,7 @@ export async function createMastraAgentRuntime(
     resolvedToolResultBudget,
     tokenDiagnostics,
     ...(discoverySurface ? { toolDiscovery: discoverySurface.metadata } : {}),
+    toolExecutionDurations,
     toolHistoryFilter,
     ...(toolSearchProcessor ? { toolSearchProcessor } : {}),
     toolNameMap,

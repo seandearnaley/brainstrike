@@ -5,7 +5,8 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@modelcontextprotocol/core": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
@@ -59,6 +60,32 @@
       "import": "./dist/local-llm-model-specs.js",
       "require": "./dist/local-llm-model-specs.js"
     },
+    "./mcp-host-runtime": {
+      "browser": null,
+      "types": "./dist/mcp-host-runtime.d.ts",
+      "import": "./dist/mcp-host-runtime.js",
+      "require": "./dist/mcp-host-runtime.js"
+    },
+    "./mcp-config": {
+      "types": "./dist/mcp-config.d.ts",
+      "import": "./dist/mcp-config.js",
+      "require": "./dist/mcp-config.js"
+    },
+    "./official-auth-conformance": {
+      "types": "./dist/official-auth-conformance.d.ts",
+      "import": "./dist/official-auth-conformance.js",
+      "require": "./dist/official-auth-conformance.js"
+    },
+    "./mcp-task-presentation": {
+      "types": "./dist/mcp-task-presentation.d.ts",
+      "import": "./dist/mcp-task-presentation.js",
+      "require": "./dist/mcp-task-presentation.js"
+    },
+    "./native-tool-schemas": {
+      "types": "./dist/native-tools/schemas/index.d.ts",
+      "import": "./dist/native-tools/schemas/index.js",
+      "require": "./dist/native-tools/schemas/index.js"
+    },
     "./citation-markers": {
       "types": "./dist/citation-markers.d.ts",
       "import": "./dist/citation-markers.js",
@@ -73,6 +100,11 @@
       "types": "./dist/context-budget.d.ts",
       "import": "./dist/context-budget.js",
       "require": "./dist/context-budget.js"
+    },
+    "./env-bootstrap-bridge": {
+      "types": "./dist/env-bootstrap-bridge.d.ts",
+      "import": "./dist/env-bootstrap-bridge.js",
+      "require": "./dist/env-bootstrap-bridge.js"
     },
     "./context-packer": {
       "types": "./dist/context-packer.d.ts",
@@ -134,10 +166,30 @@
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
+    "./provider-auth": {
+      "types": "./dist/provider-auth.d.ts",
+      "import": "./dist/provider-auth.js",
+      "require": "./dist/provider-auth.js"
+    },
+    "./secrets-bridge": {
+      "types": "./dist/secrets-bridge.d.ts",
+      "import": "./dist/secrets-bridge.js",
+      "require": "./dist/secrets-bridge.js"
+    },
     "./skills-bridge": {
       "types": "./dist/skills-bridge.d.ts",
       "import": "./dist/skills-bridge.js",
       "require": "./dist/skills-bridge.js"
+    },
+    "./personas-bridge": {
+      "types": "./dist/personas-bridge.d.ts",
+      "import": "./dist/personas-bridge.js",
+      "require": "./dist/personas-bridge.js"
+    },
+    "./context-files-bridge": {
+      "types": "./dist/context-files-bridge.d.ts",
+      "import": "./dist/context-files-bridge.js",
+      "require": "./dist/context-files-bridge.js"
     },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
@@ -148,6 +200,11 @@
       "types": "./dist/approval-action-message.d.ts",
       "import": "./dist/approval-action-message.js",
       "require": "./dist/approval-action-message.js"
+    },
+    "./tavily-env-keys": {
+      "types": "./dist/tavily-env-keys.d.ts",
+      "import": "./dist/tavily-env-keys.js",
+      "require": "./dist/tavily-env-keys.js"
     },
     "./tool-approval": {
       "types": "./dist/tool-approval.d.ts",

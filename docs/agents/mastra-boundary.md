@@ -170,10 +170,18 @@ credentials, consent, and desktop/web parity.
 **Brainstrike `RuntimeData` is the authoritative request-scoped carrier.
 `RequestContext` is limited to Mastra-reserved keys.**
 
-Today exactly one product import exists —
-`packages/agent/src/mastra/tool-search-runtime.ts:11` (`MASTRA_THREAD_ID_KEY`).
+Today exactly two product imports exist:
+
+- `packages/agent/src/mastra/tool-search-runtime.ts` uses
+  `MASTRA_THREAD_ID_KEY` to expose Mastra's thread identifier to tool search.
+- `packages/agent/src/mastra/thread-title-generation.ts` (moved out of
+  `agent-streaming.ts` by BST-1649) creates a fresh, empty `RequestContext` for
+  thread-title model resolution and generation. That context remains
+  Mastra-only: Brainstrike does not add product or `RuntimeData` fields to it.
+
 Zero of `RuntimeData`'s 43 contract fields
-(`packages/assistant-contract/src/runtime-data.ts:216-342`) travel through it.
+(`packages/assistant-contract/src/runtime-data.ts:216-342`) travel through either
+context.
 
 Three field classes, and the third is the reason this ruling is narrow:
 
@@ -223,7 +231,12 @@ after that lookup is a typed failure, never an implicit provider fallback.
 ## R6 STREAM MAPPER OWNERSHIP
 
 **Brainstrike's typed `StreamChunk` union is the UI and persistence contract.
-Mastra output is adapted into it. Mastra's AI SDK v5 stream output is not adopted.**
+Mastra output is adapted into it. Mastra's AI SDK UI stream and route layer is
+not adopted, regardless of AI SDK version.**
+
+The accepted baseline is AI SDK v7 provider packages (provider v4) with
+`@mastra/core` 1.59. Brainstrike adopts their model/provider capabilities while
+continuing to own HTTP transport, stream mapping, persistence, and UI contracts.
 
 Two stages, and both are Brainstrike-owned:
 
@@ -241,11 +254,15 @@ Two stages, and both are Brainstrike-owned:
    | `tool-approval-chunks.ts` | `tool-call-approval` / `tool-call-suspended` PAUSES — well-formed approval, well-formed suspend (registered or not), and the malformed-pause termination |
    | `stream-termination.ts` | abnormal-ending POLICY: provider error, tripwire, stream stall, tool-call-input timeout |
 
-   `agent-streaming.ts` keeps the R6 dispatch itself, the OM data-part mapping, the
-   entry points, and the tool-loop options — that file is pinned by name in
+   `agent-streaming.ts` keeps the R6 dispatch itself, the OM data-part mapping, and
+   the public entry points — that file is pinned by name in
    `scripts/mastra-stream-chunk-contract.mjs`, so the `ChunkType` import, the
    disposition inventory, `processMastraStreamPart`, and
-   `warnForUnrecognizedMastraStreamPart` must not move out of it.
+   `warnForUnrecognizedMastraStreamPart` must not move out of it. The tool-loop /
+   stream-option builders moved to `runtime-assembly/stream-options.ts`, and the
+   turn/attempt model + three attempt-leg factories moved to `turn-attempts.ts` /
+   `attempt-legs.ts` (BST-1649) — none of those three modules are part of the
+   pinned contract.
 
    Provider-error CLASSIFICATION was never part of this file: `../provider-error-metadata.ts`
    owns the bounded `runError` extractor and `mastra-chunk-decoding.ts` owns
@@ -393,7 +410,7 @@ telemetry. Neither replaces the other.**
 
 `mastra_workflow_snapshot` (`packages/agent/src/pglite-mastra-memory/workflows-store.ts:208`)
 is written on suspend and read on resume — plus pending-approval discovery
-(`agent-streaming.ts`, the pending-approval / suspended-run discovery helpers),
+(`suspended-run-discovery.ts`, moved out of `agent-streaming.ts` by BST-1649),
 which is still the resume path. Nothing else
 reads it: no analytics, no UI, no history view. Mastra's own guidance is to store
 references rather than payloads, and `pruneSnapshot` must be pure and JSON-safe
@@ -450,7 +467,7 @@ package or the live tree at `8b6ccb92b`.
 | A bespoke desktop SSE MCP client needs replacing | Removed in #1593; the file is an 11-line shim over the SDK adapter |
 | `@mastra/mcp` is present and duplicates a lifecycle | Not a dependency anywhere |
 | Stream mapping is missing "cache chunks" | No such chunk type; prompt-cache usage is already on `message-finish.usage` |
-| Structured object result is a reachable gap | `object`/`object-result` exist but are unreachable — `structuredOutput` is a rejected option (`agent-streaming.ts`, the rejected-option guard) |
+| Structured object result is a reachable gap | `object`/`object-result` exist but are unreachable — `structuredOutput` is a rejected option (`runtime-assembly/stream-options.ts`'s `assertNoUnsupportedDirectStreamOptions`, called from `agent-streaming.ts`) |
 | Evals are gated on the deployment boundary | `runEvals`/`createScorer` are in core; no server or storage required |
 | Mastra Editor requires Mastra Cloud | `source: 'code'` is git-backed JSON |
 | A CI eval entrypoint shipped in #1088 | The CLI is wired into **no** workflow; the eval logic is gated via vitest under `unit-shard` instead |
@@ -470,15 +487,24 @@ these tests in the same change.
 | R7 | `@mastra/mcp` absent from every manifest and the lockfile |
 | R8 | *(unguarded by design — R8 permits adding `@mastra/evals` on its own merits, so an absence assertion would encode a constraint this ruling explicitly retires)* |
 
+## RESOLVED CONTRACT MAINTENANCE
+
+BST-909 removed the never-emitted `context.budget`, `context.prepared`, and
+`context.selection` kinds from the closed run-event union. The inbound guard
+rejects those retired strings, and informational timeline coverage uses the
+real `hook.notice` kind instead of legitimizing a fabricated persisted event.
+Repository history from their introduction in `33799e0fe` through the contract
+move and inbound-guard adoption shows the strings only in the declaration and a
+fabricated UI fixture, never in an emitter or persistence write. They therefore
+never reached durable run-event rows, so no data migration or backfill is
+required; adding one would mutate local-first user data without evidence.
+
 ## FOLLOW-UPS
 
 Decided here, implemented separately. None is architecture-gated any longer.
 
 - **Unknown resume schema (R9).** Replace the dead-end notice with visible
   rejection.
-- **Dead run-event kinds.** `context.budget`, `context.prepared`,
-  `context.selection` are declared in `run-events.ts:4-6` with **no emitter
-  anywhere** — emit or remove.
 
 Flagged, outside this boundary:
 `packages/app-shell/src/hooks/use-assistant-mcp-menu-state.ts:55-57` collapses every

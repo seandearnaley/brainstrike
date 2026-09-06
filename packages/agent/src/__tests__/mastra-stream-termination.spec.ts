@@ -104,7 +104,10 @@ describe('mastra streaming: termination and finish-reason policy', () => {
       const iterator = await streamMastraAgent(
         [{ id: 'user-correlated-error', parts: [{ text: 'hi' }], role: 'user' }],
         {
-          memory: { id: 'memory-instance' } as never,
+          memory: {
+            getMergedThreadConfig: (config?: object) => config ?? {},
+            id: 'memory-instance',
+          } as never,
           runtime: {
             apiKey: 'test-key',
             boundWorkspaceRootId: 'root-a',
@@ -182,7 +185,10 @@ describe('mastra streaming: termination and finish-reason policy', () => {
       const iterator = await streamMastraAgent(
         [{ id: 'user-correlated-tripwire', parts: [{ text: 'hi' }], role: 'user' }],
         {
-          memory: { id: 'memory-instance' } as never,
+          memory: {
+            getMergedThreadConfig: (config?: object) => config ?? {},
+            id: 'memory-instance',
+          } as never,
           runtime: {
             apiKey: 'test-key',
             boundWorkspaceRootId: 'root-a',
@@ -292,7 +298,10 @@ describe('mastra streaming: termination and finish-reason policy', () => {
   });
 
   it('marks finish chunks without an explicit reason as absent and completes the run', async () => {
-    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 5, promptTokens: 3 } }]);
+    setMockStreamParts([
+      { textDelta: 'reasonless answer', type: 'text-delta' },
+      { type: 'finish', usage: { completionTokens: 5, promptTokens: 3 } },
+    ]);
 
     const iterator = await streamMastraAgent(
       [{ id: 'u1', parts: [{ text: 'finish without reason', type: 'text' }], role: 'user' }],
@@ -329,6 +338,7 @@ describe('mastra streaming: termination and finish-reason policy', () => {
 
   it('keeps the AI SDK unknown sentinel completed because it includes provider absence', async () => {
     setMockStreamParts([
+      { textDelta: 'sdk-unknown answer', type: 'text-delta' },
       {
         finishReason: 'unknown',
         type: 'finish',

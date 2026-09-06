@@ -29,6 +29,7 @@ import {
   assertTextContentsHaveNoNullBytes,
 } from '../../text-content-invariants.js';
 import {
+  assertFuzzyThreshold,
   BM25_CONTENT_INDEX_NAME,
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
@@ -38,6 +39,7 @@ import {
   MAX_INLINE_FILE_PATHS,
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
+  shouldUseFuzzyFallback,
 } from '../_shared.js';
 import type { FileChunkQueryTx } from '../file-chunk-repository.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from '../file-chunk-shared-queries.js';
@@ -531,6 +533,8 @@ export class DrizzleFileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      fuzzyFallback = true,
+      fuzzyThreshold = 0.6,
       rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
@@ -544,6 +548,7 @@ export class DrizzleFileChunkRepository {
     if (!trimmedQuery) {
       return [];
     }
+    assertFuzzyThreshold(fuzzyThreshold);
 
     const normalizedFilePaths = this.normalizeFilePaths(filePaths);
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
@@ -571,35 +576,30 @@ export class DrizzleFileChunkRepository {
     // ORDERING comes from BM25. The `, id` tiebreaks keep ordering
     // deterministic — BM25 produces exact score ties for rows with identical
     // term statistics.
+    // BM25 orders but never matches: a row BM25 would score but the tsquery
+    // rejects never reaches fusion, so recall is tsvector-bounded (BST-908).
     // NOTE: this is the drizzle-idiomatic form of `bm25RankExpression` from
     // ../_shared.ts (used by the raw-SQL repos): the index name rides as a
     // BOUND PARAMETER here instead of a SQL literal — semantically identical
     // to Postgres, and both spellings share BM25_CONTENT_INDEX_NAME so the
     // name cannot drift between the paths.
     const bm25Rank = sql`(-(content <@> to_bm25query(${trimmedQuery}, ${BM25_CONTENT_INDEX_NAME})))::float8`;
-    let baseQuery = sql`
-      SELECT
-        ${sql.raw(ftsColumns)},
-        ${bm25Rank} as fts_rank,
-        ${headlineColumn}
-        ROW_NUMBER() OVER (ORDER BY ${bm25Rank} DESC, id) as position
-      FROM file_chunks
-      WHERE content_tsvector IS NOT NULL
-        AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})
-    `;
+    const scopeConditions: SQL[] = [];
 
     if (fileRecordId) {
-      baseQuery = sql`${baseQuery} AND file_record_id = ${fileRecordId}`;
+      scopeConditions.push(sql`file_record_id = ${fileRecordId}`);
     }
     if (chunkType) {
-      baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
+      scopeConditions.push(sql`chunk_type = ${chunkType}`);
     }
     // Embedding-set scope with coverage-identity semantics (getCoverageForSet):
     // the chunk's own set matches, OR the chunk is pending embedding (NULL set)
     // and its file record carries the set. Match (tsquery) semantics unchanged.
     // Mirrors the PGlite + Electron repos.
     if (embeddingSetId !== undefined) {
-      baseQuery = sql`${baseQuery} AND (embedding_set_id = ${embeddingSetId} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = ${embeddingSetId})))`;
+      scopeConditions.push(
+        sql`(embedding_set_id = ${embeddingSetId} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = ${embeddingSetId})))`
+      );
     }
     // Scope to a set of workspace roots (see searchSimilar above for the empty /
     // NULL-root semantics). Mirrors the PGlite + Electron repos.
@@ -608,16 +608,16 @@ export class DrizzleFileChunkRepository {
       if (rootScopeCondition === null) {
         return [];
       }
-      baseQuery = sql`${baseQuery} AND ${rootScopeCondition}`;
+      scopeConditions.push(rootScopeCondition);
     }
     if (normalizedSnapshotId) {
-      baseQuery = sql`${baseQuery} AND EXISTS (
+      scopeConditions.push(sql`EXISTS (
         SELECT 1
         FROM ${selectionSnapshotFiles}
         JOIN ${fileRecords} ON ${fileRecords.path} = ${selectionSnapshotFiles.filePath}
         WHERE ${selectionSnapshotFiles.snapshotId} = ${normalizedSnapshotId}
           AND ${fileRecords.id} = ${fileChunks.fileRecordId}
-      )`;
+      )`);
     }
     if (normalizedFilePaths && normalizedFilePaths.length > 0) {
       const rows = await this.db
@@ -628,16 +628,65 @@ export class DrizzleFileChunkRepository {
       if (fileRecordIds.length === 0) {
         return [];
       }
-      baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, fileRecordIds)}`;
+      scopeConditions.push(inArray(fileChunks.fileRecordId, fileRecordIds));
     }
 
-    baseQuery = sql`${baseQuery}
+    const applyScopeConditions = (baseQuery: SQL): SQL => {
+      let scopedQuery = baseQuery;
+      for (const condition of scopeConditions) {
+        scopedQuery = sql`${scopedQuery} AND ${condition}`;
+      }
+      return scopedQuery;
+    };
+
+    let exactQuery = applyScopeConditions(sql`
+      SELECT
+        ${sql.raw(ftsColumns)},
+        ${bm25Rank} as fts_rank,
+        ${headlineColumn}
+        ROW_NUMBER() OVER (ORDER BY ${bm25Rank} DESC, id) as position
+      FROM file_chunks
+      WHERE content_tsvector IS NOT NULL
+        AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})
+    `);
+    exactQuery = sql`${exactQuery}
       ORDER BY fts_rank DESC, id
       LIMIT ${limit}
     `;
 
-    const result = await this.db.execute(baseQuery);
-    return this.mapFTSResults(result.rows as Record<string, unknown>[], threshold);
+    const exactResult = await this.db.execute(exactQuery);
+    const useFuzzyFallback = shouldUseFuzzyFallback({
+      exactResultCount: exactResult.rows.length,
+      fuzzyFallback,
+      language,
+      queryMode,
+    });
+    if (!useFuzzyFallback) {
+      return this.mapFTSResults(exactResult.rows as Record<string, unknown>[], 'exact', threshold);
+    }
+
+    const fuzzyRank = sql`word_similarity(${trimmedQuery}, content)::float8`;
+    let fuzzyQuery = applyScopeConditions(sql`
+      SELECT
+        ${sql.raw(ftsColumns)},
+        ${fuzzyRank} as fts_rank,
+        ROW_NUMBER() OVER (ORDER BY ${fuzzyRank} DESC, id) as position
+      FROM file_chunks
+      WHERE ${trimmedQuery} <% content
+        AND word_similarity(${trimmedQuery}, content) >= ${fuzzyThreshold}
+        AND ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})::text <> ''
+    `);
+    fuzzyQuery = sql`${fuzzyQuery}
+      ORDER BY fts_rank DESC, id
+      LIMIT ${limit}
+    `;
+    const fuzzyResult = await this.db.transaction(async (transaction) => {
+      await transaction.execute(
+        sql`SELECT set_config('pg_trgm.word_similarity_threshold', ${String(fuzzyThreshold)}, true)`
+      );
+      return transaction.execute(fuzzyQuery);
+    });
+    return this.mapFTSResults(fuzzyResult.rows as Record<string, unknown>[], 'fuzzy', threshold);
   }
 
   /**
@@ -645,17 +694,19 @@ export class DrizzleFileChunkRepository {
    */
   private mapFTSResults(
     rows: Record<string, unknown>[],
+    matchKind: import('../../models/file-chunk.js').FTSSearchResult['matchKind'],
     threshold: number
   ): import('../../models/file-chunk.js').FTSSearchResult[] {
     const results: import('../../models/file-chunk.js').FTSSearchResult[] = [];
     for (const row of rows) {
       const rank = Number(row['fts_rank']);
       // Apply threshold filter
-      if (threshold > 0 && rank < threshold) {
+      if (matchKind === 'exact' && threshold > 0 && rank < threshold) {
         continue;
       }
       const ftsResult: import('../../models/file-chunk.js').FTSSearchResult = {
         chunk: this.fromRawRow(row),
+        matchKind,
         position: Number(row['position']),
         rank,
       };

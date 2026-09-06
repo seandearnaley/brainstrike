@@ -13,8 +13,10 @@
  *
  * The fake Mastra stream lives in `./fixtures/mastra-stream-harness`.
  */
+
 import type { ReadableStream } from 'node:stream/web';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
+import type { MastraDBMessage } from '@mastra/core/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
@@ -27,10 +29,19 @@ import {
   expectLeadingContextBreakdown,
   expectMastraAgentError,
   mastraInstances,
+  mcpHost,
   mcpInstances,
   resetMastraStreamHarness,
+  setMcpDiscoveryFailure,
   setMcpToolsets,
+  setMockMessageList,
   setMockStreamParts,
+  setMockTitleGenerationHandler,
+  setMockTitleGenerationResults,
+  setMockTitleModel,
+  setStreamFailure,
+  setStreamPartDelayMs,
+  setStreamPartFailure,
 } from './fixtures/mastra-stream-harness';
 
 vi.mock(
@@ -62,6 +73,77 @@ vi.mock(
   '../mcp/explicit-stdio-client',
   async () => (await import('./fixtures/mastra-stream-harness')).explicitStdioMcpClientModuleMock
 );
+
+vi.mock('@brainstrike/agent/mcp-client', async () => {
+  const { explicitStdioMcpClientModuleMock } = await import('./fixtures/mastra-stream-harness');
+  return {
+    ExplicitHttpMcpClient: explicitStdioMcpClientModuleMock.ExplicitStdioMcpClient,
+    ...explicitStdioMcpClientModuleMock,
+  };
+});
+
+function makeTitleMemory(options?: {
+  generateTitle?: unknown;
+  getThreadById?: ReturnType<typeof vi.fn>;
+  saveThread?: ReturnType<typeof vi.fn>;
+}) {
+  const thread = {
+    createdAt: new Date('2026-08-24T12:00:00.000Z'),
+    id: 'thread-title-contract',
+    resourceId: 'resource-title-contract',
+    title: 'New Thread',
+    updatedAt: new Date('2026-08-24T12:00:00.000Z'),
+  };
+  return {
+    getMergedThreadConfig: vi.fn(() => ({ generateTitle: options?.generateTitle ?? true })),
+    getThreadById: options?.getThreadById ?? vi.fn().mockResolvedValue(thread),
+    id: 'memory-title-contract',
+    saveThread: options?.saveThread ?? vi.fn(),
+    thread,
+  };
+}
+
+async function startTitleContractTurn(memory: ReturnType<typeof makeTitleMemory>) {
+  setMockStreamParts([
+    { textDelta: 'The main response succeeded.', type: 'text-delta' },
+    { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 8 } },
+  ]);
+  return await streamMastraAgent(
+    [
+      {
+        id: 'user-title-contract',
+        parts: [{ text: 'Name this conversation.', type: 'text' }],
+        role: 'user',
+      },
+    ],
+    {
+      memory: memory as never,
+      runtime: {
+        apiKey: 'test-key',
+        memory: { resourceId: memory.thread.resourceId, threadId: memory.thread.id },
+        model: 'openai/gpt-oss-120b',
+        modelSettings: { maxOutputTokens: 321 },
+        provider: 'openrouter',
+        providerOptions: {
+          openrouter: {
+            provider: { require_parameters: true },
+            reasoning: { effort: 'high' },
+          },
+        },
+      },
+    }
+  );
+}
+
+function findTitleDiagnostic(logRecords: readonly LogRecord[], code: string) {
+  return logRecords
+    .flatMap((record) => record.args)
+    .find(
+      (argument): argument is Record<string, unknown> =>
+        Boolean(argument && typeof argument === 'object') &&
+        (argument as { code?: unknown }).code === code
+    );
+}
 
 describe('mastra streaming integration', () => {
   beforeEach(() => {
@@ -109,6 +191,541 @@ describe('mastra streaming integration', () => {
       },
     ]);
   });
+
+  it('generates a title when a non-aborted stream ends without a raw finish part', async () => {
+    setMockStreamParts([{ textDelta: 'Here is the answer.', type: 'text-delta' }]);
+    setMockTitleGenerationResults(['Workspace Review']);
+    const thread = {
+      createdAt: new Date('2026-08-24T12:00:00.000Z'),
+      id: 'thread-title-missing-finish',
+      resourceId: 'resource-title-missing-finish',
+      title: 'New Thread',
+      updatedAt: new Date('2026-08-24T12:00:00.000Z'),
+    };
+    const memory = {
+      getMergedThreadConfig: vi.fn(() => ({ generateTitle: true })),
+      getThreadById: vi.fn(async () => thread),
+      id: 'memory-title-missing-finish',
+      saveThread: vi.fn(),
+    };
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'user-title-missing-finish',
+          parts: [{ text: 'Review this workspace.', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        memory: memory as never,
+        runtime: {
+          apiKey: 'test-key',
+          memory: {
+            resourceId: thread.resourceId,
+            threadId: thread.id,
+          },
+          provider: 'openai',
+        },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances[0]?.generateTitleFromUserMessageCalls).toHaveLength(1);
+    expect(memory.saveThread).toHaveBeenCalledWith({
+      thread: expect.objectContaining({ id: thread.id, title: 'Workspace Review' }),
+    });
+  });
+
+  it('retries one OpenRouter empty title on the same agent and persists the retry result', async () => {
+    setMockStreamParts([
+      { textDelta: 'Here is the answer.', type: 'text-delta' },
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: 0.001 } } },
+        type: 'finish',
+        usage: { completionTokens: 2, promptTokens: 8 },
+      },
+    ]);
+    setMockTitleGenerationResults(['', 'Reasoning Route Title']);
+    const thread = {
+      createdAt: new Date('2026-08-24T12:00:00.000Z'),
+      id: 'thread-title-openrouter-empty',
+      resourceId: 'resource-title-openrouter-empty',
+      title: 'New Thread',
+      updatedAt: new Date('2026-08-24T12:00:00.000Z'),
+    };
+    const memory = {
+      getMergedThreadConfig: vi.fn(() => ({ generateTitle: true })),
+      getThreadById: vi.fn(async () => thread),
+      id: 'memory-title-openrouter-empty',
+      saveThread: vi.fn(),
+    };
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'user-title-openrouter-empty',
+          parts: [{ text: 'Explain this reasoning route.', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        memory: memory as never,
+        runtime: {
+          apiKey: 'test-key',
+          memory: {
+            resourceId: thread.resourceId,
+            threadId: thread.id,
+          },
+          model: 'openai/gpt-5.6-terra',
+          provider: 'openrouter',
+        },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    const titleCalls = agentInstances[0]?.generateTitleFromUserMessageCalls ?? [];
+    expect(titleCalls).toHaveLength(2);
+    expect(agentInstances[0]?.getModelCalls).toHaveLength(1);
+    expect(titleCalls[1]).toEqual(titleCalls[0]);
+    expect(memory.saveThread).toHaveBeenCalledWith({
+      thread: expect.objectContaining({ id: thread.id, title: 'Reasoning Route Title' }),
+    });
+  });
+
+  it('propagates and merges active OpenRouter title routing with its output bound', async () => {
+    const forwardedCalls: Record<string, unknown>[] = [];
+    const titleModel = {
+      doStream: vi.fn((options: Record<string, unknown>) => {
+        forwardedCalls.push(options);
+        return Promise.resolve({});
+      }),
+      modelId: 'openai/gpt-oss-120b',
+      provider: 'openrouter',
+      specificationVersion: 'v2',
+    };
+    setMockTitleModel(titleModel);
+    setMockTitleGenerationHandler(async (options) => {
+      const request = options as {
+        model?: { doStream?: (input: Record<string, unknown>) => Promise<unknown> };
+      };
+      await request.model?.doStream?.({
+        prompt: [],
+        providerOptions: {
+          openrouter: { existingTitleOption: true },
+          testProvider: { preserved: true },
+        },
+      });
+      return 'Provider-safe title';
+    });
+    const memory = makeTitleMemory({
+      generateTitle: { instructions: 'Use a short title.', model: titleModel },
+    });
+
+    const iterator = await startTitleContractTurn(memory);
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.getModelCalls).toEqual([
+      expect.objectContaining({ modelConfig: titleModel }),
+    ]);
+    expect(forwardedCalls).toEqual([
+      {
+        abortSignal: expect.any(AbortSignal),
+        maxOutputTokens: 321,
+        prompt: [],
+        providerOptions: {
+          openrouter: {
+            existingTitleOption: true,
+            provider: { require_parameters: true },
+            reasoning: { effort: 'high' },
+          },
+          testProvider: { preserved: true },
+        },
+      },
+    ]);
+  });
+
+  it('records actionable content-free title provider and invalid-output diagnostics', async () => {
+    const providerFailure = Object.assign(new Error('private provider response'), {
+      name: 'AI_APICallError',
+      statusCode: 429,
+    });
+    setMockTitleGenerationResults([providerFailure]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      const providerIterator = await startTitleContractTurn(makeTitleMemory());
+      for await (const _chunk of providerIterator) {
+        // drain
+      }
+      setMockTitleGenerationResults([' ', '']);
+      const emptyIterator = await startTitleContractTurn(makeTitleMemory());
+      for await (const _chunk of emptyIterator) {
+        // drain
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    const providerDiagnostic = findTitleDiagnostic(
+      logRecords,
+      'mastra_thread_title_provider_failed'
+    );
+    expect(providerDiagnostic).toMatchObject({
+      httpStatus: 429,
+      providerErrorCode: 'mastra_agent_stream_provider_error',
+      stage: 'provider',
+    });
+    expect(providerDiagnostic).not.toHaveProperty('error');
+    expect(
+      logRecords
+        .flatMap((record) => record.args)
+        .filter(
+          (argument) =>
+            Boolean(argument && typeof argument === 'object') &&
+            (argument as { code?: unknown }).code === 'mastra_thread_title_invalid_output'
+        )
+    ).toHaveLength(2);
+    expect(JSON.stringify(logRecords)).not.toContain('private provider response');
+  });
+
+  it('reports malformed title configuration separately from PGlite persistence', async () => {
+    const memory = makeTitleMemory();
+    memory.getMergedThreadConfig
+      .mockImplementationOnce(() => ({ generateTitle: true, readOnly: false }))
+      .mockImplementation(() => {
+        throw new TypeError('private config detail');
+      });
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      const iterator = await startTitleContractTurn(memory);
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    expect(findTitleDiagnostic(logRecords, 'mastra_thread_title_config_invalid')).toMatchObject({
+      errorName: 'TypeError',
+      stage: 'config',
+    });
+    expect(JSON.stringify(logRecords)).not.toContain('private config detail');
+  });
+
+  it('skips title generation without a complete thread scope or textual user input', async () => {
+    setMockTitleGenerationResults(['Unreachable title']);
+    setMockStreamParts([
+      { textDelta: 'The main response succeeded.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 8 } },
+    ]);
+    const unscopedMemory = makeTitleMemory();
+    const unscopedIterator = await streamMastraAgent(
+      [{ id: 'user-unscoped-title', parts: [{ text: 'Name this.', type: 'text' }], role: 'user' }],
+      {
+        memory: unscopedMemory as never,
+        runtime: { apiKey: ['unit', 'test'].join('-'), provider: 'openai' },
+      }
+    );
+    for await (const _chunk of unscopedIterator) {
+      // drain
+    }
+
+    const noTextMemory = makeTitleMemory();
+    const noTextIterator = await streamMastraAgent(
+      [{ id: 'user-no-text-title', parts: [], role: 'user' }],
+      {
+        memory: noTextMemory as never,
+        runtime: {
+          apiKey: ['unit', 'test'].join('-'),
+          memory: {
+            resourceId: noTextMemory.thread.resourceId,
+            threadId: noTextMemory.thread.id,
+          },
+          provider: 'openai',
+        },
+      }
+    );
+    for await (const _chunk of noTextIterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-2)?.generateTitleFromUserMessageCalls).toHaveLength(0);
+    expect(agentInstances.at(-1)?.generateTitleFromUserMessageCalls).toHaveLength(0);
+    expect(unscopedMemory.saveThread).not.toHaveBeenCalled();
+    expect(noTextMemory.saveThread).not.toHaveBeenCalled();
+  });
+
+  it('keeps disabled and user-owned thread titles unchanged', async () => {
+    setMockTitleGenerationResults(['Unreachable title']);
+    const disabledMemory = makeTitleMemory({ generateTitle: false });
+    const disabledIterator = await startTitleContractTurn(disabledMemory);
+    for await (const _chunk of disabledIterator) {
+      // drain
+    }
+
+    const userOwnedMemory = makeTitleMemory({
+      getThreadById: vi.fn().mockResolvedValue({
+        ...makeTitleMemory().thread,
+        title: 'My chosen title',
+      }),
+    });
+    const userOwnedIterator = await startTitleContractTurn(userOwnedMemory);
+    for await (const _chunk of userOwnedIterator) {
+      // drain
+    }
+
+    expect(disabledMemory.saveThread).not.toHaveBeenCalled();
+    expect(userOwnedMemory.saveThread).not.toHaveBeenCalled();
+    expect(agentInstances.at(-2)?.generateTitleFromUserMessageCalls).toHaveLength(0);
+    expect(agentInstances.at(-1)?.generateTitleFromUserMessageCalls).toHaveLength(0);
+  });
+
+  it('reports title model resolution and PGlite read/write failures by stage', async () => {
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      setMockTitleModel(new Error('private model resolution detail'));
+      const modelIterator = await startTitleContractTurn(makeTitleMemory());
+      for await (const _chunk of modelIterator) {
+        // drain
+      }
+
+      setMockTitleModel(undefined);
+      const readMemory = makeTitleMemory({
+        getThreadById: vi.fn().mockRejectedValue({ code: 'PGLITE_READ_PRIVATE' }),
+      });
+      const readIterator = await startTitleContractTurn(readMemory);
+      for await (const _chunk of readIterator) {
+        // drain
+      }
+
+      setMockTitleGenerationResults(['Write failure title']);
+      const writeMemory = makeTitleMemory({
+        saveThread: vi.fn().mockRejectedValue({ code: 'PGLITE_WRITE_PRIVATE' }),
+      });
+      const writeIterator = await startTitleContractTurn(writeMemory);
+      for await (const _chunk of writeIterator) {
+        // drain
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    expect(findTitleDiagnostic(logRecords, 'mastra_thread_title_provider_failed')).toMatchObject({
+      attempt: 1,
+      stage: 'provider',
+    });
+    const persistenceDiagnostics = logRecords
+      .flatMap((record) => record.args)
+      .filter(
+        (argument): argument is Record<string, unknown> =>
+          Boolean(argument && typeof argument === 'object') &&
+          (argument as { code?: unknown }).code === 'mastra_thread_title_persistence_failed'
+      );
+    expect(persistenceDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          databaseCode: 'PGLITE_READ_PRIVATE',
+          errorName: 'UnknownError',
+          stage: 'persistence-read',
+        }),
+        expect.objectContaining({
+          databaseCode: 'PGLITE_WRITE_PRIVATE',
+          errorName: 'UnknownError',
+          stage: 'persistence-write',
+        }),
+      ])
+    );
+    expect(JSON.stringify(logRecords)).not.toContain('private model resolution detail');
+  });
+
+  it('aborts the underlying title provider request when the lifecycle expires', async () => {
+    vi.useFakeTimers();
+    let titleSignal: AbortSignal | undefined;
+    const titleModel = {
+      doStream: vi.fn((options: { abortSignal?: AbortSignal }) => {
+        titleSignal = options.abortSignal;
+        return new Promise<never>((_resolve, reject) => {
+          options.abortSignal?.addEventListener(
+            'abort',
+            () => reject(options.abortSignal?.reason),
+            {
+              once: true,
+            }
+          );
+        });
+      }),
+      modelId: 'openai/gpt-oss-120b',
+      provider: 'openrouter',
+      specificationVersion: 'v2',
+    };
+    setMockTitleModel(titleModel);
+    setMockTitleGenerationHandler(async (options) => {
+      const request = options as {
+        model?: { doStream?: (input: Record<string, unknown>) => Promise<unknown> };
+      };
+      await request.model?.doStream?.({ prompt: [] });
+      return 'Unreachable title';
+    });
+
+    try {
+      const iterator = await startTitleContractTurn(
+        makeTitleMemory({ generateTitle: { model: titleModel } })
+      );
+      let sawFinish = false;
+      while (!sawFinish) {
+        const result = await iterator.next();
+        sawFinish =
+          Boolean(result.value && typeof result.value === 'object') &&
+          (result.value as { type?: unknown }).type === 'message-finish';
+      }
+      const completion = iterator.next();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(completion).resolves.toMatchObject({ done: true });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(titleSignal?.aborted).toBe(true);
+  });
+
+  it('persists a stalled attempt before disposing after continuation construction fails', async () => {
+    const previousOpenAiKey = process.env['OPENAI_API_KEY'];
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
+    process.env['OPENAI_API_KEY'] = 'test-key';
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '2';
+    setMockStreamParts([{ textDelta: 'late', type: 'text-delta' }]);
+    setStreamPartDelayMs(500);
+    setStreamFailure(2, new Error('continuation construction failed'));
+
+    const createdAt = new Date('2026-08-21T12:00:00.000Z');
+    const userMessage: MastraDBMessage = {
+      content: { format: 2, parts: [{ text: 'Use the completed tool.', type: 'text' }] },
+      createdAt,
+      id: 'user-continuation-failure',
+      resourceId: 'resource-continuation-failure',
+      role: 'user',
+      threadId: 'thread-continuation-failure',
+    };
+    const assistantMessage: MastraDBMessage = {
+      content: {
+        format: 2,
+        parts: [
+          {
+            toolInvocation: {
+              args: { path: 'completed.ts' },
+              result: { text: 'done' },
+              state: 'result',
+              toolCallId: 'call-continuation-failure',
+              toolName: 'read_file',
+            },
+            type: 'tool-invocation',
+          },
+        ],
+      },
+      createdAt,
+      id: 'assistant-continuation-failure',
+      resourceId: 'resource-continuation-failure',
+      role: 'assistant',
+      threadId: 'thread-continuation-failure',
+    };
+    setMockMessageList({
+      drainUnsavedMessages: () => [userMessage, assistantMessage],
+      get: { response: { db: () => [assistantMessage] } },
+    });
+
+    const shutdownCallsAtSave: number[] = [];
+    const memory = {
+      createThread: vi.fn(),
+      getMergedThreadConfig: vi.fn(() => ({ readOnly: false })),
+      getThreadById: vi.fn().mockResolvedValue({ id: 'thread-continuation-failure' }),
+      saveMessages: vi.fn(async ({ messages }: { messages: MastraDBMessage[] }) => {
+        shutdownCallsAtSave.push(mastraInstances[0]?.shutdownCalls ?? -1);
+        return { messages };
+      }),
+    };
+
+    try {
+      const iterator = await streamMastraAgent(
+        [
+          {
+            id: 'user-continuation-failure',
+            parts: [{ text: 'Use the completed tool.', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          memory: memory as never,
+          runtime: {
+            assistantMessageId: 'assistant-continuation-failure',
+            memory: {
+              resourceId: 'resource-continuation-failure',
+              threadId: 'thread-continuation-failure',
+            },
+            provider: 'openai',
+          },
+          storage: { id: 'continuation-failure-storage' } as never,
+        }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toContainEqual(
+        expect.objectContaining({
+          event: expect.objectContaining({ kind: 'run.failed' }),
+          type: 'run-event',
+        })
+      );
+      expect(shutdownCallsAtSave).toEqual([0]);
+      expect(mastraInstances[0]?.shutdownCalls).toBe(1);
+    } finally {
+      if (previousOpenAiKey === undefined) {
+        Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
+      } else {
+        process.env['OPENAI_API_KEY'] = previousOpenAiKey;
+      }
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousFirstOutput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousStallAttempts === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_STALL_ATTEMPTS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = previousStallAttempts;
+      }
+    }
+  }, 30_000);
 
   it('records one diagnostic per unknown dynamic type and continues streaming', async () => {
     setMockStreamParts([
@@ -181,6 +798,9 @@ describe('mastra streaming integration', () => {
       for await (const chunk of iterator) {
         chunks.push(chunk);
       }
+      // Non-vacuity: the consumer really did receive the pre-failure part, so
+      // this is a MID-STREAM escape and not a stream that never started.
+      expect(chunks.length).toBeGreaterThan(0);
       expect(chunks).not.toContainEqual(
         expect.objectContaining({ type: 'token-estimate-calibration' })
       );
@@ -210,11 +830,55 @@ describe('mastra streaming integration', () => {
       measurementStatus: 'measured',
       model: 'gpt-5.6-terra',
       modelVisibleProjectionCount: 0,
+      // Finish-only stream: the sum comes from Mastra's terminal usage, no
+      // step-finish ever ran, and there is no per-request measurement to
+      // report — absence is honest, 7-as-latest would be fabricated.
+      promptTokensSummedAcrossSteps: 7,
       provider: 'openai',
-      providerReportedPromptTokens: 7,
+      stepCount: 0,
       tokenizer: 'o200k_base',
       toolDefinitionCount: 0,
     });
+  });
+
+  it('reports the per-request context size and step count honestly, not only the leg sum', async () => {
+    // Field confusion (2026-08-23): a 10-step leg logged
+    // providerReportedPromptTokens 733,954 — read as a catastrophic context
+    // explosion, investigated as one, and disproven: the field stored the SUM
+    // of prompt tokens across the leg's steps, while the actual per-request
+    // context topped out far lower. The log must carry BOTH numbers under
+    // names that cannot be misread, plus the step count that relates them.
+    setMockStreamParts([
+      { textDelta: 'two-step answer', type: 'text-delta' },
+      { type: 'step-finish', usage: { completionTokens: 2, promptTokens: 10 } },
+      { type: 'step-finish', usage: { completionTokens: 3, promptTokens: 40 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 50 } },
+    ]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'two steps', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    } finally {
+      removeLogListener();
+    }
+    const fields = logRecords
+      .map((record) => record.args[0] as Record<string, unknown>)
+      .find((arg) => arg?.['code'] === 'mastra_agent_token_measurement');
+    expect(fields).toMatchObject({
+      // The actual size of the LAST request's context — the number that says
+      // whether the prompt is growing.
+      latestStepPromptTokens: 40,
+      // The leg's spend: 10 + 40 (Mastra's terminal usage restates this sum).
+      promptTokensSummedAcrossSteps: 50,
+      stepCount: 2,
+    });
+    expect(fields).not.toHaveProperty('providerReportedPromptTokens');
   });
 
   it('uses the final step prompt and step count for a completed multi-step calibration row', async () => {
@@ -227,6 +891,7 @@ describe('mastra streaming integration', () => {
       toolDefinitionCount: 0,
     });
     setMockStreamParts([
+      { textDelta: 'multi-step answer', type: 'text-delta' },
       { type: 'step-finish', usage: { completionTokens: 2, promptTokens: 10 } },
       { type: 'step-finish', usage: { completionTokens: 3, promptTokens: 40 } },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 50 } },
@@ -303,6 +968,7 @@ describe('mastra streaming integration', () => {
   // run-start `promptBreakdown` exists to source a baseline from.
   it('still persists a baseline-carrying calibration row when a completed run has no tool outputs', async () => {
     setMockStreamParts([
+      { textDelta: 'tool-free answer', type: 'text-delta' },
       { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
     ]);
@@ -383,18 +1049,15 @@ describe('mastra streaming integration', () => {
       modelVisibleProjectionCount: 1,
       toolDefinitionCount: 0,
     });
+    // A genuine escaping stream error, injected through the harness's own seam.
+    // This case previously borrowed the malformed-billed-cost THROW as its
+    // vehicle; that throw is gone (a broken telemetry field no longer destroys
+    // a completed turn), and borrowing an unrelated validation error made the
+    // test hostage to that decision anyway.
+    setStreamPartFailure(1, new Error('provider transport exploded'));
     setMockStreamParts([
-      {
-        payload: { metadata: { providerMetadata: { openrouter: { usage: { cost: 0.001 } } } } },
-        type: 'step-finish',
-        usage: { completionTokens: 1, promptTokens: 7 },
-      },
-      {
-        finishReason: 'stop',
-        providerMetadata: { openrouter: { usage: { cost: -1 } } },
-        type: 'finish',
-        usage: { completionTokens: 1, promptTokens: 7 },
-      },
+      { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
     ]);
     const chunks: unknown[] = [];
 
@@ -413,7 +1076,7 @@ describe('mastra streaming integration', () => {
         for await (const chunk of iterator) {
           chunks.push(chunk);
         }
-      }).rejects.toThrow(/OpenRouter.*cost/i);
+      }).rejects.toThrow(/provider transport exploded/i);
       expect(chunks).not.toContainEqual(
         expect.objectContaining({ type: 'token-estimate-calibration' })
       );
@@ -424,10 +1087,12 @@ describe('mastra streaming integration', () => {
 
   it('omits token-estimate calibration when token measurement failed', async () => {
     const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      latestStepPromptTokens: 7,
       measurementMode: 'declared-compatible-reference',
       measurementStatus: 'failed',
       modelVisibleProjectionBackstopTokens: 0,
-      providerReportedPromptTokens: 7,
+      promptTokensSummedAcrossSteps: 7,
+      stepCount: 1,
       toolDefinitionCount: 0,
     });
     setMockStreamParts([
@@ -795,8 +1460,9 @@ describe('mastra streaming integration', () => {
     );
   });
 
-  it('rejects a cost-less OpenRouter step when finish repeats only the final step cost', async () => {
+  it('COMPLETES a turn whose earlier step reported no cost, recording it unknown', async () => {
     setMockStreamParts([
+      { textDelta: 'costed answer', type: 'text-delta' },
       {
         payload: { metadata: {} },
         type: 'step-finish',
@@ -834,16 +1500,30 @@ describe('mastra streaming integration', () => {
       { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
     );
 
-    const drain = async () => {
-      for await (const _chunk of iterator) {
-        // drain
-      }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter model step omitted.*billed cost/i);
+    // Mastra copies providerMetadata from the FINAL model step only, so the
+    // terminal cost cannot repair the earlier step's missing one. The honest
+    // result is UNKNOWN — never the partial sum presented as a total — but the
+    // assistant's completed answer survives. Throwing here discarded a finished
+    // turn over a billing-telemetry gap.
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+    const finish = chunks.find((chunk) => (chunk as { type?: string }).type === 'message-finish') as
+      | { billedCostUsd?: number; finishReason?: string }
+      | undefined;
+    expect(finish?.finishReason).toBe('stop');
+    expect(finish?.billedCostUsd).toBeUndefined();
   });
 
-  it('rejects malformed provider-reported OpenRouter cost', async () => {
+  it('COMPLETES the turn on a malformed cost, recording it unknown', async () => {
+    // The last member of this bug class. A malformed cost is a broken provider
+    // contract someone should fix, and the callers log it at ERROR so it stays
+    // impossible to miss — but binning a finished answer over a telemetry field
+    // is the same trade that made a MISSING cost fatal for every anonymous
+    // OpenRouter route. Loud, never fatal.
     setMockStreamParts([
+      { textDelta: 'answer with a malformed cost', type: 'text-delta' },
       {
         finishReason: 'stop',
         providerMetadata: { openrouter: { usage: { cost: -1 } } },
@@ -857,16 +1537,22 @@ describe('mastra streaming integration', () => {
       { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
     );
 
-    const drain = async () => {
-      for await (const _chunk of iterator) {
-        // drain
-      }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter.*cost/i);
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+    const finish = chunks.find((chunk) => (chunk as { type?: string }).type === 'message-finish') as
+      | { billedCostUsd?: number; finishReason?: string }
+      | undefined;
+    expect(finish?.finishReason).toBe('stop');
+    // UNKNOWN, never zero — a fabricated zero is the undercount this path
+    // exists to avoid, and the one number a malformed value must not become.
+    expect(finish?.billedCostUsd).toBeUndefined();
   });
 
-  it('rejects an OpenRouter completion that omits billed cost', async () => {
+  it('COMPLETES an OpenRouter turn that never reported a cost at all', async () => {
     setMockStreamParts([
+      { textDelta: 'answer with no reported cost', type: 'text-delta' },
       {
         finishReason: 'stop',
         type: 'finish',
@@ -879,16 +1565,23 @@ describe('mastra streaming integration', () => {
       { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
     );
 
-    const drain = async () => {
-      for await (const _chunk of iterator) {
-        // drain
-      }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
+    // The stealth/anonymous-route shape: OpenRouter reports no usage.cost at
+    // all (migration 107's "anonymous Ox Alpha route"). Every such turn used to
+    // throw here, so the model's completed answer was thrown away.
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+    const finish = chunks.find((chunk) => (chunk as { type?: string }).type === 'message-finish') as
+      | { billedCostUsd?: number; finishReason?: string }
+      | undefined;
+    expect(finish?.finishReason).toBe('stop');
+    expect(finish?.billedCostUsd).toBeUndefined();
   });
 
   it('normalizes OpenRouter provider state before applying stream safeguards', async () => {
     setMockStreamParts([
+      { textDelta: 'normalized-provider answer', type: 'text-delta' },
       {
         finishReason: 'stop',
         type: 'finish',
@@ -905,12 +1598,27 @@ describe('mastra streaming integration', () => {
       modelSettings: { maxOutputTokens: 32_000 },
     });
 
-    const drain = async () => {
+    // Normalization is proven by an observable only a NORMALIZED provider can
+    // produce: `requiresBilledCost` is set from the normalized provider name,
+    // and this finish reports no cost, so the unreported-cost warning fires.
+    // (It previously proved the same thing with the throw that used to live
+    // there — the subject of this test is the normalization, not the throw.)
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
       for await (const _chunk of iterator) {
         // drain
       }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
+    } finally {
+      removeLogListener();
+    }
+    expect(
+      logRecords.some(
+        (record) =>
+          record.level === LogLevel.WARN &&
+          JSON.stringify(record).includes('provider_billed_cost_unreported')
+      )
+    ).toBe(true);
   });
 
   it('surfaces observational-memory FAILURE data chunks as visible run events (BST-940 field failure)', async () => {
@@ -930,6 +1638,7 @@ describe('mastra streaming integration', () => {
         },
         type: 'data-om-buffering-failed',
       },
+      { textDelta: 'observed answer', type: 'text-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
     ]);
 
@@ -962,6 +1671,7 @@ describe('mastra streaming integration', () => {
     expect(chunks.map((chunk) => (chunk as { type: string }).type)).toEqual([
       'context-breakdown',
       'run-event',
+      'text-delta',
       'run-event',
       'message-finish',
     ]);
@@ -1389,15 +2099,7 @@ describe('mastra streaming integration', () => {
   });
   it('keeps custom local tools eager while deferring post-gate MCP tools', async () => {
     const runtime = await createMastraAgentRuntime({
-      mcpConfig: {
-        servers: [
-          {
-            command: 'echo',
-            name: 'filesystem',
-            transport: 'stdio',
-          },
-        ],
-      },
+      mcpHost,
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
         'local tool': {
@@ -1425,6 +2127,8 @@ describe('mastra streaming integration', () => {
   it.each([
     { originalToolId: 'search_tools', sanitizedToolId: 'search_tools' },
     { originalToolId: 'search.tools', sanitizedToolId: 'search_tools' },
+    { originalToolId: 'list_available_tools', sanitizedToolId: 'list_available_tools' },
+    { originalToolId: 'list.available.tools', sanitizedToolId: 'list_available_tools' },
   ])(
     'rejects reserved catalog meta-tool collision for $originalToolId before agent construction',
     async ({ originalToolId, sanitizedToolId }) => {
@@ -1446,7 +2150,7 @@ describe('mastra streaming integration', () => {
         code: 'mastra_agent_tool_name_collision',
         context: {
           originalToolId,
-          reservedToolId: 'search_tools',
+          reservedToolId: sanitizedToolId,
           sanitizedToolId,
         },
       });
@@ -1500,9 +2204,7 @@ describe('mastra streaming integration', () => {
 
     await expect(
       createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [{ command: 'echo', name: 'search', transport: 'stdio' }],
-        },
+        mcpHost,
         runtime: { apiKey: 'key', provider: 'openai' },
       })
     ).rejects.toMatchObject({
@@ -1515,6 +2217,63 @@ describe('mastra streaming integration', () => {
     });
     expect(agentInstances).toHaveLength(0);
     expect(mcpInstances).toEqual([expect.objectContaining({ closeCalls: 1 })]);
+  });
+
+  it('always states the current date in the real assembled instructions', async () => {
+    // The guard for the runtime supplying its own clock. Asserting
+    // buildCurrentDateNote directly would prove only that it renders a date it
+    // was handed; the regression to prevent is a runtime that stops handing it
+    // one and silently ships dateless prompts again — the exact behaviour that
+    // had a model reason "Today's date is unknown but likely later" and then
+    // write a fabricated date into durable memory.
+    //
+    // Time is FROZEN rather than sampled twice: computing the expected date
+    // after createMastraAgentRuntime captured its own `new Date()` would fail
+    // with a baffling diff whenever the two straddled midnight.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 23, 12));
+    try {
+      await createMastraAgentRuntime({
+        runtime: { apiKey: 'key', provider: 'openai' },
+        tools: {
+          'brainstrike.readWorkspaceFile': {
+            description: 'Read workspace file',
+            id: 'brainstrike.readWorkspaceFile',
+          },
+        },
+      });
+      expect(agentInstances[0]?.config.instructions ?? '').toContain('2026-08-23');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('states the date even when a caller supplies its own instructions', async () => {
+    // The structural property, asserted where it is testable. Threading the
+    // clock through buildDefaultInstructions left BOTH other supported paths —
+    // an instructionsOverride caller and the built-in local model — shipping
+    // dateless prompts. Composing the note outside that branch covers all
+    // three; an override is the one this harness can construct, and it proves
+    // the note is not inside the hosted-default branch.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 23, 12));
+    try {
+      await createMastraAgentRuntime({
+        instructions: 'Bespoke caller instructions with no date of their own.',
+        runtime: { apiKey: 'key', provider: 'openai' },
+        tools: {
+          'brainstrike.readWorkspaceFile': {
+            description: 'Read workspace file',
+            id: 'brainstrike.readWorkspaceFile',
+          },
+        },
+      });
+      const instructions = agentInstances[0]?.config.instructions ?? '';
+      expect(instructions).toContain('Bespoke caller instructions');
+      expect(instructions).toContain('2026-08-23');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('constructs hosted agents from critical plus custom tools and defers known noncritical tools', async () => {
@@ -1567,15 +2326,7 @@ describe('mastra streaming integration', () => {
     });
 
     const runtime = await createMastraAgentRuntime({
-      mcpConfig: {
-        servers: [
-          {
-            command: 'echo',
-            name: 'filesystem',
-            transport: 'stdio',
-          },
-        ],
-      },
+      mcpHost,
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
         'brainstrike.listEmbeddingSpaces': {
@@ -1888,7 +2639,6 @@ describe('mastra streaming integration', () => {
           provider: 'openrouter',
           providerOptions: {
             openrouter: {
-              // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
               provider: { require_parameters: true },
               reasoning: { effort: 'high' },
             },
@@ -1913,7 +2663,6 @@ describe('mastra streaming integration', () => {
           provider: 'openrouter',
           providerOptions: {
             openrouter: {
-              // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
               provider: { require_parameters: true },
               reasoning: { enabled: false },
             },
@@ -1972,12 +2721,7 @@ describe('mastra streaming integration', () => {
 });
 
 describe('resolveRuntimeConfiguration', () => {
-  const openAiEnvKeys = [
-    'OPENAI_API_KEY',
-    'AI_OPENAI_API_KEY',
-    'OPENAI_API_KEY_V1',
-    'OPENAI_API_KEY_V2',
-  ] as const;
+  const openAiEnvKeys = ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'] as const;
 
   const originalEnv: Partial<Record<(typeof openAiEnvKeys)[number], string | undefined>> = {};
 
@@ -2046,5 +2790,69 @@ describe('resolveRuntimeConfiguration', () => {
     // Should throw missing provider error since undefined runtimeData means no provider
     expect(thrown).toBeInstanceOf(MastraAgentError);
     expect((thrown as MastraAgentError | undefined)?.code).toBe('mastra_agent_missing_provider');
+  });
+});
+
+describe('MCP discovery skip rows (BST-1602)', () => {
+  beforeEach(() => {
+    resetMastraStreamHarness();
+  });
+
+  function configureFailingMcpServer(): void {
+    setMcpToolsets({
+      broken: { 'remote tool': { description: 'remote', id: 'remote tool' } },
+    });
+    setMcpDiscoveryFailure('broken', 'Connection closed');
+  }
+
+  async function streamOneTurn() {
+    return await streamMastraAgent(
+      [{ id: 'user-mcp-skip', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+      {
+        mcpHost,
+        runtime: { apiKey: 'key', provider: 'openai' },
+        storage: { id: 'storage-with-workflows' } as never,
+      }
+    );
+  }
+
+  it('leads the fresh turn with an always-visible mcp.tools.unavailable row', async () => {
+    configureFailingMcpServer();
+
+    const iterator = await streamOneTurn();
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const skipRows = chunks.filter(
+      (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'mcp.tools.unavailable'
+    );
+    expect(skipRows).toHaveLength(1);
+    expect(skipRows[0]).toMatchObject({
+      event: {
+        detail: 'broken skipped for this request — Connection closed',
+        status: 'failed',
+      },
+    });
+  });
+
+  it('still disposes the runtime when the consumer stops ON the skip row', async () => {
+    // The BST-1602 regression this guards (PR #2938 review): while the rows
+    // were yielded by a WRAPPER around `runTurnAttempts`, a consumer that took
+    // a skip row and stopped left the turn generator unstarted, so its
+    // `finally` — and `runtime.dispose()` — never ran, while `firstAttempt` was
+    // already a live stream. `.return()` on an unstarted generator does not run
+    // its body, so the rows have to live INSIDE that generator.
+    configureFailingMcpServer();
+
+    const iterator = await streamOneTurn();
+    for await (const chunk of iterator) {
+      expect((chunk as { event?: { kind?: string } }).event?.kind).toBe('mcp.tools.unavailable');
+      break;
+    }
+
+    expect(mastraInstances).toHaveLength(1);
+    expect(mastraInstances[0]?.shutdownCalls).toBe(1);
   });
 });

@@ -22,7 +22,7 @@
  */
 
 import { isAppActive } from '@brainstrike/hooks';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createIndexerTelemetryAggregator, type IndexerTelemetrySnapshot } from './telemetry';
 
 export interface UseIndexerTelemetryOptions {
@@ -67,15 +67,9 @@ export function useIndexerTelemetry({
   const [snapshot, setSnapshot] = useState<IndexerTelemetrySnapshot>(emptySnapshot);
   const [resetCounter, setResetCounter] = useState(0);
 
-  // Create aggregator (recreates when options or reset counter changes)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resetCounter intentionally triggers recreation on reset()
-  const aggregator = useMemo(
-    () => createIndexerTelemetryAggregator(windowMs, maxEvents),
-    [windowMs, maxEvents, resetCounter]
-  );
-
-  // Poll for snapshot updates
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resetCounter intentionally replaces the aggregator on reset().
   useEffect(() => {
+    const aggregator = createIndexerTelemetryAggregator(windowMs, maxEvents);
     // Initial snapshot
     setSnapshot(aggregator.snapshot());
 
@@ -91,14 +85,11 @@ export function useIndexerTelemetry({
       clearInterval(intervalId);
       aggregator.dispose();
     };
-  }, [aggregator, updateIntervalMs]);
+  }, [maxEvents, resetCounter, updateIntervalMs, windowMs]);
 
-  const reset = useMemo(
-    () => () => {
-      setResetCounter((c) => c + 1);
-    },
-    []
-  );
+  const reset = useCallback(() => {
+    setResetCounter((counter) => counter + 1);
+  }, []);
 
   return { reset, snapshot };
 }

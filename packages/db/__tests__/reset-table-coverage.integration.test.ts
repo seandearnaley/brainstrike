@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   auditResetTableCoverage,
   getFactoryResetOnlyTables,
-  getMastraResetTables,
+  getLazyMastraResetTables,
   getResetTables,
   RESET_EXCLUDED_TABLES,
 } from '../src/reset-table-registry';
@@ -57,9 +57,11 @@ describe('reset-table coverage (real migrated database)', () => {
   it('every migration-backed registry table actually exists (registry names cannot rot)', async () => {
     // The probe helpers tolerate absence by design, so a misspelled registry
     // name would otherwise become a permanent silent skip (the to_regclass
-    // hazard). The Mastra six are the only legitimately-lazy members: they are
-    // application-created and absent on a freshly migrated database.
-    const lazy = new Set<string>(getMastraResetTables());
+    // hazard). Since BST-1651 only `mastra_vectors` and
+    // `mastra_workflow_snapshot` are legitimately lazy — Mastra's vector store
+    // and workflow storage create those; migration 117 creates the four memory
+    // relations, which the assistant repository probes for at startup.
+    const lazy = new Set<string>(getLazyMastraResetTables());
     const existing = new Set(await sweepPublicBaseTables());
     for (const table of getResetTables()) {
       if (lazy.has(table)) {

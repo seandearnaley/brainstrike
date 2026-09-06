@@ -200,3 +200,38 @@ export function getAssistantThreadColorSurface(
   }
   return ASSISTANT_THREAD_COLOR_PRESENTATION[colorId];
 }
+
+/**
+ * Run state a Threads-panel row can report, in the ONE badge slot it spends on
+ * run state. See `thread-row-status-glyph.tsx` for the glyphs themselves.
+ */
+export type ThreadRowStatusState = 'done-unseen' | 'failed-unseen' | 'needs-you' | 'running';
+
+export interface ThreadRowStatusInputs {
+  /** The thread's latest run failed and the user has not looked since. */
+  readonly failedUnseen: boolean;
+  /** The user owes this thread a tool-approval answer. */
+  readonly needsYou: boolean;
+  readonly running: boolean;
+  /** The thread's latest run reached a terminal state after the watermark. */
+  readonly unseen: boolean;
+}
+
+/** Highest-priority state for one row, or `null` when the row is plain. */
+export function resolveThreadRowStatusState({
+  failedUnseen,
+  needsYou,
+  running,
+  unseen,
+}: ThreadRowStatusInputs): ThreadRowStatusState | null {
+  if (needsYou) {
+    return 'needs-you';
+  }
+  if (running) {
+    return 'running';
+  }
+  if (failedUnseen) {
+    return 'failed-unseen';
+  }
+  return unseen ? 'done-unseen' : null;
+}

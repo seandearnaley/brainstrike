@@ -1,5 +1,6 @@
 // Re-export IFileNode from types package for convenience
 export type { IFileNode } from '@brainstrike/types';
+export * from './absolute-read-path.js';
 // Explicit .js extensions keep Node ESM resolution happy in Vitest/SSR.
 export * from './adapters/mock-file-system-adapter.js';
 export * from './adapters/web-adapter.js';

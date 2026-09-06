@@ -35,6 +35,18 @@ import {
   recoverRuntimeDatabaseCorruption,
 } from './runtime-database-corruption';
 
+const ALL_INDEXING_HOSTS_SENDER_POLICY = {
+  reason:
+    'Invoked by the visible UI and the chunking-host and embedding-host hidden hosts (dist/hidden-preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+const VISIBLE_ONLY_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
+// Every `db:*` channel `hidden-preload.ts` exposes to the embedding host besides
+// the shared `db:query` (chunking host: `db:query` only; llm host: no db bridge).
+const EMBEDDING_HOST_SHARED_SENDER_POLICY = { roles: ['embedding-host', 'visible-ui'] } as const;
+
 interface DatabaseHostWindowMatcher {
   readonly isHostWindow: (window: BrowserWindow) => boolean;
 }
@@ -81,6 +93,17 @@ interface PGliteLiveQuerySurface {
   };
 }
 
+interface E2eDbLiveQueryDiagnostics {
+  readonly hostLiveQueryCount: number;
+  readonly ipcLiveQueryCount: number;
+  readonly managerLiveQueryCount: number;
+}
+
+const E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY = '__brainstrike_e2e_db_live_query_diagnostics__' as const;
+type E2eDbLiveQueryDiagnosticsGlobal = Partial<
+  Record<typeof E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY, () => Promise<E2eDbLiveQueryDiagnostics>>
+>;
+
 /**
  * Derived from the reset-table registry (BST-992): the registry owns the SET
  * every table-enumerating reset path clears; this file owns desktop's order
@@ -98,8 +121,21 @@ type RegisteredBareDeleted<T extends ResetTable> = T;
 type BareDeletedTable = RegisteredBareDeleted<'file_chunks' | 'file_records'>;
 type OptionalRelationTable = Exclude<ResetTable, BareDeletedTable>;
 
+/**
+ * The lifecycle surface the live-query owner reaper needs from a WebContents.
+ * `on`/`removeListener` attach and detach the teardown listeners; `id` keys the
+ * subscription records.
+ */
+type LiveSubscriptionOwner = Pick<Electron.WebContents, 'id' | 'on' | 'removeListener'>;
+
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
-const liveSubscriptionOwnerListeners = new Set<number>();
+// WeakSet/WeakMap — never strongly retain a WebContents (mirrors fs-watch's
+// reaperAttachedOwners / ownerLifecycleGenerations in file-system-watch-ipc.ts).
+const liveSubscriptionReaperAttachedOwners = new WeakSet<LiveSubscriptionOwner>();
+// Invalidates a db:live-query:start whose createLiveQueryHandle await straddles
+// a reap: the finished handle belongs to a dead renderer context and must be
+// torn down instead of registered.
+const liveSubscriptionOwnerGenerations = new WeakMap<LiveSubscriptionOwner, number>();
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
@@ -112,13 +148,19 @@ let nextLiveSubscriptionId = 1;
 let isBackgrounded = false;
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function cleanupLiveSubscriptionsForOwner(
-  webContentsId: number,
-  options?: { releaseOwnerRegistration?: boolean }
-): Promise<void> {
-  if (options?.releaseOwnerRegistration) {
-    liveSubscriptionOwnerListeners.delete(webContentsId);
-  }
+function isE2eTestMode(): boolean {
+  return (
+    process.argv.includes('--test-mode') ||
+    process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
+    process.env['NODE_ENV'] === 'test'
+  );
+}
+
+function liveSubscriptionOwnerGeneration(owner: LiveSubscriptionOwner): number {
+  return liveSubscriptionOwnerGenerations.get(owner) ?? 0;
+}
+
+async function cleanupLiveSubscriptionsForOwner(webContentsId: number): Promise<void> {
   const ownedSubscriptionIds = Array.from(liveSubscriptions.values())
     .filter((subscription) => subscription.webContentsId === webContentsId)
     .map((subscription) => subscription.id);
@@ -128,7 +170,7 @@ async function cleanupLiveSubscriptionsForOwner(
 
 async function cleanupDisposedLiveSubscriptionOwner(
   webContentsId: number,
-  reason: 'missing-owner' | 'disposed-frame-send'
+  reason: 'missing-owner' | 'disposed-frame-send' | 'owner-teardown'
 ): Promise<void> {
   logger.debug('Cleaning up live subscriptions for unavailable renderer owner', {
     reason,
@@ -145,7 +187,7 @@ async function cleanupDisposedLiveSubscriptionOwner(
 
 function scheduleDisposedLiveSubscriptionOwnerCleanup(
   webContentsId: number,
-  reason: 'missing-owner' | 'disposed-frame-send'
+  reason: 'missing-owner' | 'disposed-frame-send' | 'owner-teardown'
 ): void {
   void cleanupDisposedLiveSubscriptionOwner(webContentsId, reason).catch((error) => {
     logger.error('Failed to clean up live subscriptions for unavailable renderer owner', {
@@ -422,7 +464,6 @@ async function cleanupAllLiveSubscriptions(): Promise<void> {
     await Promise.allSettled(ids.map((id) => cleanupLiveSubscription(id)));
   }
   liveSubscriptions.clear();
-  liveSubscriptionOwnerListeners.clear();
   nextLiveSubscriptionId = 1;
   isBackgrounded = false;
 }
@@ -431,21 +472,64 @@ export async function cleanupDesktopLiveSubscriptionsForShutdown(): Promise<void
   await cleanupAllLiveSubscriptions();
 }
 
-function registerLiveSubscriptionOwner(sender: Pick<Electron.WebContents, 'id' | 'once'>): void {
-  if (liveSubscriptionOwnerListeners.has(sender.id)) {
+/**
+ * Reap every live-query subscription this renderer owns when its context goes
+ * away. Mirrors the fs-watch owner reaper (`attachOwnerReaper` in
+ * file-system-watch-ipc.ts) and covers all three teardown shapes: window
+ * closed ('destroyed'), renderer crash ('render-process-gone' — the
+ * WebContents survives), and main-frame reload/navigation ('did-navigate' —
+ * the old page's hooks are gone). A 'destroyed'-only hook leaks reload
+ * orphans: the WebContents survives Cmd+R and crash-recovery reloads, so every
+ * old-page subscription keeps being computed by PGlite, serialized over IPC,
+ * and dropped by the new page's id filter — unbounded growth until window
+ * close.
+ *
+ * Because 'did-navigate' fires while the WebContents SURVIVES, `reap` removes
+ * ALL three listeners when any one fires — otherwise the siblings of the fired
+ * event linger and the next db:live-query:start re-attaches a fresh set,
+ * piling listeners up on one WebContents. Listeners are re-attached on the
+ * next db:live-query:start after a reap. Any firing also bumps the owner
+ * generation so a start whose createLiveQueryHandle await straddled the reap
+ * can detect it and discard the fresh handle instead of registering an orphan.
+ */
+function attachLiveSubscriptionOwnerReaper(owner: LiveSubscriptionOwner): void {
+  if (liveSubscriptionReaperAttachedOwners.has(owner)) {
     return;
   }
-
-  liveSubscriptionOwnerListeners.add(sender.id);
-  sender.once('destroyed', () => {
-    void cleanupLiveSubscriptionsForOwner(sender.id, { releaseOwnerRegistration: true });
-  });
+  liveSubscriptionReaperAttachedOwners.add(owner);
+  const reap = (): void => {
+    liveSubscriptionOwnerGenerations.set(owner, liveSubscriptionOwnerGeneration(owner) + 1);
+    liveSubscriptionReaperAttachedOwners.delete(owner);
+    // Remove ALL teardown listeners — a fired 'did-navigate' leaves the
+    // WebContents alive, so its siblings would otherwise linger and pile up.
+    owner.removeListener('destroyed', reap);
+    owner.removeListener('render-process-gone', reap);
+    owner.removeListener('did-navigate', reap);
+    scheduleDisposedLiveSubscriptionOwnerCleanup(owner.id, 'owner-teardown');
+  };
+  owner.on('destroyed', reap);
+  owner.on('render-process-gone', reap);
+  owner.on('did-navigate', reap);
 }
 
 export function registerDatabaseIpcHandlers(
   options?: RegisterDatabaseIpcHandlersOptions
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const e2eGlobal = globalThis as typeof globalThis & E2eDbLiveQueryDiagnosticsGlobal;
+  const e2eLiveQueryDiagnostics = isE2eTestMode()
+    ? async (): Promise<E2eDbLiveQueryDiagnostics> => {
+        const { getDbHostManager } = await import('../db-host-manager');
+        const diagnostics = await getDbHostManager().getLiveQueryDiagnosticsForTests();
+        return {
+          ...diagnostics,
+          ipcLiveQueryCount: liveSubscriptions.size,
+        };
+      }
+    : null;
+  if (e2eLiveQueryDiagnostics) {
+    e2eGlobal[E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY] = e2eLiveQueryDiagnostics;
+  }
   const recover = async (context: string): Promise<void> => {
     // Stop renderer-owned reactive handles before the DB host is torn down.
     // This prevents their refresh timers from retaining the old database and
@@ -458,9 +542,10 @@ export function registerDatabaseIpcHandlers(
     context: string
   ): Promise<T> => await runWithCorruptionRecovery(operation, context, recover);
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.query,
+    ALL_INDEXING_HOSTS_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       sql: string,
@@ -483,9 +568,10 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.exec,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       sql: string,
@@ -513,9 +599,10 @@ export function registerDatabaseIpcHandlers(
   // transaction lock serializes a concurrent db:query (e.g. the FTS half of a hybrid
   // search) so it can't interleave — the isolation/error-coupling fix that raw
   // BEGIN/COMMIT over separate IPC calls can't provide.
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.transaction,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       statements: TransactionStatement[],
@@ -538,49 +625,88 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.liveQueryStart,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       payload: LiveQueryPayload,
       workOptions?: DatabaseWorkOptions
-    ) =>
-      runScheduledDatabaseWork(event, options, workOptions, 'db:live-query:start', async () =>
-        withCorruptionRecovery(async () => {
-          const { getDatabase } = await import('../db-main');
-          const db = await getDatabase();
+    ) => {
+      const sender = event.sender;
+      // Mirrors fs-watch's pre-attach guard: attaching to an already-destroyed
+      // WebContents arms a reaper whose teardown events have ALREADY fired, so
+      // no reap would ever arrive and the subscription would be registered
+      // permanently, retaining the dead sender through the update listener.
+      if (sender.isDestroyed()) {
+        throw new Error('db:live-query:start: the requesting renderer is already destroyed.');
+      }
+      // Read the generation and attach the reaper BEFORE any await — a reload
+      // or crash landing while this start is queued or while
+      // createLiveQueryHandle is in flight must still be observable.
+      const ownerGeneration = liveSubscriptionOwnerGeneration(sender);
+      attachLiveSubscriptionOwnerReaper(sender);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        'db:live-query:start',
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDatabase } = await import('../db-main');
+            const db = await getDatabase();
 
-          const handle = await createLiveQueryHandle(getLiveQuerySurface(db), payload);
-          const mode: 'query' | 'incremental' =
-            payload?.mode === 'incremental' ? 'incremental' : 'query';
+            const handle = await createLiveQueryHandle(getLiveQuerySurface(db), payload);
+            if (liveSubscriptionOwnerGeneration(sender) !== ownerGeneration) {
+              // The requesting renderer context was reaped mid-setup: this
+              // handle already belongs to a dead page. Registering it would
+              // create a permanent orphan the reap (which already ran) cannot
+              // see, so tear it down and surface the teardown visibly.
+              try {
+                await handle.unsubscribe();
+              } catch (error) {
+                // Guarded (unlike every other teardown, which goes through
+                // cleanupLiveSubscription's tolerance): a rejection here must
+                // neither replace the context-changed error below nor — via
+                // withCorruptionRecovery — let a benign reload race trigger a
+                // full database replacement. Logged, never swallowed silently.
+                logger.warn('Failed to tear down a live-query handle reaped mid-setup', { error });
+              }
+              throw new Error(
+                'db:live-query:start: the requesting renderer context changed during setup.'
+              );
+            }
+            const mode: 'query' | 'incremental' =
+              payload?.mode === 'incremental' ? 'incremental' : 'query';
 
-          const id = nextLiveSubscriptionId++;
-          const sender = event.sender;
-          const listener = (results: LiveQueryResults<unknown>) =>
-            sendLiveQueryUpdateToSender(sender, id, results);
+            const id = nextLiveSubscriptionId++;
+            const listener = (results: LiveQueryResults<unknown>) =>
+              sendLiveQueryUpdateToSender(sender, id, results);
 
-          handle.subscribe(listener);
-          liveSubscriptions.set(id, { handle, id, listener, mode, webContentsId: sender.id });
-          registerLiveSubscriptionOwner(sender);
+            handle.subscribe(listener);
+            liveSubscriptions.set(id, { handle, id, listener, mode, webContentsId: sender.id });
 
-          return { id, initialResults: handle.initialResults };
-        }, 'db:live-query:start')
-      )
+            return { id, initialResults: handle.initialResults };
+          }, 'db:live-query:start')
+      );
+    }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.liveQueryStop,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (_event, id: number) => {
       await cleanupLiveSubscription(Number(id));
       return { success: true };
     }
   );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.liveQueryRefresh,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (
       event: IpcMainInvokeEvent,
       payload: { id: number; offset?: number; limit?: number },
@@ -608,23 +734,37 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.ping, async () => ({
-    message: 'ping',
-    success: true,
-  }));
-
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.diagnostics, async () => {
-    const { getDbHostManager } = await import('../db-host-manager');
-    return await getDbHostManager().getDiagnostics();
-  });
-
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.schedulerSnapshot, async () =>
-    getDesktopDatabaseWorkSchedulerSnapshot()
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.ping,
+    VISIBLE_ONLY_SENDER_POLICY,
+    async () => ({
+      message: 'ping',
+      success: true,
+    })
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.diagnostics,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
+    async () => {
+      const { getDbHostManager } = await import('../db-host-manager');
+      return await getDbHostManager().getDiagnostics();
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.schedulerSnapshot,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
+    async () => getDesktopDatabaseWorkSchedulerSnapshot()
+  );
+
+  registry.registerAuthorizedInvoke(
     'db',
     DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
       const parsedPayload = parseManagedCacheBatchArgs(payload);
       return runScheduledDatabaseWork(
@@ -641,9 +781,10 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
       const parsedPayload = parseManagedCacheInvalidationsArgs(payload);
       return runScheduledDatabaseWork(
@@ -660,9 +801,10 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'db',
     DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
     async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
       const parsedPayload = parseInsertChunksAndEnqueueEmbeddingJobsArgs(payload);
       return runScheduledDatabaseWork(
@@ -679,30 +821,36 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.test, async () => {
-    try {
-      return await withCorruptionRecovery(async () => {
-        const { getDatabase } = await import('../db-main');
-        const db = await getDatabase();
-        await db.query('SELECT 1');
+  registry.registerAuthorizedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.test,
+    EMBEDDING_HOST_SHARED_SENDER_POLICY,
+    async () => {
+      try {
+        return await withCorruptionRecovery(async () => {
+          const { getDatabase } = await import('../db-main');
+          const db = await getDatabase();
+          await db.query('SELECT 1');
+          return {
+            dbLocation: 'DB Host',
+            message: 'Database connection successful',
+            success: true,
+          };
+        }, 'db:test');
+      } catch (error) {
         return {
           dbLocation: 'DB Host',
-          message: 'Database connection successful',
-          success: true,
+          message: `Database connection failed: ${error instanceof Error ? error.message : String(error)}`,
+          success: false,
         };
-      }, 'db:test');
-    } catch (error) {
-      return {
-        dbLocation: 'DB Host',
-        message: `Database connection failed: ${error instanceof Error ? error.message : String(error)}`,
-        success: false,
-      };
+      }
     }
-  });
+  );
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.clearAll,
+    VISIBLE_ONLY_SENDER_POLICY,
     async (_event, confirmationToken?: string) => {
       try {
         if (!confirmationToken || confirmationToken !== 'CONFIRM_CLEAR_DATABASE') {
@@ -836,6 +984,11 @@ export function registerDatabaseIpcHandlers(
             // No FK, so nothing cascades it — clear explicitly per the FACTORY
             // RESET CONTRACT so error history cannot survive a fresh start.
             await clearOptionalRelation(tx, 'brainstrike_diagnostic_events');
+            // Forge PR cache (migration 110, BST-1391): FK-less, main-written.
+            await clearOptionalRelation(tx, 'brainstrike_forge_prs');
+            await clearOptionalRelation(tx, 'brainstrike_worktrees');
+            await clearOptionalRelation(tx, 'brainstrike_mcp_tasks');
+            await clearOptionalRelation(tx, 'brainstrike_mcp_task_authorities');
             // Mind op-log (migration 079, BST-993): tombstones for data this
             // clear just destroyed must not survive onto the fresh database.
             await clearOptionalRelation(tx, 'brainstrike_mind_ops');
@@ -871,27 +1024,40 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.resetLocal, async () => {
-    if (options?.onResetLocal) {
-      return options.onResetLocal();
-    }
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.resetLocal,
+    VISIBLE_ONLY_SENDER_POLICY,
+    async () => {
+      if (options?.onResetLocal) {
+        return options.onResetLocal();
+      }
 
-    const { resetLocalDatabase } = await import('../db-main');
-    try {
-      await resetLocalDatabase();
-      return { success: true };
-    } catch (error) {
-      return { message: error instanceof Error ? error.message : String(error), success: false };
+      const { resetLocalDatabase } = await import('../db-main');
+      try {
+        await resetLocalDatabase();
+        return { success: true };
+      } catch (error) {
+        return { message: error instanceof Error ? error.message : String(error), success: false };
+      }
     }
-  });
+  );
 
-  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.getUserDataPath, async () => {
-    const { getDatabaseDiagnostics } = await import('../db-main');
-    return getDatabaseDiagnostics().dataDir;
-  });
+  registry.registerUnauthenticatedInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.getUserDataPath,
+    VISIBLE_ONLY_SENDER_POLICY,
+    async () => {
+      const { getDatabaseDiagnostics } = await import('../db-main');
+      return getDatabaseDiagnostics().dataDir;
+    }
+  );
 
   return () => {
     registry.unregisterAll();
     void cleanupAllLiveSubscriptions();
+    if (e2eGlobal[E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY] === e2eLiveQueryDiagnostics) {
+      delete e2eGlobal[E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY];
+    }
   };
 }

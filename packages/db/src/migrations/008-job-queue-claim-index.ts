@@ -5,6 +5,7 @@ export const migration008JobQueueClaimIndex: Migration = {
   down: `
     DROP INDEX IF EXISTS idx_job_queue_claim;
   `,
+  ledgerKey: 'custom-008-job-queue-claim-index',
   name: 'job_queue_claim_index',
   up: `
     CREATE INDEX IF NOT EXISTS idx_job_queue_claim

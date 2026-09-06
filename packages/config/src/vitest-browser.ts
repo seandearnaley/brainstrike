@@ -6,6 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 import type { PlaywrightProviderOptions } from '@vitest/browser-playwright';
 import { playwright } from '@vitest/browser-playwright';
 
@@ -86,6 +87,30 @@ const CI_LAUNCH_ARGS = [
 
 const resolveIsCI = (config?: BrowserTestConfig): boolean =>
   config?.isCI ?? Boolean(process.env['CI'] || process.env['GITHUB_ACTIONS']);
+
+interface VisualBaselinePathData {
+  arg: string;
+  browserName: string;
+  ext: string;
+  platform: NodeJS.Platform;
+  root: string;
+  testFileDirectory: string;
+  testFileName: string;
+}
+
+/**
+ * Keeps intentional `toMatchScreenshot` references separate from Vitest's
+ * generated failure captures, which remain under the ignored `__screenshots__`.
+ */
+export function resolveVisualBaselinePath(data: VisualBaselinePathData): string {
+  return path.join(
+    data.root,
+    data.testFileDirectory,
+    '__image_snapshots__',
+    data.testFileName,
+    `${data.arg}-${data.browserName}-${data.platform}${data.ext}`
+  );
+}
 
 /**
  * Vitest builds the Playwright trace chunk name from the full sanitized test
@@ -329,6 +354,11 @@ export function createBrowserProject(config: BrowserProjectConfig) {
     test: {
       browser: {
         enabled: true,
+        expect: {
+          toMatchScreenshot: {
+            resolveScreenshotPath: resolveVisualBaselinePath,
+          },
+        },
         headless,
         instances: [{ browser: 'chromium' as const }],
         provider: withBoundedTraceChunkNames(playwright(createPlaywrightOptions(config))),

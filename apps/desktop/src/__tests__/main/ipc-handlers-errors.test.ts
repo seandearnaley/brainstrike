@@ -2,6 +2,7 @@ import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electro
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 
 // Capture registered handlers
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
@@ -52,7 +53,9 @@ describe('ipc-handlers error branches', () => {
 
     store = {};
 
-    registerIpcHandlers(fsAdapter, storage, () => store as never);
+    registerIpcHandlers(fsAdapter, storage, () => store as never, {
+      isSyntheticFileSystemPath: () => true,
+    });
   });
 
   it('fs:restoreLastFolder propagates storage errors', async () => {
@@ -60,18 +63,16 @@ describe('ipc-handlers error branches', () => {
     (storage.getItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('boom')
     );
-    await expect(handler?.({} as unknown as IpcMainInvokeEvent)).rejects.toThrow('boom');
+    await expect(handler?.(createTrustedInvokeEvent())).rejects.toThrow('boom');
   });
 
   it('fs:saveLastFolder propagates storage.setItem errors', async () => {
-    await handlers.get('fs:addRoot')?.({} as unknown as IpcMainInvokeEvent);
+    await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent());
     const handler = handlers.get('fs:saveLastFolder');
     (storage.setItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('boom')
     );
-    await expect(handler?.({} as unknown as IpcMainInvokeEvent, '/test/workspace')).rejects.toThrow(
-      'boom'
-    );
+    await expect(handler?.(createTrustedInvokeEvent(), '/test/workspace')).rejects.toThrow('boom');
     expect(storage.setItem).toHaveBeenCalled();
   });
 });

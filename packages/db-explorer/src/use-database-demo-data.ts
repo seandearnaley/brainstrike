@@ -146,10 +146,19 @@ export interface DatabaseRecordPagination {
   totalRecords: number;
 }
 
+export interface DatabaseDemoCacheDiagnostics {
+  cachedChunkPageEntries: number;
+  cachedCollectionCountEntries: number;
+  cachedRecordPageEntries: number;
+  cachedRecordTotalEntries: number;
+  loadedRecordPageEntries: number;
+}
+
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
   collectionCounts: DatabaseCollectionCounts;
   collectionCountsStatus: DatabaseCollectionCountsStatus;
   dbInfo: DatabaseInfo | null;
+  getTestCacheDiagnostics: () => DatabaseDemoCacheDiagnostics;
   recordPagination: DatabaseRecordPagination;
   records: DatabaseFileRecordSummary[];
   refreshing: boolean;
@@ -302,6 +311,17 @@ export function useDatabaseDemoData({
   const [cacheVersion, setCacheVersion] = useState(0);
   const [fallbackLoading, setFallbackLoading] = useState(false);
   const [fallbackError, setFallbackError] = useState<Error | null>(null);
+
+  const getTestCacheDiagnostics = useCallback(
+    (): DatabaseDemoCacheDiagnostics => ({
+      cachedChunkPageEntries: cachedLoadedChunksRef.current.size,
+      cachedCollectionCountEntries: cachedCollectionCountsRef.current.size,
+      cachedRecordPageEntries: cachedRecordsRef.current.size,
+      cachedRecordTotalEntries: cachedRecordTotalsRef.current.size,
+      loadedRecordPageEntries: loadedRecordPageKeysRef.current.size,
+    }),
+    []
+  );
 
   // Global schema verification cache - persists across component remounts
   const globalSchemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
@@ -1282,6 +1302,7 @@ export function useDatabaseDemoData({
     collectionCounts: resolvedCollectionCounts,
     collectionCountsStatus: resolvedCollectionCountsStatus,
     dbInfo,
+    getTestCacheDiagnostics,
     loadChunks,
     loadCollectionExportData,
     loadFileChunkSummaries,

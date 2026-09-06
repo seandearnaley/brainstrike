@@ -15,6 +15,7 @@ import {
   selectSlashCommandSource,
 } from './slash-command-source';
 import { useGlobalCommandHandlers } from './use-global-command-handlers';
+import { useMcpPromptSlashCommands } from './use-mcp-prompt-slash-commands';
 import { useSkillSlashCommands } from './use-skill-slash-commands';
 import { useUserDefinedSlashCommands } from './use-user-defined-slash-commands';
 
@@ -40,8 +41,10 @@ const logger = createLogger('AssistantSlashCommands');
  * appear.
  *
  * Concatenated with `useUserDefinedSlashCommands` (desktop-only prompt-template
- * commands scanned from `.brainstrike/commands` / `.claude/commands`): app
- * commands first (run-and-toast), then user commands (expand-into-composer).
+ * commands scanned from `.brainstrike/commands` / `.claude/commands`), then
+ * `useSkillSlashCommands`, then `useMcpPromptSlashCommands` (desktop-only MCP
+ * server prompts): app commands first (run-and-toast), then user commands
+ * (expand-into-composer).
  * `threadId` is the active assistant thread, threaded to user commands so their
  * `execute` can read the live composer draft and write the expansion back.
  */
@@ -96,8 +99,13 @@ export function useAssistantSlashCommands(threadId: string | undefined): readonl
   // `skill:<name>` ids make app/user collisions impossible in practice, but the
   // same warn-once drop applies on principle.
   const skillCommands = useSkillSlashCommands(threadId);
+  // MCP server prompts (desktop-only): a fourth entry kind whose execute hands
+  // the selection to `McpPromptComposerHost`. `mcp:<server>:<prompt>` ids make
+  // app/user/skill collisions impossible in practice, but the same warn-once
+  // drop applies on principle.
+  const mcpPromptCommands = useMcpPromptSlashCommands(threadId);
 
-  // App-lifetime warn-once set for app-vs-user/skill id collisions (F4).
+  // App-lifetime warn-once set for app-vs-user/skill/MCP id collisions (F4).
   const warnedCollisionIds = useRef<Set<string>>(new Set());
 
   return useMemo<readonly SlashCommand[]>(() => {
@@ -105,9 +113,12 @@ export function useAssistantSlashCommands(threadId: string | undefined): readonl
       logger,
       warnedCollisionIds: warnedCollisionIds.current,
     });
-    return mergeSlashCommands(withUserCommands, skillCommands, {
+    // Skills (`skill:<name>`) and MCP prompts (`mcp:<server>:<prompt>`) are
+    // namespaced, so they cannot collide with each other and merge against the
+    // app commands in one pass — the app-wins warn-once drop still covers both.
+    return mergeSlashCommands(withUserCommands, [...skillCommands, ...mcpPromptCommands], {
       logger,
       warnedCollisionIds: warnedCollisionIds.current,
     });
-  }, [appCommands, skillCommands, userCommands]);
+  }, [appCommands, mcpPromptCommands, skillCommands, userCommands]);
 }

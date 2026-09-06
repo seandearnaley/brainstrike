@@ -35,29 +35,34 @@ export function registerTerminalIpc(
 ): () => void {
   const unregisterTerminal = registerTerminalIpcHandlers(handlers);
   const registry = createDesktopIpcRegistry({ ipcMain });
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'commandSessions',
     DESKTOP_IPC_CHANNELS.commandSessions.list,
+    { roles: ['visible-ui'] },
     (_event, params: CommandSessionListParams) => commandSessionHandlers.list(params)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'commandSessions',
     DESKTOP_IPC_CHANNELS.commandSessions.read,
+    { roles: ['visible-ui'] },
     (_event, params: CommandSessionReadParams) => commandSessionHandlers.read(params)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'commandSessions',
     DESKTOP_IPC_CHANNELS.commandSessions.write,
+    { roles: ['visible-ui'] },
     (_event, params: CommandSessionWriteParams) => commandSessionHandlers.write(params)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'commandSessions',
     DESKTOP_IPC_CHANNELS.commandSessions.stop,
+    { roles: ['visible-ui'] },
     (_event, params: CommandSessionIdentityParams) => commandSessionHandlers.stop(params)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'commandSessions',
     DESKTOP_IPC_CHANNELS.commandSessions.remove,
+    { roles: ['visible-ui'] },
     (_event, params: CommandSessionIdentityParams) => commandSessionHandlers.remove(params)
   );
 

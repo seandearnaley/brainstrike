@@ -2,8 +2,7 @@
   "name": "@brainstrike/local-runtime",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/logging": "workspace:*"
+    "@brainstrike/assistant-contract": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

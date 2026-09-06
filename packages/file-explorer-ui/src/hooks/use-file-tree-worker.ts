@@ -62,6 +62,7 @@ async function loadSingleDirectory(
   path: string,
   rootPath: string,
   rootFolderId: string,
+  parentRootId: DirectoryHandle['rootId'],
   handleMap: Map<string, FileSystemHandle>,
   fileSystemAdapter: FileSystemAdapter,
   abortSignal: AbortSignal
@@ -76,9 +77,11 @@ async function loadSingleDirectory(
   try {
     const children = await loadDirectoryChildren(fileSystemAdapter, node, {
       abortSignal,
+      parentRootId,
       sortFileNodes,
     });
 
+    abortSignal.throwIfAborted();
     addHandlesToMap(children, handleMap);
 
     return { children: toWorkerFileNodes(children), path };
@@ -194,16 +197,16 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
     // Handle load requests from worker - perform I/O with FileSystemHandles
     unsubscribes.push(
-      port.onRequestLoad(async (_requestId, paths) => {
+      port.onRequestLoad(async (_requestId, paths, abortSignal) => {
+        abortSignal.throwIfAborted();
         if (!fileSystemAdapter) {
           logger.warn('onRequestLoad: no file system adapter');
           return paths.map((path) => ({ error: 'No file system adapter', path }));
         }
 
-        const abortController = new AbortController();
-
         // Get root info for building nodes
-        const rootPath = rootHandleRef.current?.path;
+        const rootHandle = rootHandleRef.current;
+        const rootPath = rootHandle?.path;
         if (!rootPath) {
           return paths.map((path) => ({
             error: 'Root directory handle is missing its canonical path',
@@ -225,9 +228,10 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
                 path,
                 rootPath,
                 rootFolderId,
+                rootHandle.rootId,
                 handleMapRef.current,
                 fileSystemAdapter,
-                abortController.signal
+                abortSignal
               );
             } catch (err) {
               // Ignore abort errors (operation was cancelled)
@@ -242,6 +246,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
           }
         );
 
+        abortSignal.throwIfAborted();
         return results;
       })
     );

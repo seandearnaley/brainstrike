@@ -209,7 +209,8 @@ describe('ask-gated suspending tools (BST-1097, 1.56+ idiom)', () => {
     // requireApproval clone as every other ask tool: the framework collects
     // the approval BEFORE execute() runs, and the resume transport's
     // `approved: true` rider keeps its Gate B suspension resumable
-    // (agent-streaming.ts). The old self-approving exception is gone.
+    // (attempt-legs.ts, moved out of agent-streaming.ts by BST-1649). The old
+    // self-approving exception is gone.
     const tool = { id: 'brainstrike.runPython', suspendSchema: { kind: 'union' } };
     const result = filterToolsByPermissionWithMetadata(
       { brainstrike_runPython: tool },

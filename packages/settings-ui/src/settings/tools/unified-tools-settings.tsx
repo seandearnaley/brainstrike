@@ -6,6 +6,10 @@
  * dense tool rows, and integrated MCP status display.
  */
 
+import type {
+  McpExtensionEnablement,
+  McpHostControlRequest,
+} from '@brainstrike/assistant-contract';
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
@@ -20,10 +24,14 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { McpConfigPanel } from './mcp-config-panel';
+import { McpExtensionSettings } from './mcp-extension-settings';
+import { McpServerStatusRow } from './mcp-server-status-row';
+import { McpSupportMatrix } from './mcp-support-status';
+import { type McpToolsAvailability, resolveMcpToolsAvailability } from './mcp-tools-availability';
 import { TokenBudgetSummary } from './token-budget-summary';
 import type { McpConnectionStatus } from './tool-group-accordion';
 import { ToolGroupAccordion } from './tool-group-accordion';
@@ -96,13 +104,14 @@ interface ToolsDataState {
   errorBoundaryKey: number;
   loading: boolean;
   mcpConfigInfo: McpConfigInfo | null;
+  mcpRevision: number;
   mcpServers: McpServerInfo[];
   tools: ToolDisplayMetadata[];
 }
 
 type ToolsDataAction =
   | { type: 'SET_TOOLS'; tools: ToolDisplayMetadata[] }
-  | { type: 'SET_MCP_SERVERS'; servers: McpServerInfo[] }
+  | { type: 'APPLY_MCP_STATUS'; revision: number; servers: readonly McpServerInfo[] }
   | { type: 'SET_MCP_CONFIG_INFO'; info: McpConfigInfo | null }
   | { type: 'SET_LOADING'; loading: boolean }
   | { type: 'SET_ERROR'; error: string | null }
@@ -114,6 +123,7 @@ const initialToolsDataState: ToolsDataState = {
   errorBoundaryKey: 0,
   loading: true,
   mcpConfigInfo: null,
+  mcpRevision: -1,
   mcpServers: [],
   tools: [],
 };
@@ -125,8 +135,12 @@ function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction): Tools
         ...state,
         tools: areToolsEqual(action.tools, state.tools) ? state.tools : action.tools,
       };
-    case 'SET_MCP_SERVERS':
-      return { ...state, mcpServers: action.servers };
+    case 'APPLY_MCP_STATUS':
+      // Desktop owns one singleton host publisher for the renderer lifetime. Config
+      // replacement never resets its monotonic revision; a host restart remounts this UI.
+      return action.revision > state.mcpRevision
+        ? { ...state, mcpRevision: action.revision, mcpServers: [...action.servers] }
+        : state;
     case 'SET_MCP_CONFIG_INFO':
       return { ...state, mcpConfigInfo: action.info };
     case 'SET_LOADING':
@@ -134,10 +148,15 @@ function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction): Tools
     case 'SET_ERROR':
       return { ...state, error: action.error };
     case 'RESET':
+      // Error-boundary retries reset view/loading state, not accepted MCP authority.
+      // The singleton host revision fence and matching config projection survive.
       return {
         ...initialToolsDataState,
         errorBoundaryKey: state.errorBoundaryKey,
         loading: action.loading,
+        mcpConfigInfo: state.mcpConfigInfo,
+        mcpRevision: state.mcpRevision,
+        mcpServers: state.mcpServers,
       };
     case 'INCREMENT_BOUNDARY_KEY':
       return { ...state, errorBoundaryKey: state.errorBoundaryKey + 1 };
@@ -213,11 +232,40 @@ function useToolsDataManager({
   operations,
   statsRef,
 }: UseToolsDataManagerParams) {
+  const mcpConfigEpochRef = useRef(0);
+  const subscribeMcpConfig = operations.subscribeMcpConfig;
+  const subscribeMcpServerStatus = operations.subscribeMcpServerStatus;
+  const subscribeMcpTools = operations.subscribeMcpTools;
+  const clearMcpError = useCallback(() => {
+    if (!lastMcpErrorRef.current) {
+      return;
+    }
+    lastMcpErrorRef.current = null;
+    dispatch({ error: null, type: 'SET_ERROR' });
+  }, [dispatch, lastMcpErrorRef]);
+  const applyMcpConfigInfo = useCallback(
+    (configInfo: McpConfigInfo | null) => {
+      dispatch({ info: configInfo, type: 'SET_MCP_CONFIG_INFO' });
+      const configError = configInfo?.error;
+      if (configError) {
+        lastMcpErrorRef.current = configError;
+        dispatch({ error: configError, type: 'SET_ERROR' });
+      } else {
+        clearMcpError();
+      }
+    },
+    [clearMcpError, dispatch, lastMcpErrorRef]
+  );
   const fetchAndApplyTools = useCallback(async () => {
     try {
       const [toolsData, stats] = await Promise.all([operations.getTools(), operations.getStats()]);
       statsRef.current = stats;
       dispatch({ tools: toolsData, type: 'SET_TOOLS' });
+      // BST-1615: the list below is a fail-closed default, not the user's saved
+      // choices. Saying nothing would read as "you never disabled anything".
+      if (stats.preferencesFault) {
+        dispatch({ error: stats.preferencesFault.message, type: 'SET_ERROR' });
+      }
     } catch (err) {
       dispatch({
         error: err instanceof Error ? err.message : 'Failed to load tools',
@@ -238,33 +286,29 @@ function useToolsDataManager({
       return;
     }
     await Promise.resolve();
+    const configEpoch = mcpConfigEpochRef.current;
     try {
       if (operations.getMcpServerStatus) {
-        const servers = await operations.getMcpServerStatus();
-        dispatch({ servers, type: 'SET_MCP_SERVERS' });
+        const snapshot = await operations.getMcpServerStatus();
+        dispatch({ ...snapshot, type: 'APPLY_MCP_STATUS' });
       }
       if (operations.getMcpConfigInfo) {
         const configInfo = await operations.getMcpConfigInfo();
-        dispatch({ info: configInfo, type: 'SET_MCP_CONFIG_INFO' });
-        if (configInfo) {
-          const configError = configInfo.error;
-          if (configError) {
-            lastMcpErrorRef.current = configError;
-            dispatch({ error: configError, type: 'SET_ERROR' });
-            return;
-          }
+        if (configEpoch === mcpConfigEpochRef.current) {
+          applyMcpConfigInfo(configInfo);
         }
-      }
-      if (lastMcpErrorRef.current) {
-        lastMcpErrorRef.current = null;
-        dispatch({ error: null, type: 'SET_ERROR' });
+      } else if (configEpoch === mcpConfigEpochRef.current) {
+        clearMcpError();
       }
     } catch (err) {
+      if (configEpoch !== mcpConfigEpochRef.current) {
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Failed to load MCP tools';
       lastMcpErrorRef.current = message;
       dispatch({ error: message, type: 'SET_ERROR' });
     }
-  }, [operations, mcpAvailable, dispatch, lastMcpErrorRef]);
+  }, [applyMcpConfigInfo, clearMcpError, operations, mcpAvailable, dispatch, lastMcpErrorRef]);
 
   useEffect(() => {
     if (liveQueryEnabled) {
@@ -272,6 +316,23 @@ function useToolsDataManager({
     }
     void fetchAndApplyTools();
   }, [fetchAndApplyTools, liveQueryEnabled]);
+
+  useEffect(() => {
+    if (!(mcpAvailable && subscribeMcpServerStatus)) {
+      return;
+    }
+    try {
+      return subscribeMcpServerStatus((snapshot) => {
+        dispatch({ ...snapshot, type: 'APPLY_MCP_STATUS' });
+      });
+    } catch (error) {
+      dispatch({
+        error: error instanceof Error ? error.message : 'Failed to subscribe to MCP host status',
+        type: 'SET_ERROR',
+      });
+      return;
+    }
+  }, [dispatch, mcpAvailable, subscribeMcpServerStatus]);
 
   useEffect(() => {
     void loadMcpData();
@@ -291,6 +352,25 @@ function useToolsDataManager({
     }
     await loadToolsData();
   }, [liveQueryEnabled, liveQuery, loadToolsData, dispatch]);
+
+  useEffect(() => {
+    if (!(mcpAvailable && subscribeMcpConfig)) {
+      return;
+    }
+    return subscribeMcpConfig((info) => {
+      mcpConfigEpochRef.current += 1;
+      applyMcpConfigInfo(info);
+    });
+  }, [applyMcpConfigInfo, mcpAvailable, subscribeMcpConfig]);
+
+  useEffect(() => {
+    if (!(mcpAvailable && subscribeMcpTools)) {
+      return;
+    }
+    return subscribeMcpTools(() => {
+      void refreshTools();
+    });
+  }, [mcpAvailable, refreshTools, subscribeMcpTools]);
 
   const handleMcpConfigUpdated = useCallback(async () => {
     await loadMcpData();
@@ -333,7 +413,7 @@ export function UnifiedToolsSettings({
   const tools = liveQueryEnabled ? liveQuery.rows : dataState.tools;
   const loading = liveQueryEnabled ? liveQuery.loading || dataState.loading : dataState.loading;
   const error = dataState.error ?? (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
-  const { mcpServers, mcpConfigInfo, errorBoundaryKey } = dataState;
+  const { mcpServers, mcpConfigInfo, mcpRevision, errorBoundaryKey } = dataState;
 
   const [uiState, uiDispatch] = useReducer(toolsUiReducer, initialToolsUiState);
   const {
@@ -401,6 +481,17 @@ export function UnifiedToolsSettings({
     }
   }, [operations, loadMcpData, refreshTools]);
 
+  const handleControlMcpServer = useCallback(
+    async (request: McpHostControlRequest) => {
+      if (!operations.controlMcpServer) {
+        throw new Error('MCP lifecycle control is unavailable in this runtime.');
+      }
+      await operations.controlMcpServer(request);
+      await Promise.all([loadMcpData(), refreshTools()]);
+    },
+    [loadMcpData, operations, refreshTools]
+  );
+
   const handleResetMcpConfig = useCallback(async () => {
     if (operations.resetMcpConfig) {
       await operations.resetMcpConfig();
@@ -426,22 +517,41 @@ export function UnifiedToolsSettings({
     }
   }, [handleMcpConfigUpdated, operations]);
 
+  // The accordion invokes these through `() => void` props, so a rejection here
+  // is dropped on the floor. They must surface the same way handleToggleTool
+  // does, or a failed write stays invisible for the bulk controls (BST-1615).
   const handleEnableGroup = useCallback(
     async (group: ToolGroup) => {
-      await operations.enableTools(group.tools.map((t) => t.id));
-      await refreshTools();
+      try {
+        await operations.enableTools(group.tools.map((t) => t.id));
+        await refreshTools();
+      } catch (err) {
+        dispatch({
+          error: err instanceof Error ? err.message : 'Failed to enable tools',
+          type: 'SET_ERROR',
+        });
+        return;
+      }
       onToolsChanged?.();
     },
-    [operations, onToolsChanged, refreshTools]
+    [dispatch, operations, onToolsChanged, refreshTools]
   );
 
   const handleDisableGroup = useCallback(
     async (group: ToolGroup) => {
-      await operations.disableTools(group.tools.map((t) => t.id));
-      await refreshTools();
+      try {
+        await operations.disableTools(group.tools.map((t) => t.id));
+        await refreshTools();
+      } catch (err) {
+        dispatch({
+          error: err instanceof Error ? err.message : 'Failed to disable tools',
+          type: 'SET_ERROR',
+        });
+        return;
+      }
       onToolsChanged?.();
     },
-    [operations, onToolsChanged, refreshTools]
+    [dispatch, operations, onToolsChanged, refreshTools]
   );
 
   const handleExpandTool = useCallback(
@@ -459,22 +569,29 @@ export function UnifiedToolsSettings({
   }, []);
 
   const serverStatusMap = useMemo(() => {
-    const statusMap = new Map<string, { status: McpConnectionStatus; error: string | null }>();
+    const statusMap = new Map<
+      string,
+      { status: McpConnectionStatus; error: string | null; toolsAvailability: McpToolsAvailability }
+    >();
     for (const server of mcpServers) {
-      const status: McpConnectionStatus =
-        server.status === 'connected'
-          ? 'connected'
-          : server.status === 'error'
-            ? 'error'
-            : 'disconnected';
-      statusMap.set(server.name, { error: server.error ?? null, status });
+      statusMap.set(server.configuredServerId, {
+        error: server.state === 'error' ? server.error.message : null,
+        status: server.state,
+        toolsAvailability: resolveMcpToolsAvailability(server),
+      });
     }
     return statusMap;
   }, [mcpServers]);
 
   const getServerStatus = useCallback(
-    (serverName: string): McpConnectionStatus =>
-      serverStatusMap.get(serverName)?.status ?? 'disconnected',
+    (serverName: string): McpConnectionStatus | undefined =>
+      serverStatusMap.get(serverName)?.status,
+    [serverStatusMap]
+  );
+
+  const getServerToolsAvailability = useCallback(
+    (serverName: string): McpToolsAvailability | undefined =>
+      serverStatusMap.get(serverName)?.toolsAvailability,
     [serverStatusMap]
   );
 
@@ -505,6 +622,23 @@ export function UnifiedToolsSettings({
   }, [searchableTools, searchQuery, categoryFilter, tierFilter]);
 
   const toolGroups = useMemo(() => groupTools(filteredTools), [filteredTools]);
+  const missingStatusSubscriptionError =
+    mcpAvailable && operations.getMcpServerStatus && !operations.subscribeMcpServerStatus
+      ? 'MCP live status subscription is unavailable in this runtime.'
+      : null;
+  const unmatchedMcpServerName =
+    mcpRevision >= 0
+      ? toolGroups.find(
+          (group) =>
+            group.source === 'mcp' &&
+            group.serverName !== undefined &&
+            !serverStatusMap.has(group.serverName)
+        )?.serverName
+      : undefined;
+  const mcpProjectionIdentityError = unmatchedMcpServerName
+    ? `MCP tool projection server "${unmatchedMcpServerName}" has no matching host status.`
+    : null;
+  const displayedError = error ?? missingStatusSubscriptionError ?? mcpProjectionIdentityError;
 
   const budgetData = useMemo(() => {
     if (!budgetManager) {
@@ -535,15 +669,19 @@ export function UnifiedToolsSettings({
       budgetData={budgetData}
       categoryFilter={categoryFilter}
       defaultExpandedGroups={defaultExpandedGroups}
-      error={error}
+      error={displayedError}
       errorBoundaryKey={errorBoundaryKey}
       expandedToolId={expandedToolId}
       getServerError={getServerError}
       getServerStatus={getServerStatus}
+      getServerToolsAvailability={getServerToolsAvailability}
       hasTools={hasTools}
       loading={loading}
       mcpConfigInfo={mcpConfigInfo}
+      mcpRevision={mcpRevision}
+      mcpServers={mcpServers}
       onCategoryChange={(category) => uiDispatch({ category, type: 'SET_CATEGORY_FILTER' })}
+      onControlMcpServer={handleControlMcpServer}
       onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
       onDisableGroup={handleDisableGroup}
       onDismissConfigAlert={handleDismissConfigAlert}
@@ -560,6 +698,7 @@ export function UnifiedToolsSettings({
       operations={operations}
       searchQuery={searchQuery}
       showConfigAlert={Boolean(showConfigAlert)}
+      showMcpSupport={mcpAvailable}
       tierFilter={tierFilter}
       toolGroups={toolGroups}
       totalCount={tools.length}
@@ -616,11 +755,15 @@ interface ToolsPanelContentProps {
   errorBoundaryKey: number;
   expandedToolId: string | null;
   getServerError: (serverName: string) => string | undefined;
-  getServerStatus: (serverName: string) => McpConnectionStatus;
+  getServerStatus: (serverName: string) => McpConnectionStatus | undefined;
+  getServerToolsAvailability: (serverName: string) => McpToolsAvailability | undefined;
   hasTools: boolean;
   loading: boolean;
   mcpConfigInfo: McpConfigInfo | null;
+  mcpRevision: number;
+  mcpServers: McpServerInfo[];
   onCategoryChange: (category: ToolCategory | 'all') => void;
+  onControlMcpServer: (request: McpHostControlRequest) => Promise<void>;
   onCreateSample: (() => Promise<void>) | undefined;
   onDisableGroup: (group: ToolGroup) => void;
   onDismissConfigAlert: () => void;
@@ -637,6 +780,7 @@ interface ToolsPanelContentProps {
   operations: UnifiedToolsSettingsProps['operations'];
   searchQuery: string;
   showConfigAlert: boolean;
+  showMcpSupport: boolean;
   tierFilter: ToolLoadingTier | 'all';
   toolGroups: ToolGroup[];
   totalCount: number;
@@ -651,10 +795,14 @@ function ToolsPanelContent({
   expandedToolId,
   getServerError,
   getServerStatus,
+  getServerToolsAvailability,
   hasTools,
   loading,
   mcpConfigInfo,
+  mcpRevision,
+  mcpServers,
   onCategoryChange,
+  onControlMcpServer,
   onCreateSample,
   onDisableGroup,
   onDismissConfigAlert,
@@ -671,10 +819,18 @@ function ToolsPanelContent({
   operations,
   searchQuery,
   showConfigAlert,
+  showMcpSupport,
   tierFilter,
   toolGroups,
   totalCount,
 }: ToolsPanelContentProps) {
+  // The global registered-extension dials (BST-1604) are owned by the switch
+  // section but mirrored here, so the support matrix above it can report the
+  // EFFECTIVE state instead of the compiled-in default.
+  const [mcpExtensionPreferences, applyMcpExtensionPreferences] = useState<
+    McpExtensionEnablement | undefined
+  >(undefined);
+  const { getMcpExtensionPreferences, setMcpExtensionPreferences } = operations;
   return (
     <div className="space-y-4">
       {budgetData && (
@@ -715,6 +871,45 @@ function ToolsPanelContent({
         </div>
       )}
 
+      {showMcpSupport && <McpSupportMatrix extensionPreferences={mcpExtensionPreferences} />}
+
+      {showMcpSupport && getMcpExtensionPreferences && setMcpExtensionPreferences && (
+        <McpExtensionSettings
+          getPreferences={getMcpExtensionPreferences}
+          onPreferencesChange={applyMcpExtensionPreferences}
+          setPreferences={setMcpExtensionPreferences}
+          subscribe={operations.subscribeMcpExtensionPreferences}
+        />
+      )}
+
+      {mcpRevision >= 0 && mcpServers.length === 0 && !mcpConfigInfo?.error && (
+        <div className="text-muted-foreground text-sm" data-testid="mcp-server-status-empty">
+          No MCP servers configured.
+        </div>
+      )}
+
+      {mcpServers.length > 0 && (
+        <div
+          className="space-y-2"
+          data-mcp-revision={mcpRevision}
+          data-testid="mcp-server-status-list"
+        >
+          {mcpServers.map((server) => (
+            <McpServerStatusRow
+              controlAvailable={Boolean(operations.controlMcpServer)}
+              key={server.configuredServerId}
+              {...(operations.completeMcpContent && {
+                onComplete: operations.completeMcpContent,
+              })}
+              onControl={onControlMcpServer}
+              {...(operations.getMcpPrompt && { onGetPrompt: operations.getMcpPrompt })}
+              {...(operations.readMcpResource && { onReadResource: operations.readMcpResource })}
+              server={server}
+            />
+          ))}
+        </div>
+      )}
+
       {loading && (
         <div className="py-8 text-center text-muted-foreground text-sm">Loading tools...</div>
       )}
@@ -734,6 +929,7 @@ function ToolsPanelContent({
           expandedToolId={expandedToolId}
           getServerError={getServerError}
           getServerStatus={getServerStatus}
+          getServerToolsAvailability={getServerToolsAvailability}
           onDisableGroup={onDisableGroup}
           onEnableGroup={onEnableGroup}
           onErrorBoundaryReset={onErrorBoundaryReset}
@@ -753,7 +949,8 @@ interface ToolsAccordionListProps {
   errorBoundaryKey: number;
   expandedToolId: string | null;
   getServerError: (serverName: string) => string | undefined;
-  getServerStatus: (serverName: string) => McpConnectionStatus;
+  getServerStatus: (serverName: string) => McpConnectionStatus | undefined;
+  getServerToolsAvailability: (serverName: string) => McpToolsAvailability | undefined;
   onDisableGroup: (group: ToolGroup) => void;
   onEnableGroup: (group: ToolGroup) => void;
   onErrorBoundaryReset: () => void;
@@ -770,6 +967,7 @@ function ToolsAccordionList({
   expandedToolId,
   getServerError,
   getServerStatus,
+  getServerToolsAvailability,
   onDisableGroup,
   onEnableGroup,
   onErrorBoundaryReset,
@@ -785,15 +983,20 @@ function ToolsAccordionList({
       key={errorBoundaryKey}
       onReset={onErrorBoundaryReset}
     >
-      <ScrollArea className="max-h-[600px]">
+      <ScrollArea className="max-h-[600px]" contentWidth="viewport">
         <Accordion defaultValue={defaultExpandedGroups} type="multiple">
           {toolGroups.map((group) => {
             const serverName = group.source === 'mcp' ? group.serverName : undefined;
+            const connectionStatus = serverName ? getServerStatus(serverName) : undefined;
+            const toolsAvailability = serverName
+              ? getServerToolsAvailability(serverName)
+              : undefined;
             const mcpProps =
               serverName === undefined
                 ? {}
                 : {
-                    connectionStatus: getServerStatus(serverName),
+                    ...(connectionStatus ? { connectionStatus } : {}),
+                    ...(toolsAvailability ? { toolsAvailability } : {}),
                     errorMessage: getServerError(serverName),
                     ...(operations.openMcpConfig && {
                       onOpenConfigFile: () => operations.openMcpConfig?.(),

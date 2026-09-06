@@ -54,6 +54,9 @@
       "path": "../logging"
     },
     {
+      "path": "../types"
+    },
+    {
       "path": "../ui"
     },
     {

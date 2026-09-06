@@ -4,23 +4,32 @@ import {
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
-import { useAssistantAvailability } from '@brainstrike/app-shell';
+import { useAssistantAvailability, verifyProviderCredential } from '@brainstrike/app-shell';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
+import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import type {
+  McpExtensionEnablement,
+  McpHostControlRequest,
+  McpHostWatchEvent,
+} from '@brainstrike/assistant-contract';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
-import { createApiKeysSettingsCategory } from '@brainstrike/settings-ui/settings/secrets/api-keys-settings-category';
+import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
 import { createSelfImprovementSignalSettingsCategory } from '@brainstrike/settings-ui/settings/system/self-improvement-signal-settings-category';
 import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/system/skills-settings-category';
 import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settings-ui/settings/system/workspace-instructions-settings-category';
 import {
   createToolsSettingsCategory,
+  type McpCompleteRequest,
+  type McpGetPromptRequest,
+  type McpReadResourceRequest,
   type ToolDisplayMetadata,
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
@@ -32,6 +41,7 @@ import {
   createSearchIndexingSettingsCategory,
   createSubagentPersonasSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
+  createWorkspaceSettingsCategory,
   type HookReviewRoot,
 } from '@brainstrike/settings-ui/settings-category-factories';
 import {
@@ -41,6 +51,7 @@ import {
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
+import { useWorktreeSettings } from './use-worktree-settings';
 
 configureModelRuntimeServices({
   downloadEmbeddingModel: async (modelId, options) => {
@@ -81,6 +92,7 @@ function getToolDescription(toolId: string): string {
 
 export default function SettingsPageContent() {
   const assistantAvailability = useAssistantAvailability();
+  const worktreeSettings = useWorktreeSettings();
   // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
   const tokenCache = useOptionalTokenCacheContext();
   const devInlineFixtureEnabled = useFileExplorerStoreSelector((s) => s.devInlineFixtureEnabled);
@@ -119,17 +131,42 @@ export default function SettingsPageContent() {
     }
     return tokenCache.isOperational && tokenCache.countingMode === 'accurate';
   }, [tokenCache]);
+  // Shell reveal is injected, not reached for: settings-ui stays platform
+  // agnostic and simply renders no Open-folder affordance when the desktop
+  // bridge is absent or malformed (resolvePlatformBridge returns null).
+  // The `{ ok, error }` result is normalized exactly as
+  // context-action-registry does, so a failed reveal can be shown rather than
+  // vanishing.
+  const revealEnvFile = useMemo(() => {
+    const bridge = resolvePlatformBridge();
+    if (!bridge) {
+      return;
+    }
+    return async (absolutePath: string) => {
+      const result = await bridge.showItemInFolder(absolutePath);
+      return result.ok ? { ok: true } : { error: result.error ?? 'Reveal failed', ok: false };
+    };
+  }, []);
   const apiKeyStatus = useMemo(() => {
+    // Every non-loading availability state may carry deprecated-env rename
+    // reports (BST-1361); the Credential Inventory renders them per row.
+    const deprecated =
+      assistantAvailability.state !== 'loading' &&
+      assistantAvailability.deprecatedEnvVars &&
+      assistantAvailability.deprecatedEnvVars.length > 0
+        ? { statusDeprecatedEnvVars: assistantAvailability.deprecatedEnvVars }
+        : {};
     if (assistantAvailability.state === 'enabled') {
       return {
+        ...deprecated,
         statusProviderKeySources: assistantAvailability.providerKeySources ?? [],
       };
     }
     if (assistantAvailability.state === 'error') {
       const failures = assistantAvailability.envFileFailures?.map(({ message }) => message) ?? [];
-      return failures.length > 0 ? { statusError: failures.join(' ') } : {};
+      return failures.length > 0 ? { ...deprecated, statusError: failures.join(' ') } : deprecated;
     }
-    return {};
+    return deprecated;
   }, [assistantAvailability]);
   const assistantProviderKeySources =
     assistantAvailability.state === 'enabled'
@@ -137,8 +174,38 @@ export default function SettingsPageContent() {
       : undefined;
 
   // Create non-executing tool catalog and MCP configuration operations.
-  const toolOperations = useMemo(
-    () => ({
+  const toolOperations = useMemo(() => {
+    const onServerStatusUpdated = window.mcp?.onServerStatusUpdated;
+    return {
+      // BST-1585: user-initiated MCP content browsing is capability-gated on
+      // the bridge methods; web omits them, so the Settings affordance is absent.
+      ...(window.mcp?.complete && {
+        completeMcpContent: async (request: McpCompleteRequest) =>
+          await window.mcp.complete(request),
+      }),
+      ...(window.mcp?.controlServer && {
+        controlMcpServer: async (request: McpHostControlRequest) =>
+          await window.mcp.controlServer(request),
+      }),
+      ...(window.mcp?.getExtensionPreferences && {
+        getMcpExtensionPreferences: async () => await window.mcp.getExtensionPreferences(),
+      }),
+      ...(window.mcp?.getPrompt && {
+        getMcpPrompt: async (request: McpGetPromptRequest) => await window.mcp.getPrompt(request),
+      }),
+      ...(window.mcp?.setExtensionPreferences && {
+        setMcpExtensionPreferences: async (preferences: McpExtensionEnablement) =>
+          await window.mcp.setExtensionPreferences(preferences),
+      }),
+      ...(window.mcp?.onExtensionPreferencesUpdated && {
+        subscribeMcpExtensionPreferences: (
+          listener: (preferences: McpExtensionEnablement) => void
+        ) => window.mcp.onExtensionPreferencesUpdated(listener),
+      }),
+      ...(window.mcp?.readResource && {
+        readMcpResource: async (request: McpReadResourceRequest) =>
+          await window.mcp.readResource(request),
+      }),
       disableTools: async (ids: string[]) => {
         const nativeToolIds = ids.filter((id) => isNativeTool(id));
         const mcpToolIds = ids.filter((id) => !isNativeTool(id));
@@ -162,15 +229,11 @@ export default function SettingsPageContent() {
         }
       },
       getMcpServerStatus: async () => {
-        const tools = await window.mcp?.listTools?.();
-        if (!tools) {
-          return [];
+        const getServerStatusSnapshot = window.mcp?.getServerStatusSnapshot;
+        if (!getServerStatusSnapshot) {
+          throw new Error('MCP bridge is missing getServerStatusSnapshot');
         }
-        return Object.entries(tools).map(([name, serverTools]) => ({
-          name,
-          status: 'connected' as const,
-          toolCount: (serverTools as unknown[]).length,
-        }));
+        return await getServerStatusSnapshot();
       },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
@@ -200,6 +263,9 @@ export default function SettingsPageContent() {
           disabled: nativeCount + mcpCount - totalEnabled,
           enabled: totalEnabled,
           mcpServers: mcpStats?.servers ?? 0,
+          // BST-1615: an unreadable tool-preferences file is reported here so
+          // Settings says so, rather than showing a silently reset tool list.
+          ...(mcpStats?.preferencesFault ? { preferencesFault: mcpStats.preferencesFault } : {}),
           total: nativeCount + mcpCount,
         };
       },
@@ -219,7 +285,13 @@ export default function SettingsPageContent() {
               description?: string;
               enabled: boolean;
               inputSchema?: unknown;
+              serverName: string;
             }>) {
+              if (tool.serverName !== serverName) {
+                throw new Error(
+                  `MCP tool projection identity mismatch: group "${serverName}" contains server "${tool.serverName}"`
+                );
+              }
               mcpTools.push({
                 category: 'action',
                 description: tool.description ?? '',
@@ -260,6 +332,26 @@ export default function SettingsPageContent() {
       resetTools: async () => {
         useNativeToolPreferencesStore.getState().resetTools();
         await window.mcp?.resetTools?.();
+      },
+      subscribeMcpConfig: (
+        listener: (info: { error?: string; exists: boolean; path: string }) => void
+      ) => {
+        const onConfigUpdated = window.mcp?.onConfigUpdated;
+        if (!onConfigUpdated) {
+          throw new Error('MCP bridge is missing onConfigUpdated');
+        }
+        return onConfigUpdated(listener);
+      },
+      ...(onServerStatusUpdated && {
+        subscribeMcpServerStatus: (listener: (event: McpHostWatchEvent) => void) =>
+          onServerStatusUpdated(listener),
+      }),
+      subscribeMcpTools: (listener: () => void) => {
+        const onToolsUpdated = window.mcp?.onToolsUpdated;
+        if (!onToolsUpdated) {
+          throw new Error('MCP bridge is missing onToolsUpdated');
+        }
+        return onToolsUpdated(() => listener());
       },
       ...(window.mcp?.getPath && {
         getMcpConfigPath: async () => (await window.mcp?.getPath?.()) ?? '',
@@ -314,9 +406,8 @@ export default function SettingsPageContent() {
           ...(config.error ? { error: config.error } : {}),
         };
       },
-    }),
-    []
-  );
+    };
+  }, []);
 
   const categories = useMemo<SettingsCategory[]>(() => {
     const diagnosticsCategory = createSystemDiagnosticsSettingsCategory();
@@ -327,7 +418,11 @@ export default function SettingsPageContent() {
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
-      createApiKeysSettingsCategory(apiKeyStatus),
+      createProvidersSettingsCategory({
+        ...apiKeyStatus,
+        ...(revealEnvFile ? { onRevealPath: revealEnvFile } : {}),
+        verifyProvider: verifyProviderCredential,
+      }),
       {
         content: (
           <ModelSelectionPage
@@ -337,11 +432,12 @@ export default function SettingsPageContent() {
               : {})}
           />
         ),
-        description: 'Choose chat and embedding models, manage downloads, and configure providers.',
+        description:
+          'Browse every catalogued model, manage local downloads, and set the model cache directory.',
         icon: Layers,
         id: 'embedding-models',
-        keywords: ['embeddings', 'models', 'providers', 'vector', 'llm', 'download'],
-        title: 'Models & Providers',
+        keywords: ['embeddings', 'models', 'catalog', 'vector', 'llm', 'download', 'cache'],
+        title: 'Model Catalog',
       },
       {
         content: <DesktopLoggingSettings />,
@@ -360,6 +456,11 @@ export default function SettingsPageContent() {
       createSkillsSettingsCategory(),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
       createWorkspaceInstructionsSettingsCategory(),
+      createWorkspaceSettingsCategory({
+        onSave: worktreeSettings.save,
+        settings: worktreeSettings.settings,
+        status: worktreeSettings.status,
+      }),
       createSelfImprovementSignalSettingsCategory(),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
@@ -379,8 +480,12 @@ export default function SettingsPageContent() {
     assistantProviderKeySources,
     devInlineFixtureEnabled,
     hookReviewRoots,
+    revealEnvFile,
     setDevInlineFixtureEnabled,
     toolOperations,
+    worktreeSettings.save,
+    worktreeSettings.settings,
+    worktreeSettings.status,
   ]);
 
   return (

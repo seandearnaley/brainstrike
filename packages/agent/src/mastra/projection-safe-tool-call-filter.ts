@@ -1,5 +1,8 @@
 import { isGuardedToolError, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  denormalizeNativeToolName,
+  STALE_REPLAYABLE_NATIVE_TOOL_IDS,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import type {
@@ -39,22 +42,32 @@ const MULTIMODAL_PART_TYPES = new Set([
 /**
  * A deliberately narrow allowlist. Verification, execution, mutation, task,
  * approval, discovery, skill, session, and unknown MCP tools stay verbatim.
+ * Membership is declared per tool (`history.staleReplayable` on its
+ * `defineNativeTool` definition) and derived here, so a new tool is verbatim
+ * unless it opts in beside its own definition.
  */
-const FILTERABLE_NATIVE_TOOL_IDS = new Set<string>([
-  NATIVE_TOOL_ID.findWorkspaceSymbol,
-  NATIVE_TOOL_ID.globWorkspace,
-  NATIVE_TOOL_ID.grepSearch,
-  NATIVE_TOOL_ID.hybridSearch,
-  NATIVE_TOOL_ID.listEmbeddingSpaces,
-  NATIVE_TOOL_ID.listWorkspaceContext,
-  NATIVE_TOOL_ID.queryEmbeddingSpace,
-  NATIVE_TOOL_ID.readToolOutputArtifact,
-  NATIVE_TOOL_ID.readWorkspaceContext,
-  NATIVE_TOOL_ID.readWorkspaceDirectory,
-  NATIVE_TOOL_ID.readWorkspaceFile,
-  NATIVE_TOOL_ID.webExtract,
-  NATIVE_TOOL_ID.webSearch,
+const FILTERABLE_NATIVE_TOOL_IDS: ReadonlySet<string> = new Set(STALE_REPLAYABLE_NATIVE_TOOL_IDS);
+
+/**
+ * Original ids whose SETTLED calls may have oversized ARGS elided (2026-08-23
+ * ctx-explosion investigation, H2). Everything in the token-efficiency program
+ * projects tool RESULTS; nothing touched tool ARGS — so a 57 KB
+ * `writeWorkspaceFile` call carried its full file content in the prompt for
+ * the remainder of the thread, replayed on every subsequent step of every
+ * subsequent leg. Once such a call is settled (successful result, outside the
+ * recent-step window), its args carry no information the file on disk does
+ * not: the prompt-side input collapses to the identifying fields plus an
+ * honest marker. Deliberately ONLY the two whole-payload mutation tools —
+ * every other tool's args are small by construction.
+ */
+const ARG_ELIDABLE_NATIVE_TOOL_IDS = new Set<string>([
+  NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+  NATIVE_TOOL_ID.writeWorkspaceFile,
 ]);
+/** Below this serialized size the marker is not worth altering the context. */
+const ARG_ELISION_MIN_SERIALIZED_CHARS = 2000;
+/** The identifying fields a collapsed mutation input keeps. */
+const ARG_ELISION_KEEP_FIELDS = ['path', 'root'] as const;
 
 export const TOOL_HISTORY_FILTER_RECENT_TOOL_STEPS = 1;
 
@@ -85,7 +98,56 @@ interface ToolCallGroup {
   unsafe: boolean;
 }
 
+/** Eligibility record for SETTLED-mutation argument elision (one per call id). */
+interface ArgElisionGroup {
+  oversized: boolean;
+  settled: boolean;
+  unsafe: boolean;
+}
+
+/**
+ * Collapse a settled mutation call's input to its identifying fields plus an
+ * honest marker. Non-record inputs pass through untouched — there is nothing
+ * safe to keep from a shape this tool contract never produces.
+ */
+function elideMutationArgs(input: unknown): unknown {
+  if (!isRecord(input)) {
+    return input;
+  }
+  let serializedChars = 0;
+  try {
+    serializedChars = JSON.stringify(input)?.length ?? 0;
+  } catch {
+    return input;
+  }
+  const kept: Record<string, unknown> = {};
+  for (const field of ARG_ELISION_KEEP_FIELDS) {
+    if (typeof input[field] === 'string') {
+      kept[field] = input[field];
+    }
+  }
+  return {
+    ...kept,
+    elidedArguments: `${serializedChars} chars elided: settled edit — the workspace file is the source of truth; re-read it if the contents are needed`,
+  };
+}
+
+/** Ids whose group satisfies `matches` — shared by both eligibility passes. */
+function collectMatchingIds<TGroup>(
+  groups: ReadonlyMap<string, TGroup>,
+  matches: (group: TGroup) => boolean
+): Set<string> {
+  const ids = new Set<string>();
+  for (const [toolCallId, group] of groups) {
+    if (matches(group)) {
+      ids.add(toolCallId);
+    }
+  }
+  return ids;
+}
+
 interface FilterState {
+  readonly argElidableToolCallIds: readonly string[];
   readonly ineligibleToolCallCount: number;
   readonly recentToolCallCount: number;
   readonly safeToolCallIds: readonly string[];
@@ -319,10 +381,10 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
   }
 
   processInputStep(args: ProcessInputStepArgs): void {
-    const { ineligibleToolCallCount, recentToolCallCount, safeIds } = this.collectSafeToolCallIds(
-      args.messages
-    );
+    const { argElidableIds, ineligibleToolCallCount, recentToolCallCount, safeIds } =
+      this.collectSafeToolCallIds(args.messages);
     args.state[FILTER_STATE_KEY] = {
+      argElidableToolCallIds: [...argElidableIds],
       ineligibleToolCallCount,
       recentToolCallCount,
       safeToolCallIds: [...safeIds],
@@ -331,19 +393,24 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
 
   processLLMRequest(args: ProcessLLMRequestArgs): ProcessLLMRequestResult | undefined {
     const filterState = this.readFilterState(args.state);
-    if (!filterState || filterState.safeToolCallIds.length === 0) {
+    if (
+      !filterState ||
+      (filterState.safeToolCallIds.length === 0 && filterState.argElidableToolCallIds.length === 0)
+    ) {
       return;
     }
-    const { filteredToolCallCount, prompt } = this.filterPrompt(
+    const { argElidedToolCallCount, filteredToolCallCount, prompt } = this.filterPrompt(
       args.prompt,
-      new Set(filterState.safeToolCallIds)
+      new Set(filterState.safeToolCallIds),
+      new Set(filterState.argElidableToolCallIds)
     );
-    if (filteredToolCallCount === 0) {
+    if (filteredToolCallCount === 0 && argElidedToolCallCount === 0) {
       return;
     }
     this.#logger.info(
       {
         code: 'mastra_agent_tool_history_filtered',
+        ...(argElidedToolCallCount > 0 ? { argElidedToolCallCount } : {}),
         filteredToolCallCount,
         ineligibleToolCallCount: filterState.ineligibleToolCallCount,
         preservedRecentToolCallCount: filterState.recentToolCallCount,
@@ -406,26 +473,37 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
   }
 
   private collectSafeToolCallIds(messages: readonly MastraDBMessage[]): {
+    argElidableIds: ReadonlySet<string>;
     ineligibleToolCallCount: number;
     recentToolCallCount: number;
     safeIds: ReadonlySet<string>;
   } {
     const groups = new Map<string, ToolCallGroup>();
+    const argGroups = new Map<string, ArgElisionGroup>();
     for (const message of messages) {
       for (const part of readMessageParts(message)) {
         const invocationPart = readToolInvocationPart(part);
         if (invocationPart) {
           this.updateToolCallGroup(groups, invocationPart);
+          this.updateArgElisionGroup(argGroups, invocationPart);
         }
       }
     }
-    const eligibleIds = new Set<string>();
-    for (const [toolCallId, group] of groups) {
-      if (group.hasSafeResult && !group.unsafe) {
-        eligibleIds.add(toolCallId);
-      }
-    }
-    const recentIds = this.collectRecentToolCallIds(messages, eligibleIds);
+    const eligibleIds = collectMatchingIds(groups, (group) => group.hasSafeResult && !group.unsafe);
+    const argCandidateIds = collectMatchingIds(
+      argGroups,
+      (group) => group.settled && group.oversized && !group.unsafe
+    );
+    // ONE recency notion for both rewrite classes: the window is counted over
+    // every tracked call, so a mutation step and a read step consume it
+    // identically.
+    const recentIds = this.collectRecentToolCallIds(
+      messages,
+      new Set([...eligibleIds, ...argCandidateIds])
+    );
+    const argElidableIds = new Set(
+      [...argCandidateIds].filter((toolCallId) => !recentIds.has(toolCallId))
+    );
 
     const safeIds = new Set<string>();
     let ineligibleToolCallCount = 0;
@@ -441,10 +519,53 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
       ineligibleToolCallCount += 1;
     }
     return {
+      argElidableIds,
       ineligibleToolCallCount,
       recentToolCallCount,
       safeIds,
     };
+  }
+
+  /**
+   * Track a mutation call's ARG-elision eligibility: settled means a
+   * completed, non-error result; oversized means the serialized args clear
+   * {@link ARG_ELISION_MIN_SERIALIZED_CHARS}; any incomplete or failed
+   * sighting marks the id unsafe — a failed write's args may matter for the
+   * retry, so they stay verbatim.
+   */
+  private updateArgElisionGroup(
+    groups: Map<string, ArgElisionGroup>,
+    part: ToolInvocationPart
+  ): void {
+    const { toolInvocation } = part;
+    const toolCallId = readToolCallId(toolInvocation);
+    const toolName =
+      typeof toolInvocation.toolName === 'string' ? toolInvocation.toolName : undefined;
+    if (!(toolCallId && toolName)) {
+      return;
+    }
+    if (!ARG_ELIDABLE_NATIVE_TOOL_IDS.has(this.resolveOriginalToolName(toolName))) {
+      return;
+    }
+    const group = groups.get(toolCallId) ?? { oversized: false, settled: false, unsafe: false };
+    const args = (toolInvocation as { args?: unknown }).args;
+    if (isRecord(args)) {
+      try {
+        group.oversized ||= (JSON.stringify(args)?.length ?? 0) > ARG_ELISION_MIN_SERIALIZED_CHARS;
+      } catch {
+        group.unsafe = true;
+      }
+    }
+    if (toolInvocation.state === 'result') {
+      if (isErrorBearingResult(toolInvocation.result)) {
+        group.unsafe = true;
+      } else {
+        group.settled = true;
+      }
+    } else if (toolInvocation.state !== 'call') {
+      group.unsafe = true;
+    }
+    groups.set(toolCallId, group);
   }
 
   private updateToolCallGroup(groups: Map<string, ToolCallGroup>, part: ToolInvocationPart): void {
@@ -479,18 +600,31 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     const safeToolCallIds = value['safeToolCallIds'].filter(
       (candidate): candidate is string => typeof candidate === 'string'
     );
+    const argElidableToolCallIds = (
+      Array.isArray(value['argElidableToolCallIds']) ? value['argElidableToolCallIds'] : []
+    ).filter((candidate): candidate is string => typeof candidate === 'string');
     const ineligibleToolCallCount = value['ineligibleToolCallCount'];
     const recentToolCallCount = value['recentToolCallCount'];
     if (typeof ineligibleToolCallCount !== 'number' || typeof recentToolCallCount !== 'number') {
       return;
     }
-    return { ineligibleToolCallCount, recentToolCallCount, safeToolCallIds };
+    return {
+      argElidableToolCallIds,
+      ineligibleToolCallCount,
+      recentToolCallCount,
+      safeToolCallIds,
+    };
   }
 
   private filterPrompt(
     prompt: LanguageModelV2Prompt,
-    safeIds: ReadonlySet<string>
-  ): { filteredToolCallCount: number; prompt: LanguageModelV2Prompt } {
+    safeIds: ReadonlySet<string>,
+    argElidableIds: ReadonlySet<string>
+  ): {
+    argElidedToolCallCount: number;
+    filteredToolCallCount: number;
+    prompt: LanguageModelV2Prompt;
+  } {
     const { assistantEmbeddedResultIds, calls, results } = collectPromptToolParts(prompt, safeIds);
     const projections = new Map<string, string>();
     for (const toolCallId of safeIds) {
@@ -503,11 +637,12 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
         projections.set(toolCallId, formatStaleToolResultReplay(result.toolName, projection));
       }
     }
-    if (projections.size === 0) {
-      return { filteredToolCallCount: 0, prompt };
+    if (projections.size === 0 && argElidableIds.size === 0) {
+      return { argElidedToolCallCount: 0, filteredToolCallCount: 0, prompt };
     }
 
     const filteredPrompt: LanguageModelV2Prompt = [];
+    const argElidedIds = new Set<string>();
     let pendingReplays: string[] = [];
     const flushReplays = () => {
       if (pendingReplays.length === 0) {
@@ -526,19 +661,30 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
       if (message.role !== 'tool') {
         flushReplays();
       }
-      const { message: filtered, replays } = this.filterPromptMessage(message, projections);
+      const { message: filtered, replays } = this.filterPromptMessage(
+        message,
+        projections,
+        argElidableIds,
+        argElidedIds
+      );
       if (filtered) {
         filteredPrompt.push(filtered);
       }
       pendingReplays.push(...replays);
     }
     flushReplays();
-    return { filteredToolCallCount: projections.size, prompt: filteredPrompt };
+    return {
+      argElidedToolCallCount: argElidedIds.size,
+      filteredToolCallCount: projections.size,
+      prompt: filteredPrompt,
+    };
   }
 
   private filterPromptMessage(
     message: LanguageModelV2Message,
-    projections: ReadonlyMap<string, string>
+    projections: ReadonlyMap<string, string>,
+    argElidableIds: ReadonlySet<string>,
+    argElidedIds: Set<string>
   ): { message: LanguageModelV2Message | undefined; replays: string[] } {
     if (!Array.isArray(message.content)) {
       return { message, replays: [] };
@@ -554,6 +700,14 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
           content.push({ text: STALE_TOOL_CALL_STUB_TEXT, type: 'text' });
           stubbed = true;
         }
+        continue;
+      }
+      if (part.type === 'tool-call' && argElidableIds.has(part.toolCallId)) {
+        // Settled-mutation ARG elision: the call and its result stay in place
+        // (the pair remains structurally valid for every provider); only the
+        // oversized input collapses to identifying fields + marker.
+        content.push({ ...part, input: elideMutationArgs(part.input) });
+        argElidedIds.add(part.toolCallId);
         continue;
       }
       if (part.type === 'tool-result' && projections.has(part.toolCallId)) {

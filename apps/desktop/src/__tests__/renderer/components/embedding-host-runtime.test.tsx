@@ -2,8 +2,8 @@ import {
   recordEmbeddingBatchTelemetry,
   recordEmbeddingTelemetryFailure,
   removeEmbeddingTelemetrySource,
-  resetEmbeddingTelemetryForTests,
 } from '@brainstrike/embedding-worker';
+import { resetEmbeddingTelemetryForTests } from '@brainstrike/embedding-worker/testing';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createEmbeddingHostCommand } from '../../../embedding-host-shared';

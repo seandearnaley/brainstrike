@@ -9,6 +9,7 @@ import {
   createPlaywrightOptions,
   MAX_TRACE_CHUNK_NAME_BYTES,
   playwright,
+  resolveVisualBaselinePath,
   type TraceChunkCommand,
 } from '../src/vitest-browser';
 
@@ -116,6 +117,25 @@ describe('createBrowserProject', () => {
     expect(project.test.browser.trace).toBe('off');
     expect(project.test.browser.instances).toEqual([{ browser: 'chromium' }]);
     expect(project.test.browser.screenshotFailures).toBe(true);
+    expect(project.test.browser.expect.toMatchScreenshot.resolveScreenshotPath).toBe(
+      resolveVisualBaselinePath
+    );
+  });
+
+  it('keeps visual baselines outside the ignored failure-screenshot directory', () => {
+    expect(
+      resolveVisualBaselinePath({
+        arg: 'renders-the-panel-1',
+        browserName: 'chromium',
+        ext: '.png',
+        platform: 'darwin',
+        root: '/repo/packages/assistant-ui',
+        testFileDirectory: 'src/__tests__',
+        testFileName: 'assistant-panel.browser.test.tsx',
+      })
+    ).toBe(
+      '/repo/packages/assistant-ui/src/__tests__/__image_snapshots__/assistant-panel.browser.test.tsx/renders-the-panel-1-chromium-darwin.png'
+    );
   });
 
   it('respects explicit browser project overrides', () => {

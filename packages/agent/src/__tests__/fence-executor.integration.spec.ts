@@ -387,7 +387,12 @@ describe.skipIf(skipReason !== undefined)('FenceExecutor against the real OS fen
 
     // An abort is not a completed run: it throws rather than returning a
     // result that a consumer would have to tell apart from a timeout.
-    expect(isExecAbortedError(caught)).toBe(true);
+    const caughtDescription =
+      caught instanceof Error ? `${caught.name}: ${caught.message}` : String(caught);
+    expect(
+      isExecAbortedError(caught),
+      `Expected ExecAbortedError, received ${caughtDescription}`
+    ).toBe(true);
     if (!isExecAbortedError(caught)) {
       throw new Error('unreachable');
     }

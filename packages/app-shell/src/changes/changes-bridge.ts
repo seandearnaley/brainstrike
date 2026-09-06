@@ -96,8 +96,13 @@ export interface ChangesBridge {
    * tree's root→repo→worktree grouping, and carries each worktree's
    * `trust`/`trustReason` so the UI can state an unvalidated worktree's reason
    * rather than silently degrading.
+   *
+   * `{ maxAgeMs: 0 }` forces a rebuild that STARTED AFTER the call rather than
+   * serving (or coalescing onto) a snapshot that predates it — what a caller
+   * which just registered a root needs for that root to be discovered and
+   * watched (BST-1397). Omit it for the ordinary TTL-cached read.
    */
-  inventory: () => Promise<GitResult<GitInventory>>;
+  inventory: (options?: { readonly maxAgeMs?: number }) => Promise<GitResult<GitInventory>>;
   /**
    * Live-refresh push channel (BST-1161, spec §6): subscribe to
    * `changes:invalidated` events fired when the main-process git-metadata

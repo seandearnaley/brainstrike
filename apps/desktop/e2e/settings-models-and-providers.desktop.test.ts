@@ -77,10 +77,10 @@ async function openModelsSettings(
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();
-  await settingsPage.openCategory(/Models & Providers/i, 'embedding-models');
+  await settingsPage.openCategory(/Model Catalog/i, 'embedding-models');
 }
 
-test.describe('Models & Providers settings (desktop)', () => {
+test.describe('Model Catalog settings (desktop)', () => {
   test('shows a registry load error and recovers on retry', async ({ window, homePage }) => {
     await installSettingsTestOverrides(window, {
       modelRegistry: {

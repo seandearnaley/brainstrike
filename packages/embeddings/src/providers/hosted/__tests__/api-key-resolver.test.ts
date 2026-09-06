@@ -54,7 +54,7 @@ describe('api-key-resolver', () => {
     it('clears cache for specific provider', async () => {
       globalThis.process = {
         env: {
-          GOOGLE_API_KEY: 'google-key',
+          GOOGLE_GENERATIVE_AI_API_KEY: 'google-key',
           OPENAI_API_KEY: 'openai-key',
         },
       } as unknown as NodeJS.Process;
@@ -78,7 +78,7 @@ describe('api-key-resolver', () => {
     it('clears cache for all providers when no provider specified', async () => {
       globalThis.process = {
         env: {
-          GOOGLE_API_KEY: 'google-key',
+          GOOGLE_GENERATIVE_AI_API_KEY: 'google-key',
           OPENAI_API_KEY: 'openai-key',
         },
       } as unknown as NodeJS.Process;
@@ -88,7 +88,7 @@ describe('api-key-resolver', () => {
 
       // Change keys and clear all caches
       (globalThis.process as NodeJS.Process).env['OPENAI_API_KEY'] = 'new-openai';
-      (globalThis.process as NodeJS.Process).env['GOOGLE_API_KEY'] = 'new-google';
+      (globalThis.process as NodeJS.Process).env['GOOGLE_GENERATIVE_AI_API_KEY'] = 'new-google';
       clearHostedProviderApiKeyCache();
 
       const openaiKey = await resolveHostedProviderApiKey('openai');
@@ -256,6 +256,40 @@ describe('api-key-resolver', () => {
       const result = await resolveHostedProviderApiKey('lmstudio');
 
       expect(result).toBe('lmstudio-key');
+    });
+
+    it('never resolves a deprecated env name (BST-1361)', async () => {
+      (globalThis as { window?: unknown }).window = undefined;
+
+      globalThis.process = {
+        env: {
+          AI_COHERE_API_KEY: 'legacy-cohere',
+          AI_OPENAI_API_KEY: 'legacy-openai',
+          AI_VOYAGE_API_KEY: 'legacy-voyage',
+          GOOGLE_API_KEY: 'legacy-google',
+        },
+      } as unknown as NodeJS.Process;
+
+      await expect(resolveHostedProviderApiKey('openai')).resolves.toBeUndefined();
+      await expect(resolveHostedProviderApiKey('google')).resolves.toBeUndefined();
+      await expect(resolveHostedProviderApiKey('cohere')).resolves.toBeUndefined();
+      await expect(resolveHostedProviderApiKey('voyage')).resolves.toBeUndefined();
+    });
+
+    it('resolves the BRAINSTRIKE_* override for embedding-only providers', async () => {
+      (globalThis as { window?: unknown }).window = undefined;
+
+      globalThis.process = {
+        env: {
+          BRAINSTRIKE_COHERE_API_KEY: 'override-cohere',
+          BRAINSTRIKE_VOYAGE_API_KEY: 'override-voyage',
+          COHERE_API_KEY: 'vendor-cohere',
+          VOYAGE_API_KEY: 'vendor-voyage',
+        },
+      } as unknown as NodeJS.Process;
+
+      await expect(resolveHostedProviderApiKey('cohere')).resolves.toBe('override-cohere');
+      await expect(resolveHostedProviderApiKey('voyage')).resolves.toBe('override-voyage');
     });
 
     it('returns undefined when no environment variable found', async () => {

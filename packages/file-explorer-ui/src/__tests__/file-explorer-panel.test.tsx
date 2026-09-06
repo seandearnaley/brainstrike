@@ -287,6 +287,8 @@ describe('FileExplorerPanel', () => {
     isFileSystemAccessSupportedMock = vi.fn(() => ({ reason: '', supported: true }));
     fileExplorerReturnValue = {
       addRootDirectory: vi.fn().mockResolvedValue(null),
+      // Web-shaped adapter: the desktop-only capabilities are absent, not stubbed.
+      addRootDirectoryByPath: undefined,
       applyFileFilters: applyFileFiltersMock,
       cancelChildLoading: vi.fn(),
       cancelExpandAll: vi.fn(),
@@ -300,6 +302,7 @@ describe('FileExplorerPanel', () => {
       error: null,
       expandAllProgress: null,
       expandAllProgressively: vi.fn(),
+      fileContentErrors: new Map<string, Error>(),
       fileContents: {},
       fileTree: [],
       filterError: null,
@@ -312,6 +315,7 @@ describe('FileExplorerPanel', () => {
       isLoadingForSelectAll: false,
       isLoadingForSelection: false,
       isRestoringExpandedPaths: false,
+      listRecentRoots: undefined,
       loadChildren: vi.fn(),
       loadFileContent: vi.fn(),
       loadingFiles: new Set<string>(),
@@ -322,6 +326,7 @@ describe('FileExplorerPanel', () => {
       refreshDirectory: vi.fn(),
       refreshFileExplorer: refreshFileExplorerMock,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
+      reloadFileContents: vi.fn(),
       removeRootDirectory: vi.fn().mockResolvedValue(undefined),
       restorationProgress: null,
       rootDirectoryHandle: {
@@ -1016,7 +1021,7 @@ describe('FileExplorerPanel', () => {
 
     // Update the mock before rendering
     const { useToastManager } = await import('@brainstrike/file-explorer-hooks');
-    vi.mocked(useToastManager).mockReturnValueOnce({
+    vi.mocked(useToastManager).mockReturnValue({
       handleBrowserCompatibilityError: handleBrowserCompatibilityErrorMock,
       handleDirectorySelectError: vi.fn(),
       handlePartialRefreshError: vi.fn(),
@@ -1091,7 +1096,7 @@ describe('FileExplorerPanel', () => {
 
     // Update the mock before rendering
     const { useToastManager } = await import('@brainstrike/file-explorer-hooks');
-    vi.mocked(useToastManager).mockReturnValueOnce({
+    vi.mocked(useToastManager).mockReturnValue({
       handleBrowserCompatibilityError: vi.fn(),
       handleDirectorySelectError: vi.fn(),
       handlePartialRefreshError: vi.fn(),

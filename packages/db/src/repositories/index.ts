@@ -87,6 +87,22 @@ export type {
   IViewFilterPresetsRepository,
 } from './interfaces.js';
 export {
+  type CreateMcpTaskInput,
+  MAX_ACTIVE_MCP_TASKS_PER_SCOPE,
+  MCP_TASK_METADATA_MAX_BYTES,
+  type McpTaskAuthorityInput,
+  type McpTaskAuthorityLease,
+  type McpTaskBlockedDiagnostic,
+  type McpTaskDatabase,
+  type McpTaskIdentity,
+  McpTaskMetadataTooLargeError,
+  type McpTaskRecord,
+  McpTaskRepository,
+  type McpTaskScope,
+  type McpTaskStatus,
+  type UpdateMcpTaskInput,
+} from './mcp-task-repository.js';
+export {
   type PromptItemDatabase,
   PromptItemRepository,
 } from './prompt-item-repository.js';

@@ -18,6 +18,7 @@ import {
 import { AssistantRunErrorRepository } from '@brainstrike/db';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
+import { runCriticalDatabaseOperation } from './run-critical-database';
 
 /**
  * Minimal structural DB surface shared by every writer in this module (BST-972
@@ -457,6 +458,34 @@ export async function* persistDesktopTokenEstimateCalibration(
   }
 }
 
+/**
+ * Durable run status read for the reattachment reclaim probe
+ * (GET /assistant/run-status). Returns undefined when no row exists — for a
+ * runId taken from a stored reattachment record that proves the record is
+ * stale, because runs gain their durable row before any stream response can
+ * mint a record. Read errors THROW (the endpoint 500s); a fabricated status
+ * here could silently reclaim a live run.
+ */
+export async function readDesktopAssistantThreadRunStatus(
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): Promise<string | undefined> {
+  const database = await getDatabase();
+  const result = await database.query(
+    `SELECT status FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE id = $1`,
+    [runId]
+  );
+  const row = result.rows[0];
+  if (row === undefined) {
+    return;
+  }
+  const status = (row as { status?: unknown }).status;
+  if (typeof status !== 'string') {
+    throw new Error(`Assistant thread run ${runId} has a non-string status column.`);
+  }
+  return status;
+}
+
 export async function recordDesktopAssistantThreadRunStatus(
   runId: string,
   status: 'cancelled' | 'completed' | 'failed',
@@ -547,16 +576,39 @@ export async function recordDesktopAssistantHookRunOutcome(
   });
 }
 
-async function recordDesktopAssistantRunEvent(
+/**
+ * EXPORTED for the worktree service (BST-1390), which emits its lifecycle rows
+ * through this same writer and therefore inherits the documented `if (runId)`
+ * gate and the "missing parent row ⇒ 0 rows, silent no-op" behavior (the INSERT
+ * is an `INSERT ... SELECT ... FROM brainstrike_assistant_thread_runs WHERE id
+ * = $runId`, so an unknown/absent runId writes nothing). Do not add a second
+ * INSERT for run events.
+ */
+export async function recordDesktopAssistantRunEvent(
   runId: string,
   event: AssistantRunEvent,
   getDatabase: RunPersistenceDatabaseProvider
 ): Promise<void> {
   const now = new Date();
-  const metadata = sanitizeAssistantRunEventMetadata(event.metadata);
+  let metadata = sanitizeAssistantRunEventMetadata(event.metadata);
   const database = await getDatabase();
-  await database.query(
-    `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
+  await runCriticalDatabaseOperation({
+    label: 'assistant-run-event-write',
+    onRetry: ({ error }) => {
+      metadata = sanitizeAssistantRunEventMetadata({
+        ...metadata,
+        databaseRetry: {
+          attempt: 2,
+          pendingCount: error.pendingCount,
+          reason: 'host-saturated-timeout',
+          requestKind: error.requestKind,
+          timeoutMs: error.timeoutMs,
+        },
+      });
+    },
+    operation: () =>
+      database.query(
+        `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
       (
         id,
         run_id,
@@ -600,21 +652,24 @@ async function recordDesktopAssistantRunEvent(
         duration_ms = EXCLUDED.duration_ms,
         occurred_at = EXCLUDED.occurred_at,
         updated_at = EXCLUDED.updated_at`,
-    [
-      event.id,
-      runId,
-      event.sequence ?? 0,
-      event.kind,
-      event.status,
-      event.label,
-      event.detail ?? null,
-      metadata ? JSON.stringify(metadata) : null,
-      event.durationMs ?? null,
-      new Date(event.timestamp),
-      now,
-      now,
-    ]
-  );
+        [
+          event.id,
+          runId,
+          event.sequence ?? 0,
+          event.kind,
+          event.status,
+          event.label,
+          event.detail ?? null,
+          metadata ? JSON.stringify(metadata) : null,
+          event.durationMs ?? null,
+          new Date(event.timestamp),
+          now,
+          now,
+        ]
+      ),
+    retry: 'idempotent',
+    runId,
+  });
   if (event.kind !== 'run.failed') {
     return;
   }

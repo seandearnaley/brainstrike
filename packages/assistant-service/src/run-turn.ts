@@ -26,6 +26,7 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
   assistantDataStreamSessions,
+  ProviderAuthInput,
   RuntimeData,
 } from '@brainstrike/agent';
 import {
@@ -38,6 +39,12 @@ import type { AgentStreamFailure } from './types.js';
 export interface RunAssistantTurnParams {
   readonly apiKey: string | undefined;
   readonly assistantMessageId: string | undefined;
+  /**
+   * Provider auth input (BST-1352): a DIRECT parameter into the injected
+   * stream initializer, never copied onto `runtimeData` (RequestContext.toJSON
+   * drops functions — a custom_fetch closure would vanish silently).
+   */
+  readonly authInput?: ProviderAuthInput | undefined;
   readonly executionSignal: AbortSignal;
   readonly initializeStream: StreamInitializer;
   readonly messages: AgentMessage[];
@@ -74,6 +81,7 @@ export async function runAssistantTurn(
 ): Promise<RunAssistantTurnResult> {
   const {
     apiKey,
+    authInput,
     assistantMessageId,
     executionSignal,
     messages,
@@ -88,6 +96,7 @@ export async function runAssistantTurn(
 
   const streamResult = await initializeStream({
     apiKey,
+    authInput,
     messages,
     runId,
     runtimeData,

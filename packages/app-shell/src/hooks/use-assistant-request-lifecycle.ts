@@ -360,9 +360,10 @@ export function useAssistantRequestLifecycle({
       // the approve-exits-plan-mode race: `SubmitPlanNotice.approve` flips the
       // store off and then immediately submits the resume in the SAME
       // synchronous handler, with no guarantee a re-render lands in between.
-      // `planMode` is presence-means-on: explicitly set `undefined` (never
-      // `false`) so it always overrides a stale `true` inherited from
-      // `requestData` and drops off the wire on JSON.stringify.
+      // Written UNCONDITIONALLY as `undefined` (never `false`) when off, so it
+      // always overrides a stale `true` inherited from `requestData`; the key
+      // drops off the wire on JSON.stringify. Not presence-means-on — the key
+      // is present here even when off.
       const freshPlanModeEnabled =
         planModeAvailable && useAssistantPreferencesStore.getState().planModeEnabled;
 
@@ -378,8 +379,14 @@ export function useAssistantRequestLifecycle({
       // `ask` and could re-prompt until a later re-render. Read the live store
       // posture here so the grant takes effect on THIS run. `permissionEnforceable`
       // mirrors the wrapper's transport gate (only the data-stream server
-      // enforces); `enforce` is read fresh. Presence-means-on: set `undefined`
-      // (never a stale object) so an off/opted-out posture drops off the wire.
+      // enforces); `enforce` is read fresh. The key is written UNCONDITIONALLY
+      // — `undefined` (never a stale object) for an off/opted-out posture, which
+      // `JSON.stringify` drops at the wire boundary. Consumers must check the
+      // VALUE; `'permissionPolicyRequest' in data` is TRUE here even when off.
+      // This CANNOT be simplified to the conditional-spread pattern that
+      // `subagentPersonasRequest` uses: the write must clobber a stale snapshot
+      // inherited from `requestData`, not skip it (see the "fresh enforce=OFF
+      // drops a stale snapshot" test).
       const freshPermissionSnapshot = getPermissionToolGateSnapshotInput();
       const freshPermissionPolicyRequest =
         permissionEnforceable && freshPermissionSnapshot.enforce

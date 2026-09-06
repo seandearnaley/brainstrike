@@ -3,6 +3,7 @@
 
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
@@ -107,6 +108,7 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
+    reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.setup', './src/__tests__/setup-mock-queue.tsx'],
     unstubGlobals: true,
     ...poolConfig,

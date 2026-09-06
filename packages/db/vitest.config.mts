@@ -1,8 +1,12 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
-import { withBoundedTraceChunkNames } from '../config/src/vitest-browser.ts';
+import {
+  resolveVisualBaselinePath,
+  withBoundedTraceChunkNames,
+} from '../config/src/vitest-browser.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -143,6 +147,11 @@ export default defineConfig({
         test: {
           browser: {
             enabled: true,
+            expect: {
+              toMatchScreenshot: {
+                resolveScreenshotPath: resolveVisualBaselinePath,
+              },
+            },
             headless: true,
             instances: [{ browser: 'chromium' }],
             // withBoundedTraceChunkNames: long test names otherwise overflow
@@ -176,5 +185,6 @@ export default defineConfig({
         },
       },
     ],
+    reporters: ['default', new LostTestFileReporter()],
   },
 });

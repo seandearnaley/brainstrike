@@ -1,14 +1,22 @@
-import { providerEnvKeys } from '@brainstrike/agent/hosted-web';
+import { providerDeprecatedEnvKeys, providerEnvKeys } from '@brainstrike/agent/hosted-web';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getAssistantApiKey,
   HOSTED_WEB_ASSISTANT_PROVIDERS,
+  resetHostedWebDeprecatedEnvVarsForTests,
   resolveAssistantProviderConfig,
   resolveAssistantProviderConfigs,
   resolveHostedWebAssistantStatus,
 } from '../server/assistant-config';
 
-const ENV_KEYS = [...new Set(HOSTED_WEB_ASSISTANT_PROVIDERS.flatMap(providerEnvKeys))];
+const ENV_KEYS = [
+  ...new Set(
+    HOSTED_WEB_ASSISTANT_PROVIDERS.flatMap((provider) => [
+      ...providerEnvKeys(provider),
+      ...providerDeprecatedEnvKeys(provider),
+    ])
+  ),
+];
 
 const clearApiKeys = (): void => {
   for (const key of ENV_KEYS) {
@@ -40,15 +48,18 @@ describe('assistant-config', () => {
   beforeEach(() => {
     snapshotApiKeys();
     clearApiKeys();
+    // The deprecated-name scan memoizes per process (server env is
+    // boot-immutable); tests mutate process.env per case.
+    resetHostedWebDeprecatedEnvVarsForTests();
   });
 
   afterEach(() => {
     restoreApiKeys();
+    resetHostedWebDeprecatedEnvVarsForTests();
   });
 
   it('uses the canonical registry precedence within a provider', () => {
     process.env['OPENAI_API_KEY'] = 'openai';
-    process.env['BS_OPENAI_API_KEY'] = 'bs';
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'brainstrike';
 
     const result = resolveAssistantProviderConfig('openai');
@@ -63,20 +74,65 @@ describe('assistant-config', () => {
 
   it('trims env values and skips empty strings', () => {
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = '   ';
-    process.env['BS_OPENAI_API_KEY'] = '  bs-key  ';
+    process.env['OPENAI_API_KEY'] = '  vendor-key  ';
 
     const result = resolveAssistantProviderConfig('openai');
     expect(result).toEqual({
-      apiKey: 'bs-key',
+      apiKey: 'vendor-key',
       enabled: true,
       provider: 'openai',
-      source: 'BS_OPENAI_API_KEY',
+      source: 'OPENAI_API_KEY',
     });
+  });
+
+  it('never authenticates a deprecated name, and a DISABLED status leaks no env-name presence (BST-1361 review 4)', () => {
+    process.env['OPENAI_API_KEY_V2'] = 'legacy-secret';
+
+    const config = resolveAssistantProviderConfig('openai');
+    expect(config).toEqual({
+      disabledReason: 'missing_api_key',
+      enabled: false,
+      provider: 'openai',
+    });
+
+    // Production/anonymous deployments answer this route too: a disabled
+    // payload must not disclose which env names exist on the server.
+    const status = resolveHostedWebAssistantStatus();
+    expect(status).toEqual({ enabled: false, reason: 'missing_api_key' });
+    expect(JSON.stringify(status)).not.toContain('OPENAI_API_KEY_V2');
+    expect(JSON.stringify(status)).not.toContain('legacy-secret');
+  });
+
+  it('includes deprecated rename reports alongside an enabled status (BST-1361)', () => {
+    process.env['OPENAI_API_KEY'] = 'openai';
+    process.env['GOOGLE_API_KEY'] = 'legacy-google';
+
+    const status = resolveHostedWebAssistantStatus();
+    expect(status.enabled).toBe(true);
+    expect(status.deprecatedEnvVars).toEqual([
+      {
+        envVar: 'GOOGLE_API_KEY',
+        provider: 'google',
+        replacement: 'GOOGLE_GENERATIVE_AI_API_KEY',
+      },
+    ]);
+  });
+
+  it('does not report deprecated names for providers outside the Hosted Web set', () => {
+    process.env['OPENAI_API_KEY'] = 'openai';
+    process.env['AI_COHERE_API_KEY'] = 'legacy-cohere';
+    try {
+      const status = resolveHostedWebAssistantStatus();
+      expect(status.enabled).toBe(true);
+      expect(status).not.toHaveProperty('deprecatedEnvVars');
+    } finally {
+      delete process.env['AI_COHERE_API_KEY'];
+    }
   });
 
   it('discovers all configured Hosted Web providers in stable picker order', () => {
     process.env['OPENROUTER_API_KEY'] = ' openrouter ';
-    process.env['GOOGLE_API_KEY'] = 'google';
+    process.env['GOOGLE_GENERATIVE_AI_API_KEY'] = 'google';
     process.env['ANTHROPIC_API_KEY'] = 'anthropic';
     process.env['OPENAI_API_KEY'] = 'openai';
 
@@ -98,7 +154,7 @@ describe('assistant-config', () => {
         apiKey: 'google',
         enabled: true,
         provider: 'google',
-        source: 'GOOGLE_API_KEY',
+        source: 'GOOGLE_GENERATIVE_AI_API_KEY',
       },
       {
         apiKey: 'openrouter',
@@ -115,7 +171,7 @@ describe('assistant-config', () => {
       providerKeySources: [
         { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
         { envVar: 'ANTHROPIC_API_KEY', provider: 'anthropic', source: 'env' },
-        { envVar: 'GOOGLE_API_KEY', provider: 'google', source: 'env' },
+        { envVar: 'GOOGLE_GENERATIVE_AI_API_KEY', provider: 'google', source: 'env' },
         { envVar: 'OPENROUTER_API_KEY', provider: 'openrouter', source: 'env' },
       ],
       providers: ['openai', 'anthropic', 'google', 'openrouter'],

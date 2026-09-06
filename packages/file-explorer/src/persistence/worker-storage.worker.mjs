@@ -54,7 +54,7 @@ function handleStorageResponse(data) {
       try {
         result = JSON.parse(data.rawValue);
       } catch {
-        result = null;
+        throw new Error('Persisted state contains invalid JSON');
       }
     } else {
       result = null;

@@ -539,7 +539,11 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteLiveQuery: vi.fn(() => ({ error: null, loading: false, refresh: vi.fn(), rows: [] })),
 }));
 
-vi.mock('@brainstrike/file-explorer-ui/shell', () => {
+vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => {
+  // The live-refresh subscription (reached via the composer workspace bar's
+  // checkout status) reads the REAL event name — mirror git-panel.test.tsx and
+  // re-export it rather than hardcoding a drifting copy.
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>();
   // Stable references for the "@" file-mention selectors (useFileMentions reads
   // these via useFileExplorerStoreSelector). A fresh `[]`/`{}` per getState()
   // call would make the selector return a new value every render → re-render
@@ -570,6 +574,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => {
   };
 
   return {
+    FILE_EXPLORER_REFRESH_EVENT: actual.FILE_EXPLORER_REFRESH_EVENT,
     useFileExplorerStoreContext: () => store,
     useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
       selector(getState()),

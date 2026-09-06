@@ -65,14 +65,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function hasOmittedByteFields(value: Record<string, unknown>): boolean {
+interface OmittedByteFields {
+  readonly stderrOmittedBytes: number;
+  readonly stdoutOmittedBytes: number;
+}
+
+interface StreamFields extends OmittedByteFields {
+  readonly stderr: string;
+  readonly stdout: string;
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return isNonNegativeSafeInteger(value) && value > 0;
+}
+
+function hasOmittedByteFields(
+  value: Record<string, unknown>
+): value is Record<string, unknown> & OmittedByteFields {
   return (
-    typeof value['stdoutOmittedBytes'] === 'number' &&
-    typeof value['stderrOmittedBytes'] === 'number'
+    isNonNegativeSafeInteger(value['stdoutOmittedBytes']) &&
+    isNonNegativeSafeInteger(value['stderrOmittedBytes'])
   );
 }
 
-function hasStreamFields(value: Record<string, unknown>): boolean {
+function hasStreamFields(
+  value: Record<string, unknown>
+): value is Record<string, unknown> & StreamFields {
   return (
     typeof value['stdout'] === 'string' &&
     typeof value['stderr'] === 'string' &&
@@ -84,24 +106,53 @@ function isSignalField(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
 }
 
+function readStringArray(value: unknown): readonly string[] | null {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : null;
+}
+
 export function narrowRunPythonDisplayResult(value: unknown): RunPythonDisplayResult | null {
   if (!isRecord(value)) {
     return null;
   }
   switch (value['kind']) {
     case 'completed':
-      return typeof value['exitCode'] === 'number' && hasStreamFields(value)
-        ? (value as unknown as RunPythonDisplayResult)
+      return isNonNegativeSafeInteger(value['exitCode']) && hasStreamFields(value)
+        ? {
+            ...value,
+            exitCode: value['exitCode'],
+            kind: 'completed',
+            stderr: value.stderr,
+            stderrOmittedBytes: value.stderrOmittedBytes,
+            stdout: value.stdout,
+            stdoutOmittedBytes: value.stdoutOmittedBytes,
+          }
         : null;
     case 'timed_out':
-      return typeof value['timeoutMs'] === 'number' &&
+      return isPositiveSafeInteger(value['timeoutMs']) &&
         isSignalField(value['signal']) &&
         hasStreamFields(value)
-        ? (value as unknown as RunPythonDisplayResult)
+        ? {
+            ...value,
+            kind: 'timed_out',
+            signal: value['signal'],
+            stderr: value.stderr,
+            stderrOmittedBytes: value.stderrOmittedBytes,
+            stdout: value.stdout,
+            stdoutOmittedBytes: value.stdoutOmittedBytes,
+            timeoutMs: value['timeoutMs'],
+          }
         : null;
     case 'killed':
       return isSignalField(value['signal']) && hasStreamFields(value)
-        ? (value as unknown as RunPythonDisplayResult)
+        ? {
+            ...value,
+            kind: 'killed',
+            signal: value['signal'],
+            stderr: value.stderr,
+            stderrOmittedBytes: value.stderrOmittedBytes,
+            stdout: value.stdout,
+            stdoutOmittedBytes: value.stdoutOmittedBytes,
+          }
         : null;
     case 'cancelled':
       // The omitted-byte fields are validated here too (every stream-carrying
@@ -110,18 +161,24 @@ export function narrowRunPythonDisplayResult(value: unknown): RunPythonDisplayRe
       return typeof value['partialStdout'] === 'string' &&
         typeof value['partialStderr'] === 'string' &&
         hasOmittedByteFields(value)
-        ? (value as unknown as RunPythonDisplayResult)
+        ? {
+            ...value,
+            kind: 'cancelled',
+            partialStderr: value['partialStderr'],
+            partialStdout: value['partialStdout'],
+            stderrOmittedBytes: value.stderrOmittedBytes,
+            stdoutOmittedBytes: value.stdoutOmittedBytes,
+          }
         : null;
-    case 'network_denied':
-      return Array.isArray(value['deniedDomains']) &&
-        value['deniedDomains'].every((domain) => typeof domain === 'string')
-        ? (value as unknown as RunPythonDisplayResult)
-        : null;
+    case 'network_denied': {
+      const deniedDomains = readStringArray(value['deniedDomains']);
+      return deniedDomains ? { ...value, deniedDomains, kind: 'network_denied' } : null;
+    }
     case 'declined':
-      return value as unknown as RunPythonDisplayResult;
+      return { ...value, kind: 'declined' };
     case 'unavailable':
       return typeof value['reason'] === 'string' && typeof value['detail'] === 'string'
-        ? (value as unknown as RunPythonDisplayResult)
+        ? { ...value, detail: value['detail'], kind: 'unavailable', reason: value['reason'] }
         : null;
     default:
       return null;

@@ -7,11 +7,17 @@ import {
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
-import { loadMcpConfig } from './mcp-loader';
+import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { readOpenAIApiKey } from './openai-api-key';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { readProviderSecretKey, resolveProviderEnvKey } from './provider-api-key';
+import { readProviderCredential } from './provider-api-key';
+import { SecretReadError } from './secrets';
+
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
+} as const;
 
 const logger = createLogger('DesktopIpcAgent');
 type AgentModule = typeof import('@brainstrike/agent');
@@ -20,9 +26,10 @@ type MaybeAsyncIterable<T> = AsyncIterable<T> | Promise<AsyncIterable<T>>;
 export function registerAgentIpcHandlers(): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'agent',
     DESKTOP_PRELOAD_IPC_CHANNELS.agent.chat,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, messages: AgentMessage[], runtime?: RuntimeData): Promise<StreamChunk[]> =>
       runAgentChat(messages, runtime)
   );
@@ -46,15 +53,14 @@ async function runAgentChat(
   }
 
   const agentModule = resolveAgentModule();
-  const config = await loadMcpConfig();
   const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
 
   const maybeStream = agentModule.streamMastraAgent(messages, {
+    mcpHost: getDesktopMcpHostRuntime().host,
     runtime: {
       ...runtimeWithoutMcpConfig,
       apiKey,
       provider,
-      ...(config.config ? { mcpConfig: config.config } : {}),
     },
   });
 
@@ -86,19 +92,26 @@ async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
   }
   const supportedProvider = provider as SupportedProvider;
 
-  const envKey = resolveProviderEnvKey(supportedProvider);
-  if (envKey) {
-    logger.info('Using environment API key for provider', { provider });
-    return envKey;
-  }
-
-  const storedKey = await readProviderSecretKey(supportedProvider);
-  if (storedKey) {
-    logger.info('Retrieved stored API key for provider', {
-      prefix: storedKey.slice(0, 10),
-      provider,
-    });
-    return storedKey;
+  // BST-1352 review finding 10: ride the ONE shared env-authoritative core
+  // (readProviderCredential → resolveHostedProviderCredential) instead of a
+  // hand-rolled env → stored sequence. A stored non-api_key credential
+  // degrades exactly like the old string read: the classified
+  // credential_type_unsupported SecretReadError, never a stringified
+  // credential or a silent "not configured".
+  const credential = await readProviderCredential(supportedProvider);
+  if (credential) {
+    if (credential.type !== 'api_key') {
+      throw new SecretReadError('credential_type_unsupported', provider);
+    }
+    if (credential.source === 'env') {
+      logger.info('Using environment API key for provider', { provider });
+    } else {
+      logger.info('Retrieved stored API key for provider', {
+        prefix: credential.key.slice(0, 10),
+        provider,
+      });
+    }
+    return credential.key;
   }
 
   if (provider === 'openai') {

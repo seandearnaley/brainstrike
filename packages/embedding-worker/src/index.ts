@@ -11,10 +11,18 @@ export {
   recordEmbeddingPipelineCacheTelemetry,
   recordEmbeddingTelemetryFailure,
   removeEmbeddingTelemetrySource,
-  resetEmbeddingTelemetryForTests,
   subscribeEmbeddingTelemetry,
   subscribeEmbeddingTelemetryThrottled,
 } from './embedding-telemetry';
+export {
+  createEmbeddingPipelineCacheController,
+  type EmbeddingPipelineCacheController,
+  type EmbeddingPipelineCacheLoadRequest,
+  type EmbeddingPipelineResource,
+  MAX_GPU_PIPELINES,
+  MAX_WASM_PIPELINES,
+  type PipelineCacheDiagnosticSink,
+} from './pipeline-cache-controller';
 export type {
   EmbeddingDevice,
   EmbeddingDeviceHint,

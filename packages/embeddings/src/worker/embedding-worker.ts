@@ -233,27 +233,6 @@ function resolveMetricsIntervalMs(configuredValue: number | undefined): number {
   });
 }
 
-async function sha256Hex(input: string): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) {
-    throw new Error('Web Crypto SHA-256 is unavailable in the renderer embedding worker.');
-  }
-
-  try {
-    const data = new TextEncoder().encode(input);
-    const digest = await subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  } catch (error) {
-    throw new Error(
-      `Web Crypto SHA-256 failed in the renderer embedding worker: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-  }
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
@@ -1543,17 +1522,16 @@ export async function startEmbeddingWorker(
     checkLease: () => boolean,
     onJobsSettled?: (jobIds: Set<string>) => void
   ) {
-    const { toProcess, completed, orphanCount } = await loadAndFilterChunks(jobs, jobModel, {
+    const { toProcess, completed, orphanCount, staleCount } = await loadAndFilterChunks(jobs, {
       db: options.db,
-      failOrphanJobs: async (orphanJobs, error) => {
-        await jq.failBatch({ error, jobs: orphanJobs, terminal: true });
-        onJobsSettled?.(new Set(orphanJobs.map((job) => job.id)));
+      failTerminalJobs: async (terminalJobs, error) => {
+        await jq.failBatch({ error, jobs: terminalJobs, terminal: true });
+        onJobsSettled?.(new Set(terminalJobs.map((job) => job.id)));
       },
       fileChunkIdType,
-      hashExpectedEmbedding: sha256Hex,
       logWarn: (message, meta) => workerLogger.warn(message, meta),
     });
-    metrics.jobsFailed += orphanCount;
+    metrics.jobsFailed += orphanCount + staleCount;
     const completedJobIds = new Set<string>(completed.map((item) => item.job.id));
 
     try {

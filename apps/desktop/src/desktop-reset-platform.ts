@@ -13,6 +13,10 @@ export interface DesktopResetLogger {
 
 export interface CreateDesktopFactoryResetHandlerOptions {
   readonly cleanupLiveSubscriptionsForShutdown: () => Promise<void>;
+  /** Replaces the stale visible renderer and resolves only after its explicit
+   * renderer-ready acknowledgement. MCP admission remains closed while this
+   * promise is pending. */
+  readonly completeSuccessfulReset: () => Promise<void>;
   /** Every on-disk path the durable NDJSON error-log backstop (Flight
    * Recorder P2a) can occupy — forwarded to `resetDesktopApplicationData` so
    * factory reset purges it alongside the database, even though it lives
@@ -20,6 +24,10 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly errorLogFilePaths?: readonly string[];
   readonly logger: DesktopResetLogger;
   readonly resetLocalDatabase: () => Promise<void>;
+  /** Clears the long-lived main-process storage cache after userData has been
+   * deleted, before a replacement renderer can read or repersist stale data. */
+  readonly resetPersistentStorageAfterDataDeletion: () => Promise<void>;
+  readonly resumeAfterReset?: (outcome: 'failed' | 'succeeded') => Promise<void>;
   readonly runtimes: readonly DesktopResetRuntime[];
   readonly runWithDatabaseResetBarrier: (work: () => Promise<void>) => Promise<void>;
   readonly userDataPath: string;
@@ -29,6 +37,47 @@ export interface CreateDesktopFactoryResetHandlerOptions {
 export interface DesktopFactoryResetResult {
   message?: string;
   success: boolean;
+}
+
+type ResetFailure =
+  | { readonly kind: 'failed'; readonly error: unknown }
+  | { readonly kind: 'none' };
+
+const NO_RESET_FAILURE: ResetFailure = { kind: 'none' };
+
+function combineResetFailure(failure: unknown, resumeFailure: unknown): unknown {
+  const resetMessage = failure instanceof Error ? failure.message : String(failure);
+  const resumeMessage =
+    resumeFailure instanceof Error ? resumeFailure.message : String(resumeFailure);
+  return new AggregateError(
+    [failure, resumeFailure],
+    `${resetMessage}; reset runtime resume failed: ${resumeMessage}`
+  );
+}
+
+async function resumeDesktopResetRuntime({
+  failure,
+  rendererReplacementSucceeded,
+  resetDataSucceeded,
+  resumeAfterReset,
+}: {
+  failure: ResetFailure;
+  rendererReplacementSucceeded: boolean;
+  resetDataSucceeded: boolean;
+  resumeAfterReset: CreateDesktopFactoryResetHandlerOptions['resumeAfterReset'];
+}): Promise<ResetFailure> {
+  if (resetDataSucceeded && !rendererReplacementSucceeded) {
+    return failure;
+  }
+  try {
+    await resumeAfterReset?.(resetDataSucceeded ? 'succeeded' : 'failed');
+    return failure;
+  } catch (error) {
+    return {
+      error: failure.kind === 'none' ? error : combineResetFailure(failure.error, error),
+      kind: 'failed',
+    };
+  }
 }
 
 async function stopDesktopResetRuntimes(runtimes: readonly DesktopResetRuntime[]): Promise<void> {
@@ -43,7 +92,10 @@ async function stopDesktopResetRuntimes(runtimes: readonly DesktopResetRuntime[]
     return;
   }
   const failedNames = failures.map(({ runtime }) => runtime.name).join(', ');
-  throw new Error(`Failed to stop desktop reset runtimes: ${failedNames}`);
+  throw new AggregateError(
+    failures.map(({ result }) => result.reason),
+    `Failed to stop desktop reset runtimes: ${failedNames}`
+  );
 }
 
 /**
@@ -78,15 +130,21 @@ export async function resetDesktopDatabaseProfile({
 
 export function createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown,
+  completeSuccessfulReset,
   errorLogFilePaths,
   logger,
   resetLocalDatabase,
+  resetPersistentStorageAfterDataDeletion,
+  resumeAfterReset,
   runtimes,
   runWithDatabaseResetBarrier,
   userDataPath,
   waitForDatabaseWorkSchedulerIdle,
 }: CreateDesktopFactoryResetHandlerOptions): () => Promise<DesktopFactoryResetResult> {
-  return async () => {
+  const runReset = async (): Promise<DesktopFactoryResetResult> => {
+    let failure: ResetFailure = NO_RESET_FAILURE;
+    let resetDataSucceeded = false;
+    let rendererReplacementSucceeded = false;
     try {
       await resetDesktopApplicationData({
         ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
@@ -112,12 +170,37 @@ export function createDesktopFactoryResetHandler({
         },
         userDataPath,
       });
+      resetDataSucceeded = true;
+      await resetPersistentStorageAfterDataDeletion();
+      await completeSuccessfulReset();
+      rendererReplacementSucceeded = true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error('Failed to reset desktop application data:', error);
+      failure = { error, kind: 'failed' };
+    }
+
+    // A failed purge must restore the pre-reset runtime snapshot. A successful
+    // purge may reopen only after the replacement renderer explicitly reports
+    // ready. If renderer replacement itself fails, keep admission closed.
+    failure = await resumeDesktopResetRuntime({
+      failure,
+      rendererReplacementSucceeded,
+      resetDataSucceeded,
+      resumeAfterReset,
+    });
+    if (failure.kind === 'failed') {
+      const message =
+        failure.error instanceof Error ? failure.error.message : String(failure.error);
+      logger.error('Failed to reset desktop application data:', failure.error);
       return { message, success: false };
     }
 
     return { success: true };
+  };
+  let resetInFlight: Promise<DesktopFactoryResetResult> | null = null;
+  return async () => {
+    resetInFlight ??= runReset().finally(() => {
+      resetInFlight = null;
+    });
+    return await resetInFlight;
   };
 }

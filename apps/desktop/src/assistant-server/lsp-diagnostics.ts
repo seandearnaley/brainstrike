@@ -22,10 +22,12 @@
  * NO SILENT FALLBACKS: an unresolvable server, an unsupported language, or a
  * diagnostics timeout all resolve to an honest non-fatal result — never a
  * thrown error that would fail the underlying (already-successful) edit.
+ * The same rule applies one level down inside `inspect` (BST-1614): a query
+ * that timed out or threw is reported as an UNANSWERED leg, never degraded to
+ * the empty value a real "nothing here" answer produces.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createLogger } from '@brainstrike/logging';
@@ -46,7 +48,24 @@ import type {
   Position,
   PublishDiagnosticsParams,
 } from 'vscode-languageserver-protocol/node';
-import { isWithinRoot } from './workspace-path';
+import {
+  boundQueryFailureDetail,
+  clipHover,
+  DIAGNOSTIC_TIMEOUT_MS,
+  type InspectLocation,
+  type LspInspectQuery,
+  type LspQueryFailure,
+  QUERY_TIMEOUT_MS,
+  type RawLocation,
+  type RawQueryFailure,
+  toInspectLocations,
+  toQueryFailure,
+} from './lsp-inspection-shapes';
+
+// Re-exported so `lsp-diagnostics` stays the single import surface for the
+// inspect tool + its model projection (the split is an internal file boundary,
+// not a new public seam).
+export type { InspectLocation, LspInspectQuery, LspQueryFailure };
 
 // LSP method names used verbatim (string overloads avoid the branded-type
 // identity mismatch between vscode-jsonrpc and -protocol under the main
@@ -68,10 +87,6 @@ const logger = createLogger('AssistantLspDiagnostics');
 
 /** Timeout for the LSP server initialize handshake. */
 const INIT_TIMEOUT_MS = 15_000;
-/** Overall budget for diagnostics to arrive after opening/updating a file. */
-const DIAGNOSTIC_TIMEOUT_MS = 6000;
-/** Per-request budget for a hover/definition/implementation query (Phase B). */
-const QUERY_TIMEOUT_MS = 4000;
 /** Servers publish `[]` first while still analysing, then the real set — so an
  * empty result is not trusted immediately: poll this much longer for a
  * non-empty publish before returning empty (mirrors core's settle window). */
@@ -249,13 +264,42 @@ interface RawDiagnostic {
 interface RawHover {
   contents?: unknown;
 }
-/** Raw LSP Location or LocationLink (definition/implementation result). */
-interface RawLocation {
-  range?: { start?: { line?: number; character?: number } };
-  targetRange?: { start?: { line?: number; character?: number } };
-  targetSelectionRange?: { start?: { line?: number; character?: number } };
-  targetUri?: string;
-  uri?: string;
+/**
+ * Sentinel `withTimeout` fallback for the inspect queries. A plain `null`
+ * fallback is indistinguishable from the server's own "nothing here" answer,
+ * which is exactly the BST-1614 ambiguity — a unique symbol keeps the two
+ * apart without widening the wire types.
+ */
+const QUERY_TIMED_OUT: unique symbol = Symbol('lsp-query-timed-out');
+
+/** A bounded inspect query: an answer, or the reason there is none. */
+type QueryOutcome<T> =
+  | { detail?: string; ok: false; reason: 'timeout' | 'error' }
+  | { ok: true; value: T };
+
+/**
+ * Outcome of waiting for a document's diagnostics (BST-1614).
+ *
+ * `settled:true` means the server ANSWERED for this content: either a
+ * non-empty publish, or an empty one that survived the full
+ * `DIAGNOSTIC_SETTLE_MS` window. Everything else is `settled:false` — the
+ * "clean" verdict was never established.
+ *
+ * This is returned rather than inferred afterwards from the diagnostics map on
+ * purpose. The map is MUTABLE and shared: a preliminary empty publish landing
+ * near the deadline leaves an entry behind without the settle window ever
+ * completing, and a publish arriving during the (up to 4s) semantic queries
+ * repopulates it after the line diagnostics were already captured. In both
+ * cases a later `has()` check reports a never-settled leg as answered, which
+ * is precisely the "empty means two things" defect this file is fixing. Do not
+ * reintroduce a post-hoc map read to decide settlement.
+ */
+type DiagnosticsWait = { diagnostics: RawDiagnostic[]; settled: true } | { settled: false };
+
+/** Transport-error text for a failure record: bounded and single-lined at the
+ * producer, so no consumer of `queryFailures` receives an unbounded string. */
+function errorDetail(error: unknown): string {
+  return boundQueryFailureDetail(error instanceof Error ? error.message : String(error));
 }
 
 /**
@@ -343,10 +387,15 @@ function boundDiagnostics(raw: RawDiagnostic[]): {
  */
 class LspServerConnection {
   private readonly child: ChildProcess;
+  private readonly childExit: Promise<void>;
   private readonly connection: MessageConnection;
   private readonly diagnostics = new Map<string, RawDiagnostic[]>();
   private readonly versions = new Map<string, number>();
+  private childSpawnError: Error | undefined;
+  private childSpawned = false;
+  private disposal: Promise<void> | undefined;
   private initialized: Promise<void> | undefined;
+  private killChild = (signal: NodeJS.Signals): boolean => this.child.kill(signal);
   private disposed = false;
 
   constructor(
@@ -360,6 +409,18 @@ class LspServerConnection {
       // biome-ignore lint/style/useNamingConvention: OS env var name is fixed
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    this.childExit = new Promise((resolve) => {
+      this.child.once('spawn', () => {
+        this.childSpawned = true;
+      });
+      this.child.once('error', (error) => {
+        if (!this.childSpawned) {
+          this.childSpawnError = error;
+          resolve();
+        }
+      });
+      this.child.once('exit', () => resolve());
     });
     // Drain stderr so a chatty server can't fill the pipe buffer and stall.
     this.child.stderr?.on('data', () => {
@@ -392,6 +453,26 @@ class LspServerConnection {
 
   get pid(): number {
     return this.child.pid ?? -1;
+  }
+
+  /** Inject a child-process runtime error for deterministic lifecycle tests. */
+  emitChildErrorForTest(error: Error): void {
+    this.child.emit('error', error);
+  }
+
+  /** Reject the next signal delivery without touching the real subprocess. */
+  rejectNextKillForTest(): void {
+    const actualKill = this.killChild;
+    this.killChild = () => {
+      this.killChild = actualKill;
+      return false;
+    };
+  }
+
+  /** Authoritatively clean up a subprocess after an injected kill failure. */
+  async forceKillForTest(): Promise<void> {
+    this.child.kill('SIGKILL');
+    await this.childExit;
   }
 
   /**
@@ -467,7 +548,7 @@ class LspServerConnection {
     absolutePath: string,
     content: string,
     languageId: string
-  ): Promise<RawDiagnostic[]> {
+  ): Promise<DiagnosticsWait> {
     await this.ensureInitialized();
     this.syncDocument(absolutePath, content, languageId);
     return this.waitForDiagnostics(diagnosticsKey(absolutePath));
@@ -489,6 +570,9 @@ class LspServerConnection {
     hover?: string;
     diagnostics: RawDiagnostic[];
     definition: RawLocation[];
+    /** Legs that produced no ANSWER. Every group they name is unknown, not
+     * empty — the caller must surface them (BST-1614). */
+    failures: RawQueryFailure[];
     implementation: RawLocation[];
   }> {
     await this.ensureInitialized();
@@ -496,33 +580,71 @@ class LspServerConnection {
     // Let the server analyse the freshly-opened document before querying
     // (the same settle rationale as diagnostics — queries on an un-indexed
     // file return empty).
-    const lineDiagnostics = await this.waitForDiagnostics(diagnosticsKey(absolutePath));
+    const diagnosticsWait = await this.waitForDiagnostics(diagnosticsKey(absolutePath));
     const [hover, definition, implementation] = await Promise.all([
       this.queryHover(uri, position),
       this.queryLocations(LSP.definition, uri, position),
       this.queryLocations(LSP.implementation, uri, position),
     ]);
+    const failures: RawQueryFailure[] = [];
+    // Ordered hover → diagnostics → definition → implementation so the
+    // model-facing list matches the order of the result's own groups.
+    if (!hover.ok) {
+      failures.push({
+        query: 'hover',
+        reason: hover.reason,
+        ...(hover.detail ? { detail: hover.detail } : {}),
+      });
+    }
+    // The diagnostics leg is the same ambiguity one level up. Read the outcome
+    // CAPTURED before the queries ran — re-reading the map here would let a
+    // publish that arrived mid-query (or a never-settled empty one) pass as a
+    // verified-clean line.
+    if (!diagnosticsWait.settled) {
+      failures.push({ query: 'diagnostics', reason: 'timeout' });
+    }
+    if (!definition.ok) {
+      failures.push({
+        query: 'definition',
+        reason: definition.reason,
+        ...(definition.detail ? { detail: definition.detail } : {}),
+      });
+    }
+    if (!implementation.ok) {
+      failures.push({
+        query: 'implementation',
+        reason: implementation.reason,
+        ...(implementation.detail ? { detail: implementation.detail } : {}),
+      });
+    }
     return {
-      definition,
-      diagnostics: lineDiagnostics.filter(
+      definition: definition.ok ? definition.value : [],
+      diagnostics: (diagnosticsWait.settled ? diagnosticsWait.diagnostics : []).filter(
         (entry) => (entry.range?.start?.line ?? -1) === position.line
       ),
-      implementation,
-      ...(hover ? { hover } : {}),
+      failures,
+      implementation: implementation.ok ? implementation.value : [],
+      ...(hover.ok && hover.value ? { hover: hover.value } : {}),
     };
   }
 
-  private async queryHover(uri: string, position: Position): Promise<string | undefined> {
+  private async queryHover(
+    uri: string,
+    position: Position
+  ): Promise<QueryOutcome<string | undefined>> {
     try {
       const params: HoverParams = { position, textDocument: { uri } };
-      const result = await withTimeout<RawHover | null>(
+      const result = await withTimeout<RawHover | null | typeof QUERY_TIMED_OUT>(
         this.connection.sendRequest<RawHover | null>(LSP.hover, params),
         QUERY_TIMEOUT_MS,
-        null
+        QUERY_TIMED_OUT
       );
-      return result ? extractHoverText(result) : undefined;
-    } catch {
-      return;
+      if (result === QUERY_TIMED_OUT) {
+        return { ok: false, reason: 'timeout' };
+      }
+      return { ok: true, value: result ? extractHoverText(result) : undefined };
+    } catch (error) {
+      return { detail: errorDetail(error), ok: false, reason: 'error' };
     }
   }
 
@@ -530,7 +652,7 @@ class LspServerConnection {
     method: string,
     uri: string,
     position: Position
-  ): Promise<RawLocation[]> {
+  ): Promise<QueryOutcome<RawLocation[]>> {
     try {
       const params: DefinitionParams | ImplementationParams = {
         position,
@@ -539,47 +661,48 @@ class LspServerConnection {
       const result = await withTimeout<unknown>(
         this.connection.sendRequest<unknown>(method, params),
         QUERY_TIMEOUT_MS,
-        null
+        QUERY_TIMED_OUT
       );
-      return normalizeLocations(result);
-    } catch {
-      return [];
+      if (result === QUERY_TIMED_OUT) {
+        return { ok: false, reason: 'timeout' };
+      }
+      return { ok: true, value: normalizeLocations(result) };
+    } catch (error) {
+      return { detail: errorDetail(error), ok: false, reason: 'error' };
     }
   }
 
-  private async waitForDiagnostics(key: string): Promise<RawDiagnostic[]> {
+  private async waitForDiagnostics(key: string): Promise<DiagnosticsWait> {
     const deadline = Date.now() + DIAGNOSTIC_TIMEOUT_MS;
     let firstEmptyAt: number | undefined;
     while (Date.now() < deadline && !this.disposed) {
       const current = this.diagnostics.get(key);
       if (current !== undefined) {
         if (current.length > 0) {
-          return current;
+          return { diagnostics: current, settled: true };
         }
         // Empty publish: give the server a settle window to upgrade it to a
         // real result before trusting the "clean" verdict.
         if (firstEmptyAt === undefined) {
           firstEmptyAt = Date.now();
         } else if (Date.now() - firstEmptyAt >= DIAGNOSTIC_SETTLE_MS) {
-          return [];
+          return { diagnostics: [], settled: true };
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 40));
     }
-    // Timed out before any publish (or while settling) — return whatever we
-    // have; the caller distinguishes "no publish at all" via the map miss.
-    return this.diagnostics.get(key) ?? [];
+    // Deadline (or disposal) won. An empty publish may well be sitting in the
+    // map, but its settle window never completed, so "clean" was never
+    // established — that is NOT an answer.
+    return { settled: false };
   }
 
-  /** Whether any publish (even empty) was seen for this document. */
-  hasPublishedFor(absolutePath: string): boolean {
-    return this.diagnostics.has(diagnosticsKey(absolutePath));
+  dispose(): Promise<void> {
+    this.disposal ??= this.disposeOnce();
+    return this.disposal;
   }
 
-  async dispose(): Promise<void> {
-    if (this.disposed) {
-      return;
-    }
+  private async disposeOnce(): Promise<void> {
     this.disposed = true;
     // Only attempt a graceful LSP shutdown while the process is still alive;
     // writing shutdown/exit to an already-exited server just races an EPIPE
@@ -601,8 +724,22 @@ class LspServerConnection {
     } catch {
       /* connection already down */
     }
+    if (this.childSpawnError) {
+      await this.childExit;
+      return;
+    }
+    if (this.child.exitCode !== null || this.child.signalCode !== null) {
+      await this.childExit;
+      return;
+    }
     // SIGKILL is the authoritative teardown (no orphaned server process).
-    this.child.kill('SIGKILL');
+    const killAccepted = this.killChild('SIGKILL');
+    if (!killAccepted && this.child.exitCode === null && this.child.signalCode === null) {
+      throw new Error(`Failed to terminate LSP subprocess ${this.pid}`);
+    }
+    // `kill()` only queues the signal. Do not report disposal complete until
+    // Node observes process exit. A post-spawn child `error` is not settlement.
+    await this.childExit;
   }
 }
 
@@ -706,9 +843,11 @@ export async function getEditDiagnostics(
     // each other's diagnostics through the shared per-connection state.
     return await withDiagnoseLock(diagnosticsKey(args.absolutePath), async () => {
       const connection = await acquireLspServer(args.rootId, args.rootPath, server);
-      const raw = await connection.diagnose(args.absolutePath, args.content, language);
-      if (!connection.hasPublishedFor(args.absolutePath)) {
-        // No publish arrived within the budget — honest timeout note.
+      const wait = await connection.diagnose(args.absolutePath, args.content, language);
+      if (!wait.settled) {
+        // No publish settled within the budget — honest timeout note. This
+        // covers a publish that never arrived AND an empty one whose settle
+        // window was cut short by the deadline; neither established "clean".
         return {
           available: false,
           language,
@@ -716,7 +855,7 @@ export async function getEditDiagnostics(
           reason: 'timeout',
         };
       }
-      const bounded = boundDiagnostics(raw);
+      const bounded = boundDiagnostics(wait.diagnostics);
       return {
         available: true,
         diagnosticCount: bounded.total,
@@ -736,16 +875,6 @@ export async function getEditDiagnostics(
   }
 }
 
-/** One definition/implementation location in model-facing shape. */
-export interface InspectLocation {
-  /** 1-based line of the target. */
-  line: number;
-  /** Workspace-relative path when under the root, else absolute. */
-  path: string;
-  /** Bounded one-line preview of the target line, when readable. */
-  preview?: string;
-}
-
 /**
  * Result of an `lspInspect` call (report R2 Phase B). Mirrors core's tool
  * contract: hover / line diagnostics / definition / implementation groups.
@@ -759,98 +888,14 @@ export interface LspInspectionResult {
   implementation?: InspectLocation[];
   language?: string;
   message?: string;
+  /**
+   * Legs that did not answer (BST-1614). Present only when non-empty. Any
+   * group named here is UNKNOWN: its omission above is the absence of an
+   * answer, never a verified "there are none". A partial failure deliberately
+   * does NOT flip `available` — a hover that worked is still worth returning.
+   */
+  queryFailures?: LspQueryFailure[];
   reason?: LspUnavailableReason;
-}
-
-/** file:// URI → fs path. fileURLToPath (not URL.pathname) so Windows drive
- * letters round-trip ("file:///C:/x" → "C:\x", not "/C:/x"). A malformed
- * file URI from the server falls through to the raw URI, which stays visible
- * in the location's display path rather than failing the whole inspection. */
-function uriToPath(uri: string): string {
-  if (!uri.startsWith('file://')) {
-    return uri;
-  }
-  try {
-    return fileURLToPath(uri);
-  } catch {
-    return uri;
-  }
-}
-
-const MAX_INSPECT_LOCATIONS = 10;
-const MAX_HOVER_CHARS = 1200;
-const MAX_PREVIEW_CHARS = 200;
-/**
- * Ceiling on a definition/implementation TARGET file we'll read just to build a
- * one-line preview. tsserver routinely resolves into large generated `.d.ts`
- * files; reading a multi-MB target whole into Electron main for a 200-char
- * preview would memory-spike and bypasses the workspace reader's own size
- * guard. Over this, the preview is omitted (path + line are still returned).
- */
-const MAX_PREVIEW_FILE_BYTES = 2 * 1024 * 1024;
-
-/** Workspace-relative "/path" when under root, else the absolute path. */
-function toDisplayPath(absolutePath: string, rootPath: string): string {
-  const relative = path.relative(rootPath, absolutePath);
-  if (relative && isWithinRoot(rootPath, absolutePath)) {
-    return `/${relative.split(path.sep).join('/')}`;
-  }
-  return absolutePath;
-}
-
-/**
- * Best-effort bounded preview of a 1-based line (undefined on read error or an
- * oversized target). Stats first so a huge generated `.d.ts` target can't be
- * slurped whole into memory for a 200-char preview — the preview is optional,
- * so skipping it degrades an accessory field, never the location itself.
- */
-async function readLinePreview(absolutePath: string, line: number): Promise<string | undefined> {
-  try {
-    const stat = await fsPromises.stat(absolutePath);
-    if (!stat.isFile() || stat.size > MAX_PREVIEW_FILE_BYTES) {
-      return;
-    }
-    const fileText = await fsPromises.readFile(absolutePath, 'utf8');
-    const target = fileText.split('\n')[line - 1]?.trim();
-    if (!target) {
-      return;
-    }
-    return target.length > MAX_PREVIEW_CHARS ? `${target.slice(0, MAX_PREVIEW_CHARS)}…` : target;
-  } catch {
-    return;
-  }
-}
-
-async function toInspectLocations(
-  raw: RawLocation[],
-  rootPath: string
-): Promise<InspectLocation[]> {
-  const seen = new Set<string>();
-  const locations: InspectLocation[] = [];
-  for (const entry of raw.slice(0, MAX_INSPECT_LOCATIONS * 2)) {
-    const uri = entry.uri ?? entry.targetUri;
-    if (!uri) {
-      continue;
-    }
-    const range = entry.range ?? entry.targetRange ?? entry.targetSelectionRange;
-    const absolutePath = uriToPath(uri);
-    const line = (range?.start?.line ?? 0) + 1;
-    const dedupeKey = `${absolutePath}:${line}`;
-    if (seen.has(dedupeKey)) {
-      continue;
-    }
-    seen.add(dedupeKey);
-    const preview = await readLinePreview(absolutePath, line);
-    locations.push({
-      line,
-      path: toDisplayPath(absolutePath, rootPath),
-      ...(preview ? { preview } : {}),
-    });
-    if (locations.length >= MAX_INSPECT_LOCATIONS) {
-      break;
-    }
-  }
-  return locations;
 }
 
 export interface GetLspInspectionArgs {
@@ -896,15 +941,22 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
         language,
         args.position
       );
-      const hover =
-        raw.hover && raw.hover.length > MAX_HOVER_CHARS
-          ? `${raw.hover.slice(0, MAX_HOVER_CHARS)}…`
-          : raw.hover;
+      const hover = clipHover(raw.hover);
       const [definition, implementation] = await Promise.all([
         toInspectLocations(raw.definition, args.rootPath),
         toInspectLocations(raw.implementation, args.rootPath),
       ]);
       const diagnostics = boundDiagnostics(raw.diagnostics).diagnostics;
+      const queryFailures = raw.failures.map(toQueryFailure);
+      if (queryFailures.length > 0) {
+        // DEFAULT log level (INFO) — a human debugging a wrong "no definition"
+        // claim must find this without turning on debug logging.
+        logger.warn('LSP inspection query did not answer; group reported as unknown', {
+          failures: queryFailures.map((failure) => `${failure.query}:${failure.reason}`).join(','),
+          language,
+          path: args.absolutePath,
+        });
+      }
       return {
         available: true,
         language,
@@ -912,6 +964,7 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
         ...(diagnostics.length > 0 ? { diagnostics } : {}),
         ...(definition.length > 0 ? { definition } : {}),
         ...(implementation.length > 0 ? { implementation } : {}),
+        ...(queryFailures.length > 0 ? { queryFailures } : {}),
       };
     });
   } catch (error) {
@@ -936,6 +989,26 @@ export async function __getPooledPidsForTest(): Promise<number[]> {
   return settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value.pid] : []));
 }
 
+/** Direct lifecycle controls for deterministic disposal tests. */
+export async function __getPooledLifecycleForTest(rootId: string): Promise<{
+  dispose: () => Promise<void>;
+  emitChildError: (error: Error) => void;
+  forceKill: () => Promise<void>;
+  rejectNextKill: () => void;
+}> {
+  const pending = pool.get(rootId);
+  if (!pending) {
+    throw new Error(`No pooled LSP server for root ${rootId}`);
+  }
+  const connection = await pending;
+  return {
+    dispose: () => connection.dispose(),
+    emitChildError: (error) => connection.emitChildErrorForTest(error),
+    forceKill: () => connection.forceKillForTest(),
+    rejectNextKill: () => connection.rejectNextKillForTest(),
+  };
+}
+
 /**
  * Dispose every pooled language server (SIGKILL — no orphans). Wired into
  * main.ts factory-reset runtimes AND graceful shutdown, mirroring the shell
@@ -949,7 +1022,11 @@ export async function disposeLspServers(): Promise<number> {
   const connections = settled.flatMap((result) =>
     result.status === 'fulfilled' ? [result.value] : []
   );
-  await Promise.allSettled(connections.map((connection) => connection.dispose()));
+  const disposals = await Promise.allSettled(connections.map((connection) => connection.dispose()));
+  const failure = disposals.find((result) => result.status === 'rejected');
+  if (failure?.status === 'rejected') {
+    throw failure.reason;
+  }
   return connections.length;
 }
 

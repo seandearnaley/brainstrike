@@ -11,6 +11,7 @@
  * import graph and fails on any React import.
  */
 import { createContext } from 'react';
+import type { DbInitializationStatus } from './database-runtime.js';
 import type { DbHandle } from './db-handle.js';
 import type { LiveQueryDrainRegistry } from './db-reset-drain.js';
 import type { DrizzleDb } from './drizzle/database.js';
@@ -23,7 +24,12 @@ import type {
   IViewFilterPresetsRepository,
 } from './repositories/interfaces.js';
 
-export type DbInitializationStatus = 'idle' | 'initializing' | 'ready' | 'error';
+/**
+ * Re-exported, not declared here: the status is RUNTIME state (BST-1653), and
+ * `database-runtime.ts` must never import from this React-coupled module — a
+ * value import added later would leak React into the runtime.
+ */
+export type { DbInitializationStatus } from './database-runtime.js';
 
 export interface DbContextValue {
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;

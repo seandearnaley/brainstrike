@@ -19,6 +19,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { CHILD_WRAP_UP_FEEDBACK } from '../mastra/build-persona-subagents';
 import type { PgliteDatabase } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
 
@@ -74,6 +75,9 @@ function parsePersistedParts(row: PersistedMessageRow): Record<string, unknown>[
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
 const DELEGATION_TOOL = 'agent-explore';
+// The REAL feedback text, imported rather than duplicated: a reworded policy
+// must not silently stop being asserted.
+const CHILD_WRAP_UP_MARKER = CHILD_WRAP_UP_FEEDBACK.slice(0, 48);
 // The parent tool map is keyed by original id `brainstrike.grepSearch`; the
 // sanitizer renames dots to underscores, so the model sees `brainstrike_grepSearch`.
 const CHILD_TOOL = 'brainstrike_grepSearch';
@@ -215,6 +219,109 @@ function createStalledChildSupervisorModel(): LanguageModelV2 {
   };
 }
 
+/**
+ * A supervisor model whose CHILD never stops calling tools, so the child
+ * exhausts its `maxSteps` cap ON a tool-calls step and Mastra returns
+ * `{ text: '' }` with `success: true` — the exact shape both delegations
+ * produced in run-7eb0e370 (BST-1410).
+ */
+function createStepCappedChildSupervisorModel(childToolCallPrefix: string): LanguageModelV2 {
+  let childTurn = 0;
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      const isParent = toolNamesOf(options).includes(DELEGATION_TOOL);
+      if (isParent) {
+        return Promise.resolve({
+          stream: enqueue(
+            promptHasToolResult(options)
+              ? finalTextStream('PARENT_ANSWER: acknowledged.')
+              : toolCallStream(
+                  DELEGATION_TOOL,
+                  'delegation-call-1',
+                  JSON.stringify({ prompt: 'survey the workspace' })
+                )
+          ),
+        });
+      }
+      childTurn += 1;
+      // NEVER a final text turn: the child keeps calling its tool until the cap
+      // cuts it off mid-loop.
+      return Promise.resolve({
+        stream: enqueue(
+          toolCallStream(
+            CHILD_TOOL,
+            `${childToolCallPrefix}-${childTurn}`,
+            JSON.stringify({ pattern: `flag-${childTurn}` })
+          )
+        ),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+/**
+ * Like {@link createStepCappedChildSupervisorModel}, but the CHILD answers once
+ * it sees the WRAP-UP instruction in its own prompt — the shape Mastra's
+ * `onIterationComplete` produces when it returns `{ continue: false, feedback }`
+ * (docs/subagents.md: "the model may get one final turn for a text response
+ * that incorporates the feedback").
+ *
+ * The fake answers ONLY on that signal, so the test cannot pass unless the
+ * feedback genuinely reached the child's next model call.
+ */
+function createWrapUpChildSupervisorModel(): {
+  model: LanguageModelV2;
+  /** Every prompt the CHILD received, so the test can prove what it was told. */
+  childPrompts: LanguageModelV2CallOptions['prompt'][];
+} {
+  let childTurn = 0;
+  const childPrompts: LanguageModelV2CallOptions['prompt'][] = [];
+  const model: LanguageModelV2 = {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      if (toolNamesOf(options).includes(DELEGATION_TOOL)) {
+        return Promise.resolve({
+          stream: enqueue(
+            promptHasToolResult(options)
+              ? finalTextStream('PARENT_ANSWER: acknowledged.')
+              : toolCallStream(
+                  DELEGATION_TOOL,
+                  'delegation-call-1',
+                  JSON.stringify({ prompt: 'survey the workspace' })
+                )
+          ),
+        });
+      }
+      childPrompts.push(options.prompt);
+      if (JSON.stringify(options.prompt).includes(CHILD_WRAP_UP_MARKER)) {
+        return Promise.resolve({
+          stream: enqueue(finalTextStream('CHILD_SUMMARY: three matches under src/.')),
+        });
+      }
+      childTurn += 1;
+      return Promise.resolve({
+        stream: enqueue(
+          toolCallStream(
+            CHILD_TOOL,
+            `child-call-${childTurn}`,
+            JSON.stringify({ pattern: `flag-${childTurn}` })
+          )
+        ),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+  return { childPrompts, model };
+}
+
 interface CollectedStream {
   delegationToolEvents: StreamChunk[];
   finalText: string;
@@ -261,6 +368,119 @@ function makeChildTool(spy: (inputData: { pattern: string }) => Promise<{ matche
 describe('mastra subagent delegation (real @mastra/core supervisor loop)', () => {
   beforeEach(() => {
     modelHolder.current = undefined;
+  });
+
+  it("reserves the child's last step for a summary, via Mastra's iteration hook", async () => {
+    // BST-1410 follow-up. Reporting the failure honestly is necessary but
+    // wasteful: the child had already done real exploration. Mastra's own
+    // mechanism for this is `onIterationComplete` returning
+    // `{ continue: false, feedback }` — documented in docs/subagents.md as
+    // granting "one final turn for a text response that incorporates the
+    // feedback". The child therefore spends its LAST step summarising instead
+    // of being cut off mid-tool-loop.
+    //
+    // The fake answers ONLY when it sees the wrap-up marker in its own prompt,
+    // so this cannot pass unless the feedback genuinely reached the child's
+    // next model call.
+    const executeSpy = vi.fn((_inputData: { pattern: string }) =>
+      Promise.resolve({ matches: ['a match'] })
+    );
+    const { childPrompts, model } = createWrapUpChildSupervisorModel();
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-wrap', parts: [{ text: 'survey the workspace', type: 'text' }], role: 'user' }],
+      {
+        personas: [{ ...testPersona, maxSteps: 3 }],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.grepSearch': makeChildTool(executeSpy) },
+      }
+    );
+
+    const { delegationToolEvents, runEvents } = await collect(iterator);
+
+    const successEvent = delegationToolEvents.find(
+      (event) => event.type === 'tool-event' && event.status === 'success'
+    );
+    const resultText =
+      successEvent && successEvent.type === 'tool-event'
+        ? (successEvent.payload as { result?: { text?: string } }).result?.text
+        : undefined;
+
+    // The child answered, so the parent gets analysis rather than the
+    // no-answer reason.
+    expect(resultText).toContain('CHILD_SUMMARY: three matches under src/.');
+    expect(resultText).not.toContain('never wrote its summary');
+
+    // The wrap-up turn saw the child's OWN gathered work — the summary is
+    // grounded, not invented.
+    const wrapUpPrompt = childPrompts.at(-1);
+    const wrapUpJson = JSON.stringify(wrapUpPrompt);
+    expect(wrapUpJson).toContain(CHILD_WRAP_UP_MARKER);
+    expect(wrapUpJson).toContain('flag-1');
+    expect(wrapUpJson).toContain('a match');
+
+    // THE discriminator between the canonical mechanism and a bolt-on extra
+    // stream. `maxSteps: 3` buys THREE model calls in total, and the wrap-up is
+    // the third — so exactly two tool-calling steps precede it. A synthesis turn
+    // issued as a SEPARATE stream would spend all three steps on tools and then
+    // add a fourth call on top, exceeding the budget the persona declared.
+    expect(executeSpy).toHaveBeenCalledTimes(2);
+    // ...and the wrap-up turn is part of the child's OWN loop, so its tools are
+    // still registered. An extra no-tools stream would show an empty tool set.
+    expect(JSON.stringify(wrapUpPrompt)).toContain('flag-2');
+
+    // A delegation that answered is a success again.
+    const subagentTerminals = runEvents
+      .map((event) => event.kind)
+      .filter((kind) => kind === 'subagent.finished' || kind === 'subagent.failed');
+    expect(subagentTerminals).toEqual(['subagent.finished']);
+  }, 30_000);
+
+  it('reports a step-capped child as a failed delegation carrying an explicit reason', async () => {
+    // BST-1410 regression. In run-7eb0e370 both delegations used exactly 8 step
+    // clusters (the explore persona's cap), returned `text: ""` with
+    // `success: true`, and the supervisor — correctly reading that as useless —
+    // abandoned delegation for the rest of an 18-minute turn. A delegation that
+    // never answered must never reach the parent, or the timeline, as a success.
+    const executeSpy = vi.fn((_inputData: { pattern: string }) =>
+      Promise.resolve({ matches: ['a match'] })
+    );
+    modelHolder.current = createStepCappedChildSupervisorModel('child-call');
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-capped', parts: [{ text: 'survey the workspace', type: 'text' }], role: 'user' }],
+      {
+        // Two steps rather than the production eight: the cliff is the same
+        // shape, and the scripted child reaches it in two turns instead of
+        // eight.
+        personas: [{ ...testPersona, maxSteps: 2 }],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.grepSearch': makeChildTool(executeSpy) },
+      }
+    );
+
+    const { delegationToolEvents, runEvents } = await collect(iterator);
+
+    // The child really did run out of steps mid-tool-loop.
+    expect(executeSpy).toHaveBeenCalledTimes(2);
+
+    // The delegation's TERMINAL subagent event is a failure, not a completion.
+    const subagentKinds = runEvents
+      .map((event) => event.kind)
+      .filter((kind) => kind === 'subagent.finished' || kind === 'subagent.failed');
+    expect(subagentKinds).toEqual(['subagent.failed']);
+
+    // The PARENT sees an explicit reason instead of an empty string.
+    const successEvent = delegationToolEvents.find(
+      (event) => event.type === 'tool-event' && event.status === 'success'
+    );
+    const resultText =
+      successEvent && successEvent.type === 'tool-event'
+        ? (successEvent.payload as { result?: { text?: string } }).result?.text
+        : undefined;
+    expect(resultText).toContain('never wrote its summary');
+    expect(resultText).toContain('2 tool calls');
   });
 
   it('delegates to a real child agent whose tool executes, and surfaces subagent.* run events', async () => {
@@ -447,6 +667,11 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '100';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '300';
+    // Terminal-drain case: opt out of in-turn stall recovery (BST-1409) so the
+    // run ends at the first stall. A recovered turn drains its failed attempt's
+    // delegations too — pinned separately in mastra-stall-recovery.integration.spec.ts.
+    const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '1';
     try {
       modelHolder.current = createStalledChildSupervisorModel();
 
@@ -477,6 +702,11 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       expect(cancelled?.metadata?.['parentToolCallId']).toBe('delegation-call-1');
       expect(cancelled?.metadata?.['personaId']).toBe('explore');
     } finally {
+      if (previousStallAttempts === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_STALL_ATTEMPTS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = previousStallAttempts;
+      }
       if (previousToolTimeout === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {

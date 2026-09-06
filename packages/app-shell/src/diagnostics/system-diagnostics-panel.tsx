@@ -22,6 +22,7 @@ import {
   getEmbeddingTelemetrySnapshot,
   subscribeEmbeddingTelemetryThrottled,
 } from '@brainstrike/embeddings';
+import { type IndexerTelemetrySnapshot, useIndexerTelemetry } from '@brainstrike/token-cache';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { Activity, CheckCircle2, Database, RefreshCw, Server, Timer, XCircle } from 'lucide-react';
 import {
@@ -42,12 +43,21 @@ import {
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
 const EMPTY_EMBEDDING_TELEMETRY = createEmptyEmbeddingTelemetrySnapshot();
+const EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE =
+  'Embedding telemetry provider failed. See internal diagnostics for details.';
 const LazyQueueDiagnosticsPanel = lazy(async () => {
   const module = await import('@brainstrike/vector-management');
   return { default: module.QueueDiagnosticsPanel };
 });
 
-type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
+type StatusVariant = 'success' | 'warning' | 'error' | 'loading' | 'neutral';
+const STATUS_BADGE_VARIANTS: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
+  error: 'destructive',
+  loading: 'secondary',
+  neutral: 'secondary',
+  success: 'default',
+  warning: 'secondary',
+};
 
 type RuntimeHostPlatformState =
   | 'active'
@@ -197,15 +207,12 @@ interface StatusBadgeProps {
 }
 
 function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
-  const variantMap: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
-    error: 'destructive',
-    loading: 'secondary',
-    success: 'default',
-    warning: 'secondary',
-  };
-
   return (
-    <Badge className="h-5 px-2 text-[10px]" data-status={status} variant={variantMap[status]}>
+    <Badge
+      className="h-5 px-2 text-[10px]"
+      data-status={status}
+      variant={STATUS_BADGE_VARIANTS[status]}
+    >
       {label}
     </Badge>
   );
@@ -482,6 +489,84 @@ function formatBinaryBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
+type TokenIndexerDiagnosticsSnapshot = Pick<
+  IndexerTelemetrySnapshot,
+  | 'averageLatencyMs'
+  | 'cacheHitRate'
+  | 'errorCount'
+  | 'latencyP50Ms'
+  | 'latencyP95Ms'
+  | 'totalFilesPerMinute'
+  | 'totalTokensIndexed'
+> & {
+  readonly eventCount: number;
+};
+
+function formatLatency(latencyMs: number | null): string {
+  return latencyMs === null ? '—' : `${Math.round(latencyMs)} ms`;
+}
+
+function TokenIndexerTelemetrySection({
+  snapshot,
+}: {
+  readonly snapshot: TokenIndexerDiagnosticsSnapshot;
+}): ReactElement {
+  const hasSamples = snapshot.eventCount > 0;
+  const status = snapshot.errorCount > 0 ? 'warning' : hasSamples ? 'success' : 'loading';
+  const statusLabel =
+    snapshot.errorCount > 0
+      ? formatCount(snapshot.errorCount, 'error', 'errors')
+      : hasSamples
+        ? formatCount(snapshot.eventCount, 'sample', 'samples')
+        : 'No samples';
+  const cacheHitRate =
+    snapshot.cacheHitRate === null ? 'No samples' : `${Math.round(snapshot.cacheHitRate * 100)}%`;
+
+  return (
+    <DiagnosticCard
+      description="Background file-token indexing, rolling one-minute window"
+      icon={<Timer className="h-4 w-4 text-primary" />}
+      status={status}
+      statusLabel={statusLabel}
+      title="Token Indexing"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Latency</span>
+          <span className="font-mono text-[10px]" data-testid="token-indexer-latency">
+            avg {formatLatency(snapshot.averageLatencyMs)} · p50{' '}
+            {formatLatency(snapshot.latencyP50Ms)} · p95 {formatLatency(snapshot.latencyP95Ms)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Cache hit rate</span>
+          <span className="font-medium" data-testid="token-indexer-cache-hit-rate">
+            {cacheHitRate}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Throughput</span>
+          <span className="font-medium" data-testid="token-indexer-throughput">
+            {formatCount(Math.round(snapshot.totalFilesPerMinute), 'file', 'files')}/min
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Indexed tokens</span>
+          <span className="font-medium">
+            {formatCount(snapshot.totalTokensIndexed, 'token', 'tokens')}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Errors</span>
+          <span className="font-medium" data-testid="token-indexer-error-count">
+            {formatCount(snapshot.errorCount, 'error', 'errors')}
+          </span>
+        </div>
+      </div>
+    </DiagnosticCard>
+  );
+}
+
 function EmbeddingRuntimeDiagnosticsCard({
   providerError,
   telemetry,
@@ -491,11 +576,18 @@ function EmbeddingRuntimeDiagnosticsCard({
 }): ReactElement {
   const hasSamples = telemetry.lastUpdatedAt !== null;
   const hasFailures = providerError !== null || telemetry.health.failureCount > 0;
+  const residentDeviceCounts = telemetry.cache.entries.reduce(
+    (counts, entry) => {
+      counts[entry.device] += 1;
+      return counts;
+    },
+    { wasm: 0, webgpu: 0 }
+  );
   return (
     <DiagnosticCard
       description="Worker transfer and model residency"
       icon={<Activity className="h-4 w-4 text-primary" />}
-      status={hasFailures ? 'error' : hasSamples ? 'success' : 'warning'}
+      status={hasFailures ? 'error' : hasSamples ? 'success' : 'neutral'}
       statusLabel={
         providerError
           ? 'Embedding telemetry unavailable'
@@ -510,7 +602,7 @@ function EmbeddingRuntimeDiagnosticsCard({
       <div className="space-y-2 text-xs">
         {providerError ? (
           <div className="text-destructive" role="alert">
-            {providerError}
+            {EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE}
           </div>
         ) : null}
         <div className="flex items-center justify-between">
@@ -543,15 +635,14 @@ function EmbeddingRuntimeDiagnosticsCard({
             {formatCount(telemetry.peakVectorsInFlight, 'vector', 'vectors')}
           </span>
         </div>
-        {telemetry.cache.entries.map((entry) => (
-          <div
-            className="flex items-center justify-between"
-            key={`${entry.sourceId}:${entry.cacheKey}`}
-          >
-            <span className="max-w-48 truncate text-muted-foreground">{entry.model}</span>
-            <span className="font-mono text-[10px]">{entry.device}</span>
+        {telemetry.cache.entries.length > 0 && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Resident Devices</span>
+            <span className="font-mono text-[10px]">
+              {`${residentDeviceCounts.webgpu} WebGPU · ${residentDeviceCounts.wasm} WASM`}
+            </span>
           </div>
-        ))}
+        )}
         {telemetry.cache.memoryEstimateUnavailableCount > 0 && (
           <div className="text-[10px] text-amber-700 dark:text-amber-300">
             {formatCount(
@@ -561,10 +652,9 @@ function EmbeddingRuntimeDiagnosticsCard({
             )}
           </div>
         )}
-        {telemetry.health.lastFailure !== null && (
+        {telemetry.health.failureCount > 0 && (
           <div className="text-[10px] text-destructive">
-            {formatCount(telemetry.health.failureCount, 'telemetry failure', 'telemetry failures')}:{' '}
-            {telemetry.health.lastFailure}
+            {formatCount(telemetry.health.failureCount, 'telemetry failure', 'telemetry failures')}
           </div>
         )}
       </div>
@@ -856,6 +946,17 @@ export function SystemDiagnosticsPanel({
     databaseQueryTelemetry.getSnapshot,
     databaseQueryTelemetry.getSnapshot
   );
+  const { snapshot: tokenIndexerTelemetry } = useIndexerTelemetry();
+  const tokenIndexerDiagnostics: TokenIndexerDiagnosticsSnapshot = {
+    averageLatencyMs: tokenIndexerTelemetry.averageLatencyMs,
+    cacheHitRate: tokenIndexerTelemetry.cacheHitRate,
+    errorCount: tokenIndexerTelemetry.errorCount,
+    eventCount: tokenIndexerTelemetry.events.length,
+    latencyP50Ms: tokenIndexerTelemetry.latencyP50Ms,
+    latencyP95Ms: tokenIndexerTelemetry.latencyP95Ms,
+    totalFilesPerMinute: tokenIndexerTelemetry.totalFilesPerMinute,
+    totalTokensIndexed: tokenIndexerTelemetry.totalTokensIndexed,
+  };
   const longTaskSnapshot = useSyncExternalStore(
     rendererLongTaskTelemetry.subscribe,
     rendererLongTaskTelemetry.getSnapshot,
@@ -995,6 +1096,7 @@ export function SystemDiagnosticsPanel({
           tokenCachePersisted={tokenCachePersisted}
         />
         <DatabaseQueryTelemetrySection snapshot={databaseQuerySnapshot} />
+        <TokenIndexerTelemetrySection snapshot={tokenIndexerDiagnostics} />
         <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
         <EmbeddingRuntimeDiagnosticsCard

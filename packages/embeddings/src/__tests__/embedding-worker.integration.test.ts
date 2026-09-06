@@ -137,9 +137,11 @@ describe('embedding-worker', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 'hash1',
         }),
         now,
       ]
@@ -217,9 +219,11 @@ describe('embedding-worker', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hidden-vector-hash',
         }),
         now,
       ]
@@ -309,9 +313,11 @@ describe('embedding-worker', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'unavailable-vector-probes-hash',
         }),
         now,
       ]
@@ -403,9 +409,11 @@ describe('embedding-worker', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: expectedHash,
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash2',
         }),
         now,
       ]
@@ -439,6 +447,82 @@ describe('embedding-worker', () => {
     expect(rowData?.embedding_hash).toBe(expectedHash);
 
     await controller.stop();
+  });
+
+  it('terminally rejects a job when the loaded chunk content identity changed after enqueue', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-stale-source';
+    const fileId = 'file-stale-source';
+    const chunkId = 'chunk-stale-source';
+    const modelKey = 'local::jinaai/jina-embeddings-v2-base-code';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, 'jinaai/jina-embeddings-v2-base-code', 768, 'cosine', $3)`,
+      [embeddingSetId, modelKey, now]
+    );
+    await db.query(
+      `INSERT INTO file_records
+         (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+       VALUES ($1, 'stale.ts', '/stale.ts', 100, 'new content', 'file-hash', 10, $2, $2)`,
+      [fileId, now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks
+         (id, file_record_id, chunk_index, content, content_hash, token_count,
+          chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1, $2, 0, 'new content', 'new-content-hash', 10, 'text', 10, $3, $3)`,
+      [chunkId, fileId, now]
+    );
+    await db.query(
+      `INSERT INTO job_queue
+         (id, queue, job_type, payload, state, run_at, attempts, max_attempts,
+          backoff_ms, created_at, updated_at)
+       VALUES ('job-stale-source', 'embeddings', 'embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
+          embeddingSetId,
+          expectedDimension: 768,
+          modelKey,
+          sourceContentHash: 'old-content-hash',
+        }),
+        now,
+      ]
+    );
+
+    const controller = await startEmbeddingWorker({
+      concurrency: 1,
+      db: db as unknown as IDatabase,
+      leaseMs: 2000,
+      log: () => {},
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new FakeEmbeddingService(),
+    });
+
+    await waitFor(async () => {
+      const result = await db.query<{ state: string }>(
+        `SELECT state FROM job_queue WHERE id = 'job-stale-source'`
+      );
+      return result.rows[0]?.state === 'failed';
+    });
+    await controller.stop();
+
+    const job = await db.query<{ attempts: number; error: string | null; state: string }>(
+      `SELECT attempts, error, state FROM job_queue WHERE id = 'job-stale-source'`
+    );
+    expect(job.rows[0]).toEqual({
+      attempts: 1,
+      error: 'Chunk content changed after embedding job was enqueued',
+      state: 'failed',
+    });
+    const chunk = await db.query<{ embedding: string | null; embedding_hash: string | null }>(
+      `SELECT embedding::text AS embedding, embedding_hash
+         FROM file_chunks WHERE id = $1`,
+      [chunkId]
+    );
+    expect(chunk.rows[0]).toEqual({ embedding: null, embedding_hash: null });
   });
 });
 // Increase timeouts to reduce flakiness under workspace-wide runs

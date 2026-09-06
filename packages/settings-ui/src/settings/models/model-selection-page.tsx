@@ -11,9 +11,11 @@ import { createLogger } from '@brainstrike/logging';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { AssistantMemorySettingsSection } from './assistant-memory-settings-section';
 import { ModelList } from './model-list';
 import { getModelRuntimeServices } from './model-runtime-services';
+import { useModelToggle } from './use-model-toggle';
 
 const logger = createLogger('ModelSelectionPage');
 
@@ -241,9 +243,6 @@ export function ModelSelectionPage({
 }: ModelSelectionPageProps) {
   const db = usePGliteDatabase();
   const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
-  const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(
-    () => new Set<string>()
-  );
   const {
     providers,
     models,
@@ -254,12 +253,29 @@ export function ModelSelectionPage({
     isDownloading,
     downloadedModels,
     fetchRegistry,
-    toggleModel,
     setModelCacheDir,
     setDownloadProgress,
     setDownloading,
-  } = useModelRegistryStore();
+  } = useModelRegistryStore(
+    useShallow((state) => ({
+      downloadedModels: state.downloadedModels,
+      downloadProgress: state.downloadProgress,
+      error: state.error,
+      fetchRegistry: state.fetchRegistry,
+      isDownloading: state.isDownloading,
+      isLoading: state.isLoading,
+      modelCacheDir: state.modelCacheDir,
+      models: state.models,
+      providers: state.providers,
+      setDownloading: state.setDownloading,
+      setDownloadProgress: state.setDownloadProgress,
+      setModelCacheDir: state.setModelCacheDir,
+    }))
+  );
   const { toast } = useToast();
+  // Shared with the Provider Hub cards: one implementation of "enable this
+  // model", so a failure is reported the same way on both surfaces.
+  const { busyModelIds, toggle: toggleModel } = useModelToggle();
 
   useEnsureModelRegistry({ db });
 
@@ -349,28 +365,6 @@ export function ModelSelectionPage({
     setIsSelectingCacheDir(false);
   };
 
-  const handleToggleModel = async (modelId: string, enabled: boolean): Promise<void> => {
-    if (!db) {
-      return;
-    }
-
-    setPendingModelIds((current) => {
-      const next = new Set(current);
-      next.add(modelId);
-      return next;
-    });
-
-    try {
-      await toggleModel(db, modelId, enabled);
-    } finally {
-      setPendingModelIds((current) => {
-        const next = new Set(current);
-        next.delete(modelId);
-        return next;
-      });
-    }
-  };
-
   if (error) {
     return (
       <div
@@ -447,10 +441,8 @@ export function ModelSelectionPage({
         modelCacheDir={modelCacheDir}
         models={models}
         onDownload={handleDownload}
-        onToggle={(modelId, enabled) => {
-          void handleToggleModel(modelId, enabled);
-        }}
-        pendingModelIds={pendingModelIds}
+        onToggle={toggleModel}
+        pendingModelIds={busyModelIds}
         providers={providers}
       />
     </div>

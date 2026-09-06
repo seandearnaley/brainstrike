@@ -6,6 +6,7 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_DEFAULTS, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
 import {
   DESKTOP_NATIVE_TOOL_IDS,
+  NATIVE_TOOL_ID,
   TOOL_DESCRIPTIONS,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
@@ -509,6 +510,24 @@ describe('assistant-tools multi-root read tools', () => {
     it('omits manageTaskList for the local provider regardless of case/whitespace', () => {
       const tools = buildDesktopAssistantTools({ provider: '  Local  ' } as RuntimeData);
       expect(tools['brainstrike.manageTaskList']).toBeUndefined();
+    });
+  });
+
+  describe('worktree tool provider gating', () => {
+    it('omits both worktree tools for the built-in local provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
+
+      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.listWorktrees)).toBe(false);
+      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.manageWorktree)).toBe(false);
+      // Falsifier: the gate must not have swallowed its neighbours either.
+      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.readWorkspaceFile)).toBe(true);
+    });
+
+    it('registers both worktree tools for a hosted provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
+
+      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.listWorktrees)).toBe(true);
+      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.manageWorktree)).toBe(true);
     });
   });
 

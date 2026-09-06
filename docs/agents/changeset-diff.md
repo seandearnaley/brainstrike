@@ -168,8 +168,8 @@ DELETED in T4 along with its `journal-content-expired:` /
 machine-readable prefix (`snapshot-engine-unavailable:`,
 `changeset-snapshot-missing:`, `changeset-snapshot-capture-failed:`,
 `outside-roots-unsupported:`, `base-ref-unresolved:`, `head-unborn:`,
-`commit-id-unresolved:`, `unmerged-path:`, `runs-unavailable:`,
-`run-anchor-missing:`) so the UI can branch on it — see
+`commit-id-unresolved:`, `unmerged-path:`, `run-anchor-missing:`) so the UI
+can branch on it — see
 `changeset-diff-service.ts`'s top doc comment for the authoritative list.
 
 **`changeset-snapshot-view.ts`** resolves `agent-run`/`run-range` as REF-PAIR
@@ -283,13 +283,15 @@ unique repo, spawn `git worktree list --porcelain -z` hook-free
 = 5000` cache with dirty-flag invalidation and in-flight build coalescing.
 Never throws — every failure mode is a visible `errors` entry.
 
-`provenance` is typed as `'agent-reported' | 'both' | 'scanned'`, but
-**only `'scanned'` is ever produced** — grepping `git-inventory-*.ts`
-finds exactly two `provenance:` assignments, both the literal `'scanned'`.
-Nothing in the codebase constructs `'agent-reported'` or `'both'`. The
-design spec's "merge agent-reported workspaces from the journal"
-(GitInventoryService responsibility) is not implemented; do not assume
-provenance distinguishes agent-created worktrees today.
+`provenance` is typed as `'agent-reported' | 'both' | 'scanned'`. Until W3
+(BST-1390) only `'scanned'` was ever produced. `GitInventoryService` itself
+still produces only `'scanned'` — the MERGE happens one level up, in
+`worktree-service.ts`'s `list()`, which joins the inventory with the
+`brainstrike_worktrees` ledger: a scanned worktree with a ledger row becomes
+`'both'`, and a LIVE ledger row that is not on disk is reported as
+`'agent-reported'` with `trust: 'unvalidated'`, `trustReason: 'missing on
+disk'` — present, never dropped. Nothing downstream of the inventory may
+assume `'scanned'` is the only value it can see.
 
 ## TRUST RULE + BIDIRECTIONAL VALIDATION
 
@@ -375,6 +377,294 @@ end-to-end in BST-1161 (bridge, preload, IPC channel, handler,
 `git-history.ts` op) once its last renderer call site was gone —
 `structuredFileDiff`'s `commit` mode is the sole historical-diff path.
 
+## THE `worktrees` IPC DOMAIN
+
+`apps/desktop/src/ipc-worktrees.ts` registers the twelve-method `worktrees`
+domain against the narrowing boundary in `worktrees-ipc-handlers.ts`; preload
+exposes the same exact method set as `window.worktrees`, and
+`packages/app-shell/src/worktrees/worktrees-bridge.ts` rejects a
+present-but-incomplete bridge wholesale. All twelve methods — `adopt`,
+`archive`, `checkoutStatus`, `create`, `createBranchHere`, `createContext`,
+`getSettings`, `inspectArchive`, `list`, `listManagedPaths`, `restore`,
+`setSettings` — are
+implemented and the lifecycle mutations call real `WorktreeService` methods.
+`adopt` and `checkoutStatus` (BST-1392, W5) are the two most recent additions:
+`adopt` records an existing on-disk worktree the live inventory already
+reports into the ledger (refusing an unvalidated, prunable, locked, primary,
+unreachable, or already-managed/archived target — never a caller-supplied
+path outside that inventory); `checkoutStatus` is a lazy, per-checkout
+`git status` read (ahead/behind/clean/upstream) kept OUTSIDE the mutation
+mutex, since it is a read and must not queue behind a create. Managed-directory
+settings persist through `assistant-server/worktree-settings.ts`, with `null`
+recomputed as the home-relative default on every read. The exact bridge set,
+IPC narrowing, preload parity, and settings persistence are pinned by the
+corresponding `worktrees-*` and preload-runtime contract tests.
+
+### WORKTREE MAP + ADOPTION (BST-1392)
+
+`WorktreeListEntry` carries `primary`, `repoCommonDir` and `createdAt` so one
+`worktrees.list()` can drive both the Mode chip's picker and the Worktree Map.
+`primary` is `descriptor.path === repository.identity.repositoryRoot`; a primary
+row is deliberately `usable: false` with a stated reason, because a thread that
+operates in the user's own clone is in LOCAL mode by definition and binding
+`checkoutMode: 'worktree'` to it would produce a checkout hand-off could not
+leave. `repoCommonDir` — not `repositoryRoot` — is the key `brainstrike_forge_prs`
+joins on, so the Map's PR pill and the thread list's PR pill cannot disagree.
+
+`worktrees.adopt` records an EXISTING on-disk worktree in the ledger. It refuses
+a path that is outside every granted root AND outside the managed directory:
+`resolveUsability` treats "has a ledger row" as authorization, so an
+unreachable adopted row would read `usable: true` while every operation on it
+failed. It also refuses the repository's own primary checkout, mirroring the
+picker's primary gate. `base_ref` is the worktree's HEAD at adoption time —
+"unpushed" for an adopted worktree means "committed here since BrainStrike
+started managing it". The Mode chip's picker never calls it — every unmanaged
+row is `usable: false`, so its select button is always disabled, which makes
+adopting through the picker structurally unreachable. The Worktree Map card's
+`Adopt` action is the only UI caller; the agent tool is the only other one.
+
+`worktrees.checkoutStatus` is a LAZY, per-checkout `git status --porcelain=v2
+--branch -z` parsed by the production `parsePorcelainV2Z`. It is deliberately
+not folded into `list()`, which backs the picker and refreshes on every
+invalidation; N status subprocesses behind an orientation surface is the cost
+this seam exists to avoid. Until a card's status resolves it renders
+"checking…", never a clean glyph.
+
+**Collection navigation (BST-1635).** The Map projects its canonical repository
+models through `selectWorktreeCollection`: tokenized case-insensitive local
+search, All/Running/Needs attention/External filters, primary-first name or
+recent-activity sorting within each repository, and a global 25-checkout page
+bound. Search/filter/sort changes return to the first page; a smaller result
+clamps both the visible and source page so recovering async results cannot jump back.
+Page changes remount the results scrollport, including automatic clamping; toolbar
+changes also reset checkout scrolling. These are ephemeral React view preferences, never a
+new persistent store or another DB/IPC query. Unknown/loading status is not an
+attention signal; the primary checkout's Local-only usability is not a fault.
+Status errors, dirty/behind checkouts, failed PR checks and unusable non-primary
+checkouts are attention signals. Repository and status loading/refresh ownership
+stay in `useWorktreeMap`. The paired collection cases live in
+`worktree-map-model.test.ts` and `worktree-map-surface.test.tsx`.
+
+**Responsive rows (BST-1636).** Repository sections use one vertical scrollport
+and full-width checkout articles, with one, two, or four columns based on the
+Worktrees container width (600px / 760px). Checkout identity/path, Git status,
+thread activity and actions keep a stable order. The action group uses 32px
+controls and stays inside the row at narrow widths; the primary label may
+truncate while its accessible name and title remain complete. The indexing toggle exposes its existing exact-root preference via
+an accessible name and `aria-pressed`. Missing-on-disk rows do not claim a
+pending Git read. A resolved clean status is explicit, and the selected linked
+thread is labeled and accented. Disabled-target guidance stays visible in a neutral tone; the canonical unmanaged-checkout message directs users to the shipped Worktrees → Adopt action. All mutation and capability guards are unchanged.
+Paired behavior coverage remains in `worktree-map-surface.test.tsx`; the real
+large-collection/geometry regression is in
+`apps/desktop/e2e/worktree-map.desktop.test.ts`. The opt-in
+`scripts/probe-worktree-map.mjs` checks row fit instead of horizontal scrolling.
+
+**"Open in Terminal" — SHIPPED in W6 (BST-1457); the deferral and its tripwire
+are gone.** Spec §10 lists the action on a Worktree Map card, §4.1 on the Folder
+chip's root rows and §4.3 on the Mode chip's worktree menu; all three exist. The
+seam is the app's OWN Terminal workspace app, not the OS terminal emulator and
+not `window.worktrees`: `worktrees` gains no `openInTerminal` member (spec §6.1
+placed it there, but the action mutates nothing and needs no main-side worktree
+state — recorded as W6 ruling T1), and an external emulator was rejected because
+it would hand a shell to a path the app never containment-checked, with no
+honest cross-platform story (T2).
+
+Two pieces make it work. `terminal:create` accepts an optional `cwd` that is
+realpath'd and SEPARATOR-ANCHORED containment-checked inside the already-
+validated root (`resolveContainedCwd` in `apps/desktop/src/workspace-root-cwd.ts`);
+omitted, behavior is byte-for-byte what it was. The parameter is not a
+convenience: `WorktreeListEntry.rootId` is the first root CONTAINING a checkout,
+not its own mount (`rootIdIsExactMount` is that flag), so a worktree nested at
+`.claude/worktrees/<name>` under an open repo resolves to the PARENT's root id —
+pinning the shell to `rootId` alone would silently open it in the wrong
+repository. Every surface therefore passes BOTH `{ cwd: <checkout path>,
+rootId: <containing root> }`. On the renderer side a session-lived
+`terminal-target-store` (`packages/app-shell/src/stores/`) holds a STANDING pin;
+`openTerminalAt` sets it, switches the shell route to `explorer` and opens the
+Terminal app tab (it owns both halves, unlike `changes-navigation-store`, because
+all three callers need the identical pair). `TerminalPanel` derives
+`target ?? focused root` during render — never an effect mirror — and renders an
+explicit "Follow focused folder" release so a pin is reversible rather than a
+trap. `useTerminalSession`'s outcome-freshness gate keys on the (rootId, cwd)
+PAIR: the lifecycle effect re-runs on a pin change without bumping `sessionId`,
+so a rootId-only gate would leak the previous checkout's `exited` overlay onto
+the freshly-starting one.
+
+On a Map card the item renders exactly when `entry.rootId !== null`, and
+`Add as root` renders exactly when it is `null` — complementary, so the menu
+always names the next step and never shows a disabled action. Web has no
+`window.terminal`, so `isTerminalBridgeAvailable()` is false and no surface
+supplies the handler: the item does not exist there in any form. The W5
+absence-assertion tripwire in `worktree-map-surface.test.tsx` was DELETED in
+the same PR that added the action, as its own comment instructed; the sibling
+assertion in `mode-chip.test.tsx` survives, repurposed from a deferral
+tripwire into an ordinary handler-presence contract.
+
+The A5 run-scoped `git worktree lock` deferral above still stands on its own —
+it remains a capability the spec named that no seam yet supports.
+
+Mounting is a SEPARATE step from adoption and does not happen automatically:
+adopting a worktree only inserts the `brainstrike_worktrees` ledger row, it
+does not add a `roots` row. The picker-less mount grant matches adoption's own
+reachability rule (BST-1392 follow-up): a live ledger row that is under the
+managed directory OR inside a granted root (per a forced-fresh inventory)
+mounts without a picker (`isAuthorizedWorktreeMountPath`; the shared
+`isReachableCheckout` predicate in `worktree-adopt.ts` backs it and
+`assertReachable` both, so the two rules cannot drift) — before the widening, an
+adopted in-root checkout outside the managed directory (the
+`.claude/worktrees/<name>` shape) adopted fine and then refused to mount. An
+outside-roots row stays refused. The Map's `onNewThread` mounts the checkout via
+`addRootDirectoryByPath` before binding a thread, mirroring the ordering
+`use-worktree-mode.ts`'s `mountWorktree`/`onSelectExisting` already use for the
+Mode chip's create/pick flows (found live during the W5 CDT pass: without this
+ordering, the bind's `resolveRootIdAfterReconciliation` retry — 20 × 250ms,
+already generous — always exhausted, because nothing else ever creates the
+`roots` row for a freshly-adopted worktree). The Map never re-reads on its own,
+so every mutation that changes what a card resolves needs a matching re-read —
+but the two mutation classes get DIFFERENT mechanisms (settled in PR #2671
+review; the W5 CDT pass filed the staleness, #2671 closed it):
+
+- **Ledger mutations** (`onAdopt`, `onArchive`) call `refresh()` on the Map's
+  own card list on success — their IPC resolves only after the ledger write, so
+  the refresh observes a completed write. A refusal never refreshes.
+- **Mount paths** (`onNewThread`'s mount-before-bind, `onAddAsRoot`) must NOT
+  call `refresh()`: `addRootDirectoryByPath` resolving does not mean the
+  `roots` row (which `rootId` and therefore `indexing` resolve from) exists —
+  the row is written later by the fire-and-forget mid-session registration
+  (`performRootRegistration`), whose completion emits no `changes:invalidated`,
+  so a caller-side refresh races the write and re-reads `rootId: null`.
+  Instead `useWorktreeMap` keys its load effect on the `useOptionalRootIdentity`
+  context value, which `RootIdentityProvider` re-memoizes exactly when a new
+  adapter→DB mapping publishes (i.e. after `reconcileRoots` wrote the row) —
+  deterministic, poll-free, and it covers mounts started from ANY surface
+  (Mode chip included), not just the Map's own actions.
+
+Both halves are pinned: the surface test pins that mount callbacks never call
+`refresh()` (and that adopt/archive do), and the `use-worktree-map` test pins
+the identity-driven re-read plus its cheapness (no extra per-card `git status`).
+
+### SETUP HOOKS / PER-WORKTREE SETUP — granted roots only
+
+Repository code runs only while creating a worktree FROM a repository the user
+explicitly opened as a workspace root. `createUnserialized` starts with
+`resolveRepositoryContext(params.rootId)`, which resolves that durable
+`roots.id` through `deps.resolveRootCwd(rootId)` before setup is reachable.
+After creation it is the sole caller of `runSetupSafely` → `deps.runSetup` →
+`runWorktreeSetup`. Repositories surfaced only through inventory/list discovery
+have no path to setup execution. This is the Conductor / Claude Code convention:
+`setupCommand` is tri-state: an argv array runs that explicit command, `null`
+falls back to `.brainstrike/worktree-setup.sh` when present, and `'disabled'`
+does not run or probe any setup command. Explicit argv and `'disabled'` bypass
+repository-script consent because neither executes the repository fallback.
+
+Before the first repository-script execution, `createContext` reports the
+repository root, absolute script path, and repository identity (the Git common
+directory). The create sheet blocks until the user allows or skips that script
+and warns that it runs local shell code with `BRAINSTRIKE_WORKSPACE_*` variables
+and that `.worktreeinclude` can copy gitignored files. Both decisions persist in
+the renderer's `worktree-setup-consent.v1` store, keyed by Git common directory,
+so later creates and app restarts do not prompt again. Factory reset clears the
+store. Create IPC carries the renderer decision plus repository identity; main
+pins that identity to its freshly resolved common directory before forwarding
+the decision. Missing or mismatched consent fails closed to a visible `skipped`
+setup outcome while worktree creation continues. A denial behaves the same way
+and never executes the script.
+
+`.worktreeinclude` copies gitignored source files into the new worktree, one
+root-relative glob pattern per non-comment line. Absolute and `..`-escaping
+patterns are rejected before filesystem access. Every resolved match is also
+`realpath`-checked against the source root, and each existing/write-side target
+parent is `realpath`-checked against the worktree root before copying with
+`dereference: false`; symlinks therefore cannot smuggle bytes from outside the
+repository or redirect a write outside the destination. An escaping,
+disappeared, or over-budget match is skipped individually and reported by
+pattern, path, and reason in `WorktreeSetupOutcome.skippedCopies` and the
+persisted bounded setup output. Per-entry and aggregate copies share the
+512 MiB `WORKTREE_INCLUDE_MAX_TOTAL_BYTES` ceiling.
+
+The command receives the Conductor-style environment from
+`worktreeSetupEnvironment`: `BRAINSTRIKE_ROOT_PATH`,
+`BRAINSTRIKE_WORKSPACE_NAME`, `BRAINSTRIKE_WORKSPACE_PATH`, and
+`BRAINSTRIKE_PORT`. The port is
+`3000 + (sha256(worktreePath).readUInt32BE(0) % 2000)`: deterministic for one
+worktree path and unlikely to collide, but NOT probed or verified free. It is a
+default the setup command may honor, never a free-port allocation.
+
+Execution is argv-based, not a shell command string. The repository script is
+spawned as `/bin/sh <absolute-script-path>`; configured argv is spawned
+directly. Neither path nor argv is interpolated into a command line. Stdout and
+stderr are consumed to completion while their retained bytes are bounded;
+overflow marks the outcome truncated and is discarded without killing the
+process. A timed-out POSIX command cannot settle merely because the process
+leader and inherited output pipes closed: settlement waits for the dedicated
+process group to disappear, while the existing post-escalation deadline keeps
+the outcome bounded. Timeout, spawn, signal, and non-zero-exit failures remain
+visible but non-blocking: the worktree is usable, and the bounded
+`WorktreeSetupOutcome` is returned and its status/output persisted on the ledger
+row rather than dropped.
+
+### MANAGED WORKTREE ARCHIVE SNAPSHOTS (BST-1390) — not shadow git
+
+Archiving a managed worktree captures its full tracked+untracked (non-ignored)
+state as a commit at `refs/brainstrike/worktree-archive/<worktreeId>` **in the
+worktree's own repository**, via a private `GIT_INDEX_FILE` → `add -A` →
+`write-tree` → `commit-tree` → `update-ref` (the same technique
+`snapshot-git.ts` uses). It deliberately does NOT go through `SnapshotService`:
+that engine is keyed per ROOT *and* per THREAD (`snapshotRefForThread`) with a
+closed `SnapshotKind` union that throws on an unknown kind, and a managed
+worktree outlives its thread. Living in the common dir is what lets the
+snapshot survive `git worktree remove`. Restore then chooses one explicit add
+path before `git restore --source=<ref>` replays the snapshot: a detached row
+uses `git worktree add --detach -- <path> <ref>^`; a missing branch is recreated
+with `git worktree add -b <branch> -- <path> <ref>^`; and an existing branch
+whose tip still equals `<ref>^` is checked out directly with
+`git worktree add -- <path> <branch>`. If an existing branch has moved since
+archive, restore refuses with an error naming its current and expected tips —
+it never silently rebases or overwrites the branch.
+
+The snapshot is captured on EVERY archive, clean or not, and BEFORE the safety
+verdict is acted on. `archive` refuses a dirty or unpushed worktree unless
+`force`; the one blocker `force` never overrides is an active run in that
+worktree (`brainstrike_assistant_thread_runs.status = 'running'` for the owning
+thread). Ignored files remain outside the snapshot. `inspectArchive` therefore
+returns their count, the exact total number of top-level paths, and a bounded
+sorted display list. `ignoredEntryCount` counts matching porcelain entries, so a
+wholly ignored directory counts as one entry regardless of its descendants.
+Directory-shaped display entries retain a trailing slash to disclose that
+shape, and a truncated list states the exact number of additional top-level
+paths. The opaque confirmation token is bound to the complete top-level
+ignored-path set
+and the managed worktree's id and canonical path, so it cannot be transferred to
+a different worktree with the same ignored names. When that count is non-zero,
+`archive` requires the caller to echo the current non-empty
+`confirmIgnoredEntries` token; `force` does not bypass this deletion gate. Both
+the Mode chip and Worktree Map require an explicit destructive confirmation when
+the count is non-zero. The Mode chip's confirmation field is required (nullable,
+never optional), and pending confirmation state binds both the selected thread
+and worktree. Either selection changing clears it, so returning to the old
+selection cannot resurrect a stale destructive action. When the managed
+worktree path is already missing, `inspectArchive` returns an empty preview with
+a null token and `archive` skips the ignored-entry gate because there is no
+on-disk target left to delete. Immediately after snapshot capture and all
+branch/remote safety reads, `archive` re-reads porcelain
+status as its final Git operation and rejects a missing or stale token before
+removal. This closes mutations during snapshot capture and the post-capture
+safety checks; no filesystem lock exists, so a mutation after that final status
+read remains an unavoidable local race. The token is a stale-confirmation guard:
+it proves the caller saw the current top-level ignored-path set for this
+worktree, not that a human approved it. Churn beneath an already disclosed
+top-level directory intentionally does not invalidate the token. The entry count
+is not in the token preimage, so it can drift from the eventual matching-entry
+count when nested churn occurs, including under-reporting it while the token
+stays valid; a newly created nested secret is deleted under that prior
+directory-level
+confirmation and is not named separately. Nested Git repositories need separate
+restorability handling tracked by BST-1625. W3 deliberately does NOT take a
+`git worktree lock` for the duration of a run: a lock is globally visible and
+`git-workbench-header.tsx` disables any
+locked worktree, so it would disable every managed worktree in the Changes
+surface. Run-scoped locking is a W5 follow-up.
+
 ## REFRESH SEAMS
 
 **Git-metadata watcher** (`git-inventory-watcher.ts`): one filesystem
@@ -407,18 +697,167 @@ via `GitInventoryServiceDeps.onInvalidate` (the service resolves
 Electron-free; main.ts owns the `BrowserWindow.getAllWindows()` send and
 the monotonic `generation` counter — wiring pinned by
 `scripts/__tests__/git-inventory-main-wiring-contract.test.mjs`). Renderer
-side: `use-changes-live-refresh.ts` holds ONE refcounted
-`bridge.onInvalidated` subscription feeding
-`changes-live-refresh-store.ts` (wire-generation guard drops
-stale/duplicate deliveries; registered in factory reset). `useGitInventory`
-refetches on ANY accepted event (a deferred instance only once a load has
-been requested); `useChangeset` re-resolves a `git-scope` changeset only on
-ITS OWN repository's nonce (`selectGitScopeRefreshNonce`; an event the
-service could not map counts for every repo, conservatively) — snapshot
-changesets (`agent-run`/`run-range`) never refetch on git activity. The
-watcher's 300ms/2000ms debounce is the only batching; the store adds no
-extra throttle. The "agent-run changesets refresh on `onRunFinished`" acceptance
-criterion, by contrast, is STILL not wired to the real UI today:
+side: `use-changes-live-refresh.ts` holds ONE refcounted live-refresh owner:
+one `bridge.onInvalidated` subscription plus one listener on the canonical
+renderer `FILE_EXPLORER_REFRESH_EVENT` (BST-1180 — no new IPC/channel and no
+polling). Every mounted `git-scope` `useChangeset` registers its
+`{ rootId, repositoryRoot, worktreePath }`. An incremental explorer event
+maps only registrations in the named durable root whose worktree intersects a
+reported changed path (descendant content OR an ancestor that can replace the
+worktree). `rootId` is authoritative over path presentation: watcher paths are
+re-rooted to the user-facing handle while inventory worktrees can be realpath'd,
+so if the named root and registered worktree have no lexical containment in
+either direction, the mapper FAILS OPEN to that registration rather than
+silently missing it. Comparable paths still filter nested sibling repositories
+precisely. Renderer normalization preserves Windows drive roots (`C:\\` →
+`C:/`). A root-scoped full event maps every registration in that root, and the
+canonical manual-full empty-roots broadcast maps all mounted registrations. A
+`Set` dedupes multiple worktrees/scopes of one repository. Unregistered /
+snapshot changesets are never guessed into the result.
+
+The watcher source preserves a bounded subset of default-filtered activity
+(BST-1180 review) only for the concrete MAIN-owned Explorer `fs:watch`
+subscription, which explicitly sets `reportDefaultFilteredChanges:true`; the
+option is not renderer/wire input. Generic Parcel/Electron watchers remain
+default-false and retain every `DEFAULT_IGNORE_PATTERNS` entry natively, so
+Notes Vault keeps its prior callback/load behavior. The Explorer opt-in keeps
+`.git`, `node_modules`, `.pnpm-store`, `.next`, `.turbo`, plus hard
+`.claude/worktrees` and `.brainstrike/worktrees` native-suppressed. Recursively broadening those
+high-cardinality dependency/cache trees can exhaust native watcher resources;
+lossless support for a force-tracked file inside one requires a separate,
+bounded Git-aware tracked-path watcher architecture. This pipeline does not
+poll or silently claim freshness for that unsupported case.
+
+For the reportable `dist`, `build`, and `.DS_Store` defaults, the JS guard
+matches only segments in the event path RELATIVE to the watched root (an
+ancestor named `build`/`node_modules` never filters the whole root), withholds
+the detailed record from Explorer/indexing, and emits the first matched
+root-relative boundary. Each 150ms producer batch dedupes at most 64 distinct
+boundaries; the 300ms/1s renderer aggregate reapplies the same cap. More
+boundaries set explicit `filteredChangeBoundariesOverflow:true` rather than
+growing memory or silently dropping evidence. Changes maps retained boundaries
+only to intersecting mounted Git registrations in the named durable root;
+explicit boundary overflow fails open to every registration in that root. A
+detailed path and boundary affecting the same repo still enqueue one repository
+refresh, and the existing trailing/max-wait store coalesces nearby metadata
+evidence without discarding mutation counts. Boundary metadata is not watcher
+record loss and cannot trigger a tree/index full scan. Per-batch work remains
+one Git view refresh per affected repository, not one refresh per raw file.
+Custom Explorer exclude filters are display-only and therefore keep their
+normal detailed path. The hard/native exclusions intentionally produce neither
+signal.
+The opt-in rejects every explicit `ignorePatterns` override (including `[]`),
+so git inventory's existing `ignorePatterns: []` subscription stays marker-free
+and no ambiguous configuration silently changes ownership.
+
+Path work is bounded before scanning a watcher batch: registration paths are
+normalized once at registration, event root paths once per root, and detailed
+change/boundary paths lazily once then cached for equivalent consumers.
+Registrations with the
+same normalized `(rootId, worktreePath, repositoryRoot)` are grouped, so the
+Changes surface and Git panel do not rescan thousands of changes twice. Once a
+repository root is affected, later worktree groups for that same raw key are
+skipped. Equivalent raw repository strings are still all published so selector
+keys never lose evidence.
+
+Both sources feed `changes-live-refresh-store.ts` (wire-generation guard drops
+stale/duplicate bridge deliveries; the store is registered in factory reset).
+`useChangeset` re-resolves a `git-scope` changeset only on ITS OWN repository's
+nonce (`selectGitScopeRefreshNonce`; a git-metadata event the service could not
+map still counts for every repo, conservatively). A working-tree event bumps
+ONLY mapped repository-view nonces — never `anyInvalidationNonce` — so
+`useGitInventory` continues to refetch only on accepted git-metadata events. A
+deferred instance remains unloaded until its existing explicit load gate has
+been crossed, and an inactive instance suppresses those effect-driven refetches
+even after an earlier load; reactivation performs a fresh inventory read.
+
+Repository view evidence admitted by the canonical pipeline (including the
+default-filter marker above) is LOSSLESS and split by identity vocabulary:
+`metadataNonceByRepositoryRoot` contains only wire keys, while
+`workingTreeNonceByRepositoryRoot` contains renderer registration keys;
+`selectGitScopeRefreshNonce` combines them. A local `/presentation/repo` event
+therefore cannot mark that string metadata-known and mask a later canonical
+`/real/repo` wire event — the existing unknown-key conservative guard remains
+intact. Alias strings may cause an extra refresh; without an operation id that
+is the only defensible choice, and evidence is never suppressed on time alone.
+When a wire string first becomes metadata-known, its stored baseline is
+`anyInvalidationNonce - unmappedInvalidationNonce`: the known selector adds the
+unmapped count back, preserving the prior unknown value until the queued mapped
+evidence publishes exactly once.
+
+For the same repository string, both sources enter ONE 300ms trailing batch
+(`REPOSITORY_REFRESH_BATCH_MS`). Every signal increments its source count, but
+the store publishes them in one state update after the latest signal, so
+file → git → file produces one final
+notification carrying all three increments rather than discarding either file
+event. `anyInvalidationNonce` still advances immediately for every accepted
+metadata event, independently refreshing inventory. A 1000ms max wait
+(`REPOSITORY_REFRESH_MAX_WAIT_MS`) flushes continuous churn instead of allowing
+trailing re-arms to starve the view. The pending map deletes on flush and
+factory reset clears every timer, so temporal batch state is bounded. Snapshot
+changesets (`agent-run`/`run-range`) never read these nonces.
+
+This batching deliberately delays the repository VIEW nonce by 300ms after the
+latest signal (up to the 1s starvation bound), while a metadata event advances
+the inventory nonce immediately. With the Explorer producer's own 300ms/1s
+window, an external commit can take roughly 2s in the sustained-churn case to
+reach the diff view, and inventory may briefly lead it. That ordering is the
+cost of losslessly coalescing cross-source evidence, not a guarantee that both
+surfaces publish atomically.
+
+Paired renderer tests:
+`packages/app-shell/src/changes/__tests__/use-changes-live-refresh.test.ts`,
+`changes-live-refresh-store.test.ts`, `use-changeset.test.ts`, and
+`use-git-inventory.test.ts`.
+
+**Discovery refresh on root registration (BST-1397).** The inventory only arms
+per-repository watchers INSIDE a build, and builds only run on `getSnapshot()`
+(the eager app-ready call plus renderer `changes:inventory` IPC calls), while
+`loadRoots()` reads the DB `roots` table — so a root whose row lands after
+app-ready would otherwise never be discovered. The renderer's roots
+reconciliation (`packages/app-shell/src/roots/use-roots-reconciliation.ts`)
+therefore calls `changes.inventory({ maxAgeMs: 0 })` once after the boot
+reconcile registers at least one root, and once after each mid-session
+`registerRoot`, so roots added after app-ready get their git-metadata watcher
+without a Changes surface ever being opened (this is what keeps the composer
+workspace bar's Branch chip live — see `docs/agents/workspace-context.md`).
+It is not only "Add Folder" and Recents that hit this path: mounting a
+BrainStrike-managed worktree through the composer bar's Mode chip
+(BST-1390 — "New worktree…" / "Use existing worktree…") also mounts by
+calling `addRootDirectoryByPath`, which runs the exact same mid-session
+`registerRoot`, so a freshly-created or freshly-selected worktree root's OWN
+Branch chip is live immediately rather than needing a reload. The Mode chip's
+worktree LIST itself is unrelated to any of this — it reads the
+`window.worktrees` bridge, not `window.git` inventory (see the Mode chip
+entry in `docs/agents/workspace-context.md`) — so only that root's Branch
+chip, not the picker's contents, depends on this refresh.
+
+`maxAgeMs: 0` is load-bearing, not decoration. A plain `inventory()` would be
+served the 5s TTL cache, or coalesced onto an in-flight build whose
+`loadRoots()` had already run — either way a snapshot that predates the row
+just written, and a nudge that arms nothing. Forced means the service
+GUARANTEES a build that STARTED AFTER the call: with a build in flight it
+awaits that build and then runs exactly ONE more, and every forced call
+arriving before that follow-up starts shares it (one extra build for the
+batch, never one per caller). A forced follow-up whose service was stopped
+while it waited rejects with the typed `GitInventoryStoppedError` rather than
+building against a closing DB. The value crosses the IPC boundary validated —
+absent, or an integer >= 0; anything else is a visible `ok: false`, never
+coerced.
+
+Still best-effort, not authoritative: `resolveChangesBridge()` is null on web
+(a real no-op), and BOTH a rejected call and an `ok: false` `GitResult` log a
+warning rather than being dropped. The Changes surface's own `inventory()`
+remains the authoritative consumer, and this seam adds no polling. Paired
+tests: `packages/app-shell/src/__tests__/use-roots-reconciliation.test.tsx`
+("git inventory discovery refresh"),
+`apps/desktop/src/__tests__/assistant-server/git-inventory-service-lifecycle.test.ts`
+("forced refresh guarantees a build that started after the call"), and the
+`maxAgeMs` options-bag block in
+`apps/desktop/src/__tests__/ipc-domains/changes-ipc-handlers.test.ts`.
+
+The "agent-run changesets refresh on `onRunFinished`" acceptance criterion, by
+contrast, is STILL not wired to the real UI today:
 `assistant-ui-panel-wrapper.tsx` does call `useChangeset(mainRootId,
 null).refresh` from `handleRunFinished`/`handleRunFailed`, but its own
 comment states the changeset is "hardcoded null" pending a real selection

@@ -175,6 +175,10 @@
       "types": "./dist/stores/tree-table-column-sizes-store.d.ts",
       "import": "./dist/stores/tree-table-column-sizes-store.js"
     },
+    "./stores/vector-preferences-store-name": {
+      "types": "./dist/stores/vector-preferences-store-name.d.ts",
+      "import": "./dist/stores/vector-preferences-store-name.js"
+    },
     "./stores/vector-preferences-store": {
       "types": "./dist/stores/vector-preferences-store.d.ts",
       "import": "./dist/stores/vector-preferences-store.js"
@@ -194,6 +198,10 @@
     "./stores/workspace-instructions-preferences-store": {
       "types": "./dist/stores/workspace-instructions-preferences-store.d.ts",
       "import": "./dist/stores/workspace-instructions-preferences-store.js"
+    },
+    "./stores/worktree-setup-consent-store": {
+      "types": "./dist/stores/worktree-setup-consent-store.d.ts",
+      "import": "./dist/stores/worktree-setup-consent-store.js"
     }
   },
   "files": [

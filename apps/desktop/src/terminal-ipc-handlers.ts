@@ -5,11 +5,15 @@
  * workspace root via a pseudo-terminal (node-pty). This module owns the
  * security-critical seam and the process lifecycle:
  *
- * 1. cwd is PINNED + VALIDATED. `terminal:create` takes a renderer-supplied
- *    `rootId` that is resolved + containment-checked against the DB-backed
- *    workspace roots (the SAME source the git / read / search tools use), then
- *    canonicalized via `realpath`. An unknown/escaping/web (FSA, non-absolute)
- *    root is REJECTED before any pty is spawned. The SPAWN itself is fixed
+ * 1. cwd is PINNED + VALIDATED.
+ *    `terminal:create` takes a renderer-supplied `rootId` that is resolved +
+ *    containment-checked against the DB-backed workspace roots (the SAME source
+ *    the git / read / search tools use), then canonicalized via `realpath`. An
+ *    optional `cwd` narrows the spawn to a SUBDIRECTORY of that root — also
+ *    realpath'd, also containment-checked (separator-anchored, so a
+ *    sibling-prefix path cannot pass), and required to be an existing directory.
+ *    An unknown/escaping/web (FSA, non-absolute) root — or a cwd outside it — is
+ *    REJECTED before any pty is spawned. The SPAWN itself is fixed
  *    (shell with NO args + a fixed `xterm-256color` term), so there is no
  *    shell-string injection in spawning — the bytes a user later WRITES to the
  *    pty are raw terminal input (that is the whole point of a terminal), but the
@@ -47,7 +51,11 @@ import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
+import {
+  resolveContainedCwd,
+  resolveRootCwd,
+  type WorkspaceRootResolver,
+} from './workspace-root-cwd';
 
 const logger = createLogger('TerminalIpc');
 
@@ -93,6 +101,13 @@ export type TerminalResult<T = void> =
 
 export interface TerminalCreateParams {
   readonly cols?: number;
+  /**
+   * Absolute path INSIDE the resolved root to pin the shell to. Omitted ⇒ the
+   * root itself (the original, unchanged behavior). Supplied by the Worktree
+   * Map / workspace-bar "Open in Terminal" surfaces so a worktree NESTED under
+   * an open root gets a shell at its OWN path rather than the parent repo's.
+   */
+  readonly cwd?: string;
   readonly rootId: string;
   readonly rows?: number;
 }
@@ -303,7 +318,11 @@ export function createTerminalIpcHandlers({
     owner: WebContents,
     params: TerminalCreateParams
   ): Promise<TerminalResult<TerminalCreateResult>> {
-    const cwd = await resolveRootCwd(resolver, params?.rootId, 'terminal', logger);
+    const root = await resolveRootCwd(resolver, params?.rootId, 'terminal', logger);
+    if (!root.ok) {
+      return root;
+    }
+    const cwd = await resolveContainedCwd(root.value, params?.cwd, 'terminal');
     if (!cwd.ok) {
       return cwd;
     }
@@ -507,27 +526,31 @@ export function liveTerminalCountForTest(): number {
 export function registerTerminalIpcHandlers(handlers: TerminalIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.create,
+    { roles: ['visible-ui'] },
     (event: IpcMainInvokeEvent, params: TerminalCreateParams) =>
       handlers.create(event.sender, params)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.write,
+    { roles: ['visible-ui'] },
     (event: IpcMainInvokeEvent, params: TerminalWriteParams) =>
       handlers.write(params, event.sender.id)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.resize,
+    { roles: ['visible-ui'] },
     (event: IpcMainInvokeEvent, params: TerminalResizeParams) =>
       handlers.resize(params, event.sender.id)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.destroy,
+    { roles: ['visible-ui'] },
     (event: IpcMainInvokeEvent, params: TerminalDestroyParams) =>
       handlers.destroy(params, event.sender.id)
   );

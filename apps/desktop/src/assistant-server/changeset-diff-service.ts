@@ -40,7 +40,10 @@
  * `changeset-git-scope.ts`: `outside-roots-unsupported:`, `base-ref-unresolved:`,
  * `head-unborn:`, `commit-id-unresolved:`, `unmerged-path:`.
  * `edit-checkpoint-journal.ts` (reused verbatim, not redefined here):
- * `runs-unavailable:`, `run-anchor-missing:`.
+ * `run-anchor-missing:`. (`runs-unavailable:` was retired by BST-1651 with
+ * the relation probes that produced it — migrations 117/118 own those
+ * relations, so an absent one is an unmigrated database, not a state this
+ * dispatch can describe.)
  * (`journal-content-expired:` / `journal-path-collision:` are no longer
  * producible from this dispatch; they die with the journal fold in T4.)
  */

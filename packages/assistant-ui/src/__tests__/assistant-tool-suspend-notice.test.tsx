@@ -3,8 +3,13 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from '../assistant-tool-suspend-notice';
+import {
+  __resetUnreadablePauseLogForTests,
+  UNREADABLE_PAUSE_LOG_CAPACITY,
+} from '../unreadable-pause-log-cache';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
+const loggerWarnMock = vi.hoisted(() => vi.fn());
 const threadMessagesMock = vi.hoisted(
   () =>
     [] as Array<{
@@ -20,6 +25,14 @@ vi.mock('@assistant-ui/react', () => ({
     selector: (state: { thread: { messages: typeof threadMessagesMock } }) => unknown
   ) => selector({ thread: { messages: threadMessagesMock } }),
 }));
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({ warn: loggerWarnMock }),
+  };
+});
 
 function lastResumeAction(): Record<string, unknown> | undefined {
   const message = appendMessageMock.mock.calls.at(-1)?.[0] as
@@ -50,9 +63,14 @@ const askFreeTextRequest: AssistantToolSuspendRequest = {
   toolName: 'brainstrike.askUser',
 };
 
+beforeEach(() => {
+  __resetUnreadablePauseLogForTests();
+});
+
 describe('AssistantToolSuspendNotice', () => {
   beforeEach(() => {
     appendMessageMock.mockReset();
+    loggerWarnMock.mockReset();
     appendMessageMock.mockImplementation((message: { role?: 'user' }) => {
       threadMessagesMock.push({ role: message.role ?? 'user' });
     });
@@ -68,6 +86,90 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByText(/May touch many files/)).toBeInTheDocument();
     expect(screen.getByText(/Run the tests/)).toBeInTheDocument();
   });
+
+  it('surfaces a malformed plan payload and allows safe rejection only', async () => {
+    const user = userEvent.setup();
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...planRequest,
+          suspendPayload: { overview: 42, steps: 'not-an-array', title: { nested: true } },
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('assistant-submit-plan-payload-unreadable')).toHaveAttribute(
+      'role',
+      'alert'
+    );
+    expect(screen.getByText(/plan details could not be read/i)).toBeInTheDocument();
+    expect(screen.getByText(/"overview": 42/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /reject/i }));
+
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
+    expect(lastResumeAction()?.['resumeData']).toEqual({ action: 'rejected' });
+  });
+
+  it('keeps readable plan terms when optional presentation fields drift', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...planRequest,
+          suspendPayload: {
+            overview: 'Refactor safely.',
+            risks: 42,
+            steps: [
+              { title: 'Keep this step' },
+              { detail: { richer: true }, title: 'Keep this title' },
+            ],
+            title: 'Compatible plan',
+            verification: { command: 'pnpm test' },
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByText(/Compatible plan/)).toBeInTheDocument();
+    expect(screen.getByText('Refactor safely.')).toBeInTheDocument();
+    expect(screen.getByText('Keep this step')).toBeInTheDocument();
+    expect(screen.getByText('Keep this title')).toBeInTheDocument();
+    expect(screen.queryByText(/Risks:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verification:/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
+  });
+
+  it('refuses approval when any plan step terms are unreadable', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...planRequest,
+          suspendPayload: {
+            overview: 'Refactor safely.',
+            steps: [{ title: 'Readable step' }, { title: 42 }],
+            title: 'Lossy plan',
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('assistant-submit-plan-payload-unreadable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
+  });
+
+  it.each([undefined, null])(
+    'keeps the actionable legacy fallback when a plan payload is absent (%s)',
+    (suspendPayload) => {
+      render(<AssistantToolSuspendNotice data={{ ...planRequest, suspendPayload }} />);
+
+      expect(screen.getByText('Plan for your approval')).toBeInTheDocument();
+      expect(screen.getByText('A plan was submitted for your review.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
+    }
+  );
 
   it('Approve appends a resume action { action: "approved" }', async () => {
     const user = userEvent.setup();
@@ -129,6 +231,217 @@ describe('AssistantToolSuspendNotice', () => {
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'San Francisco' });
   });
+
+  it('keeps a malformed askUser payload visible without allowing an answer', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: { options: 'not-an-array', question: { nested: true } },
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toHaveAttribute(
+      'role',
+      'alert'
+    );
+    expect(screen.getByText(/question details could not be read/i)).toBeInTheDocument();
+    expect(screen.getByText(/"options": "not-an-array"/)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /your answer/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /dismiss/i })).not.toBeInTheDocument();
+    expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('makes a readable question explicitly answerable when its choices are unreadable', async () => {
+    const user = userEvent.setup();
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: {
+            options: [{ label: 'Keep me' }, { label: 42 }],
+            question: 'Still readable?',
+            selectionMode: 'single_select',
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Keep me' })).not.toBeInTheDocument();
+    expect(screen.getByText('Still readable?')).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: /answer in your own words/i }), 'No');
+    await user.click(screen.getByRole('button', { name: /send answer/i }));
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
+    expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'No' });
+  });
+
+  it('bounds unreadable payload diagnostics inside the notice', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: { options: 'not-an-array', question: { nested: true } },
+        }}
+      />
+    );
+
+    expect(screen.getByText(/"options": "not-an-array"/)).toHaveClass('max-h-48', 'overflow-auto');
+  });
+
+  it('caps serialized unreadable payload diagnostics before rendering or logging them', async () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: { options: 'x'.repeat(8000), question: { nested: true } },
+        }}
+      />
+    );
+
+    const diagnostic = screen
+      .getByTestId('assistant-ask-user-payload-unreadable')
+      .querySelector('pre');
+    expect(diagnostic).not.toBeNull();
+    expect(diagnostic?.textContent).toContain('… (truncated)');
+    expect(diagnostic?.textContent?.length).toBeLessThanOrEqual(4020);
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+    const loggedContext = loggerWarnMock.mock.calls[0]?.[1] as
+      | { suspendPayload?: unknown }
+      | undefined;
+    expect(loggedContext?.suspendPayload).toBe(diagnostic?.textContent);
+  });
+
+  it('redacts secrets before rendering or logging unreadable payload diagnostics', async () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: {
+            nested: { apiKey: 'sk-sensitive', password: 'also-sensitive' },
+            options: 'not-an-array',
+            question: { nested: true },
+          },
+        }}
+      />
+    );
+
+    const diagnostic = screen
+      .getByTestId('assistant-ask-user-payload-unreadable')
+      .querySelector('pre');
+    expect(diagnostic).not.toBeNull();
+    expect(diagnostic?.textContent).toContain('[REDACTED]');
+    expect(diagnostic?.textContent).not.toContain('sk-sensitive');
+    expect(diagnostic?.textContent).not.toContain('also-sensitive');
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+    const loggedContext = loggerWarnMock.mock.calls[0]?.[1] as
+      | { suspendPayload?: unknown }
+      | undefined;
+    expect(loggedContext?.suspendPayload).toBe(diagnostic?.textContent);
+  });
+
+  it.each([
+    ['a non-array option list', { options: 'not-an-array', question: 'Pick one' }],
+    ['an option list with no readable entries', { options: [{ label: 42 }], question: 'Pick one' }],
+    [
+      'an unknown selection mode',
+      { options: [{ label: 'Keep me' }], question: 'Pick one', selectionMode: 'ranked' },
+    ],
+  ])('surfaces %s with an explicit free-text recovery', (_case, suspendPayload) => {
+    render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, suspendPayload }} />);
+
+    expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /answer in your own words/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Keep me' })).not.toBeInTheDocument();
+  });
+
+  it('logs an unreadable pause only once across unmount and remount', async () => {
+    const data = {
+      ...askFreeTextRequest,
+      runId: 'run-log-dedupe',
+      suspendPayload: { options: 'not-an-array', question: { nested: true } },
+      toolCallId: 'call-log-dedupe',
+    };
+    const view = render(<AssistantToolSuspendNotice data={data} />);
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...data,
+          suspendPayload: { options: 'not-an-array', question: { nested: true } },
+        }}
+      />
+    );
+
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('resets unreadable-pause log identities for deterministic test isolation', async () => {
+    const data = {
+      ...askFreeTextRequest,
+      runId: 'run-log-reset',
+      suspendPayload: { options: 'not-an-array', question: { nested: true } },
+      toolCallId: 'call-log-reset',
+    };
+    const first = render(<AssistantToolSuspendNotice data={data} />);
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+
+    first.unmount();
+    __resetUnreadablePauseLogForTests();
+    loggerWarnMock.mockReset();
+    render(<AssistantToolSuspendNotice data={data} />);
+
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('bounds unreadable-pause log identities and evicts the oldest deterministically', async () => {
+    for (let index = 0; index <= UNREADABLE_PAUSE_LOG_CAPACITY; index += 1) {
+      const view = render(
+        <AssistantToolSuspendNotice
+          data={{
+            ...askFreeTextRequest,
+            runId: `run-log-cap-${index}`,
+            suspendPayload: { options: 'not-an-array', question: { nested: true } },
+            toolCallId: `call-log-cap-${index}`,
+          }}
+        />
+      );
+      view.unmount();
+    }
+
+    await waitFor(() =>
+      expect(loggerWarnMock).toHaveBeenCalledTimes(UNREADABLE_PAUSE_LOG_CAPACITY + 1)
+    );
+
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          runId: 'run-log-cap-0',
+          suspendPayload: { options: 'not-an-array', question: { nested: true } },
+          toolCallId: 'call-log-cap-0',
+        }}
+      />
+    );
+
+    await waitFor(() =>
+      expect(loggerWarnMock).toHaveBeenCalledTimes(UNREADABLE_PAUSE_LOG_CAPACITY + 2)
+    );
+  });
+
+  it.each([undefined, null])(
+    'keeps the actionable legacy free-text fallback when an askUser payload is absent (%s)',
+    (suspendPayload) => {
+      render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, suspendPayload }} />);
+
+      expect(screen.getByText('The assistant has a question')).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: /your answer/i })).toBeEnabled();
+    }
+  );
 
   it('askUser single-select appends the chosen label', async () => {
     const user = userEvent.setup();
@@ -239,6 +552,25 @@ describe('AssistantToolSuspendNotice', () => {
       screen.queryByTestId('assistant-tool-suspend-unsupported-notice')
     ).not.toBeInTheDocument();
     expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('caps serialized diagnostics for an unregistered suspending tool', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          runId: 'run-unsupported-large',
+          suspendPayload: { detail: 'x'.repeat(8000) },
+          toolCallId: 'call-unsupported-large',
+          toolName: 'brainstrike.somethingElse',
+        }}
+      />
+    );
+
+    const diagnostic = screen
+      .getByTestId('assistant-tool-suspend-unsupported-notice')
+      .querySelector('pre');
+    expect(diagnostic?.textContent).toContain('… (truncated)');
+    expect(diagnostic?.textContent?.length).toBeLessThanOrEqual(4020);
   });
 
   it('leaves the REGISTERED suspending tools rendering and resuming normally', async () => {
@@ -436,6 +768,23 @@ describe('run_python network escalation — Gate B (BST-1070)', () => {
     expect(screen.getByTestId('run-python-network-unreadable')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-run-python-network-notice')).toBeInTheDocument();
     expect(screen.queryByTestId('run-python-network-allow')).not.toBeInTheDocument();
+  });
+
+  it('caps serialized diagnostics for an unreadable network payload', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...networkRequest,
+          suspendPayload: { allowedDomains: 'x'.repeat(8000), kind: 'network' },
+        }}
+      />
+    );
+
+    const diagnostic = screen
+      .getByTestId('assistant-run-python-network-notice')
+      .querySelector('pre');
+    expect(diagnostic?.textContent).toContain('… (truncated)');
+    expect(diagnostic?.textContent?.length).toBeLessThanOrEqual(4020);
   });
 
   it('a REDISCOVERED escalation renders the same card with the pending-since lines', () => {

@@ -5,6 +5,7 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Electron App Launch', () => {
   test('should launch successfully and show main window', { tag: '@smoke' }, async ({
+    electronApp,
     window,
     homePage,
   }) => {
@@ -17,6 +18,12 @@ test.describe('Electron App Launch', () => {
 
     // Verify the main content is loaded
     await homePage.shouldBeVisible();
+
+    const { getBufferedElectronOutput } = await loadElectronHelpers();
+    const output = await getBufferedElectronOutput(electronApp.app);
+    const startupOutput = [...output.stderr, ...output.stdout].join('\n');
+    expect(startupOutput).not.toContain('dist/dist/main-log-transport.js');
+    expect(startupOutput).not.toContain('dist/dist/main-watchdog-worker.js');
   });
 
   test('does not start persisted stores without storage', async ({ electronApp, window }) => {

@@ -42,6 +42,13 @@ interface MetricCardProps {
   readonly variant?: 'default' | 'success' | 'warning' | 'error';
 }
 
+const VARIANT_STYLES: Record<NonNullable<MetricCardProps['variant']>, string> = {
+  default: 'text-foreground',
+  error: 'text-destructive',
+  success: 'text-green-600 dark:text-green-400',
+  warning: 'text-warning',
+};
+
 function MetricCard({
   label,
   value,
@@ -49,20 +56,13 @@ function MetricCard({
   variant = 'default',
   tooltip,
 }: MetricCardProps): ReactElement {
-  const variantStyles = {
-    default: 'text-foreground',
-    error: 'text-destructive',
-    success: 'text-green-600 dark:text-green-400',
-    warning: 'text-yellow-600 dark:text-yellow-400',
-  };
-
   const content = (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
         {icon}
         <span>{label}</span>
       </div>
-      <div className={`font-semibold text-sm ${variantStyles[variant]}`}>{value}</div>
+      <div className={`font-semibold text-sm ${VARIANT_STYLES[variant]}`}>{value}</div>
     </div>
   );
 

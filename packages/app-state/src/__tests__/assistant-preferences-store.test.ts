@@ -263,6 +263,59 @@ describe('assistant-preferences-store', () => {
     );
   });
 
+  it('accepts stored entries carrying the save-time fingerprint metadata (BST-1362)', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      checkedAt: 123,
+      state: 'unavailable',
+    });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([
+        {
+          metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
+          provider: 'google',
+          source: 'stored',
+        },
+      ]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
+    };
+
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+    expect(providers).toContain('google');
+  });
+
+  it('rejects a stored entry whose fingerprint metadata is malformed', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      checkedAt: 123,
+      state: 'unavailable',
+    });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([
+        {
+          metadata: { last4: '-123', savedAt: 'not-a-date' },
+          provider: 'google',
+          source: 'stored',
+        },
+      ]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
+    };
+
+    await expect(useAssistantPreferencesStore.getState().getAvailableProviders()).rejects.toThrow(
+      'invalid provider key metadata'
+    );
+  });
+
   it('rejects malformed provider key metadata', async () => {
     vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
       checkedAt: 123,
@@ -967,6 +1020,157 @@ describe('assistant-preferences-store', () => {
     expect(store.enabledModelsByProvider['local']).not.toContain(
       'LiquidAI/LFM2.5-1.2B-Instruct-ONNX'
     );
+  });
+
+  describe('model migration notices (BST-565)', () => {
+    // Seeds come from the live catalog so the tests cannot silently depend on
+    // one specific id staying retired.
+    const [retiredOpenRouterId, openRouterTarget] = Object.entries(
+      MODEL_ID_MIGRATIONS.openrouter
+    ).find(([from]) => from === 'google/gemini-2.5-pro') ?? ['', ''];
+    const [retiredAnthropicId, anthropicTarget] = Object.entries(
+      MODEL_ID_MIGRATIONS.anthropic
+    )[0] ?? ['', ''];
+
+    function seedSnapshot(
+      state: Record<string, unknown>,
+      version: number
+    ): {
+      rehydrate: () => Promise<void>;
+      readPersisted: () => Promise<Record<string, unknown>>;
+    } {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+      const { name, storage } = options;
+      const snapshot: StorageValue<unknown> = { state, version };
+      storage.setItem(name, snapshot);
+      return {
+        readPersisted: async () => {
+          const raw: unknown = await storage.getItem(name);
+          if (!(raw && typeof raw === 'object' && 'state' in raw)) {
+            throw new Error('expected a persisted snapshot');
+          }
+          return raw.state as Record<string, unknown>;
+        },
+        rehydrate: async () => {
+          await persistApi.rehydrate?.();
+        },
+      };
+    }
+
+    it('records a notice when the selected model was a retired id', async () => {
+      expect(retiredOpenRouterId).toBe('google/gemini-2.5-pro');
+      const { rehydrate, readPersisted } = seedSnapshot(
+        {
+          enabledModelsByProvider: {
+            openrouter: [retiredOpenRouterId, 'anthropic/claude-sonnet-4.6'],
+          },
+          modelsByProvider: { openrouter: retiredOpenRouterId },
+          providerSettings: {},
+          selectedModel: `openrouter::${retiredOpenRouterId}`,
+        },
+        5
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      // The silent Pro → Flash downgrade this ticket exists for is now visible.
+      expect(store.modelMigrationNotices).toEqual([
+        { from: retiredOpenRouterId, provider: 'openrouter', to: openRouterTarget },
+      ]);
+      expect(store.selectedModel).toBe(`openrouter::${openRouterTarget}`);
+      // Session-only: the notice never lands in storage, so it cannot replay.
+      expect(await readPersisted()).not.toHaveProperty('modelMigrationNotices');
+    });
+
+    it('reports the model the user actually lands on when the remap target is not enabled', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          // The Flash target is NOT enabled, so the selection falls back.
+          enabledModelsByProvider: { openrouter: ['anthropic/claude-sonnet-4.6'] },
+          modelsByProvider: { openrouter: retiredOpenRouterId },
+          providerSettings: {},
+          selectedModel: `openrouter::${retiredOpenRouterId}`,
+        },
+        5
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      expect(store.selectedModel).toBe('openrouter::anthropic/claude-sonnet-4.6');
+      expect(store.modelMigrationNotices).toEqual([
+        { from: retiredOpenRouterId, provider: 'openrouter', to: 'anthropic/claude-sonnet-4.6' },
+      ]);
+    });
+
+    it('ignores retired ids under providers the user is not running on', async () => {
+      // modelsByProvider is seeded with a default for EVERY provider, so a
+      // retired default under an untouched provider is not a user choice.
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: {
+            anthropic: ['claude-sonnet-4-6'],
+            openrouter: [retiredOpenRouterId, 'anthropic/claude-sonnet-4.6'],
+          },
+          modelsByProvider: { anthropic: 'claude-sonnet-4-6', openrouter: retiredOpenRouterId },
+          providerSettings: {},
+          selectedModel: 'anthropic::claude-sonnet-4-6',
+        },
+        5
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      expect(store.modelsByProvider['openrouter']).toBe(openRouterTarget);
+      expect(store.modelMigrationNotices).toEqual([]);
+    });
+
+    it('records nothing when the saved selection is current', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: { openrouter: ['anthropic/claude-sonnet-4.6'] },
+          modelsByProvider: { openrouter: 'anthropic/claude-sonnet-4.6' },
+          providerSettings: {},
+          selectedModel: 'openrouter::anthropic/claude-sonnet-4.6',
+        },
+        5
+      );
+
+      await rehydrate();
+
+      expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toEqual([]);
+    });
+
+    it('takeModelMigrationNotices returns the list and clears it atomically', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: { anthropic: [retiredAnthropicId, anthropicTarget] },
+          modelsByProvider: { anthropic: retiredAnthropicId },
+          providerSettings: {},
+          selectedModel: `anthropic::${retiredAnthropicId}`,
+        },
+        5
+      );
+      await rehydrate();
+
+      const taken = useAssistantPreferencesStore.getState().takeModelMigrationNotices();
+      expect(taken).toEqual([
+        { from: retiredAnthropicId, provider: 'anthropic', to: anthropicTarget },
+      ]);
+      const cleared = useAssistantPreferencesStore.getState().modelMigrationNotices;
+      expect(cleared).toEqual([]);
+
+      // A second take (StrictMode re-run, sibling mount) gets nothing and
+      // publishes no new state.
+      expect(useAssistantPreferencesStore.getState().takeModelMigrationNotices()).toEqual([]);
+      expect(useAssistantPreferencesStore.getState().modelMigrationNotices).toBe(cleared);
+    });
   });
 
   it('migrates superseded frontier IDs and leaves first-class models untouched', async () => {

@@ -1,9 +1,11 @@
+import { parseProviderKeySources } from '@brainstrike/assistant-contract';
 import {
   getProviderDefaultModel,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   type ProviderDefinition,
+  providerAuthType,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -34,9 +36,14 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../automation-overrides';
-import { MODEL_ID_MIGRATIONS } from './assistant-model-id-migrations';
+import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
 import { clearPersistedStorageForTests } from './persist-api';
+
+export {
+  getModelIdMigrationTarget,
+  isRetiredModelId,
+} from './assistant-model-id-migrations';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -77,8 +84,27 @@ export class AvailableProviderDiscoveryError extends AggregateError {
   }
 }
 
+/**
+ * The retired model id the persist migration replaced in the user's SELECTED
+ * model (BST-565). `from`/`provider` come from the persisted selection and
+ * `to` from the resolved `selectedModel`, so the notice describes the model
+ * the user actually lands on after the remap and any enabled-list fallback.
+ */
+export interface ModelMigrationNotice {
+  readonly from: string;
+  readonly provider: SupportedProvider;
+  readonly to: string;
+}
+
 interface AssistantPreferencesData {
   enabledModelsByProvider: EnabledModelsMap;
+  /**
+   * Remap of a retired id applied to the user's selected model during the
+   * last persist migration (at most one entry). Session-only (never
+   * partialized): the app shell takes and surfaces it once, so a capability
+   * downgrade such as OpenRouter Pro → Flash cannot happen silently.
+   */
+  modelMigrationNotices: readonly ModelMigrationNotice[];
   modelsByProvider: Partial<Record<SupportedProvider, string>>;
   /**
    * Plan mode: when enabled, the assistant investigates read-only and proposes a
@@ -136,6 +162,13 @@ interface AssistantPreferencesActions {
     provider: SupportedProvider,
     updates: AssistantProviderSettingsUpdate
   ) => void;
+  /**
+   * Returns the pending migration notices and clears them in the same
+   * synchronous step, so concurrent consumers (StrictMode's re-run effect,
+   * sibling mounts) can never surface the same notice twice. Publishes no
+   * state when already empty.
+   */
+  takeModelMigrationNotices: () => readonly ModelMigrationNotice[];
   togglePlanMode: () => void;
 }
 
@@ -158,8 +191,17 @@ const LOCAL_RUNTIME_PROVIDER_BY_RUNTIME: Record<LocalRuntimeId, SupportedProvide
 const LOCAL_RUNTIME_PROVIDERS = new Set<SupportedProvider>(
   Object.values(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME)
 );
+/**
+ * Providers that are available with NO credential at all.
+ *
+ * Keyless-ness DERIVES from `authType === 'none'` (BST-1349) — it is never
+ * inferred from "declares no env keys". Those differ: BST-1356's
+ * `openai-codex` declares no env keys precisely BECAUSE it is interactive
+ * OAuth only, and treating that as keyless would advertise it as ready to use
+ * before the user has connected an account.
+ */
 const STATIC_NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
-  (provider) => providerEnvKeys(provider).length === 0 && !LOCAL_RUNTIME_PROVIDERS.has(provider)
+  (provider) => providerAuthType(provider) === 'none' && !LOCAL_RUNTIME_PROVIDERS.has(provider)
 );
 const MODEL_KEY_DELIMITER = '::' as const;
 const RECENT_MODELS_MAX = 5;
@@ -416,7 +458,7 @@ function pushRecentModel(recents: readonly string[], compositeKey: string): stri
 }
 
 function migrateModelId(provider: SupportedProvider, modelId: string): string {
-  return MODEL_ID_MIGRATIONS[provider]?.[modelId] ?? modelId;
+  return getModelIdMigrationTarget(provider, modelId) ?? modelId;
 }
 
 function migrateModelList(provider: SupportedProvider, models: Iterable<string>): string[] {
@@ -581,57 +623,29 @@ function invalidProviderKeyMetadata(): Error {
   return new Error('Secrets bridge returned invalid provider key metadata.');
 }
 
-function hasValidProviderKeySourceShape(
-  candidate: Record<string, unknown>,
-  provider: string,
-  source: 'env' | 'stored'
-): boolean {
-  if (source === 'stored') {
-    return Object.keys(candidate).length === 2 && !Object.hasOwn(candidate, 'envVar');
-  }
-
-  const envVar = candidate['envVar'];
-  if (
-    Object.keys(candidate).length !== 3 ||
-    typeof envVar !== 'string' ||
-    envVar.trim().length === 0
-  ) {
-    return false;
-  }
-  if (provider === 'tavily') {
-    return TAVILY_ENV_KEYS.has(envVar);
-  }
-  return providerEnvKeys(provider as SupportedProvider).includes(envVar);
-}
+const CONFIGURED_KEY_PROVIDER_IDS: ReadonlySet<string> = new Set<string>([
+  ...SUPPORTED_PROVIDERS,
+  'tavily',
+]);
 
 function parseConfiguredProviderKeys(value: unknown): ReadonlySet<SupportedProvider> {
-  if (!Array.isArray(value)) {
-    throw invalidProviderKeyMetadata();
-  }
+  // Wire-shape validation is the SHARED assistant-contract parser (BST-1362)
+  // so this probe and the settings Credential Inventory can never drift on
+  // what `secrets:list` may return (including the optional stored-entry
+  // fingerprint metadata).
+  const sources = parseProviderKeySources<SupportedProvider | 'tavily'>(value, {
+    allowedProviders: CONFIGURED_KEY_PROVIDER_IDS,
+    invalidPayload: invalidProviderKeyMetadata,
+    isAllowedEnvVar: (provider, envVar) =>
+      provider === 'tavily'
+        ? TAVILY_ENV_KEYS.has(envVar)
+        : providerEnvKeys(provider).includes(envVar),
+  });
 
   const configured = new Set<SupportedProvider>();
-  const seen = new Set<string>();
-  for (const entry of value) {
-    if (!(entry && typeof entry === 'object')) {
-      throw invalidProviderKeyMetadata();
-    }
-    const candidate = entry as Record<string, unknown>;
-    const provider = candidate['provider'];
-    const source = candidate['source'];
-    if (
-      typeof provider !== 'string' ||
-      seen.has(provider) ||
-      !(SUPPORTED_PROVIDER_SET.has(provider as SupportedProvider) || provider === 'tavily') ||
-      (source !== 'env' && source !== 'stored')
-    ) {
-      throw invalidProviderKeyMetadata();
-    }
-    if (!hasValidProviderKeySourceShape(candidate, provider, source)) {
-      throw invalidProviderKeyMetadata();
-    }
-    seen.add(provider);
-    if (SUPPORTED_PROVIDER_SET.has(provider as SupportedProvider)) {
-      configured.add(provider as SupportedProvider);
+  for (const source of sources) {
+    if (source.provider !== 'tavily') {
+      configured.add(source.provider);
     }
   }
   return configured;
@@ -780,24 +794,64 @@ function buildMigratedModelsByProvider(
   return migrated;
 }
 
+interface PersistedSelection {
+  readonly model: string;
+  readonly provider: SupportedProvider;
+}
+
+/**
+ * The model the persisted snapshot says the user was running: the
+ * per-provider entry for `selectedProvider` (pre-composite snapshots) or the
+ * parsed composite `selectedModel`. `modelsByProvider` alone is NOT evidence
+ * of intent — it is seeded with a default for every provider.
+ */
+function resolvePersistedSelection(
+  base: Partial<Store> & { selectedProvider?: SupportedProvider | null }
+): PersistedSelection | null {
+  const selectedProvider = base.selectedProvider;
+  const baseModel = selectedProvider ? base.modelsByProvider?.[selectedProvider] : undefined;
+  if (selectedProvider && typeof baseModel === 'string') {
+    return { model: baseModel, provider: selectedProvider };
+  }
+  if (typeof base.selectedModel === 'string') {
+    const parsed = parseCompositeModelKey(base.selectedModel);
+    if (parsed) {
+      return { model: parsed.model, provider: parsed.provider };
+    }
+  }
+  return null;
+}
+
+/**
+ * A notice only when the SELECTED model was a retired id and the migration
+ * landed the user somewhere else on the same provider. Retired defaults under
+ * providers the user is not running on, and merely-enabled retired ids, are
+ * remapped quietly. A selection that resolves to null (nothing enabled) is
+ * already visible as an empty picker and gets no notice.
+ */
+function collectModelMigrationNotices(
+  base: Partial<Store> & { selectedProvider?: SupportedProvider | null },
+  resolvedSelectedModel: string | null
+): ModelMigrationNotice[] {
+  const before = resolvePersistedSelection(base);
+  if (!(before && isRetiredModelId(before.provider, before.model))) {
+    return [];
+  }
+  const after = parseCompositeModelKey(resolvedSelectedModel);
+  if (!after || after.provider !== before.provider || after.model === before.model) {
+    return [];
+  }
+  return [{ from: before.model, provider: before.provider, to: after.model }];
+}
+
 function buildMigratedSelectedModel(
   base: Partial<Store> & { selectedProvider?: SupportedProvider | null },
   enabled: EnabledModelsMap
 ): string | null {
-  let selectedModel: string | null = null;
-
-  const selectedProvider = base.selectedProvider;
-  const baseModel = selectedProvider ? base.modelsByProvider?.[selectedProvider] : undefined;
-  if (selectedProvider && typeof baseModel === 'string') {
-    const migrated = migrateModelId(selectedProvider, baseModel);
-    selectedModel = `${selectedProvider}${MODEL_KEY_DELIMITER}${migrated}`;
-  } else if (typeof base.selectedModel === 'string') {
-    const parsed = parseCompositeModelKey(base.selectedModel);
-    if (parsed) {
-      const migrated = migrateModelId(parsed.provider, parsed.model);
-      selectedModel = `${parsed.provider}${MODEL_KEY_DELIMITER}${migrated}`;
-    }
-  }
+  const persisted = resolvePersistedSelection(base);
+  const selectedModel = persisted
+    ? `${persisted.provider}${MODEL_KEY_DELIMITER}${migrateModelId(persisted.provider, persisted.model)}`
+    : null;
 
   const parsedSelected = parseCompositeModelKey(selectedModel);
   if (!parsedSelected) {
@@ -1011,6 +1065,7 @@ export const useAssistantPreferencesStore = create<Store>()(
   persist(
     (set, get) => ({
       clearModel: () => set({ selectedModel: null }),
+
       enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
 
       getAvailableProviders: async () => {
@@ -1154,6 +1209,7 @@ export const useAssistantPreferencesStore = create<Store>()(
         const parsed = parseCompositeModelKey(get().selectedModel);
         return parsed?.provider ?? null;
       },
+      modelMigrationNotices: [],
       modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
       planModeEnabled: false,
       providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
@@ -1232,6 +1288,14 @@ export const useAssistantPreferencesStore = create<Store>()(
           };
         }),
 
+      takeModelMigrationNotices: () => {
+        const pending = get().modelMigrationNotices;
+        if (pending.length > 0) {
+          set({ modelMigrationNotices: [] });
+        }
+        return pending;
+      },
+
       togglePlanMode: () => set((state) => ({ planModeEnabled: !state.planModeEnabled })),
     }),
     {
@@ -1274,6 +1338,9 @@ export const useAssistantPreferencesStore = create<Store>()(
 
         return {
           enabledModelsByProvider: migratedEnabled,
+          // Merged into live state but excluded by `partialize`, so the
+          // notices exist for this session only (BST-565).
+          modelMigrationNotices: collectModelMigrationNotices(base, selectedModel),
           modelsByProvider: migratedModelsByProvider,
           // Preserve every partialize'd field the migrated snapshot may carry
           // (e.g. a pre-v7 user's read-only planning guard) — the returned
@@ -1306,6 +1373,7 @@ export const useAssistantPreferencesStore = create<Store>()(
 function resetStoreState() {
   useAssistantPreferencesStore.setState({
     enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
+    modelMigrationNotices: [],
     modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
     planModeEnabled: false,
     providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },

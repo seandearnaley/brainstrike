@@ -9,10 +9,12 @@
 @plugin "@tailwindcss/typography";
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/assistant-ui/styles.css";
+@import "@brainstrike/mcp-app-host-ui/styles.css";
 @import "@brainstrike/file-explorer-ui/styles.css";
 @import "@brainstrike/app-shell/styles.css";
 @import "@brainstrike/workspace-search/styles.css";
 @import "@brainstrike/db-explorer/styles.css";
+@import "@brainstrike/settings-ui/styles.css";
 @import "@brainstrike/ui/globals.css";
 @source "src/**/*.{ts,tsx}";
 
@@ -127,6 +129,8 @@
 
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
 
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
@@ -139,6 +143,15 @@
 
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
 
   /* ========================================================================
    * SPACING & LAYOUT

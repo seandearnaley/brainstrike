@@ -53,6 +53,16 @@ const EVENT_TOGGLE_META: readonly EventToggleMeta[] = [
     kind: 'toolApprovalRequired',
     label: 'Tool approval required',
   },
+  {
+    description: 'A pull request was opened for the branch this thread works on.',
+    kind: 'prOpened',
+    label: 'Pull request opened',
+  },
+  {
+    description: 'CI checks finished on a pull request you are watching.',
+    kind: 'prChecks',
+    label: 'Checks finished',
+  },
 ];
 
 function isPermissionBlocked(state: AssistantNotificationPermissionState): boolean {

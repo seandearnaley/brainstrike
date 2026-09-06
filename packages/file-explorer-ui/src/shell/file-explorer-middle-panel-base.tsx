@@ -8,6 +8,8 @@ import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { useTextTokenCount } from '../indexing/use-text-token-count';
 import { useTokenCounting } from '../indexing/use-token-counting';
+import { usePreviewContentFailure } from '../preview/preview-content-failure';
+import { PreviewContentFailureAlert } from '../preview/preview-content-failure-alert';
 import { PreviewPanel } from '../preview/preview-panel';
 import { usePreviewPanelReportActions } from '../preview/use-preview-panel-report-actions';
 import { buildFileNodeCache } from '../utils/file-node-cache';
@@ -67,17 +69,9 @@ export const FileExplorerMiddlePanelBase = () => {
   );
 
   const { selectedFilePaths, setSelectedFilesFromList } = useSelectionManager();
-  // Phase 6 cross-root: the preview shows the EFFECTIVE UNION of every active
-  // root's selection. Writing the remaining set back (file removal / undo) must
-  // re-partition per root via setSelectedFilesFromList — the raw
-  // core.handleSelectionChange funnels ALL roots' keys into the focused root's
-  // top-level set, mis-attributing non-focused-root keys on the next focus
-  // switch. In the single-root case this reduces to the same focused-root write.
-  const handlePreviewSelectionChange = useCallback(
-    (next: Set<string>) => {
-      setSelectedFilesFromList([...next]);
-    },
-    [setSelectedFilesFromList]
+  const loadBackgroundFileContents = useCallback(
+    (compositeKeys: string[]) => loadMultipleFileContents(compositeKeys, 'background'),
+    [loadMultipleFileContents]
   );
   // Multi-root (Phase 6): resolve a RootId to its display name so the context
   // snapshot can label same-relative-path files from different roots.
@@ -145,7 +139,10 @@ export const FileExplorerMiddlePanelBase = () => {
     folderSummaryThreshold,
     includeFilters,
     includeProjectTree,
-    loadMultipleFileContents,
+    // Report generation owns its nested content reads. Passing the raw loader
+    // prevents a missing-content read from replacing the outer copy/download
+    // failure with a generic preview-only retry.
+    loadMultipleFileContents: loadBackgroundFileContents,
     projectTreeUsesViewFilters,
     rootDirectoryHandle,
     selectedFiles: selectedFilePaths,
@@ -154,6 +151,31 @@ export const FileExplorerMiddlePanelBase = () => {
   });
   const handleDownloadContext = reportActions.handleDownloadContext;
   const handleCopyContext = reportActions.handleCopyContext;
+  const {
+    failure: previewContentFailure,
+    invalidate: invalidatePreviewContentFailure,
+    loadPreviewFileContents,
+    retry: retryPreviewContent,
+    runContextExport,
+  } = usePreviewContentFailure({
+    handleCopyContext,
+    handleDownloadContext,
+    loadMultipleFileContents: loadBackgroundFileContents,
+    selectedFilePaths,
+  });
+  // Phase 6 cross-root: the preview shows the EFFECTIVE UNION of every active
+  // root's selection. Writing the remaining set back (file removal / undo) must
+  // re-partition per root via setSelectedFilesFromList — the raw
+  // core.handleSelectionChange funnels ALL roots' keys into the focused root's
+  // top-level set, mis-attributing non-focused-root keys on the next focus
+  // switch. In the single-root case this reduces to the same focused-root write.
+  const handlePreviewSelectionChange = useCallback(
+    (next: Set<string>) => {
+      invalidatePreviewContentFailure();
+      setSelectedFilesFromList([...next]);
+    },
+    [invalidatePreviewContentFailure, setSelectedFilesFromList]
+  );
 
   const projectTreeResult = useMemo(
     () =>
@@ -213,8 +235,13 @@ export const FileExplorerMiddlePanelBase = () => {
     if (compositeKeys.length === 0) {
       return;
     }
-    void loadMultipleFileContents(compositeKeys);
-  }, [loadMultipleFileContents]);
+    void loadPreviewFileContents(compositeKeys).catch((error: unknown) => {
+      logger.error('Preview file-content batch failed', {
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        fileCount: compositeKeys.length,
+      });
+    });
+  }, [loadPreviewFileContents]);
 
   const handlePreviewContentRequest = useCallback(
     (compositeKey: string) => {
@@ -230,22 +257,28 @@ export const FileExplorerMiddlePanelBase = () => {
 
   const handleDownloadContextFromPanel = useCallback(
     (options: ContextExportOptions) => {
-      void handleDownloadContext(options);
+      runContextExport('download', options);
     },
-    [handleDownloadContext]
+    [runContextExport]
   );
 
   const handleCopyContextFromPanel = useCallback(
     (options: ContextExportOptions) => {
-      void handleCopyContext(options);
+      runContextExport('copy', options);
     },
-    [handleCopyContext]
+    [runContextExport]
   );
 
   return (
     <FileExplorerErrorBoundary>
       <div className="flex h-full flex-col overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden">
+          {previewContentFailure ? (
+            <PreviewContentFailureAlert
+              failure={previewContentFailure}
+              onRetry={retryPreviewContent}
+            />
+          ) : null}
           <div className="flex-1 overflow-hidden bg-card/50">
             <PreviewPanel
               decodeFileSelection={decodeFileSelection}

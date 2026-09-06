@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
@@ -46,6 +47,16 @@ export default defineConfig({
         find: '@brainstrike/workers',
         replacement: resolve(import.meta.dirname, '../../packages/workers'),
       },
+      // The package exports this worker from dist and the shared source registry
+      // deliberately skips prebuilt worker exports. The web Vitest source graph must
+      // resolve the current worker implementation, never stale or missing dist.
+      {
+        find: '@brainstrike/embedding-worker/worker',
+        replacement: resolve(
+          import.meta.dirname,
+          '../../packages/embedding-worker/src/embedding.worker.ts'
+        ),
+      },
       // B3/B4: shared workspace source-alias registry (#1651/#1658), so every
       // other `@brainstrike/*` runtime import in this app's test lanes
       // executes SOURCE instead of resolving to built dist via package
@@ -72,6 +83,13 @@ export default defineConfig({
         '**/vitest.config.*',
         '**/playwright.config.*',
         'e2e/**',
+        // These two modules are the browser-only BST-369 E2E runtime: they
+        // require the production Vite worker bundle, cross-origin isolation,
+        // workerpool, and measureUserAgentSpecificMemory. The paired benchmark
+        // contract pins this exact exclusion to the scheduled Playwright owner;
+        // the pure measurement and message-contract modules remain unit-covered.
+        'src/embedding-model-switch-memory-probe.ts',
+        'src/embedding-model-switch-memory-probe.worker.ts',
       ],
       include: ['src/**/*.{ts,tsx}'],
       provider: 'v8',
@@ -90,6 +108,7 @@ export default defineConfig({
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     // Use threads pool with increased parallelization for better CPU utilization
     pool: 'threads',
+    reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     testTimeout: 15_000, // uiComponent timeout (getAdjustedTimeout not available in build context)
   },

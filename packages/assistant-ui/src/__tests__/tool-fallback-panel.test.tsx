@@ -125,7 +125,10 @@ describe('ToolFallback', () => {
       expect(
         screen.getByLabelText(/Running/).querySelector('.lucide-circle-dashed')
       ).not.toBeNull();
-      expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
+      // BST-849: the in-flight row reads its live progress, not a static
+      // "Thinking" — with no streaming state or timing on the props it is
+      // plain "Running".
+      expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Running');
       expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute(
         'data-tone',
         'greyscale'

@@ -68,6 +68,54 @@ export interface AssistantPersonaDefinition {
 /** The delegation tool prefix Mastra assigns to `agents`-config children. */
 export const SUBAGENT_DELEGATION_TOOL_PREFIX = 'agent-';
 
+/**
+ * The `metadata.outcome` value on a `subagent.failed` run event marking a
+ * delegation whose child ran but returned no written answer (BST-1410).
+ *
+ * Lives in the contract because it is the wire between the agent-side emitter
+ * (`tool-lifecycle-processors.ts`) and the renderer's SubagentCard. Both that
+ * case and a hard child `tool-error` are `subagent.failed`/`failed`, so the
+ * card must not have to tell them apart by sniffing a human label. A bounded
+ * enum string is neither args nor results, so it respects the ids/labels-only
+ * rule for subagent metadata.
+ */
+export const SUBAGENT_NO_ANSWER_OUTCOME = 'no-answer';
+
+/**
+ * The model-facing description of a persona's `agent-<id>` delegation tool.
+ *
+ * The supervisor picks the SIZE of a delegated task from this string and
+ * nothing else, so it must disclose the step budget. It used to say only
+ * "use when a question needs surveying many files"; the cap surfaced only
+ * AFTER a failed delegation, in the no-answer message — the supervisor was
+ * invited to over-scope and then told off for it.
+ *
+ * DERIVED from `maxSteps`, never written into a persona's prose. Two reasons,
+ * both load-bearing:
+ *
+ * 1. There is no second copy to drift. A hardcoded "16 steps" and a
+ *    `maxSteps: 16` are two facts that can disagree, and the substring test
+ *    guarding them is leaky by construction (`"16"` contains `"1"` and `"6"`).
+ * 2. USER-defined personas are covered for free. Their description comes
+ *    straight from markdown frontmatter (`user-personas.ts`), which can never
+ *    mention a cap, so hardcoding it in the built-ins would have left every
+ *    user persona with exactly the bug this fixes.
+ *
+ * Both places the description reaches a model call this: the child `Agent`
+ * config in `build-persona-subagents.ts` (which Mastra turns into the
+ * delegation tool) and the supervisor's own instructions via
+ * `persona-assembly.ts`.
+ */
+export function delegationDescriptionForPersona(
+  persona: Pick<AssistantPersonaDefinition, 'description' | 'maxSteps'>
+): string {
+  return (
+    `${persona.description} Runs at most ${persona.maxSteps} steps, one of which is reserved ` +
+    'for its summary — scope the task to that budget and split anything larger across several ' +
+    'delegations.'
+  );
+}
+
 export function delegationToolNameForPersona(id: AssistantPersonaId): string {
   return `${SUBAGENT_DELEGATION_TOOL_PREFIX}${id}`;
 }
@@ -149,7 +197,7 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
     description:
       'Delegate broad, RAG-native codebase exploration: semantic + exact search across the ' +
       'workspace, then read the most relevant files. Use when a question needs surveying many ' +
-      'files before answering. Returns a written summary of findings.',
+      'files before answering. Returns reported findings to verify, not established fact.',
     id: 'explore',
     instructions:
       'You are the Explorer subagent: a read-only codebase exploration specialist. Use semantic ' +
@@ -157,9 +205,16 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
       'grepSearch for exact identifiers/strings, globWorkspace to enumerate files, and the ' +
       'workspace file/directory readers to inspect the most relevant results. You cannot modify ' +
       'anything. Answer the delegated task concisely with a written summary of what you found, ' +
-      'citing concrete file paths.',
+      'citing concrete file paths. State the PROVENANCE of every claim: cite path:line for ' +
+      'anything you read in code, and say explicitly when a fact came from documentation or a ' +
+      'comment rather than from the code itself — the two are frequently out of sync and your ' +
+      'caller cannot tell them apart afterwards. Report only what you actually opened; if you ' +
+      'run out of steps, say which part of the task you covered and which you did not, rather ' +
+      'than generalising from a sample. Do NOT produce the final deliverable the caller is ' +
+      'working towards (a document, a page, a patch) even if the prompt mentions one — you are a ' +
+      'research step, and anything beyond findings is wasted budget.',
     label: 'Explorer',
-    maxSteps: 8,
+    maxSteps: 16,
   }),
   definePersona({
     allowedToolIds: [
@@ -173,7 +228,7 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
     description:
       'Delegate focused analysis that combines reading workspace files with external web ' +
       'research. Use when a question needs both in-repo reading and up-to-date external ' +
-      'context. Returns a written analysis.',
+      'context. Returns reported findings to verify, not established fact.',
     id: 'analyze',
     instructions:
       'You are the Analyst subagent: a read-only analysis specialist. Read workspace files and ' +
@@ -181,8 +236,14 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
       'webExtract to read the pages behind results or user-provided URLs. Note that webSearch ' +
       'and webExtract send the query/URLs to an external service (Tavily) — do not include ' +
       'private workspace contents in web queries or pass internal URLs. You cannot modify ' +
-      'anything. Answer the delegated task with a concise written analysis, citing sources.',
+      'anything. Answer the delegated task with a concise written analysis, citing sources. ' +
+      'State the PROVENANCE of every claim: cite path:line for anything you read in code, and ' +
+      'say explicitly when a fact came from documentation, a comment, or the web rather than ' +
+      'from the code itself. Report only what you actually opened; if you run out of steps, say ' +
+      'which part of the task you covered and which you did not. Do NOT produce the final ' +
+      'deliverable the caller is working towards (a report, a page, a patch) even if the prompt ' +
+      'mentions one — you are a research step, and anything beyond findings is wasted budget.',
     label: 'Analyst',
-    maxSteps: 8,
+    maxSteps: 16,
   }),
 ];

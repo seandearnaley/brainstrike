@@ -11,7 +11,7 @@ import {
   type RewindContextValue,
   RewindProvider,
 } from '@brainstrike/assistant-ui';
-import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import {
   RootDataDeletionProvider,
@@ -25,6 +25,7 @@ import {
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import type { QueueAdapter } from '@brainstrike/queue';
+import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
   ActionRegistryProvider,
   Dialog,
@@ -66,16 +67,19 @@ import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { deleteRootDataFromDb } from './delete-root-data';
 import {
   type RendererDiagnosticSurface,
   rendererLongTaskTelemetry,
 } from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
+import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
+import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
 // Side-effect: register session-only stores with the factory-reset pipeline.
 import './register-factory-reset-session-stores';
 
@@ -84,43 +88,6 @@ interface DebouncedPanelLayoutState {
   readonly showLeftPanel: boolean;
   readonly showRightPanel: boolean;
   readonly sizes: [number, number, number];
-}
-
-/**
- * Reads the affected-row count from a DML query result across driver shapes:
- * PGlite populates `affectedRows`; node-pg-style bridges use `rowCount`.
- * Returns `null` when neither is present so callers can distinguish
- * "positively zero rows" from "the driver did not report a count" and avoid a
- * false abort on a bridge that strips the field.
- */
-function readAffectedRows(result: unknown): number | null {
-  const shaped = result as { affectedRows?: unknown; rowCount?: unknown };
-  if (typeof shaped.affectedRows === 'number') {
-    return shaped.affectedRows;
-  }
-  if (typeof shaped.rowCount === 'number') {
-    return shaped.rowCount;
-  }
-  return null;
-}
-
-/**
- * Deletes a root's `roots` row (cascading file_records + chunks via migration
- * 039's ON DELETE CASCADE). `roots.id` is a uuidv7, but the disconnect flow
- * passes a path as the id for legacy/unregistered roots (the sidebar falls
- * back to `handle.path` when `rootIdByPath` has no entry), so the row must be
- * matched by `id` OR `path` — `path` is uniquely indexed. A delete that
- * positively affects zero rows THROWS: the seam's contract is "never a silent
- * no-op", so an unconfirmed delete must abort the disconnect rather than let
- * the user believe data was removed while UUID-keyed rows survive.
- */
-export async function deleteRootDataFromDb(db: DbHandle, rootIdOrPath: string): Promise<void> {
-  const result = await db.query('DELETE FROM roots WHERE id = $1 OR path = $1', [rootIdOrPath]);
-  if (readAffectedRows(result) === 0) {
-    throw new Error(
-      `Root data deletion matched no rows for "${rootIdOrPath}" — refusing to report a silent success.`
-    );
-  }
 }
 
 function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
@@ -221,6 +188,13 @@ export interface RootLayoutContentProps {
    * launcher card, or "+"-menu entry renders at all.
    */
   readonly terminalPageContent?: ReactNode;
+  /**
+   * Optional Worktree Map surface (desktop-only). Supplied by the desktop
+   * wrapper when the `window.worktrees` bridge is present; web never constructs
+   * it. Registered as a closable singleton workspace app tab (BST-1392); when
+   * absent, no Worktrees tab, launcher card, or "+"-menu entry renders at all.
+   */
+  readonly worktreeMapPageContent?: ReactNode;
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
@@ -469,6 +443,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
   terminalPageContent,
+  worktreeMapPageContent,
   visible,
 }: {
   readonly canvasPanelContent?: ReactNode;
@@ -479,6 +454,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
   readonly terminalPageContent?: ReactNode;
+  readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
@@ -503,6 +479,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           />
         ),
         ...(terminalPageContent ? { terminalPageContent } : {}),
+        ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
       }),
     [
       contextExplorerPageContent,
@@ -511,6 +488,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       changesPageContent,
       canvasPanelContent,
       terminalPageContent,
+      worktreeMapPageContent,
     ]
   );
 
@@ -585,6 +563,7 @@ export function RootLayoutContent({
   gitPageContent,
   notesPageContent,
   terminalPageContent,
+  worktreeMapPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
@@ -711,6 +690,7 @@ export function RootLayoutContent({
             visible renderer mounts RootLayoutContent, so hidden hosts never
             instantiate it (structural gating — no role check needed here). */}
             <CommandPaletteHost />
+            <WorkspaceConnectHost />
             <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
               <EmbeddingRuntimeProvider>
                 {/* One shared embedder cache for every semantic-search surface. The
@@ -739,6 +719,7 @@ export function RootLayoutContent({
                         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
                         terminalPageContent={terminalPageContent}
                         visible={shellTab === 'explorer'}
+                        worktreeMapPageContent={worktreeMapPageContent}
                       />
                     </PanelLayoutProvider>
                   </div>
@@ -752,6 +733,15 @@ export function RootLayoutContent({
                       {settingsPageContent}
                     </DialogContent>
                   </Dialog>
+                  {/* MCP elicitation consent is app-wide (BST-1584): desktop main
+                    pushes server input requests here regardless of route, and the
+                    host renders nothing when the preload bridge is absent. */}
+                  <McpElicitationHost />
+                  {/* Composer MCP prompt selection is app-wide (BST-1592): the
+                    "/" menu's execute hands the selection here from wherever the
+                    composer is mounted, and the host renders nothing when the
+                    preload bridge is absent. */}
+                  <McpPromptComposerHost />
                   {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
                   <KeepMountedRoute

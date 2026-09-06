@@ -18,11 +18,11 @@ import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from '../mastra/agent-streaming';
+import { listSuspendedMastraRuns } from '../mastra/suspended-run-discovery';
 import { TOOL_CALL_DECLINED_MESSAGE } from '../mastra/tool-event-mapper';
 import { DataStreamCode } from '../stream/data-stream-codes';
 import { DataStreamMapper } from '../stream/data-stream-mapper';
@@ -33,6 +33,7 @@ import {
   expectMastraAgentError,
   findRunEventChunks,
   mastraInstances,
+  mcpHost,
   mcpInstances,
   resetMastraStreamHarness,
   setMockStreamParts,
@@ -105,7 +106,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       requireToolApproval?: boolean;
     };
     expect(streamOptions.requireToolApproval).toBe(true);
-    expect(expectLeadingContextBreakdown(chunks)).toEqual([
+    // The durable run event leads the pause (see the dedicated ordering test
+    // below); the transient chunks it precedes are pinned EXACTLY here.
+    const [durableRunEvent, ...transientChunks] = expectLeadingContextBreakdown(chunks);
+    expect(durableRunEvent).toMatchObject({
+      event: { kind: 'tool.approval.requested' },
+      type: 'run-event',
+    });
+    expect(transientChunks).toEqual([
       {
         args: { mode: 'replace', paths: ['src/index.ts'] },
         resumeSchema: '{}',
@@ -121,6 +129,63 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         usage: { completionTokens: 0, promptTokens: 0 },
       },
     ]);
+  });
+
+  it('emits a durable tool.approval.requested run event BEFORE the approval-required chunk', async () => {
+    // BST-1402: the approval PAUSE is durable. It does not replace the
+    // `tool-approval-required` transient — a reload rebuilds the actionable
+    // notice from the Mastra suspended snapshot — but that rediscovery is a
+    // per-thread round trip that only sees STILL-PENDING pauses. The run event
+    // is persisted by `observeDesktopAssistantRunEvents` and is the cheap
+    // cross-thread row the Threads panel's "needs you" projection queries, and
+    // the only record that outlives the pause being answered.
+    setMockStreamParts([
+      {
+        payload: {
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          resumeSchema: '{}',
+          toolCallId: 'approval-durable-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+        },
+        runId: 'run-approval-durable-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'update selected context', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const [first, second] = expectLeadingContextBreakdown(chunks);
+    // ORDER is the contract: the durable row must exist even if the consumer
+    // tears the stream down the instant it sees the pause chunk.
+    expect(first).toMatchObject({
+      event: {
+        kind: 'tool.approval.requested',
+        label: 'Awaiting your approval',
+        metadata: {
+          toolCallId: 'approval-durable-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+        },
+        status: 'running',
+      },
+      type: 'run-event',
+    });
+    // No `riskCategory` is invented when the pause was not policy-driven.
+    expect(
+      (first as { event: { metadata: Record<string, unknown> } }).event.metadata
+    ).not.toHaveProperty('riskCategory');
+    expect(second).toMatchObject({ type: 'tool-approval-required' });
+    expect(chunks.at(-1)).toMatchObject({ finishReason: 'tool-calls', type: 'message-finish' });
   });
 
   it('denormalizes a native approval tool name when no sanitized name map entry exists', async () => {
@@ -156,6 +221,17 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     }
 
     expect(expectLeadingContextBreakdown(chunks)).toEqual([
+      expect.objectContaining({
+        // The durable row carries the SAME denormalized name the notice shows.
+        event: expect.objectContaining({
+          kind: 'tool.approval.requested',
+          metadata: expect.objectContaining({
+            toolCallId: 'approval-denormalize-1',
+            toolName: 'brainstrike.executeCommand',
+          }),
+        }),
+        type: 'run-event',
+      }),
       {
         args: { command: 'echo hi' },
         runId: 'run-approval-denormalize-1',
@@ -362,6 +438,22 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         type: 'tool-approval-required',
       })
     );
+    // BST-1402: the durable row carries the resolved risk too, so the
+    // cross-thread projection can say WHY a run stopped and asked without
+    // reopening that thread's suspended snapshot.
+    expect(findRunEventChunks(chunks, 'tool.approval.requested')).toEqual([
+      expect.objectContaining({
+        event: expect.objectContaining({
+          label: 'Awaiting your approval',
+          metadata: {
+            riskCategory: 'execute',
+            toolCallId: 'approval-dotted-1',
+            toolName: 'brainstrike.runShell',
+          },
+          status: 'running',
+        }),
+      }),
+    ]);
   });
 
   it('logs a LOUD error and omits risk metadata when a policy-driven pause cannot be resolved (never fabricates)', async () => {
@@ -540,6 +632,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         }),
         type: 'run-event',
       }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'tool.approval.requested',
+          metadata: expect.objectContaining({ toolCallId: 'approval-1' }),
+          status: 'running',
+        }),
+        type: 'run-event',
+      }),
       {
         args: { mode: 'replace', paths: ['src/index.ts'] },
         resumeSchema: '{}',
@@ -558,7 +658,10 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
   });
 
   it('resumes an approved Mastra tool call through the official approval API', async () => {
-    const memory = { id: 'memory-instance' };
+    const memory = {
+      getMergedThreadConfig: (config?: object) => config ?? {},
+      id: 'memory-instance',
+    };
     const storage = { id: 'workflow-storage' };
     setMockStreamParts([
       { textDelta: 'Approved and continued.', type: 'text-delta' },
@@ -681,6 +784,7 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         toolName: 'workspace.writeFile',
       },
       {
+        mcpHost,
         requireToolApproval: true,
         runtime: {
           apiKey: 'test-key',
@@ -718,6 +822,10 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         )
     )?.breakdown;
     expect(breakdown?.['attachmentsCount']).toBe(0);
+    expect(mcpInstances).toEqual([
+      expect.objectContaining({ closeCalls: 1 }),
+      expect.objectContaining({ closeCalls: 1 }),
+    ]);
   });
 
   it('re-gates EVERY enforced ask-set tool on the resume leg — run_python included (BST-1097, 1.56+ idiom)', async () => {
@@ -1911,7 +2019,11 @@ describe('run_python approval executionContext stamping (BST-1070)', () => {
     ]);
     const iterator = await streamMastraAgent(
       [{ id: 'u1', parts: [{ text: 'run some python', type: 'text' }], role: 'user' }],
-      { requireToolApproval: true, runtime: { apiKey: 'test-key', provider: 'openai' } }
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: { id: 'sibling-storage' } as never,
+      }
     );
     const chunks: unknown[] = [];
     for await (const chunk of iterator) {
@@ -2041,5 +2153,96 @@ describe('listSuspendedMastraRuns classification (BST-1084)', () => {
 
     expect(result.approvals).toHaveLength(1);
     expect(result.suspends).toHaveLength(0);
+  });
+});
+
+describe('resume-leg sibling tool visibility', () => {
+  // Field failure (2026-08-24): Mastra resume legs never replay the suspended
+  // step's tool-call parts, and the synthetic start covered ONLY the approved
+  // call — so a sibling delegation in the same step ran for four minutes with
+  // NO card and no subagent.started, and the UI pinned the whole wait on the
+  // stale approved-tool card. Every pending call of the suspended run must get
+  // its start back; agent-* siblings also get their subagent.started so the
+  // delegation card exists and later subagent terminals have a mate.
+  it('synthesizes starts for the approved call AND its siblings, with subagent.started for delegations', async () => {
+    setSuspendedRuns([
+      {
+        runId: 'run-sibling-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-24T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { path: 'scripts/context.mjs' },
+            requiresApproval: true,
+            toolCallId: 'call-approved',
+            toolName: 'run_skill_script',
+          },
+          {
+            args: { prompt: 'survey the repo' },
+            requiresApproval: false,
+            toolCallId: 'call-sibling-delegation',
+            toolName: 'agent-explore',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'resumed answer', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 5 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-sibling-1',
+        toolCallId: 'call-approved',
+        toolName: 'run_skill_script',
+      },
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: { id: 'sibling-workflow-storage' } as never,
+      }
+    );
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const startEvents = chunks.filter(
+      (chunk) =>
+        (chunk as { type?: string; status?: string }).type === 'tool-event' &&
+        (chunk as { status?: string }).status === 'start'
+    ) as { payload?: { toolCallId?: string } }[];
+    const startIds = startEvents.map((event) => event.payload?.toolCallId);
+    expect(startIds).toContain('call-approved');
+    expect(startIds).toContain('call-sibling-delegation');
+
+    const subagentStarted = findRunEventChunks(chunks, 'subagent.started');
+    expect(subagentStarted).toHaveLength(1);
+    expect(subagentStarted[0]?.event.metadata).toMatchObject({
+      parentToolCallId: 'call-sibling-delegation',
+      personaId: 'explore',
+    });
+
+    // BST-1440: the synthetic starts now also produce DURABLE `tool.started`
+    // run events — that is what clears the Threads panel's "needs you" signal
+    // on ANSWER rather than on completion. Siblings get one too, deliberately:
+    // a call pending in the same suspended step is genuinely in flight, which
+    // is why it gets a start chunk at all.
+    //
+    // SAFE only because a leg writes at most ONE `tool.approval.requested`:
+    // the stream stops at the first `tool-call-approval` part, so a sibling's
+    // own pause row can only be written on a LATER leg than this start — and
+    // `THREADS_AWAITING_APPROVAL_SQL` requires an answer to POSTDATE its pause,
+    // so this start cannot resolve it. COUPLING, for whoever changes that: if
+    // the stream ever surfaces every pending pause on one leg, a still-gated
+    // sibling's pause would predate this start and be cleared by it — the glyph
+    // would go dark on an approval nobody answered. Emitting starts for
+    // still-gated siblings has to stop at the same time.
+    const toolStarted = findRunEventChunks(chunks, 'tool.started');
+    const startedIds = toolStarted.map((chunk) => chunk.event.metadata?.['toolCallId']);
+    expect(startedIds).toContain('call-approved');
+    expect(startedIds).toContain('call-sibling-delegation');
   });
 });

@@ -266,6 +266,11 @@ export async function toAiSdkStyleStream(
   runtime?: RuntimeData,
   optionsOverride: Pick<
     MastraAgentRuntimeOptions,
+    // authInput rides the OPTIONS (a direct parameter), never RuntimeData —
+    // see the BST-1352 threading rule on MastraAgentRuntimeOptions.authInput.
+    | 'authInput'
+    | 'mcpHost'
+    | 'mcpTaskTracking'
     | 'memory'
     | 'storage'
     | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'

@@ -12,78 +12,50 @@
  * into `electronAPI.storage`, then reload — the main process restores the root
  * and inserts the DB `roots` row the git bridge resolves against.
  */
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
+import {
+  freshNonGitDir as createFreshNonGitDir,
+  freshRepo as createFreshRepo,
+  freshRepoWithRemote as createFreshRepoWithRemote,
+  createTempDirTracker,
+  git,
+} from './utils/git-fixtures';
+import { seedRoot as seedRootWithLedgers } from './utils/seed-root';
 
-// execFile (no shell) — args pass straight to git, so temp paths with spaces or
-// metacharacters can never be re-interpreted (no command injection, no quoting).
-function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' });
-}
-
-const tempDirs: string[] = [];
-function trackDir(dir: string): string {
-  tempDirs.push(dir);
-  return dir;
-}
+const tempDirs = createTempDirTracker();
 
 function freshRepo(label: string): string {
-  const dir = trackDir(mkdtempSync(path.join(tmpdir(), `bst-git-${label}-`)));
-  git(dir, ['init', '-b', 'main']);
-  git(dir, ['config', 'user.email', 'e2e@brainstrike.invalid']);
-  git(dir, ['config', 'user.name', 'Brainstrike E2E']);
-  writeFileSync(path.join(dir, 'hello.ts'), 'export const value = 1;\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-m', 'initial commit']);
-  return dir;
+  return createFreshRepo({ label, prefix: 'bst-git-', tracker: tempDirs });
 }
 
-// A repo with a local bare `origin` so push is a real, deterministic,
-// network-free op (the bare repo is throwaway — advancing it is fine).
 function freshRepoWithRemote(label: string): string {
-  const repo = freshRepo(label);
-  const bare = trackDir(mkdtempSync(path.join(tmpdir(), `bst-git-bare-${label}-`)));
-  execFileSync('git', ['clone', '--bare', repo, bare]);
-  git(repo, ['remote', 'add', 'origin', bare]);
-  git(repo, ['fetch', 'origin']);
-  git(repo, ['branch', '--set-upstream-to=origin/main', 'main']);
-  return repo;
+  return createFreshRepoWithRemote({
+    barePrefix: 'bst-git-bare-',
+    label,
+    prefix: 'bst-git-',
+    tracker: tempDirs,
+  });
 }
 
 function freshNonGitDir(label: string): string {
-  const dir = trackDir(mkdtempSync(path.join(tmpdir(), `bst-non-git-${label}-`)));
-  writeFileSync(path.join(dir, '.keep'), '');
-  return dir;
+  return createFreshNonGitDir({
+    label,
+    prefix: 'bst-non-git-',
+    seedFile: { contents: '', name: '.keep' },
+    tracker: tempDirs,
+  });
 }
 
 const ROOT_ID = 'p4-git-panel-root-00000000-0000-4000-8000-000000000010';
 
 async function seedRoot(page: Page, rootPath: string): Promise<void> {
-  await page.evaluate(
-    async ({ rootPath: p, rootId }) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('lastFolderPath', p);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: p, rootId }])
-      );
-    },
-    { rootId: ROOT_ID, rootPath }
-  );
-  const { reloadRenderer } = await loadElectronHelpers();
-  await reloadRenderer(page, 'p4-git-seed-root');
+  await seedRootWithLedgers(page, rootPath, {
+    reloadReason: 'p4-git-seed-root',
+    rootId: ROOT_ID,
+  });
 }
 
 /**
@@ -123,9 +95,7 @@ async function openGitPanel(page: Page): Promise<void> {
 }
 
 test.afterAll(() => {
-  for (const dir of tempDirs) {
-    rmSync(dir, { force: true, recursive: true });
-  }
+  tempDirs.removeAll();
 });
 
 test.describe('Git panel (desktop)', () => {

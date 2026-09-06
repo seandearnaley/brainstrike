@@ -1,18 +1,14 @@
-import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import {
   AccessError,
   type DirectoryHandle,
   type FileHandle,
-  formatFileSize,
-  getFileSizeConfig,
   type IFileNode,
+  isDurableRootId,
 } from '@brainstrike/file-system';
-import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { RootDescriptor } from '@brainstrike/types';
-import { fileNodeCollator } from '@brainstrike/utils';
+import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import {
@@ -20,252 +16,75 @@ import {
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 import { isFileNotFoundError } from '../file-read-errors';
+import { projectReadDenialDiagnostic, projectReadDenialError } from './read-denial-diagnostic';
+import {
+  listRecentRootEntries,
+  type ManagedWorktreeAuthorizer,
+  readRecentRootsOrQuarantine,
+  recordRecentRoot,
+  recordRecentRootsIfNew,
+  resolveGrantedRootHandle,
+} from './workspace-recent-roots';
+import { WorkspaceRootMountTable } from './workspace-root-mounts';
+import {
+  buildDirectoryListing,
+  descriptorFor,
+  MAX_DIRECTORY_ENTRIES,
+} from './workspace-root-nodes';
+import { pathKey, pathsEqual } from './workspace-root-paths';
+import {
+  assertNativeAbsoluteReadPath,
+  type ResolvedWorkspaceRead,
+  readResolvedWorkspaceFile,
+  resolveReadAgainstMountedRoot,
+} from './workspace-root-read';
+import {
+  createNativeSecureRoot,
+  resolveCanonicalRootPath,
+  resolveValidatedReadPath,
+} from './workspace-root-seams';
+import {
+  clearLastFolderIfMatches,
+  readLastFolder,
+  readStoredRoots,
+  readStoredRootsOrQuarantine,
+  writeLastFolder,
+  writeLastFolderBestEffort,
+  writeStoredRoots,
+} from './workspace-root-store';
+import type {
+  MountedWorkspaceRoot,
+  SecureWorkspaceRoot,
+  StoredWorkspaceRoot,
+} from './workspace-root-types';
 
-const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
-const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
-const MAX_DIRECTORY_ENTRIES = 10_000;
-/**
- * The native secure-fs read path (SecureRoot.readFileAsync) caps a single
- * read at 16MB regardless of the configured maxFileSize. A configured value
- * above this cap would silently degrade every oversized read to
- * `status: 'unreadable'` — indistinguishable from a real access failure — so
- * readFile fails loud at the configuration boundary instead.
- */
-const NATIVE_MAX_READ_BYTES = 16 * 1024 * 1024;
-const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
+export type { SecureWorkspaceRoot, StoredWorkspaceRoot } from './workspace-root-types';
+
 const logger = createLogger('WorkspaceRootRegistry');
-
-interface SecureWorkspaceDirEntry {
-  readonly isDirectory: boolean;
-  readonly isFile: boolean;
-  readonly isSymbolicLink: boolean;
-  readonly lastModified?: number;
-  readonly name: string;
-  readonly size?: number;
-}
-
-export interface SecureWorkspaceRoot {
-  readonly canonicalPath: string;
-  close(): void;
-  listDir(
-    relativePath: string,
-    maxEntries: number
-  ): Promise<{
-    readonly entries: readonly SecureWorkspaceDirEntry[];
-    readonly inspected: number;
-    readonly truncated: boolean;
-  } | null>;
-  readFile(
-    relativePath: string,
-    maxBytes: number
-  ): Promise<
-    | { readonly content: Buffer; readonly status: 'ok' }
-    | { readonly status: 'not-found' | 'oversized' | 'unreadable' }
-  >;
-}
-
-export interface StoredWorkspaceRoot {
-  readonly addedAt: number;
-  readonly path: string;
-  readonly rootId: string;
-}
-
-interface MountedWorkspaceRoot {
-  readonly canonicalPath: string;
-  readonly presentationPath: string;
-  readonly root: SecureWorkspaceRoot;
-  readonly rootId: string;
-}
 
 interface WorkspaceRootRegistryOptions {
   readonly createSecureRoot?: (rootPath: string) => Promise<SecureWorkspaceRoot>;
   readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
   readonly evictLspServersForRoot?: (rootId: string) => Promise<void>;
   readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
+  /**
+   * Fired after a mount that IS recorded in the recents ledger
+   * (`recordInRecentRoots` true — the picker path, and a recents-ledger-
+   * matched picker-less mount). NOT fired for a managed-worktree mount
+   * (BST-1390, spec §6.2): those are deliberately excluded from Recents, and
+   * this is the SAME boolean that decision already uses, so the exclusion is
+   * structural rather than something each caller has to remember (BST-1393
+   * review finding).
+   */
+  readonly onRootGranted?: (grantedPath: string) => void;
   readonly pathExists: (rootPath: string) => Promise<boolean>;
   readonly resolveCanonicalRoot?: (rootPath: string) => Promise<string>;
   readonly resolveReadPath?: (requestedPath: string, canonicalRoot: string) => Promise<string>;
   readonly storage: ElectronStorageAdapter;
 }
 
-function isStoredWorkspaceRoot(value: unknown): value is StoredWorkspaceRoot {
-  if (!(value && typeof value === 'object')) {
-    return false;
-  }
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate['addedAt'] === 'number' &&
-    Number.isFinite(candidate['addedAt']) &&
-    typeof candidate['path'] === 'string' &&
-    candidate['path'].length > 0 &&
-    typeof candidate['rootId'] === 'string' &&
-    candidate['rootId'].length > 0
-  );
-}
-
-/**
- * Pure validation, deliberately separated from storage I/O: it throws only
- * when `raw` itself is corrupt (bad JSON, wrong shape, duplicate root IDs),
- * never for an I/O failure — callers that need to tell those two apart (see
- * readStoredRootsOrQuarantine) read the raw value once themselves and pass
- * it here, rather than letting a storage exception get relabeled as
- * "corrupt".
- */
-function parseStoredRoots(raw: string | null): StoredWorkspaceRoot[] {
-  if (raw === null) {
-    return [];
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error('The persisted workspace root registry is not valid JSON.', {
-      cause: error,
-    });
-  }
-  if (!(Array.isArray(parsed) && parsed.every(isStoredWorkspaceRoot))) {
-    throw new Error('The persisted workspace root registry has an invalid shape.');
-  }
-  const ids = new Set(parsed.map((entry) => entry.rootId));
-  if (ids.size !== parsed.length) {
-    throw new Error('The persisted workspace root registry contains duplicate root IDs.');
-  }
-  return parsed;
-}
-
-function isContained(rootPath: string, candidatePath: string): boolean {
-  const relative = path.relative(rootPath, candidatePath);
-  return (
-    relative === '' ||
-    !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-  );
-}
-
-function pathsEqual(left: string, right: string): boolean {
-  const normalizedLeft = path.normalize(left);
-  const normalizedRight = path.normalize(right);
-  return process.platform === 'win32'
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
-}
-
-function pathKey(value: string): string {
-  const normalized = path.normalize(value);
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-}
-
-function resolveLexicalRelativePath(mounted: MountedWorkspaceRoot, requestedPath: string): string {
-  if (path.isAbsolute(requestedPath)) {
-    const normalized = path.normalize(requestedPath);
-    if (isContained(mounted.presentationPath, normalized)) {
-      return path.relative(mounted.presentationPath, normalized);
-    }
-    if (isContained(mounted.canonicalPath, normalized)) {
-      return path.relative(mounted.canonicalPath, normalized);
-    }
-  } else {
-    const lexicalTarget = path.resolve(mounted.canonicalPath, requestedPath);
-    if (isContained(mounted.canonicalPath, lexicalTarget)) {
-      return path.relative(mounted.canonicalPath, lexicalTarget);
-    }
-  }
-  throw new AccessError('Path is outside the selected workspace root.', requestedPath, 'read');
-}
-
-function descriptorFor(
-  entry: StoredWorkspaceRoot,
-  permissionState: 'granted' | 'unknown',
-  persisted = true
-): RootDescriptor {
-  const displayName = path.basename(entry.path) || entry.path;
-  return {
-    displayName,
-    handle: {
-      kind: 'directory',
-      name: displayName,
-      path: entry.path,
-      platform: 'electron',
-      rootId: entry.rootId,
-    },
-    kind: 'path',
-    permissionState,
-    persisted,
-    rootId: entry.rootId,
-  };
-}
-
-function buildDirectoryNode(
-  mounted: MountedWorkspaceRoot,
-  parentPath: string,
-  entry: SecureWorkspaceDirEntry
-): IFileNode {
-  const entryPath = path.join(parentPath, entry.name);
-  const isDirectory = entry.isDirectory && !entry.isSymbolicLink;
-  if (isDirectory) {
-    return {
-      children: [],
-      depth: 0,
-      handle: {
-        kind: 'directory',
-        name: entry.name,
-        path: entryPath,
-        platform: 'electron',
-        rootId: mounted.rootId,
-      } as unknown as FileSystemDirectoryHandle,
-      ...(entry.isSymbolicLink ? { isSymbolicLink: true } : {}),
-      isVisible: true,
-      name: entry.name,
-      path: entryPath,
-      rootFolderId: mounted.rootId,
-      selectionState: 'unchecked',
-      type: 'directory',
-    };
-  }
-  return {
-    depth: 0,
-    handle: {
-      kind: 'file',
-      name: entry.name,
-      path: entryPath,
-      platform: 'electron',
-      rootId: mounted.rootId,
-    } as unknown as FileSystemFileHandle,
-    ...(entry.isSymbolicLink ? { isSymbolicLink: true } : {}),
-    isVisible: true,
-    ...(entry.lastModified === undefined ? {} : { lastModified: entry.lastModified }),
-    name: entry.name,
-    path: entryPath,
-    rootFolderId: mounted.rootId,
-    selectionState: 'unchecked',
-    ...(entry.size === undefined ? {} : { size: entry.size }),
-    type: 'file',
-  };
-}
-
-const TRUNCATION_NODE_BASENAME = '…truncated…' as const;
-
-function buildTruncationNode(
-  mounted: MountedWorkspaceRoot,
-  parentPath: string,
-  inspected: number
-): IFileNode {
-  const entryPath = path.join(parentPath, TRUNCATION_NODE_BASENAME);
-  return {
-    depth: 0,
-    handle: {
-      kind: 'file',
-      name: TRUNCATION_NODE_BASENAME,
-      path: entryPath,
-      platform: 'electron',
-      rootId: mounted.rootId,
-    } as unknown as FileSystemFileHandle,
-    isVisible: true,
-    name: `Showing first ${inspected.toLocaleString('en-US')} entries`,
-    path: entryPath,
-    rootFolderId: mounted.rootId,
-    selectionState: 'unchecked',
-    type: 'truncated',
-  };
+interface AddRootOptions {
+  readonly recordInRecentRoots?: boolean;
 }
 
 export class WorkspaceRootRegistry {
@@ -274,61 +93,35 @@ export class WorkspaceRootRegistry {
   private readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
   private readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
   private readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
-  private readonly mounted = new Map<string, MountedWorkspaceRoot>();
+  private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
+  private readonly mounts = new WorkspaceRootMountTable();
   private mutationTail: Promise<void> = Promise.resolve();
+  private readonly onRootGranted: ((grantedPath: string) => void) | undefined;
   private readonly pathExists: (rootPath: string) => Promise<boolean>;
   private readonly resolveCanonicalRoot: (rootPath: string) => Promise<string>;
   private readonly resolveReadPath: (
     requestedPath: string,
     canonicalRoot: string
   ) => Promise<string>;
-  private readonly sessionRootIds = new Set<string>();
   private readonly storage: ElectronStorageAdapter;
 
   constructor(options: WorkspaceRootRegistryOptions) {
-    this.createSecureRoot =
-      options.createSecureRoot ??
-      (async (rootPath): Promise<SecureWorkspaceRoot> => {
-        const { SecureRoot } = await import('@brainstrike/secure-fs-native');
-        const root = new SecureRoot(rootPath);
-        return {
-          canonicalPath: root.canonicalPath,
-          close: () => root.close(),
-          listDir: (relativePath, maxEntries) => root.listDirAsync(relativePath, maxEntries),
-          readFile: (relativePath, maxBytes) => root.readFileAsync(relativePath, maxBytes),
-        };
-      });
+    this.createSecureRoot = options.createSecureRoot ?? createNativeSecureRoot;
     this.disposeCommandSessionsForRoot =
       options.disposeCommandSessionsForRoot ?? disposeDesktopCommandSessionsForRoot;
     this.evictLspServersForRoot = options.evictLspServersForRoot ?? evictLspServersForRoot;
     this.getRootsDatabase = options.getRootsDatabase;
+    this.onRootGranted = options.onRootGranted;
     this.pathExists = options.pathExists;
-    this.resolveCanonicalRoot =
-      options.resolveCanonicalRoot ??
-      (async (rootPath) => path.normalize(await realpath(rootPath)));
-    this.resolveReadPath =
-      options.resolveReadPath ??
-      (async (requestedPath, canonicalRoot) => {
-        const result = await resolveValidatedPath({
-          allowMissing: false,
-          blockSensitiveDirectories: true,
-          maxTraversal: 0,
-          requestedPath,
-          rootDir: canonicalRoot,
-        });
-        if (!result.ok) {
-          throw new AccessError(
-            `Path validation failed: ${result.error.message}`,
-            requestedPath,
-            'read'
-          );
-        }
-        return path.normalize(result.path);
-      });
+    this.resolveCanonicalRoot = options.resolveCanonicalRoot ?? resolveCanonicalRootPath;
+    this.resolveReadPath = options.resolveReadPath ?? resolveValidatedReadPath;
     this.storage = options.storage;
   }
 
-  addRoot(handle: DirectoryHandle): Promise<RootDescriptor> {
+  addRoot(
+    handle: DirectoryHandle,
+    { recordInRecentRoots = true }: AddRootOptions = {}
+  ): Promise<RootDescriptor> {
     return this.serializeMutation(async () => {
       const presentationPath = path.normalize(handle.path);
       // Sequential, not Promise.all: addRoot already runs inside
@@ -337,8 +130,32 @@ export class WorkspaceRootRegistry {
       // instant it exists — a rejected readStoredRootsOrQuarantine() (a raw
       // storage I/O failure; corruption is quarantined rather than thrown)
       // can no longer leak an already-opened probe capability.
-      const entries = await this.readStoredRootsOrQuarantine();
-      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store read has succeeded, so the try/finally owns it from the instant it exists.
+      const entries = await readStoredRootsOrQuarantine(this.storage);
+      // Hoisted above the mount+persist mutation below (BST-1400 item 4): a
+      // recentRootsList I/O failure must surface BEFORE anything is mounted
+      // or persisted, not after — mirroring the rootsList read above. Before
+      // this, `recordRecentRoot`'s own internal read ran AFTER
+      // reconcileAddMount/persistAddedRoot had already succeeded, so a
+      // broken ledger left addRoot() rejecting while the root was, in fact,
+      // already mounted and persisted (state divergence). Positioned before
+      // the mutation regardless; gated on `recordInRecentRoots` because that
+      // flag is the only thing that can consume it (PR #2685 review: the
+      // read itself IS conditional on this flag — only its POSITION, above
+      // the mutation, is unconditional).
+      //
+      // The invariant throw below (`recentRootEntries === null`) sits AFTER
+      // reconcileAddMount/persistAddedRoot, so tripping it would reintroduce
+      // exactly the mount-succeeded-but-addRoot-rejected divergence this
+      // hoist exists to remove. Acceptable for a genuinely unreachable
+      // invariant (see that throw's own comment) — reading unconditionally
+      // instead (dropping this ternary and the `null` case entirely) would
+      // make the correlation a type-level fact rather than a runtime
+      // assertion, at the cost of one extra storage read on the
+      // managed-worktree path.
+      const recentRootEntries = recordInRecentRoots
+        ? await readRecentRootsOrQuarantine(this.storage)
+        : null;
+      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store reads above have succeeded, so the try/finally owns it from the instant it exists.
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
@@ -347,9 +164,7 @@ export class WorkspaceRootRegistry {
         // descriptor for a registry that's already torn down.
         this.assertActive();
         const canonicalPath = path.normalize(probe.canonicalPath);
-        const mountedMatch = [...this.mounted.values()].find((candidate) =>
-          pathsEqual(candidate.canonicalPath, canonicalPath)
-        );
+        const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
         const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
 
         const rootId = existing?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID();
@@ -359,8 +174,8 @@ export class WorkspaceRootRegistry {
           rootId,
         };
 
-        // reconcileAddMount always hands `probe` off to installMount, which
-        // unconditionally disposes of it (adopts it or closes it as
+        // reconcileAddMount always hands `probe` off to the mount table,
+        // which unconditionally disposes of it (adopts it or closes it as
         // redundant) — so once this resolves, the probe has been handled
         // exactly once and the finally below must not touch it again.
         await this.reconcileAddMount(entry, mountedMatch, probe);
@@ -368,11 +183,35 @@ export class WorkspaceRootRegistry {
 
         const persisted = await this.persistAddedRoot(entries, existing, entry);
         if (persisted) {
-          await this.storage
-            .setItem(LAST_FOLDER_STORAGE_KEY, entry.path)
-            .catch((error: unknown) => {
-              logger.warn('Failed to update the last-folder presentation preference', { error });
-            });
+          await writeLastFolderBestEffort(this.storage, entry.path);
+        }
+        if (recordInRecentRoots) {
+          // recentRootEntries is populated whenever recordInRecentRoots is
+          // true (see the read above) — TypeScript just can't narrow that
+          // correlation across the two separate checks. NO SILENT
+          // FALLBACKS (review fold-in, BST-1400 item 4): a `?? []` here
+          // would read as "the ledger is empty" and recordRecentRoot writes
+          // `[newEntry, ...existing]` unconditionally, so if these two
+          // conditions ever drifted, the fallback would silently overwrite
+          // the user's entire recents ledger with a single entry. An
+          // invariant violation must fail loud, the same as any other
+          // ledger problem this function already surfaces before mutating.
+          if (recentRootEntries === null) {
+            throw new Error(
+              'Invariant violated: recentRootEntries must be populated when recordInRecentRoots is true.'
+            );
+          }
+          // The grant happened whether or not rootsList persistence succeeded,
+          // so the ledger records it either way. Passes the entries read
+          // above rather than letting recordRecentRoot re-read them — the
+          // hoist's whole point is that this write can no longer fail on an
+          // I/O problem the read above would already have surfaced.
+          await recordRecentRoot(this.storage, entry.path, undefined, recentRootEntries);
+          // Same gate as the ledger write above (BST-1393 review finding): a
+          // managed-worktree mount passes recordInRecentRoots: false and must
+          // not reach the OS recent-documents list either — the registry
+          // already decided it doesn't belong in Recents.
+          this.onRootGranted?.(entry.path);
         }
         return descriptorFor(entry, 'granted', persisted);
       } finally {
@@ -387,22 +226,50 @@ export class WorkspaceRootRegistry {
     });
   }
 
+  /**
+   * Picker-less re-mount. TWO authorizations, both main-side: the recent-roots
+   * ledger (a folder the user already granted) and the managed-worktree
+   * authorizer (a directory this app created — spec §6.2). NOT wrapped in
+   * serializeMutation — it delegates to addRoot, which serializes.
+   */
+  async addRootByPath(requestedPath: string): Promise<RootDescriptor> {
+    const granted = await resolveGrantedRootHandle(
+      this.storage,
+      requestedPath,
+      this.managedWorktreeAuthorizer ?? undefined
+    );
+    const descriptor = await this.addRoot(granted.handle, {
+      recordInRecentRoots: granted.grantSource === 'recents',
+    });
+    if (granted.grantSource === 'managed-worktree') {
+      logger.info('Mounted managed worktree without picker', {
+        path: granted.handle.path,
+        rootId: descriptor.rootId,
+      });
+    }
+    return descriptor;
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
     }
     this.disposed = true;
     void this.mutationTail.finally(() => {
-      for (const mounted of this.mounted.values()) {
-        this.closeMountedRoot(mounted);
-      }
-      this.mounted.clear();
-      this.sessionRootIds.clear();
+      this.mounts.closeAll();
     });
   }
 
+  /** Newest-first ledger of previously granted folders. */
+  listRecentRoots(): Promise<readonly RecentRootEntry[]> {
+    return this.serializeMutation(() => listRecentRootEntries(this.storage));
+  }
+
   readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
-    return this.withReadDenialLogging('readDirectory', handle.path, handle.rootId, () =>
+    const diagnosticPath = projectReadDenialDiagnostic(handle.path);
+    const diagnosticRootId =
+      handle.rootId === undefined ? undefined : projectReadDenialDiagnostic(handle.rootId);
+    return this.withReadDenialLogging('readDirectory', diagnosticPath, diagnosticRootId, () =>
       this.readDirectoryUnlogged(handle)
     );
   }
@@ -418,27 +285,68 @@ export class WorkspaceRootRegistry {
     if (!listing) {
       throw new AccessError('Directory is not accessible.', handle.path, 'read');
     }
-    const nodes = listing.entries
-      .map((entry) => buildDirectoryNode(resolved.mounted, handle.path, entry))
-      .sort((left, right) => {
-        if (left.type !== right.type) {
-          return left.type === 'directory' ? -1 : 1;
-        }
-        return fileNodeCollator.compare(left.name, right.name);
-      });
-    if (listing.truncated) {
-      // Partial result, surfaced: the native bound held, the caller sees it.
-      nodes.push(buildTruncationNode(resolved.mounted, handle.path, listing.inspected));
-    }
-    return nodes;
+    return buildDirectoryListing(resolved.mounted, handle.path, listing);
   }
 
   readFile(request: FileHandle | string): Promise<string> {
     const requestedPath = typeof request === 'string' ? request : request.path;
     const rootId = typeof request === 'string' ? undefined : request.rootId;
-    return this.withReadDenialLogging('readFile', requestedPath, rootId, () =>
+    const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
+    const diagnosticRootId = rootId === undefined ? undefined : projectReadDenialDiagnostic(rootId);
+    return this.withReadDenialLogging('readFile', diagnosticPath, diagnosticRootId, () =>
       this.readFileUnlogged(requestedPath, rootId)
     );
+  }
+
+  readFileByAbsolutePath(
+    requestedPath: unknown,
+    claimedRootPath: unknown,
+    claimedRootId: unknown
+  ): Promise<string> {
+    const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
+    return this.withReadDenialLogging('readFileByAbsolutePath', diagnosticPath, undefined, () => {
+      assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
+      assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
+      if (!isDurableRootId(claimedRootId)) {
+        throw new AccessError(
+          'Claimed workspace root identity must be a durable rootId.',
+          diagnosticPath,
+          'read'
+        );
+      }
+      return this.readFileByAbsolutePathUnlogged(requestedPath, claimedRootPath, claimedRootId);
+    });
+  }
+
+  private async readFileByAbsolutePathUnlogged(
+    requestedPath: string,
+    claimedRootPath: string,
+    claimedRootId: string
+  ): Promise<string> {
+    await this.mutationTail;
+    this.assertActive();
+    const mounted = this.mounts.get(claimedRootId);
+    if (!mounted) {
+      throw new AccessError('Claimed workspace rootId is not mounted.', requestedPath, 'read');
+    }
+    if (
+      !(
+        pathsEqual(mounted.presentationPath, claimedRootPath) ||
+        pathsEqual(mounted.canonicalPath, claimedRootPath)
+      )
+    ) {
+      throw new AccessError(
+        'Claimed workspace root path does not match the mounted workspace rootId.',
+        requestedPath,
+        'read'
+      );
+    }
+    const resolved = await resolveReadAgainstMountedRoot(
+      requestedPath,
+      mounted,
+      this.resolveReadPath
+    );
+    return readResolvedWorkspaceFile(requestedPath, resolved);
   }
 
   private async readFileUnlogged(
@@ -448,49 +356,20 @@ export class WorkspaceRootRegistry {
     await this.mutationTail;
     this.assertActive();
     const resolved = await this.resolveRead(requestedPath, rootId);
-    const { maxFileSize } = getFileSizeConfig();
-    if (maxFileSize > NATIVE_MAX_READ_BYTES) {
-      throw new AccessError(
-        `Configured maxFileSize (${formatFileSize(maxFileSize)}) exceeds the native secure-read cap (${formatFileSize(NATIVE_MAX_READ_BYTES)}).`,
-        requestedPath,
-        'read'
-      );
-    }
-    const result = await resolved.mounted.root.readFile(resolved.relativePath, maxFileSize);
-    if (result.status === 'ok') {
-      return result.content.toString('utf8');
-    }
-    if (result.status === 'oversized') {
-      throw new AccessError(
-        `File too large (max: ${formatFileSize(maxFileSize)})`,
-        requestedPath,
-        'read'
-      );
-    }
-    if (result.status === 'not-found') {
-      throw new AccessError('ENOENT: File not found', requestedPath, 'read');
-    }
-    if (resolved.traversedSymlink) {
-      throw new AccessError(
-        'File is a symbolic link. Links are not followed inside workspace roots.',
-        requestedPath,
-        'read'
-      );
-    }
-    throw new AccessError('File is not accessible.', requestedPath, 'read');
+    return readResolvedWorkspaceFile(requestedPath, resolved);
   }
 
   removeRoot(rootId: string): Promise<void> {
     return this.serializeMutation(async () => {
-      const entries = await this.readStoredRootsOrQuarantine();
+      const entries = await readStoredRootsOrQuarantine(this.storage);
       const removed = entries.find((entry) => entry.rootId === rootId);
       if (!removed) {
-        // Unconditional, not sessionRootIds-gated: a quarantined read
-        // returns an empty entries list even for a persisted (non-session)
-        // root, so this branch must retire any live mount for rootId
-        // regardless of session/persisted status — retireMount is already a
-        // no-op for an id that isn't mounted. convergeDatabase then demotes
-        // the now-unmounted path in the DB and evicts DB-id-keyed resources,
+        // Unconditional, not session-gated: a quarantined read returns an
+        // empty entries list even for a persisted (non-session) root, so
+        // this branch must retire any live mount for rootId regardless of
+        // session/persisted status — retireMount is already a no-op for an
+        // id that isn't mounted. convergeDatabase then demotes the
+        // now-unmounted path in the DB and evicts DB-id-keyed resources,
         // since retireMount alone cleans up only under the adapter rootId.
         await this.retireMount(rootId);
         await this.convergeDatabase();
@@ -498,20 +377,17 @@ export class WorkspaceRootRegistry {
       }
 
       const remaining = entries.filter((entry) => entry.rootId !== rootId);
-      await this.writeStoredRoots(remaining);
+      await writeStoredRoots(this.storage, remaining);
       let disconnected: readonly { id: string; path: string }[];
       try {
         const db = await this.getRootsDatabase();
-        const mountedPaths: string[] = [];
-        for (const mounted of this.mounted.values()) {
-          if (mounted.rootId !== rootId && !this.sessionRootIds.has(mounted.rootId)) {
-            mountedPaths.push(mounted.presentationPath);
-          }
-        }
-        disconnected = await markRootsDisconnectedExcept(db, mountedPaths);
+        disconnected = await markRootsDisconnectedExcept(
+          db,
+          this.mounts.persistedMountedPaths(rootId)
+        );
       } catch (error) {
         try {
-          await this.writeStoredRoots(entries);
+          await writeStoredRoots(this.storage, entries);
         } catch (rollbackError) {
           throw new AggregateError(
             [error, rollbackError],
@@ -521,21 +397,19 @@ export class WorkspaceRootRegistry {
         throw error;
       }
 
-      this.unmount(rootId);
+      this.mounts.unmount(rootId);
       await this.cleanupRootResources(disconnected.map((row) => row.id));
-      await this.clearLastFolderIfRemoved(removed);
+      await clearLastFolderIfMatches(this.storage, removed.path);
     });
   }
 
   restoreLastFolder(): Promise<DirectoryHandle | null> {
     return this.serializeMutation(async () => {
-      const lastFolder = await this.storage.getItem(LAST_FOLDER_STORAGE_KEY);
+      const lastFolder = await readLastFolder(this.storage);
       if (!lastFolder) {
         return null;
       }
-      const mounted = [...this.mounted.values()].find((candidate) =>
-        pathsEqual(candidate.presentationPath, lastFolder)
-      );
+      const mounted = this.mounts.findByPresentationPath(lastFolder);
       if (!mounted) {
         return null;
       }
@@ -552,11 +426,12 @@ export class WorkspaceRootRegistry {
 
   restoreRoots(): Promise<RootDescriptor[]> {
     return this.serializeMutation(async () => {
-      const entries = await this.readStoredRoots();
+      const entries = await readStoredRoots(this.storage);
       const descriptors: RootDescriptor[] = [];
-      const retainedRootIds = new Set(this.sessionRootIds);
+      const retainedRootIds = this.mounts.sessionMountIds();
       const retainedCanonicalPaths = new Set<string>();
       const storedSurvivors: StoredWorkspaceRoot[] = [];
+      const recentRootCandidates: StoredWorkspaceRoot[] = [];
 
       for (const entry of entries) {
         // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
@@ -571,7 +446,7 @@ export class WorkspaceRootRegistry {
           logger.warn('Discarding a duplicate persisted alias for the same workspace root', {
             rootId: entry.rootId,
           });
-          this.unmount(entry.rootId);
+          this.mounts.unmount(entry.rootId);
           continue;
         }
         // A session mint of the same canonical path is superseded by the
@@ -580,35 +455,73 @@ export class WorkspaceRootRegistry {
         retainedCanonicalPaths.add(pathKey(canonicalPath));
         retainedRootIds.add(entry.rootId);
         storedSurvivors.push(entry);
+        recentRootCandidates.push(entry);
         descriptors.push(descriptorFor(entry, 'granted'));
       }
 
-      for (const rootId of [...this.mounted.keys()]) {
-        if (!retainedRootIds.has(rootId)) {
-          this.unmount(rootId);
+      for (const mountedRootId of this.mounts.ids()) {
+        if (!retainedRootIds.has(mountedRootId)) {
+          this.mounts.unmount(mountedRootId);
         }
       }
       if (storedSurvivors.length !== entries.length) {
-        await this.writeStoredRoots(storedSurvivors);
+        await writeStoredRoots(this.storage, storedSurvivors);
       }
+      const kindByRootId = await this.loadPersistedRootKinds(recentRootCandidates);
+      // BST-1400 item 4: one shared read + at most one shared write for the
+      // whole restored batch, instead of up to two ledger reads PER restored
+      // root (recordRecentRootIfNew's own read plus recordRecentRoot's).
+      const newRecentCandidates = recentRootCandidates.flatMap((entry) =>
+        kindByRootId.get(entry.rootId) === 'worktree'
+          ? []
+          : [{ lastGrantedAt: entry.addedAt, path: entry.path }]
+      );
+      await recordRecentRootsIfNew(this.storage, newRecentCandidates);
       await this.convergeDatabase();
       return descriptors;
     });
   }
 
+  private async loadPersistedRootKinds(
+    entries: readonly StoredWorkspaceRoot[]
+  ): Promise<ReadonlyMap<string, string | null>> {
+    const kindByRootId = new Map<string, string | null>();
+    if (entries.length === 0) {
+      return kindByRootId;
+    }
+    try {
+      const db = await this.getRootsDatabase();
+      const kindRows = await db.query<{ id: string; kind: string | null }>(
+        'SELECT id, kind FROM roots WHERE id = ANY($1::text[])',
+        [entries.map((entry) => entry.rootId)]
+      );
+      for (const row of kindRows.rows) {
+        kindByRootId.set(row.id, row.kind);
+      }
+    } catch (error) {
+      logger.warn('Could not read persisted workspace root kinds; restoring Recents as before', {
+        error,
+      });
+    }
+    return kindByRootId;
+  }
+
   setLastFolder(folderPath: string): Promise<void> {
     return this.serializeMutation(async () => {
-      const normalized = path.normalize(folderPath);
-      const mounted = [...this.mounted.values()].find(
-        (candidate) =>
-          pathsEqual(candidate.presentationPath, normalized) ||
-          pathsEqual(candidate.canonicalPath, normalized)
-      );
-      if (!(mounted && !this.sessionRootIds.has(mounted.rootId))) {
+      const mounted = this.mounts.findByEitherPath(path.normalize(folderPath));
+      if (!(mounted && !this.mounts.isSessionMount(mounted.rootId))) {
         throw new Error('The last-folder preference must reference a persisted mounted root.');
       }
-      await this.storage.setItem(LAST_FOLDER_STORAGE_KEY, mounted.presentationPath);
+      await writeLastFolder(this.storage, mounted.presentationPath);
     });
+  }
+
+  /**
+   * Install the managed-worktree gate (spec §6.2). `null` removes it, which
+   * returns `addRootByPath` to recents-only.
+   */
+  setManagedWorktreeAuthorizer(authorizer: ManagedWorktreeAuthorizer | null): void {
+    this.managedWorktreeAuthorizer = authorizer;
   }
 
   private async cleanupRootResources(rootIds: readonly string[]): Promise<void> {
@@ -627,12 +540,7 @@ export class WorkspaceRootRegistry {
   }
 
   private async convergeDatabase(): Promise<void> {
-    const mountedPaths: string[] = [];
-    for (const mounted of this.mounted.values()) {
-      if (!this.sessionRootIds.has(mounted.rootId)) {
-        mountedPaths.push(mounted.presentationPath);
-      }
-    }
+    const mountedPaths = this.mounts.persistedMountedPaths();
     try {
       const db = await this.getRootsDatabase();
       const disconnected = await markRootsDisconnectedExcept(db, mountedPaths);
@@ -657,7 +565,7 @@ export class WorkspaceRootRegistry {
       }
     }
     for (const candidate of entries) {
-      if (this.mounted.has(candidate.rootId)) {
+      if (this.mounts.has(candidate.rootId)) {
         continue;
       }
       try {
@@ -681,14 +589,14 @@ export class WorkspaceRootRegistry {
    * (removeRoot, convergeDatabase) already performs.
    */
   private async retireMount(rootId: string): Promise<void> {
-    this.sessionRootIds.delete(rootId);
-    this.unmount(rootId);
+    this.mounts.clearSessionMount(rootId);
+    this.mounts.unmount(rootId);
     await this.cleanupRootResources([rootId]);
   }
 
   /**
    * Reconciles the newly-opened probe capability against any existing mount
-   * for this root's canonical path, then hands it to installMount, which
+   * for this root's canonical path, then hands it to the mount table, which
    * unconditionally disposes of it — either adopting it as the live
    * capability or closing it as redundant against an identical incumbent.
    * Callers must not close `probe` again after this resolves.
@@ -705,7 +613,7 @@ export class WorkspaceRootRegistry {
       // retirement path performs.
       await this.retireMount(mountedMatch.rootId);
     }
-    this.installMount(entry, probe);
+    this.mounts.install(entry, probe);
   }
 
   private async persistAddedRoot(
@@ -717,8 +625,8 @@ export class WorkspaceRootRegistry {
       ? entries.map((candidate) => (candidate.rootId === existing.rootId ? entry : candidate))
       : [...entries, entry];
     try {
-      await this.writeStoredRoots(nextEntries);
-      this.sessionRootIds.delete(entry.rootId);
+      await writeStoredRoots(this.storage, nextEntries);
+      this.mounts.clearSessionMount(entry.rootId);
       return true;
     } catch (error) {
       if (existing) {
@@ -728,51 +636,13 @@ export class WorkspaceRootRegistry {
         });
         return true;
       }
-      this.sessionRootIds.add(entry.rootId);
+      this.mounts.markSessionMount(entry.rootId);
       logger.warn('Workspace root is mounted for this session but could not be persisted', {
         error,
         rootId: entry.rootId,
       });
       return false;
     }
-  }
-
-  private installMount(entry: StoredWorkspaceRoot, secureRoot: SecureWorkspaceRoot): string {
-    const canonicalPath = path.normalize(secureRoot.canonicalPath);
-    const presentationPath = path.normalize(entry.path);
-    const current = this.mounted.get(entry.rootId);
-    if (
-      current &&
-      pathsEqual(current.canonicalPath, canonicalPath) &&
-      pathsEqual(current.presentationPath, presentationPath)
-    ) {
-      // Post-open incumbent check (not the deleted pre-claim check —
-      // identity still comes from the opened probe's own canonicalPath):
-      // the incumbent capability already serves this exact identity, so
-      // keep it live — its open readers/handles stay valid — and discard
-      // the redundant, freshly-opened probe instead of severing them.
-      // Guarded on object identity: if the caller handed us the SAME
-      // capability object as the incumbent, it is not redundant — closing
-      // it would sever the live mount.
-      if (secureRoot !== current.root) {
-        try {
-          secureRoot.close();
-        } catch (error) {
-          logger.warn('Failed to close a redundant workspace root capability', { error });
-        }
-      }
-      return canonicalPath;
-    }
-    this.mounted.set(entry.rootId, {
-      canonicalPath,
-      presentationPath,
-      root: secureRoot,
-      rootId: entry.rootId,
-    });
-    if (current && current.root !== secureRoot) {
-      this.closeMountedRoot(current);
-    }
-    return canonicalPath;
   }
 
   private async mount(entry: StoredWorkspaceRoot): Promise<string> {
@@ -788,7 +658,7 @@ export class WorkspaceRootRegistry {
       }
       this.assertActive();
     }
-    return this.installMount(entry, secureRoot);
+    return this.mounts.install(entry, secureRoot);
   }
 
   private async tryMountStoredEntry(
@@ -817,72 +687,16 @@ export class WorkspaceRootRegistry {
     canonicalPath: string,
     retainedRootIds: Set<string>
   ): Promise<void> {
-    for (const candidate of [...this.mounted.values()]) {
+    for (const candidate of this.mounts.snapshot()) {
       if (
         candidate.rootId !== entry.rootId &&
-        this.sessionRootIds.has(candidate.rootId) &&
+        this.mounts.isSessionMount(candidate.rootId) &&
         pathsEqual(candidate.canonicalPath, canonicalPath)
       ) {
         retainedRootIds.delete(candidate.rootId);
         // eslint-disable-next-line react-doctor/async-await-in-loop -- retirement is intentionally serial: capability close must precede resource cleanup, and the mounted map is mutated while iterating a snapshot.
         await this.retireMount(candidate.rootId);
       }
-    }
-  }
-
-  private async clearLastFolderIfRemoved(removed: StoredWorkspaceRoot): Promise<void> {
-    try {
-      const lastFolder = await this.storage.getItem(LAST_FOLDER_STORAGE_KEY);
-      if (lastFolder && pathsEqual(lastFolder, removed.path)) {
-        await this.storage.removeItem(LAST_FOLDER_STORAGE_KEY);
-      }
-    } catch (error) {
-      logger.warn('Failed to clear the last-folder presentation preference', { error });
-    }
-  }
-
-  private closeMountedRoot(mounted: MountedWorkspaceRoot): void {
-    try {
-      mounted.root.close();
-    } catch (error) {
-      logger.warn('Failed to close a workspace root capability', {
-        error,
-        rootId: mounted.rootId,
-      });
-    }
-  }
-
-  private async readStoredRoots(): Promise<StoredWorkspaceRoot[]> {
-    return parseStoredRoots(await this.storage.getItem(ROOTS_LIST_STORAGE_KEY));
-  }
-
-  /**
-   * Mutation-path reader: a corrupt store must not brick add/remove, but it is
-   * never coerced — the raw value is preserved for diagnosis and the failure
-   * is logged at error level. Convergence paths (restoreRoots) intentionally
-   * keep the throwing readStoredRoots: an unknown mount set is never an
-   * authoritative zero.
-   *
-   * The raw value is read exactly once. An I/O failure from that single read
-   * propagates uncaught (fail loud) rather than being mistaken for
-   * corruption; only a validation failure from parseStoredRoots — thrown on
-   * that same already-read `raw` — triggers quarantine, and the bytes
-   * quarantined are provably the exact bytes that failed to parse.
-   */
-  private async readStoredRootsOrQuarantine(): Promise<StoredWorkspaceRoot[]> {
-    const raw = await this.storage.getItem(ROOTS_LIST_STORAGE_KEY);
-    try {
-      return parseStoredRoots(raw);
-    } catch (error) {
-      if (raw !== null) {
-        await this.storage.setItem(CORRUPT_ROOTS_LIST_STORAGE_KEY, raw);
-        await this.storage.removeItem(ROOTS_LIST_STORAGE_KEY);
-      }
-      logger.error('Quarantined a corrupt workspace root registry value', {
-        error,
-        quarantineKey: CORRUPT_ROOTS_LIST_STORAGE_KEY,
-      });
-      return [];
     }
   }
 
@@ -896,7 +710,7 @@ export class WorkspaceRootRegistry {
    * handles) stay quiet: the IPC layer converts those to a normal payload.
    */
   private async withReadDenialLogging<T>(
-    operation: 'readDirectory' | 'readFile',
+    operation: 'readDirectory' | 'readFile' | 'readFileByAbsolutePath',
     requestedPath: string,
     rootId: string | undefined,
     run: () => Promise<T>
@@ -905,8 +719,9 @@ export class WorkspaceRootRegistry {
       return await run();
     } catch (error) {
       if (error instanceof AccessError && !isFileNotFoundError(error)) {
+        const diagnosticError = projectReadDenialError(error);
         logger.warn('Workspace read denied', {
-          message: error.message,
+          ...diagnosticError,
           operation,
           requestedPath,
           rootId: rootId ?? null,
@@ -919,11 +734,7 @@ export class WorkspaceRootRegistry {
   private async resolveRead(
     requestedPath: string,
     rootId?: string
-  ): Promise<{
-    mounted: MountedWorkspaceRoot;
-    relativePath: string;
-    traversedSymlink: boolean;
-  }> {
+  ): Promise<ResolvedWorkspaceRead> {
     if (requestedPath.includes('\0')) {
       throw new AccessError('Requested path contains null bytes.', requestedPath, 'read');
     }
@@ -934,7 +745,7 @@ export class WorkspaceRootRegistry {
         'read'
       );
     }
-    const mounted = this.resolveMountedRoot(requestedPath, rootId);
+    const mounted = this.mounts.resolveForRead(requestedPath, rootId);
     if (!mounted) {
       throw new AccessError(
         rootId ? 'Workspace root is not mounted.' : 'Path is outside every mounted workspace root.',
@@ -942,72 +753,7 @@ export class WorkspaceRootRegistry {
         'read'
       );
     }
-    const lexicalRelativePath = resolveLexicalRelativePath(mounted, requestedPath);
-
-    // Realpath is an authorization preflight only. The native operation keeps
-    // the lexical relative path so an in-root symlink cannot be rewritten to
-    // its target and accidentally become readable.
-    const canonicalTarget = await this.resolveReadPath(requestedPath, mounted.canonicalPath);
-    if (!isContained(mounted.canonicalPath, canonicalTarget)) {
-      throw new AccessError('Path is outside the selected workspace root.', requestedPath, 'read');
-    }
-    // A symlink was traversed or is the leaf itself when the realpath
-    // preflight resolved somewhere other than the purely lexical target —
-    // the native read below never follows it (see comment above), so this
-    // is reported to the caller as a precise, non-generic error instead.
-    const lexicalAbsoluteTarget = path.normalize(
-      path.join(mounted.canonicalPath, lexicalRelativePath)
-    );
-    const traversedSymlink = !pathsEqual(lexicalAbsoluteTarget, canonicalTarget);
-    return {
-      mounted,
-      relativePath: lexicalRelativePath || '.',
-      traversedSymlink,
-    };
-  }
-
-  /**
-   * Resolves the mounted root for a read, given an optional caller-supplied
-   * rootId. A stale/wrong rootId (e.g. held across a remount) still resolves
-   * when `requestedPath` is itself absolute: it falls back to the same
-   * path-anchored lookup the no-rootId path already uses
-   * (findMountedRootForAbsolutePath). This is NOT a security downgrade — the
-   * fallback still goes through the identical containment check and realpath
-   * preflight below; only the requested rootId's authority is treated as
-   * fungible with "an absolute path that resolves into some mounted root",
-   * never a relaxation of what paths are readable. A relative path with an
-   * unknown rootId has no other anchor and keeps throwing.
-   */
-  private resolveMountedRoot(
-    requestedPath: string,
-    rootId: string | undefined
-  ): MountedWorkspaceRoot | undefined {
-    if (rootId === undefined) {
-      return this.findMountedRootForAbsolutePath(requestedPath);
-    }
-    const mounted = this.mounted.get(rootId);
-    if (mounted) {
-      return mounted;
-    }
-    if (path.isAbsolute(requestedPath)) {
-      return this.findMountedRootForAbsolutePath(requestedPath);
-    }
-    return;
-  }
-
-  private findMountedRootForAbsolutePath(requestedPath: string): MountedWorkspaceRoot | undefined {
-    const normalized = path.normalize(requestedPath);
-    return [...this.mounted.values()]
-      .filter(
-        (candidate) =>
-          isContained(candidate.presentationPath, normalized) ||
-          isContained(candidate.canonicalPath, normalized)
-      )
-      .sort(
-        (left, right) =>
-          Math.max(right.presentationPath.length, right.canonicalPath.length) -
-          Math.max(left.presentationPath.length, left.canonicalPath.length)
-      )[0];
+    return resolveReadAgainstMountedRoot(requestedPath, mounted, this.resolveReadPath);
   }
 
   private serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
@@ -1027,18 +773,5 @@ export class WorkspaceRootRegistry {
     if (this.disposed) {
       throw new Error('The workspace root registry has been disposed.');
     }
-  }
-
-  private unmount(rootId: string): void {
-    const mounted = this.mounted.get(rootId);
-    if (!mounted) {
-      return;
-    }
-    this.mounted.delete(rootId);
-    this.closeMountedRoot(mounted);
-  }
-
-  private async writeStoredRoots(entries: readonly StoredWorkspaceRoot[]): Promise<void> {
-    await this.storage.setItem(ROOTS_LIST_STORAGE_KEY, JSON.stringify(entries));
   }
 }

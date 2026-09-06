@@ -39,6 +39,7 @@ export const migration065QuarantinePgTextsearch: Migration = {
     CREATE INDEX IF NOT EXISTS idx_file_chunks_content_bm25
       ON file_chunks USING bm25 (content) WITH (text_config='english');
   `,
+  ledgerKey: 'custom-065-quarantine-pg-textsearch',
   name: 'quarantine_pg_textsearch',
   up: `
     DROP INDEX IF EXISTS idx_file_chunks_content_bm25;

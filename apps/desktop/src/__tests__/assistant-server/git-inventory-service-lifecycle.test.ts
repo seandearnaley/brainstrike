@@ -27,15 +27,11 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-import {
-  GIT_INVENTORY_SNAPSHOT_TTL_MS,
-  GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS,
-} from '../../assistant-server/git-inventory-service';
+import { GIT_INVENTORY_SNAPSHOT_TTL_MS } from '../../assistant-server/git-inventory-service';
 import {
   GIT_INVENTORY_WATCH_BATCH_MS,
   type WatchGitCommonDir,
 } from '../../assistant-server/git-inventory-watcher';
-import type { GitCommandRun, GitCommandRunner } from '../../assistant-server/git-service';
 import {
   cleanupTempDirs,
   createFakeWatchDirectory,
@@ -615,11 +611,18 @@ describe('createGitInventoryService', () => {
 
       await service.getSnapshot();
       expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+      // Well inside the TTL, and the cache is clean — a forced call rebuilds
+      // anyway. (Case (b) of the BST-1397 forced-refresh contract.)
       await service.getSnapshot({ maxAgeMs: 0 });
       expect(loadRootsSpy).toHaveBeenCalledTimes(2);
     });
   });
 
+  // BST-1397: `maxAgeMs: 0` is the seam a caller that JUST wrote a `roots` row
+  // uses to guarantee the inventory rebuild — and therefore the per-repository
+  // watcher arming — sees it. Plain coalescing silently defeats that: the
+  // in-flight build's `loadRoots()` already ran, so its result predates the
+  // new row and the renderer's nudge is swallowed.
   describe('watcher health errors are folded exactly once (BST-1112 review Minor 9)', () => {
     it('does not double-count a persistently dead watcher across a forced rebuild', async () => {
       const { fs, rootDir, rootId } = await makeSingleRepoRoot(
@@ -757,71 +760,6 @@ describe('createGitInventoryService', () => {
 
       requireRelease(releaseLoadRoots, 'load-roots release')();
       await stopPromise;
-    });
-  });
-
-  describe('stop() bounds its drain of a build that never settles (BST-1112 P1, codex 3712467640)', () => {
-    it('aborts the build signal, resolves within GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS, and logs the abandonment', async () => {
-      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
-        'brainstrike-git-inv-svc-drain-bound-'
-      );
-      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
-
-      let resolveRunCalled: (() => void) | undefined;
-      const runCalled = new Promise<void>((resolve) => {
-        resolveRunCalled = resolve;
-      });
-      let capturedSignal: AbortSignal | undefined;
-      // Never resolves — simulates a git child process that ignores the
-      // abort signal (e.g. unresponsive/zombied), so this test proves
-      // stop()'s own TIMEOUT bound protects the shutdown deadline, not the
-      // abort mechanism itself (that wiring is asserted separately below via
-      // `capturedSignal`).
-      const run: GitCommandRunner = (params) => {
-        capturedSignal = params.signal;
-        resolveRunCalled?.();
-        return new Promise<GitCommandRun>(() => {
-          // Intentionally never settles.
-        });
-      };
-      const fake = createFakeWatchDirectory();
-      const service = makeService({
-        fs,
-        loadRootsSpy,
-        run,
-        watchDirectory: fake.watchDirectory,
-      });
-
-      service.start();
-      // Real awaits (not fake-timer-dependent) until the build's git spawn —
-      // resolveRoots()'s realpath and the FakeFs walk are all real
-      // microtask/IO work, not timer-scheduled.
-      await runCalled;
-      expect(capturedSignal?.aborted).toBe(false);
-
-      let stopResolved = false;
-      const stopPromise = service.stop().then(() => {
-        stopResolved = true;
-      });
-
-      // stop() aborts synchronously, before it ever awaits the drain race.
-      expect(capturedSignal?.aborted).toBe(true);
-
-      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS - 1);
-      expect(stopResolved).toBe(false);
-
-      await vi.advanceTimersByTimeAsync(1);
-      await stopPromise;
-      expect(stopResolved).toBe(true);
-      expect(loggerErrorSpy).toHaveBeenCalledExactlyOnceWith(
-        expect.stringContaining('abandoned'),
-        expect.objectContaining({ drainTimeoutMs: GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS })
-      );
-
-      // The `stopped` flag (set synchronously, before this whole drain even
-      // started) still rejects any post-stop getSnapshot() — the abandoned
-      // build's eventual (here: never) settlement has no way back in.
-      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
     });
   });
 });

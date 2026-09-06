@@ -1,6 +1,6 @@
 import type { LogRecord } from '@brainstrike/logging';
 import type { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { LogSourceAdapter } from './log-source-adapter';
 
 const LOG_SUBSCRIPTION_DEBOUNCE_MS = 100;
@@ -10,7 +10,26 @@ interface UseLogRecordSourceOptions {
   readonly logSource: LogSourceAdapter | undefined;
   readonly onLoadingChange: (loading: boolean) => void;
   readonly onRecordsChange: (records: readonly LogRecord[]) => void;
+  readonly onSubscriptionErrorChange: (error: string | null) => void;
   readonly toast: ReturnType<typeof useToast>['toast'];
+}
+
+function subscribeToLogSource(
+  logSource: LogSourceAdapter,
+  onRecords: (records: readonly LogRecord[]) => void
+): { error: string | null; unsubscribe: (() => void) | undefined } {
+  try {
+    return { error: null, unsubscribe: logSource.subscribe?.(onRecords) };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      unsubscribe: undefined,
+    };
+  }
+}
+
+interface UseLogRecordSourceResult {
+  readonly refreshLogs: () => Promise<void>;
 }
 
 export function useLogRecordSource({
@@ -18,10 +37,15 @@ export function useLogRecordSource({
   logSource,
   onLoadingChange,
   onRecordsChange,
+  onSubscriptionErrorChange,
   toast,
-}: UseLogRecordSourceOptions): { readonly refreshLogs: () => Promise<void> } {
+}: UseLogRecordSourceOptions): UseLogRecordSourceResult {
+  const failedSubscriptionSourceRef = useRef<LogSourceAdapter | null>(null);
+
   useEffect(() => {
     if (!logSource) {
+      failedSubscriptionSourceRef.current = null;
+      onSubscriptionErrorChange(null);
       onRecordsChange([]);
       return;
     }
@@ -52,7 +76,7 @@ export function useLogRecordSource({
         });
     }
 
-    const unsubscribe = logSource.subscribe?.((records) => {
+    const handleSubscriptionRecords = (records: readonly LogRecord[]): void => {
       pendingSubscriptionRecords = records;
       if (subscriptionTimerId !== null) {
         window.clearTimeout(subscriptionTimerId);
@@ -65,16 +89,37 @@ export function useLogRecordSource({
           onRecordsChange(applyRetentionLimit(pendingRecords));
         }
       }, LOG_SUBSCRIPTION_DEBOUNCE_MS);
-    });
+    };
+    const subscription = subscribeToLogSource(logSource, handleSubscriptionRecords);
+    onSubscriptionErrorChange(subscription.error);
+    if (subscription.error) {
+      if (failedSubscriptionSourceRef.current !== logSource) {
+        failedSubscriptionSourceRef.current = logSource;
+        toast({
+          description: subscription.error,
+          title: 'Failed to subscribe to logs',
+          variant: 'destructive',
+        });
+      }
+    } else {
+      failedSubscriptionSourceRef.current = null;
+    }
 
     return () => {
       cancelled = true;
       if (subscriptionTimerId !== null) {
         window.clearTimeout(subscriptionTimerId);
       }
-      unsubscribe?.();
+      subscription.unsubscribe?.();
     };
-  }, [applyRetentionLimit, logSource, onLoadingChange, onRecordsChange, toast]);
+  }, [
+    applyRetentionLimit,
+    logSource,
+    onLoadingChange,
+    onRecordsChange,
+    onSubscriptionErrorChange,
+    toast,
+  ]);
 
   const refreshLogs = useCallback(async () => {
     const getInitialRecords = logSource?.getInitialRecords;

@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentMessage, StreamChunk } from '../index';
 import { isMastraAgentError } from '../mastra/mastra-agent-error';
+import { mcpHost, setMcpToolsets } from './fixtures/mastra-stream-harness';
+
+const AGENT_RUNTIME_MCP_TOOLSETS = Object.fromEntries(
+  ['test', 'filesystem'].map((name) => [name, {}])
+);
+
+beforeEach(() => {
+  setMcpToolsets(AGENT_RUNTIME_MCP_TOOLSETS);
+});
 
 // Import the runtime functions - we'll need to expose some internal functions for testing
 // or test them through their public interfaces
@@ -29,6 +38,85 @@ describe('agent-runtime edge cases', () => {
         runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
+      expect(runtime.agent).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('registers no Apps admission for a run whose tool map has no app-capable tool', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+      const register = vi.fn(() => vi.fn());
+      const runtime = await createMastraAgentRuntime({
+        mcpAppAdmission: { register },
+        mcpHost,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+
+      expect(runtime.mcpAppToolAdmission.appCapableToolCount).toBe(0);
+      expect(register).not.toHaveBeenCalled();
+      await runtime.dispose();
+    });
+
+    it('publishes Apps admission for the exact runtime lifetime when an app tool exists', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+      setMcpToolsets({
+        ...AGENT_RUNTIME_MCP_TOOLSETS,
+        apps: {
+          show_board: {
+            _meta: { ui: { resourceUri: 'ui://apps/board' } },
+            description: 'mounts an app',
+            id: 'show_board',
+          },
+        },
+      });
+      const invalidate = vi.fn();
+      const register = vi.fn(() => invalidate);
+      const runtime = await createMastraAgentRuntime({
+        mcpAppAdmission: { register },
+        mcpHost,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+
+      expect(runtime.mcpAppToolAdmission.appCapableToolCount).toBe(1);
+      expect(register).toHaveBeenCalledWith(runtime.mcpAppToolAdmission);
+      expect(invalidate).not.toHaveBeenCalled();
+      await runtime.dispose();
+      expect(invalidate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('resolved/authInput overlap guard (BST-1352 review finding 7)', () => {
+    it('throws typed when resolved and a DIFFERENT authInput are both supplied', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+      const { resolveRuntimeConfiguration } = await import('../mastra/runtime-configuration');
+
+      const resolved = resolveRuntimeConfiguration(
+        { provider: 'openai' },
+        { apiKey: 'resolved-key', kind: 'api_key' }
+      );
+
+      await expect(
+        createMastraAgentRuntime({
+          authInput: { apiKey: 'different-key', kind: 'api_key' },
+          resolved,
+        })
+      ).rejects.toSatisfy((error: unknown) => {
+        if (!isMastraAgentError(error)) {
+          return false;
+        }
+        expect(error.code).toBe('mastra_agent_runtime_init_failed');
+        expect(error.message).toContain('auth input');
+        return true;
+      });
+    });
+
+    it('accepts resolved carrying the SAME authInput reference (pre-resolved path)', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+      const { resolveRuntimeConfiguration } = await import('../mastra/runtime-configuration');
+
+      const authInput = { apiKey: 'resolved-key', kind: 'api_key' as const };
+      const resolved = resolveRuntimeConfiguration({ provider: 'openai' }, authInput);
+
+      const runtime = await createMastraAgentRuntime({ authInput, resolved });
       expect(runtime.agent).toBeDefined();
       await runtime.dispose();
     });
@@ -139,73 +227,26 @@ describe('agent-runtime edge cases', () => {
   });
 
   describe('createMastraAgentRuntime with MCP', () => {
-    it('creates MCP client with stdio transport configuration', async () => {
+    it('rejects serialized MCP config beside host authority', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            {
-              args: ['script.js'],
-              command: 'node',
-              env: { NODE_ENV: 'test' },
-              name: 'test-server',
-              transport: 'stdio',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      // MCP client may not be defined if connection fails (expected in test environments)
-      // The important thing is that the runtime is created without throwing
-      expect(runtime).toBeDefined();
-      await runtime.dispose();
-    });
-
-    it('creates MCP client with sse transport configuration', async () => {
-      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            {
-              headers: { Authorization: 'Bearer token' },
-              name: 'sse-server',
-              transport: 'sse',
-              url: 'https://example.com/mcp',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      // MCP client may not be defined if connection fails (expected in test environments)
-      // The important thing is that the runtime is created without throwing
-      expect(runtime).toBeDefined();
-      await runtime.dispose();
-    }, 10_000);
-
-    it('creates an MCP client for an explicitly selected Streamable HTTP server', async () => {
-      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            {
-              headers: { Authorization: 'Bearer token' },
-              name: 'streamable-server',
-              transport: 'streamable-http',
-              url: 'https://example.com/mcp',
-            },
-          ],
-        },
-        mcpTimeoutMs: 10,
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      expect(runtime.mcpClient).toBeDefined();
-      await runtime.dispose();
+      await expect(
+        createMastraAgentRuntime({
+          mcpConfig: {
+            servers: [
+              {
+                args: ['script.js'],
+                command: 'node',
+                env: { NODE_ENV: 'test' },
+                name: 'test-server',
+                transport: 'stdio',
+              },
+            ],
+          },
+          mcpHost,
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        })
+      ).rejects.toThrow('cannot compete with MCP host authority');
     });
 
     it('rejects invalid SSE URLs instead of silently skipping the server', async () => {
@@ -265,92 +306,6 @@ describe('agent-runtime edge cases', () => {
       ).rejects.toThrow();
     });
 
-    it('handles stdio server without args', async () => {
-      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            {
-              command: 'echo',
-              name: 'no-args-server',
-              transport: 'stdio',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      // MCP client may not be defined if connection fails (expected in test environments)
-      expect(runtime).toBeDefined();
-      await runtime.dispose();
-    });
-
-    it('handles stdio server with empty args array', async () => {
-      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            {
-              args: [],
-              command: 'echo',
-              name: 'empty-args',
-              transport: 'stdio',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      // MCP client may not be defined if connection fails (expected in test environments)
-      expect(runtime).toBeDefined();
-      await runtime.dispose();
-    });
-
-    it('handles sse server without headers', async () => {
-      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            {
-              name: 'no-headers',
-              transport: 'sse',
-              url: 'https://example.com',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      // MCP client may not be defined if connection fails (expected in test environments)
-      expect(runtime).toBeDefined();
-      await runtime.dispose();
-    }, 10_000);
-
-    it('handles sse server with empty headers object', async () => {
-      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            {
-              headers: {},
-              name: 'empty-headers',
-              transport: 'sse',
-              url: 'https://example.com',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      // MCP client may not be defined if connection fails (expected in test environments)
-      expect(runtime).toBeDefined();
-      await runtime.dispose();
-    }, 10_000);
-
     it('uses custom model when provided', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
@@ -372,28 +327,6 @@ describe('agent-runtime edge cases', () => {
       });
 
       expect(runtime.agent).toBeDefined();
-      await runtime.dispose();
-    });
-
-    it('uses custom MCP timeout when provided', async () => {
-      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
-
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            {
-              command: 'echo',
-              name: 'test',
-              transport: 'stdio',
-            },
-          ],
-        },
-        mcpTimeoutMs: 10_000,
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      // MCP client may not be defined if connection fails (expected in test environments)
-      expect(runtime).toBeDefined();
       await runtime.dispose();
     });
   });
@@ -605,6 +538,10 @@ describe('agent-runtime edge cases', () => {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({ textDelta: '', type: 'text-delta' });
+            // A non-empty delta keeps the turn from being (correctly)
+            // re-classified as an empty model response; the subject here is
+            // that the EMPTY delta is filtered.
+            controller.enqueue({ textDelta: 'kept', type: 'text-delta' });
             controller.enqueue({ type: 'finish', usage: {} });
             controller.close();
           },
@@ -622,9 +559,9 @@ describe('agent-runtime edge cases', () => {
         chunks.push(chunk);
       }
 
-      // Empty delta should be filtered out
+      // Empty delta should be filtered out; only the non-empty one survives.
       const textDeltas = chunks.filter((c) => (c as { type: string }).type === 'text-delta');
-      expect(textDeltas).toHaveLength(0);
+      expect(textDeltas).toEqual([{ type: 'text-delta', value: 'kept' }]);
 
       Agent.prototype.stream = originalStream;
     });
@@ -638,6 +575,10 @@ describe('agent-runtime edge cases', () => {
       Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
+            // Content ahead of the finish keeps the turn from being
+            // (correctly) re-classified as an empty model response; the
+            // subject here is the usage-format mapping on the finish.
+            controller.enqueue({ textDelta: 'usage-format answer', type: 'text-delta' });
             controller.enqueue({
               payload: {
                 output: {
@@ -1410,15 +1351,22 @@ describe('agent-runtime edge cases', () => {
     it('handles dispose errors gracefully during stream failure', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
-      const { ExplicitStdioMcpClient } = await import('../mcp/explicit-stdio-client');
 
       const originalStream = Agent.prototype.stream;
-      const listToolsSpy = vi
-        .spyOn(ExplicitStdioMcpClient.prototype, 'listTools')
-        .mockResolvedValue({ tools: [] });
-      const closeSpy = vi
-        .spyOn(ExplicitStdioMcpClient.prototype, 'close')
-        .mockRejectedValue(new Error('Disconnect failed'));
+      const unwatch = vi.fn(() => {
+        throw new Error('Disconnect failed');
+      });
+      const authority = mcpHost.snapshot();
+      const host = {
+        ...mcpHost,
+        snapshot: () => ({
+          ...authority,
+          servers: authority.servers.filter(
+            ({ configuredServerId }) => configuredServerId === 'test'
+          ),
+        }),
+        watch: () => unwatch,
+      };
 
       Agent.prototype.stream = async function stream() {
         throw new Error('Stream creation failed');
@@ -1427,17 +1375,13 @@ describe('agent-runtime edge cases', () => {
       try {
         await expect(
           streamMastraAgent([{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }], {
-            mcpConfig: {
-              servers: [{ command: 'echo', name: 'test', transport: 'stdio' }],
-            },
+            mcpHost: host,
             runtime: { apiKey: 'test-key', provider: 'openai' },
           })
         ).rejects.toThrow('Stream creation failed');
-        expect(closeSpy).toHaveBeenCalledOnce();
+        expect(unwatch).toHaveBeenCalledOnce();
       } finally {
         Agent.prototype.stream = originalStream;
-        listToolsSpy.mockRestore();
-        closeSpy.mockRestore();
       }
     });
   });

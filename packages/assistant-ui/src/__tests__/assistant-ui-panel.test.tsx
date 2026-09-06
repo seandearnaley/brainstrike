@@ -32,6 +32,7 @@ interface MockAuiState {
   chainOfThought: {
     collapsed: boolean;
     parts: unknown[];
+    status: { type: 'running' | 'complete' };
   };
   composer: {
     text: string;
@@ -52,7 +53,17 @@ const completedReasoningPart = {
 };
 
 const createMockAuiState = (parts: unknown[]): MockAuiState => ({
-  chainOfThought: { collapsed: true, parts },
+  chainOfThought: {
+    collapsed: true,
+    parts,
+    status: {
+      type: parts.some(
+        (part) => (part as { status?: { type?: string } } | null)?.status?.type === 'running'
+      )
+        ? 'running'
+        : 'complete',
+    },
+  },
   composer: { text: '' },
   message: { parts },
   thread: { messages: [] },
@@ -201,7 +212,30 @@ vi.mock('@assistant-ui/react', () => {
     },
     ChainOfThoughtPrimitive: {
       AccordionTrigger: Primitive,
-      Parts: Primitive,
+      Parts: ({
+        components,
+      }: {
+        components: {
+          Reasoning?: React.ComponentType;
+          tools?: { Fallback?: React.ComponentType<Record<string, unknown>> };
+        };
+      }) => (
+        <>
+          {mockAuiState.chainOfThought.parts.map((part, index) => {
+            const typed = part as { type?: string; toolCallId?: string } | null;
+            if (typed?.type === 'reasoning') {
+              const Component = components.Reasoning ?? (() => null);
+              // biome-ignore lint/suspicious/noArrayIndexKey: stable part positions in the isolated primitive mock.
+              return <Component key={`reasoning-${index}`} />;
+            }
+            if (typed?.type === 'tool-call') {
+              const Component = components.tools?.Fallback ?? (() => null);
+              return <Component key={typed.toolCallId ?? 'tool'} {...typed} />;
+            }
+            return null;
+          })}
+        </>
+      ),
       Root: Primitive,
     },
     ComposerPrimitive: {
@@ -457,6 +491,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   afterEach(() => {
+    Object.assign(window, { assistant: undefined });
     cleanup();
     vi.clearAllMocks();
     vi.useRealTimers();
@@ -476,6 +511,16 @@ describe('AssistantUiPanel model picker', () => {
         api: '/api/assistant',
         requestBodyLimitBytes: HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
       })
+    );
+  });
+
+  it('does not turn a malformed desktop bridge URL into an assistant endpoint', () => {
+    Object.assign(window, { assistant: { url: {} } });
+
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ api: '/api/assistant' })
     );
   });
 
@@ -714,9 +759,7 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
   });
 
-  it('groups all of a turn’s tool calls into one Activity panel (N steps, not N groups)', () => {
-    // The Mastra loop splits each tool into its own step/chain; the turn-level
-    // grouping must collapse them into a single "Worked · 3 steps" panel.
+  it('summarizes the tool calls within the current activity group', () => {
     mockAuiState = createMockAuiState([
       { status: { type: 'complete' }, toolCallId: 'a', type: 'tool-call' },
       { status: { type: 'complete' }, toolCallId: 'b', type: 'tool-call' },
@@ -730,14 +773,14 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getAllByTestId('tool-fallback')).toHaveLength(3);
   });
 
-  it('renders a single tool call as just the card, with no group wrapper', () => {
+  it('retains the activity wrapper for a completed single tool call', () => {
     mockAuiState = createMockAuiState([
       { status: { type: 'complete' }, toolCallId: 'a', type: 'tool-call' },
     ]);
 
     renderCapturedChainOfThought();
 
-    expect(screen.queryByTestId('assistant-activity-group')).not.toBeInTheDocument();
+    expect(screen.getByTestId('assistant-activity-group')).toBeInTheDocument();
     expect(screen.getByTestId('tool-fallback')).toBeInTheDocument();
   });
 

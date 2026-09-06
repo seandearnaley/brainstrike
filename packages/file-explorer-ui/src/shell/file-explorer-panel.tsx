@@ -1,3 +1,4 @@
+import type { AnyContextAction } from '@brainstrike/context-actions';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
@@ -131,6 +132,12 @@ const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
 export interface FileExplorerPanelProps {
   /**
+   * Host-composed `workspace-root` context actions (Open in Terminal, New
+   * thread here). Injected for the same reason `selectionActions` is: they
+   * close over app-shell seams this package must not depend on.
+   */
+  readonly rootActions?: readonly AnyContextAction[] | undefined;
+  /**
    * Host-composed controls for the ephemeral selection bar (see
    * `FileExplorerSelectionActions`). Kept as an injected node so feature
    * packages that depend on this one — the collection import flow lives in
@@ -144,7 +151,8 @@ export interface FileExplorerPanelProps {
  * FileExplorerPanel - Contains the file tree and toolbar
  * This component can be used independently in a panel of an IDE layout
  */
-const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPanelProps) => {
+const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
+  const { rootActions, selectionActions } = props;
   const { fileSystemAdapter, storageAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   // Persist + restore the explorer scroll position across sessions. Wired to the
@@ -1116,6 +1124,7 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                     onRemoveRoot={removeRootDirectory}
                     onSelectFolderRecursively={handleSelectFolderRecursively}
                     quickFilteredTree={quickFilteredTree}
+                    rootActions={rootActions}
                     rootDirectoryHandle={rootDirectoryHandle}
                     rootDirectoryHandles={rootDirectoryHandles}
                     rootIdByPath={rootIdByPath}
@@ -1316,10 +1325,13 @@ FileExplorerPanelInner.displayName = 'FileExplorerPanelInner';
  * so toolbar Expand All / Collapse All can drive every root section's own
  * tree context (the inner panel and the sidebar sections both consume it).
  */
-export const FileExplorerPanel = ({ selectionActions }: FileExplorerPanelProps = {}) => (
+export const FileExplorerPanel = ({
+  rootActions,
+  selectionActions,
+}: FileExplorerPanelProps = {}) => (
   <ExplorerSortProvider>
     <ForestTreeActionsProvider>
-      <FileExplorerPanelInner selectionActions={selectionActions} />
+      <FileExplorerPanelInner rootActions={rootActions} selectionActions={selectionActions} />
     </ForestTreeActionsProvider>
   </ExplorerSortProvider>
 );

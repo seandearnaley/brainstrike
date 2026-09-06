@@ -2,6 +2,8 @@ import { createLogger } from '@brainstrike/logging';
 import { app, session } from 'electron';
 import { CANVAS_PROTOCOL_SCHEME } from './canvas-protocol';
 import { getCSP } from './csp-utils';
+import { installMcpAppSessionPolicy } from './mcp/apps-session-policy';
+import { MCP_APP_SHELL_PROTOCOL_SCHEME } from './mcp/apps-shell-protocol';
 
 const logger = createLogger('DesktopSecurity');
 export const desktopSecurityLogger = logger;
@@ -25,13 +27,17 @@ export function setupSecurity() {
 
   session.defaultSession.webRequest.onHeadersReceived(
     (details: WebRequestDetails, callback: WebRequestCallback) => {
-      // The Canvas sandbox shell (brainstrike-canvas:) owns its headers: the
-      // canvas-protocol handler serves the reviewed sandbox CSP on every
-      // response. Stamping the app policy here would re-impose
+      // The sandbox shells own their headers: the canvas-protocol handler
+      // (brainstrike-canvas:, BST-1173) and the MCP App shell protocol handler
+      // (brainstrike-mcp-app:, BST-1572) each serve their reviewed sandbox
+      // CSP on every response. Stamping the app policy here would re-impose
       // X-Frame-Options: DENY (making the shell unframeable) and attach a CSP
-      // the nested srcdoc would inherit — silently breaking inline canvas
-      // scripts in production only. See canvas-protocol.ts (BST-1173).
-      if (details.url?.startsWith(`${CANVAS_PROTOCOL_SCHEME}:`)) {
+      // the nested srcdoc would inherit — silently breaking inline sandbox
+      // scripts in production only.
+      if (
+        details.url?.startsWith(`${CANVAS_PROTOCOL_SCHEME}:`) ||
+        details.url?.startsWith(`${MCP_APP_SHELL_PROTOCOL_SCHEME}:`)
+      ) {
         callback({ responseHeaders: { ...details.responseHeaders } });
         return;
       }
@@ -48,6 +54,13 @@ export function setupSecurity() {
       });
     }
   );
+
+  // The main window (and every other window on the default session) also gets
+  // the MCP App sandbox permission/download policy — the header stamp above
+  // deliberately skips the shell scheme, so the shell's own Permissions-Policy
+  // is all the frame carries and features outside Permissions-Policy (e.g.
+  // notifications) would otherwise reach Electron's grant-everything default.
+  installMcpAppSessionPolicy(session.defaultSession);
 
   logger.info('CSP configured', { mode, policy: csp });
 }

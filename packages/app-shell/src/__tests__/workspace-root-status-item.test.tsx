@@ -15,6 +15,7 @@ const mockState = {
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (s: FileExplorerState) => T): T =>
     selector(mockState as unknown as FileExplorerState),
+  WorktreeIndexingControl: () => null,
 }));
 
 import { WorkspaceRootStatusItem } from '../status-items/workspace-root-status-item';

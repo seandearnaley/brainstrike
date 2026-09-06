@@ -16,6 +16,7 @@ export const migration048FileRecordsNameTrgm: Migration = {
   down: `
     DROP INDEX IF EXISTS idx_file_records_name_trgm;
   `,
+  ledgerKey: 'custom-048-file-records-name-trgm',
   name: 'file_records_name_trgm',
   up: `
     CREATE INDEX IF NOT EXISTS idx_file_records_name_trgm

@@ -12,6 +12,7 @@ import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contra
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -224,6 +225,31 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * server leaves `permissionPolicy` unset (passthrough). It carries NO
    * `riskByTool` — tool risk classification is server-owned, never client-
    * supplied. Cleared from the runtime before the agent is built. Agent-only.
+   *
+   * WIRE SHAPE (canonical note — neighbours point here) — read the VALUE, never
+   * key presence. The sole producer (`prepareRequestData` in
+   * `use-assistant-request-lifecycle.ts`) writes this key UNCONDITIONALLY: the
+   * snapshot when the transport is permission-enforceable and `enforce` is set,
+   * otherwise an explicit `undefined`. The shape therefore DIVERGES by vantage
+   * point — PRESENT-and-undefined on the producer's object, absent on the wire
+   * once `JSON.stringify` drops it. That is not the presence-means-on
+   * convention some neighbours (e.g. `subagentPersonasRequest`) use, where the
+   * key is genuinely omitted.
+   *
+   * Being precise about where that bites: a server consumer reading the
+   * DESERIALIZED request would get the right answer from a
+   * `'permissionPolicyRequest' in runtimeData` check today — but only because
+   * serialization happens to erase the difference. The same check is already
+   * wrong for anything reading the producer's object before it is serialized,
+   * and would silently turn enforcement on for an opted-out user the moment a
+   * non-serializing or in-process transport appears. Pass the value to
+   * `resolveRequestPermissionPolicy`, which treats absent and `undefined`
+   * identically, and the distinction never matters.
+   *
+   * `tsc` cannot catch drift here: `exactOptionalPropertyTypes` (on repo-wide)
+   * would REJECT that explicit `undefined` against this `?:` declaration, and
+   * the producer only escapes it because `prepareRequestData` is typed
+   * `Promise<Record<string, unknown>>`.
    */
   permissionPolicyRequest?: AssistantPermissionPolicyRequest;
   /**
@@ -280,6 +306,7 @@ export interface RuntimeMemoryContext {
  * would drop a selected value on the floor with nothing to catch it.
  */
 export {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -323,6 +350,28 @@ export interface AnthropicProviderOptions extends JSONObject {
   thinking?: AnthropicThinkingOptions;
 }
 
+/**
+ * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.57).
+ * Kept in step with the identical declaration in
+ * `@brainstrike/assistant-contract` — this package is what actually hands
+ * `providerOptions` to the SDK, so a narrower type here would silently fail to
+ * represent what the app sends. Not a discriminated union on purpose:
+ * `type: 'enabled'` takes `budgetTokens` on Claude routes and
+ * `maxReasoningEffort` on Amazon Nova, and which one applies is a registry
+ * fact (`LlmModelDefinition.bedrockReasoning`), not a property of this shape.
+ */
+// biome-ignore lint/style/useConsistentTypeDefinitions: must stay a type ALIAS. `BedrockProviderOptions` extends `JSONObject`, whose string index signature an interface member does not satisfy (TS2411); a type alias gets the implicit index signature. Same reason `AnthropicThinkingOptions` is an alias.
+export type BedrockReasoningConfig = {
+  budgetTokens?: number;
+  display?: 'omitted' | 'summarized';
+  maxReasoningEffort?: BedrockReasoningEffort;
+  type: 'adaptive' | 'disabled' | 'enabled';
+};
+
+export interface BedrockProviderOptions extends JSONObject {
+  reasoningConfig?: BedrockReasoningConfig;
+}
+
 export interface GoogleProviderOptions extends JSONObject {
   thinkingConfig?: {
     thinkingLevel?: GoogleThinkingLevel;
@@ -354,6 +403,7 @@ export interface LocalRuntimeProviderOptions extends JSONObject {
 export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3ProviderOptions) & {
   openai?: OpenAiProviderOptions & JSONObject;
   anthropic?: AnthropicProviderOptions & JSONObject;
+  bedrock?: BedrockProviderOptions & JSONObject;
   google?: GoogleProviderOptions & JSONObject;
   local?: LocalProviderOptions & JSONObject;
   ollama?: LocalRuntimeProviderOptions & JSONObject;

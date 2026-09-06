@@ -6,7 +6,10 @@ import {
   getEnvironmentThresholds,
   PERFORMANCE_THRESHOLDS,
 } from '../performance-config';
-import { measureLocatorInteractionFrames } from '../performance-helpers';
+import {
+  measureLocatorInteractionFrames,
+  measureNamedCheckboxInteractionFrame,
+} from '../performance-helpers';
 
 function createLocator(elements: unknown[]): Locator {
   return {
@@ -17,19 +20,30 @@ function createLocator(elements: unknown[]): Locator {
   } as unknown as Locator;
 }
 
-function createCheckbox(): {
+function createCheckbox(
+  initialChecked = false,
+  accessibleName?: string
+): {
   click: ReturnType<typeof vi.fn>;
   disabled: boolean;
   getAttribute: (name: string) => string | null;
   isConnected: boolean;
 } {
-  let checked = false;
+  let checked = initialChecked;
   return {
     click: vi.fn(() => {
       checked = !checked;
     }),
     disabled: false,
-    getAttribute: (name: string) => (name === 'aria-checked' ? String(checked) : null),
+    getAttribute: (name: string) => {
+      if (name === 'aria-checked') {
+        return String(checked);
+      }
+      if (name === 'aria-label') {
+        return accessibleName ?? null;
+      }
+      return null;
+    },
     isConnected: true,
   };
 }
@@ -120,6 +134,75 @@ describe('performance helpers (unit)', () => {
         kind: 'click-each',
       })
     ).rejects.toThrow('detached');
+  });
+
+  it('rejects the retained-element boundary when a clicked checkbox row is replaced', async () => {
+    const checkbox = createCheckbox();
+    checkbox.click = vi.fn(() => {
+      checkbox.isConnected = false;
+    });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    await expect(
+      measureLocatorInteractionFrames(createLocator([checkbox]), {
+        count: 1,
+        kind: 'click-each',
+      })
+    ).rejects.toThrow('detached after its click');
+  });
+
+  it('re-resolves a replaced checkbox by accessible name after paint', async () => {
+    const replacement = createCheckbox(true, 'Select folder');
+    let activeCheckbox = createCheckbox(false, 'Select folder');
+    activeCheckbox.click = vi.fn(() => {
+      activeCheckbox.isConnected = false;
+      activeCheckbox = replacement;
+    });
+    const container = {
+      querySelectorAll: () => [activeCheckbox],
+    };
+    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(32);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    const metrics = await measureNamedCheckboxInteractionFrame(createLocator([container]), {
+      name: 'Select folder',
+    });
+
+    expect(metrics).toEqual({
+      averageDurationMs: 32,
+      maxDurationMs: 32,
+      samplesMs: [32],
+      totalDurationMs: 32,
+    });
+  });
+
+  it('rejects a named checkbox whose checked state never changes (silent no-op)', async () => {
+    // A click that leaves the observable checked state identical means the
+    // interaction did not complete — the boundary must refuse to time it
+    // rather than report a plausible-looking frame sample.
+    const checkbox = createCheckbox(false, 'Select folder');
+    checkbox.click = vi.fn(() => {
+      // Deliberately does NOT toggle checked state.
+    });
+    const container = {
+      querySelectorAll: () => [checkbox],
+    };
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    await expect(
+      measureNamedCheckboxInteractionFrame(createLocator([container]), {
+        name: 'Select folder',
+      })
+    ).rejects.toThrow('did not change checked state');
   });
 
   it('fails visibly when a click does not change checked state', async () => {

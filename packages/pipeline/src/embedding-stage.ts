@@ -37,7 +37,10 @@
  * ```
  */
 
-import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
+import {
+  buildEmbeddingJobInputHashes,
+  buildEmbedJobDedupeKey,
+} from '@brainstrike/indexing-contract';
 import { generateChunkId } from './identifiers.js';
 import type { ChunkId, ChunkOutput, EmbeddingSetId, FileId, JobId, JobState } from './types.js';
 
@@ -228,10 +231,12 @@ interface EmbedJobPayloadInternal {
   chunkId: string;
   chunkIndex: number;
   contentHash: string;
+  embeddingInputHash: string;
   embeddingSetId: string;
   expectedDimension: number;
   fileRecordId: string;
   modelKey: string;
+  sourceContentHash: string;
 }
 
 // =============================================================================
@@ -265,16 +270,19 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
     fileId: FileId,
     embeddingSetId: EmbeddingSetId,
     modelKey: string,
-    expectedDimension: number
+    expectedDimension: number,
+    embeddingInputHash: string
   ): EmbedJobPayloadInternal {
     return {
       chunkId,
       chunkIndex: chunk.chunkIndex,
       contentHash: chunk.contentHash,
+      embeddingInputHash,
       embeddingSetId,
       expectedDimension,
       fileRecordId: fileId,
       modelKey,
+      sourceContentHash: chunk.contentHash,
     };
   }
 
@@ -310,20 +318,28 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
   /**
    * Build enqueue params for all chunks.
    */
-  function buildEnqueueParams(
+  async function buildEnqueueParams(
     chunks: ChunkOutput[],
     chunkIds: ChunkId[],
     fileId: FileId,
     embeddingSetId: EmbeddingSetId,
     modelKey: string,
     expectedDimension: number
-  ): EnqueueJobParams[] {
+  ): Promise<EnqueueJobParams[]> {
+    const embeddingInputHashes = await buildEmbeddingJobInputHashes(
+      chunks.map(({ contentHash }) => contentHash),
+      modelKey
+    );
     const params: EnqueueJobParams[] = [];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       const chunkId = chunkIds[i];
       if (!(chunk && chunkId)) {
         continue;
+      }
+      const embeddingInputHash = embeddingInputHashes[i];
+      if (!embeddingInputHash) {
+        throw new Error(`Missing embedding input hash for chunk '${chunkId}'.`);
       }
 
       const payload = buildJobPayload(
@@ -332,7 +348,8 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
         fileId,
         embeddingSetId,
         modelKey,
-        expectedDimension
+        expectedDimension,
+        embeddingInputHash
       );
       const dedupeKey = buildEmbedJobDedupeKey(chunkId, embeddingSetId, chunk.contentHash);
 
@@ -381,7 +398,7 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
     }
 
     const chunkIds = resolveChunkIds(chunks, providedChunkIds);
-    const enqueueParams = buildEnqueueParams(
+    const enqueueParams = await buildEnqueueParams(
       chunks,
       chunkIds,
       fileId,

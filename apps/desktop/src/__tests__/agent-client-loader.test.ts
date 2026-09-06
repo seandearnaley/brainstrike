@@ -47,10 +47,13 @@ describe('agent-client-loader', () => {
     expect(localKeys).toEqual([]);
   });
 
-  it('returns all known fallback providers in the expected order', async () => {
+  it('returns all known fallback providers in registry declaration order', async () => {
     const module = await import('../agent-client-loader');
     const providers = module.listAgentProviders();
 
+    // MUST stay in registry declaration order: main/agent-client-loader.test.ts
+    // pins the loader against the agent SOURCE order, and CI runs this fallback
+    // path with agent's dist absent (PR #2513 review, finding 2).
     expect(providers).toEqual([
       'openai',
       'anthropic',
@@ -58,6 +61,9 @@ describe('agent-client-loader', () => {
       'openrouter',
       'cohere',
       'voyage',
+      'bedrock',
+      // BST-1356 — inserted after bedrock to match PROVIDER_DEFINITIONS.
+      'openai-codex',
       'local',
       'ollama',
       'lmstudio',
@@ -68,19 +74,19 @@ describe('agent-client-loader', () => {
     const module = await import('../agent-client-loader');
 
     const anthropicKeys = module.getAgentProviderEnvKeys('anthropic');
-    expect(anthropicKeys).toEqual(['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY']);
+    expect(anthropicKeys).toEqual(['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY']);
 
     const googleKeys = module.getAgentProviderEnvKeys('google');
-    expect(googleKeys).toContain('GOOGLE_GENERATIVE_AI_API_KEY');
+    expect(googleKeys).toEqual(['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY']);
 
     const openrouterKeys = module.getAgentProviderEnvKeys('openrouter');
-    expect(openrouterKeys).toContain('OPENROUTER_API_KEY');
+    expect(openrouterKeys).toEqual(['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY']);
 
     const cohereKeys = module.getAgentProviderEnvKeys('cohere');
-    expect(cohereKeys).toContain('COHERE_API_KEY');
+    expect(cohereKeys).toEqual(['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY']);
 
     const voyageKeys = module.getAgentProviderEnvKeys('voyage');
-    expect(voyageKeys).toContain('VOYAGE_API_KEY');
+    expect(voyageKeys).toEqual(['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY']);
 
     // Local runtime providers have no env keys
     const ollamaKeys = module.getAgentProviderEnvKeys('ollama');
@@ -120,18 +126,11 @@ describe('agent-client-loader', () => {
     expect(providers).toContain('openai');
   });
 
-  it('getAgentProviderEnvKeys returns all openai key variants', async () => {
+  it('getAgentProviderEnvKeys returns exactly the two canonical openai names (BST-1361)', async () => {
     const module = await import('../agent-client-loader');
     const openaiKeys = module.getAgentProviderEnvKeys('openai');
 
-    expect(openaiKeys).toEqual([
-      'BRAINSTRIKE_OPENAI_API_KEY',
-      'BS_OPENAI_API_KEY',
-      'OPENAI_API_KEY',
-      'AI_OPENAI_API_KEY',
-      'OPENAI_API_KEY_V1',
-      'OPENAI_API_KEY_V2',
-    ]);
+    expect(openaiKeys).toEqual(['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY']);
   });
 
   describe('shouldForceFallback paths', () => {

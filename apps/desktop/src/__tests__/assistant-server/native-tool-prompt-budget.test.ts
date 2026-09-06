@@ -8,6 +8,7 @@ import {
   type ScannedSkill,
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
@@ -113,8 +114,74 @@ vi.mock('../../db-main', () => ({
 // never serialized to the model (only the [ref=eN] handles inside the tree
 // text). Ceiling keeps ~150 headroom above the measurement; the floor moves
 // with it so a silent drop still fails.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9810;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9510;
+// CURRENT-DATE RAISE (+40/+40, band width 300 preserved). The composed
+// instructions now state today's date on EVERY provider path. Not bloat:
+// nothing in the prompt said what day it was, so the model substituted its own
+// guess — an observed run reasoned "Today's date is unknown but likely later"
+// and wrote a fabricated date into DURABLE working memory. It is also
+// load-bearing for an instruction AGENTS.md already gives (treat dated docs
+// under docs/superpowers/ and docs/archive/ as historical), unfollowable
+// without a date to compare against. Measured full surface 9807 -> 9841.
+// Trim-first was applied: the first wording ran 49 tokens and was cut to 34.
+//
+// RAISED BY THE COST OF THIS CHANGE ONLY, deliberately (review of #2610). The
+// previous ceiling of 9810 sat 3 tokens above a 9807 measurement, so ~145
+// tokens had accumulated since the BST-1176 raise (9662, ~148 headroom) with no
+// recorded trade. Absorbing that drift into this entry would launder it into
+// the date's ledger and hide it for good. The tight headroom that remains is
+// the honest signal: the next change here should account for the drift rather
+// than paper over it again.
+// SEARCH-TOOLS BATCHING EXEMPTION RAISE (+20/+20, band width 300 preserved).
+// The batching line now exempts `search_tools`, whose matches only load on the
+// NEXT turn. Not bloat: "Batch independent reads, searches, or commands into
+// one turn" is a plausible proximate cause of an observed 15-minute waste, in
+// which a model batched `search_tools` with two long delegations and stranded
+// the discovery for their whole duration. Measured full surface 9841 -> 9859.
+// Trim-first was applied: the clause was stated on BOTH the discovery line and
+// the batching line, and the discovery line was reverted to its original
+// wording — one statement, on the line that causes the misread.
+// DEFERRED-CAPABILITY COVERAGE RAISE (+60/+60, band width 300 preserved). The
+// discovery line now names EVERY deferred capability family, pinned by the
+// 'tool-discovery capability coverage' spec. Not bloat: a family the prompt
+// never names is a tool the model declares nonexistent instead of searching
+// for — the 2026-08-23 field failure dismissed both "the canvas tool" and a
+// skill's named run_skill_script as missing. The skill guidance also gained
+// its search_tools recovery clause (tool OUTPUT, not counted here). Measured
+// full surface 9859 -> 9912. Trim-first was applied: the line names families,
+// not the 26 tool ids, and the "named but not loaded" sentence is stated once.
+// BST-1392 RAISE (+316/+316, band width 300 preserved).
+// `listWorktrees` and `manageWorktree` are a NEW isolated-checkout capability
+// for the agent: the one-field listing costs 113 authored definition tokens
+// and the seven-field management envelope 278, moving the measured full
+// hosted surface 9912 → 10246.
+//
+// TRIM CONSIDERED AND REJECTED — no existing definition is paying for
+// something this capability makes redundant, so this is a RAISE, not a
+// rebalance, and the trade is stated rather than hidden:
+//   * `brainstrike.executeCommand` cannot be trimmed: it is critical-tier and
+//     the correlator in W5 Layer 4 depends on it running unchanged.
+//   * No other tool overlaps worktree management; the nearest neighbour,
+//     `manageCanvas`, addresses a different store entirely.
+//   * The trim that WAS taken is structural: spec §6.4 named three tools
+//     (createWorktree/listWorktrees/archiveWorktree) and this ships two, with
+//     the mutations sharing one action envelope — roughly one tool definition
+//     saved against the literal reading of the spec.
+// If the raise pushes the aggregate band, do NOT widen the band: re-open the
+// two-vs-three decision, or defer `manageWorktree` to a follow-up and ship the
+// read-only listing first.
+//
+// HEADROOM RESTORATION (review round, same day): the raise above landed the
+// measured surface EXACTLY at the new MAX (10246/10246) — zero headroom, the
+// hair-trigger failure mode BST-927's band doctrine exists to prevent (any
+// one-word description edit would fail this suite at this line). A first
+// attempt at this fix moved both bounds by only +18 (10246 → 10264), leaving
+// the measurement at 94% of the band — the SAME hair trigger under a new
+// name. Re-reviewed and corrected to match the BST-1176 precedent (~150
+// headroom): both bounds move +150 from the ORIGINAL post-raise values
+// (10246 → 10396, 9946 → 10096), width 300 unchanged, putting the unchanged
+// 10246 measurement at the band's MIDPOINT.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_396;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_096;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -477,6 +544,12 @@ describe('desktop native tool provider prompt budget', () => {
     if (!manageCanvasProviderTool) {
       throw new Error('manageCanvas provider definition is missing');
     }
+    const manageWorktreeProviderTool = eagerProviderTools.find((tool) =>
+      tool.function.name.includes('manageWorktree')
+    );
+    if (!manageWorktreeProviderTool) {
+      throw new Error('manageWorktree provider definition is missing');
+    }
     for (const tool of sessionProviderTools) {
       const properties = asRecord(asRecord(tool.function.parameters)?.['properties']);
       expect(
@@ -495,12 +568,21 @@ describe('desktop native tool provider prompt budget', () => {
     const criticalDefinitionTokens = countO200kTokens(JSON.stringify(criticalProviderTools));
     // BST-1176: +400/+400 with the three browser-pane tools (measured 8977;
     // ~150 headroom, width 300 — same doctrine as the authored pair above).
+    // BST-1392: +347/+347 for the two worktree tools (measured 9490; width 300).
+    // HEADROOM RESTORATION (review round, same day): that raise landed
+    // measured EXACTLY at the new MAX (9490/9490) — zero headroom, same
+    // hair-trigger failure mode as the authored band above. A first attempt
+    // moved both bounds by only +18, leaving the measurement at 94% of the
+    // band; re-reviewed and corrected to the BST-1176 precedent (~150
+    // headroom): both bounds move +150 from the ORIGINAL post-raise values
+    // (9490 → 9640, 9190 → 9340), width 300 unchanged, putting the unchanged
+    // 9490 measurement at the band's MIDPOINT.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8843);
+    ).toBeGreaterThanOrEqual(9340);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      9143
+      9640
     );
     expect(
       criticalDefinitionTokens,
@@ -514,6 +596,7 @@ describe('desktop native tool provider prompt budget', () => {
       criticalToolCount: criticalProviderTools.length,
       eagerToolCount: eagerProviderTools.length,
       manageCanvasDefinitionTokens: countO200kTokens(JSON.stringify(manageCanvasProviderTool)),
+      manageWorktreeDefinitionTokens: countO200kTokens(JSON.stringify(manageWorktreeProviderTool)),
       queryDiagnosticsDefinitionTokens: countO200kTokens(
         JSON.stringify(queryDiagnosticsProviderTool)
       ),
@@ -552,12 +635,13 @@ describe('desktop native tool provider prompt budget', () => {
       // Recorded aggregates after BST-1173: eager 8593, critical
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
-      eagerToolCount: 37,
+      eagerToolCount: 39,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns
       // summaries, never content. Both are deliberate hardening spends.
       manageCanvasDefinitionTokens: 234,
+      manageWorktreeDefinitionTokens: 278,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
@@ -566,7 +650,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 9,130-9,430 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 10,096-10,396 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
@@ -651,7 +735,10 @@ describe('desktop native tool provider prompt budget', () => {
       const skillToolIds = new Set(Object.keys(createAssistantSkillTools(workspaceSkills)));
       const expectedCoreIds = Object.entries(NATIVE_TOOL_DEFAULTS)
         .filter(
-          ([toolId, metadata]) => metadata.loadingTier === 'critical' || skillToolIds.has(toolId)
+          ([toolId, metadata]) =>
+            metadata.loadingTier === 'critical' ||
+            skillToolIds.has(toolId) ||
+            toolId === NATIVE_TOOL_ID.readToolOutputArtifact
         )
         .map(([toolId]) => toolId)
         .sort();

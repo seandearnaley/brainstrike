@@ -8,15 +8,21 @@ import test from 'node:test';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
   captureChildSpawnError,
+  cleanupAgentDebugSession,
   cleanupChildAndProfile,
   createAgentDevtoolsProfile,
   createMacAgentDebugElectronDist,
+  createWindowsPnpmShimEnvironment,
   formatMcpConfig,
+  getAgentDebugPnpmPreflightCommands,
   initializeWindowsJob,
+  markWindowsPnpmShimManaged,
+  PNPM_SHIM_PREFIX,
   parsePort,
   readProfileOwnerMarker,
   removeUserDataDir,
   reportSweep,
+  resolveAgentDebugEndpointTimeoutMs,
   resolveEndpoint,
   resolvePnpmInvocation,
   resolvePnpmSpawnOptions,
@@ -29,6 +35,12 @@ import {
   waitForEndpointOrChildExit,
   writeProfileOwnerMarker,
 } from '../start-agent-devtools-session.mjs';
+
+test('allows a bounded Windows cold start without delaying failures on other platforms', () => {
+  assert.equal(resolveAgentDebugEndpointTimeoutMs('win32'), 90_000);
+  assert.equal(resolveAgentDebugEndpointTimeoutMs('darwin'), 30_000);
+  assert.equal(resolveAgentDebugEndpointTimeoutMs('linux'), 30_000);
+});
 
 const INFO_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
@@ -92,6 +104,65 @@ test('re-enters the active pnpm CLI without a Windows command shim', () => {
       command: 'C:\\tools\\node.exe',
     }
   );
+});
+
+test('pins Windows pnpm descendants to the validated Node and pnpm entrypoint', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-pnpm-test-'));
+  let requestedPrefix;
+
+  try {
+    const shim = await createWindowsPnpmShimEnvironment({
+      env: { Path: 'C:\\global-tools' },
+      invocation: {
+        argsPrefix: ['C:\\active corepack\\pnpm.cjs'],
+        command: 'C:\\active node\\node.exe',
+      },
+      makeTempDir: async (prefix) => {
+        requestedPrefix = prefix;
+        return root;
+      },
+      platform: 'win32',
+    });
+
+    assert.equal(path.basename(requestedPrefix), 'brainstrike-agent-pnpm-');
+    assert.equal(path.basename(requestedPrefix).startsWith('brainstrike-agent-devtools-'), false);
+    assert.equal(shim.env.Path, `${root};C:\\global-tools`);
+    assert.equal(
+      await readFile(path.join(root, 'pnpm.cmd'), 'utf8'),
+      '@echo off\r\nsetlocal DisableDelayedExpansion\r\n"C:\\active node\\node.exe" "C:\\active corepack\\pnpm.cjs" %*\r\n'
+    );
+    assert.equal('BRAINSTRIKE_AGENT_DEBUG_NODE' in shim.env, false);
+    assert.equal('BRAINSTRIKE_AGENT_DEBUG_PNPM' in shim.env, false);
+    assert.equal(shim.directory, root);
+    const preflightMarker = await readProfileOwnerMarker(root);
+    assert.equal(preflightMarker.pid, process.pid);
+    assert.equal(preflightMarker.platform, 'win32-unmanaged-preflight');
+
+    await markWindowsPnpmShimManaged(root, 'win32');
+    assert.equal((await readProfileOwnerMarker(root)).platform, 'win32');
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('rejects unsafe Windows batch paths before allocating a shim directory', async () => {
+  let makeTempDirCalled = false;
+
+  await assert.rejects(
+    createWindowsPnpmShimEnvironment({
+      invocation: {
+        argsPrefix: ['C:\\active corepack\\pnpm.cjs'],
+        command: 'C:\\unsafe"node\\node.exe',
+      },
+      makeTempDir: async () => {
+        makeTempDirCalled = true;
+        return 'C:\\unexpected';
+      },
+      platform: 'win32',
+    }),
+    /cannot contain quotes or newlines/
+  );
+  assert.equal(makeTempDirCalled, false);
 });
 
 test('uses Windows path semantics for a Windows pnpm entrypoint on every test host', () => {
@@ -184,6 +255,13 @@ test('runs the dependency preflight through the resolved pnpm invocation', () =>
   assert.deepEqual(received.args, ['C:\\tools\\pnpm.cjs', 'run', 'predev']);
   assert.deepEqual(received.options.env, { MARKER: 'value' });
   assert.equal(received.options.stdio, 'inherit');
+});
+
+test('provisions Electron before the launcher starts its bounded CDP readiness wait', () => {
+  assert.deepEqual(getAgentDebugPnpmPreflightCommands(), [
+    ['run', 'predev'],
+    ['exec', 'install-electron'],
+  ]);
 });
 
 test('surfaces a dependency preflight failure before runtime startup', () => {
@@ -538,6 +616,25 @@ test('cleanupChildAndProfile surfaces profile removal failures', async () => {
   }
 });
 
+test('signal cleanup still removes the pnpm shim when profile cleanup fails', async () => {
+  const profileError = new Error('profile removal failed');
+  let shimCleanupCalled = false;
+
+  await assert.rejects(
+    cleanupAgentDebugSession({ exitCode: 0, pid: null, signalCode: null }, 'C:\\agent-profile', {
+      afterCleanup: async () => {
+        shimCleanupCalled = true;
+      },
+      platform: 'linux',
+      removeUserDataDir: async () => {
+        throw profileError;
+      },
+    }),
+    (error) => error === profileError
+  );
+  assert.equal(shimCleanupCalled, true);
+});
+
 test('removeUserDataDir removes a real profile tree, directories included', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-agent-debug-rm-test-'));
   const profile = path.join(root, 'profile');
@@ -687,6 +784,73 @@ test('sweepStaleProfiles reclaims a sibling profile whose owning launcher is gon
   } finally {
     await rm(temp, { force: true, recursive: true });
   }
+});
+
+test('sweepStaleProfiles can reclaim interrupted Windows pnpm shims without touching profiles', async () => {
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-devtools-dead01': 4242,
+    'brainstrike-agent-pnpm-dead01': { pgid: null, pid: 4243, platform: 'win32' },
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      prefix: PNPM_SHIM_PREFIX,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, [profiles['brainstrike-agent-pnpm-dead01']]);
+    await assert.rejects(stat(profiles['brainstrike-agent-pnpm-dead01']), { code: 'ENOENT' });
+    await stat(profiles['brainstrike-agent-devtools-dead01']);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('sweepStaleProfiles preserves a shim abandoned while an unmanaged preflight may live', async () => {
+  const { temp, profiles } = await createSiblingProfiles({
+    'brainstrike-agent-pnpm-preflight': {
+      pgid: null,
+      pid: 4243,
+      platform: 'win32-unmanaged-preflight',
+    },
+  });
+
+  try {
+    const result = await sweepStaleProfiles({
+      isOwnerAlive: () => false,
+      prefix: PNPM_SHIM_PREFIX,
+      tempDirectory: temp,
+    });
+
+    assert.deepEqual(result.removed, []);
+    assert.deepEqual(result.legacy, [profiles['brainstrike-agent-pnpm-preflight']]);
+    await stat(profiles['brainstrike-agent-pnpm-preflight']);
+  } finally {
+    await rm(temp, { force: true, recursive: true });
+  }
+});
+
+test('reportSweep uses the requested pnpm shim label and listing prefix', () => {
+  const lines = [];
+  reportSweep(
+    {
+      failed: [],
+      legacy: Array.from({ length: 11 }, (_, index) => `/tmp/${PNPM_SHIM_PREFIX}${index}`),
+      removed: ['/tmp/removed'],
+      scanError: null,
+      skippedLive: [],
+    },
+    (line) => lines.push(line),
+    (line) => lines.push(line),
+    { prefix: PNPM_SHIM_PREFIX, resourceName: 'pnpm shim' }
+  );
+
+  const report = lines.join('\n');
+  assert.match(report, /reclaimed 1 abandoned pnpm shim\(s\)/);
+  assert.match(report, /found 11 pnpm shim\(s\)/);
+  assert.match(report, /brainstrike-agent-pnpm-\*/);
+  assert.doesNotMatch(report, /brainstrike-agent-devtools-\*/);
 });
 
 test('sweepStaleProfiles never removes a concurrent session, however old it is', async () => {

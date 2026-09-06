@@ -13,6 +13,8 @@ import {
   persistDesktopChildRunUsage,
   persistDesktopToolCallTelemetry,
 } from '../../assistant-server/run-persistence';
+import { DbHostRequestTimeoutError } from '../../db-host-manager';
+import { resetDesktopDatabaseWorkSchedulerForTests } from '../../platform/desktop-database-work';
 
 // File-local double — the pre-split suite shared one across every describe.
 const mockDesktopDatabase = {
@@ -20,6 +22,7 @@ const mockDesktopDatabase = {
 };
 
 beforeEach(() => {
+  resetDesktopDatabaseWorkSchedulerForTests();
   mockDesktopDatabase.query.mockReset();
   mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
 });
@@ -71,6 +74,82 @@ describe('run-event persistence tap transience', () => {
       .flat();
     expect(persistedValues).not.toContain(1234);
     expect(persistedValues).toContain('run.finished');
+  });
+
+  it('upserts one event with retry evidence when the timed-out insert later completes', async () => {
+    const persistedEvents = new Map<string, string | null>();
+    let completeTimedOutInsert!: () => void;
+    const timedOutInsertCompletion = new Promise<void>((resolve) => {
+      completeTimedOutInsert = resolve;
+    });
+    const timeout = new DbHostRequestTimeoutError({
+      pendingCount: 2,
+      requestKind: 'query',
+      timeoutMs: 30_000,
+      willTerminateHost: false,
+    });
+    mockDesktopDatabase.query.mockImplementation(async (sql, params) => {
+      if (!sql.includes('INSERT INTO brainstrike_assistant_run_events')) {
+        return { rows: [] };
+      }
+      const eventId = params?.[0];
+      const metadata = params?.[7];
+      if (typeof eventId !== 'string') {
+        throw new Error('Expected a run-event id.');
+      }
+      if (mockDesktopDatabase.query.mock.calls.length === 1) {
+        void timedOutInsertCompletion.then(() => {
+          persistedEvents.set(eventId, typeof metadata === 'string' ? metadata : null);
+        });
+        throw timeout;
+      }
+      await timedOutInsertCompletion;
+      persistedEvents.set(eventId, typeof metadata === 'string' ? metadata : null);
+      return { rows: [] };
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield {
+        event: {
+          id: 'event-idempotent-retry',
+          kind: 'run.step.started',
+          label: 'Step started',
+          metadata: { authorization: 'must-not-persist' },
+          status: 'running',
+          timestamp: '2026-08-25T00:00:00.000Z',
+        },
+        type: 'run-event',
+      } as StreamChunk;
+    }
+
+    const drain = async (): Promise<void> => {
+      for await (const _chunk of observeDesktopAssistantRunEvents(
+        source(),
+        'run-idempotent-retry',
+        [],
+        async () => mockDesktopDatabase
+      )) {
+        // Drain the persistence tap so its ordered queue flushes.
+      }
+    };
+    const drainPromise = drain();
+    await vi.waitFor(() => expect(mockDesktopDatabase.query).toHaveBeenCalledTimes(2));
+    expect(persistedEvents.size).toBe(0);
+    completeTimedOutInsert();
+    await drainPromise;
+
+    expect(mockDesktopDatabase.query).toHaveBeenCalledTimes(2);
+    expect(mockDesktopDatabase.query.mock.calls[0]?.[1]?.[0]).toBe('event-idempotent-retry');
+    expect(mockDesktopDatabase.query.mock.calls[1]?.[1]?.[0]).toBe('event-idempotent-retry');
+    expect(persistedEvents.size).toBe(1);
+    const persistedMetadata = JSON.parse(persistedEvents.get('event-idempotent-retry') ?? '{}');
+    expect(persistedMetadata).not.toHaveProperty('authorization');
+    expect(persistedMetadata).toMatchObject({
+      databaseRetry: {
+        attempt: 2,
+        reason: 'host-saturated-timeout',
+      },
+    });
   });
 });
 

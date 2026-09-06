@@ -806,7 +806,7 @@ describe('useAssistantRequestLifecycle', () => {
       expect(prepared['permissionPolicyRequest']).toBeUndefined();
     });
 
-    it('a fresh enforce=OFF drops a stale snapshot inherited from requestData (presence-means-on)', async () => {
+    it('a fresh enforce=OFF drops a stale snapshot inherited from requestData', async () => {
       usePermissionPolicyStore.getState().setEnforce(false);
       const repository = createRepositoryStub({
         createThreadRun: vi.fn(async (input) => ({
@@ -841,6 +841,61 @@ describe('useAssistantRequestLifecycle', () => {
       const prepared = await act(async () => result.current.prepareRequestData());
 
       expect(prepared['permissionPolicyRequest']).toBeUndefined();
+    });
+
+    it('leaves the opt-in keys PRESENT with undefined values, dropped only by JSON', async () => {
+      // This producer is NOT presence-means-on: an off posture is an explicit
+      // `undefined`, so the key is here and only the JSON boundary removes it.
+      // Rationale on the field declaration in `packages/agent/src/types.ts`.
+      // `planMode` is written the same way and is pinned here too, so neither
+      // comment can go stale unnoticed.
+      //
+      // Both fields are driven to their off posture through the LIVE store
+      // (not the availability gate), which is the path the producer's
+      // fresh-read comments actually defend.
+      usePermissionPolicyStore.getState().setEnforce(false);
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-wire-shape',
+          status: 'running',
+        })),
+      });
+
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: true,
+          planModeAvailable: true,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect('permissionPolicyRequest' in prepared).toBe(true);
+      expect(prepared['permissionPolicyRequest']).toBeUndefined();
+      expect('planMode' in prepared).toBe(true);
+      expect(prepared['planMode']).toBeUndefined();
+
+      // Serializing is what actually removes the keys, so assert on the parsed
+      // payload — a substring check over the raw JSON would false-fail if any
+      // value ever contained these names. `structuredClone` is NOT a substitute
+      // for the round trip: it preserves undefined-valued keys.
+      const wirePayload = JSON.stringify(prepared);
+      const overTheWire = JSON.parse(wirePayload) as Record<string, unknown>;
+
+      expect('permissionPolicyRequest' in overTheWire).toBe(false);
+      expect('planMode' in overTheWire).toBe(false);
     });
   });
 });

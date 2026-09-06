@@ -9,7 +9,7 @@
 
 import type { StorageAdapter } from '@brainstrike/storage';
 import { MemoryStorageAdapter } from '@brainstrike/storage'; // Import MemoryStorageAdapter
-import type { FileExplorerState } from '@brainstrike/types';
+import type { FileExplorerState, PersistenceRecoveryNotice } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import { setupHMR } from '@brainstrike/utils/hmr-utils';
 import type { StateCreator } from 'zustand';
@@ -17,7 +17,7 @@ import { persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createActiveRootActions } from './actions/active-root-actions';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
-import { createFileContentActions } from './actions/file-content-actions';
+import { createFileContentActions, createFileContentCache } from './actions/file-content-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';
 import { createFolderStateActions } from './actions/folder-state-actions';
 import { createSelectionModelActions } from './actions/selection-model-actions';
@@ -29,6 +29,10 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
   set,
   get
 ) => {
+  // The volatile LRU is part of this store's runtime state. Creating it inside
+  // the StateCreator invocation gives every bound/vanilla store one cache and
+  // prevents retired providers from mutating a replacement store's reads.
+  const fileContentCache = createFileContentCache();
   const initialData = {
     // Initial state properties from DEFAULT_STATE
     ...DEFAULT_STATE,
@@ -43,6 +47,8 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     isAccessLoading: false,
     // Ensure lastActiveTab is explicitly set from DEFAULT_STATE or provide default
     lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
+    // Ephemeral recovery signal (not persisted)
+    persistenceRecoveryNotice: null,
     quickFilter: '',
     rootDescriptors: {} as FileExplorerState['rootDescriptors'],
     selectedFilePaths: new Set<string>(),
@@ -53,11 +59,27 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createFileSelectionActions(set, get),
     ...createDirectoryExpansionActions(set, get),
     ...createSettingsActions(set, get),
-    ...createFileContentActions(set, get),
+    ...createFileContentActions(set, get, fileContentCache),
     ...createSelectionModelActions(set),
     ...createActiveRootActions(set, get),
     clearQuickFilter: () => {
       set({ quickFilter: '' });
+    },
+    consumePersistenceRecoveryNotice: () => {
+      let consumed = false;
+      set((state) => {
+        if (state.persistenceRecoveryNotice === null) {
+          return state;
+        }
+        consumed = true;
+        return { persistenceRecoveryNotice: null };
+      });
+      return consumed;
+    },
+    reportPersistedStateDiscard: (
+      notice: PersistenceRecoveryNotice = 'persisted-state-discarded'
+    ) => {
+      set({ persistenceRecoveryNotice: notice });
     },
     setDevInlineFixtureEnabled: (value: boolean) => {
       set({ devInlineFixtureEnabled: value });
@@ -125,7 +147,7 @@ if (typeof localStorage === 'undefined') {
 
 const STORE_KEY = '__brainstrike_file_explorer_store__' as const;
 const STORE_BRAND = '__brainstrike_store_brand__';
-const STORE_VERSION = 1 as const;
+const STORE_VERSION = 2 as const;
 const g = globalThis as unknown as Record<string, unknown>;
 // Derive from createFileExplorerStore (which applies the persist middleware) so the
 // exported store type carries the persist mutator augmentation (e.g. `.persist`).

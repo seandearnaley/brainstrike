@@ -54,6 +54,102 @@ collection, terminalizing the handle for every listener. 0.5.5 fixes the shadow
 (`(cb) => cb !== callback`), so a handle with other listeners now stays live.
 Nothing in this repo subscribes twice to one handle, so that fix is inert here.
 
+## DESKTOP LIVE-QUERY MEMORY TEST DIAGNOSTICS
+
+BST-438's memory regression lane observes live-query ownership without widening
+the production renderer bridge or changing cache lifetime. The database demo
+installs `__brainstrikeDatabaseDemoTestHooks__.getMemorySnapshot` only when the
+desktop lifecycle bridge reports test mode. Its bounded snapshot contains the
+active collection ID, at most 100 currently visible record IDs, cardinalities
+for the existing collection/page caches, and the query-telemetry live
+subscription/update counts. It also reports an opaque generation ledger for the
+actual mapped `records` array identities. The ledger keeps at most 256
+`WeakRef`s, numeric generation IDs, the current/alive/collected counts, and a
+visible dropped-generation count. It never holds a strong reference to a result
+array or exposes a row. An empty result clears both the current generation and
+last-identity reference; a later return of the same array object is therefore a
+new generation. Missing `WeakRef` support in explicit test mode throws, and
+dropping a ledger entry is observable rather than silent. Outside test mode the
+hook and tracker are absent. The snapshot must never include SQL, parameters,
+content, paths, or complete result arrays.
+
+The remote ownership snapshot is also test-only and counts the same live query
+at each retaining layer. The DB-host `diagnostics` response carries its internal
+`activeLiveQueryCount`; `DbHostManager.getDiagnostics()` deliberately strips
+that field from the normal diagnostics IPC result. In explicit test mode,
+`getLiveQueryDiagnosticsForTests()` reports the DB-host map and manager proxy
+map counts. Database IPC registration installs the main-process
+`__brainstrike_e2e_db_live_query_diagnostics__` function only in that mode,
+adds the renderer-owner map count, and removes the function when those handlers
+unregister. Missing test mode or a missing diagnostic function throws; it must
+not return a fabricated zero.
+
+The visible renderer telemetry count is realm-local, while the IPC, manager,
+and host diagnostics aggregate their process-wide ownership maps across
+renderer owners. Reloading the visible renderer preserves its `WebContents`,
+so main-process ownership must be reaped by the live-query owner reaper, not
+only on `'destroyed'`: `db:live-query:start` attaches teardown listeners for
+all three shapes (`'destroyed'`, `'render-process-gone'`, `'did-navigate'`),
+and any firing removes all three listeners, bumps a per-owner generation, and
+cleans up every subscription that owner holds — mirroring the fs-watch owner
+reaper (`attachOwnerReaper` in `file-system-watch-ipc.ts`). A start whose
+`createLiveQueryHandle` await straddles a reap observes the generation change
+and tears its fresh handle down instead of registering an orphan. Reloads are
+therefore idempotent for the main-side counts: the mutation regression
+performs a second reload + panel mount after the pre-warm capture and requires
+all three main-side counts to return to the pre-warm values exactly, gated on
+the renderer-local count so the transient window before the fresh page
+re-registers cannot pass. The regression then captures each layer before
+selecting a collection and asserts the same exact **+5** delta thereafter: the
+three database-demo queries (`file-records`, total, and collection counts) plus
+the active-set queue-count and coverage queries mounted by
+`useEmbeddingControls`. That computed object is rechecked after every warm and
+switch window and after the final insert and delete; absolute counts are never
+hardcoded.
+
+Memory release means superseded result arrays and live-query handles stop
+accumulating. It does **not** mean evicting inactive database-demo pages: that
+surface intentionally retains one page per visited collection for fast
+revisits. The three-collection regression therefore captures an empty pre-warm
+cache, warms A/B/C, and requires every chunk-page, collection-count,
+record-page, record-total, and loaded-page cache to contain exactly three keyed
+entries throughout repeated switching. It also mutates the final collection
+after switching and requires both the inserted and deleted state, proving the
+remaining current subscription is live rather than merely bounded. The
+mutation regression separately commits 100 alternating inserts/deletes and
+requires each current result before continuing.
+
+Forced collection must remove the mutation baseline and midpoint generations,
+leave the current generation alive, collect at least 97 of at least 101 tracked
+arrays, and leave at most four alive. The switching test must remove all three
+warm generations, leave the current generation alive, collect at least 30 of at
+least 35 tracked arrays, and leave at most eight alive (CI-calibrated: the
+first ubuntu memory-baseline dispatch held 7, local runs hold 5). Both require
+zero dropped
+ledger entries. These identity assertions are the primary retained-result
+proof; renderer heap and visible-renderer working set are independent physical
+pressure bounds, not substitutes for collection evidence.
+
+Renderer heap assertions require real forced collection AND real heap reads.
+The desktop E2E launcher passes `--js-flags=--expose-gc` plus
+`--enable-precise-memory-info` (without the latter,
+`performance.memory.usedJSHeapSize` is quantized and cached for 20 minutes, so
+every in-test heap delta reads as exactly `0.0`), and
+`forceRendererGarbageCollection` throws when `window.gc` is unavailable; a
+silent no-op would make the retained-heap result meaningless. Both regressions
+live in `apps/desktop/e2e/database-live-query-memory.desktop.test.ts` and are
+explicitly selected by the `memory-baseline` branch of
+`.github/workflows/desktop-e2e.yml`; nightly `full` runs include the file too,
+and both branches are pinned by
+`scripts/__tests__/desktop-memory-dispatch-contract.test.mjs`. Paired unit/contract coverage lives in
+`packages/db-explorer/src/__tests__/database-demo-panel.test.tsx`,
+`packages/db-explorer/src/hooks/__tests__/use-database-demo-test-hook.test.ts`,
+`packages/db-explorer/src/__tests__/use-database-demo-data.test.ts`,
+`apps/desktop/src/__tests__/main/db-host-entry.test.ts`,
+`apps/desktop/src/__tests__/main/db-host-manager.test.ts`,
+`apps/desktop/src/__tests__/ipc-domains/db-ipc.test.ts`, and
+`apps/desktop/src/__tests__/desktop-e2e-harness-contract.test.ts`.
+
 The collector latches retention-clock failure per instance, logs the first
 producer failure, stops timer-driven publication, and
 publishes a stable explicit failed snapshot to `useSyncExternalStore` reads.
@@ -85,6 +181,12 @@ consumers must be sized for bounded progress rather than a fixed completion
 deadline. This keeps embedding claims, completion writes, and background
 indexing live under continuous foreground polling without turning the
 background lane into an equal-priority queue.
+
+Run-scoped assistant operations enter this SAME scheduler as `foreground`; they own no second policy.
+Transient saturation requires another pending request or one abandoned within its preceding request-timeout window.
+An abandonment surviving another full window marks the host wedged until a host response proves forward progress; transaction timeouts terminate the host.
+Neither is retryable. Eligible idempotent work may retry once with warning plus durable evidence; exhaustion surfaces the typed
+`DbHostRequestTimeoutError`. The retry is another foreground admission, so the 250 ms starvation bound and required foreground/normal turn remain authoritative.
 
 The windows are configurable through `backgroundStarvationMs` and
 `foregroundQuietMs` for deterministic tests and specialized hosts. The
@@ -119,20 +221,34 @@ duration is unbounded.
 
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
-Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.
+Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static catalog is NOT enough — the in-app model picker is driven by a DB-backed catalog.
 
 When changing the model catalog:
-1. Update the static registry (single source of truth):
-   - packages/assistant-contract/src/provider-registry.ts
-   - Keep `PROVIDER_DEFINITIONS` as an array literal, each provider entry as an object literal, each provider's `models` property as an array literal, and each model entry as an object literal. `scripts/model-catalog-migration-contract.mjs` AST-parses those structural nodes; scalar provider/model fields may reference resolvable string constants.
-2. Add a numbered DB migration that upserts/deletes catalog rows, and register it in BOTH:
-   - packages/db/src/migrations/index.ts (numbered MigrationRunner — used by tests)
-   - the `customMigrations` ledger in packages/db/src/drizzle/migrate.ts (used by the real app)
-   - Registering in only one means tests pass but existing users never see the change.
+1. Update the static provider catalog (single source of truth):
+   - packages/assistant-contract/src/provider-catalog.json
+   - The catalog is DATA (BST-1650), not a TypeScript literal. `scripts/model-catalog-migration-contract.mjs` and `scripts/__tests__/provider-env-keys-mirror-contract.test.mjs` read it with `JSON.parse`; the earlier requirement to keep `PROVIDER_DEFINITIONS` AST-parseable (BST-1143) is retired, and no catalog field may reference a constant, because JSON cannot. Comments moved to optional `_note` strings, which `parseProviderCatalog` strips before any consumer sees a definition.
+   - Because JSON widens under `resolveJsonModule`, `tsc` no longer checks catalog rows: `packages/assistant-contract/src/provider-catalog-schema.ts` does, at module load, and THROWS. It is a `strictObject` schema, so an unknown or misspelled key fails rather than being dropped. `provider-catalog-schema.test.ts` pins the schema against the `ProviderDefinition` / `LlmModelDefinition` / `EmbeddingModelDefinition` interfaces in BOTH directions, so schema-vs-type drift is a type-check failure.
+   - `packages/assistant-contract/src/provider-registry.ts` keeps the types and the accessors — it no longer carries a single row, so a new field must be added to the schema AND the interface in the same change (data ownership and the schema/type synchronisation invariant: docs/agents/assistant-providers.md, "Provider catalog data ownership"). A catalog-only edit still re-hashes the package and everything downstream of it — Turbo hashes JSON inputs exactly like `.ts` inputs (measured in BST-1650). The move buys reviewability and script access, NOT build time.
+2. Add a numbered DB migration that upserts/deletes catalog rows with a `ledgerKey`, and add it to `packages/db/src/migrations/index.ts`; the Drizzle ledger is derived.
+   - For pure ADDITIONS, generate it: `node scripts/gen-model-catalog-migration.mjs` prints the plan and `--write` emits the numbered file and registers it in the manifest (BST-1650). It derives only what the catalog carries — id, provider, name from `label`, `capabilities` from `type`/`supportsStreaming`/`vision`/`defaultDimension` — appends `sort_order` in SQL at apply time, seeds `is_enabled` false, and writes the `is_enabled = models.is_enabled` upsert. `tagline` and `best_for` are left NULL for a human to author per rule 7; the generator never copies the registry's composer tagline into them.
+   - It is ADD-ONLY and refuses to run when a catalog row disappeared, because a removal needs the rule-4 remap decisions and a user-visible notice (BST-565) first. An entire provider leaving the catalog is that same removal, not residue: the generator and the contract checker share `isHistoricalCatalogResidue`, whose only exemptions are the pre-021 `transformers` rows (migration 021 renamed that provider with an `UPDATE` the operation extractor does not model) and the checker's `STATIC_CATALOG_STALE_ROW_ALLOWLIST`, so the two tools can never disagree about which rows are reconstruction residue.
+   - It also refuses a catalog row that reuses an id the DB catalog already holds under a different provider or type — `models.id` is the upsert's conflict target, so the generated migration would overwrite a live row going up and DELETE a pre-existing one going down — and refuses a model whose `vision`, `supportsStreaming` or `defaultDimension` is missing rather than guessing a capability. `scripts/__tests__/gen-model-catalog-migration.test.mjs` feeds a generated migration back through the contract checker.
+   - `ledgerKey` is the persisted `__drizzle_migrations.hash` and must never change once shipped.
+   - `packages/db/src/drizzle/migrate.ts` derives `customMigrations` from the numbered manifest, excluding 001–014, 016–019, 029, and 031 folded into the immutable drizzle-kit snapshot. Migration 008 remains numbered-only (ADR-0002).
+   - Unfolded migrations must have SQL-string `up`; derivation throws for callbacks. Folded callbacks remain numbered-runner-only.
+   - Paired tests: `packages/db/__tests__/drizzle-ledger-keys.test.ts` freezes the 95 shipped keys and verifies old-ledger startup applies nothing; `drizzle-migration-manifest.test.ts` proves automatic registration and fail-closed callback rejection. `scripts/__tests__/model-catalog-migration-contract.test.mjs` preserves the numbered-registration guard.
 3. Preserve user choices on kept rows with `ON CONFLICT (id) DO UPDATE SET ... is_enabled = models.is_enabled`.
    - INVARIANT: never use `is_enabled = EXCLUDED.is_enabled` for a catalog refresh — it clobbers the user's toggle. Force on/off only for a deliberate (e.g. security) swap.
 4. Remap dropped IDs in the preference stores so persisted selections don't dangle:
    - MODEL_ID_MIGRATIONS in packages/app-state/src/stores/assistant-model-id-migrations.ts (bump `ASSISTANT_PREFERENCES_STORE_VERSION` in `assistant-preferences-store-version.ts`)
+   - A remap that changes the user's SELECTED model is not silent: the
+     persist migration records it in session-only `modelMigrationNotices`
+     and `useModelMigrationNotices` (mounted once in app-shell's `AppLayout`)
+     takes-and-clears it into one toast (BST-565 — an OpenRouter Pro → Flash
+     swap is a capability downgrade the user must see). Retired defaults under
+     providers the user is not running on, and enabled-list-only remaps, stay
+     quiet: `modelsByProvider` is seeded for every provider and is not
+     evidence of intent.
    - MEMORY_MODEL_TARGET_MIGRATIONS in packages/app-state/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
    - The guard canonicalizes discovered migration identifiers with
      `path.posix.join` so diagnostics and downstream checks are platform-neutral.
@@ -141,8 +257,10 @@ When changing the model catalog:
      as new remap obligations.
 5. Add new `packages/db/__tests__/**/*.test.{ts,tsx}` files without a lane-registry edit. The `unit` Vitest project discovers that tree recursively; required Unit and nightly coverage both supply the complete `DB_TEST_SHARD=1/2` + `2/2` set to that project, where Vitest applies its native shard. The value is a DB-task environment input, never a Turbo CLI passthrough argument. Nightly rejoins Vitest blob reports with `--merge-reports`, so coverage is one native union rather than whichever serial lane wrote last. `scripts/__tests__/db-test-discovery-contract.test.mjs` pins the recursive include, browser exclusion, nested discovery, and a minimum 150-file floor, with mutations proving each assertion can fail. The former regex manifest and its two derived lane scripts were deleted in BST-1046; do not recreate a registration map for test placement.
 6. Every LLM model entry MUST declare `contextWindow` (and `maxOutputTokens` when documented) in
-   packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
-   (no DB migration). It drives the thread context meter and the auto-derived
+   packages/assistant-contract/src/provider-catalog.json — schema-enforced at module load
+   (BST-1650 moved this from a compile error to a `parseProviderCatalog` throw; it still fails
+   closed, and any test that imports the registry surfaces it), static-registry-only (no DB
+   migration). It drives the thread context meter and the auto-derived
    `agentLoop.inputTokenLimit` (see packages/assistant-contract/src/context-budget.ts).
 7. `tagline` on a registry LLM entry is OPTIONAL, registry-only composer copy: it renders as
    the model's one-line description in the composer model menu. The DB catalog's own
@@ -150,11 +268,16 @@ When changing the model catalog:
    sources on purpose (no migration needed for registry tagline changes). Omit rather than
    invent copy: taglineless models render name-only.
 8. Every LLM model entry MUST also declare `vision` ('supported' | 'unsupported'; never
-   'unknown' in the static registry — pinned by provider-registry-vision.test.ts). It gates the
+   'unknown' in the static registry — schema-enforced as above, and pinned by
+   provider-registry-vision.test.ts). It gates the
    composer image-attachment affordance per selected model. Unlike `contextWindow`, this one IS
    mirrored into the DB catalog: new model rows must include `"vision"` in the capabilities
    jsonb (migration 061 backfilled existing rows), and frontier-models-migration.test.ts fails
    if any LLM row is left without a vision value.
+
+The Drizzle runner is the sole production migration authority; the numbered runner is `schema-validation-only`, as enforced by `packages/db/src/architecture/db-migration-authority.ts`.
+
+Three schema differences pre-date BST-1643: Drizzle-only `embedding_cache` (8 columns) and `token_cache` (5 columns), and numbered-only `file_records.embedding`. `packages/db/__tests__/drizzle-migration-parity.integration.test.ts` freezes these in a shrink-only allowlist, requiring equality elsewhere and proving the exceptions still diverge. Reconciling them is separate work: follow-up ticket to be filed.
 
 ### SAFE CATALOG ROLLBACK WITH LIVE USER DATA
 
@@ -179,8 +302,7 @@ Thread group structure and presentation are local-first Brainstrike state in
 owns group color and split flat/grouped rank; migration 059 owns the nullable,
 validated group icon. The repository must reject unsupported color/icon values
 at both read and write boundaries, and every new presentation column must be
-registered in the numbered runner plus Drizzle's append-only
-`customMigrations` ledger.
+added to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
 
 Migration 067 owns the thread hybrid-search index
 (`brainstrike_thread_message_index` + `_search_profiles` + `_search_state`)
@@ -193,15 +315,47 @@ Migration 068 owns complete tool-output artifact storage
 `BYTEA`; callers pass hex text through PostgreSQL `decode` because
 worker/Electron boundaries do not preserve a single JavaScript typed-array
 realm. The table has no Mastra FKs, is scoped by resource/thread/run/tool call,
-expires after seven days, and is explicitly factory-reset-cleared. Register
-every change in both migration runners and keep the migration/repository/reset
+expires after seven days, and is explicitly factory-reset-cleared. Add
+every change to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Keep the migration/repository/reset
 tests paired with the persistence contract in
 `docs/agents/assistant-persistence.md`.
 
+Migration 114 owns the original generation-bound MCP Tasks handles in
+`brainstrike_mcp_tasks`. Migration 115 upgrades that schema in place: it
+backfills one authority epoch per historical generation, retires every older
+generation in a scope, and makes only the highest generation live in
+`brainstrike_mcp_task_authorities`.
+The task identity is configured server, canonical resource, auth principal,
+durable authority epoch, and task id. An authority epoch survives a Desktop
+process restart even though the new host connection generation starts at one;
+an increasing generation inside one runtime retires that epoch and mints a new
+uuidv7 epoch, while a lower same-runtime generation is rejected as stale. Every
+create/update SQL statement requires the exact live epoch/runtime/generation
+lease, so retirement or factory-reset deletion fences late writes. Reset clears
+task rows before their authority parent in all three table-enumerating paths.
+
+The repository bounds transition history at 32 entries and rejects hydration
+when timestamps regress, a terminal status is followed by another entry, or the
+final history status/timestamp disagrees with `status`/`updated_at`. Metadata
+limits are measured through PostgreSQL's canonical `jsonb::text`
+representation; an oversize failure includes that representation's SHA-256 so
+the lifecycle can persist a bounded omission projection without retaining the
+payload. It lists resumable rows only for one exact live authority epoch.
+Migration 115 also adds the bounded blocked diagnostic and is registered after
+114 in `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Both tables are factory-reset
+owned; never edit migration 114 to introduce the authority schema because an
+existing BST-1562 profile must traverse the same upgrade.
+
+A poller that abandons a task after bounded-lifetime or observation-failure
+exhaustion rejects its caller but does not write a blocked diagnostic, so the
+row keeps `terminal_at NULL` and `listActive` returns it to the next
+`recover()`; only the oversize-state path persists the terminal blocked
+diagnostic (BST-1581 verifier scope).
+
 Migration 076 owns terminal provider-forensics storage
 (`brainstrike_assistant_run_errors`) and the hot diagnostic correlation index
-`bst_diagnostic_events_run_idx`. Register it in the numbered runner and the
-append-only Drizzle `customMigrations` ledger. The run-errors table is also
+`bst_diagnostic_events_run_idx`. Add it to `migrations/index.ts` with a `ledgerKey`;
+the Drizzle ledger is derived. The run-errors table is also
 mirrored byte-for-byte in renderer lazy assistant bootstrap because the main
 writer is reached only with a renderer-minted durable run id. It has no FK:
 numbered migrations run without the lazy `brainstrike_assistant_thread_runs`
@@ -215,16 +369,16 @@ thread-deletion cleanup, and all three table-enumerating reset paths. Full
 contract: `docs/agents/assistant-persistence.md` § RUN ERROR PROVIDER
 FORENSICS.
 
-Migration 082 owns the FK-less `brainstrike_canvas_versions` ledger. Register
-it in both the numbered runner and Drizzle's append-only custom ledger, mirror
+Migration 082 owns the FK-less `brainstrike_canvas_versions` ledger. Add it to `migrations/index.ts` with a `ledgerKey`;
+the Drizzle ledger is derived. Mirror
 its DDL in the renderer-lazy assistant bootstrap, and keep thread-delete plus
 factory-reset ownership explicit. A Canvas document is the rows sharing one
 app-side uuidv7 `canvas_id`; greatest `version` is current. Full contract:
 `docs/agents/assistant-persistence.md` § CANVAS DOCUMENT VERSIONS.
 
 Migration 083 owns the FK-less `brainstrike_tool_call_telemetry` ledger for
-durable model-facing per-tool counts and sizes. Register it in both migration
-runners and the reset/thread-delete registries. Mirror its DDL in the renderer-
+durable model-facing per-tool counts and sizes. Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
+Register the table in the reset/thread-delete registries. Mirror its DDL in the renderer-
 lazy assistant bootstrap: although only the migrated desktop main-process
 assistant server writes rows, the renderer repository's thread-delete CTE
 references every registered sidecar unconditionally. Rows contain only thread/
@@ -273,7 +427,7 @@ migration:
   claimed by the still-open BST-1192 PR #2333) adds a dedicated
   `brainstrike_tool_call_telemetry_occurred_at_idx` on `occurred_at` so the
   guard probe and both deletes below are real index scans, not sequential
-  scans of the whole table. Registered in both migration runners and mirrored
+  scans of the whole table. Registered in `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. Mirrored
   in the renderer-lazy assistant bootstrap DDL
   (`packages/assistant-data/src/assistant-memory-repository.ts`), same as 083.
 - Idle passes (`status: 'completed'`) run a full, unbounded-by-count
@@ -318,8 +472,8 @@ model/provider-attributed run-end pair of `estimated_prompt_tokens` and
 the existing `run_id` with `INSERT ... SELECT` rather than trusting a carried
 thread id. Rows contain numbers, ids, model/provider strings, and timestamps
 only—never message content, tool content, prompts, file paths, or command text.
-The table is registered in both migration runners, the shared factory-reset
-registry, and the thread-delete sidecar list. Its DDL is mirrored in the
+The migration is registered in `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
+The table is registered in the shared factory-reset registry and the thread-delete sidecar list. Its DDL is mirrored in the
 renderer-lazy assistant bootstrap because that repository references every
 sidecar unconditionally even though desktop main owns normal writes.
 
@@ -348,7 +502,7 @@ definitions. The next turn's pre-request compaction trigger reads the newest
 thread-scoped calibration row because that baseline is not yet available when
 compaction runs. Historical rows remain NULL rather than receiving fabricated
 prompt evidence. This is an additive FK-less ledger extension registered in
-both migration runners and mirrored in the renderer-lazy bootstrap's fresh
+`migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. It is mirrored in the renderer-lazy bootstrap's fresh
 table shape plus its idempotent `ADD COLUMN IF NOT EXISTS` upgrade seam. It
 inherits the calibration table's existing 60-day retention and
 `occurred_at`-leading maintenance path; no new retention logic or privacy
@@ -374,8 +528,8 @@ path through `parseLensFile`, `coerceLensValues`, and `AgentSqlService.query`.
 
 Migration 084 owns the FK-less
 `brainstrike_assistant_tool_projection_rewrites` overlay used by BST-1192's
-transient stale-read replay processor. Register it in both migration runners,
-the reset registry, all three table-enumerating clear paths, and the shared
+transient stale-read replay processor. Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
+Register the table in the reset registry, all three table-enumerating clear paths, and the shared
 thread-delete sidecar list. Mirror its final schema in renderer lazy
 assistant bootstrap because that repository's delete CTE references every
 sidecar unconditionally even though desktop main owns normal writes. Durable
@@ -391,8 +545,8 @@ Migration 088 owns the FK-less
 `brainstrike_assistant_compaction_ranges` overlay used by BST-1200 Milestone
 2's durable conversation summaries. Persist an exact ordered JSONB set of
 compacted message IDs rather than interpreting opaque client/UUIDv4 message IDs
-as sortable range keys. Register it in both migration runners, the reset
-registry, all three table-enumerating clear paths, and the shared thread-delete
+as sortable range keys. Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
+Register the table in the reset registry, all three table-enumerating clear paths, and the shared thread-delete
 sidecar list. Mirror the final schema in renderer lazy assistant bootstrap for
 the same unconditional thread-delete-CTE reason as migration 084. The overlay
 processor derives liveness from the summary message's presence in Mastra's
@@ -401,8 +555,8 @@ Mastra content nor rewind state is mutated.
 
 Migration 090 widens `brainstrike_assistant_run_usage.run_kind` to admit
 `compaction-summary`, the provider-exact auxiliary summarizer call attributed
-under its parent run. Register the constraint replacement in both migration
-runners and keep the renderer-lazy bootstrap CHECK aligned; adding only the
+under its parent run. Add the constraint replacement to `migrations/index.ts` with a `ledgerKey`;
+the Drizzle ledger is derived. Keep the renderer-lazy bootstrap CHECK aligned; adding only the
 TypeScript union makes real PGlite inserts fail. The numbered migration must
 replace migration 077's existing same-name CHECK and therefore uses
 main-process-only `DROP CONSTRAINT` + `ADD CONSTRAINT`. The renderer-reachable
@@ -413,8 +567,8 @@ renderer schema drops.
 Migration 095 owns the FK-less `brainstrike_assistant_thread_workspaces`
 sidecar (BST-1268): one row per thread (`thread_id` PK) holding that thread's
 saved workspace as a versioned JSONB `payload` (open app/file tabs, editor
-view state, per-root tree expansions, root view). Register it in both
-migration runners, the shared factory-reset registry, and the thread-delete
+view state, per-root tree expansions, root view). Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
+Register the table in the shared factory-reset registry and the thread-delete
 sidecar list, and mirror its DDL in the renderer-lazy assistant bootstrap —
 the renderer coordinator is the sole writer, and the thread-delete CTE
 references every registered sidecar unconditionally. The payload is repaired
@@ -427,6 +581,54 @@ are prohibited. Paired pins:
 (migration↔bootstrap CREATE TABLE shape parity, sidecar-list membership,
 reset-registry membership) plus the pinned counts in
 `packages/db/__tests__/reset-table-registry.test.tsx`.
+
+Migration 110 owns the FK-less `brainstrike_forge_prs` cache (BST-1391): one
+normalized GitHub pull-request observation per realpath'd git common directory
+and branch. Add it to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived.
+Register the table in every table-enumerating factory-reset path. It is not a thread-delete sidecar because pull requests
+outlive individual threads and are shared by threads on the same branch. The
+thread-row PR pill reads it through ONE list-wide, unparameterized PGlite
+live query (`use-forge-pr-cache.ts`) rather than a per-thread lookup, so it
+renders instantly on boot and offline; the composer's live status instead
+reads the capability-gated `window.forge` bridge, which is the only surface
+that needs the transient in-flight/error state this table does not carry.
+
+## MANAGED WORKTREE LEDGER (migration 109, BST-1390)
+
+`brainstrike_worktrees` records every linked git worktree BrainStrike itself
+created (`created_by IN ('agent','user')`), keyed by its `path` (UNIQUE) and
+its realpath'd `repo_common_dir`. It is the authorization source for the ONE
+sanctioned picker-less root mount besides recents (`isManagedWorktreePath` →
+`isAuthorizedWorktreeMountPath`, `worktree-adopt.ts`; a live row must also be
+reachable per adoption's `assertReachable` rule — see
+`docs/agents/workspace-context.md`) and the provenance source the git inventory joins
+to produce `'both'` / `'agent-reported'`. Setup outcomes persist their closed
+status, bounded output, and nullable user-facing reason so later inventory
+reads can explain failed or skipped setup without reconstructing create-time
+state.
+
+Boot-time root reconciliation reads active ledger identities through
+`WorktreeService.listManagedPaths()`, which returns only `{ id, path }` and
+deliberately does not resolve git inventory or workspace-root containment.
+`WorktreeService.list()` remains the full inventory-joined UI surface.
+
+Deliberate omissions, all load-bearing:
+
+- **No `root_id`.** The durable `roots.id` is derived by path from the live
+  `roots` table in `WorktreeService.list`; a stored copy goes stale the moment
+  the folder is disconnected.
+- **No foreign keys, and NOT in `THREAD_DELETE_SIDECAR_TABLES`.** A worktree
+  outlives its thread on purpose — cascading it would orphan a directory of
+  uncommitted work. Thread delete offers "also archive its worktree" instead.
+- **Not part of the assistant memory schema probe.** That probe covers the
+  relations the assistant repository reads or writes — the run tables plus every
+  registered thread-delete sidecar (BST-1651).
+
+Registered in both runners and in `BRAINSTRIKE_RESET_TABLES`. Factory reset
+clears the ROWS; deleting the worktree DIRECTORIES is a separate, explicitly
+confirmed step (see `platform-contracts.md`).
+
+Any migration merged to a long-lived branch counts as shipped and must never be amended in place, because execution on a shared branch cannot be disproven even if no production profile is known to have run it. Corrections must use a new, additive, forward-only migration; `112-worktree-setup-reason.ts` is the concrete example.
 
 ## PGLITE EXTENSION INVARIANT
 
@@ -507,9 +709,28 @@ extension control file" error on that path only:
   migration visibly before BM25 writes begin **on a greenfield database**.
   The production lexical arm
   matches through migration 034's generated tsvector + GIN index and orders
-  those matches with the migration-066 BM25 index. `rankNormalization` remains
-  in the public options type for compatibility but is inert because
-  pg_textsearch owns BM25 normalization. The opt-in qualification test is
+  those matches with the migration-066 BM25 index. BM25 orders but never
+  matches, so recall is bounded by the tsvector arm; the ts_rank-era
+  `rankNormalization` option was removed (BST-908) because pg_textsearch owns
+  BM25 normalization and the knob had become a silent no-op.
+  `__tests__/fts-search-options-contract.test.ts` pins both facts. When that
+  exact English `plain` arm
+  returns zero rows, all three file-chunk repository implementations may run
+  one bounded `pg_trgm` fallback using the index-supported `$query <% content`
+  word-similarity predicate. Websearch and phrase modes remain exact-only so
+  their operators/adjacency are never silently discarded, stopword-only
+  tsqueries remain honestly empty, and `fuzzyFallback: false` gives evaluation
+  callers an explicit opt-out. The fallback pins its session GUC and explicit
+  `fuzzyThreshold` to the same value (default `0.6`), returns
+  `matchKind: 'fuzzy'`, and does not apply the unbounded BM25 `threshold` to the
+  separate 0–1 fuzzy score domain. It reuses every file, root, embedding-set,
+  and selection-snapshot scope assembled for the exact arm. Fuzzy-only rows
+  omit `ts_headline` because the misspelled tsquery has no honest highlight to
+  render. `file-chunk-repository.test.ts` proves typo recall, stopword and mode
+  safety, scope retention, explicit opt-out, score-domain separation, and that
+  `idx_file_chunks_content_trgm` supports the admission operator when sequential
+  scans are disabled; the Electron and Drizzle repository suites pin transport
+  parity. The opt-in qualification test is
   `packages/db/__tests__/pg-textsearch-durability-gate.integration.test.ts`;
   run it from the repository root with
   `pnpm --filter @brainstrike/db test:pg-textsearch-durability`. It submits a
@@ -524,6 +745,37 @@ extension control file" error on that path only:
   update the whole peer-compatible package family, pass repeated gate runs on
   every supported desktop platform, and pass the normal
   migration/repository regression suite.
+
+  Hybrid-search performance evidence is produced by the manual, uncached
+  `pnpm --filter @brainstrike/db bench:hybrid-search` command. Its default
+  10,000-row, 384-dimension real PGlite run compares the complete hybrid service
+  with a vector-only control using the same 50-candidate vector source pool,
+  alternates pair order, samples each topic evenly, excludes warmups, retains
+  raw samples, and fails visibly when hybrid p95 exceeds 500 ms or additional
+  p95 exceeds 100 ms. It bulk-builds HNSW after corpus insertion and perturbs
+  query vectors so none exactly duplicates an indexed row. Plan evidence
+  replays the exact measured repository SQL: natural-planner HNSW selection is
+  required, while the lexical plan is reported honestly rather than forcing or
+  claiming GIN selection. Unit tests pin the deterministic measurement/reporting
+  contract; a small integration test pins real PGlite execution and the forced
+  applicability-plan mode. Retained environment and baseline evidence lives in
+  `docs/performance/hybrid-search-benchmarks.md`.
+  Do not add a query/result cache on benchmark evidence alone: mutable
+  local-first search data needs an explicit invalidation owner before cached
+  answers can be correct.
+
+  Live-query parameter comparison evidence is produced by the manual, uncached
+  `pnpm --filter @brainstrike/db bench:live-query-params` command. It compares
+  the current JSON-key strategy with the exact pre-PR-#728 recursive `deepEqual`
+  snapshot from `a801ed0c8e63be7065d2ff596bfd2a2e0aea8b7d`, vendored in the
+  manual script so production refactors cannot rewrite the baseline. It uses
+  freshly allocated primitive, array, and complex-object params. Both strategies
+  warm in balanced order, their measured order alternates, and the report uses
+  ten-sample medians. The retained baseline and interpretation live in
+  `docs/performance/live-query-parameter-benchmarks.md`; it currently refutes a
+  lower-cost claim for the JSON-key path, so do not describe PR #728 as a
+  measured render-cost improvement or change the default from this isolated
+  microbenchmark alone.
 
   **Recorded exception (BST-1063, 2026-08-01):** the 1.3.1 re-qualification
   above shipped on macOS-arm64-only gate evidence, short of the "every
@@ -561,14 +813,44 @@ extension control file" error on that path only:
   real and sufficient.
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
-Construction sites (keep in sync when adding extensions or new sites):
-- packages/db/src/wasm-loader.ts (cached loaders + HMR reset in `resetExtensionCaches`)
-- packages/db/src/pglite-worker-entry.ts (engine extensions only)
-- packages/db/src/browser-first-run-bootstrap-worker.ts (engine extensions only; the dedicated first-run bootstrap worker — see BROWSER FIRST-RUN FAST BOOTSTRAP)
-- apps/desktop/src/db-main.ts (main-process host; ambient type shims live in apps/desktop/src/types/)
+Construct production and benchmark PGlite instances only via
+`packages/db/src/pglite-factory.ts`; `scripts/__tests__/pglite-factory-contract.test.mjs`
+enforces this ownership. The factory uses `PGlite.create()` to await engine
+readiness and preserve typed client plugin namespaces. `ENGINE_EXTENSIONS`
+is the single engine registry; `CLIENT_EXTENSIONS` contains `live`.
 
-Tests that construct PGlite directly and run migrations must also pass the full
-extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.test.ts).
+- `wasm-loader.ts` keeps its cached dynamic extension loaders and HMR reset only
+  for `createPGliteClient` (the worker client's `live` plugin) and as a fail-fast
+  preload; `createPGlite` constructs through the factory's static imports and
+  caches the creation promise for persistent instances to prevent double-open.
+- `pglite-worker-entry.ts` and `browser-first-run-bootstrap-worker.ts` use
+  `createEnginePglite`; the multi-tab client installs `live`, while the
+  short-lived bootstrap engines have no reactive client.
+- `scripts/benchmark-binary-quantization.ts` uses `createBrainstrikePglite`.
+- `apps/desktop/src/db-main.ts` dynamically imports
+  `@brainstrike/db/pglite-factory`; its caller retains the vector catalog probe,
+  initial sync and failure cleanup. Bare package imports stay external in the
+  main-process build; this subpath imports only PGlite and its extensions.
+  The obsolete core PGlite ambient declaration is removed so the factory options
+  use vendor types. The contract guard has no remaining runtime exceptions.
+
+Paired tests: `packages/db/__tests__/pglite-factory.test.ts` pins registry keys;
+`pglite-factory.integration.test.ts` boots the direct, worker-init and bootstrap
+factories and probes `pg_extension` after explicit extension installation.
+`apps/desktop/src/__tests__/main/db-main.pglite-factory.test.ts` also boots the
+real filesystem-backed desktop factory with full migrations and a live query;
+it simulates the utility parent port and does not qualify an actual Electron
+launch. The scripts contract rejects `any` types and construction suppressions
+in the desktop DB host.
+Loading the extension binaries does not itself execute `CREATE EXTENSION`;
+callers and migrations continue to own that SQL and shutdown/drain behavior.
+The DB unit project already includes real-engine integration files;
+`pnpm --filter @brainstrike/db test:integration` selects every integration file
+from that same project without changing the full unit suite's discovery.
+
+Tests that deliberately construct bare or partial-extension engines remain
+fixtures; migration fixtures must still load the full extension set (see
+`drizzle-migrate.test.ts` / `drizzle-job-queue-compatibility.test.ts`).
 
 ### CLOSING a PGlite: drain first — an overlapping statement wedges it forever
 
@@ -626,17 +908,33 @@ seams, per surface:
   settled before idle but its handle registration lands after the drain's
   snapshot: a sealed `register()` immediately initiates unsubscribe and the
   drain joins those late unsubscribes before returning; a failed reset
-  unseals on barrier release. `DbProvider.resetPGliteState` therefore runs
-  barrier → idle → seal → unsubscribeAll → purge → close, and the prod
-  unmount close joins the in-flight initialization promise plus the same
-  idle → seal → unsubscribeAll drain before `closeDirectConnection`
-  (`connectionRef` is populated before `migrate()`, so unmount-mid-init is
-  otherwise a close under running migration statements). A failed idle join
+  unseals on barrier release. Both orderings now live in ONE React-free
+  module, `packages/db/src/database-runtime.ts` (BST-1653):
+  `createDatabaseRuntime().factoryReset` runs barrier → idle → seal →
+  unsubscribeAll → purge → close, and `dispose()` (the prod unmount close)
+  joins the in-flight initialization promise plus the same
+  `drainDatabaseWorkForClose` before running the closer that
+  `DatabaseTransport.detachConnection()` handed back (the direct transport
+  registers its connection before `migrate()`, so unmount-mid-init is
+  otherwise a close under running migration statements; the EARLIER half of
+  that window — a client that finishes being created after dispose — is
+  covered by `DatabaseTransportOpenContext.isDisposed`). A failed idle join
   aborts/skips the close loudly — never close over a drain you could not
   complete; past the seal the close is committed and unsubscribe failures
-  warn and proceed. Pinned by
-  `packages/db/__tests__/db-reset-drain.test.ts`, the BST-1329 cases in
-  `factory-reset.test.tsx`, and `db-provider-lifecycle.test.tsx`.
+  warn and proceed. A DESKTOP reset never reaches that leg: the main process
+  owns the database, so `electron-ipc-transport.ts` THROWS from both
+  `hardReset()` (when its capability probe fails after the transport was
+  already selected) and `purgeAndClose()` rather than handing the runtime a
+  local purge that would resolve having destroyed nothing — the caller reloads
+  on success, so a fall-through there is a factory reset that silently keeps
+  the profile. Pinned by
+  `packages/db/__tests__/db-reset-drain.test.ts` and
+  `packages/db/__tests__/database-runtime.test.ts` (the invariants, with fake
+  transports and no React) plus
+  `packages/db/__tests__/electron-ipc-transport.test.ts` (the desktop
+  transport's own reset contract, with the real transport);
+  `factory-reset.test.tsx` and `db-provider-lifecycle.test.tsx` stay as the
+  thin mount-level wiring checks.
 
 ### The test snapshot `globalSetup` lives on ONE project — do not hoist it
 
@@ -693,8 +991,8 @@ store:
 
 Layers:
 - Orchestration (probe/marker/lock/recovery):
-  `packages/db/src/browser-first-run-bootstrap.ts`, wired in `db-provider.tsx`'s
-  `initializeDirectPGlite` for `idb://` paths.
+  `packages/db/src/browser-first-run-bootstrap.ts`, wired in
+  `pglite-direct-transport.ts`'s `open()` for `idb://` paths.
 - Pipeline (memory migrate → dump → strict load → flush) over injectable PGlite
   constructors: `browser-first-run-bootstrap-pipeline.ts`.
 - Production execution: a DEDICATED plain worker

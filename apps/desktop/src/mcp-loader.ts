@@ -1,6 +1,16 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import {
+  McpConfigValidationError,
+  type McpProtocolMigration,
+  parseMcpConfigValue,
+  parseMcpServerValue,
+  type ResolvedMcpConfig,
+  type ResolvedMcpServer,
+  type McpConfigInput as SharedMcpConfigInput,
+  type McpServerInput as SharedMcpServerInput,
+} from '@brainstrike/assistant-contract/mcp-config';
 import { createLogger } from '@brainstrike/logging';
 import { app, safeStorage } from 'electron';
 import {
@@ -12,136 +22,10 @@ import {
   parseTree,
   printParseErrorCode,
 } from 'jsonc-parser';
-import { z } from 'zod';
 
-const NonEmptyStringSchema = z
-  .string()
-  .min(1, 'must not be empty')
-  .refine((value) => value.trim().length > 0, 'must not be blank');
-const ServerNameSchema = NonEmptyStringSchema.refine(
-  (value) => value !== '__proto__',
-  'reserved server name'
-);
-const SpawnStringSchema = z
-  .string()
-  .refine((value) => !value.includes('\0'), 'invalid spawn string');
-const NonEmptySpawnStringSchema = NonEmptyStringSchema.refine(
-  (value) => !value.includes('\0'),
-  'invalid spawn string'
-);
-const HttpUrlSchema = z.url({ protocol: /^https?$/u }).refine((value) => {
-  if (!URL.canParse(value)) {
-    return true;
-  }
-  const url = new URL(value);
-  return url.username.length === 0 && url.password.length === 0;
-}, 'must not include credentials');
-const StringRecordSchema = z.record(z.string(), z.string());
-const EnvironmentSchema = StringRecordSchema.superRefine((environment, context) => {
-  for (const [name, value] of Object.entries(environment)) {
-    if (name.length === 0 || name.includes('\0') || name.includes('=')) {
-      context.addIssue({
-        code: 'custom',
-        message: 'invalid environment variable name',
-        path: [name],
-      });
-    }
-    if (value.includes('\0')) {
-      context.addIssue({
-        code: 'custom',
-        message: 'invalid environment variable value',
-        path: [name],
-      });
-    }
-  }
-});
-const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
-  const normalizedNames = new Set<string>();
-  for (const [name, value] of Object.entries(headers)) {
-    try {
-      new Headers([[name, '']]);
-    } catch {
-      context.addIssue({
-        code: 'custom',
-        message: 'invalid HTTP header name',
-        path: [name],
-      });
-      continue;
-    }
-
-    const normalizedName = name.toLowerCase();
-    if (normalizedNames.has(normalizedName)) {
-      context.addIssue({
-        code: 'custom',
-        message: 'duplicate HTTP header name',
-        path: [name],
-      });
-    } else {
-      normalizedNames.add(normalizedName);
-    }
-
-    try {
-      new Headers([[name, value]]);
-    } catch {
-      context.addIssue({
-        code: 'custom',
-        message: 'invalid HTTP header value',
-        path: [name],
-      });
-    }
-  }
-});
-
-const StdioServerSchema = z.strictObject({
-  args: z.array(SpawnStringSchema).optional(),
-  command: NonEmptySpawnStringSchema,
-  enabledTools: z.array(z.string()).optional(),
-  env: EnvironmentSchema.optional(),
-  name: ServerNameSchema,
-  transport: z.literal('stdio'),
-});
-
-const HttpServerSchema = z.strictObject({
-  enabledTools: z.array(z.string()).optional(),
-  headers: HeadersSchema.optional(),
-  name: ServerNameSchema,
-  url: HttpUrlSchema,
-});
-
-const StreamableHttpServerSchema = HttpServerSchema.extend({
-  transport: z.literal('streamable-http'),
-});
-
-const SseServerSchema = HttpServerSchema.extend({
-  transport: z.literal('sse'),
-});
-
-const McpServerSchema = z.discriminatedUnion('transport', [
-  StdioServerSchema,
-  StreamableHttpServerSchema,
-  SseServerSchema,
-]);
-const McpConfigSchema = z
-  .strictObject({
-    servers: z.array(McpServerSchema),
-  })
-  .superRefine((config, context) => {
-    const serverNames = new Set<string>();
-    for (const [index, server] of config.servers.entries()) {
-      if (serverNames.has(server.name)) {
-        context.addIssue({
-          code: 'custom',
-          message: 'duplicate server name',
-          path: ['servers', index, 'name'],
-        });
-        continue;
-      }
-      serverNames.add(server.name);
-    }
-  });
-
-export type McpServer = z.infer<typeof McpServerSchema>;
-export type McpConfig = z.infer<typeof McpConfigSchema>;
+export type McpServer = SharedMcpServerInput;
+export type McpConfig = SharedMcpConfigInput;
+export type { ResolvedMcpConfig, ResolvedMcpServer };
 
 const logger = createLogger('DesktopMcpLoader');
 
@@ -153,27 +37,79 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     // {
     //   "transport": "stdio",
     //   "name": "filesystem",
+    //   "protocol": "legacy",
     //   "command": "npx",
     //   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/workspace"]
     // },
 
-    // Example: Remote Streamable HTTP server
+    // Optional per-server opt-out for the registered MCP extensions. Both ship
+    // ON; either key may be omitted. Turning one off here stops THIS server
+    // from being told the client supports it, without changing any other
+    // server. The Settings switch is the global equivalent.
+    // {
+    //   "transport": "stdio",
+    //   "name": "no-apps-no-tasks",
+    //   "protocol": "2026-07-28",
+    //   "command": "/absolute/path/to/server",
+    //   "extensions": { "apps": false, "tasks": false }
+    // },
+
+    // Native Linear OAuth (hard read-only endpoint; safest default).
+    // {
+    //   "transport": "streamable-http",
+    //   "name": "linear-readonly",
+    //   "protocol": "auto",
+    //   "url": "https://mcp.linear.app/mcp/readonly",
+    //   "auth": { "type": "oauth-user" }
+    // },
+
+    // Native Linear OAuth (read-only token on the standard endpoint).
+    // {
+    //   "transport": "streamable-http",
+    //   "name": "linear-read-scope",
+    //   "protocol": "auto",
+    //   "url": "https://mcp.linear.app/mcp",
+    //   "auth": { "type": "oauth-user", "scopes": ["read"] }
+    // },
+
+    // Native Linear OAuth (read-write; opt in deliberately).
+    // {
+    //   "transport": "streamable-http",
+    //   "name": "linear",
+    //   "protocol": "auto",
+    //   "url": "https://mcp.linear.app/mcp",
+    //   "auth": { "type": "oauth-user" }
+    // },
+
+    // Example: Remote Streamable HTTP server with an external bearer credential.
+    // The UUID references the encrypted desktop credential authority; the token
+    // itself never belongs in this JSONC file.
     // {
     //   "transport": "streamable-http",
     //   "name": "remote-api",
+    //   "protocol": "legacy",
     //   "url": "https://your-host.example.com/mcp",
-    //   "headers": {
-    //     "Authorization": "Bearer YOUR_TOKEN"
+    //   "auth": {
+    //     "type": "bearer",
+    //     "credential": {
+    //       "store": "mcp-credentials",
+    //       "id": "00000000-0000-4000-8000-000000000000"
+    //     }
     //   }
     // },
 
-    // Example: Legacy remote SSE server
+    // Example: Legacy remote SSE server using the same secure reference form.
     // {
     //   "transport": "sse",
     //   "name": "legacy-remote-api",
+    //   "protocol": "legacy",
     //   "url": "https://your-host.example.com/mcp/sse",
-    //   "headers": {
-    //     "Authorization": "Bearer YOUR_TOKEN"
+    //   "auth": {
+    //     "type": "bearer",
+    //     "credential": {
+    //       "store": "mcp-credentials",
+    //       "id": "00000000-0000-4000-8000-000000000000"
+    //     }
     //   }
     // }
   ]
@@ -252,22 +188,23 @@ function formatPropertyIssue(text: string, issue: PropertyIssue): string {
   return `${issue.kind} property ${JSON.stringify(issue.key)} at line ${line}, column ${column} (${issue.path.join('.')})`;
 }
 
-function formatValidationIssue(issue: z.ZodIssue): string {
-  const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
-  return `${path}: ${issue.message}`;
-}
-
-function validateMcpConfig(value: unknown): McpConfig {
-  const parsed = McpConfigSchema.safeParse(value);
-  if (!parsed.success) {
+function withDesktopValidationMessage<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    if (!(error instanceof McpConfigValidationError)) {
+      throw error;
+    }
     throw new Error(
-      `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
+      `invalid_mcp_config: ${error.issues.map(({ message, path }) => `${path || '<root>'}: ${message}`).join('; ')}`
     );
   }
-  return parsed.data;
 }
 
-export function parseMcpConfig(text: string): McpConfig {
+function parseMcpConfigDocument(text: string): {
+  config: ResolvedMcpConfig;
+  migrations: McpProtocolMigration[];
+} {
   const parseErrors: ParseError[] = [];
   const root = parseTree(text, parseErrors, {
     allowTrailingComma: true,
@@ -294,16 +231,21 @@ export function parseMcpConfig(text: string): McpConfig {
     );
   }
 
-  return validateMcpConfig(getNodeValue(root));
+  return withDesktopValidationMessage(() => parseMcpConfigValue(getNodeValue(root)));
+}
+
+export function parseMcpConfig(text: string): ResolvedMcpConfig {
+  return parseMcpConfigDocument(text).config;
 }
 
 export interface LoadedMcpConfig {
-  config?: McpConfig;
+  config?: ResolvedMcpConfig;
   error?: string;
   exists: boolean;
   loadedAt?: number;
+  migrations?: McpProtocolMigration[];
   path: string;
-  servers?: McpServer[];
+  servers?: ResolvedMcpServer[];
 }
 
 interface CustomConfigPathCache {
@@ -639,21 +581,14 @@ function assertNoForbiddenDecryptedProperty(
 
 async function processHttpServer(
   s: Extract<McpServer, { transport: 'sse' | 'streamable-http' }>
-): Promise<McpServer> {
+): Promise<ResolvedMcpServer> {
   const headers = await applyDecryptionToHeaders(s.headers, s.name);
   if (headers !== undefined) {
     assertNoForbiddenDecryptedProperty(headers, 'headers');
-    const schema = s.transport === 'streamable-http' ? StreamableHttpServerSchema : SseServerSchema;
-    const parsed = schema.safeParse({ ...s, headers });
-    if (!parsed.success) {
-      throw new Error(
-        `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
-      );
-    }
-    return parsed.data;
+    return withDesktopValidationMessage(() => parseMcpServerValue({ ...s, headers }));
   }
   const { headers: _, ...rest } = s;
-  return rest;
+  return withDesktopValidationMessage(() => parseMcpServerValue(rest));
 }
 
 function unsupportedTransport(server: unknown): never {
@@ -671,25 +606,19 @@ function unsupportedTransport(server: unknown): never {
 
 async function processStdioServer(
   s: Extract<McpServer, { transport: 'stdio' }>
-): Promise<McpServer> {
+): Promise<ResolvedMcpServer> {
   const env = await applyDecryptionToEnv(s.env, s.name);
   if (env !== undefined) {
     assertNoForbiddenDecryptedProperty(env, 'env');
-    const parsed = StdioServerSchema.safeParse({ ...s, env });
-    if (!parsed.success) {
-      throw new Error(
-        `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
-      );
-    }
-    return parsed.data;
+    return withDesktopValidationMessage(() => parseMcpServerValue({ ...s, env }));
   }
   const { env: _, ...rest } = s;
-  return rest;
+  return withDesktopValidationMessage(() => parseMcpServerValue(rest));
 }
 
-export async function withDecryptedSecrets(cfg: McpConfig): Promise<McpConfig> {
+export async function withDecryptedSecrets(cfg: McpConfig): Promise<ResolvedMcpConfig> {
   const servers = await Promise.all(
-    cfg.servers.map(async (s: McpServer): Promise<McpServer> => {
+    cfg.servers.map(async (s): Promise<ResolvedMcpServer> => {
       if (s.transport === 'sse' || s.transport === 'streamable-http') {
         return processHttpServer(s);
       }
@@ -706,9 +635,22 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
   const p = await getMcpConfigPath();
   try {
     const text = await fsp.readFile(p, 'utf-8');
-    const cfg = parseMcpConfig(text);
-    const dec = await withDecryptedSecrets(cfg);
-    return { config: dec, exists: true, loadedAt: Date.now(), path: p, servers: dec.servers };
+    const parsed = parseMcpConfigDocument(text);
+    const dec = await withDecryptedSecrets(parsed.config);
+    if (parsed.migrations.length > 0) {
+      logger.warn('MCP protocol policy omitted; using visible legacy migration', {
+        migrations: parsed.migrations,
+        path: p,
+      });
+    }
+    return {
+      config: dec,
+      exists: true,
+      loadedAt: Date.now(),
+      migrations: parsed.migrations,
+      path: p,
+      servers: dec.servers,
+    };
   } catch (error) {
     const code = (error as { code?: unknown }).code;
     const message = error instanceof Error ? error.message : String(error);
@@ -725,13 +667,16 @@ export interface McpWatcher {
 }
 
 export async function watchMcpConfig(
-  onChange: (config: LoadedMcpConfig) => void
+  onChange: (config: LoadedMcpConfig) => Promise<void> | void
 ): Promise<McpWatcher> {
   const p = await getMcpConfigPath();
   // ensure directory exists to avoid immediate watch errors
   await ensureMcpDirExists();
   const watchedFileName = path.basename(p);
   let timer: NodeJS.Timeout | null = null;
+  let changeEpoch = 0;
+  let closed = false;
+  let callbackTail = Promise.resolve();
   const watcher = fs.watch(path.dirname(p), async (_ev, filename) => {
     if (filename?.toString() !== watchedFileName) {
       return;
@@ -739,9 +684,41 @@ export async function watchMcpConfig(
     if (timer) {
       clearTimeout(timer);
     }
+    const eventEpoch = ++changeEpoch;
     timer = setTimeout(async () => {
-      onChange(await loadMcpConfig());
+      let config: LoadedMcpConfig;
+      try {
+        config = await loadMcpConfig();
+      } catch (error) {
+        logger.error('MCP config watcher reload failed', { error });
+        return;
+      }
+      if (closed || eventEpoch !== changeEpoch) {
+        return;
+      }
+      const callback = callbackTail.then(async () => {
+        if (closed || eventEpoch !== changeEpoch) {
+          return;
+        }
+        await onChange(config);
+      });
+      callbackTail = callback.catch(() => undefined);
+      try {
+        await callback;
+      } catch (error) {
+        logger.error('MCP config watcher callback failed', { error });
+      }
     }, 100);
   });
-  return { close: () => watcher.close() };
+  return {
+    close: () => {
+      closed = true;
+      changeEpoch += 1;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      watcher.close();
+    },
+  };
 }

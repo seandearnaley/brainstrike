@@ -711,6 +711,26 @@ describe('DatabaseDemoPanel', () => {
           selectedFileCount: 0,
         })
       );
+      expect(window.__brainstrikeDatabaseDemoTestHooks__?.getMemorySnapshot()).toEqual({
+        activeCollectionId: TEST_COLLECTION_ID,
+        activeLiveSubscriptions: expect.any(Number),
+        cache: {
+          cachedChunkPageEntries: expect.any(Number),
+          cachedCollectionCountEntries: expect.any(Number),
+          cachedRecordPageEntries: expect.any(Number),
+          cachedRecordTotalEntries: expect.any(Number),
+          loadedRecordPageEntries: expect.any(Number),
+        },
+        liveUpdateCount: expect.any(Number),
+        recordArrayRetention: {
+          aliveGenerations: [],
+          collectedGenerationCount: 0,
+          currentGeneration: null,
+          droppedGenerationCount: 0,
+          trackedGenerationCount: 0,
+        },
+        recordIds: [],
+      });
 
       publishImportActivitySnapshot({
         progress: {

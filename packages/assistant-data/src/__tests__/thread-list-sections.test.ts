@@ -4,16 +4,33 @@ import type {
   AssistantThreadGroup,
   AssistantThreadPlacement,
 } from '../assistant-thread-groups-repository';
-import { buildThreadListSections, getGroupMemberIds } from '../thread-list-sections';
+import {
+  buildThreadListSections,
+  folderSectionId,
+  getGroupMemberIds,
+  getThreadPrimaryRootId,
+  type ThreadFolderRow,
+  UNASSIGNED_FOLDER_SECTION_ID,
+} from '../thread-list-sections';
 
 function makeThread(overrides: {
   id: string;
+  operatingRootId?: string;
   title?: string;
   updatedAt?: string;
 }): AssistantMemoryThread {
   return {
     createdAt: new Date('2026-07-01T00:00:00Z'),
     id: overrides.id,
+    ...(overrides.operatingRootId === undefined
+      ? {}
+      : {
+          metadata: {
+            operatingRootDisplayName: 'x',
+            operatingRootId: overrides.operatingRootId,
+            operatingRootPath: '/p',
+          },
+        }),
     resourceId: 'workspace-a',
     title: overrides.title ?? overrides.id,
     updatedAt: new Date(overrides.updatedAt ?? '2026-07-01T00:00:00Z'),
@@ -97,7 +114,7 @@ describe('buildThreadListSections', () => {
     if (view.kind !== 'grouped') {
       return;
     }
-    expect(view.sections.map((section) => section.group.id)).toEqual(['group-a', 'group-b']);
+    expect(view.sections.map((section) => section.header.group.id)).toEqual(['group-a', 'group-b']);
     expect(view.sections[0]?.threads.map((thread) => thread.id)).toEqual(['thread-1']);
     expect(view.sections[1]?.threads.map((thread) => thread.id)).toEqual(['thread-2']);
     expect(view.ungrouped.map((thread) => thread.id)).toEqual(['thread-3']);
@@ -310,7 +327,8 @@ describe('getGroupMemberIds', () => {
       kind: 'grouped',
       sections: [
         {
-          group: makeGroup({ id: 'group-a', rank: 'a0' }),
+          header: { group: makeGroup({ id: 'group-a', rank: 'a0' }), kind: 'group' as const },
+          id: 'group-a',
           threads,
         },
       ],
@@ -337,10 +355,14 @@ describe('getGroupMemberIds', () => {
         },
       });
       return {
-        group: makeGroup({
-          id: `group-${index}`,
-          rank: index.toString().padStart(3, '0'),
-        }),
+        header: {
+          group: makeGroup({
+            id: `group-${index}`,
+            rank: index.toString().padStart(3, '0'),
+          }),
+          kind: 'group' as const,
+        },
+        id: `group-${index}`,
         threads: [thread],
       };
     });
@@ -391,5 +413,161 @@ describe('getGroupMemberIds', () => {
     expect(getGroupMemberIds(before, null)).toEqual(['ungrouped-1']);
     expect(getGroupMemberIds(after, null)).toEqual(['ungrouped-2']);
     expect(getGroupMemberIds(after, 'unknown-group')).toEqual([]);
+  });
+});
+
+describe('folder grouping', () => {
+  const rows: ReadonlyMap<string, ThreadFolderRow> = new Map([
+    ['root-a', { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'root-a' }],
+    ['root-b', { displayName: 'alpha', path: '/ws/alpha', rootId: 'root-b' }],
+  ]);
+
+  function folderThread(
+    id: string,
+    rootId: string | null,
+    updatedAt: string
+  ): AssistantMemoryThread {
+    return makeThread({
+      id,
+      ...(rootId === null ? {} : { operatingRootId: rootId }),
+      updatedAt,
+    });
+  }
+
+  it('reads the primary root id from thread metadata and rejects a blank one', () => {
+    expect(getThreadPrimaryRootId(makeThread({ id: 'thread-1', operatingRootId: 'root-a' }))).toBe(
+      'root-a'
+    );
+    expect(getThreadPrimaryRootId(makeThread({ id: 'thread-2' }))).toBeNull();
+    expect(getThreadPrimaryRootId(makeThread({ id: 'thread-3', operatingRootId: '' }))).toBeNull();
+  });
+
+  it('buckets threads by operatingRootId into folder sections sorted by name, No folder last', () => {
+    const view = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      threads: [
+        folderThread('1', 'root-a', '2026-07-01T00:00:00Z'),
+        folderThread('2', 'root-b', '2026-07-02T00:00:00Z'),
+        folderThread('3', null, '2026-07-03T00:00:00Z'),
+        folderThread('4', 'root-a', '2026-07-04T00:00:00Z'),
+      ],
+    });
+
+    expect(view.kind).toBe('folders');
+    if (view.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    expect(view.sections.map((section) => section.id)).toEqual([
+      'folder:root-b',
+      'folder:root-a',
+      'folder-unassigned',
+    ]);
+    const folderSection = view.sections[1];
+    expect(folderSection?.header.kind).toBe('folder');
+    if (folderSection?.header.kind !== 'folder') {
+      throw new Error('expected a folder header');
+    }
+    expect(folderSection.header.folder.displayName).toBe('brainstrike');
+    expect(folderSection.threads.map((thread) => thread.id)).toEqual(['4', '1']);
+    expect(view.sections[2]?.header.kind).toBe('unassigned');
+    expect(view.sections[2]?.threads.map((thread) => thread.id)).toEqual(['3']);
+  });
+
+  it('omits the No folder section when every thread is bound, and sends unknown root ids there', () => {
+    const bound = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      threads: [folderThread('1', 'root-a', '2026-07-01T00:00:00Z')],
+    });
+
+    expect(bound.kind).toBe('folders');
+    if (bound.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    expect(bound.sections.map((section) => section.id)).toEqual(['folder:root-a']);
+
+    const unknown = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      threads: [folderThread('1', 'root-zzz', '2026-07-01T00:00:00Z')],
+    });
+
+    expect(unknown.kind).toBe('folders');
+    if (unknown.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    expect(unknown.sections.map((section) => section.id)).toEqual(['folder-unassigned']);
+  });
+
+  it('sorts threads inside a folder by name when folderSortBy is name', () => {
+    const view = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'name',
+      groupBy: 'folder',
+      threads: [
+        makeThread({ id: '1', operatingRootId: 'root-a', title: 'zeta' }),
+        makeThread({ id: '2', operatingRootId: 'root-a', title: 'Alpha' }),
+        makeThread({ id: '3', title: 'beta' }),
+        makeThread({ id: '4', title: 'Aardvark' }),
+      ],
+    });
+
+    expect(view.kind).toBe('folders');
+    if (view.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    expect(view.sections[0]?.threads.map((thread) => thread.title)).toEqual(['Alpha', 'zeta']);
+    expect(view.sections[1]?.threads.map((thread) => thread.title)).toEqual(['Aardvark', 'beta']);
+  });
+
+  // The folder arm of the input union is what enforces folder mode's contract:
+  // the compiler rejects both shapes below, so there is no runtime guard left
+  // to exercise. `@ts-expect-error` fails the type-check if either ever starts
+  // compiling again.
+  it('accepts no group inputs in folder mode and demands folder rows, at compile time', () => {
+    const ignoringGroups = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      // @ts-expect-error -- folder grouping ignores custom groups, so it takes none.
+      groups: [makeGroup({ id: 'group-a', rank: 'a0' })],
+      threads: [folderThread('1', 'root-a', '2026-07-01T00:00:00Z')],
+    });
+    expect(ignoringGroups.kind).toBe('folders');
+    if (ignoringGroups.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    expect(ignoringGroups.sections.map((section) => section.id)).toEqual(['folder:root-a']);
+
+    // @ts-expect-error -- folder grouping requires folder rows and a folder sort.
+    const missingRows = buildThreadListSections({ groupBy: 'folder', threads: [] });
+    expect(missingRows.kind).toBe('folders');
+  });
+
+  it('getGroupMemberIds answers folder section ids and folder-unassigned', () => {
+    const view = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      threads: [
+        folderThread('1', 'root-a', '2026-07-01T00:00:00Z'),
+        folderThread('2', null, '2026-07-02T00:00:00Z'),
+      ],
+    });
+
+    const members = getGroupMemberIds(view, 'folder:root-a');
+    expect(members).toEqual(['1']);
+    expect(getGroupMemberIds(view, 'folder:root-a')).toBe(members);
+    expect(getGroupMemberIds(view, 'folder-unassigned')).toEqual(['2']);
+    expect(getGroupMemberIds(view, 'folder:root-unknown')).toEqual([]);
+    expect(getGroupMemberIds(view, null)).toEqual([]);
+  });
+
+  it('never lets a root literally named "unassigned" collide with the No folder sentinel', () => {
+    expect(folderSectionId('unassigned')).not.toBe(UNASSIGNED_FOLDER_SECTION_ID);
   });
 });

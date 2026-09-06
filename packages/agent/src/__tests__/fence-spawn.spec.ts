@@ -17,9 +17,11 @@ import { isExecAbortedError } from '../code-execution';
 import {
   buildSandboxEnv,
   type ChildProcessLike,
+  FenceProcessGroupTeardownError,
   type FenceSpawnDeps,
   INHERITED_ENV_VARS,
   spawnFenced,
+  terminateProcessGroup,
 } from '../fence/fence-executor';
 
 /** Stands in for the seam's per-request cap; small enough to overflow cheaply. */
@@ -56,7 +58,7 @@ function harness(pid?: number): {
   killGroup: ReturnType<typeof vi.fn>;
 } {
   const child = createFakeChild(pid);
-  const killGroup = vi.fn();
+  const killGroup = vi.fn(async () => {});
   return {
     child,
     deps: { killGroup, spawnProcess: () => child },
@@ -147,6 +149,173 @@ describe('spawnFenced teardown', () => {
 
       expect(result.timedOut).toBe(true);
       expect(killGroup).toHaveBeenCalledWith(55, 'SIGKILL');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { advanceMs: 1000, failingSignal: 'SIGTERM' as const },
+    { advanceMs: 1500, failingSignal: 'SIGKILL' as const },
+  ])(
+    'surfaces a rejected $failingSignal without leaving timeout timers armed',
+    async ({ advanceMs, failingSignal }) => {
+      vi.useFakeTimers();
+      try {
+        const child = createFakeChild(55);
+        const signalingError = new Error(`${failingSignal} failed`);
+        let failed = false;
+        const killGroup = vi.fn((_pid: number, signal: NodeJS.Signals) => {
+          if (!failed && signal === failingSignal) {
+            failed = true;
+            return Promise.reject(signalingError);
+          }
+          return Promise.resolve();
+        });
+        const deps: FenceSpawnDeps = { killGroup, spawnProcess: () => child };
+        const settled = vi.fn();
+        void run(deps, 1000).catch(settled);
+
+        await vi.advanceTimersByTimeAsync(advanceMs);
+        expect(settled).toHaveBeenCalledOnce();
+        const caught = settled.mock.calls[0]?.[0];
+        expect(caught).toBeInstanceOf(FenceProcessGroupTeardownError);
+        if (!(caught instanceof FenceProcessGroupTeardownError)) {
+          throw new Error('unreachable');
+        }
+        expect(caught.cause).toBeDefined();
+        const callsAtSettlement = killGroup.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(killGroup).toHaveBeenCalledWith(55, 'SIGKILL');
+        expect(killGroup).toHaveBeenCalledTimes(callsAtSettlement);
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
+
+  it('polls THROUGH a transient EPERM and settles on ESRCH', async () => {
+    // EPERM from the group probe is the post-reap race, not a denial: the
+    // leader is a just-SIGKILLed zombie the kernel will not route a group
+    // signal through. terminal-ipc-handlers.ts records the same reasoning for
+    // its own group kill — every member is our own descendant running as us,
+    // so a genuine permission failure is impossible.
+    //
+    // Measured against the real sandbox fence: the group reaches ESRCH ~7ms
+    // after the EPERM. Treating that first EPERM as fatal rejected every normal
+    // teardown on macOS.
+    vi.useFakeTimers();
+    let probes = 0;
+    const kill = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target === -55 && signal === 'SIGKILL') {
+        return true;
+      }
+      probes += 1;
+      throw Object.assign(new Error(probes < 3 ? 'EPERM' : 'ESRCH'), {
+        code: probes < 3 ? 'EPERM' : 'ESRCH',
+      });
+    });
+    try {
+      const pending = terminateProcessGroup(55, 'SIGKILL');
+      const settled = expect(pending).resolves.toBeUndefined();
+      // Advanced one POLL at a time. A single 500ms jump lands the clock past
+      // the deadline before the loop's continuations observe it, so the
+      // deadline would win over the ESRCH the mock is about to return — an
+      // artefact of fake timers, not of the code under test.
+      for (let tick = 0; tick < 5; tick++) {
+        await vi.advanceTimersByTimeAsync(10);
+      }
+      await settled;
+      expect(probes).toBeGreaterThanOrEqual(3);
+    } finally {
+      kill.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('still FAILS CLOSED when EPERM never resolves', async () => {
+    // Only ESRCH returns. A group that stays unsignalable for the whole window
+    // is exactly the state #2613 refuses to settle on, and returning early
+    // would be unsound anyway: a process group can outlive its leader, so
+    // "the leader is gone" never proves the group is empty.
+    vi.useFakeTimers();
+    const kill = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target === -55 && signal === 'SIGKILL') {
+        return true;
+      }
+      throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+    });
+    try {
+      const pending = terminateProcessGroup(55, 'SIGKILL');
+      const rejection = expect(pending).rejects.toMatchObject({
+        code: 'fence_process_group_teardown_failed',
+        pid: 55,
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      await rejection;
+    } finally {
+      kill.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds SIGKILL confirmation when a process group never disappears', async () => {
+    vi.useFakeTimers();
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    try {
+      const pending = terminateProcessGroup(55, 'SIGKILL');
+      const rejection = expect(pending).rejects.toMatchObject({
+        code: 'fence_process_group_teardown_failed',
+        pid: 55,
+      });
+
+      await vi.advanceTimersByTimeAsync(500);
+      await rejection;
+      expect(kill).toHaveBeenCalledWith(-55, 'SIGKILL');
+      expect(kill).toHaveBeenCalledWith(-55, 0);
+    } finally {
+      kill.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a completed run with its outcome attached when teardown fails', async () => {
+    const { child } = harness(55);
+    const cause = new Error('group survived');
+    const deps: FenceSpawnDeps = {
+      killGroup: () => Promise.reject(cause),
+      spawnProcess: () => child,
+    };
+    const pending = run(deps);
+    child.emitStdout(Buffer.from('finished-output'));
+    child.emitExit(0);
+    child.emitClose(0);
+
+    let caught: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(FenceProcessGroupTeardownError);
+    if (!(caught instanceof FenceProcessGroupTeardownError)) {
+      throw new Error('unreachable');
+    }
+    expect(caught.cause).toBe(cause);
+    expect(caught.outcome).toMatchObject({ exitCode: 0, stdout: 'finished-output' });
+  });
+
+  it('starts only one SIGKILL teardown on the timeout path', async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps, killGroup } = harness(55);
+      const pending = run(deps, 1000);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await pending;
+
+      expect(killGroup.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -272,6 +441,30 @@ describe('spawnFenced capture', () => {
 });
 
 describe('spawnFenced cancellation', () => {
+  it('does not settle an abort before process-group termination completes', async () => {
+    const controller = new AbortController();
+    const child = createFakeChild(31);
+    const groupTermination = Promise.withResolvers<void>();
+    const killGroup = vi.fn((_pid: number, signal: NodeJS.Signals) =>
+      signal === 'SIGKILL' ? groupTermination.promise : Promise.resolve()
+    );
+    const deps: FenceSpawnDeps = { killGroup, spawnProcess: () => child };
+    const settled = vi.fn();
+    const pending = run(deps, 10_000, controller.signal).catch(settled);
+
+    controller.abort();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(killGroup).toHaveBeenCalledWith(31, 'SIGKILL');
+    expect(settled).not.toHaveBeenCalled();
+
+    groupTermination.resolve();
+    await pending;
+    expect(settled).toHaveBeenCalledOnce();
+    expect(isExecAbortedError(settled.mock.calls[0]?.[0])).toBe(true);
+  });
+
   it('throws ExecAbortedError mid-run and kills the group, carrying partial output', async () => {
     const controller = new AbortController();
     const { child, deps, killGroup } = harness(31);
@@ -298,6 +491,33 @@ describe('spawnFenced cancellation', () => {
     expect(caught.partialStderr).toBe('partial-err');
     expect(caught.code).toBe('exec_aborted');
     expect(killGroup).toHaveBeenCalledWith(31, 'SIGKILL');
+  });
+
+  it('preserves ExecAbortedError and partial output when teardown fails', async () => {
+    const controller = new AbortController();
+    const child = createFakeChild(31);
+    const teardownFailure = new Error('SIGKILL failed');
+    const deps: FenceSpawnDeps = {
+      killGroup: () => Promise.reject(teardownFailure),
+      spawnProcess: () => child,
+    };
+    const pending = run(deps, 10_000, controller.signal);
+    child.emitStdout(Buffer.from('partial-out'));
+
+    controller.abort();
+
+    let caught: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      caught = error;
+    }
+    expect(isExecAbortedError(caught)).toBe(true);
+    if (!isExecAbortedError(caught)) {
+      throw new Error('unreachable');
+    }
+    expect(caught.partialStdout).toBe('partial-out');
+    expect(caught.cause).toBeInstanceOf(FenceProcessGroupTeardownError);
   });
 
   it('throws immediately when the signal is already aborted', async () => {
@@ -335,6 +555,38 @@ describe('buildSandboxEnv', () => {
       expect(Object.values(env)).not.toContain('super-secret');
     } finally {
       process.env['BST_UNIT_FAKE_SECRET'] = undefined;
+    }
+  });
+
+  it('SECURITY: no AWS_* name is ever allow-listed into the fence (BST-1353)', () => {
+    // Chain resolution is desktop-MAIN-only. The fence denies `~/.aws` on
+    // disk, so admitting an AWS variable on the HOST-ENV channel would reopen
+    // exactly the leak that denial exists to close — and BST-1353's
+    // `AWS_PROFILE` allow-listing is the DESKTOP `.env` boundary, a different
+    // list entirely. This pins the two apart.
+    //
+    // Note the channel under test is `process.env` (what the fence INHERITS),
+    // not the first argument — that one is srt's own output, whose changed
+    // keys are carried over by design.
+    for (const name of INHERITED_ENV_VARS) {
+      expect(name.startsWith('AWS_')).toBe(false);
+    }
+    const planted = {
+      AWS_ACCESS_KEY_ID: 'AKIALEAK',
+      AWS_PROFILE: 'acme-dev',
+      AWS_REGION: 'us-east-1',
+      AWS_SECRET_ACCESS_KEY: 'leaked-secret',
+      AWS_SESSION_TOKEN: 'leaked-session',
+    };
+    Object.assign(process.env, planted);
+    try {
+      const env = buildSandboxEnv({}, undefined);
+      expect(Object.keys(env).filter((name) => name.startsWith('AWS_'))).toEqual([]);
+      expect(Object.values(env)).not.toContain('leaked-secret');
+    } finally {
+      for (const name of Object.keys(planted)) {
+        delete process.env[name];
+      }
     }
   });
 

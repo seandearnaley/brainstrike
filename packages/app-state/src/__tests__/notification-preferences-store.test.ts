@@ -21,6 +21,8 @@ describe('notification-preferences-store', () => {
   it('defaults every per-event toggle ON', () => {
     const { events } = useNotificationPreferencesStore.getState();
     expect(events).toEqual({
+      prChecks: true,
+      prOpened: true,
       runFailed: true,
       runFinished: true,
       toolApprovalRequired: true,
@@ -61,6 +63,8 @@ describe('notification-preferences-store', () => {
     expect(stored).not.toBeNull();
     expect(stored?.state?.masterEnabled).toBe(true);
     expect(stored?.state?.events).toEqual({
+      prChecks: true,
+      prOpened: true,
       runFailed: true,
       runFinished: false,
       toolApprovalRequired: true,
@@ -83,6 +87,8 @@ describe('notification-preferences-store', () => {
 
     expect(migrated.masterEnabled).toBe(false);
     expect(migrated.events).toEqual({
+      prChecks: true,
+      prOpened: true,
       runFailed: true,
       runFinished: true,
       toolApprovalRequired: true,
@@ -114,6 +120,8 @@ describe('notification-preferences-store', () => {
 
     expect(useNotificationPreferencesStore.getState().masterEnabled).toBe(false);
     expect(useNotificationPreferencesStore.getState().events).toEqual({
+      prChecks: true,
+      prOpened: true,
       runFailed: true,
       runFinished: false,
       toolApprovalRequired: true,
@@ -130,6 +138,8 @@ describe('notification-preferences-store', () => {
     const state = useNotificationPreferencesStore.getState();
     expect(state.masterEnabled).toBe(false);
     expect(state.events).toEqual({
+      prChecks: true,
+      prOpened: true,
       runFailed: true,
       runFinished: true,
       toolApprovalRequired: true,

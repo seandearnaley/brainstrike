@@ -136,5 +136,14 @@ export interface DbHostLiveStartResult {
 }
 
 export interface DbHostDiagnosticsResult extends DatabaseDiagnosticsSnapshot {
-  readonly hostPid?: number | null;
+  readonly activeLiveQueryCount: number;
+}
+
+export interface DbHostManagerDiagnosticsResult extends DatabaseDiagnosticsSnapshot {
+  readonly hostPid: number | null;
+}
+
+export interface DbHostLiveQueryDiagnostics {
+  readonly hostLiveQueryCount: number;
+  readonly managerLiveQueryCount: number;
 }

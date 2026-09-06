@@ -12,20 +12,13 @@ import {
   readActionMessageRunId,
 } from '@brainstrike/assistant-contract/approval-action-message';
 import {
-  ASSISTANT_COMPACTION_RANGES_TABLE,
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
-  ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE,
-  CANVAS_VERSIONS_TABLE,
   DEFAULT_THREAD_TITLE,
-  MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
   MIND_OPS_TABLE,
   THREAD_DELETE_SIDECAR_TABLES,
   THREAD_TITLE_SOURCE_METADATA_KEY,
   THREAD_TITLE_SOURCE_OM,
-  TOKEN_ESTIMATE_CALIBRATION_TABLE,
-  TOOL_CALL_TELEMETRY_TABLE,
-  WORKSPACE_SNAPSHOTS_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -83,9 +76,37 @@ export const ASSISTANT_THREAD_COLOR_IDS = [
 export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
 export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number];
 
+// biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
+  /** Last observed branch of the thread's checkout. Display only — live from git. */
+  readonly checkoutBranch?: string;
+  /**
+   * The `roots.id` a worktree hand-off returns to — the durable Local root,
+   * recorded when the thread enters worktree mode so hand-off never guesses
+   * from the position of an id in `secondaryRootIds`.
+   */
+  readonly checkoutLocalRootId?: string;
+  /** Where this thread works: the folder's own checkout, or an isolated worktree. */
+  readonly checkoutMode?: 'local' | 'worktree';
+  /** `brainstrike_worktrees.id` — the AUTHORITY when `checkoutMode === 'worktree'`. */
+  readonly checkoutWorktreeId?: string;
+  /** Absolute worktree path retained for tooltips; never used as authority. */
+  readonly checkoutWorktreePath?: string;
   readonly color?: AssistantThreadColorId;
   readonly icon?: AssistantThreadIconId;
+  /**
+   * The pull request this thread is driving, kept so "jump to the PR" works
+   * offline and after `gh` is uninstalled. Display + navigation only: the
+   * AUTHORITY for PR state is `brainstrike_forge_prs`, refreshed from gh.
+   */
+  readonly forgePrUrl?: string;
+  /**
+   * Whether check-transition notifications fire for this thread's PR
+   * (spec §4.4's Watch toggle). ABSENT means watching: the user opted into
+   * notifications globally, and a thread that has never touched the toggle
+   * should not be quieter than one that has. Only an explicit `false` mutes.
+   */
+  readonly forgePrWatch?: boolean;
   readonly model?: string;
   readonly modelSettings?: Record<string, unknown>;
   /** Human-readable label retained for a stable historical thread scope chip. */
@@ -96,6 +117,12 @@ export interface AssistantThreadMetadata {
   readonly operatingRootPath?: string;
   readonly provider?: string;
   readonly providerOptions?: Record<string, unknown>;
+  /**
+   * Durable DB `roots.id` values of the thread's SECONDARY folders (the
+   * primary is `operatingRootId`). Display + per-thread folder set only:
+   * tool scope still follows the server's workspace-root inventory.
+   */
+  readonly secondaryRootIds?: readonly string[];
   readonly source?: string;
 }
 
@@ -686,595 +713,112 @@ const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
+/** Workspace roots (migration 039); joined by the cross-root usage rollup. */
+const ROOTS_TABLE = 'roots';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
-const ASSISTANT_RUN_TREATMENTS_TABLE = 'brainstrike_assistant_run_treatments';
-const ASSISTANT_RUN_ERRORS_TABLE = 'brainstrike_assistant_run_errors';
 const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 /**
- * Built ON DEMAND, deliberately NOT as a module-scope constant.
+ * Every relation the repository reads or writes, and therefore every relation
+ * whose absence means this database was never migrated.
  *
- * This template interpolates two bindings imported from
- * `@brainstrike/assistant-contract/mastra-memory-schema`:
- * `MASTRA_MEMORY_SCHEMA_SQL` and `MASTRA_MEMORY_TABLES.threads`. Evaluating it
- * at module scope reads them during CHUNK INITIALIZATION, and the renderer's
- * bundle chunk graph does not guarantee the contract chunk has been evaluated by
- * that point. When it has not, `MASTRA_MEMORY_TABLES` is still `undefined` and
- * interpolating its `.threads` property throws "Cannot read properties of
- * undefined (reading 'threads')" while this module is evaluating — the renderer
- * dies at startup and the app never becomes ready.
+ * Read inside a function body, never at module scope: these are
+ * `mastra-memory-schema` constants, and a module-scope read of them is the
+ * BST-558 chunk-initialization hazard that
+ * `scripts/verify-mastra-schema-init-order.mjs` guards.
  *
- * Measured, not theorised (BST-558): adding one unrelated static import of that
- * same contract module to `packages/db/src/db-provider.tsx` reordered chunk init
- * and turned Web + Desktop E2E red where the preceding commit was green, while
- * type-check, lint and every unit suite stayed green throughout. The schema
- * module imports nothing, so there is no source cycle for any static analysis to
- * find — only the bundler's chunk graph decides this, and only a production
- * build exhibits it.
- *
- * Deferring the reads into a function body is the durable fix: by the time
- * `initialize()` calls this, every chunk has been evaluated, so NO import order
- * can leave the bindings undefined. Keep it a function — do not "optimize" it
- * back into a module-scope constant or a module-scope memo.
- *
- * Interpolating `MASTRA_MEMORY_SCHEMA_SQL` is the more insidious of the two
- * reads: an uninitialized binding there does not throw, it splices the literal
- * string "undefined" into the DDL.
+ * The thread-delete cascade references EVERY registered sidecar
+ * unconditionally, so the sidecar list is derived rather than restated — a
+ * sidecar added to the contract is probed the day it lands.
  */
-export function buildAssistantThreadRunsSchemaSql(): string {
-  return `
-${MASTRA_MEMORY_SCHEMA_SQL}
+export function requiredAssistantMemoryRelations(): readonly string[] {
+  return [
+    ...new Set([
+      MASTRA_MEMORY_TABLES.threads,
+      MASTRA_MEMORY_TABLES.messages,
+      MASTRA_MEMORY_TABLES.observationalMemory,
+      ASSISTANT_THREAD_RUNS_TABLE,
+      ASSISTANT_RUN_EVENTS_TABLE,
+      ASSISTANT_RUN_USAGE_TABLE,
+      ASSISTANT_RUN_OUTCOMES_TABLE,
+      ASSISTANT_EDIT_CHECKPOINTS_TABLE,
+      MIND_OPS_TABLE,
+      // `roots` is not assistant-owned (migration 039 creates it), but
+      // CROSS_ROOT_USAGE_AGGREGATION_SQL reads it through `LEFT JOIN roots`.
+      // Without it here, a handle carrying every assistant relation but no
+      // roots table passes the probe and then raises a raw missing-relation
+      // error from getCrossRootUsage() instead of the named one — the exact
+      // inconsistent failure this probe exists to remove.
+      ROOTS_TABLE,
+      ...THREAD_DELETE_SIDECAR_TABLES.map((sidecar) => sidecar.table),
+    ]),
+  ].sort();
+}
 
--- assistant-ui's branch graph is client-owned topology layered over Mastra's
--- durable message content. A parent row may be written before its Mastra
--- message row, so message_id/parent_id intentionally have no message FK.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_PARENTS_TABLE} (
-  message_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  resource_id text NOT NULL,
-  parent_id text,
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  updated_at timestamptz NOT NULL DEFAULT NOW()
-);
+/**
+ * Raised when the assistant memory schema is not present. Migrations 117/118
+ * own that schema; nothing creates it at runtime any more.
+ */
+export class AssistantMemorySchemaMissingError extends Error {
+  readonly missingRelations: readonly string[];
 
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_parents_thread_idx
-  ON ${ASSISTANT_MESSAGE_PARENTS_TABLE} (thread_id, resource_id);
+  constructor(missingRelations: readonly string[]) {
+    super(
+      `Assistant memory schema is incomplete: ${missingRelations.length} required relation(s) absent ` +
+        `(${missingRelations.join(', ')}). This database was never migrated — run migrations before ` +
+        'creating the assistant thread repository.'
+    );
+    this.name = 'AssistantMemorySchemaMissingError';
+    this.missingRelations = missingRelations;
+  }
+}
 
--- Soft-rewind tombstones (BST-1115). Bootstrapped here AND created by
--- migration 080 — keep the shape byte-identical to 080. A tombstoned message
--- keeps its Mastra content row and is excluded by every Brainstrike-owned
--- read; the row is hard-deleted when the next user message finalizes the
--- rewind. message_id is the PK: a message is tombstoned at most once, which is
--- what makes deleting a rewind_id batch an exact redo. rewind_id is the redo
--- key and exists in both rewind modes; revert_id links the paired journal file
--- revert and is NULL for a conversation-only rewind.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (
-  message_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  rewind_id text NOT NULL,
-  revert_id text,
-  tombstoned_at timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_thread_idx
-  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_rewind_idx
-  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (rewind_id);
-
--- Shadow-git snapshot ledger (BST-1164 W7). Bootstrapped here AND created by
--- migration 081 — keep the shape byte-identical to 081. Mirrored because the
--- thread-delete cascade CTEs below reference every sidecar table
--- unconditionally, so the relation must exist wherever this repository runs.
--- id is an app-side uuidv7 (migration 080's caller-supplied-text-PK
--- convention); run_id is nullable provenance (a turn is not a run); kind is
--- CHECK-constrained (migration 079's closed-vocabulary convention).
-CREATE TABLE IF NOT EXISTS ${WORKSPACE_SNAPSHOTS_TABLE} (
-  id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  run_id text,
-  root_id text NOT NULL,
-  root_path text NOT NULL,
-  commit_oid text NOT NULL,
-  kind text NOT NULL CHECK (kind IN ('turn-start', 'turn-end', 'pre-revert')),
-  created_at timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_thread_idx
-  ON ${WORKSPACE_SNAPSHOTS_TABLE} (thread_id, created_at);
-
-CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_root_idx
-  ON ${WORKSPACE_SNAPSHOTS_TABLE} (root_id);
-
--- Persisted Canvas document versions (BST-1173). Bootstrapped here AND
--- created by migration 082 — keep the shape byte-identical to 082. Mirrored
--- because the thread-delete cascade references every sidecar unconditionally.
--- ids are app-side uuidv7 values; creator is a closed vocabulary; the newest
--- version for one canvas is its current content.
-CREATE TABLE IF NOT EXISTS ${CANVAS_VERSIONS_TABLE} (
-  id text PRIMARY KEY,
-  canvas_id text NOT NULL,
-  thread_id text NOT NULL,
-  resource_id text NOT NULL,
-  title text NOT NULL,
-  html text NOT NULL,
-  version integer NOT NULL CHECK (version >= 1),
-  created_by text NOT NULL CHECK (created_by IN ('assistant', 'user')),
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  UNIQUE (canvas_id, version)
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_thread_idx
-  ON ${CANVAS_VERSIONS_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_canvas_version_idx
-  ON ${CANVAS_VERSIONS_TABLE} (canvas_id, version DESC);
-
--- Privacy-safe per-tool model-output telemetry (BST-1190). Bootstrapped here
--- AND created by migrations 083 (table + thread/tool_time indexes), 085
--- (occurred_at index, BST-1198), and 092 (substrate-split columns,
--- BST-1247) — keep the shape byte-identical to all three.
--- Mirrored because the thread-delete cascade references every sidecar
--- unconditionally; only desktop main writes rows during normal operation.
-CREATE TABLE IF NOT EXISTS ${TOOL_CALL_TELEMETRY_TABLE} (
-  id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  run_id text NOT NULL,
-  tool_id text NOT NULL,
-  occurred_at timestamptz NOT NULL DEFAULT NOW(),
-  model_facing_chars integer NOT NULL CHECK (model_facing_chars >= 0),
-  truncated boolean NOT NULL DEFAULT false,
-  zero_match boolean,
-  is_pagination_followup boolean NOT NULL DEFAULT false,
-  -- Migration 092 (BST-1247): substrate degradation split out of truncated
-  -- so the waste lens can separate model behavior from engine degradation.
-  engine text,
-  scan_limited boolean NOT NULL DEFAULT false,
-  candidates_truncated boolean NOT NULL DEFAULT false
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_thread_idx
-  ON ${TOOL_CALL_TELEMETRY_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_tool_time_idx
-  ON ${TOOL_CALL_TELEMETRY_TABLE} (tool_id, occurred_at DESC);
-
--- Migration 085 (BST-1198): occurred_at-leading index for the scheduled
--- retention sweep, which filters on occurred_at alone (no tool_id predicate).
-CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
-  ON ${TOOL_CALL_TELEMETRY_TABLE} (occurred_at);
-
--- Estimator-vs-provider prompt-token reconciliation pairs (BST-1205).
--- Bootstrapped here AND created by migrations 086 + 089 + 091 — keep the shape
--- byte-identical. The numerator is the chars/4 backstop over model-visible tool
--- outputs plus tool definitions, each counted once. final_step_prompt_tokens is
--- the latest step prompt, which contains prior tool outputs once via Mastra's
--- resend behavior—not the cross-step accumulated total. Conversation/system
--- prompt text outside tool outputs/definitions is excluded from both. Only
--- completed runs with at least one measured tool output are written. The
--- nullable resolved-budget columns segment new samples by their actual run
--- tier. prompt_baseline_tokens records system instructions + task list + tool
--- definitions for the same run, so the next turn's compaction trigger can
--- account for prompt content unavailable at its pre-request seam. Historical/
--- bootstrap-upgrade rows remain NULL rather than guessed.
--- Mirrored because thread deletion references every sidecar unconditionally;
--- only desktop main writes rows during normal operation.
-CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
-  id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  run_id text NOT NULL,
-  model text NOT NULL,
-  provider text NOT NULL,
-  estimated_prompt_tokens integer NOT NULL CHECK (estimated_prompt_tokens >= 0),
-  final_step_prompt_tokens integer NOT NULL CHECK (final_step_prompt_tokens >= 0),
-  step_count integer NOT NULL DEFAULT 1 CHECK (step_count >= 1),
-  model_visible_projection_count integer NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),
-  occurred_at timestamptz NOT NULL DEFAULT NOW(),
-  resolved_domain_budget_tokens integer CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
-  resolved_transport_budget_tokens integer CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0),
-  prompt_baseline_tokens integer CHECK (prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0)
-);
-
-ALTER TABLE ${TOKEN_ESTIMATE_CALIBRATION_TABLE}
-  ADD COLUMN IF NOT EXISTS resolved_domain_budget_tokens integer
-    CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
-  ADD COLUMN IF NOT EXISTS resolved_transport_budget_tokens integer
-    CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0),
-  ADD COLUMN IF NOT EXISTS prompt_baseline_tokens integer
-    CHECK (prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0);
-
-CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_thread_idx
-  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_model_idx
-  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (model, occurred_at DESC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_occurred_at_idx
-  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (occurred_at);
-
--- Native-tool model-projection overlays (BST-1192/BST-1200). Bootstrapped
--- here AND created by migrations 084 + 087 — this renderer-executed bootstrap
--- covers a FRESH table (CREATE TABLE branch) with the final shape, and adds
--- the ONLY column an already-084-shaped table can be missing (ADD COLUMN IF
--- NOT EXISTS is additive, never destructive). It deliberately does NOT run
--- ALTER COLUMN superseded_by_tool_call_id DROP NOT NULL, nor ADD CONSTRAINT
--- brainstrike_tool_projection_rewrite_kind_superseder_check: this SQL string
--- executes through the desktop renderer's db:exec IPC channel, and
--- db-ipc.ts's assertRendererSql guard (DESTRUCTIVE_SCHEMA_SQL_PATTERN)
--- matches ANY 'ALTER TABLE ... DROP ...' statement (including DROP NOT
--- NULL) as destructive schema SQL and rejects it outright, which broke
--- thread loading (and therefore the whole assistant panel mount) for every
--- desktop user until this was caught by a hard E2E failure (BST-1200 PR
--- #2355 review; do NOT reintroduce a nested backtick in this comment block,
--- it prematurely terminates the enclosing TS template literal and breaks the
--- build). Desktop main's migration 087 (both runners) is already
--- authoritative for the nullable column and CHECK constraint on desktop:
--- Electron main's own PGlite connection runs migrations directly, with no
--- IPC boundary and no db-ipc.ts guard in the way. "only desktop main
--- writes rows during normal operation" (below) means web never inserts a
--- kind = 'prune' row, so an un-relaxed NOT NULL here is harmless on web:
--- the thread-delete cascade only needs the TABLE and the kind COLUMN to
--- exist, never the exact constraint topology.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (
-  tool_call_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  rewrite_id text NOT NULL,
-  superseded_by_tool_call_id text,
-  kind text NOT NULL DEFAULT 'supersession'
-    CHECK (kind IN ('supersession', 'prune')),
-  marker_text text NOT NULL,
-  original_chars integer NOT NULL CHECK (original_chars >= 0),
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  CONSTRAINT brainstrike_tool_projection_rewrite_kind_superseder_check
-    CHECK (
-      (kind = 'supersession' AND superseded_by_tool_call_id IS NOT NULL)
-      OR (kind = 'prune' AND superseded_by_tool_call_id IS NULL)
-    )
-);
-
-ALTER TABLE ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE}
-  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'supersession'
-  CHECK (kind IN ('supersession', 'prune'));
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_tool_projection_rewrites_thread_idx
-  ON ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (thread_id);
-
--- Durable conversation-compaction ranges (BST-1200 Milestone 2).
--- Bootstrapped here AND created by migration 088 — keep the shape
--- byte-identical. The exact ordered message-id set is stored because Mastra
--- message ids are opaque client strings / UUIDv4 values, not sortable range
--- keys. Mirrored because thread deletion references every sidecar
--- unconditionally; only desktop main writes rows during normal operation.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_COMPACTION_RANGES_TABLE} (
-  compaction_message_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  compacted_message_ids jsonb NOT NULL,
-  kind text NOT NULL CHECK (kind IN ('agentic', 'deterministic')),
-  created_at timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_compaction_ranges_thread_idx
-  ON ${ASSISTANT_COMPACTION_RANGES_TABLE} (thread_id);
-
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
-  id text PRIMARY KEY,
-  resource_id text NOT NULL,
-  thread_id text NOT NULL REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
-  provider text NOT NULL,
-  model text NOT NULL,
-  model_settings jsonb,
-  provider_options jsonb,
-  runtime_kind text NOT NULL,
-  status text NOT NULL,
-  error text,
-  started_at timestamptz NOT NULL,
-  completed_at timestamptz,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL,
-  turn_message_id text
-);
-
--- Run↔turn link (BST-1163): the user message whose turn the run belongs to,
--- written at run creation. Nullable — pre-1163 rows stay NULL and readers
--- fall back to the completed_at timestamp rule. Upgrade path for existing
--- installs (this table is bootstrap-only; no numbered migration exists or
--- may be added — see assistant-persistence.md).
-ALTER TABLE ${ASSISTANT_THREAD_RUNS_TABLE}
-  ADD COLUMN IF NOT EXISTS turn_message_id text;
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_resource_idx
-  ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_thread_latest_idx
-  ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id, thread_id, started_at DESC, id DESC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_status_idx
-  ON ${ASSISTANT_THREAD_RUNS_TABLE} (status);
-
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_EVENTS_TABLE} (
-  id text PRIMARY KEY,
-  run_id text NOT NULL REFERENCES ${ASSISTANT_THREAD_RUNS_TABLE}(id) ON DELETE CASCADE,
-  resource_id text NOT NULL,
-  thread_id text NOT NULL REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
-  sequence integer NOT NULL,
-  kind text NOT NULL,
-  status text NOT NULL,
-  label text NOT NULL,
-  detail text,
-  duration_ms integer,
-  metadata jsonb,
-  occurred_at timestamptz NOT NULL,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
-  ON ${ASSISTANT_RUN_EVENTS_TABLE} (thread_id, resource_id, sequence ASC, occurred_at ASC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
-  ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
-
--- Terminal provider forensics (Flight Recorder P3). Bootstrapped here and
--- created by migration 076; keep the table/index shape byte-identical to that
--- migration. There is intentionally no FK because the numbered runner has no
--- thread_runs parent. The canonical DB repository derives thread/resource from
--- the durable parent and throws if it is missing. One row per run is immutable
--- first-terminal-wins; no dishonest partial retry-attempt history is stored.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_ERRORS_TABLE} (
-  run_id              TEXT PRIMARY KEY,
-  thread_id           TEXT NOT NULL,
-  resource_id         TEXT NOT NULL,
-  code                TEXT NOT NULL,
-  message             TEXT,
-  cause_chain         JSONB,
-  http_status         INTEGER,
-  provider_request_id TEXT,
-  response_headers    JSONB,
-  occurred_at         TIMESTAMPTZ NOT NULL,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT bst_assistant_run_errors_run_check
-    CHECK (length(run_id) > 0),
-  CONSTRAINT bst_assistant_run_errors_thread_check
-    CHECK (length(thread_id) > 0),
-  CONSTRAINT bst_assistant_run_errors_resource_check
-    CHECK (length(resource_id) > 0),
-  CONSTRAINT bst_assistant_run_errors_code_check
-    CHECK (length(code) > 0),
-  CONSTRAINT bst_assistant_run_errors_cause_chain_check
-    CHECK (cause_chain IS NULL OR jsonb_typeof(cause_chain) = 'array'),
-  CONSTRAINT bst_assistant_run_errors_http_status_check
-    CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),
-  CONSTRAINT bst_assistant_run_errors_response_headers_check
-    CHECK (response_headers IS NULL OR jsonb_typeof(response_headers) = 'object')
-);
-
-CREATE INDEX IF NOT EXISTS bst_assistant_run_errors_thread_idx
-  ON ${ASSISTANT_RUN_ERRORS_TABLE} (thread_id, occurred_at DESC);
-
-CREATE INDEX IF NOT EXISTS bst_assistant_run_errors_resource_idx
-  ON ${ASSISTANT_RUN_ERRORS_TABLE} (resource_id, occurred_at DESC);
-
--- Durable per-thread token usage (Phase 5.1). model/provider are PER ROW so
--- cost is attributable per model when a thread switches models mid-run.
--- Bootstrapped here (alongside the runs table) AND created by migration 046 so
--- both the test-only numbered runner and the real app converge on one shape.
--- No FK to mastra_threads: usage may be recorded for non-memory-backed turns,
--- and the row is a billing fact that should outlive a thread deletion cascade.
--- root_id (Phase 5.2, nullable) groups usage by workspace ROOT for cross-root
--- cost aggregation. Captured at request start (focus can change mid-run);
--- NULL is an honest "unattributed" bucket, never a fake root. This bootstrap,
--- migration 046 (table), and migration 047 (ALTER + index) must converge on
--- one shape — keep the column + the root index byte-identical to 047.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
-  id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  run_id text NOT NULL,
-  resource_id text NOT NULL,
-  model text NOT NULL,
-  provider text NOT NULL,
-  input_tokens integer NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
-  output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
-  billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0),
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  root_id text,
-  cache_read_input_tokens integer CHECK (cache_read_input_tokens >= 0),
-  cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0)
-);
-
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD COLUMN IF NOT EXISTS billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0);
-
--- Anthropic prompt-cache token classes (BST-587): keep byte-identical to
--- migration 068. input_tokens remains the TOTAL the model saw.
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD COLUMN IF NOT EXISTS cache_read_input_tokens integer CHECK (cache_read_input_tokens >= 0);
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD COLUMN IF NOT EXISTS cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0);
-
--- Run-kind attribution (BST-953/BST-1200): keep the accepted values aligned
--- with migration 090 while preserving the renderer bootstrap's add-only rule.
--- 'chat' = parent assistant turn; 'subagent' = persona delegation child;
--- 'compaction-summary' = pre-request auxiliary summarizer call;
--- 'om-observation'/'om-reflection' = observational-memory background cycles.
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD COLUMN IF NOT EXISTS run_kind text NOT NULL DEFAULT 'chat'
-  CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
-
--- Desktop main migration 090 owns widening an existing pre-090 CHECK. This
--- renderer-reachable bootstrap may only install the final constraint when it
--- is absent; emitting DROP CONSTRAINT here is rejected by db:exec's
--- destructive-schema guard and prevents the assistant panel from mounting.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'brainstrike_assistant_run_usage_run_kind_check'
-      AND conrelid = '${ASSISTANT_RUN_USAGE_TABLE}'::regclass
-  ) THEN
-    ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-      ADD CONSTRAINT brainstrike_assistant_run_usage_run_kind_check
-      CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
-  END IF;
-END
-$$;
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
-  ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
-  ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
-
--- Per-turn edit checkpoint journal (undo of agent file edits). The renderer
--- reads this table directly (Path A, like run_events), so it is bootstrapped
--- here AND created by migration 051 — keep the shape byte-identical to 051.
--- NO FK to thread_runs/mastra_threads: the numbered migration runner (tests)
--- and drizzle path run on a bare PGlite without those parent tables, so an FK
--- REFERENCES would break the migration suite. Full BEFORE-content is stored
--- (capped/binary-refused via capture_status); after_hash/after_existed are for
--- conflict detection only. Factory reset purges the table (db-ipc clearAll).
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (
-  id             text PRIMARY KEY,
-  run_id         text NOT NULL,
-  resource_id    text NOT NULL,
-  thread_id      text NOT NULL,
-  tool_call_id   text,
-  tool_name      text NOT NULL,
-  op             text NOT NULL CHECK (op IN ('write','string_replace','delete','rename')),
-  root_id        text NOT NULL,
-  path           text NOT NULL,
-  from_path      text,
-  before_existed boolean NOT NULL,
-  before_hash    text,
-  before_content text,
-  before_size    integer,
-  after_hash     text,
-  after_existed  boolean NOT NULL,
-  capture_status text NOT NULL CHECK (capture_status IN
-                   ('ok','created','skipped_binary','skipped_too_large','expired','rename')),
-  reverted_at    timestamptz,
-  occurred_at    timestamptz NOT NULL,
-  created_at     timestamptz NOT NULL,
-  updated_at     timestamptz NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_thread_idx
-  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, resource_id, occurred_at ASC, id ASC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_run_idx
-  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (run_id, occurred_at ASC, id ASC);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
-  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, reverted_at);
-
--- Per-run outcome labels (Task Ledger, Phase 1). At most one verdict per run
--- (upsert on run_id); 'source' preserves label provenance (user verdict,
--- edit-checkpoint revert derivation, or lifecycle-hook report). Bootstrapped
--- here AND created by migration 062 — keep the shape byte-identical to 062.
--- NO FK to thread_runs (migration runners execute on a bare PGlite without the
--- parent); like run_usage, outcome rows are analytic facts that outlive thread
--- deletion. Factory reset purges the table (db-ipc.ts OptionalRelationTable).
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_OUTCOMES_TABLE} (
-  run_id      text PRIMARY KEY,
-  thread_id   text NOT NULL,
-  resource_id text NOT NULL,
-  verdict     text NOT NULL CHECK (verdict IN ('succeeded','failed','mixed')),
-  source      text NOT NULL CHECK (source IN ('user','edit_revert','hook')),
-  detail      text,
-  labeled_at  timestamptz NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT NOW(),
-  updated_at  timestamptz NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_thread_idx
-  ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (thread_id, resource_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
-  ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (resource_id, labeled_at DESC);
-
--- Per-run experiment treatment record (BST-1250, recursive self-improvement
--- phase 2A). One row per hosted run, written by desktop main at prompt
--- assembly (injection_status 'continuation' for approval/resume legs, which
--- never reach it) — the ONE seam that knows whether self-improvement signal
--- injection actually happened and what exact text was injected
--- (signal_content_hash = SHA-256 of the injected system message). Without it
--- treatment could only be inferred from date windows or the CURRENT
--- preference value, both unsound. experiment_id/variant stay NULL for
--- un-enrolled runs. Bootstrapped here AND created by migration 093 — keep
--- the shape byte-identical to 093. NO FK (the numbered runner executes on a
--- bare PGlite without the run/thread parents); retained on thread delete
--- like run_outcomes (experiment evidence), cleared on factory reset via the
--- db reset registry.
-CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_TREATMENTS_TABLE} (
-  run_id text PRIMARY KEY,
-  thread_id text NOT NULL,
-  resource_id text NOT NULL,
-  experiment_id text,
-  variant text,
-  injection_status text NOT NULL CHECK (
-    injection_status IN ('continuation', 'injected', 'no_waste', 'preference_malformed', 'preference_off', 'query_failed')
-  ),
-  signal_injected boolean NOT NULL,
-  signal_content_hash text,
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  CONSTRAINT brainstrike_assistant_run_treatments_injected_consistency
-    CHECK (signal_injected = (injection_status = 'injected'))
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_created_at_idx
-  ON ${ASSISTANT_RUN_TREATMENTS_TABLE} (created_at);
-
--- Thread placements are Brainstrike presentation state (migrations 054+056).
--- Bootstrapped here because the thread-delete cascade now owns the placements
--- stage on EVERY path (BST-993) and this repository runs against a bare
--- PGlite in the migration-less harness — keep the shape byte-identical to
--- 054 with 056's flat_rank addition (056's color column is on GROUPS, not
--- placements — review #2167 caught the phantom column).
-CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_placements (
-  thread_id   text PRIMARY KEY,
-  resource_id text NOT NULL,
-  group_id    text,
-  rank        text NOT NULL,
-  updated_at  timestamptz NOT NULL DEFAULT NOW(),
-  flat_rank   text
-);
-
-CREATE INDEX IF NOT EXISTS idx_assistant_thread_placements_resource_group
-  ON brainstrike_assistant_thread_placements (resource_id, group_id);
-
--- Per-thread workspace snapshots (BST-1268, migration 094). Bootstrapped here
--- because the thread-delete cascade references every registered sidecar
--- unconditionally and this repository runs against a bare PGlite in the
--- migration-less harness — keep the shape byte-identical to 094.
-CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_workspaces (
-  thread_id   text PRIMARY KEY,
-  resource_id text NOT NULL,
-  payload     jsonb NOT NULL,
-  updated_at  timestamptz NOT NULL DEFAULT NOW()
-);
-
--- Sync-the-mind op-log seam (BST-993). Bootstrapped here AND created by
--- migration 079 — keep the shape byte-identical to 079. Delete ops only;
--- widening the vocabulary is a conscious migration, never a drift channel.
-CREATE TABLE IF NOT EXISTS ${MIND_OPS_TABLE} (
-  seq BIGSERIAL PRIMARY KEY,
-  entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),
-  entity_id TEXT NOT NULL,
-  op TEXT NOT NULL CHECK (op = 'delete'),
-  resource_id TEXT,
-  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS brainstrike_mind_ops_entity_idx
-  ON ${MIND_OPS_TABLE} (entity_kind, entity_id);
-`;
+/**
+ * The schema check, and the reason it is a PROBE rather than a bootstrap.
+ *
+ * This repository used to `exec` a ~590-line `CREATE TABLE IF NOT EXISTS`
+ * mirror of migrations 046-095 on first use per handle. On a migrated database
+ * the `IF NOT EXISTS` never fired, which meant any divergence between the
+ * mirror and the migrations was UNOBSERVABLE until a user hit a column the two
+ * had shaped differently — a silent corruption with nothing pointing at its
+ * cause. Migrations 117 (Mastra's memory schema) and 118 (the run header and
+ * its event timeline) removed the last reason that mirror existed.
+ *
+ * `to_regclass` returns NULL for an absent relation instead of raising 42P01,
+ * so one statement answers for the whole set and names exactly what is missing.
+ * There is deliberately NO create-if-absent branch: a missing relation means
+ * migrations did not run, and quietly creating it is precisely how the
+ * divergence above was manufactured. The relation names are module constants
+ * from `@brainstrike/assistant-contract`, never caller input, so inlining them
+ * as literals carries no injection surface.
+ */
+async function assertAssistantMemorySchema(database: DbHandle): Promise<void> {
+  const relations = requiredAssistantMemoryRelations();
+  const relationValues = relations.map((relation) => `('${relation}')`).join(', ');
+  const result = await database.query<{ relation: string }>(
+    `SELECT required.relation
+       FROM (VALUES ${relationValues}) AS required(relation)
+      WHERE to_regclass('public.' || required.relation) IS NULL
+      ORDER BY required.relation`
+  );
+  if (result.rows.length === 0) {
+    return;
+  }
+  throw new AssistantMemorySchemaMissingError(result.rows.map((row) => row.relation));
 }
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, BulkAssistantThreadRepository>();
-const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
+const assistantThreadSchemaProbePromises = new WeakMap<DbHandle, Promise<void>>();
 const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
 const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
+  'checkoutBranch',
+  'checkoutLocalRootId',
+  'checkoutMode',
+  'checkoutWorktreeId',
+  'checkoutWorktreePath',
   'color',
+  'forgePrUrl',
+  'forgePrWatch',
   'icon',
   'model',
   'modelSettings',
@@ -1283,16 +827,9 @@ const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
   'operatingRootPath',
   'provider',
   'providerOptions',
+  'secondaryRootIds',
   'source',
 ]);
-
-function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle & {
-  exec: NonNullable<DbHandle['exec']>;
-} {
-  if (typeof database.exec !== 'function') {
-    throw new Error('Assistant memory requires a database handle with exec support.');
-  }
-}
 
 function createThreadId(): string {
   return `thread-${crypto.randomUUID()}`;
@@ -1443,6 +980,10 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
 function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
@@ -1479,6 +1020,29 @@ function optionalOperatingRootMetadataString(
   return value;
 }
 
+function optionalSecondaryRootIds(value: unknown): readonly string[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant thread metadata secondary root ids.');
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    // Trim-empty matches `optionalString`'s semantics: a whitespace-only id is
+    // no id at all, so it is rejected rather than silently persisted.
+    if (typeof entry !== 'string' || !entry.trim()) {
+      throw new Error('Invalid assistant thread metadata secondary root ids.');
+    }
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      ids.push(entry);
+    }
+  }
+  return ids;
+}
+
 function assertOptionalThreadMetadataString(value: string | undefined, label: string): void {
   if (value !== undefined && !optionalString(value)) {
     throw new Error(`Invalid assistant thread metadata ${label}.`);
@@ -1501,13 +1065,128 @@ function assertCompleteOperatingRootMetadata(metadata: {
   }
 }
 
+const CHECKOUT_MODES = new Set(['local', 'worktree']);
+
+function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== 'string' || !CHECKOUT_MODES.has(value)) {
+    throw new Error('Invalid assistant thread metadata checkout mode.');
+  }
+  return value as 'local' | 'worktree';
+}
+
+/**
+ * All-or-nothing validation for the thread's checkout, mirroring
+ * `assertCompleteOperatingRootMetadata`.
+ *
+ * `checkoutWorktreeId` is the AUTHORITY in worktree mode (exactly like
+ * `operatingRootId` is for the folder binding), `checkoutWorktreePath` is the
+ * display hint the chip's tooltip renders, and `checkoutLocalRootId` is the
+ * durable root a later hand-off restores. New worktree writes need all three:
+ * an id with no path renders a chip with nothing to show, a path with no id has
+ * no durable identity to resolve, and a missing Local root would lose the
+ * durable hand-off target. Reads tolerate only that last omission for legacy
+ * rows, allowing the explicit warn/toast hand-off path to retain the current
+ * primary folder. A LOCAL checkout carrying any of those keys is not "mostly
+ * right" — it is two contradictory statements about where the thread works,
+ * and it is rejected rather than silently pruned.
+ *
+ * `updateThreadMetadata` owns the key-removal transitions this shape needs.
+ * Every checkout-mode patch removes the per-checkout branch before merging, so
+ * a detached worktree cannot inherit the previous checkout's branch. A patch
+ * specifically to Local also removes both worktree keys and the durable Local
+ * root in the same SQL update. Every non-checkout metadata patch keeps the
+ * repository's ordinary JSONB-merge semantics.
+ */
+interface CheckoutMetadataShape {
+  readonly checkoutBranch?: string | undefined;
+  readonly checkoutLocalRootId?: string | undefined;
+  readonly checkoutMode?: 'local' | 'worktree' | undefined;
+  readonly checkoutWorktreeId?: string | undefined;
+  readonly checkoutWorktreePath?: string | undefined;
+}
+
+function assertCompleteCheckoutMetadata(
+  metadata: CheckoutMetadataShape,
+  requireLocalRootId: boolean
+): void {
+  const hasAnyCheckoutMetadata = Boolean(
+    metadata.checkoutBranch ||
+      metadata.checkoutLocalRootId ||
+      metadata.checkoutMode ||
+      metadata.checkoutWorktreeId ||
+      metadata.checkoutWorktreePath
+  );
+  if (!hasAnyCheckoutMetadata) {
+    return;
+  }
+  if (!metadata.checkoutMode) {
+    throw new Error('Assistant thread checkout metadata is incomplete.');
+  }
+  if (metadata.checkoutMode === 'worktree') {
+    if (
+      !(metadata.checkoutWorktreeId && metadata.checkoutWorktreePath) ||
+      (requireLocalRootId && !metadata.checkoutLocalRootId)
+    ) {
+      throw new Error('Assistant thread checkout metadata is incomplete.');
+    }
+    return;
+  }
+  if (
+    metadata.checkoutLocalRootId ||
+    metadata.checkoutWorktreeId ||
+    metadata.checkoutWorktreePath
+  ) {
+    throw new Error('Assistant thread checkout metadata is inconsistent.');
+  }
+}
+
+function assertCompleteCheckoutMetadataForRead(metadata: CheckoutMetadataShape): void {
+  assertCompleteCheckoutMetadata(metadata, false);
+}
+
+function assertCompleteCheckoutMetadataForWrite(metadata: CheckoutMetadataShape): void {
+  assertCompleteCheckoutMetadata(metadata, true);
+}
+
+function sanitizeCheckoutMetadata(
+  value: Record<string, unknown>
+): Pick<
+  AssistantThreadMetadata,
+  | 'checkoutBranch'
+  | 'checkoutLocalRootId'
+  | 'checkoutMode'
+  | 'checkoutWorktreeId'
+  | 'checkoutWorktreePath'
+> {
+  const checkoutBranch = optionalString(value['checkoutBranch']);
+  const checkoutLocalRootId = optionalString(value['checkoutLocalRootId']);
+  const checkoutMode = optionalCheckoutMode(value['checkoutMode']);
+  const checkoutWorktreeId = optionalString(value['checkoutWorktreeId']);
+  const checkoutWorktreePath = optionalString(value['checkoutWorktreePath']);
+  const checkoutMetadata = {
+    ...(checkoutBranch ? { checkoutBranch } : {}),
+    ...(checkoutLocalRootId ? { checkoutLocalRootId } : {}),
+    ...(checkoutMode ? { checkoutMode } : {}),
+    ...(checkoutWorktreeId ? { checkoutWorktreeId } : {}),
+    ...(checkoutWorktreePath ? { checkoutWorktreePath } : {}),
+  };
+  assertCompleteCheckoutMetadataForRead(checkoutMetadata);
+  return checkoutMetadata;
+}
+
 function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undefined {
   if (!isRecord(value)) {
     return;
   }
   const metadata: MutableAssistantThreadMetadata = {};
+  Object.assign(metadata, sanitizeCheckoutMetadata(value));
   const icon = optionalThreadIconId(value['icon']);
   const color = optionalThreadColorId(value['color']);
+  const forgePrUrl = optionalString(value['forgePrUrl']);
+  const forgePrWatch = optionalBoolean(value['forgePrWatch']);
   const provider = optionalString(value['provider']);
   const model = optionalString(value['model']);
   const modelSettings = optionalRecord(value['modelSettings']);
@@ -1528,6 +1207,7 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   );
   const providerOptions = optionalRecord(value['providerOptions']);
   const source = optionalString(value['source']);
+  const secondaryRootIds = optionalSecondaryRootIds(value['secondaryRootIds']);
   assertCompleteOperatingRootMetadata({
     ...(operatingRootDisplayName ? { operatingRootDisplayName } : {}),
     ...(operatingRootId ? { operatingRootId } : {}),
@@ -1539,6 +1219,12 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   }
   if (color) {
     metadata.color = color;
+  }
+  if (forgePrUrl) {
+    metadata.forgePrUrl = forgePrUrl;
+  }
+  if (forgePrWatch !== undefined) {
+    metadata.forgePrWatch = forgePrWatch;
   }
   if (provider) {
     metadata.provider = provider;
@@ -1557,6 +1243,9 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   }
   if (operatingRootPath) {
     metadata.operatingRootPath = operatingRootPath;
+  }
+  if (secondaryRootIds) {
+    metadata.secondaryRootIds = secondaryRootIds;
   }
   if (providerOptions) {
     metadata.providerOptions = providerOptions;
@@ -1583,6 +1272,16 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   if (metadata.color !== undefined && !ASSISTANT_THREAD_COLOR_ID_SET.has(metadata.color)) {
     throw new Error('Invalid assistant thread metadata color.');
   }
+  optionalCheckoutMode(metadata.checkoutMode);
+  assertCompleteCheckoutMetadataForWrite(metadata);
+  assertOptionalThreadMetadataString(metadata.checkoutBranch, 'checkout branch');
+  assertOptionalThreadMetadataString(metadata.checkoutLocalRootId, 'checkout local root id');
+  assertOptionalThreadMetadataString(metadata.checkoutWorktreeId, 'checkout worktree id');
+  assertOptionalThreadMetadataString(metadata.checkoutWorktreePath, 'checkout worktree path');
+  assertOptionalThreadMetadataString(metadata.forgePrUrl, 'forge pull request URL');
+  if (metadata.forgePrWatch !== undefined && typeof metadata.forgePrWatch !== 'boolean') {
+    throw new Error('Invalid assistant thread metadata forge watch flag.');
+  }
   assertCompleteOperatingRootMetadata(metadata);
   assertOptionalThreadMetadataString(metadata.provider, 'provider');
   assertOptionalThreadMetadataString(metadata.model, 'model');
@@ -1593,12 +1292,55 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   assertOptionalThreadMetadataString(metadata.operatingRootId, 'operating root id');
   assertOptionalThreadMetadataString(metadata.operatingRootPath, 'operating root path');
   assertOptionalThreadMetadataString(metadata.source, 'source');
+  optionalSecondaryRootIds(metadata.secondaryRootIds);
   if (metadata.modelSettings !== undefined && !optionalRecord(metadata.modelSettings)) {
     throw new Error('Invalid assistant thread metadata model settings.');
   }
   if (metadata.providerOptions !== undefined && !optionalRecord(metadata.providerOptions)) {
     throw new Error('Invalid assistant thread metadata provider options.');
   }
+}
+
+/** Checkout transitions are single-thread writes because their key projection is atomic. */
+export function assertBulkThreadMetadataPatch(metadata: AssistantThreadMetadata): void {
+  if (
+    'checkoutBranch' in metadata ||
+    'checkoutLocalRootId' in metadata ||
+    'checkoutMode' in metadata ||
+    'checkoutWorktreeId' in metadata ||
+    'checkoutWorktreePath' in metadata
+  ) {
+    throw new Error('Bulk assistant thread metadata updates cannot change checkout state.');
+  }
+}
+
+/** Test-only seam for the sanitizer — see thread-metadata.test.ts. */
+export function sanitizeThreadMetadataForTest(value: unknown): AssistantThreadMetadata | undefined {
+  return sanitizeThreadMetadata(value);
+}
+
+/** Test-only seam for the persistence assertion — see thread-metadata.test.ts. */
+export function assertPersistableThreadMetadataForTest(metadata: AssistantThreadMetadata): void {
+  assertPersistableThreadMetadata(metadata);
+}
+
+/**
+ * Narrows metadata for persistence: `secondaryRootIds`, when present, is
+ * replaced with its deduped form (see `optionalSecondaryRootIds`) so every
+ * write path — single-thread or bulk — serializes the same normalized shape.
+ * Callers must validate the metadata first (`assertPersistableThreadMetadata`
+ * / `requireNonemptyThreadMetadata`); this does not re-validate.
+ */
+function normalizeThreadMetadataForPersistence(
+  metadata: AssistantThreadMetadata
+): AssistantThreadMetadata {
+  const dedupedSecondaryRootIds = metadata.secondaryRootIds
+    ? optionalSecondaryRootIds(metadata.secondaryRootIds)
+    : undefined;
+  return {
+    ...metadata,
+    ...(dedupedSecondaryRootIds ? { secondaryRootIds: dedupedSecondaryRootIds } : {}),
+  };
 }
 
 function requireAssistantThreadIds(threadIds: readonly string[]): readonly string[] {
@@ -2881,24 +2623,29 @@ function appendSuspendedPauseMessages(
 export function createPgliteAssistantThreadRepository(
   database: DbHandle
 ): BulkAssistantThreadRepository {
-  assertMemoryDatabase(database);
   const cachedRepository = assistantThreadRepositoryCache.get(database);
   if (cachedRepository) {
     return cachedRepository;
   }
+  /**
+   * One probe per database handle, memoized like the bootstrap it replaced. A
+   * FAILED probe drops its promise so the next call re-probes: the handle may
+   * legitimately become migrated (the browser first-run bootstrap and desktop
+   * main both migrate before handing a handle out, but a test — or a future
+   * caller that races init — can hold one that is not migrated yet). Caching
+   * the negative answer would be the same "decide once, hide forever" mistake
+   * the sidecar-presence latch in `PgliteMemoryStore` avoids.
+   */
   const initialize = async (): Promise<void> => {
-    let initPromise = assistantThreadSchemaInitPromises.get(database);
-    if (!initPromise) {
-      initPromise = database
-        .exec(buildAssistantThreadRunsSchemaSql())
-        .then(() => undefined)
-        .catch((error: unknown) => {
-          assistantThreadSchemaInitPromises.delete(database);
-          throw error;
-        });
-      assistantThreadSchemaInitPromises.set(database, initPromise);
+    let probePromise = assistantThreadSchemaProbePromises.get(database);
+    if (!probePromise) {
+      probePromise = assertAssistantMemorySchema(database).catch((error: unknown) => {
+        assistantThreadSchemaProbePromises.delete(database);
+        throw error;
+      });
+      assistantThreadSchemaProbePromises.set(database, probePromise);
     }
-    await initPromise;
+    await probePromise;
   };
 
   const listLatestThreadRuns = async (
@@ -3659,12 +3406,21 @@ export function createPgliteAssistantThreadRepository(
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);
+      const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
+      // Setting any checkout mode is a checkout transition, so its branch is
+      // per-checkout. Only a transition to Local also drops the three keys
+      // whose authority has no meaning after the hand-off.
+      const currentMetadata = metadata.checkoutMode
+        ? metadata.checkoutMode === 'local'
+          ? "COALESCE(metadata, '{}'::jsonb) - 'checkoutBranch' - 'checkoutWorktreeId' - 'checkoutWorktreePath' - 'checkoutLocalRootId'"
+          : "COALESCE(metadata, '{}'::jsonb) - 'checkoutBranch'"
+        : "COALESCE(metadata, '{}'::jsonb)";
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+         SET metadata = (${currentMetadata}) || $2::jsonb
          WHERE id = $1`,
-        [threadId, JSON.stringify(metadata)]
+        [threadId, JSON.stringify(normalized)]
       );
     },
     async updateThreadsMetadata(
@@ -3673,6 +3429,14 @@ export function createPgliteAssistantThreadRepository(
     ): Promise<void> {
       requireAssistantThreadIds(threadIds);
       requireNonemptyThreadMetadata(metadata);
+      // `assertBulkThreadMetadataPatch` first: it names the SPECIFIC reason
+      // (checkout state is a single-thread, atomic write) for the class of
+      // rejection a generic "invalid key" from the broader validator below
+      // would not explain. Both run — the second stays load-bearing beyond
+      // checkout keys (key whitelist, icon/color, string-shape checks).
+      assertBulkThreadMetadataPatch(metadata);
+      assertPersistableThreadMetadata(metadata);
+      const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
       const metadataParameter = threadIds.length + 1;
       const result = await database.query<Record<string, unknown>>(
@@ -3695,7 +3459,7 @@ export function createPgliteAssistantThreadRepository(
          SELECT
           (SELECT all_found FROM validation) AS "allFound",
           (SELECT count(*) FROM updated_threads) AS "updatedThreadCount"`,
-        [...threadIds, JSON.stringify(metadata)]
+        [...threadIds, JSON.stringify(normalized)]
       );
       assertAllBulkThreadsFound(result.rows[0]);
     },

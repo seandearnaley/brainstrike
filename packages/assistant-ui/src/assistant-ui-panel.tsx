@@ -6,6 +6,7 @@ import {
   type DataMessagePartComponent,
   MessagePrimitive,
   ThreadPrimitive,
+  type ToolCallMessagePartProps,
   useAssistantDataUI,
   useAui,
   useAuiState,
@@ -24,6 +25,7 @@ import {
   type AssistantUiThreadHistoryAdapter,
   CHILD_RUN_USAGE_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
+  getAssistantBridge,
   type LocalLlmBackendFactory,
   type OpenRouterModelMetadataLookup,
   SHELL_OUTPUT_DATA_NAME,
@@ -83,14 +85,11 @@ import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { UserMessage } from './user-message';
 
+export type { ComposerAttachmentsAvailability } from './composer-input';
 // Re-exported for the suites that mount these against a real runtime
 // (user-action-bar-copy, assistant-chat-polish.browser) — extraction moved the
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
-
-import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
-
-export type { ComposerAttachmentsAvailability } from './composer-input';
 
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
@@ -397,12 +396,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   /** Called with the provider's exact token counts from a finish-message chunk. */
   onUsage?: (usage: AssistantUsage) => void;
   openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
-  /**
-   * The assistant's operating root (MAIN root — activeRootIds[0]), shown as a
-   * compact chip above the composer. App-shell passes it ONLY when 2+
-   * workspace roots are mounted; absent renders no chip (single-root/web).
-   */
-  operatingRoot?: OperatingRootInfo;
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
@@ -434,6 +427,19 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   slashCommands?: readonly SlashCommand[];
   threadKey?: string;
   toolMenu?: AssistantToolMenuConfig;
+  /**
+   * Composer workspace bar (folder · branch) SLOT. App-shell renders the bar
+   * host and passes the element; absent = no bar (storybook / bare embeds).
+   *
+   * A ReactNode, deliberately NOT `WorkspaceBarProps`: the bar's state comes
+   * from two live-refresh subscriptions, and composing its props in app-shell's
+   * panel wrapper made every git push re-render that ~1800-line component.
+   * Owning the subscriptions in a small app-shell host and handing this package
+   * the finished element keeps assistant-ui store-free AND keeps the re-render
+   * scoped to the bar. `WorkspaceBar` + its prop types stay exported for the
+   * host to use.
+   */
+  workspaceBar?: ReactNode;
 }
 
 export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
@@ -549,33 +555,34 @@ function isActivityPart(part: unknown): boolean {
   return type === 'tool-call' || type === 'reasoning';
 }
 
-/** Stable React key for an activity row: the tool call id, else its position. */
-function activityPartKey(part: unknown, index: number): string {
-  if (part && typeof part === 'object') {
-    const id = (part as { toolCallId?: unknown }).toolCallId;
-    if (typeof id === 'string' && id.length > 0) {
-      return id;
-    }
-  }
-  return `activity-${index}`;
+function ActivityPartLayout({ children }: { children?: ReactNode }) {
+  return <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>;
+}
+
+function ActivityToolPart(props: ToolCallMessagePartProps) {
+  const Component =
+    CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName] ??
+    CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
+  return <Component {...props} />;
 }
 
 export const LocalChainOfThought = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
   const messageParts = useAuiState((state) => state.message.parts);
-  const hasReasoningParts = useAuiState((state) => state.message.parts.some(isReasoningPart));
+  const groupParts = useAuiState((state) => state.chainOfThought.parts);
+  const hasReasoningParts = useAuiState((state) =>
+    state.chainOfThought.parts.some(isReasoningPart)
+  );
   const isReasoningRunning = useAuiState((state) =>
-    state.message.parts.some(isRunningReasoningPart)
+    state.chainOfThought.parts.some(isRunningReasoningPart)
   );
-  const isMessageRunning = useAuiState(
-    (state) => (state.message as { status?: { type?: string } }).status?.type === 'running'
-  );
-  // The Mastra agent loop puts each tool call in its own step, which
-  // assistant-ui splits into a SEPARATE chain-of-thought group. To group the
-  // whole turn into ONE Activity panel ("Worked · N steps"), the FIRST chain
-  // renders every tool/reasoning part of the message (by index, so streaming
-  // binding is preserved) and every later chain renders nothing.
+  const isActivityActive = useAuiState((state) => state.chainOfThought.status.type === 'running');
+  const incompleteReason = useAuiState((state) => {
+    const status = state.chainOfThought.status;
+    return status.type === 'incomplete' ? status.reason : undefined;
+  });
+  // The task-list summary is turn-wide; render it once without hoisting activity.
   const isFirstChain = useAuiState((state) => {
     const firstActivity = state.message.parts.find(isActivityPart);
     if (!firstActivity) {
@@ -583,23 +590,10 @@ export const LocalChainOfThought = () => {
     }
     return state.chainOfThought.parts.find(isActivityPart) === firstActivity;
   });
-  // `index:stableKey` for each activity part, built in ONE pass (the selector
-  // re-runs on every streamed update). Selecting a string primitive keeps
-  // re-render semantics stable; the stable key avoids array-index keys.
-  const activityKey = useAuiState((state) => {
-    const entries: string[] = [];
-    for (const [index, part] of state.message.parts.entries()) {
-      if (isActivityPart(part)) {
-        entries.push(`${index}:${activityPartKey(part, index)}`);
-      }
-    }
-    return entries.join(',');
-  });
-
   const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
   // Per-turn derivations with context-value stability — see the hook's doc.
   const { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations } =
-    useChainActivityDerivations(messageParts, messageId);
+    useChainActivityDerivations(messageParts, messageId, groupParts);
 
   const initializedRef = useRef(false);
   const reasoningPanelId = useId();
@@ -612,33 +606,21 @@ export const LocalChainOfThought = () => {
     aui.chainOfThought().setCollapsed(true);
   }, [aui]);
 
-  // Later chains are already covered by the first chain's turn-level group.
-  if (!isFirstChain) {
-    return null;
-  }
-
-  const activityEntries =
-    activityKey === ''
-      ? []
-      : activityKey.split(',').map((entry) => {
-          const separator = entry.indexOf(':');
-          return { index: Number(entry.slice(0, separator)), key: entry.slice(separator + 1) };
-        });
-
-  // Render each tool/reasoning part by index — this keeps assistant-ui's live
-  // streaming binding while letting us group across step boundaries.
-  const activityParts = activityEntries.map(({ index, key }) => (
-    <div className="mb-2 last:mb-0 empty:mb-0" key={key}>
-      <MessagePrimitive.PartByIndex
-        components={{
-          /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
-          Reasoning: collapsed ? HiddenReasoningPart : AssistantReasoningPart,
-          tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS,
-        }}
-        index={index}
-      />
-    </div>
-  ));
+  const activityParts = (
+    <ChainOfThoughtPrimitive.Parts
+      components={{
+        /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
+        Layout: ActivityPartLayout,
+        /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
+        Reasoning: collapsed ? HiddenReasoningPart : AssistantReasoningPart,
+        /* The chain primitive exposes one tool slot; retain the existing named renderers. */
+        tools: {
+          /* biome-ignore lint/style/useNamingConvention: assistant-ui component slot */
+          Fallback: ActivityToolPart,
+        },
+      }}
+    />
+  );
 
   // Only reasoning lives behind the collapsible pill; tool cards always render.
   const reasoningSection = hasReasoningParts ? (
@@ -655,33 +637,20 @@ export const LocalChainOfThought = () => {
     activityParts
   );
 
-  const isActivityActive = toolActivity.runningCount > 0 || isReasoningRunning || isMessageRunning;
-  // A FINISHED lone tool call (no reasoning) is more useful as just the card —
-  // the "Worked · 1 step" wrapper adds nothing. While the turn is still active
-  // we always group, so streaming tools land in a stable container instead of a
-  // bare card that pops into a group when the second tool arrives.
-  const isSingleTool = !isActivityActive && toolActivity.stepCount === 1 && !hasReasoningParts;
-
-  let content: ReactNode = reasoningSection;
-  if (isSingleTool) {
-    content = activityParts;
-  } else if (toolActivity.stepCount > 0) {
-    content = (
-      <AssistantActivityGroup
-        fallbackMs={activityFallbackMs}
-        isActive={isActivityActive}
-        summary={toolActivity}
-      >
-        {reasoningSection}
-      </AssistantActivityGroup>
-    );
-  }
-
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-2xl">
-      {taskList ? <TodoProgress result={taskList} /> : null}
+      {isFirstChain && taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>
-        <ShellOutputProvider outputs={shellOutputs}>{content}</ShellOutputProvider>
+        <ShellOutputProvider outputs={shellOutputs}>
+          <AssistantActivityGroup
+            fallbackMs={activityFallbackMs}
+            incompleteReason={incompleteReason}
+            isActive={isActivityActive}
+            summary={toolActivity}
+          >
+            {reasoningSection}
+          </AssistantActivityGroup>
+        </ShellOutputProvider>
       </ToolDurationProvider>
     </ChainOfThoughtPrimitive.Root>
   );
@@ -747,8 +716,6 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   onUsage?: ((usage: AssistantUsage) => void) | undefined;
-  /** Assistant operating root chip (multi-root only); absent → no chip. */
-  operatingRoot?: OperatingRootInfo | undefined;
   pickerModels: ModelPickerModel[];
   /** Composer plan-mode toggle; absent → no toggle rendered. */
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
@@ -767,6 +734,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   selectedProvider: string | undefined;
   slashCommands: readonly SlashCommand[];
   toolMenu?: AssistantToolMenuConfig | undefined;
+  /** Composer workspace bar (folder · branch) slot; absent → no bar. */
+  workspaceBar?: ReactNode | undefined;
 }
 
 /**
@@ -805,7 +774,7 @@ const LocalRuntimeChat = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
-  operatingRoot,
+  workspaceBar,
   planMode,
   toolMenu,
   requestData,
@@ -897,7 +866,7 @@ const LocalRuntimeChat = ({
           onRunFinished={onRunFinished}
           onThreadRunStart={onThreadRunStart}
           onToolApprovalRequired={onToolApprovalRequired}
-          {...(operatingRoot ? { operatingRoot } : {})}
+          {...(workspaceBar ? { workspaceBar } : {})}
           pickerModels={pickerModels}
           {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
@@ -960,7 +929,7 @@ const DataStreamRuntimeChat = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
-  operatingRoot,
+  workspaceBar,
   planMode,
   attachmentsAvailability,
   toolMenu,
@@ -1093,7 +1062,7 @@ const DataStreamRuntimeChat = ({
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
             {...(onSteerActiveRun ? { onSteerActiveRun } : {})}
-            {...(operatingRoot ? { operatingRoot } : {})}
+            {...(workspaceBar ? { workspaceBar } : {})}
             pickerModels={pickerModels}
             {...(planMode ? { planMode } : {})}
             {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
@@ -1157,7 +1126,7 @@ const ChatThreadUI = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
-  operatingRoot,
+  workspaceBar,
   planMode,
   attachmentsAvailability,
   threadKey,
@@ -1170,7 +1139,6 @@ const ChatThreadUI = ({
   effectiveInputBudget?: number | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   onSteerActiveRun?: (() => Promise<boolean>) | undefined;
-  operatingRoot?: OperatingRootInfo | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -1198,6 +1166,7 @@ const ChatThreadUI = ({
   onComposerTextChange?: ((text: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
+  workspaceBar?: ReactNode | undefined;
 }) => {
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const composerDisabled = isComposerDisabled || isHistoryLoading;
@@ -1298,11 +1267,11 @@ const ChatThreadUI = ({
            * This required aggressive CSS overrides (see overrides.css).
            */}
           <div className="bs-composer-shell" data-testid="assistant-composer-shell">
-            {/* Multi-root operating-root chip ("in {main root}") — its own module,
-            a SIBLING at the top of the composer stack (never nested inside
-            ThreadContextMeter, which is being reworked separately). Renders
-            nothing unless app-shell passes operatingRoot (2+ roots). */}
-            <OperatingRootChip operatingRoot={operatingRoot} />
+            {/* Composer workspace bar (folder · branch) — an app-shell-rendered
+            SLOT, a SIBLING at the top of the composer stack (never nested
+            inside ThreadContextMeter, which is being reworked separately).
+            app-shell renders the bar host; assistant-ui stays store-free. */}
+            {workspaceBar ?? null}
             <ThreadContextMeter
               contextWindow={contextWindow}
               cumulativeUsage={cumulativeUsage}
@@ -1382,10 +1351,10 @@ const ChatThreadUI = ({
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 /** Initial API URL for the data stream runtime (hosted providers). */
 function resolveInitialAssistantApi(): string {
-  if (typeof window === 'undefined') {
-    return '/api/assistant';
-  }
-  return window.assistant?.url ? `${window.assistant.url}/assistant` : '/api/assistant';
+  const bridge = getAssistantBridge();
+  return typeof bridge?.url === 'string' && bridge.url
+    ? `${bridge.url}/assistant`
+    : '/api/assistant';
 }
 
 export const AssistantUiPanel = ({
@@ -1422,7 +1391,7 @@ export const AssistantUiPanel = ({
   onStepUsage,
   onUsage,
   attachmentsAvailability,
-  operatingRoot,
+  workspaceBar,
   planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
@@ -1506,7 +1475,7 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
-            operatingRoot={operatingRoot}
+            workspaceBar={workspaceBar}
             {...(onUsage ? { onUsage } : {})}
             fileMentions={fileMentions}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
@@ -1552,8 +1521,8 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
-            operatingRoot={operatingRoot}
             prepareLocalModel={prepareLocalModel}
+            workspaceBar={workspaceBar}
             {...(onContextBreakdown ? { onContextBreakdown } : {})}
             onChildRunUsage={onChildRunUsage}
             onSteerActiveRun={onSteerActiveRun}

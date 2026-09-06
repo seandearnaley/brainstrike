@@ -111,7 +111,7 @@ async function drainDoStream(model: ModelRouterLanguageModel): Promise<void> {
 }
 
 async function streamThroughRouter(modelName: string): Promise<void> {
-  const config = createProvider('openrouter', 'test-key', modelName);
+  const config = createProvider('openrouter', { apiKey: 'test-key', kind: 'api_key' }, modelName);
   expect(config).toBeInstanceOf(ModelRouterLanguageModel);
   await drainDoStream(config as ModelRouterLanguageModel);
 }
@@ -254,9 +254,58 @@ describe('OpenRouterStrictContentGateway', () => {
   });
 });
 
+describe('OpenRouterStrictContentGateway getApiKey (BST-1361)', () => {
+  const OPENROUTER_ENV_NAMES = ['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'] as const;
+  const savedValues = new Map<string, string | undefined>();
+
+  const clearOpenRouterEnv = () => {
+    for (const name of OPENROUTER_ENV_NAMES) {
+      savedValues.set(name, process.env[name]);
+      delete process.env[name];
+    }
+  };
+
+  afterEach(() => {
+    for (const [name, value] of savedValues) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    savedValues.clear();
+  });
+
+  it('prefers the request-resolved apiKey threaded at construction over any env var', async () => {
+    clearOpenRouterEnv();
+    process.env['OPENROUTER_API_KEY'] = 'env-key';
+    const gateway = new OpenRouterStrictContentGateway('resolved-key');
+    await expect(gateway.getApiKey('openrouter/qwen/qwen3.8-max')).resolves.toBe('resolved-key');
+  });
+
+  it('falls back to the registry env names — BRAINSTRIKE_ override included', async () => {
+    clearOpenRouterEnv();
+    process.env['BRAINSTRIKE_OPENROUTER_API_KEY'] = 'override-key';
+    const gateway = new OpenRouterStrictContentGateway();
+    await expect(gateway.getApiKey('openrouter/qwen/qwen3.8-max')).resolves.toBe('override-key');
+  });
+
+  it('keeps the expected missing-auth phrasing when nothing resolves', async () => {
+    clearOpenRouterEnv();
+    const gateway = new OpenRouterStrictContentGateway();
+    await expect(gateway.getApiKey('openrouter/qwen/qwen3.8-max')).rejects.toThrow(
+      /Could not find API key/i
+    );
+  });
+});
+
 describe('createProvider openrouter wiring', () => {
   it('routes strict-content openrouter models through the compat gateway', () => {
-    const model = createProvider('openrouter', 'test-key', 'qwen/qwen3.8-max');
+    const model = createProvider(
+      'openrouter',
+      { apiKey: 'test-key', kind: 'api_key' },
+      'qwen/qwen3.8-max'
+    );
     expect(model).toBeInstanceOf(ModelRouterLanguageModel);
     const router = model as ModelRouterLanguageModel;
     expect(router.provider).toBe('openrouter');
@@ -265,7 +314,11 @@ describe('createProvider openrouter wiring', () => {
   });
 
   it('leaves non-strict openrouter models on Mastra own gateway', () => {
-    const model = createProvider('openrouter', 'test-key', 'z-ai/glm-5.2');
+    const model = createProvider(
+      'openrouter',
+      { apiKey: 'test-key', kind: 'api_key' },
+      'z-ai/glm-5.2'
+    );
     expect(model).toBeInstanceOf(ModelRouterLanguageModel);
     const router = model as ModelRouterLanguageModel;
     expect(router.gatewayId).toBe('models.dev');

@@ -1,7 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { isDevEnv, setupHMR } from '@brainstrike/utils';
-import type { Extension } from '@electric-sql/pglite';
-import { PGlite } from '@electric-sql/pglite';
+import type { Extension, PGlite } from '@electric-sql/pglite';
 import type { LiveNamespace } from '@electric-sql/pglite/live';
 import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/worker';
 import type { FirstRunBootstrapResultMessage } from './browser-first-run-bootstrap-worker.js';
@@ -122,7 +121,7 @@ class WasmLoader {
   private static instance: WasmLoader;
   private wasmLoadPromise: Promise<void> | null = null;
   private isLoaded = false;
-  private readonly dbCache: Map<string, PGlite> = new Map();
+  private readonly dbCache: Map<string, Promise<PGlite>> = new Map();
   private readonly workerCache: Map<string, BrowserPGliteWorkerClient> = new Map();
   private readonly workerClientStartups: Map<string, PendingBrowserWorkerStartup> = new Map();
 
@@ -167,15 +166,11 @@ class WasmLoader {
   }
 
   async createPGlite(dataDir?: string): Promise<PGlite> {
+    // Construction installs the factory's statically imported extensions; the
+    // cached dynamic loaders below are NOT consulted here. They still serve
+    // `createPGliteClient` (the worker client's `live` plugin) and act as a
+    // fail-fast preload, which is what `ensureWasmLoaded` provides.
     await this.ensureWasmLoaded();
-
-    // Load vector extension asynchronously
-    const [vector, live, pgTrgm, pgTextsearch] = await Promise.all([
-      loadVectorExtension(),
-      loadLiveExtension(),
-      loadTrgmExtension(),
-      loadTextsearchExtension(),
-    ]);
 
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
@@ -197,23 +192,25 @@ class WasmLoader {
       }
     }
 
-    const db = normalizedDataDir
-      ? new PGlite({
-          dataDir: normalizedDataDir,
-          extensions: { live, pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
-        })
-      : new PGlite({ extensions: { live, pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-
-    // Cache persisted databases only (not memory://)
-    if (isIndexedDbPGliteDataDir(normalizedDataDir)) {
-      this.dbCache.set(cacheKey, db);
-      // Mirror the worker-host path's legacy reclamation for the direct idb path.
-      // (In the real browser app idb routes through the worker host, so this is
-      // effectively unreachable today — wired for symmetry/future-proofing.)
-      void reclaimLegacyBrowserPGliteStorage(normalizedDataDir).catch(() => undefined);
+    // Cache the promise before awaiting readiness: concurrent IndexedDB callers
+    // must share one engine startup, just as they shared the old constructor.
+    const db = import('./pglite-factory.js').then(({ createBrainstrikePglite }) =>
+      createBrainstrikePglite(normalizedDataDir ? { dataDir: normalizedDataDir } : undefined)
+    );
+    if (!isIndexedDbPGliteDataDir(normalizedDataDir)) {
+      return await db;
     }
-
-    return db;
+    this.dbCache.set(cacheKey, db);
+    try {
+      const readyDb = await db;
+      void reclaimLegacyBrowserPGliteStorage(normalizedDataDir).catch(() => undefined);
+      return readyDb;
+    } catch (error) {
+      if (this.dbCache.get(cacheKey) === db) {
+        this.dbCache.delete(cacheKey);
+      }
+      throw error;
+    }
   }
 
   async createPGliteClient(dataDir?: string): Promise<PGliteRuntimeClient> {
@@ -381,7 +378,7 @@ class WasmLoader {
     if (db) {
       this.dbCache.delete(cacheKey);
       try {
-        await db.close();
+        await (await db).close();
         logger.info('Closed and removed cached PGlite instance', { cacheKey });
       } catch (err) {
         logger.warn('Failed to close cached PGlite instance', { cacheKey, error: err });
@@ -463,7 +460,13 @@ class WasmLoader {
     };
 
     await Promise.all([
-      ...entries.map(async ([cacheKey, db]) => await closeResolvedDb(cacheKey, db)),
+      ...entries.map(async ([cacheKey, pendingDb]) => {
+        try {
+          await closeResolvedDb(cacheKey, await pendingDb);
+        } catch (error) {
+          logger.warn('HMR dispose: PGlite startup failed', { cacheKey, error });
+        }
+      }),
       ...workerEntries.map(async ([cacheKey, db]) => await closeResolvedDb(cacheKey, db)),
       ...pendingWorkerEntries.map(
         async ([cacheKey, db]) => await closePendingWorkerDb(cacheKey, db)

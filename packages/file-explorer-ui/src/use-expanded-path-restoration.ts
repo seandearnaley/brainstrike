@@ -2,6 +2,7 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { getPathDepth } from '@brainstrike/file-tree-worker';
 import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { isAbortError } from '@brainstrike/utils/error-utils';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { isPathWithinRoot, normalizePathForRootScope } from './utils/root-scoped-paths';
@@ -27,8 +28,11 @@ export const MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS = 100;
  * accepted across phase 4; resolved when stores re-key by RootId (phase 5).
  */
 interface RestorationLockEntry {
+  failed: boolean;
   inProgress: boolean;
+  ownerToken: symbol | null;
   restorationKey: string | null;
+  runToken: symbol | null;
 }
 
 const restorationLocks = new Map<string, RestorationLockEntry>();
@@ -37,20 +41,26 @@ const restorationLocks = new Map<string, RestorationLockEntry>();
 function getRestorationLock(folderId: string): RestorationLockEntry {
   let entry = restorationLocks.get(folderId);
   if (!entry) {
-    entry = { inProgress: false, restorationKey: null };
+    entry = {
+      failed: false,
+      inProgress: false,
+      ownerToken: null,
+      restorationKey: null,
+      runToken: null,
+    };
     restorationLocks.set(folderId, entry);
   }
   return entry;
 }
 
 /**
- * Drop a root's lock entry once no restoration is running — keeps the
- * module-level Map from accumulating entries as roots come and go over a
- * long session. Safe to call on unmount: a fresh mount re-creates the entry.
+ * Drop only the calling provider's lock entry. Ownership lets an unmount
+ * release its active restoration without deleting another provider's lock,
+ * while a late finalizer cannot recreate or overwrite the remount's entry.
  */
-function releaseRestorationLock(folderId: string): void {
+function releaseRestorationLock(folderId: string, ownerToken: symbol): void {
   const entry = restorationLocks.get(folderId);
-  if (entry && !entry.inProgress) {
+  if (entry?.ownerToken === ownerToken) {
     restorationLocks.delete(folderId);
   }
 }
@@ -280,6 +290,16 @@ function handleRestorationLock(
   const lock = getRestorationLock(currentRootFolderId);
 
   if (lock.restorationKey === restorationKey && !lock.inProgress) {
+    if (lock.failed) {
+      // A visible non-abort failure gets one automatic attempt per provider /
+      // root / restoration key. Loading-state transitions must not hammer the
+      // same unreadable directory; remounting or changing the key releases
+      // this owner-scoped record and is the explicit retry boundary.
+      logger.debug('[Restoration Effect] Skipped - previous restoration failed', {
+        folderId: currentRootFolderId,
+      });
+      return true;
+    }
     setSettledFolderId(currentRootFolderId);
     setSettledRestorationKey(restorationKey);
     return true;
@@ -378,6 +398,8 @@ interface RestoreExpandedPathsArgs {
   ) => Promise<void>;
   plan: PathsToRestorePlan;
   restorationKey: string;
+  restorationOwnerToken: symbol;
+  restorationRunToken: symbol;
   setExpandedPaths: (paths: Set<string>) => void;
   setIsRestoringExpandedPaths: Dispatch<SetStateAction<boolean>>;
   setRestorationCompletionVersion: Dispatch<SetStateAction<number>>;
@@ -395,6 +417,8 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
     instanceInProgressFolderIdRef,
     loadSpecificPaths,
     plan,
+    restorationOwnerToken,
+    restorationRunToken,
     setExpandedPaths,
     setIsRestoringExpandedPaths,
     setRestorationProgress,
@@ -405,6 +429,7 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
     sortedPaths,
     store,
   } = args;
+  let outcome: 'cancelled' | 'failed' | 'retired' | 'succeeded' = 'retired';
 
   try {
     await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
@@ -424,6 +449,19 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
       return;
     }
 
+    const ownedLock = restorationLocks.get(currentRootFolderId);
+    if (
+      ownedLock?.inProgress !== true ||
+      ownedLock.ownerToken !== restorationOwnerToken ||
+      ownedLock.restorationKey !== restorationKey ||
+      ownedLock.runToken !== restorationRunToken
+    ) {
+      logger.debug('Skipping restored expanded paths after restoration ownership was retired', {
+        folderId: currentRootFolderId,
+      });
+      return;
+    }
+
     const currentExpandedPaths = new Set(store.getState().expandedDirectoryPaths);
     for (const omittedPath of plan.omittedPersistedPaths) {
       currentExpandedPaths.delete(omittedPath);
@@ -435,20 +473,52 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
       folderId: currentRootFolderId,
       totalPaths: sortedPaths.length,
     });
+    outcome = 'succeeded';
   } catch (error) {
-    logger.warn('Failed to restore expanded directories', { error });
+    if (isAbortError(error)) {
+      outcome = 'cancelled';
+      logger.debug('Automatic expanded-directory restoration was cancelled', {
+        folderId: currentRootFolderId,
+      });
+    } else {
+      outcome = 'failed';
+      logger.warn('Failed to restore expanded directories', { error });
+    }
   } finally {
-    getRestorationLock(currentRootFolderId).inProgress = false;
+    const ownedLock = restorationLocks.get(currentRootFolderId);
+    const ownsLock =
+      ownedLock?.ownerToken === restorationOwnerToken &&
+      ownedLock.restorationKey === restorationKey &&
+      ownedLock.runToken === restorationRunToken;
+    if (ownsLock) {
+      if (outcome === 'cancelled' || outcome === 'retired') {
+        restorationLocks.delete(currentRootFolderId);
+      } else {
+        ownedLock.failed = outcome === 'failed';
+        ownedLock.inProgress = false;
+        ownedLock.runToken = null;
+      }
+    }
     // Clear this instance's in-progress tracker so a subsequent root-switch
     // can proceed once this restore completes.
-    if (instanceInProgressFolderIdRef.current === currentRootFolderId) {
+    const ownsInstanceAttempt = instanceInProgressFolderIdRef.current === currentRootFolderId;
+    if (ownsInstanceAttempt) {
       instanceInProgressFolderIdRef.current = null;
+      setIsRestoringExpandedPaths(false);
+      setRestorationProgress(null);
     }
-    setIsRestoringExpandedPaths(false);
-    setRestorationProgress(null);
-    if (currentRootFolderIdRef.current === currentRootFolderId) {
+    if (
+      outcome === 'succeeded' &&
+      ownsLock &&
+      currentRootFolderIdRef.current === currentRootFolderId
+    ) {
       setSettledFolderId(currentRootFolderId);
       setSettledRestorationKey(restorationKey);
+    }
+    // Physical settlement is the ordering boundary for retry and root/key
+    // rollover. Wake the effect for every attempt still owned by this hook;
+    // the lock outcome decides whether it retries, remains failed, or settles.
+    if (ownsInstanceAttempt) {
       setRestorationCompletionVersion((version) => version + 1);
     }
   }
@@ -476,6 +546,7 @@ export function useExpandedPathRestoration(
   const currentRootFolderIdRef = useRef<string | null>(currentRootFolderId);
   const previousRootFolderIdRef = useRef<string | null>(currentRootFolderId);
   const previousRestorationKeyRef = useRef<string>(restorationKey);
+  const [restorationOwnerToken] = useState(() => Symbol('expanded-path-restoration-owner'));
   /**
    * Tracks which folderId THIS INSTANCE is currently restoring (in-flight async).
    * Used to block root-switch mid-restore within the same provider instance:
@@ -496,10 +567,10 @@ export function useExpandedPathRestoration(
     const folderIdAtMount = currentRootFolderId;
     return () => {
       if (folderIdAtMount) {
-        releaseRestorationLock(folderIdAtMount);
+        releaseRestorationLock(folderIdAtMount, restorationOwnerToken);
       }
     };
-  }, [currentRootFolderId]);
+  }, [currentRootFolderId, restorationOwnerToken]);
 
   useEffect(() => {
     if (
@@ -567,8 +638,12 @@ export function useExpandedPathRestoration(
     }
 
     const lock = getRestorationLock(currentRootFolderId);
+    const restorationRunToken = Symbol('expanded-path-restoration-run');
     lock.inProgress = true;
+    lock.failed = false;
+    lock.ownerToken = restorationOwnerToken;
     lock.restorationKey = restorationKey;
+    lock.runToken = restorationRunToken;
     instanceInProgressFolderIdRef.current = currentRootFolderId;
 
     const storeState = store.getState();
@@ -577,7 +652,10 @@ export function useExpandedPathRestoration(
 
     if (plan.allPathsToRestore.size === 0) {
       logger.debug('[Restoration Effect] Skipped - no paths to restore');
-      getRestorationLock(currentRootFolderId).inProgress = false;
+      const emptyPlanLock = getRestorationLock(currentRootFolderId);
+      emptyPlanLock.failed = false;
+      emptyPlanLock.inProgress = false;
+      emptyPlanLock.runToken = null;
       instanceInProgressFolderIdRef.current = null;
       setSettledFolderId(currentRootFolderId);
       setSettledRestorationKey(restorationKey);
@@ -623,6 +701,8 @@ export function useExpandedPathRestoration(
       loadSpecificPaths,
       plan,
       restorationKey,
+      restorationOwnerToken,
+      restorationRunToken,
       setExpandedPaths,
       setIsRestoringExpandedPaths,
       setRestorationCompletionVersion,
@@ -641,6 +721,7 @@ export function useExpandedPathRestoration(
     loadSpecificPaths,
     restorationCompletionVersion,
     restorationKey,
+    restorationOwnerToken,
     setExpandedPaths,
     store,
   ]);

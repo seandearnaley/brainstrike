@@ -23,6 +23,8 @@ interface RunNotificationEventBase {
   readonly threadTitle?: string;
 }
 
+type RunNotificationEventKind = Exclude<NotificationEventKind, 'prChecks' | 'prOpened'>;
+
 /**
  * A tool-approval pause carries the `toolCallId` so a run that suspends for
  * more than one distinct approval coalesces per approval, not per run — the
@@ -31,12 +33,31 @@ interface RunNotificationEventBase {
  */
 export type RunNotificationEvent =
   | (RunNotificationEventBase & {
-      readonly kind: Exclude<NotificationEventKind, 'toolApprovalRequired'>;
+      readonly kind: Exclude<RunNotificationEventKind, 'toolApprovalRequired'>;
     })
   | (RunNotificationEventBase & {
       readonly kind: 'toolApprovalRequired';
       readonly toolCallId: string;
     });
+
+/**
+ * A forge (pull request) observation. It has NO run: the observation comes
+ * from the main-process ForgeService, not from a run stream, so this variant
+ * deliberately carries no `runId` rather than fabricating one.
+ *
+ * `observationKey` is the coalescing identity —
+ * `<repoCommonDir>\0<branch>\0<headSha>` (the `\0` separator matches
+ * `forge-service.ts`'s own `cacheKey` convention — BST-1391 L9) — so
+ * re-observing the SAME head never re-notifies, while a new push does.
+ */
+export interface ForgeNotificationEvent {
+  readonly checksOutcome?: 'failing' | 'passing';
+  readonly kind: 'prChecks' | 'prOpened';
+  readonly observationKey: string;
+  readonly prNumber: number;
+  /** Thread title only — never message content. */
+  readonly threadTitle?: string;
+}
 
 /** Minimal surface of the DOM `Notification` instance the dispatcher needs. */
 export interface DispatchedNotificationHandle {
@@ -60,22 +81,37 @@ export interface RunNotificationDispatcherDeps {
 
 export interface RunNotificationDispatcher {
   /** Evaluates the gates and shows (at most once per run+kind) a notification. */
-  dispatch: (event: RunNotificationEvent) => void;
+  dispatch: (event: ForgeNotificationEvent | RunNotificationEvent) => void;
   /** Forgets every prior dispatch key, letting a repeated event notify again. */
   resetCoalescing: () => void;
 }
 
 const EVENT_PHRASE: Record<NotificationEventKind, string> = {
+  prChecks: 'Checks finished.',
+  prOpened: 'Opened a pull request.',
   runFailed: 'Run failed.',
   runFinished: 'Finished responding.',
   toolApprovalRequired: 'Needs your approval to continue.',
 };
 
-function buildNotificationCopy(event: RunNotificationEvent): {
-  readonly title: string;
+function isForgeEvent(
+  event: ForgeNotificationEvent | RunNotificationEvent
+): event is ForgeNotificationEvent {
+  return event.kind === 'prOpened' || event.kind === 'prChecks';
+}
+
+function buildNotificationCopy(event: ForgeNotificationEvent | RunNotificationEvent): {
   readonly body: string;
+  readonly title: string;
 } {
   const title = event.threadTitle?.trim() ? event.threadTitle : 'Assistant';
+  if (isForgeEvent(event)) {
+    if (event.kind === 'prOpened') {
+      return { body: `Opened pull request #${event.prNumber}.`, title };
+    }
+    const verb = event.checksOutcome === 'failing' ? 'failed' : 'passed';
+    return { body: `Checks ${verb} on pull request #${event.prNumber}.`, title };
+  }
   return { body: EVENT_PHRASE[event.kind], title };
 }
 
@@ -101,7 +137,10 @@ function defaultFocusWindow(): void {
   window.focus();
 }
 
-function coalesceKey(event: RunNotificationEvent): string {
+function coalesceKey(event: ForgeNotificationEvent | RunNotificationEvent): string {
+  if (isForgeEvent(event)) {
+    return `${event.observationKey}:${event.kind}`;
+  }
   if (event.kind === 'toolApprovalRequired') {
     // Per-approval, not per-run: a second distinct approval pause in the same
     // run must still notify a backgrounded user.

@@ -11,6 +11,7 @@ import {
   TooltipProvider,
 } from '@brainstrike/ui';
 import { AccountMenu } from './account-menu';
+import { useModelMigrationNotices } from './hooks/use-model-migration-notices';
 import { DatabaseStatusItem } from './status-items/database-status-item';
 import { DiagnosticsStatusItem } from './status-items/diagnostics-status-item';
 import { IndexingStatusItem } from './status-items/indexing-status-item';
@@ -25,6 +26,8 @@ export function AppLayout({
   onOpenSettings,
 }: AppLayoutProps) {
   useDatabaseStatusSync();
+  // Session-wide, mounted once: retired-model remap toasts (BST-565).
+  useModelMigrationNotices();
   const { fileSystemAdapter, storageAdapter } = useAdapters();
 
   return (

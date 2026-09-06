@@ -132,6 +132,7 @@ function renderBody(compositeKey: string, content = '# Hello', withCapabilities 
       content={content}
       isLoading={false}
       isRestoring={false}
+      onRetryContent={vi.fn()}
       rootPath="/root"
       status={undefined}
       tab={{ compositeKey, content: null, id: compositeKey, isLoading: false, path }}

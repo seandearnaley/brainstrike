@@ -11,6 +11,7 @@ export type PersistApi<T> = T & {
       merge?: (persistedState: unknown, currentState: unknown) => unknown;
       migrate?: (persistedState: unknown, version: number) => unknown;
       name?: string;
+      partialize?: (state: unknown) => unknown;
       storage?: {
         getItem: (name: string) => PersistedStoreSnapshot | null;
         setItem: (name: string, value: PersistedStoreSnapshot) => Promise<void> | void;

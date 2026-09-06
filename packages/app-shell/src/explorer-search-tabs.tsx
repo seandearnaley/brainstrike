@@ -12,6 +12,7 @@ import {
 import { lazy, type ReactElement, Suspense, useCallback, useMemo, useState } from 'react';
 import { ExplorerImportActionLazy } from './explorer-import-action-lazy';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
+import { useWorkspaceRootActions } from './workspace-root-context-actions';
 
 /**
  * The Search panel is code-split: its tree/executor machinery only loads once
@@ -93,6 +94,7 @@ export function ExplorerSearchTabs({
     () => <ExplorerImportActionLazy loadEmbeddingQueue={loadEmbeddingQueue} />,
     [loadEmbeddingQueue]
   );
+  const rootActions = useWorkspaceRootActions();
 
   const searchTabMountProps = searchEverActivated
     ? ({
@@ -138,7 +140,7 @@ export function ExplorerSearchTabs({
         hidden={activeTab !== 'explorer'}
         value="explorer"
       >
-        <FileExplorerPanel selectionActions={importAction} />
+        <FileExplorerPanel rootActions={rootActions} selectionActions={importAction} />
       </TabsContent>
 
       <TabsContent

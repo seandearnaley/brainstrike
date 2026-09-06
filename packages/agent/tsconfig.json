@@ -16,6 +16,9 @@
       "@brainstrike/assistant-contract/*": [
         "../assistant-contract/dist/*.d.ts"
       ],
+      "@brainstrike/mcp-tasks-extension": [
+        "../mcp-tasks-extension/dist/index.d.ts"
+      ],
       "@brainstrike/tokenization": [
         "../tokenization/dist/index.d.ts"
       ],
@@ -42,13 +45,13 @@
       "path": "../db"
     },
     {
-      "path": "../text-splitter"
-    },
-    {
       "path": "../tokenization"
     },
     {
       "path": "../logging"
+    },
+    {
+      "path": "../mcp-tasks-extension"
     },
     {
       "path": "../utils"

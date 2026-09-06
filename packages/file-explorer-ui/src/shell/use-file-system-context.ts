@@ -10,9 +10,16 @@ import {
   useFileSystemWatcher,
   useToastManager,
 } from '@brainstrike/file-explorer-hooks';
-import type { DirectoryHandle, FileSystemWatchSignal } from '@brainstrike/file-system';
+import type {
+  DirectoryHandle,
+  FileSystemWatchBatchMetadata,
+  FileSystemWatchSignal,
+} from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
-import type { FileSystemChange } from '@brainstrike/types';
+import {
+  FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT,
+  type FileSystemChange,
+} from '@brainstrike/types';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';
@@ -70,16 +77,21 @@ function getUserFriendlyErrorMessage(errorMessage: string): string {
   return matchedPattern ? matchedPattern.message : errorMessage;
 }
 
-// Wrapper: error mapping only (no extra state/hooks)
+// Wrapper: error mapping only (no extra state/hooks).
+// Takes the two specific coreApi members it needs (both useCallback-stable on
+// the core hook) rather than the whole coreApi object, so the caller's own
+// useCallback can depend on just those two stable references instead of an
+// object whose identity churns whenever ANY coreApi member changes.
 async function selectDirectoryWithErrorMapping(
-  coreApi: ReturnType<typeof useCoreFileSystem>
+  isFileSystemAccessSupported: ReturnType<typeof useCoreFileSystem>['isFileSystemAccessSupported'],
+  selectRootDirectory: ReturnType<typeof useCoreFileSystem>['selectRootDirectory']
 ): Promise<DirectoryHandle | null> {
-  const { supported, reason } = coreApi.isFileSystemAccessSupported();
+  const { supported, reason } = isFileSystemAccessSupported();
   if (!supported) {
     throw new Error(reason);
   }
   try {
-    return await coreApi.selectRootDirectory();
+    return await selectRootDirectory();
   } catch (error) {
     const errorMessage =
       error instanceof Error
@@ -111,8 +123,14 @@ export function useFileSystemInstance() {
   const setActiveRoots = useFileExplorerStoreSelector((s) => s.setActiveRoots);
   // Token cache seam: the core hook does not own the token cache, so the
   // disconnect wrapper below clears the removed root's cached token counts via
-  // the (optional) TokenCacheProvider context.
+  // the (optional) TokenCacheProvider context. Narrowed to the inner store
+  // (not the whole context object): the context value's own memo chains to
+  // countTextTokens/isReady/etc, which change on every file token-count —
+  // depending on the whole object would churn removeRootDirectory (and thus
+  // the outer return-object memo) on every count. The store reference itself
+  // is stable per TokenCacheProvider instance (only changes when `db` does).
   const tokenCacheContext = useOptionalTokenCacheContext();
+  const tokenCacheStore = tokenCacheContext?.store ?? null;
   // Cascade-delete seam (Phase 6): app-shell injects the DB deletion; the
   // disconnect wrapper aborts (with a toast) when deletion is requested but
   // fails or no provider is mounted — never a silent no-op.
@@ -206,10 +224,11 @@ export function useFileSystemInstance() {
     waitForHydration,
   });
 
-  const isFileSystemAccessSupported = coreApi.isFileSystemAccessSupported;
-
-  const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
-    const handle = await selectDirectoryWithErrorMapping(coreApi);
+  const selectRootDirectory = useCallback(async (): Promise<DirectoryHandle | null> => {
+    const handle = await selectDirectoryWithErrorMapping(
+      coreApi.isFileSystemAccessSupported,
+      coreApi.selectRootDirectory
+    );
     if (handle) {
       // v5: currentFolderId is now a RootId UUID (set by coreApi.selectRootDirectory
       // → addRootDirectory → updateCurrentFolderId(rootId)).  Read it from the store
@@ -220,11 +239,16 @@ export function useFileSystemInstance() {
       }
     }
     return handle;
-  };
+  }, [
+    coreApi.isFileSystemAccessSupported,
+    coreApi.selectRootDirectory,
+    store,
+    rehydrateCurrentFolderStateIfNeeded,
+  ]);
 
-  const clearRootDirectory = () => {
+  const clearRootDirectory = useCallback(() => {
     coreApi.clearRootDirectory();
-  };
+  }, [coreApi.clearRootDirectory]);
 
   /**
    * Disconnect a root by RootId (multi-root, Phase 5).
@@ -239,52 +263,52 @@ export function useFileSystemInstance() {
    * disconnect is ABORTED (toast + root stays connected, so the user can
    * retry). The reverse order would orphan rows with no UI left to retry.
    */
-  const removeRootDirectory = async (
-    rootId: string,
-    options?: { deleteData?: boolean }
-  ): Promise<void> => {
-    if (options?.deleteData) {
-      try {
-        if (!deleteRootData) {
-          throw new Error('Root data deletion is not available in this environment.');
+  const removeRootDirectory = useCallback(
+    async (rootId: string, options?: { deleteData?: boolean }): Promise<void> => {
+      if (options?.deleteData) {
+        try {
+          if (!deleteRootData) {
+            throw new Error('Root data deletion is not available in this environment.');
+          }
+          await deleteRootData(rootId);
+        } catch (error) {
+          logger.error('removeRootDirectory: data deletion failed — disconnect aborted', {
+            error,
+            rootId,
+          });
+          showToast('Could not delete the folder’s indexed data. The folder stays connected.');
+          return;
         }
-        await deleteRootData(rootId);
+      }
+      // The core hook performs the snapshot → focus-shift → store-purge sequence
+      // internally; the reducer is the sole handle owner, so there is no store
+      // handle to sync here (B3: the redundant second focus-write is dropped).
+      // The platform-authority adapter call (forgetRootInAdapter) runs BEFORE
+      // any renderer state change, so a rejection here means the root is still
+      // connected — mirror the deleteRootData pattern above: log + toast + a
+      // silent return, never letting the failure vanish uncaught (NO SILENT
+      // FALLBACKS — this makes the failure visible instead of losing it).
+      try {
+        await coreApi.removeRootDirectory(rootId);
       } catch (error) {
-        logger.error('removeRootDirectory: data deletion failed — disconnect aborted', {
+        logger.error('removeRootDirectory: adapter disconnect failed — root stays connected', {
           error,
           rootId,
         });
-        showToast('Could not delete the folder’s indexed data. The folder stays connected.');
+        showToast('Could not disconnect the folder. The folder stays connected.');
         return;
       }
-    }
-    // The core hook performs the snapshot → focus-shift → store-purge sequence
-    // internally; the reducer is the sole handle owner, so there is no store
-    // handle to sync here (B3: the redundant second focus-write is dropped).
-    // The platform-authority adapter call (forgetRootInAdapter) runs BEFORE
-    // any renderer state change, so a rejection here means the root is still
-    // connected — mirror the deleteRootData pattern above: log + toast + a
-    // silent return, never letting the failure vanish uncaught (NO SILENT
-    // FALLBACKS — this makes the failure visible instead of losing it).
-    try {
-      await coreApi.removeRootDirectory(rootId);
-    } catch (error) {
-      logger.error('removeRootDirectory: adapter disconnect failed — root stays connected', {
-        error,
-        rootId,
-      });
-      showToast('Could not disconnect the folder. The folder stays connected.');
-      return;
-    }
-    // Token cache: best-effort — a failure must not block the disconnect.
-    if (tokenCacheContext) {
-      try {
-        await tokenCacheContext.store.clearFolder(rootId);
-      } catch (error) {
-        logger.warn('removeRootDirectory: token cache clearFolder failed', { error, rootId });
+      // Token cache: best-effort — a failure must not block the disconnect.
+      if (tokenCacheStore) {
+        try {
+          await tokenCacheStore.clearFolder(rootId);
+        } catch (error) {
+          logger.warn('removeRootDirectory: token cache clearFolder failed', { error, rootId });
+        }
       }
-    }
-  };
+    },
+    [deleteRootData, showToast, coreApi.removeRootDirectory, tokenCacheStore]
+  );
 
   /**
    * Register ALL handles returned by the restore-access flow (multi-root).
@@ -293,60 +317,64 @@ export function useFileSystemInstance() {
    * rehydrates its persisted folder state — same store side effects as
    * setRootHandle, but without dropping handles[1..n].
    */
-  const registerRestoredHandles = async (handles: readonly DirectoryHandle[]): Promise<void> => {
-    await coreApi.registerRestoredHandles(handles);
-    const first = handles[0];
-    if (first) {
-      // v5: use the resolved RootId UUID from the store (same rationale as selectRootDirectory).
-      const rootId = store.getState().currentFolderId;
-      if (rootId) {
-        rehydrateCurrentFolderStateIfNeeded(rootId);
+  const registerRestoredHandles = useCallback(
+    async (handles: readonly DirectoryHandle[]): Promise<void> => {
+      await coreApi.registerRestoredHandles(handles);
+      const first = handles[0];
+      if (first) {
+        // v5: use the resolved RootId UUID from the store (same rationale as selectRootDirectory).
+        const rootId = store.getState().currentFolderId;
+        if (rootId) {
+          rehydrateCurrentFolderStateIfNeeded(rootId);
+        }
       }
-    }
-  };
+    },
+    [coreApi.registerRestoredHandles, store, rehydrateCurrentFolderStateIfNeeded]
+  );
 
   /**
    * Set root directory handle from external source (e.g., restore banner).
    * Updates both the store and the core hook's internal state.
    */
-  const setRootHandle = (handle: DirectoryHandle | null) => {
-    coreApi.setRootDirectoryHandle(handle);
-    if (handle) {
-      // v5: prefer the RootId UUID from the store after coreApi has updated currentFolderId.
-      // Fall back to handle.path for legacy paths that still write the path as currentFolderId.
-      const rootId = store.getState().currentFolderId ?? handle.path;
-      rehydrateCurrentFolderStateIfNeeded(rootId);
-    }
-  };
+  const setRootHandle = useCallback(
+    (handle: DirectoryHandle | null) => {
+      coreApi.setRootDirectoryHandle(handle);
+      if (handle) {
+        // v5: prefer the RootId UUID from the store after coreApi has updated currentFolderId.
+        // Fall back to handle.path for legacy paths that still write the path as currentFolderId.
+        const rootId = store.getState().currentFolderId ?? handle.path;
+        rehydrateCurrentFolderStateIfNeeded(rootId);
+      }
+    },
+    [coreApi.setRootDirectoryHandle, store, rehydrateCurrentFolderStateIfNeeded]
+  );
 
   // Non-React fixture-injection bridge: the inline-fixture subscription runs
   // outside React and dispatches brainstrike:inject-root-handle (it cannot reach
   // the React-only reducer). Route it through the same reducer path a real
   // set-root uses; mode 'add' appends an additional root instead (multi-root
-  // fixture harness — never persisted). Refs keep the listener subscribed ONCE —
-  // the handlers are recreated every render.
-  const setRootHandleRef = useRef(setRootHandle);
-  setRootHandleRef.current = setRootHandle;
-  const clearRootDirectoryRef = useRef(clearRootDirectory);
-  clearRootDirectoryRef.current = clearRootDirectory;
-  const addExternalRootHandleRef = useRef(coreApi.addExternalRootHandle);
-  addExternalRootHandleRef.current = coreApi.addExternalRootHandle;
+  // fixture harness — never persisted). clearRootDirectory / setRootHandle are
+  // useCallback-stabilized above and coreApi.addExternalRootHandle is stable
+  // from the core hook's own useCallback, so the effect can call them
+  // directly — no ref-mirroring needed to keep a single subscription; the
+  // listener only re-subscribes if one of these three genuinely changes
+  // identity (e.g. a db/capability swap), which is the desired behavior.
   useEffect(() => {
     const onInject = (event: Event): void => {
       const detail = (event as CustomEvent<InjectRootHandleDetail>).detail;
       if (!detail?.handle) {
-        clearRootDirectoryRef.current();
+        clearRootDirectory();
         return;
       }
       if (detail.mode === 'add') {
-        addExternalRootHandleRef.current(detail.handle);
+        coreApi.addExternalRootHandle(detail.handle);
         return;
       }
-      setRootHandleRef.current(detail.handle);
+      setRootHandle(detail.handle);
     };
     window.addEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
     return () => window.removeEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
-  }, []);
+  }, [clearRootDirectory, coreApi.addExternalRootHandle, setRootHandle]);
 
   // On auto-restore (desktop) the core hook restores a handle and sets
   // currentFolderId; rehydrate the restored folder's persisted selection/expansion
@@ -400,6 +428,8 @@ export function useFileSystemInstance() {
         rootId: string;
         rootPath: string;
         changes: FileSystemChange[];
+        filteredChangeBoundaries: Set<string>;
+        filteredChangeBoundariesOverflow: boolean;
       }
     >
   >(new Map());
@@ -452,6 +482,12 @@ export function useFileSystemInstance() {
     prunePendingRefreshRoots(new Set(watcherRootMetadataRef.current.keys()));
     const roots = Array.from(pendingRefreshRootsRef.current.values()).map((root) => ({
       changes: root.changes,
+      ...(root.filteredChangeBoundaries.size > 0
+        ? { filteredChangeBoundaries: [...root.filteredChangeBoundaries] }
+        : {}),
+      ...(root.filteredChangeBoundariesOverflow
+        ? { filteredChangeBoundariesOverflow: true as const }
+        : {}),
       rootId: root.rootId,
       rootPath: root.rootPath,
     }));
@@ -469,22 +505,50 @@ export function useFileSystemInstance() {
   }, [prunePendingRefreshRoots]);
 
   const handleWatcherChanges = useCallback(
-    (rootId: string, changes: FileSystemChange[]): void => {
+    (
+      rootId: string,
+      changes: FileSystemChange[],
+      metadata?: FileSystemWatchBatchMetadata
+    ): void => {
       const watcherRoot = watcherRootMetadataRef.current.get(rootId);
       if (!watcherRoot) {
         return;
       }
+      const filteredChangeBoundaries = metadata?.filteredChangeBoundaries ?? [];
+      const hasFilteredEvidence =
+        filteredChangeBoundaries.length > 0 || metadata?.filteredChangeBoundariesOverflow === true;
+      if (changes.length === 0 && !hasFilteredEvidence) {
+        return;
+      }
 
       const pendingRoots = pendingRefreshRootsRef.current;
-      const pendingRoot = pendingRoots.get(rootId);
+      let pendingRoot = pendingRoots.get(rootId);
       if (pendingRoot) {
         pendingRoot.changes.push(...changes);
       } else {
-        pendingRoots.set(rootId, {
+        pendingRoot = {
           changes: [...changes],
+          filteredChangeBoundaries: new Set(),
+          filteredChangeBoundariesOverflow: false,
           rootId,
           rootPath: watcherRoot.rootPath,
-        });
+        };
+        pendingRoots.set(rootId, pendingRoot);
+      }
+      if (metadata?.filteredChangeBoundariesOverflow === true) {
+        pendingRoot.filteredChangeBoundariesOverflow = true;
+      }
+      for (const boundary of filteredChangeBoundaries) {
+        if (pendingRoot.filteredChangeBoundaries.has(boundary)) {
+          continue;
+        }
+        if (
+          pendingRoot.filteredChangeBoundaries.size >= FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT
+        ) {
+          pendingRoot.filteredChangeBoundariesOverflow = true;
+          continue;
+        }
+        pendingRoot.filteredChangeBoundaries.add(boundary);
       }
 
       const now = Date.now();
@@ -578,16 +642,26 @@ export function useFileSystemInstance() {
     roots: watcherRoots,
   });
 
-  // Memoize the return object with stable primitive/reference dependencies only
-  // Functions are recreated each render but the object identity changes only when
-  // the actual data values change
+  // Memoize the return object. Every member — data values and functions
+  // alike — is a referentially-stable dependency (coreApi members via the
+  // core hook's own memo; locally-defined wrappers via useCallback above),
+  // so the object identity changes only when one of them actually changes.
   return useMemo(
     () => ({
       /** Add an additional root directory (multi-root, Phase 4+). */
       addRootDirectory: coreApi.addRootDirectory,
+      /**
+       * Desktop-only: re-mount a previously granted folder without a picker.
+       * `undefined` when the adapter lacks the capability (web).
+       */
+      addRootDirectoryByPath: coreApi.addRootDirectoryByPath,
       clearRootDirectory,
       isAccessLoading: coreApi.isAccessLoading,
-      isFileSystemAccessSupported,
+      isFileSystemAccessSupported: coreApi.isFileSystemAccessSupported,
+      /** Desktop-only companion to addRootDirectoryByPath; see its note. */
+      listRecentRoots: coreApi.listRecentRoots,
+      /** Shared refresh signal for supported flows that may mutate Recents. */
+      recentRootsRevision: coreApi.recentRootsRevision,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
       /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
@@ -606,13 +680,36 @@ export function useFileSystemInstance() {
       setFocusedRoot: coreApi.setFocusedRoot,
       setRootDirectoryHandle: setRootHandle,
     }),
-    // Only depend on data values, not functions - functions are stable closures
-    // that reference the latest values through the closure scope
+    // Full dependency list. Every coreApi member used above is a
+    // useCallback/useMemo-stable reference from the core hook's own memo
+    // (packages/file-explorer-hooks/src/use-file-system.ts), so listing them
+    // costs nothing: they only change when their own upstream deps do —
+    // `addRootDirectoryByPath` and `listRecentRoots` are `useMemo`-stable per
+    // adapter but flip between `undefined` and defined as the adapter's
+    // capability appears, and that transition must re-publish the context
+    // value. The locally-defined wrapper functions (`clearRootDirectory`,
+    // `selectRootDirectory`, `removeRootDirectory`, `registerRestoredHandles`,
+    // `setRootHandle`) are themselves wrapped in `useCallback` above with
+    // precise deps on the specific stable coreApi members and locals they
+    // close over, so their identity is equally stable — including them here
+    // is correct without introducing render-over-render churn.
     [
+      coreApi.addRootDirectory,
+      coreApi.addRootDirectoryByPath,
       coreApi.rootDirectoryHandle,
       coreApi.rootDirectoryHandles,
       coreApi.isAccessLoading,
+      coreApi.isFileSystemAccessSupported,
+      coreApi.listRecentRoots,
+      coreApi.recentRootsRevision,
       coreApi.rootIdByPath,
+      coreApi.setAccessLoading,
+      coreApi.setFocusedRoot,
+      clearRootDirectory,
+      registerRestoredHandles,
+      removeRootDirectory,
+      selectRootDirectory,
+      setRootHandle,
     ]
   );
 }

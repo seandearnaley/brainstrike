@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseMcpConfig as parseAgentMcpConfig } from '@brainstrike/agent';
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { McpConfig } from '../../mcp-loader';
 
@@ -51,6 +53,145 @@ describe('mcp-loader', () => {
     expect(config.servers).toHaveLength(2);
     expect(config.servers[0]?.transport).toBe('stdio');
     expect(config.servers[1]?.transport).toBe('sse');
+
+    const interactive = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            args: ['-y', 'mcp-remote', 'https://mcp.example.test/mcp'],
+            command: 'npx',
+            name: 'interactive-remote',
+            transport: 'stdio',
+          },
+        ],
+      })
+    );
+    expect(interactive.servers[0]?.startup).toBe('authentication-required');
+  });
+
+  it('applies one configured-server identity policy at every parser boundary', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    for (const name of ['', ' linear', 'linear ', '__proto__', 'linear\nproduction']) {
+      expect(() => parseConfiguredMcpServerId(name)).toThrow();
+      const input = JSON.stringify({ servers: [{ command: 'node', name, transport: 'stdio' }] });
+      expect(() => parseAgentMcpConfig(input)).toThrow();
+      expect(() => parseMcpConfig(input)).toThrow();
+    }
+  });
+
+  it('requires explicit user startup for native OAuth HTTP servers', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    const nativeOAuth = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            auth: { scopes: ['read'], type: 'oauth-user' },
+            name: 'linear',
+            protocol: 'auto',
+            transport: 'streamable-http',
+            url: 'https://mcp.linear.app/mcp',
+          },
+        ],
+      })
+    );
+    expect(nativeOAuth.servers[0]?.startup).toBe('authentication-required');
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              auth: { type: 'oauth-user' },
+              name: 'linear',
+              protocol: 'auto',
+              startup: 'automatic',
+              transport: 'streamable-http',
+              url: 'https://mcp.linear.app/mcp',
+            },
+          ],
+        })
+      )
+    ).toThrow(/OAuth user authentication requires startup "authentication-required"/u);
+  });
+
+  it('surfaces omitted protocol migration without rewriting the JSONC document', async () => {
+    const { loadMcpConfig, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const configPath = path.join(tempDir, 'mcp', 'protocol-migration.json');
+    const content = `{
+      // This comment and formatting must survive migration discovery.
+      "servers": [{ "command": "node", "name": "legacy", "transport": "stdio" }]
+    }`;
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, content, 'utf-8');
+    await setCustomMcpConfigPath(configPath);
+
+    const loaded = await loadMcpConfig();
+
+    expect(loaded.config?.servers[0]?.protocol).toBe('legacy');
+    expect(loaded.migrations).toEqual([
+      {
+        code: 'mcp_protocol_defaulted_to_legacy',
+        serverIndex: 0,
+        serverName: 'legacy',
+      },
+    ]);
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(content);
+  });
+
+  it('accepts explicit protocol modes and rejects modern policy on legacy SSE', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    const auto = { command: 'node', name: 'auto', protocol: 'auto', transport: 'stdio' };
+    expect(parseMcpConfig(JSON.stringify({ servers: [auto] })).servers[0]?.protocol).toBe('auto');
+
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              name: 'sse',
+              protocol: 'auto',
+              transport: 'sse',
+              url: 'https://example.com/sse',
+            },
+          ],
+        })
+      )
+    ).toThrow(/legacy SSE transport requires protocol "legacy"/u);
+  });
+
+  it('requires an explicit marker for user-paced authentication startup', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+    const config = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          {
+            args: ['-y', 'mcp-remote', 'https://mcp.linear.app/mcp'],
+            command: 'npx',
+            name: 'linear',
+            startup: 'authentication-required',
+            transport: 'stdio',
+          },
+        ],
+      })
+    );
+
+    expect(config.servers[0]).toMatchObject({
+      name: 'linear',
+      startup: 'authentication-required',
+    });
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              command: 'node',
+              name: 'invalid',
+              startup: 'guess-auth-from-command',
+              transport: 'stdio',
+            },
+          ],
+        })
+      )
+    ).toThrow('invalid_mcp_config');
   });
 
   it('decrypts encrypted values and applies to headers/env', async () => {
@@ -318,6 +459,15 @@ describe('mcp-loader', () => {
     expect(template).toContain('"transport": "streamable-http"');
     expect(template).toContain('"url": "https://your-host.example.com/mcp"');
     expect(template).toContain('Example: Legacy remote SSE server');
+    expect(template).toContain('"store": "mcp-credentials"');
+    expect(template).not.toContain('YOUR_TOKEN');
+    expect(template).not.toContain('"Authorization"');
+    expect(template).toContain('Native Linear OAuth (hard read-only endpoint; safest default)');
+    expect(template).toContain('"url": "https://mcp.linear.app/mcp/readonly"');
+    expect(template).toContain('"scopes": ["read"]');
+    expect(template).toContain('Native Linear OAuth (read-write; opt in deliberately)');
+    expect(template).not.toContain('"access"');
+    expect(template).not.toContain('mcp-remote');
   });
 
   it('rejects unknown transport entries in withDecryptedSecrets', async () => {

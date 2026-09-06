@@ -1,7 +1,7 @@
 // Integration lane config for @brainstrike/embeddings.
 //
 // Runs ONLY the env-sensitive `*.integration.test.*` files. For embeddings that
-// is 12 files, all of which construct REAL PGlite via wasmLoader.createPGlite.
+// is 14 files, all of which construct REAL PGlite via wasmLoader.createPGlite.
 // NOTE: this lane is SERIALIZED — the `test:integration` script passes
 // `--maxWorkers=1 --no-file-parallelism`, overriding the machine-relative
 // `maxWorkers` this file inherits from the base config ('50%' on CI, '100%'

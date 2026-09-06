@@ -12,11 +12,13 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
-import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import type { FileExplorerState, IFileNode, RecentRootEntry } from '@brainstrike/types';
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import type { FileContentLoadIntent } from '../file-content-load-authority-context';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import { useOptionalFileTreeContext } from '../tree/file-tree-provider';
 import {
+  type FileTreeDirectorySnapshot,
   type FileTreeRefreshResult,
   type LoadingProgressState,
   useFileTree,
@@ -56,6 +58,11 @@ type UseFileExplorerProps = Record<string, never>;
 interface UseFileExplorerReturn {
   /** Add an additional root directory (multi-root, Phase 4+). */
   addRootDirectory: (() => Promise<DirectoryHandle | null>) | undefined;
+  /**
+   * Desktop-only: re-mount a previously granted folder by path, no picker.
+   * `undefined` when the platform has no recent-roots ledger (web).
+   */
+  addRootDirectoryByPath: ((path: string) => Promise<DirectoryHandle | null>) | undefined;
   applyFileFilters: (
     includeFilters: string[],
     excludeFilters: string[],
@@ -74,8 +81,8 @@ interface UseFileExplorerReturn {
   /** Cancel the current select all operation */
   cancelSelectAll: () => void;
   /**
-   * Whether files can be loaded without a file tree (Electron with readFileByPath).
-   * When true, tab content loading can proceed even before the tree is loaded.
+   * Whether the adapter explicitly supports mounted-root-confined absolute
+   * reads. When true, tab content loading can proceed before the tree loads.
    */
   canLoadWithoutTree: boolean;
   clearFileContents: (compositeKeys: string[]) => void;
@@ -88,6 +95,8 @@ interface UseFileExplorerReturn {
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
     currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
+  /** Terminal file-content read failures, scoped by composite selection key. */
+  fileContentErrors: ReadonlyMap<string, Error>;
   fileContents: { [path: string]: string };
   /** Filtered tree currently visible in the explorer */
   fileTree: IFileNode[];
@@ -106,9 +115,11 @@ interface UseFileExplorerReturn {
   isLoadingForSelection: boolean;
   /** Whether expanded directories are being restored from persisted state */
   isRestoringExpandedPaths: boolean;
+  /** Desktop-only companion to addRootDirectoryByPath; see its note. */
+  listRecentRoots: (() => Promise<readonly RecentRootEntry[]>) | undefined;
   /** Load children of a directory on expand (lazy loading) */
   loadChildren: (path: string) => Promise<void>;
-  loadFileContent: (path: string) => Promise<void>;
+  loadFileContent: (path: string, intent: FileContentLoadIntent) => Promise<void>;
   loadingFiles: Set<string>;
   /** Path of the folder being loaded for selection (if any) */
   loadingPathForSelection: string | null;
@@ -116,12 +127,20 @@ interface UseFileExplorerReturn {
   loadingPaths: Set<string>;
   loadingProgress: LoadingProgressState | null;
   /** Load content for multiple files at once (batch loading for report generation) */
-  loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
+  loadMultipleFileContents: (
+    compositeKeys: string[],
+    intent: FileContentLoadIntent
+  ) => Promise<void>;
   /** Refresh a specific directory */
-  refreshDirectory: (path: string) => Promise<void>;
+  refreshDirectory: (path: string) => Promise<FileTreeDirectorySnapshot | null>;
   refreshFileExplorer: () => Promise<FileTreeRefreshResult>;
   /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
   registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;
+  /** Evict and re-read file contents while suppressing stale in-flight results. */
+  reloadFileContents: (
+    compositeKeys: readonly string[],
+    intent: FileContentLoadIntent
+  ) => Promise<void>;
   /**
    * Disconnect a root by RootId (multi-root, Phase 5). Disconnect ≠ delete by
    * default; `options.deleteData` (Phase 6) opts into a cascade delete of the
@@ -233,6 +252,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     setRootDirectoryHandle,
     setAccessLoading: _hookSetAccessLoading, // Ignore the hook's local setter
     addRootDirectory,
+    addRootDirectoryByPath,
+    listRecentRoots,
     registerRestoredHandles,
     removeRootDirectory,
     setFocusedRoot,
@@ -300,10 +321,11 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Use the shared file content loading hook
   const {
     fileContents,
-    error: contentError,
+    fileContentErrors,
     loadingFiles: contentLoadingFiles,
     handleFileContentLoading,
     canLoadWithoutTree,
+    reloadFileContents,
   } = useSharedFileContentLoading(fileTree);
 
   // Unify filtered tree computation in useMemo to avoid state/effect complexity
@@ -330,8 +352,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   ]);
 
   const loadFileContent = useCallback(
-    async (compositeKey: string) => {
-      await handleFileContentLoading([compositeKey]);
+    async (compositeKey: string, intent: FileContentLoadIntent) => {
+      await handleFileContentLoading([compositeKey], intent);
     },
     [handleFileContentLoading]
   );
@@ -372,13 +394,12 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     [applyFiltersUtil, fileTree, setFilters, setUseRegex]
   );
 
-  // Derive error from tree, content, and filter errors
+  // Tree/filter failures affect the explorer as a whole. File-content read
+  // failures stay keyed to their viewer tab so one broken file cannot replace
+  // unrelated explorer or tab surfaces with a global error.
   const deriveDisplayError = (): Error | null => {
     if (treeError) {
       return treeError;
-    }
-    if (contentError) {
-      return contentError;
     }
     if (localFilterError) {
       return new Error(localFilterError);
@@ -539,6 +560,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   return {
     /** Add an additional root directory (multi-root, Phase 4+). */
     addRootDirectory,
+    /** Desktop-only: re-mount a previously granted folder by path, no picker. */
+    addRootDirectoryByPath,
     applyFileFilters: wrappedApplyFileFilters,
     cancelChildLoading,
     cancelExpandAll,
@@ -552,6 +575,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     error: displayError,
     expandAllProgress,
     expandAllProgressively,
+    fileContentErrors,
     fileContents,
     fileTree: filteredTree,
     filterError: localFilterError,
@@ -564,6 +588,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     isLoadingForSelectAll,
     isLoadingForSelection,
     isRestoringExpandedPaths,
+    /** Desktop-only companion to addRootDirectoryByPath; see its note. */
+    listRecentRoots,
     loadChildren,
     loadFileContent,
     loadingFiles: contentLoadingFiles,
@@ -575,6 +601,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     refreshFileExplorer,
     /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
     registerRestoredHandles,
+    reloadFileContents,
     /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
     removeRootDirectory,
     restorationProgress,

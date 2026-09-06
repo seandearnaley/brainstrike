@@ -74,8 +74,10 @@ export const THREAD_MESSAGE_ESTIMATED_HEIGHT_PX = 120;
 /**
  * How close to the end still counts as "pinned". Wider than the library's
  * 1px default so sub-pixel layout does not silently disengage auto-follow.
+ * Exported so the browser contract can prove its scrolled-up setup is outside
+ * the same end-anchor window without duplicating this value.
  */
-const THREAD_END_THRESHOLD_PX = 24;
+export const THREAD_END_THRESHOLD_PX = 24;
 
 /** Rows kept mounted beyond the visible range on each side. */
 const THREAD_VIRTUAL_OVERSCAN = 6;
@@ -423,6 +425,7 @@ export const ThreadMessagesRegion = ({
         // stylesheet and overrides.css keep applying unchanged.
         className="aui-thread-viewport"
         data-testid="assistant-ui-viewport"
+        data-thread-message-count={messageCount}
         data-thread-render-tier={tier}
         ref={scrollerRef}
       >

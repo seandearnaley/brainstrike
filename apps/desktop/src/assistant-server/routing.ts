@@ -1,5 +1,8 @@
 import type http from 'node:http';
-import { ASSISTANT_STREAM_RESUME_PATH } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_RUN_STATUS_PATH,
+  ASSISTANT_STREAM_RESUME_PATH,
+} from '@brainstrike/assistant-contract';
 import type { AssistantRoute } from '@brainstrike/assistant-service/types';
 
 export function readLastEventId(req: http.IncomingMessage): string | undefined {
@@ -13,33 +16,32 @@ export function readLastEventId(req: http.IncomingMessage): string | undefined {
   return header;
 }
 
+const GET_ROUTES: ReadonlyMap<string, AssistantRoute> = new Map([
+  ['/assistant/status', 'status'],
+  ['/status', 'status'],
+  ['/assistant/openrouter-model', 'openrouter-model'],
+  ['/assistant/verify-provider', 'verify-provider'],
+  [ASSISTANT_STREAM_RESUME_PATH, 'resume'],
+  ['/assistant/suspended-runs', 'suspended-runs'],
+  ['/suspended-runs', 'suspended-runs'],
+  [ASSISTANT_RUN_STATUS_PATH, 'run-status'],
+  ['/run-status', 'run-status'],
+]);
+
+const POST_ROUTES: ReadonlyMap<string, AssistantRoute> = new Map([
+  ['/assistant/steer', 'steer'],
+  ['/steer', 'steer'],
+  ['/assistant/cancel', 'cancel'],
+  ['/cancel', 'cancel'],
+  ['/assistant', 'assistant'],
+  ['/', 'assistant'],
+]);
+
 export function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
   const requestPath = resolveRequestPath(req);
-  if (req.method === 'GET' && (requestPath === '/assistant/status' || requestPath === '/status')) {
-    return 'status';
-  }
-  if (req.method === 'GET' && requestPath === '/assistant/openrouter-model') {
-    return 'openrouter-model';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant/steer' || requestPath === '/steer')) {
-    return 'steer';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant/cancel' || requestPath === '/cancel')) {
-    return 'cancel';
-  }
-  if (req.method === 'GET' && requestPath === ASSISTANT_STREAM_RESUME_PATH) {
-    return 'resume';
-  }
-  if (
-    req.method === 'GET' &&
-    (requestPath === '/assistant/suspended-runs' || requestPath === '/suspended-runs')
-  ) {
-    return 'suspended-runs';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant' || requestPath === '/')) {
-    return 'assistant';
-  }
-  return 'not-found';
+  const routes =
+    req.method === 'GET' ? GET_ROUTES : req.method === 'POST' ? POST_ROUTES : undefined;
+  return routes?.get(requestPath) ?? 'not-found';
 }
 
 function resolveRequestPath(req: http.IncomingMessage): string {

@@ -1,5 +1,13 @@
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
+  ArtifactCursorSchema,
+  ArtifactPageSizeSchema,
+  ArtifactSearchPatternSchema,
+  type ReadToolOutputArtifactCursorInput,
+  ReadToolOutputArtifactCursorInputSchema,
+  requireSearchPatternForFlags,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
+import {
   decodeToolOutputArtifactContent,
   decodeToolOutputArtifactCursor,
   encodeToolOutputArtifactContent,
@@ -9,7 +17,6 @@ import {
   isToolOutputArtifactReference,
   TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES,
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
-  TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES,
   type ToolOutputArtifactPage,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
@@ -42,76 +49,7 @@ const ToolOutputArtifactReferenceSchema = z
   })
   .strict();
 
-const ArtifactPageSizeSchema = z
-  .number()
-  .int()
-  .min(TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES)
-  .max(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES)
-  .optional();
-
-const ArtifactCursorSchema = z
-  .string()
-  .min(1)
-  .max(2048)
-  .refine(isToolOutputArtifactCursor, 'Malformed tool output artifact cursor')
-  .describe('Prior cursor; copy byte-for-byte, never edit or recreate it.');
-
-const ArtifactSearchPatternSchema = z.string().min(1).max(2000);
-
-function requireSearchPatternForFlags(
-  input: {
-    readonly caseSensitive?: boolean | undefined;
-    readonly isRegex?: boolean | undefined;
-    readonly pattern?: string | undefined;
-  },
-  context: z.RefinementCtx
-): void {
-  if (input.pattern === undefined) {
-    for (const field of ['caseSensitive', 'isRegex'] as const) {
-      if (input[field] !== undefined) {
-        context.addIssue({
-          code: 'custom',
-          message: `${field} requires pattern.`,
-          path: [field],
-        });
-      }
-    }
-    return;
-  }
-  if (input.isRegex !== true) {
-    return;
-  }
-  // Fail-fast: mirrors GrepSearchInputSchema's regex refine
-  // (schemas-search.ts) — reject an invalid pattern at parse rather than
-  // deferring the failure to execution (no silent fallback). ReDoS-shape
-  // safety is a separate, execution-time check (assertSafeRegexSource in
-  // createSearchMatcher, matching the shared guard grepSearch's own matcher
-  // uses) since it is about the pattern's SHAPE, not its syntax.
-  try {
-    new RegExp(input.pattern);
-  } catch {
-    context.addIssue({
-      code: 'custom',
-      message: 'pattern is not a valid JavaScript regular expression (isRegex is true)',
-      path: ['pattern'],
-    });
-  }
-}
-
-export const ReadToolOutputArtifactCursorInputSchema = z
-  .object({
-    caseSensitive: z.boolean().optional(),
-    cursor: ArtifactCursorSchema,
-    isRegex: z.boolean().optional(),
-    maxBytes: ArtifactPageSizeSchema,
-    pattern: ArtifactSearchPatternSchema.optional(),
-  })
-  .strict()
-  .superRefine(requireSearchPatternForFlags);
-
-export type ReadToolOutputArtifactCursorInput = z.infer<
-  typeof ReadToolOutputArtifactCursorInputSchema
->;
+export { type ReadToolOutputArtifactCursorInput, ReadToolOutputArtifactCursorInputSchema };
 
 export const ReadToolOutputArtifactInputSchema = z
   .object({
@@ -282,7 +220,7 @@ interface ToolOutputArtifactModelPage {
     readonly input: {
       readonly cursor: string;
     };
-    readonly tool: typeof TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID;
+    readonly tool: string;
   };
   readonly offsetByte: number;
 }
@@ -401,7 +339,8 @@ function fitProviderContent(decoded: string): {
 
 function buildModelPage(
   page: ToolOutputArtifactPage,
-  source: string
+  source: string,
+  readerToolName: string
 ): ToolOutputArtifactModelProjection {
   const sourceByteLength = TEXT_ENCODER.encode(source).byteLength;
   const endByte = page.offsetByte + sourceByteLength;
@@ -421,7 +360,7 @@ function buildModelPage(
         ? {
             next: {
               input: { cursor: nextCursor },
-              tool: TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID,
+              tool: readerToolName,
             },
           }
         : { complete: true as const }),
@@ -467,7 +406,11 @@ function isToolOutputArtifactSearchResult(value: unknown): value is ToolOutputAr
   );
 }
 
-function searchContinuation(result: ToolOutputArtifactSearchResult, kept: number): string | null {
+function searchContinuation(
+  result: ToolOutputArtifactSearchResult,
+  kept: number,
+  readerToolName: string
+): string | null {
   let cursor: string | undefined;
   if (kept < result.matches.length) {
     const nextMatch = result.matches[kept];
@@ -483,14 +426,15 @@ function searchContinuation(result: ToolOutputArtifactSearchResult, kept: number
         'Tool output artifact search projection received a limited result without continuation guidance'
       );
     }
-    return `continue: reuse the prior brainstrike.readToolOutputArtifact search input with cursor=${cursor}`;
+    return `continue: reuse the prior ${readerToolName} search input with cursor=${cursor}`;
   }
   return null;
 }
 
 function projectToolOutputArtifactSearchResult(
   result: ToolOutputArtifactSearchResult,
-  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+  domainModelResultCharBudget: number,
+  readerToolName: string
 ): ToolOutputArtifactSearchProjection {
   const artifactLine = `artifact bytes ${result.offsetByte}-${result.endByte}`;
   const keptRows: string[] = [];
@@ -501,7 +445,7 @@ function projectToolOutputArtifactSearchResult(
       match.line,
       clipGrepProjectionLine(match.lineText, GREP_MATCH_LINE_MAX_CHARS, 'line')
     );
-    const continuation = searchContinuation(result, candidateKept);
+    const continuation = searchContinuation(result, candidateKept, readerToolName);
     const candidateLines = [
       formatGrepContentHeader({
         kept: candidateKept,
@@ -520,7 +464,7 @@ function projectToolOutputArtifactSearchResult(
     keptRows.push(row);
     kept = candidateKept;
   }
-  const continuation = searchContinuation(result, kept);
+  const continuation = searchContinuation(result, kept, readerToolName);
   const lines = [
     formatGrepContentHeader({
       kept,
@@ -542,36 +486,44 @@ function projectToolOutputArtifactSearchResult(
 
 export function projectToolOutputArtifactPage(
   output: ToolOutputArtifactPage,
-  domainModelResultCharBudget?: number
+  domainModelResultCharBudget?: number,
+  readerToolName?: string
 ): ToolOutputArtifactModelProjection;
 export function projectToolOutputArtifactPage(
   output: ToolOutputArtifactSearchResult,
-  domainModelResultCharBudget?: number
+  domainModelResultCharBudget?: number,
+  readerToolName?: string
 ): ToolOutputArtifactSearchProjection;
 export function projectToolOutputArtifactPage(
   output: unknown,
-  domainModelResultCharBudget?: number
+  domainModelResultCharBudget?: number,
+  readerToolName?: string
 ): ToolOutputArtifactModelOutput;
 export function projectToolOutputArtifactPage(
   output: unknown,
-  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  readerToolName: string = TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID
 ): ToolOutputArtifactModelOutput {
   if (isToolOutputArtifactSearchResult(output)) {
-    return projectToolOutputArtifactSearchResult(output, domainModelResultCharBudget);
+    return projectToolOutputArtifactSearchResult(
+      output,
+      domainModelResultCharBudget,
+      readerToolName
+    );
   }
   if (!isToolOutputArtifactPage(output)) {
     throw new TypeError('Tool output artifact reader returned an invalid page.');
   }
   const decoded = decodeToolOutputArtifactContent(output.content, output.contentEncoding);
   if (decoded.length === 0) {
-    return buildModelPage(output, decoded);
+    return buildModelPage(output, decoded, readerToolName);
   }
 
   // Completion replaces the comparatively large continuation cursor with one
   // boolean, so the fit predicate is not monotonic at the final code point.
   // Prefer the complete page when it fits before binary-searching the strictly
   // cursor-bearing prefixes.
-  const completePage = buildModelPage(output, decoded);
+  const completePage = buildModelPage(output, decoded, readerToolName);
   if (JSON.stringify(completePage).length <= domainModelResultCharBudget) {
     return completePage;
   }
@@ -582,7 +534,7 @@ export function projectToolOutputArtifactPage(
   let best: ToolOutputArtifactModelProjection | undefined;
   while (low <= high) {
     const kept = Math.floor((low + high) / 2);
-    const candidate = buildModelPage(output, codePoints.slice(0, kept).join(''));
+    const candidate = buildModelPage(output, codePoints.slice(0, kept).join(''), readerToolName);
     if (JSON.stringify(candidate).length <= domainModelResultCharBudget) {
       best = candidate;
       low = kept + 1;

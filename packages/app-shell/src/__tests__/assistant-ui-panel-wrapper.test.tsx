@@ -5,6 +5,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import { DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY } from '@brainstrike/assistant-contract/memory-settings';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act, render, screen, waitFor } from '@testing-library/react';
@@ -229,7 +230,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(
         () => {
           expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
-            'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.'
+            'Connect an AI provider in Settings → Providers to enable the assistant.'
           );
           expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
         },
@@ -1318,7 +1319,10 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['memory']).toMatchObject({
           memoryOptions: {
             lastMessages: 12,
-            workingMemory: { enabled: false, scope: 'resource' },
+            workingMemory: {
+              enabled: false,
+              scope: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.scope,
+            },
           },
         });
         expect(requestData['providerOptions']).toEqual({
@@ -1556,7 +1560,7 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['memory']).toMatchObject({
           memoryOptions: {
             lastMessages: 40,
-            workingMemory: { enabled: true, scope: 'resource' },
+            workingMemory: { enabled: true, scope: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.scope },
           },
           resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
           threadId: 'thread-existing',
@@ -1582,7 +1586,7 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['memory']).toMatchObject({
           memoryOptions: {
             lastMessages: false,
-            workingMemory: { enabled: true, scope: 'resource' },
+            workingMemory: { enabled: true, scope: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.scope },
           },
         });
       })

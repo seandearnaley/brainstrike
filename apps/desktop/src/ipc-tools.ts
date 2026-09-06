@@ -11,9 +11,12 @@ import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { callTool } from './mcp';
-import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+
+const UNAUTHENTICATED_SENDER_POLICY = {
+  reason:
+    'Unregistered legacy harness (BST-1233): never imported by production main and throws before registration outside NODE_ENV=test.',
+} as const;
 
 const logger = createLogger('IpcTools');
 const LEGACY_TOOLS_EXECUTE_CHANNEL = 'tools:execute';
@@ -441,7 +444,7 @@ function sanitizeToolInput(
   startTime: number,
   toolId: string,
   input: unknown,
-  logScope: 'assistant-runtime' | 'mcp' | 'native'
+  logScope: 'assistant-runtime' | 'mcp'
 ): { ok: true; value: Record<string, JsonValue> } | { ok: false; result: ToolExecutionResult } {
   const sanitizedInput = sanitizeMcpInput(input);
   if (sanitizedInput.ok) {
@@ -490,31 +493,6 @@ async function tryExecuteAssistantRuntimeTool(
   };
 }
 
-async function executeMcpTool(
-  startTime: number,
-  toolId: string,
-  input: unknown
-): Promise<ToolExecutionResult> {
-  const sanitizedInput = sanitizeToolInput(startTime, toolId, input, 'mcp');
-  if (!sanitizedInput.ok) {
-    return sanitizedInput.result;
-  }
-
-  const result = await callTool(toolId, sanitizedInput.value);
-  const durationMs = buildDuration(startTime);
-  logger.info('Tool executed', {
-    durationMs,
-    source: 'mcp',
-    toolId,
-  });
-
-  return {
-    durationMs,
-    result,
-    success: true,
-  };
-}
-
 /**
  * Legacy tool-execution harness retained for focused unit coverage only.
  *
@@ -531,9 +509,10 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
   logger.debug('Registering tools IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerUnauthenticatedInvoke(
     'tools',
     LEGACY_TOOLS_EXECUTE_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
     async (
       _event,
       toolId: unknown,
@@ -549,14 +528,6 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
       const runtimeData = sanitizeRuntimeData(runtimeDataInput);
 
       try {
-        if (isExecutableNativeTool(normalizedToolId)) {
-          const sanitizedInput = sanitizeToolInput(startTime, normalizedToolId, input, 'native');
-          if (!sanitizedInput.ok) {
-            return sanitizedInput.result;
-          }
-          return await executeNativeTool(normalizedToolId, sanitizedInput.value);
-        }
-
         if (isNativeTool(normalizedToolId)) {
           const assistantRuntimeResult = await tryExecuteAssistantRuntimeTool(
             startTime,
@@ -575,7 +546,10 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
           );
         }
 
-        return await executeMcpTool(startTime, normalizedToolId, input);
+        return buildFailureResult(
+          startTime,
+          `Tool "${normalizedToolId}" is not available in the native Tool Playground harness.`
+        );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Tool execution failed';
         logger.error('Tool execution failed', { error: errorMessage, toolId: normalizedToolId });

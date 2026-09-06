@@ -15,6 +15,7 @@ import {
   type ChunkingHostStatusReport,
   createStoppedChunkingHostStatus,
 } from './chunking-host-shared';
+import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
 import { waitForWindowClosed } from './window-lifecycle-utils';
 
@@ -22,33 +23,46 @@ const logger = createLogger('ChunkingHostManager');
 const CHUNKING_HOST_REQUEST_TIMEOUT_MS = 30_000;
 const CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 
-type PendingChunkingRequest =
-  | {
-      readonly kind: 'batch';
-      readonly requesterWindow: BrowserWindow | null;
-      readonly requesterWebContentsId: number;
-      readonly reject: (error: Error) => void;
-      readonly resolve: (results: unknown[]) => void;
-      timeoutId: ReturnType<typeof setTimeout>;
-    }
-  | {
-      readonly kind: 'file';
-      readonly requesterWindow: BrowserWindow | null;
-      readonly requesterWebContentsId: number;
-      readonly reject: (error: Error) => void;
-      readonly resolve: (result: unknown) => void;
-      timeoutId: ReturnType<typeof setTimeout>;
-    };
+type ChunkingRequestKind = 'batch' | 'file';
+
+interface ChunkingRequester {
+  readonly requesterWebContentsId: number;
+  readonly requesterWindow: BrowserWindow | null;
+}
 
 function createRequestFailure(message: string): Error {
   return new Error(message);
 }
 
+function isProgressReport(report: ChunkingHostResponseReport): report is ChunkingHostProgressEvent {
+  return report.type === 'progress';
+}
+
 export class ChunkingHostManager {
   private readonly lifecycle: RendererHostLifecycle<ChunkingHostStatus>;
-  private readonly pendingRequests = new Map<string, PendingChunkingRequest>();
+  private readonly requests: HostRequestChannel<ChunkingHostRequest, ChunkingHostResponseReport>;
 
   constructor() {
+    this.requests = createHostRequestChannel<ChunkingHostRequest, ChunkingHostResponseReport>({
+      isProgress: isProgressReport,
+      // `channel` and `type` are what identify WHICH late report arrived
+      // (chunk-result vs chunk-batch-complete vs progress); the channel's
+      // default late-response log carries only the request id.
+      onLateResponse: (requestId, report) => {
+        logger.warn('Received chunking host response for unknown request', {
+          channel: report.channel,
+          requestId,
+          type: report.type,
+        });
+      },
+      requestId: (request) => request.requestId,
+      responseId: (report) => report.requestId,
+      role: 'Chunking host',
+      send: (request) => {
+        this.requireHostWindow().webContents.send(CHUNKING_HOST_REQUEST_EVENT, request);
+      },
+      timeoutMs: () => CHUNKING_HOST_REQUEST_TIMEOUT_MS,
+    });
     this.lifecycle = new RendererHostLifecycle<ChunkingHostStatus>({
       createStatus: CHUNKING_HOST_STATUS_ADAPTER.createStatus,
       createStoppedStatus: createStoppedChunkingHostStatus,
@@ -159,62 +173,61 @@ export class ChunkingHostManager {
   }
 
   private async sendRequest<TResponse>(
-    kind: PendingChunkingRequest['kind'],
+    kind: ChunkingRequestKind,
     requesterWebContentsId: number,
     request:
       | ChunkingHostChunkBatchRequest
       | ChunkingHostChunkFileByIdRequest
       | ChunkingHostChunkFileRequest
   ): Promise<TResponse> {
-    const hostWindow = await this.assertReadyForRequests();
-    return new Promise<TResponse>((resolve, reject) => {
-      if (this.pendingRequests.has(request.requestId)) {
-        reject(
-          createRequestFailure(`Chunking host request ${request.requestId} is already in flight.`)
-        );
-        return;
-      }
-
-      const timeoutId = this.createRequestTimeout(request.requestId);
-      const pendingRequest: PendingChunkingRequest =
-        kind === 'batch'
-          ? {
-              kind: 'batch',
-              reject,
-              requesterWebContentsId,
-              requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
-              resolve: resolve as (results: unknown[]) => void,
-              timeoutId,
-            }
-          : {
-              kind: 'file',
-              reject,
-              requesterWebContentsId,
-              requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
-              resolve: resolve as (result: unknown) => void,
-              timeoutId,
-            };
-      this.pendingRequests.set(request.requestId, pendingRequest);
-      const message: ChunkingHostRequest = {
-        channel: 'chunk',
-        payload: request,
-        requestId: request.requestId,
-        runtimeId: this.getStatus().runtimeId,
-        type: 'request',
-      };
-      try {
-        hostWindow.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
-      } catch (error) {
-        this.clearPendingRequest(request.requestId);
-        reject(
-          createRequestFailure(
-            error instanceof Error
-              ? `Chunking host request ${request.requestId} could not be sent: ${error.message}`
-              : `Chunking host request ${request.requestId} could not be sent.`
-          )
-        );
-      }
+    await this.assertReadyForRequests();
+    // Captured once at dispatch so progress keeps flowing to the window that
+    // asked even if BrowserWindow.getAllWindows() ordering changes mid-request.
+    const requester: ChunkingRequester = {
+      requesterWebContentsId,
+      requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
+    };
+    const message: ChunkingHostRequest = {
+      channel: 'chunk',
+      payload: request,
+      requestId: request.requestId,
+      runtimeId: this.getStatus().runtimeId,
+      type: 'request',
+    };
+    const report = await this.requests.request(message, {
+      onProgress: (progress) => {
+        if (isProgressReport(progress)) {
+          this.forwardProgressEvent(requester, progress);
+        }
+      },
     });
+    return this.interpretResponse(kind, report) as TResponse;
+  }
+
+  private interpretResponse(
+    kind: ChunkingRequestKind,
+    report: ChunkingHostResponseReport
+  ): unknown {
+    if (report.type === 'result') {
+      switch (report.channel) {
+        case 'chunk-result':
+          if (kind !== 'file') {
+            throw createRequestFailure(
+              `Chunking host returned a single-file result for batch request ${report.requestId}.`
+            );
+          }
+          return report.payload.result;
+
+        case 'chunk-batch-complete':
+          if (kind !== 'batch') {
+            throw createRequestFailure(
+              `Chunking host returned a batch result for single-file request ${report.requestId}.`
+            );
+          }
+          return Array.from(report.payload.results);
+      }
+    }
+    throw createRequestFailure(this.describeUnexpectedResponse(report));
   }
 
   acceptStatusReport(senderId: number, report: ChunkingHostStatusReport): void {
@@ -250,60 +263,10 @@ export class ChunkingHostManager {
       });
       return;
     }
-
-    const pending = this.pendingRequests.get(report.requestId);
-    if (!pending) {
-      logger.warn('Received chunking host response for unknown request', {
-        channel: report.channel,
-        requestId: report.requestId,
-        type: report.type,
-      });
-      return;
-    }
-
-    if (report.type === 'progress') {
-      this.refreshRequestTimeout(report.requestId);
-      this.forwardProgressEvent(pending, report);
-      return;
-    }
-
-    if (report.type === 'result') {
-      switch (report.channel) {
-        case 'chunk-result':
-          if (pending.kind !== 'file') {
-            pending.reject(
-              createRequestFailure(
-                `Chunking host returned a single-file result for batch request ${report.requestId}.`
-              )
-            );
-            this.clearPendingRequest(report.requestId);
-            return;
-          }
-          this.clearPendingRequest(report.requestId);
-          pending.resolve(report.payload.result);
-          return;
-
-        case 'chunk-batch-complete':
-          if (pending.kind !== 'batch') {
-            pending.reject(
-              createRequestFailure(
-                `Chunking host returned a batch result for single-file request ${report.requestId}.`
-              )
-            );
-            this.clearPendingRequest(report.requestId);
-            return;
-          }
-          this.clearPendingRequest(report.requestId);
-          pending.resolve(Array.from(report.payload.results));
-          return;
-      }
-    }
-
-    this.clearPendingRequest(report.requestId);
-    pending.reject(createRequestFailure(this.describeUnexpectedResponse(report)));
+    this.requests.accept(report);
   }
 
-  private async assertReadyForRequests(): Promise<BrowserWindow> {
+  private async assertReadyForRequests(): Promise<void> {
     const status = await this.ensureStarted({ waitForRunning: true });
     if (status.state === 'error') {
       throw new Error(status.lastError ?? 'Chunking host failed to start.');
@@ -315,21 +278,28 @@ export class ChunkingHostManager {
     if (!(window && !window.isDestroyed())) {
       throw new Error('Chunking host window became unavailable after startup completed.');
     }
+  }
+
+  private requireHostWindow(): BrowserWindow {
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed()) {
+      throw new Error('Chunking host window is unavailable.');
+    }
     return window;
   }
 
   private forwardProgressEvent(
-    pending: PendingChunkingRequest,
+    requester: ChunkingRequester,
     progress: ChunkingHostProgressEvent
   ): void {
     const targetWindow =
-      pending.requesterWindow && !pending.requesterWindow.isDestroyed()
-        ? pending.requesterWindow
-        : this.resolveRequesterWindow(pending.requesterWebContentsId);
+      requester.requesterWindow && !requester.requesterWindow.isDestroyed()
+        ? requester.requesterWindow
+        : this.resolveRequesterWindow(requester.requesterWebContentsId);
     if (!targetWindow) {
       logger.trace('Dropped chunking progress for missing requester window', {
         channel: progress.channel,
-        requesterWebContentsId: pending.requesterWebContentsId,
+        requesterWebContentsId: requester.requesterWebContentsId,
         requestId: progress.requestId,
       });
       return;
@@ -340,7 +310,7 @@ export class ChunkingHostManager {
       logger.trace('Dropped chunking progress for unavailable requester window', {
         channel: progress.channel,
         error,
-        requesterWebContentsId: pending.requesterWebContentsId,
+        requesterWebContentsId: requester.requesterWebContentsId,
         requestId: progress.requestId,
       });
     }
@@ -355,47 +325,7 @@ export class ChunkingHostManager {
   }
 
   private rejectPendingRequests(message: string): void {
-    if (this.pendingRequests.size === 0) {
-      return;
-    }
-    for (const pending of this.pendingRequests.values()) {
-      clearTimeout(pending.timeoutId);
-      pending.reject(createRequestFailure(message));
-    }
-    this.pendingRequests.clear();
-  }
-
-  private clearPendingRequest(requestId: string): void {
-    const pending = this.pendingRequests.get(requestId);
-    if (!pending) {
-      return;
-    }
-    clearTimeout(pending.timeoutId);
-    this.pendingRequests.delete(requestId);
-  }
-
-  private createRequestTimeout(requestId: string): ReturnType<typeof setTimeout> {
-    return setTimeout(() => {
-      const pending = this.pendingRequests.get(requestId);
-      if (!pending) {
-        return;
-      }
-      this.clearPendingRequest(requestId);
-      pending.reject(
-        createRequestFailure(
-          `Chunking host request ${requestId} timed out after ${CHUNKING_HOST_REQUEST_TIMEOUT_MS}ms.`
-        )
-      );
-    }, CHUNKING_HOST_REQUEST_TIMEOUT_MS);
-  }
-
-  private refreshRequestTimeout(requestId: string): void {
-    const pending = this.pendingRequests.get(requestId);
-    if (!pending) {
-      return;
-    }
-    clearTimeout(pending.timeoutId);
-    pending.timeoutId = this.createRequestTimeout(requestId);
+    this.requests.rejectAll(() => createRequestFailure(message));
   }
 
   private describeUnexpectedResponse(report: ChunkingHostResponseReport): string {

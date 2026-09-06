@@ -44,13 +44,48 @@ function findForbiddenRuntimeImports(files: readonly SourceFile[]): string[] {
     .map(({ relativePath }) => relativePath);
 }
 
+/**
+ * The Tailwind `@source` shim. It is a stylesheet, not a module: Tailwind reads
+ * it to learn that this package's `src` must be scanned for utility classes,
+ * and the app CSS entrypoints `@import` it directly. It therefore has no dist
+ * build and no source module, and the checks below must not demand either.
+ *
+ * It is validated on its own terms instead — the file exists and actually
+ * carries the `@source` directive — because an export pointing at a missing or
+ * empty stylesheet fails exactly as silently as the defect this shim exists to
+ * prevent (see scripts/__tests__/tailwind-source-coverage.test.mjs).
+ */
+const STYLES_SHIM_SUBPATH = './styles.css';
+
+function stylesShimViolations(target: unknown): string[] {
+  if (target !== STYLES_SHIM_SUBPATH) {
+    return [`${STYLES_SHIM_SUBPATH}: must map to "${STYLES_SHIM_SUBPATH}"`];
+  }
+  const shimPath = path.join(SETTINGS_UI_PACKAGE_ROOT, 'styles.css');
+  if (!existsSync(shimPath)) {
+    return [`${STYLES_SHIM_SUBPATH}: styles.css does not exist`];
+  }
+  if (!/@source\s+["']\.\/src["']/.test(readFileSync(shimPath, 'utf8'))) {
+    return [`${STYLES_SHIM_SUBPATH}: styles.css does not declare @source "./src"`];
+  }
+  return [];
+}
+
 function exportedSourceViolations(packageJson: {
-  exports?: Record<string, { import?: string; types?: string }>;
+  exports?: Record<string, { import?: string; types?: string } | string>;
 }): string[] {
   const violations: string[] = [];
   for (const [subpath, target] of Object.entries(packageJson.exports ?? {})) {
     if (subpath === '.' || subpath.includes('*')) {
       violations.push(`${subpath}: root and wildcard exports are forbidden`);
+      continue;
+    }
+    if (subpath === STYLES_SHIM_SUBPATH) {
+      violations.push(...stylesShimViolations(target));
+      continue;
+    }
+    if (typeof target === 'string') {
+      violations.push(`${subpath}: only ${STYLES_SHIM_SUBPATH} may map to a bare file path`);
       continue;
     }
     const distTarget = target.import;
@@ -74,11 +109,11 @@ function exportedSourceViolations(packageJson: {
 
 function readPackageJson(): {
   dependencies?: Record<string, string>;
-  exports?: Record<string, { import?: string; types?: string }>;
+  exports?: Record<string, { import?: string; types?: string } | string>;
 } {
   return JSON.parse(readFileSync(path.join(SETTINGS_UI_PACKAGE_ROOT, 'package.json'), 'utf8')) as {
     dependencies?: Record<string, string>;
-    exports?: Record<string, { import?: string; types?: string }>;
+    exports?: Record<string, { import?: string; types?: string } | string>;
   };
 }
 
@@ -111,12 +146,18 @@ describe('settings-ui package boundary', () => {
     expect(findForbiddenRuntimeImports(mutatedFiles)).toEqual([controlFile?.relativePath]);
 
     const packageJson = readPackageJson();
-    const firstExport = Object.entries(packageJson.exports ?? {})[0];
-    expect(firstExport).toBeDefined();
-    if (!firstExport) {
-      throw new Error('Settings UI export control requires at least one real export');
+    // Explicitly a MODULE export, not merely the first entry: `./styles.css` is
+    // a bare file path with no dist target, so mutating it would exercise a
+    // different branch than the one this control is meant to prove.
+    const moduleExport = Object.entries(packageJson.exports ?? {}).find(
+      (entry): entry is [string, { import?: string; types?: string }] =>
+        typeof entry[1] === 'object'
+    );
+    expect(moduleExport).toBeDefined();
+    if (!moduleExport) {
+      throw new Error('Settings UI export control requires at least one real module export');
     }
-    const [subpath, target] = firstExport;
+    const [subpath, target] = moduleExport;
     const mutatedPackageJson = {
       ...packageJson,
       exports: {

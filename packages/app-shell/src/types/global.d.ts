@@ -10,8 +10,10 @@ import type {
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import type { ChangesBridge } from '../changes/changes-bridge';
+import type { McpPromptBridge } from '../mcp-prompts/mcp-prompt-bridge';
 import type { PlatformBridge } from '../platform-bridge';
 import type { UserCommandsBridge } from '../user-commands-bridge';
+import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 declare global {
   interface Window {
@@ -42,7 +44,13 @@ declare global {
      * resolver validates it.
      */
     changes?: Partial<ChangesBridge>;
-    mcp?: {
+    /**
+     * Desktop-only MCP bridge. The composer's MCP prompt affordance
+     * (BST-1592) uses the `McpPromptBridge` members, capability-checked via
+     * `resolveMcpPromptBridge()` rather than `isElectron()`; they are derived
+     * from that interface so this declaration cannot drift from it.
+     */
+    mcp?: Partial<McpPromptBridge> & {
       getConfig?: () => Promise<
         | {
             error?: string;
@@ -142,5 +150,13 @@ declare global {
      * until the resolver validates it.
      */
     userCommands?: Partial<UserCommandsBridge>;
+    /**
+     * Desktop-only managed-worktree bridge (BST-1390). Absent on web (no
+     * preload) — capability-check via `resolveWorktreesBridge()` rather than
+     * `isElectron()`. Derived from `WorktreesBridge` so this declaration cannot
+     * drift; `Partial` because a present-but-incomplete bridge is possible
+     * until the resolver validates it.
+     */
+    worktrees?: Partial<WorktreesBridge>;
   }
 }

@@ -11,6 +11,10 @@ const hostedOutputs = [
   'dist/request-boundary.js',
   'dist/request-boundary.mjs',
 ];
+const mcpFreeOutputs = [
+  ...hostedOutputs,
+  ...['browser-safe', 'index'].flatMap((entry) => [`dist/${entry}.js`, `dist/${entry}.mjs`]),
+];
 const forbiddenRuntimeImports = [
   {
     label: '@brainstrike/assistant-contract runtime import',
@@ -154,6 +158,15 @@ for (const relativePath of hostedOutputs) {
         `${relativePath} bundles a forbidden ${forbidden.label} — a contract ROOT-barrel import has likely returned (import the precise subpath instead).`
       );
     }
+  }
+}
+
+for (const relativePath of mcpFreeOutputs) {
+  const source = await readFile(path.join(packageRoot, relativePath), 'utf8');
+  if (/@modelcontextprotocol\//u.test(source) || /\bStdioClientTransport\b/u.test(source)) {
+    throw new Error(
+      `${relativePath} contains the Node-only MCP SDK client; only the dedicated mcp-client entry may own that runtime.`
+    );
   }
 }
 

@@ -5,7 +5,10 @@ import {
   type ToolProjectionRewriteEntry,
   toJsonSafe,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID, type NativeToolId } from '@brainstrike/assistant-contract';
+import {
+  type NativeToolId,
+  RECENCY_PRUNABLE_NATIVE_TOOL_IDS,
+} from '@brainstrike/assistant-contract';
 import { stableNormalizedArgsKey } from './tool-call-loop-guards';
 
 /** Newest estimated tool-result tokens that recency pruning must preserve. */
@@ -40,7 +43,9 @@ const ARGS_DIGEST_HEX_CHARS = 12;
  * bucket: `askUser`/`submitPlan`/`manageTaskList`/`manageCanvas` resolve to
  * `'read'` there (no workspace/fs mutation requiring approval) but stay
  * exempt here for the reasons above — do not conflate the two lists, and do
- * not derive this set from `resolveToolRiskCategory`.
+ * not derive this set from `resolveToolRiskCategory`. Membership is declared
+ * per tool (`history.recencyPrunable` on its `defineNativeTool` definition)
+ * and derived here.
  *
  * `skill` and `skill_read` stay exempt (their output IS the working skill
  * body a later turn may still need — never prune it). `skill_search`
@@ -48,24 +53,9 @@ const ARGS_DIGEST_HEX_CHARS = 12;
  * cheap and idempotent to reproduce, so it is listed here instead of being
  * unconditionally exempt.
  */
-const READ_ONLY_PRUNABLE_TOOL_IDS: ReadonlySet<NativeToolId> = new Set([
-  NATIVE_TOOL_ID.findWorkspaceSymbol,
-  NATIVE_TOOL_ID.globWorkspace,
-  NATIVE_TOOL_ID.grepSearch,
-  NATIVE_TOOL_ID.hybridSearch,
-  NATIVE_TOOL_ID.inspectCommandSessions,
-  NATIVE_TOOL_ID.listWorkspaceContext,
-  NATIVE_TOOL_ID.lspInspect,
-  NATIVE_TOOL_ID.queryDiagnostics,
-  NATIVE_TOOL_ID.queryEmbeddingSpace,
-  NATIVE_TOOL_ID.querySelf,
-  NATIVE_TOOL_ID.readToolOutputArtifact,
-  NATIVE_TOOL_ID.readWorkspaceDirectory,
-  NATIVE_TOOL_ID.readWorkspaceFile,
-  NATIVE_TOOL_ID.skillSearch,
-  NATIVE_TOOL_ID.webExtract,
-  NATIVE_TOOL_ID.webSearch,
-]);
+const READ_ONLY_PRUNABLE_TOOL_IDS: ReadonlySet<NativeToolId> = new Set(
+  RECENCY_PRUNABLE_NATIVE_TOOL_IDS
+);
 
 export interface RecencyPruneInvocation {
   readonly args: Record<string, unknown>;

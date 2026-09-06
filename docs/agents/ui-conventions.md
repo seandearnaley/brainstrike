@@ -73,6 +73,27 @@ Windowing and performance:
   descendants when the workspace itself is a POSIX, drive, or UNC filesystem
   root, but a Windows drive-relative sentinel such as `C:` is not the `C:\`
   filesystem root and must never be sent to restoration or consume the cap.
+- Query-selection snapshot resolution shares one in-flight read per database
+  handle and snapshot id. From initial resolver start — including while the
+  database provider is initializing — a read promotes the store manifest to
+  `loading` only after 100ms; a quicker ready/error result cancels that timer,
+  while longer reads still surface honest loading state. Snapshot reads fail
+  after 30 seconds so a wedged database handle cannot pin the dedupe entry.
+  Descriptor changes and unmounts cancel timers and result publication only —
+  `DbHandle.query` has no abort contract, so the underlying database query may
+  continue after logical cancellation or timeout. Every loading, ready, and
+  error publication revalidates the canonical manifest fingerprint plus
+  snapshot id; unresolved selections use the persisted materialized-path
+  fallback, while ready manifests retain only the materialized base and apply
+  included/excluded descriptor overrides during resolution. Consumers that
+  need effective counts or paths—including forest budgeting and folder-state
+  snapshots—must resolve the descriptor plus manifest rather than reading raw
+  `manifest.filePaths`. A terminal read error remains visible until the
+  descriptor or database lifecycle changes; the resolver does not silently
+  retry or coerce the failed snapshot. The read timeout starts only after a
+  database handle exists; if database initialization itself never completes,
+  the loading state remains visible rather than being misreported as a snapshot
+  read timeout.
 - Forest-mode scale contracts (PR #1734 audit; pinned by
   `forest-tree-actions-context.test.tsx`, `forest-section-filtering.test.tsx`,
   and the `filteredPathSet`-skip tests in
@@ -307,6 +328,26 @@ Windowing and performance:
   FSA) roots still cross-match by design — the accepted phase-4 limitation.
 - The store's `setExpandedPaths` ADOPTS the caller's set (no defensive clone);
   every caller hands over a freshly built set and must not mutate it after.
+- Query-selection checkbox projection keeps stable descriptor/materialized-set
+  identities on WeakMap fast paths. Hydration can recreate an equal
+  `materializedPaths` Set, so `selection-projection.ts` also keeps a bounded
+  structural tier for its derived ancestor-count map: four LRU entries and an
+  8,000,000-unit retained-weight ceiling. Its coarse order-independent key is
+  only a lookup bucket; exact Set membership is verified before reuse, so a
+  key collision can cost a rebuild but can never return another selection's
+  counts. The tier snapshots paths only for verification and never becomes a
+  canonical selection source. Signature construction carries total path length
+  into weight accounting so the hot path never rescans selection paths merely
+  to estimate retention. A deterministic minimum-weight precheck rejects
+  structurally uncacheable oversized selections before lookup, exact-set
+  verification, full weight estimation, or snapshot creation. Unresolved
+  resolver consumers acquire shared ownership of this MODULE-GLOBAL tier;
+  structural admission requires a live owner, while unowned callers retain only
+  WeakMap identity entries. Ownership is keyed to unresolved query mode rather
+  than descriptor or folder identity, so hydration churn does not clear valid
+  entries. Only the final live consumer release clears strong entries. Do not
+  make the tier unbounded, clear another live consumer's entries, or use it to
+  replace `selectionModel.materializedPaths`.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
 - Consumers with per-row hidden checkboxes may set `reserveCheckboxSpace` on the tree column so empty/group rows stay aligned with selectable rows without rendering a misleading disabled checkbox. Checkbox-only multi-select surfaces set `selectOnRowClick={false}` so row chrome moves focus without mutating selection.
 - Keyboard events from interactive cell descendants (buttons, links, form
@@ -456,6 +497,30 @@ Rules:
 - Known limitation: Radix touch/pen long-press (~700ms) bypasses the
   contextmenu claiming protocol — desktop-first tradeoff, documented in
   action-context-menu.tsx.
+- **A target kind with more than one trigger surface shares ONE claim/reset/
+  local-actions hook, not per-surface copies.** The `workspace-root` kind
+  (BST-1393; see `docs/agents/workspace-context.md`'s "Root-header context
+  menu" paragraph) is the reference example: the forest sidebar's
+  `RootSectionInner` and the single-root layout's own header row are
+  structurally different (one has a collapsible `RootSectionHeader`, the
+  other a plain status row with no such component), but both claim/reset the
+  SAME target kind and share the SAME local actions (Set as Main, staged
+  Disconnect…). `packages/file-explorer-ui/src/shell/use-root-section-context-menu.ts`
+  centralizes that wiring — including the reset-then-claim protocol,
+  capability-gated Disconnect (hidden when the caller has no removal
+  callback, never a silently-inert visible item), and focus restoration on
+  close — so the two surfaces cannot drift apart the way they did before
+  review caught the single-root branch shipping with no trigger at all.
+  Three more conventions this kind pins: its `path` is `null` for a browser
+  FSA root (the adapter normalizes name-as-path to `null`), so path-shaped
+  actions gate with `isVisible` by DATA rather than by platform; its menu
+  wraps ONLY the header row — the per-root tree pane keeps its own
+  `ActionContextMenu` as a SIBLING, because nesting two Radix context menus
+  lets the outer one open against a target the inner one claimed; and a host
+  package the surface's own package cannot import contributes actions
+  through an injected prop (`FileExplorerPanel`'s `rootActions`, the same
+  seam its `selectionActions` established — app-shell injects Open in
+  Terminal and New Thread Here there).
 
 When changing this flow, update this section and the related tests.
 
@@ -522,5 +587,118 @@ Two traps worth knowing before you debug this class of bug again:
   to `auto`.
 
 When changing this scale, update this section and `layers.test.ts` together.
+
+---
+
+## FLOATING LAYER ANCHORING
+
+Stacking (above) decides what a popup paints *over*. This section is the other
+half: what it is *measured against*.
+
+Radix positions Select/Popover/DropdownMenu/ContextMenu content with Floating
+UI, which measures the trigger via `getBoundingClientRect()` and publishes the
+result as `--radix-popper-anchor-width` / `--radix-popper-anchor-height` (Select
+re-namespaces these to `--radix-select-trigger-*`).
+
+**A transform on a trigger corrupts every popup it opens.** `getBoundingClientRect()`
+includes transforms; `ResizeObserver` does not fire for them; and Radix's default
+`updatePositionStrategy` is `optimized`, so there is no per-frame re-measure. The
+popup therefore stays sized and placed from whatever the trigger looked like at
+the instant it opened, for as long as it is open.
+
+That instant is POINTERDOWN — Radix opens on pointerdown, not click, so the
+trigger is still `:active`. `packages/ui/src/globals.css` applies
+`transform: scale(0.97)` to `.kinetic-depress:active`, and `SelectTrigger`
+carries that class. Measured on the 718x40 "Indexing policy" trigger in the
+Settings modal at 1440x900: the anchor was published as 696.46 x 38.80 —
+718 x 0.97 and 40 x 0.97 exactly — and the listbox rendered 21.5px too narrow
+and 11px inside the field's left edge.
+
+Rules:
+
+- The press effect is suppressed while a trigger is an OPEN popup anchor, via
+  `:not([data-state="open"])` in that `:active` rule. Do not remove it. Do not
+  "fix" a misaligned popup by nudging `sideOffset` or `align` — that hides a
+  measurement bug behind a cosmetic constant.
+- `data-state` is the whole condition on purpose. Every Radix floating trigger
+  sets it, and the repo has no non-Radix floating anchors. Do NOT widen it to
+  `[aria-expanded="true"]`: `Button` defaults to `depress`, so that clause kills
+  the press affordance on ~14 plain disclosure toggles — tree-row expand
+  chevrons, ide-layout's hide-panel buttons (dead outright, since they render
+  only while expanded) — and buys nothing for this defect. A non-Radix combobox
+  would be scoped as `[role="combobox"][aria-expanded="true"]`.
+- Do not add any other transform, `zoom`, or `scale` to an element that anchors
+  a floating layer, and do not wrap one in a transformed container.
+- A keyboard-opened popup measures correctly even when the defect is present
+  (no `:active`), so reproduce and assert with a REAL mouse press.
+
+Guards: `packages/ui/src/__tests__/kinetic-depress-popup-anchors.test.ts` pins
+the selector; the geometry assertion in
+`apps/web/e2e/settings-modal-layering.test.ts` ("bound to its trigger, not to a
+scaled phantom") pins the rendered result in a real browser.
+
+### Layer registration is not synchronous
+
+`DismissableLayer` keeps its stack in a module-level `Set` that it mutates in an
+EFFECT but reads during RENDER, so a freshly mounted layer paints one frame at
+`index === -1`. Radix writes its verdict as an INLINE `pointer-events` style on
+each layer node: `none` for a layer that is not (yet) the registered top, `auto`
+for one that is, and nothing at all while no layer disables outside pointer
+events.
+
+Keyboard dismissal keys off the same stack, so an Escape inside that window is
+routed to the layer UNDERNEATH the one just opened — in Settings that closes the
+modal and unmounts the nested surface with it. Measured on
+`settings-modal-layering`: the pre-settle snapshot appeared in 3 of 6 runs and
+correlated exactly with the failure. The window is ~20ms.
+
+E2E waits on this with `waitForFloatingLayerStack(page, targetSelector)` in
+`apps/web/e2e/utils/layout-helpers.ts`. Two rules if you extend it:
+
+- Read the INLINE style, never the computed one. Computed is not a registration
+  signal — `model-picker.tsx` hardcodes `pointer-events-auto` on its
+  PopoverContent, and a `portal={false}` layer inherits its ancestor dialog's
+  value.
+- Do not assert a shape across the whole stack ("topmost `auto`, everything
+  beneath `none`"). That only holds when every layer is modal. `Popover` is a
+  bare `PopoverPrimitive.Root` (Radix default `modal={false}`), so it never
+  disables outside pointer events and the dialog beneath it stays `auto`
+  forever. Key off the target layer alone.
+
+`SelectContent` defaults to `position="popper"`. Radix's other mode,
+`item-aligned`, paints the selected option ON TOP of the trigger and does not
+expose `--radix-select-trigger-width` at all, so a listbox cannot be bound to
+its field in that mode. shadcn shipped `popper` as its own default until
+Dec 2025 and still ships every popper style rule; only the default flipped.
+`min-w-(--radix-select-trigger-width)` belongs on the Content (Radix's
+documented "constrain the content size" recipe), not on the Viewport — on the
+Viewport it sizes the inner box and overhangs the trigger by the content's 2px
+border.
+
+---
+
+## TAILWIND SOURCE COVERAGE
+
+Tailwind v4 discovers utilities by scanning source TEXT. A workspace package
+whose `.tsx` never enters the scan emits NO CSS for any class only it uses, and
+nothing reports it: no missing import, no type error, no console warning. The
+classes just resolve to nothing.
+
+Convention: a package that writes Tailwind classes ships a package-local
+`styles.css` containing `@source "./src";`, exports it as `./styles.css`, and is
+imported — directly, or chained through another package's `styles.css` — from
+EVERY app CSS entrypoint that renders it (`apps/web/src/app/globals.css` and
+`apps/desktop/src/renderer/styles.css`).
+
+`packages/settings-ui` sat outside that scan with 102 `.tsx` files. Measured on
+the running renderer, 103 utilities produced no rule at all — every `sm:`/`md:`/
+`lg:`/`xl:` variant in Settings (so panels rendered their narrow branch at every
+width), `space-y-5`/`space-y-7`, the `w-[30%]`/`min-w-[800px]`/`h-[600px]`
+sizing set, the status color scale, and the provider brand-color custom-property
+bridge.
+
+Guard: `scripts/__tests__/tailwind-source-coverage.test.mjs` (runs in
+`pnpm test:scripts`, the Static CI job) walks every `packages/*` for `className=`
+and fails on any that is unreachable from either entrypoint.
 
 ---

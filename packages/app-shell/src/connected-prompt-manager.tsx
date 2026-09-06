@@ -22,6 +22,10 @@ import {
 } from './assistant-ui-panel-wrapper-runtime';
 import { type PromptWorkbenchModelOption, PromptWorkbenchPanel } from './prompt-workbench-panel';
 import {
+  PROMPT_MODEL_SETTING_KEYS,
+  requirePromptModelSettingNumber,
+} from './prompt-workbench-shared';
+import {
   toPromptWorkbenchErrorMessage,
   usePromptLibraryController,
 } from './use-prompt-library-controller';
@@ -37,55 +41,6 @@ function parseCompositeModelKey(modelKey: string): { model: string; provider: st
     throw new Error(`Prompt item has an invalid model key: ${modelKey}`);
   }
   return { model, provider };
-}
-
-const PROMPT_MODEL_SETTING_KEYS = new Set([
-  'frequencyPenalty',
-  'maxOutputTokens',
-  'maxTokens',
-  'model',
-  'presencePenalty',
-  'temperature',
-  'topP',
-]);
-
-function requireFiniteNumber(value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`Prompt model setting "${field}" must be a finite number.`);
-  }
-  return value;
-}
-
-function requireUnitInterval(value: unknown, field: string): number {
-  const number = requireFiniteNumber(value, field);
-  if (number < 0 || number > 1) {
-    throw new Error(`Prompt model setting "${field}" must be between 0 and 1.`);
-  }
-  return number;
-}
-
-function requirePenalty(value: unknown, field: string): number {
-  const number = requireFiniteNumber(value, field);
-  if (number < -2 || number > 2) {
-    throw new Error(`Prompt model setting "${field}" must be between -2 and 2.`);
-  }
-  return number;
-}
-
-function requireTemperature(value: unknown): number {
-  const number = requireFiniteNumber(value, 'temperature');
-  if (number < 0 || number > 2) {
-    throw new Error('Prompt model setting "temperature" must be between 0 and 2.');
-  }
-  return number;
-}
-
-function requireOutputTokenLimit(value: unknown, field: string): number {
-  const number = requireFiniteNumber(value, field);
-  if (!Number.isInteger(number) || number <= 0) {
-    throw new Error(`Prompt model setting "${field}" must be a positive integer.`);
-  }
-  return number;
 }
 
 function parsePromptModelSettings(item: PromptItem): RuntimeModelSettings | undefined {
@@ -114,22 +69,35 @@ function parsePromptModelSettings(item: PromptItem): RuntimeModelSettings | unde
   const settings: RuntimeModelSettings = {};
   const outputTokenLimit = maxOutputTokens ?? legacyMaxTokens;
   if (outputTokenLimit !== undefined) {
-    settings.maxOutputTokens = requireOutputTokenLimit(
+    settings.maxOutputTokens = requirePromptModelSettingNumber(
       outputTokenLimit,
-      maxOutputTokens === undefined ? 'maxTokens' : 'maxOutputTokens'
+      maxOutputTokens === undefined ? 'maxTokens' : 'maxOutputTokens',
+      'maxOutputTokens'
     );
   }
   if (raw['temperature'] !== undefined) {
-    settings.temperature = requireTemperature(raw['temperature']);
+    settings.temperature = requirePromptModelSettingNumber(
+      raw['temperature'],
+      'temperature',
+      'temperature'
+    );
   }
   if (raw['topP'] !== undefined) {
-    settings.topP = requireUnitInterval(raw['topP'], 'topP');
+    settings.topP = requirePromptModelSettingNumber(raw['topP'], 'topP', 'topP');
   }
   if (raw['frequencyPenalty'] !== undefined) {
-    settings.frequencyPenalty = requirePenalty(raw['frequencyPenalty'], 'frequencyPenalty');
+    settings.frequencyPenalty = requirePromptModelSettingNumber(
+      raw['frequencyPenalty'],
+      'frequencyPenalty',
+      'frequencyPenalty'
+    );
   }
   if (raw['presencePenalty'] !== undefined) {
-    settings.presencePenalty = requirePenalty(raw['presencePenalty'], 'presencePenalty');
+    settings.presencePenalty = requirePromptModelSettingNumber(
+      raw['presencePenalty'],
+      'presencePenalty',
+      'presencePenalty'
+    );
   }
   return Object.keys(settings).length > 0 ? settings : undefined;
 }

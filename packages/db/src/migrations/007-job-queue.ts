@@ -9,6 +9,7 @@ export const migration007JobQueue: Migration = {
     DROP INDEX IF EXISTS idx_job_queue_dedupe_active;
     DROP TABLE IF EXISTS job_queue;
   `,
+  ledgerKey: 'custom-007-job-queue',
   name: 'job_queue',
   up: `
     -- Create job_queue table

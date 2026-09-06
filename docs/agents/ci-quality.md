@@ -4,6 +4,74 @@
 
 ## PR CI FLOW
 
+### Review and CI budget
+
+Before implementation, record the start time, acceptance criteria, actual PR
+base chain, and the required checks. Check open and recently merged PRs for an
+existing fix. Review completion means every finding has a disposition, not
+that every suggestion becomes code in this PR.
+
+- Collect the complete review for one head, classify correctness/contract
+  blockers, in-scope changes, follow-ups, and stale findings, then fix the
+  in-scope batch and run local checks before one push. Do not push each comment
+  separately. Valid adjacent work gets a concrete follow-up under the tracker
+  authorization policy; it does not expand the current acceptance criteria.
+- Allow an initial whole-PR review and one re-review after the batch. A third
+  whole-PR review requires a scope checkpoint and explicit user approval.
+  Prefer a targeted review of the fix over restarting whole-diff discovery.
+- At 45 minutes, report elapsed time, exact head, remaining blockers, and the
+  next stop. At 90 minutes without an exact-head-ready PR layer, stop new
+  pushes, reviews, reruns, and merges; preserve work and present a recovery
+  plan. This budget applies to the whole delivery, including a stack.
+- Keep one CI watcher. Reuse successful evidence for the same tested head/base;
+  rerun failed jobs only after identifying an infrastructure failure that makes
+  a retry meaningful. A code correction needs a new head and its own checks.
+  Do not close/reopen PRs, toggle draft state, or push empty commits to solicit
+  another review. Those lifecycle changes can start complete pipelines.
+- Read the live ruleset and distinguish required checks from advisory work.
+  Coverage is advisory; do not wait for it to finish before declaring the
+  required gate ready. Report its current state accurately. Inspect individual
+  Unit rows for failures while the aggregate is pending, so remediation does
+  not wait behind an unrelated healthy integration row.
+- Batch lower-layer fixes before rebasing descendants once. A changing main
+  branch alone does not justify repeatedly rebasing a stack; refresh only for
+  an actual conflict, required up-to-date protection, or a relevant base change.
+  Preserve exact-head/base verification before merge, and existing merge holds.
+
+These rules apply without an installed external skill. The external
+`pr-scope-guard` may automate the audit, but is not the only place the delivery
+budget is defined. Contract: `scripts/__tests__/engineering-skills-contract.test.mjs`.
+
+### Workload boundaries
+
+The September 4 audit found desktop's serial test + integration phases on the
+critical path: run `33920421898` spent 8m11s on units and 12m22s on integration;
+the other UI integration tasks took seconds. Desktop now owns three native
+Vitest file shards on separate runners, independent of the UI `heavy` row.
+Each runner retains one fork and no file parallelism; every file still runs,
+and the required `Unit` fan-in rejects any failed or missing shard. Local runs
+without `DESKTOP_TEST_SHARD` execute the entire suite. The 30-minute job timeout
+is a failure ceiling, not a latency target. Aim for a complete PR verdict in
+15 minutes; compare queue, setup, unit, integration, and fan-in time separately.
+
+Turbo's native `affectedUsingTaskInputs` flag makes `--affected` follow
+declared task inputs and dependency edges, intersected with package partition
+filters. PR steps set `TURBO_SCM_BASE` to the event's exact base SHA and
+`TURBO_SCM_HEAD` to the tested checkout SHA; inferred ranges are forbidden. Cross-package
+contract reads belong in the consuming package's task inputs. In particular,
+`assistant-providers.md` belongs to MCP lab tests and coverage, not global
+inputs. Simply moving that path without task-aware filtering is unsafe: the
+old package-only filter misses document-only changes even when the cache hash
+is correct. `scripts/__tests__/ci-input-locality.test.mjs` executes the pinned
+Turbo binary to prove both selection and hash locality, including a negative
+control. Shared configuration and lockfile changes still receive broad checks.
+
+Draft PRs already run the full Test workflow on opened/synchronize. Marking a
+draft ready must not rerun the same code: run `33929271597` repeated successful
+run `33927789987` on the same head after PR #2962 became ready. Test therefore
+omits `ready_for_review`; reopened remains to cover commits pushed while closed.
+Review workflow lifecycle is independent of test execution.
+
 Pull requests use plain GitHub Actions workflows. There is no custom planner,
 no generated CI artifact, no CI routing labels, and no local command registry.
 
@@ -14,6 +82,10 @@ Rules:
   for an ADVISORY job, not routing, and it can only ever ADD work, never skip
   a required check.
 - Do not commit generated CI proof artifacts.
+- A pull request touching official MCP conformance must link its workflow-dispatch run URL
+  in the pull request body. The URL is the reviewable evidence; a self-reported pass count
+  is not a substitute. This is a reviewer-enforced evidence contract, not a custom CI
+  planner; required gate ownership is tracked separately by BST-1582.
 - Do not reintroduce the removed custom proof/planner commands or any custom
   planner script.
 - Required PR checks should be the always-present checks from `.github/workflows/test.yml`.
@@ -32,6 +104,163 @@ Rules:
   and the next all-green push closes it — see "A red `main` announces itself"
   below.
 
+### MCP verifier lanes (BST-1495)
+
+The required `Static` job and the default local `pnpm check` plan both invoke
+`pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`.
+That representative profile is part of the required PR gate; it is not advisory
+and must not gain `continue-on-error`, an event predicate, or a second selection
+planner. `.github/workflows/mcp-verification.yml` owns the scheduled and
+manual exhaustive lane, using
+`pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`.
+The exhaustive job has a ten-minute outer bound, an eight-minute verifier-step
+bound, and uploads the exact-SHA sanitized evidence for 14 days. The workflow
+also subscribes to pushes to `main` (BST-1582), but the exhaustive `verify` job
+is predicated off that event (`if: github.event_name != 'push'`) and must
+remain `schedule` plus `workflow_dispatch` only; running it on PRs or pushes
+would duplicate the required representative gate. The push trigger exists for
+the official conformance jobs below and carries a `paths-ignore` for `docs/**`
+and `**/*.md`, because a docs-only merge cannot regress client conformance.
+
+`scripts/run-mcp-verification.mjs` is an identity guard, not a planner. It
+derives `HEAD` and porcelain workspace state and under GitHub Actions requires
+`GITHUB_SHA` to equal `HEAD` and the checkout to be clean. It then invokes the
+one package CLI, which fixes the parent ticket to `BST-1486` and independently
+derives the Git identity recorded in evidence. The wrapper accepts exactly one
+closed profile and one safe JSON output below `artifacts/`; unknown, duplicate,
+or shell-sensitive input fails before platform-specific spawning. The paired script tests control
+identity mismatch and dirty-checkout failures; the CI contract test pins the
+commands, profile ownership, timeouts, artifact path/retention, and local-check
+mapping. Exhaustive artifacts are uploaded only after complete verification;
+failed or partial runs never emit an artifact that could be mistaken for proof.
+Both automated profiles emit evidence-schema `1.1.0` with desktop applicability
+explicitly set to `protocol-lab-only`; they do not fabricate Electron or CDT
+proof. Desktop-required bundles remain the bounded implementation-ticket gate
+described in `mcp-conformance.md`, outside the scheduled verifier loop.
+
+The same workflow — which runs on every push to `main`, on the nightly
+schedule, and on manual dispatch — has a separate `Official MCP auth
+conformance` job. It builds the Desktop main-process runtime dependencies
+and bundle through the root command.
+
+```bash
+pnpm run verify:mcp:official
+```
+
+Since BST-1582 the three official jobs (`official_auth`, `official_core`,
+`official_modern_auth`) are **required post-merge gates**: none carries
+`continue-on-error`, so a single failing scenario fails the workflow and turns
+`main` red visibly. "Required" here is deliberately not the ruleset sense used
+for `test.yml`'s PR checks — a `push: branches: [main]` job runs after the
+merge and can never block one; it detects, it does not block. The entry
+condition for promotion was three consecutive exact-head green runs
+(33541373505, 33545728828, 33545945643). They deliberately run on `main`
+pushes rather than in the PR lane: three Electron-provisioned jobs cost
+roughly 30 runner-minutes, and a main-push gate bounds a regression to one
+merge instead of 24 hours. The workflow-level `concurrency` group with
+`cancel-in-progress: false` serializes overlapping main-push runs rather than
+cancelling them, so an intermediate merge commit is never silently skipped.
+
+Exit condition when it goes red: the merge that turned `main` red is fixed
+forward or reverted before the next MCP-touching merge, and the failing run
+URL is attached to that merge's ticket (working agreements, BST-1590). The
+official jobs live outside `test.yml`, so the `notify-main-failure` issue
+notifier does not yet cover them; whoever merges checks the workflow run on
+their own commit until BST-1591 extends notification to this workflow.
+
+Its combined build/run step has a seven-minute bound and its job an 11-minute
+bound (four-minute build, three-minute Electron provisioning, three-minute run,
+one minute of workflow overhead). A bounded three-minute "Provision Electron
+binary" step runs before the suite: the conformance children execute the desktop
+dist entry, which requires the real Electron binary, and Electron has no install
+lifecycle — provisioning once prevents parallel children racing an on-demand
+download into EEXIST extraction failures. Pinned
+`@modelcontextprotocol/conformance@0.2.0-alpha.10` remains prerelease
+software, and the evidence records `prerelease: true` alongside
+`required: true`. Its runner executes the closed 28-case auth matrix without
+`--expected-failures` or `--output-dir`, captures child output through a
+bounded line-boundary collector, sanitizes it (ANSI stripped; URL queries,
+OAuth parameters, and structured secret assignments redacted), prints a
+bounded per-scenario diagnostics block to job stderr for failed scenarios
+only, and atomically emits only sanitized fixed-id/timing evidence at
+`packages/mcp-test-lab/artifacts/official-auth-evidence.json` — captured
+child output never enters the evidence file. The workflow
+uploads that file on both green and red scenario outcomes for 14 days under an
+exact-SHA artifact name. Missing evidence is a visible job
+failure; raw official auth request/response artifacts are never uploaded.
+The parent driver provisions and validates Desktop's Electron runtime exactly
+once before it launches either parallel protocol wave; scenario processes must
+not lazily install the shared runtime concurrently.
+Scenario pass/fail counts always sum to the execution count; Job cleanup has its
+own status and never inflates scenario failures. If evidence collection or its
+atomic write fails after conformance has already failed, the job preserves both
+causes rather than replacing the primary conformance failure.
+
+BST-1583 adds the independent required `Official MCP core conformance`
+job. It runs the exact alpha.10 non-auth scenarios
+applicable to each revision: four at `2025-11-25` and seven at `2026-07-28`.
+
+```bash
+pnpm run verify:mcp:official -- --profile core
+```
+
+The core job has the same bounded Electron provisioning, parallel-by-protocol
+execution, sanitized diagnostics, empty expected-failure ledgers, and 11-minute
+job budget as the baseline auth profile. It uploads only
+`packages/mcp-test-lab/artifacts/official-core-evidence.json` for 14 days under
+`mcp-official-core-${{ github.sha }}`. BST-1582 promoted it, with the two
+auth jobs, to a required gate.
+
+BST-1576 adds a second independent job, `Official MCP modern auth closeout`.
+It runs:
+
+```bash
+pnpm run verify:mcp:official -- --profile modern-closeout
+```
+
+The command has a four-minute build allowance, ten-minute runner allowance,
+14-minute combined step bound, and 21-minute job bound (which also reserves the
+three-minute Electron provisioning step both official jobs share).
+The profile executes exactly the eleven alpha.10 scenarios that apply only at
+`2026-07-28`, sequentially inside one evidence wave, with zero expected failures.
+It uploads only
+`packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json`
+for 14 days under `mcp-official-modern-auth-${{ github.sha }}`. The baseline
+BST-1560 job remains its reviewed 28 executions; neither job passes
+`--expected-failures` or `--output-dir`, and neither uploads raw auth output.
+The ten-minute step is load-bearing math: 11 × 45-second scenario deadlines is
+495 seconds, leaving 105 seconds for setup, cleanup, and sanitized evidence
+persistence. The 21-minute job additionally reserves the four-minute build,
+the three-minute Electron provisioning step, and four minutes for workflow
+setup/upload. Shared typed descriptors and workflow
+contract tests pin these budgets and the required posture of all three
+official jobs.
+
+#### MCP 2026 fleet working agreements (BST-1590)
+
+Standing rules for every agent on the MCP 2026 project until BST-1472 closes.
+They exist because on 2026-09-01 the same Electron install race was fixed twice
+by two agents 44 minutes apart (#2900, #2901), BST-1574 was implemented twice,
+roughly 40% of the overnight spend went to rewrite-in-place review loops and
+blind iteration against a mute verifier, `assistant-providers.md` was rewritten
+by every landing commit, and two epics were marked Done while their product
+surface was unreachable. The Linear project description carries the same list.
+
+1. **Dedupe before starting.** Search open PRs and the last 24 hours of merged
+   PRs for the same root cause before opening a branch; review an existing fix
+   instead of re-fixing it.
+2. **WIP limit of 2** on the project until BST-1472 closes; the Tasks
+   (BST-1473) and Apps (BST-1474) ladders stay frozen behind the core closeout.
+3. **Evidence is a CI artifact URL** at the exact head, linked in the PR body
+   and on the ticket. Self-reported test counts are notes, not proof.
+4. **Done means reachable.** A host-only deliverable carries an explicit
+   "host-only, product surface pending" note and does not close as Done.
+5. **PRs only.** No direct-to-main pushes.
+6. **One status update per day** on the project: gate state, pass counts,
+   blockers.
+7. **Doc contention.** Conformance and verification prose lives in
+   `docs/agents/mcp-conformance.md`, not in `assistant-providers.md`.
+
 ### Open PR to Linear conformance (BST-521)
 
 Every human-authored pull request description must contain a Brainstrike issue
@@ -49,12 +278,13 @@ required reference before they write the summary.
 
 Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
 scheduled workflow exactly. `memory-baseline` skips the unrelated broad
-regression job and runs only the desktop embedding memory spec with no
-max-failure truncation. Use the narrow mode for controlled, sequential
-same-head memory calibration runs; it is evidence collection, not a way to
-replace or route required PR checks.
+regression job and runs only the desktop embedding-worker and database
+live-query memory specs with one worker, no retries, and no max-failure
+truncation. Use the narrow mode for controlled, sequential same-head memory
+calibration runs; it is evidence collection, not a way to replace or route
+required PR checks.
 
-### Desktop Electron provisioning (BST-563)
+### Desktop Electron provisioning (BST-563, BST-1252)
 
 The Desktop E2E smoke job in `test.yml` and both regression jobs in
 `desktop-e2e.yml` download Electron directly from GitHub Releases and extract
@@ -69,6 +299,101 @@ pins the no-lifecycle premise, requires all three jobs to use the shared
 `setup-workspace` action, and fails if the unused cache or raw `RUNNER_TEMP`
 path returns.
 
+The `Native Electron Package` job has a separate packaging need: its native
+smoke launches Electron before electron-builder runs, and electron-builder
+otherwise fetches the same release archive again. It now provisions one
+`${RUNNER_TEMP:-/tmp}/electron.zip` before either consumer, bounds each transfer
+to three minutes, retries transfer errors three times with a visible failure
+after exhaustion, verifies the extracted executable is non-empty and runnable,
+and passes that same zip to electron-builder through
+`config.electronDist`. This keeps one bounded, observable download boundary and
+does not restore the obsolete `~/.cache/electron` Actions cache.
+
+That job also owns the packaged MCP core lifecycle proof. The spec carries both
+`@packaged` and `@destructive`, and desktop's generic full-regression lane
+grep-inverts `@packaged`; an unpackaged regression run must never discover it.
+The dependency build includes `@brainstrike/mcp-test-lab`, then the job packages
+the desktop once, runs the packaged native-addon checks, and invokes
+`test:e2e:lane:packaged-mcp-core` against that existing artifact. The canonical
+lane does not build or package. The same job runs
+`test:e2e:lane:packaged-mcp-apps-bridge` (`mcp-apps-bridge.desktop.test.ts`,
+tagged `@packaged @destructive`, excluded from the generic full-regression
+lane) right after packaging; `scripts/__tests__/mcp-apps-bridge-packaged-ci-contract.test.mjs`
+pins the step order and the lane script. `test:e2e:mcp-packaged` remains the local
+lane does not build or package. The same job packages with
+`VITE_MCP_TASK_HARNESS=1` so the E2E-only MCP Tasks harness chunk exists in
+THAT package (release packaging never sets it), then runs
+`test:e2e:lane:packaged-mcp-tasks` right after packaging (the core lane keeps
+its pinned slot immediately after the packaged native checks) (`mcp-task-restart.packaged.desktop.test.ts`,
+tagged `@packaged @destructive`, excluded from the generic full-regression lane);
+`scripts/__tests__/mcp-tasks-packaged-ci-contract.test.mjs` pins the flag, the
+step order, and the lane script. `test:e2e:mcp-packaged` remains the local
+developer convenience that builds the lab, packages the app, and delegates to
+the same lane. `scripts/__tests__/e2e-lane-coverage.test.mjs` pins the tags,
+broad-lane exclusion, canonical delegation, and workflow reachability/order.
+The packaged launcher copies only an explicit cross-platform process-environment
+allowlist plus test-owned overrides; it never forwards the ambient CI environment.
+Its stdio fixtures enforce the exact SDK-default key set expected from that
+allowlist, so the packaged proof has no production-environment bypass.
+
+THE CORE LANE'S APPROVAL PROOF AND ITS ERROR PATH (BST-1602). Under the `ask`
+MCP policy the proof races two locators — `assistant-tool-approval-notice` and
+the scripted completion text — because an approval pause and a final text are
+mutually exclusive outcomes of one turn (`agent-streaming`'s pause is terminal
+for its leg; see `docs/agents/assistant-runtime.md`). The race is the right
+observation; what was wrong was what it did when the WRONG racer won. Two rules
+now hold, and both are load-bearing:
+
+- The diagnostic branch never CLICKS. It previously reached for a page-wide
+  `getByRole('button', { name: 'Expand details' })` while several tool cards were
+  mounted, so the branch that exists to explain a failure produced a
+  `locator.click` timeout instead of its own message — and the stalled app then
+  failed `closePackagedDesktop` with `code=1` (main's 5 s
+  `SIGNAL_SHUTDOWN_TIMEOUT_MS` forced exit), burying the real cause under two
+  unrelated errors. A failing proof's error path must resolve immediately: it
+  reads text, it does not act.
+- Both racers are explicitly `.catch`-handled. The loser keeps waiting out its
+  own 45 s budget and then rejects (timeout, or "target closed"), which
+  Playwright reports as a second, test-less error. `Promise.race` still settles
+  on whichever promise settles first, so "neither appeared" still fails.
+
+The branch dumps three boundaries: `startModelProviderShim`'s `transcript()`
+(every decided request — `roles`, `toolResultCount`, and the turn it chose, so
+the shim's pure turn accounting is never guesswork), each `tool-fallback` card's
+text, and the assistant region. That dump is what distinguishes the two very
+different failures that land here. A tool that RAN unprompted would be a
+permission-engine defect. What actually reproduces is the other one: when
+`legacy_echo` is not in the run's ACTIVE tool definitions at the moment the
+model calls it, the call fails fast with a tool RESULT and never reaches the
+approval gate at all, so the shim's third turn emits the completion text and
+`completed` wins the race. Demonstrated by forcing a `search_tools` miss: the
+dump shows `search_tools … 0 results` next to `legacy.echo … Tool execution
+failed.`, with no approval notice. In the wild the same state is reachable
+because per-run MCP discovery is skip-on-failure — `mcp-tool-loader.ts`'s
+`fetchMcpToolsetsWithTimeout` drops the WHOLE toolset after the hard-coded 5 s
+`DEFAULT_MCP_TIMEOUT_MS` and `logMcpToolsetErrors` drops a single server's, both
+continuing the run, and `pickMcpDiscoveryLogMethod` demotes exactly the two
+likeliest reasons (`Connection closed`, `mcp_tool_discovery_timeout`) to
+`debug`, which this lane's `LOG_LEVEL=info` does not record. Waiting for the
+Settings row to read `Connected` does NOT establish that precondition. Making
+that degradation visible is its own change; do not widen this lane to paper
+over it.
+
+After packaging, that same `Native Electron Package` job runs
+`test:e2e:lane:packaged-mcp-apps`. The tagged `@packaged` spec launches the exact
+electron-builder artifact, injects its harness into the REAL main window
+(production preload, default session, the production header CSP — never a
+harness window on a private partition, which escapes the header stamp and hid
+a `frame-src` regression), uses the official MCP Apps transport through the
+packaged `brainstrike-mcp-app:` shell protocol, and verifies the production
+Apps host: `blob:` frames blocked by the host CSP, shell load + handshake, the
+`will-frame-navigate` fence, and a 404 shell URL after release.
+`scripts/__tests__/mcp-apps-packaged-ci-contract.test.mjs` pins those
+assertions. Production renderer registration remains a separate
+release gate. The ordinary unpackaged full-regression lane excludes `@packaged`;
+there is no second or advisory path that can make this artifact-dependent proof
+appear green.
+
 Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
 each `webContents.getOSProcessId()`. Electron 43 does not expose the older
 `webContents.getProcessMemoryInfo()` API on the CI runner; treating that
@@ -76,22 +401,96 @@ absence as zero made the large-collection thresholds vacuous. Missing PID
 metrics now fail visibly. The older API remains optional only for its private
 and shared-memory diagnostics.
 
+Renderer heap readings require `--enable-precise-memory-info` alongside
+`--js-flags=--expose-gc` in the E2E launcher: without it Chromium quantizes
+`performance.memory.usedJSHeapSize` AND caches it for 20 minutes, so every
+in-test read returned the identical value and each "heap growth" was
+tautologically `0.0` — the heap ceilings could never bind. The flag is pinned
+by `desktop-e2e-harness-contract.test.ts`; the pre-flag calibration tables
+(2026-08-11 dispatches `31458099061`/`31458469270`/`31459112520` and the
+2026-08-19 head-`07bc230ae` local runs) all showed that dead `0.0` signature.
+The flag makes EVERY heap ceiling in the desktop memory suite live at once,
+not just the recalibrated tables below. The remaining now-live ceilings were
+sampled once locally on 2026-08-19 with comfortable margins: the large-backfill
+`retainedGrowthMB < 60` measured `-48.5`/`-48.6`/`-49.1` across three runs, the
+20k diagnostic's host-heap growth measured `9.9` MB (limit 120) and main-heap
+growth `12.9` MB (limit 80), and the repeated-backfill idle host-heap drift
+measured `0.0` MB (limit 40 — a genuine post-GC steady state, not the dead
+signature: host heap readings vary at 0.1 MB granularity across the same run).
+If a nightly desktop-e2e heap ceiling starts failing after this flag landed,
+diagnose it first as calibration of a newly live instrument, not necessarily a
+product regression.
+
+The tables below are LOCAL-HOST samples (macOS arm64 dev machine), not
+ubuntu-runner CI dispatches like the superseded 2026-08-11 table — do not
+compare their absolute values against CI numbers. A confirming
+`memory-baseline` dispatch in the CI environment (run `32274868755`, the first
+CI execution of the BST-438 tests) measured live heap growth of `1.8` MB in
+both live-query scenarios — the 16 MB heap ceilings hold in CI too. That same
+dispatch recalibrated the switching test's alive-generation identity bound
+from a local-only 6 to 8 (CI held 7 alive with 58/65 collected and zero
+drops), and exposed a PRE-EXISTING CI failure unrelated to the flag, since
+fixed as BST-1380: the large-backfill error path emitted a WebGPU-refusal
+message that
+`embedding-worker-renderer.memory.desktop.test.ts` does not expect. Its
+correct attribution is recorded below — the Electron 43.4 provisioning window
+it coincided with was NOT the cause.
+
+The desktop embedding specs run under `--disable-gpu`, so they only exercise a
+real backfill because they configure WASM explicitly. Between 2026-08-12 and
+BST-1380 they did not: BST-1235 narrowed the hidden-host preload manifest, the
+host lost the capability to read that configured preference, and it fell back
+to auto-detection — which fail-closes with no WebGPU adapter. The symptom reads
+as an Electron/runner GPU regression and is not one; the last green run
+(`31458099061`, 2026-08-11) predates the preload change, and a fixed-Electron
+RED/GREEN on one host isolated it. Do not bisect Electron versions for it.
+Reproduce on any host by running the spec with `CI=true` (that env var is what
+adds `--disable-gpu`): a healthy run reports `outcome: "running"` with a
+non-zero `queueStats`, a broken one `outcome: "error"` with
+`queued 0 / running 0`. See `docs/agents/local-inference.md` for the capability
+contract.
+
 The 50k collection and 50k file-list ceilings are calibrated, not inherited
-from the older Collection Browser measurement window. On 2026-08-11, three
-sequential `memory-baseline` dispatches at exact head `3d3209242` produced:
+from the older Collection Browser measurement window. On 2026-08-19, three
+sequential local regression runs with precise memory info (head `d4d1af0f2`
+plus the flag change) produced:
 
 | Scenario | Visible heap growth (MB) | Visible working-set growth (MB) |
 | --- | --- | --- |
-| 5k files / 50k chunks | `0.0`, `0.0`, `0.0` | `-3.5`, `-3.6`, `-4.1` |
-| 50k-file source-paginated list | `0.0`, `0.0`, `0.0` | `-4.7`, `-74.2`, `-77.3` |
+| 5k files / 50k chunks | `-8.1`, `-8.4`, `-8.2` | `-1.8`, `-1.4`, `-1.9` |
+| 50k-file source-paginated list | `-8.4`, `-8.4`, `-8.4` | `-1.2`, `-2.0`, `-1.7` |
 
-The paired heap and working-set limits are therefore positive floors of 16 MB
-and 32 MB. Those floors preserve 16 MB of heap noise headroom and at least
-35 MB of working-set headroom over the largest observed deltas while still
-failing a material full-collection hydration. Calibration evidence is in
-workflow runs `31458099061`, `31458469270`, and `31459112520`; replace this
+The paired heap and working-set limits remain positive floors of 16 MB
+and 32 MB. Those floors preserve at least 16 MB of heap headroom and at least
+30 MB of working-set headroom over the largest observed deltas while still
+failing a material full-collection hydration. Replace this
 table and re-run three sequential same-head samples when changing the fixture,
 measurement window, or process-memory source.
+
+BST-438's database live-query limits are calibrated independently from those
+50k-list scenarios because its primary signal is forced-GC collection of actual
+result-array identities. On 2026-08-19, three sequential local (macOS arm64)
+regression runs with precise memory info (head `d4d1af0f2` plus the flag
+change) produced:
+
+| Scenario | Visible heap growth (MB) | Visible working-set growth (MB) | Collected / tracked generations |
+| --- | --- | --- | --- |
+| 100 alternating committed mutations | `1.9`, `1.9`, `1.9` | `-31.7`, `-32.7`, `-31.9` | `100/101`, `100/101`, `100/101` |
+| 10 A/B/C switch cycles plus final insert/delete | `1.6`, `1.7`, `1.5` | `13.3`, `12.6`, `13.6` | `60/65`, `60/65`, `60/65` |
+
+The mutation test's midpoint-to-final heap growth was `0.6` MB in all three
+runs. An earlier three-run threshold-selection sample at implementation head
+`32cd1a46afd97971ceca9d8e96a11abc82b469f0` observed switching working-set
+growth of `13.0`, `29.4`, and `11.7` MB, so the 48 MB switch ceiling retains
+18.6 MB of headroom over the worst of all six samples. The mutation working-set
+ceiling remains 32 MB and both heap ceilings remain the positive 16 MB floor,
+now over a real measured heap peak of `1.9` MB (≈8× headroom).
+Every final-head run also held the exact renderer/IPC/manager/host ownership
+delta, exact one- or three-entry cache cardinalities, zero dropped WeakRef
+observations, removal of all named superseded generations, and a live current
+generation. Re-run three sequential exact-head samples when changing the
+fixture, switch/mutation count, forced-GC window, cache policy, or process-memory
+source.
 
 The AI Tools settings specs are deliberately part of both required PR smoke
 lanes. Their tool category/loading-tier assertions follow the shared assistant
@@ -216,6 +615,21 @@ ambient shims. Two consequences to keep in mind:
   `declaration: true` makes exported `vi.fn()` mocks fail TS2883 portability
   checks that vary with pnpm store layout.
 
+Desktop's `type-check:test` runs `scripts/verify-test-tsconfig-program.mjs`
+instead of invoking `tsc` directly. The wrapper asks the pinned compiler for
+the actual program through `--listFilesOnly`, requires at least 400 desktop
+test roots, and then runs the unchanged `tsc --noEmit` diagnostic pass. The
+floor is an anti-vacuity contract: `tsconfig.test.json` currently selects 419
+test files, and an inherited/excluded test glob must fail before a zero-file
+type-check can look green again. Its script tests include an empty-root
+control, a broken test-only import that must surface TS2307, and manifest/cache
+wiring assertions. `scripts/ts7-parity-check.mjs` unwraps the verifier command
+back to its `--project` so the desktop test program remains in TS6↔TS7 parity
+coverage. Because the verifier lives outside `apps/desktop`,
+`apps/desktop/turbo.json` explicitly includes it in the desktop `type-check`
+task inputs alongside `$TURBO_DEFAULT$`; changing the anti-vacuity or
+diagnostic logic must invalidate Turbo's cached result.
+
 ### Vercel Preview is advisory
 
 The Vercel GitHub integration reports a `Vercel` commit status on pull
@@ -281,9 +695,16 @@ This is an admission delay, not CI routing. It uses no labels and never selects
 a reduced test plan. The latest quiet PR head always runs the full graph,
 including all five stable required contexts (`Static`, `Unit`, `Build`,
 `Web E2E`, `Desktop E2E`) plus both native jobs and the non-required
-`Browser tests` lane (BST-994 — Vitest browser-mode suites for db/ui/storage
-in the pinned Playwright container; expensive enough that it keeps the same
+`Browser tests` lane (BST-994 — Vitest browser-mode suites for
+db/ui/storage/assistant-ui/embedding-worker in the pinned Playwright container;
+expensive enough that it keeps the same
 quiet-head gate, and `quiet-head-admission-contract.test.mjs` verifies it).
+Vitest generated failure captures stay in ignored package-local
+`__screenshots__` directories. Intentional `toMatchScreenshot` references are
+rerouted by `@brainstrike/config` to trackable `__image_snapshots__`
+directories; the db and storage projects that construct browser options
+directly use the same resolver. Keep those paths separate so failure debris
+cannot be committed and a new visual baseline cannot disappear from git.
 Web and desktop E2E retain their `build` dependency. Push and
 `workflow_dispatch` events are admitted immediately, so their behavior is
 unchanged apart from the dependency edge.
@@ -352,8 +773,9 @@ exact failure this job exists to prevent. Persistent E2E breakage is still
 caught within 24h by the scheduled notifiers in `web-e2e.yml` /
 `desktop-e2e.yml`.
 
-That leaves `Browser tests`, `Native Windows` and `Native Electron Package`,
-which also run on pushes to `main` and are also **not** notified. Not on
+That leaves `Browser tests`, affected `Native Windows`, and
+`Native Electron Package`, which also run on pushes to `main` and are also
+**not** notified. Not on
 flakiness grounds — `browser-tests` "must first prove itself deterministic"
 per its own header, which makes it *pending*, not excluded — but because none
 of them is a required check. A red one does not block anyone else's branch, so
@@ -434,31 +856,41 @@ branch-protection setting and therefore the repo owner's call, not a workflow's.
 
 It adds **no new trigger** to `test.yml` (see `coverage.yml`'s header for why a
 new trigger here greys out the merge box), neither job is a **required status
-check**, and both stay off the Ubicloud pool, which
-`ubicloud-runner-contract.test.mjs` limits to the five measured jobs. The `gh`
+check**, and both stay on GitHub `ubuntu-latest`. These five-second reporting
+jobs do not justify an additional managed-runner allocation; the notifier
+contract rejects Ubicloud assignments. The `gh`
 steps are reporting rather than gating, so they are listed in
 `check-ci-parity.test.mjs`'s `PROVISIONING_STEPS` — `pnpm check` must not
 mirror them, because running them locally would file and close GitHub issues.
 
-The label step uses `gh label create --force` and **no** `2>/dev/null || true`,
-unlike the four sibling notifiers. That idiom absorbs the expected "label
+Every tracking notifier's label step uses `gh label create --force` and **no**
+`2>/dev/null || true`. That idiom absorbs the expected "label
 already exists" and a genuine failure (token not elevated, API 5xx, org label
 restrictions) indistinguishably; since the label does not exist until the first
 red `main`, a swallowed failure on that very first run makes the next step's
 `gh issue create --label` hard-fail and nothing gets filed — reproducing the
 "red run sits unseen in the Actions tab" outcome one level up. `--force`
 PATCHes an existing label instead of erroring, so a non-zero exit means only a
-genuine failure and is allowed to be fatal, loudly and at the step that caused
-it.
+genuine failure. Each label step annotates that the tracking issue cannot be
+filed or de-duplicated, then fails before any unlabelled issue can be created.
+
+The scheduled web, desktop, coverage, and performance notifiers deliberately
+retain their existing human-closed lifecycle: while an incident's issue remains
+open, another red run comments on it; after a human closes it on recovery, a
+later incident creates a fresh issue. Their issue bodies explicitly assign that
+close-on-green action to a human; this label-reliability fix does not redesign
+that established lifecycle or add automatic recovery jobs.
 
 Contract coverage lives in
 `scripts/__tests__/main-failure-notifier-contract.test.mjs` and runs in the
 Static job through `pnpm test:scripts`. Its control tests pin all four
 properties above: dropping a watched job, reverting `!cancelled()` to
 `always()`, restoring the `|| true` suppression, or deleting the recovery job
-each make the contract fail.
+each make the contract fail. The four scheduled notifier variants are covered
+by `scripts/__tests__/nightly-notifier-label-contract.test.mjs`, including their
+fail-visible label path and unchanged manual-close de-duplication lifecycle.
 
-### Biome pinned at 2.5.8 — the 2.5.3/2.5.4 module-graph panic is fixed (2026-08-15, BST-1273)
+### Biome 2.5.8 cleared the 2.5.3/2.5.4 module-graph hold (2026-08-15, BST-1273)
 
 `@biomejs/biome` is pinned to exactly 2.5.8 (root + `apps/web`; the two must
 stay in lockstep). History: Biome 2.5.3/2.5.4 hit a module-graph panic
@@ -469,10 +901,13 @@ cross-module callback return types (upstream biomejs/biome#10963, same class as
 scheduling-dependent race (#10953). The fix is upstream commit `e62f6b6`
 (2026-07-16), released after 2.5.4.
 
-The 2.5.2 → 2.5.8 bump cleared the standing gate condition: repeated full
-`pnpm exec biome check .` runs over all 4376 files produced **zero** "Biome
-encountered an unexpected error" / panic output. Keep that verification when
-bumping again.
+The old hold required a release containing `e62f6b6` and a full
+`pnpm exec biome check .` with zero "Biome encountered an unexpected error" /
+panic output. The 2.5.2 → 2.5.8 bump satisfied both conditions: repeated full
+runs over all 4376 files produced zero panic output. No live release condition
+gates future Biome bumps. Keep the root and `apps/web` pins in lockstep and
+repeat the full panic-free check for every bump; those are verification
+guardrails, not a hold at 2.5.8.
 
 Two things the 2.5.3–2.5.8 window changed on this repo, both already absorbed:
 - **Formatter.** `it.each([...])('title', fn)` no longer hugs the callback when
@@ -491,10 +926,10 @@ Two things the 2.5.3–2.5.8 window changed on this repo, both already absorbed:
 `nursery/noFloatingPromises` (the repo's only error-level nursery rule)
 surfaced **no** new violations at 2.5.8.
 
-### Static and the Unit fan-in run on arm64 (Series C R9b)
+### Static runs on arm64; the Unit fan-in runs on slim (Series C R9b/R10)
 
-`static` and the lightweight `unit` fan-in in `test.yml` run on
-`ubuntu-24.04-arm`, not `ubuntu-latest` (x64). arm64 runners became available
+`static` in `test.yml` runs on `ubuntu-24.04-arm`, not `ubuntu-latest` (x64).
+arm64 runners became available
 for private repos on 2026-01-29 and cost 37% less per minute than x64. Probe P1
 measured this specific: `pnpm install --frozen-lockfile` (the native-deps/node-gyp set,
 the main risk), lint, script tests, secret scan, and the 6 `cache: false`
@@ -502,7 +937,14 @@ the main risk), lint, script tests, secret scan, and the 6 `cache: false`
 native-dependent work in the workflow) all genuinely ran and passed on
 arm64. Wall-clock was AT PARITY with x64 (~3.0m either arch) — arm64 is
 **not** faster here, only cheaper per minute; do not claim a speedup.
-`native-windows` stays on GitHub's `windows-latest` runner.
+
+The `unit` fan-in performs no install, build, or test: it reads the matrix
+result and normally completes in about three seconds. The 2026-08-21..28 cost
+audit found 609 rounded ARM minutes ($3.05 list price) for that result check.
+It now runs on GitHub `ubuntu-slim`, preserving the exact required `Unit` check
+while lowering the one-minute rounding rate to $0.002. `native-windows` stays
+on GitHub's `windows-latest` runner and is allocated only after the affected
+gate described below.
 
 ### Performance lane (performance.yml) — calibrated budgets only (BST-1038)
 
@@ -527,21 +969,241 @@ were local-dev constants x a flat 2.0 multiplier with no CI-derived floors):
   surface, or its scope cannot be measured.
 - A calibrated-lane breach is a REAL signal: file it as a regression ticket
   with the measured values, do not bump the floor to silence it.
+- Browser interaction helpers keep their complete sample inside the page. The
+  default `measureLocatorInteractionFrames` contract retains each element and
+  fails if React detaches it. Recursive folder selection deliberately uses the
+  narrower `measureNamedCheckboxInteractionFrame` boundary: it resolves one
+  checkbox by exact `aria-label` before the click and again after two animation
+  frames, then verifies the replacement's checked state. This permits the
+  folder row's expected replacement without admitting Playwright transport
+  time or weakening detach detection for stable rows. Its single sample is the
+  same interaction-to-paint quantity as `CHECKBOX_FRAME_MAX_MS`; the paired
+  `performance-benchmark-contract.vitest.ts` test pins the named benchmark,
+  known fixture count, and calibrated sibling budget.
 
-### Primary Linux x64 jobs run on Ubicloud (BST-765)
+BST-369 adds a worker-memory **structural bound**, not a locally invented CI
+latency floor. On runtime-calibration head `156c0b052`, this command ran three
+repetitions sequentially against one built app and one configured Chromium version:
 
-`unit-shard`, `build`, `native-electron`, `web-e2e`, and `desktop-e2e` in
-`test.yml` run on `ubicloud-standard-4`. That runner preserves the
+```bash
+cd apps/web
+pnpm exec playwright test e2e/performance/embedding-model-switch-memory.test.ts \
+  --project=performance --workers=1 --retries=0 --repeat-each=3
+```
+
+| Run | Baseline total | Warm worker | Window A worker | Window B worker | B - A | After worker |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 278,926,311 | 44,397,878 | 44,446,090 | 44,446,626 | +536 | 0 |
+| 2 | 277,774,586 | 44,398,290 | 44,446,558 | 44,446,634 | +76 | 0 |
+| 3 | 277,832,659 | 44,398,290 | 44,446,542 | 44,446,634 | +92 | 0 |
+
+The later production hardening at `7d2ba303d` validates the cache clock before
+eviction or loader allocation. It leaves the valid switching allocation,
+disposal, and structural-memory behavior unchanged. An exact-branch rerun at
+`2a75942da` recorded baseline total 278,085,035, warm
+worker 44,397,896, window A 44,446,108, window B 44,446,628 (+520), and zero
+worker attribution after teardown, confirming the valid switching path retained
+the same structural signal.
+
+Two reversible, uncommitted mutations proved the browser assertion's teeth. Doubling each
+allocated backing store failed at the warm barrier with 80 MiB physically live against the
+40 MiB cap. Skipping the asynchronous-disposal prerequisite failed with five resources and
+56 MiB live before the delayed GPU-class victim release completed. Both mutations were
+restored before the three-run table above.
+
+The three local repetitions qualify the measurement signal; they do not set a
+CI floor. The 4 MiB later-window ceiling is instead a structural bound: half
+the smallest retained 8 MiB synthetic model store, so a single leaked store
+cannot hide inside it while JIT/runtime bookkeeping has implementation-level
+headroom. If the pinned CI environment first breaches, use the controlled
+same-SHA dispatch procedure above before changing any budget.
+
+The web unit-coverage census exact-excludes only the browser page probe and its
+wrapper worker. Those modules require a production Vite worker bundle,
+cross-origin isolation, workerpool, and Chromium's
+`measureUserAgentSpecificMemory()`; their executable owner is the scheduled and
+dispatchable `performance.yml` Playwright project above. The paired
+`performance-benchmark-contract.vitest.ts` test pins the exact two exclusions,
+the webdriver-gated lazy hook, the page-probe-to-worker-to-production-worker
+route, and the scheduled workflow selection. The platform-neutral memory
+measurement and worker-message validation modules remain in unit coverage, and
+the web L98/F85/B73/S89 thresholds are unchanged. Do not broaden this exception
+or replace it with a wildcard.
+
+### Claude review coverage and orchestration (BST-1412, BST-1640)
+
+Claude Auto Review runs on `pull_request` (`opened`, `ready_for_review`,
+`reopened`; never `synchronize`) and on targeted `workflow_dispatch`. The
+`pull_request` trigger is deliberate and settled (2026-09-05):
+
+- It executes the workflow at the PR's own merge ref for **any base branch**,
+  so each layer of a stack is reviewed against its parent — `gh pr diff` is
+  already per-layer. `pull_request_target` cannot do this: for a stacked layer
+  it would execute the *intermediate branch's* workflow copy with base-repo
+  credentials, and Anthropic's App token exchange rejects its OIDC token
+  regardless (anthropics/claude-code-action#713; it blacked out 7/7 automatic
+  reviews on 2026-09-05 and every stacked layer). Do not switch back.
+- Drafts are reviewed at `ready_for_review`; the job condition skips
+  `opened`/`reopened` while `draft == true`. This matches Codex, which also
+  ignores drafts, and removes the draft-open-then-ready double review. A PR
+  opened ready, converted to draft, and marked ready again is reviewed twice;
+  that round trip is rare and not worth guarding.
+- The action receives `github_token: ${{ github.token }}`, which
+  `setupGitHubToken()` returns before any App exchange, so no event type can
+  depend on that endpoint's allowlist; the job carries no `id-token` grant.
+  Nothing needs an App identity: the model runs with zero tools and the
+  trusted reporter publishes with `github.token`. The action's own
+  write-permission check still runs on every PR event regardless of token
+  source; preparation's same-repository head guard is belt-and-braces on top.
+
+**Trust model, stated honestly.** Under `pull_request`, this workflow file and
+`scripts/claude-review.mjs` execute from the PR's merge commit — PR-author
+code — with `secrets.CLAUDE_CODE_OAUTH_TOKEN` injected and a `pull-requests:
+write` token in scope. That is the exposure: a same-repository PR can rewrite
+these steps to do anything with that secret and token, and since PRs here are
+agent-authored, a prompt-injected agent reaches a credential by this path.
+`pull_request_target` prevented it structurally and was given up for stack
+coverage. "The model has no tools" and "the reporter emits text" constrain
+only the model and the reporter, not PR-authored YAML. Accepted because every
+PR is the owner's or their agents', and the owner reads workflow diffs; there
+is no CODEOWNERS enforcement and none would be satisfiable in a one-human repo.
+Mitigations available if the exposure is judged too large: rotate
+`CLAUDE_CODE_OAUTH_TOKEN` on a cadence, or move the action step behind a
+protected `environment:` (a GitHub setting, not repository code). The
+`workflow_dispatch` path (`--ref main`) remains the trusted way to review a PR
+that touches the reviewer itself.
+
+Preparation pins the checkout to `GITHUB_SHA` and requires the event's ref
+(`refs/heads/<default>` for dispatch, `refs/pull/<N>/merge` for
+`pull_request`); for `pull_request` the expected ref derives from the same
+payload as `GITHUB_REF`, so the checkout equality is the load-bearing check.
+Any branch of this repository is an acceptable base — stacked layers pass; the
+base-repository comparison is a malformed-response tripwire, since GitHub
+cannot return a base outside the host repository. Automatic runs require a
+same-repository head. A fork-head `pull_request` run holds a read-only token
+regardless of the `permissions:` block, so its skipped disposition lands in the
+job summary and the job goes red, but the PR comment cannot post; the dispatch
+command in that summary still works from `main`. The repository takes no fork
+PRs, so this is accepted rather than engineered around.
+
+**Both reviewers, one budget.** Claude: one automatic review per lifecycle
+event above, plus one targeted dispatch after the fix batch. Codex: one
+automatic review at open/ready, plus at most one `@codex review` after the
+batch. Review energy is front-loaded; later rounds trend nitpicky. Restacking
+(force-push after rebase) triggers neither reviewer; a base merge that
+retargets a child to `main` fires `edited`, which triggers nothing — correct,
+there is nothing new to review.
+
+**Size ceiling.** The action carries the prompt in several environment
+variables at once and Linux caps one at 128 KiB (`MAX_ARG_STRLEN`); above it
+the step dies at spawn with `Argument list too long` and no disposition
+(observed at 131 KiB and 188 KiB; 84 KiB passed). Preparation therefore
+refuses a prompt over a 100 KiB budget with an **incomplete** disposition
+that states both numbers and says to split the PR. No narrower diff is ever
+substituted; a PR that size needs splitting, not a shorter review.
+
+Automatic review retains the `opened`, `ready_for_review`, and `reopened`
+lifecycle and omits `synchronize`. Changes to the workflow or its orchestration
+script receive an explicit **skipped** disposition; a maintainer can request
+coverage with the trusted default-branch workflow:
+
+```bash
+gh workflow run claude-code-review.yml --repo seandearnaley/brainstrike --ref main \
+  -f pr_number=123 -f expected_head=<40-character-current-head> \
+  -f 'focus=Verify the specific workflow trust boundary or previously reported findings'
+```
+
+This is a targeted review, not another automatic whole-PR round. Follow the
+initial review plus one batched re-review budget above; a third whole-PR round
+needs user approval. Never close/reopen a PR, toggle its draft status, push an
+empty commit, or restart the full Test pipeline merely to request Claude review.
+A newly introduced workflow cannot be dispatched from the default branch until
+an approved merge makes it available there. A PR that changes this workflow or
+its script is self-change-skipped, so its own automatic review never runs; use
+the trusted dispatch above for coverage and obtain human review. Local contract
+fixtures are not proof that a live Claude review completed.
+
+`scripts/claude-review.mjs` captures `gh pr diff`, checking the live head and
+base before and after capture. It sends that snapshot directly as prompt data.
+Claude has no file, shell, network, or GitHub tools: `--tools=` disables built-ins,
+`--disallowedTools "mcp__*"` denies MCP tools, strict empty MCP configuration
+prevents other servers loading, and slash commands are disabled. Only the
+schema's `StructuredOutput` tool remains. Do not replace this with `allowedTools`
+plus `dontAsk`: read-only commands remain available under that permission mode.
+The model and 80-turn ceiling remain unchanged.
+
+Claude returns completed/head/base/scope fields and review text. Trusted
+orchestration validates the exact request, rechecks live head/base, and posts
+that text with an explicit **Claude-generated review** attribution. Both
+invocation paths use top-level file/line findings; the model cannot post inline
+comments or execute untrusted diff content. Missing, partial, malformed,
+wrong-head/base/scope, oversized, or unpublishable output stays incomplete.
+Reviews are never truncated to fit GitHub's comment-body limit. A diff that
+exceeds the runner/action's input limit also fails visibly; no narrower diff is
+substituted.
+
+The final handler records a disposition in the workflow summary and publishes
+it on the PR, tied to the requested head, scope, and run attempt. Publication
+failures remain incomplete in the summary and fail the job:
+
+- **Skipped:** the automatic self-change or untrusted-head guard withheld
+  Claude execution; the disposition carries the dispatch command whose focus
+  matches what was withheld.
+- **Incomplete:** preparation/action failure, an oversized diff, the 80-turn
+  cap, cancellation, missing exact-run structured review output, publication
+  failure, or a changed/closed PR invalidates coverage. The reporter's message
+  still names an upstream OIDC skip; that is residual defense only — no OIDC
+  path is live while `github_token` is supplied.
+- **Completed:** the action explicitly concluded successfully, the
+  complete structured output matches the requested head/base/scope, live
+  head/base checks still match, and the trusted reporter publishes the actual
+  review text. It is coverage, not approval; inspect and close its findings.
+
+Skipped and incomplete dispositions fail the review job. `continue-on-error`
+only allows this final reporting step to run; it preserves BST-1412's red
+failure disposition. Hard runner loss or checkout failure can prevent final
+reporting; a missing disposition never counts as completion. The required Test
+checks remain separate. Any later push invalidates an older head's coverage.
+Contracts execute normal, failure, self-change, targeted, moving-head, missing
+content, and trust rejection paths in `scripts/__tests__/claude-review.test.mjs`
+and pin the workflow wiring in `claude-auto-review-contract.test.mjs`.
+The opt-in CLI boundary check uses a fake localhost Anthropic API and no real
+credentials:
+
+```bash
+node scripts/probe-claude-review-tools.mjs /absolute/path/to/claude
+```
+
+Use CLI 2.1.261, the version installed by the pinned action. The fixture injects
+an unsolicited Bash file-read tool call: it must be rejected, the private
+fixture content must remain unread, and structured output must still succeed.
+This validates model tool isolation, not live OIDC or semantic review quality.
+
+Primary trust evidence: [Anthropic action security guidance](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/docs/security.md),
+[manual dispatch example](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/examples/manual-code-analysis.yml),
+[OIDC skip and conclusion implementation](https://github.com/anthropics/claude-code-action/blob/d75b94d5ad426cb8546e6628b6f5f19b84e5cce1/src/entrypoints/run.ts),
+[Claude CLI tool controls](https://code.claude.com/docs/en/cli-reference),
+and [GitHub's trusted-event security guidance](https://docs.github.com/en/actions/reference/security/secure-use).
+
+### Cost-ranked Linux x64 jobs run on Ubicloud (BST-765)
+
+`unit-shard`, `build`, `native-electron`, `browser-tests`, `web-e2e`, and
+`desktop-e2e` in `test.yml` run on `ubicloud-standard-4`. That runner preserves the
 4-vCPU/16-GB class used for the x64 work while moving the measured, dominant
-Linux x64 lanes to the connected Ubicloud runner fleet. The boundary is
-deliberate:
+Linux x64 lanes to the connected Ubicloud runner fleet. PR Coverage, React
+Doctor, Claude Auto Review, and `@claude` handling use
+`ubicloud-standard-2`, preserving the previous private `ubuntu-latest`
+2-vCPU/8-GB shape at the lower managed-runner rate. The boundary is deliberate:
 
 - quiet-head admission remains on GitHub `ubuntu-slim`
-- Static and the Unit fan-in remain on GitHub ARM
-- all four physical Unit rows use one fixed Ubicloud runner class (two DB
-  native shards plus the heavy and rest rows)
-- Native Windows remains on GitHub Windows
-- coverage, scheduled, review, and auxiliary workflows are unchanged
+- the lightweight Unit fan-in also uses GitHub `ubuntu-slim`
+- Static remains on the measured GitHub ARM lane
+- all seven physical Unit rows use one fixed Ubicloud runner class (two DB
+  shards, three desktop shards, and the heavy and rest rows)
+- Native Windows remains on GitHub Windows behind its affected gate
+- scheduled regression/coverage jobs remain GitHub-hosted until their existing
+  baselines are green enough to support a runner comparison
+- main-failure/recovery and scheduled-failure notifiers remain GitHub-hosted
 
 The Unit matrix moved as a whole after GitHub's ARM pool terminated the
 `rest` shard without a failing test assertion on five consecutive attempts
@@ -550,23 +1212,24 @@ Do not route individual shards to different providers: keeping one fixed
 runner contract avoids a provider-selection layer while preserving the exact
 partition, integration concurrency, and required `Unit` fan-in.
 
-The four physical rows still form three logical package partitions:
-`db`, `heavy`, and `rest`. Only `db` repeats its Turbo package filter; its two
-rows supply `DB_TEST_SHARD=1/2` and `DB_TEST_SHARD=2/2` to the single
-`@brainstrike/db#test` invocation, whose Vitest config applies the native
-shard. The variable is appended only to the package-level DB Turbo task:
-Turbo CLI passthrough is forbidden here because it also reaches dependency
-and transit tasks. `scripts/unit-shard-partition.mjs` rejects
-missing, duplicate, mixed-count, or divergent-filter rows, so duplicating the
-DB package cannot become a double-run or an empty half silently. Do not apply
-this pattern across packages: it is valid here because DB is one package and
-one Vitest project.
+The seven physical rows form four logical package partitions: `db`,
+`desktop`, `heavy` (UI packages), and `rest`. DB uses `DB_TEST_SHARD=1/2`
+and `2/2`; desktop uses `DESKTOP_TEST_SHARD=1/3`, `2/3`, and `3/3` for both
+unit and integration. Each variable is scoped to its owning package's Turbo
+tasks, and each native shard runs files from one package only. Turbo CLI
+passthrough is forbidden because it also reaches dependency/transit tasks.
+`scripts/unit-shard-partition.mjs` rejects missing, duplicate, mixed-count,
+or divergent-filter rows. Desktop config rejects a missing required shard;
+its environment participates in the unit cache key, so one third cannot replay
+an unsharded or different-third result.
 
 Do not add a provider-selection layer or an automatic GitHub fallback. An
 Ubicloud provisioning failure must queue or fail visibly; rollback is an
 explicit revert of the runner-label change. Existing cache and setup actions
 stay unchanged because Ubicloud's transparent cache supports the standard
-GitHub cache actions. Contract coverage lives in
+GitHub cache actions. The cost audit and service evidence live in
+`docs/superpowers/research/2026-08-28-ubicloud-github-actions-runners.md`.
+Contract coverage lives in
 `scripts/__tests__/ubicloud-runner-contract.test.mjs`.
 
 The Static job caps the monorepo type-check with Turbo's official
@@ -596,7 +1259,7 @@ just doesn't extend to the remote cache.
 and MUST NOT be turbo-cached.** `@brainstrike/secure-fs-native` compiles an
 arch/ABI-specific `.node` into `build/**`. When its turbo `build` task cached
 that output, the arch-blind remote cache let the arm64 Static/Unit jobs
-populate an entry that the x64 Coverage job (`ubuntu-latest`) then replayed —
+populate an entry that the x64 Coverage job (`ubicloud-standard-2`) then replayed —
 so `apps/desktop`'s coverage lane, which loads the real addon via its
 `*.integration.test.*` files, died with `secure_fs_native.node: cannot open
 shared object file` on every PR touching `apps/desktop` (PR #1749 shipped a
@@ -606,6 +1269,64 @@ same package's long-standing `test` policy, so every runner node-gyp-rebuilds
 the addon for its own ABI. Any future native/node-gyp package added to the
 monorepo must do the same — never cache a compiled binary on turbo's
 source-only, arch-blind hash.
+
+**Native Windows stays always-on after quiet-head admission (R10).** The
+non-required job consumed 2,440 rounded Windows minutes ($24.40 list price) in
+the 2026-08-21..28 audit, but GitHub Actions has no native job-level changed-path
+filter. Do not add a repository diff classifier, planner, or routing registry to
+avoid that allocation: the root workflow contract explicitly prohibits custom
+CI routing machinery. `native-windows` therefore depends directly on
+`admission` and runs for every admitted PR, push to `main`, and manual dispatch.
+`scripts/__tests__/ubicloud-runner-contract.test.mjs` guards both the always-on
+dependency and the absence of a `native-windows-impact` planner.
+
+**node-gyp's HEADERS are the opposite case and ARE cached, for `native-windows`
+only (BST-1375).** Compiled output is arch-specific and must never be shared;
+the Node headers tarball is an input, and downloading it is what flaked. That
+job installs two packages with native addons — `secure-fs-native` (implicit
+`node-gyp rebuild` from `gypfile: true`) and `windows-job-native` (an explicit
+install script that shells out to node-gyp on win32) — and pnpm runs workspace
+install scripts CONCURRENTLY, so a cold `pnpm install` has both processes
+fetching the same ~30MB `node-vX-headers.tar.gz` in the same second. Twice in
+290 attempts one of those streams returned HTTP 200 and then had its body
+aborted ~80s later (`TypeError: terminated`, undici `Fetch.onAborted`), failing
+`Setup workspace` before anything compiled.
+
+Read the log carefully if this recurs: the visible error is a wall of
+`TAR_ENTRY_ERROR ENOENT` against a `node-gyp-tmp-*` path, which is downstream
+NOISE — node-gyp's rollback deletes the temp dir while tar is still writing into
+it. Two intuitive fixes are ruled out by measurement, not argument: the failing
+path was 133 characters (a second occurrence died at ~62), so MAX_PATH and
+Windows long-path settings are irrelevant; and node-gyp 13.0.1 extracts into
+`os.tmpdir()` and copies to the dev dir afterwards, so a shorter
+`npm_config_devdir` cannot move the path that failed. There is no prebuilt
+path to pin — both addons are C++ sources built from this repo.
+
+The wiring has four load-bearing parts, each of which silently un-does the fix
+on its own, and `scripts/__tests__/native-windows-node-gyp-cache-contract.test.mjs`
+pins all four (with a mutation CONTROL per assertion):
+
+1. the job pins `npm_config_devdir` — node-gyp's default lives under
+   `%LOCALAPPDATA%` and no cache step can name it portably;
+2. the restore runs **before** `Setup workspace`, because the download happens
+   inside that composite's `pnpm install`. A restore after it prevents nothing;
+3. the save key carries the Node version `setup-workspace` now exports as an
+   output. `.nvmrc` pins a MAJOR, so a key built from `.nvmrc` alone keeps
+   hitting after a patch bump, never re-saves, and quietly stops covering the
+   version in use. Restore is therefore prefix-keyed with `restore-keys`;
+4. the save is guarded on that output being non-empty. An entry written under
+   the bare prefix EXACT-matches later restores and shadows the good
+   version-keyed entry that `restore-keys` would have found.
+
+A warm dev dir makes node-gyp's `--ensure` stat the dir, read `installVersion`,
+re-check `<arch>/node.lib` on Windows, and report `version is good` with no HTTP
+request at all. A COLD cache still downloads twice and keeps the original
+exposure: this narrows the window to roughly one run per Node patch bump, it
+does not make the fetch robust. Serializing the two installs would also work,
+but pnpm honours `--child-concurrency` only as a CLI flag (the
+`npm_config_child_concurrency` env form is ignored — measured), and that would
+mean parameterizing the shared composite's install command, which
+`setup-workspace/action.yml`'s own header rules out.
 
 ### Coverage is a separate workflow (`.github/workflows/coverage.yml`)
 
@@ -638,7 +1359,7 @@ integration config inherits `pool: 'forks'` and `maxWorkers: '50%'` from
 `vitest.config.mts`, and `Unit (rest)` runs on the 4-vCPU/16-GB Ubicloud class
 (see the `unit-shard` comment in `test.yml`), so the lane ran **2 workers** and
 the serialization is 2 → 1. The 2-vCPU figure belongs to `coverage.yml`'s
-`ubuntu-latest` host in the section above, a different workflow.
+`ubicloud-standard-2` host in the section above, a different workflow.
 
 The in-lane flag is also not the only concurrency knob: `test.yml` invokes
 `pnpm turbo run test:integration … --concurrency=2`, so a SECOND integration
@@ -671,6 +1392,85 @@ embeddings code (5 of 6 observed runs).
 Do not remove these flags to speed the lane up without first re-measuring peak
 RSS against the runner's 16 GB with the turbo `--concurrency=2` co-lane held
 constant.
+
+#### A test file with no verdict fails the lane (BST-1221)
+
+Every package/app `vitest.config.mts` registers `LostTestFileReporter`
+(`packages/test-utils/vitest-lost-file-reporter.mjs`), enforced across the
+workspace by `scripts/verify-lost-file-reporter.mjs` and its paired test. A new
+package's config is a violation until it opts in — the guarantee is per-config
+and would otherwise be lost silently by omission.
+
+**What it defends against.** A worker can die mid-run without unwinding: a V8
+fatal (`Check failed: jit_page_->allocations_.erase(addr)` →
+`ThreadIsolation::UnregisterWasmAllocation` → `V8_Fatal`) or an OOM kill. The
+file that worker held reports nothing. Measured on vitest 4.1.10:
+
+- the lost module IS present at `onTestRunEnd`, with `state() === 'pending'`;
+- the run's own verdict is **`reason: 'passed'`**;
+- the summary reads `Test Files 2 passed (3)` — PASS phrasing whose only tell is
+  a parenthesised total that does not match;
+- the process exits non-zero ONLY via the separate unhandled-errors channel
+  (`[vitest-pool]: Worker exited unexpectedly`).
+
+That last point is why the reporter exists rather than trusting the exit code.
+The non-zero exit is not a property of the results; it is a side effect of an
+error channel that `dangerouslyIgnoreUnhandledErrors: true` switches off.
+Control-tested: with that one flag set, a run that dropped an entire test file
+exits **0** and reads fully green. With the reporter registered the same run
+exits **1** and names the file. `--reporter` on the CLI OVERRIDES config
+`reporters`, so a lane that passes its own `--reporter` (e.g. the nightly
+`--reporter=blob` coverage shards) drops this guard — add the reporter
+explicitly there if that lane ever needs to gate.
+
+**Concurrency tuning is NOT a mitigation for this one.** Unlike BST-1072 above,
+which was memory pressure and was genuinely fixed by serialization, two of the
+observed BST-1221 hits landed in lanes that were ALREADY serialized to a single
+worker — `@brainstrike/embeddings#test:integration` (`--maxWorkers=1
+--no-file-parallelism`, 2026-08-16, red main) and the desktop unit lane (same
+flags, 2026-08-18). Do not "fix" BST-1221 by lowering worker counts; the
+evidence says it is not concurrency-driven. The crash itself remains upstream
+(Node/V8); this reporter only guarantees it can never read as success.
+
+**Trigger and in-repo mitigation (2026-08-26).** The dominant trigger was
+`embedding-queue-load.integration.test.ts` allocating and closing a fresh
+`memory://` PGlite per scenario (five WASM instantiate/teardown cycles per
+run). PGlite `close()` does not tear the WASM instance down synchronously —
+finalization is GC-driven and lands during the NEXT scenario's instantiation
+and load churn, which is exactly the window where V8's PKU-gated
+`ThreadIsolation` jit-page bookkeeping fatal fires on Linux x64 (macOS/arm64
+has no PKU, which is why it never reproduced locally). The spec now shares one
+instance across scenarios (closed once in `afterAll`); sibling integration
+specs that churn per-test `memory://` instances (e.g. model-resolution, ~10
+cycles) carry the same residual risk. `--no-memory-protection-keys` was tried
+and disproven (BST-1221, 2026-08-22).
+
+**In-memory fixture ownership (BST-1221, 2026-09-05).**
+`wasmLoader.createPGlite('memory://...')` returns an uncached handle;
+`closeCached(dataDir)` cannot close it. Assistant-data fixtures must use
+`src/__tests__/helpers/test-pglite.ts`, which registers direct handle cleanup
+with Vitest's `onTestFinished`. It also respects a handle explicitly closed by
+a migration test's `finally` block. The real runner regression in
+`test-pglite-lifecycle.integration.test.ts` observes both owned databases after
+cleanup and fails if either remains open. The fixture keeps a fresh database
+per test; it does not share mutable state, lower concurrency, or suppress the
+native-fatal/lost-file guards. The app-shell analytics and desktop live-usage
+fixtures likewise close their returned handles directly. The prior teardown leaked the in-memory handles
+and relied on process/GC cleanup under repeated WASM initialization pressure.
+
+The required Unit test and integration steps additionally run through
+`scripts/run-test-command.mjs`. The wrapper streams stdout/stderr unchanged,
+preserves the command's exit status except that a classified fatal fails the
+lane even if the wrapped command exited zero, and recognizes only the complete
+three-marker native signature in one bounded output region: the exact
+`jit_page_` allocation assertion, `V8_Fatal`, and
+`ThreadIsolation::UnregisterWasmAllocation`. When all three are
+present it emits the machine-readable
+`BRAINSTRIKE_CI_VERDICT=V8_WASM_JIT_TEARDOWN_FATAL` verdict with explicit
+BST-1221 guidance. A generic worker exit, lost file, assertion failure, or
+partial V8 text is not classified as this defect. This is deliberately not a
+retry or suppression: the required lane stays red, but the native fatal can no
+longer be mistaken for an ordinary test assertion or a resolved rerun.
 
 #### Codecov statuses are non-gating (settled 2026-07-26 — do not relitigate)
 
@@ -1005,6 +1805,50 @@ tree than CI is a second, weaker verdict wearing the same name).
 shape exceptions: each inspects a build artifact, so it takes a bundle
 `directory` instead of a repo root.
 
+### Desktop assistant setup promise ownership (BST-1639)
+
+`apps/desktop/e2e/utils/assistant-mock.ts` separates asynchronous credential
+persistence from synchronous renderer configuration. The pending write has an
+explicit, scoped owner: `evaluateHandle` returns a remote object containing
+**both the original write promise and its tagged completion**. Observe rejection
+in the same renderer turn as `saveKey`; attaching the first rejection handler in
+a later CDP command produces an unhandled-rejection event for an immediately
+rejected write. Await the tagged completion, propagate the original rejection
+or structured write failure, and dispose the handle in `finally` before
+configuring the renderer. A missing write bridge is a visible failure. Never
+substitute retries, a global promise pin, or a timeout increase.
+
+The original smoke failure occurred during the second assistant setup, after
+the folder fixture's thread-seeding reload. Its trace was created but never
+uploaded: the workflow looked in `test-results` while desktop Playwright writes
+to `blob-report`. The required Desktop E2E and both nightly desktop uploads now target
+`apps/desktop/blob-report/`, matching the already-correct packaged MCP uploader.
+Both Playwright test attachments (`outputDir`) and its blob reporter use that
+directory. Uploaders warn if it is missing: `failure()` also covers setup/build
+failures before Playwright has run, when no test artifacts exist. This absence
+prevents reconstructing the precise GC schedule in that historical execution.
+
+The controlled regression in `assistant-panel.desktop.test.ts` invokes the
+public `setupAssistantMock` helper in an isolated Electron renderer, with a
+collectible pending writer and explicit `HeapProfiler.collectGarbage`. The
+pre-fix helper reproduces `Resulting promise was garbage collected`; the owned
+write survives until settlement. Public JSHandle instrumentation verifies that
+disposal completes on every outcome and that the released handle is unusable
+while its renderer remains responsive; the test does not demand that V8 reclaim
+a released object by a deadline. A missing-disposal negative control fails this
+contract. It also
+covers delayed and immediate rejection, structured failure, and navigation,
+including the absence of unhandled renderer errors. The regular assistant and
+folder specs continue to exercise the real frozen preload bridge and complete
+product workflows. The isolated writer does not replace the production bridge.
+
+Electron 43's V8 inspector holds awaited evaluation results weakly; see
+[V8's promise-lifetime fix and regression](https://github.com/v8/v8/commit/5177b10891e65108c1a19dfc56bff4e58d79d216).
+Retaining an outer async wrapper alone does not retain the promise it awaits,
+so an Electron upgrade is not a substitute for testing this helper's ownership
+boundary. The upload pairing is guarded by
+`scripts/__tests__/desktop-smoke-artifacts-contract.test.mjs`.
+
 ### Desktop E2E process-exit guard (BST-1087)
 
 Desktop E2E fixture teardown is a correctness boundary, not cleanup-only.
@@ -1284,7 +2128,11 @@ gets a validated narrow prefix. Package vitest configs spread it (config-local
 mocks/dedicated helpers go BEFORE the spread — vitest `resolve.alias` is
 first-match). `@brainstrike/agent` is excluded (Mastra/Node deps): consumers use
 `createAgentBrowserSafeAliasEntries`. `@brainstrike/workers` has no `src/` dir:
-consumers alias its subpaths explicitly.
+consumers alias its subpaths explicitly. Prebuilt `*.worker` exports are also
+skipped by the shared registry. When a test graph imports one as executable
+source, it needs a narrow config-local override: web Vitest maps
+`@brainstrike/embedding-worker/worker` to `src/embedding.worker.ts` before the
+shared spread, and its integration config inherits that base alias verbatim.
 
 The guard EXECUTES each discovered vitest config (base + integration + mutation +
 models, and each inline project — projects do NOT inherit top-level
@@ -1299,11 +2147,12 @@ are checked), then simulates vitest's first-match alias resolution: the winning
 entry must point at an existing non-dist source path, and an unaliased
 specifier must not resolve to `dist` via the dep's `exports` map. So dist-pin
 overrides, imported-but-unspread registries, per-dependency gaps, bare mutation
-configs, and transitive src-graph gaps all FAIL. Because the guard imports the
-configs under plain node ESM, config-relative imports need explicit extensions
-(e.g. `../config/src/vitest-browser.ts`). Legitimate built-artifact consumers
-go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with a reason string (NO silent
-fallback). This was the R3 enabler for dropping `test.dependsOn: ["^build"]` —
+configs, and transitive src-graph gaps all FAIL. The guard loads configs through
+Vite's `loadConfigFromFile`, so app configs with Vite-supported extensionless
+imports are inspected under the same loader semantics as their test lanes.
+Legitimate built-artifact consumers go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with
+a reason string (NO silent fallback). This was the R3 enabler for dropping
+`test.dependsOn: ["^build"]` —
 DONE in Series B4: `test`/`test:integration`/`test:coverage` now
 `dependsOn: ["topo"]`, a synthetic no-op **transit node** (`topo`,
 `dependsOn: ["^topo"]`) that carries the upstream SOURCE-hash cascade WITHOUT
@@ -1364,12 +2213,17 @@ closed by aliasing instead: apps/web gained the missing root aliases
 indexing-contract, storage); apps/desktop now spreads this same
 `workspaceSrcAliases` registry (array-form alias, locals first) plus an
 agent-root→src alias mirroring web (the registry deliberately excludes agent).
-NOTE: this guard only checks `packages/*` — the app configs are outside its
-scope, so app alias gaps surface as loud clean-state resolution failures, not
-guard findings. Desktop's agent-client-loader test keeps a mirror of the
-loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
-bypasses vitest aliases and needs dist, absent by default post-B4). See the
-Series B turbo-monorepo architecture review.
+The guard checks both `packages/*` and `apps/*` (the default entrypoint passes
+`appsRoot`), so app alias gaps fail the same source-resolution contract instead
+of depending on a clean-state resolution crash. Desktop's agent-client-loader
+tests pin the loader's FALLBACK_PROVIDERS against the agent SOURCE via
+`vi.importActual` — no hand-maintained duplicate (raw require in the loader
+bypasses vitest aliases and needs dist, absent by default post-B4, so CI
+exercises the FALLBACK path). FALLBACK_PROVIDERS is therefore an explicit tuple
+in registry DECLARATION order with compile-time exhaustiveness pins against the
+FALLBACK_ENV_KEYS Record (PR #2513 review); do NOT derive it from `Object.keys`
+of the Biome-sorted Record — that changes the order only in the dist-absent
+state CI runs in. See the Series B turbo-monorepo architecture review.
 
 Desktop main-process unit tests share observable Electron controls in
 `apps/desktop/src/__tests__/helpers/electron-main-test-harness.ts`. The harness
@@ -1384,6 +2238,62 @@ different surface, but IPC-focused tests reset the shared harness in
 and WebContents never leak across cases. The paired harness test pins surface
 parity, duplicate registration failure, multi-listener cleanup, and reset
 semantics.
+
+### Mutation-lane contract guard (`pnpm test:scripts`, BST-1331)
+
+`scripts/verify-stryker-mutation-contracts.mjs` (guard test:
+`scripts/__tests__/verify-stryker-mutation-contracts.test.mjs`, run in the
+Static job via `pnpm test:scripts`) keeps the advisory Stryker lane from rotting
+silently — the lane is on-demand, so a drifted runner invocation or broken
+config stays invisible until someone runs `pnpm mutation` (the #2475 rot class;
+BST-1287 shipped the Stryker 10 upgrade this guard builds on).
+
+Discovery is workspace-driven: the globs under `packages:` in
+`pnpm-workspace.yaml` are expanded from the repo root (not just direct
+`packages/*` children), every resulting directory is scanned for a `mutation`
+script, an unparseable `package.json` under a scanned root throws instead of
+being skipped (it could hide a mutation script), and an empty discovery set
+throws rather than reporting green. The parser deliberately reads only a tiny
+YAML subset (top-level scalar globs); anything else fails loudly.
+
+Five invariants per contract:
+
+1. **Local-bin invocation, allowlisted.** The `mutation` script must match
+   `^stryker\s+run\b` (arguments allowed) AND declare `@stryker-mutator/core`
+   in its dependencies — that declaration is what puts the `stryker` bin in
+   the package's own `node_modules/.bin` under pnpm's isolated layout.
+   Anything else violates: `npx @stryker-mutator/core run` ignores the catalog
+   pin via registry resolution (the original BST-1287 gap), `npx stryker run`
+   keeps the registry in the path, and neutered commands (`echo skipped`)
+   kill the lane invisibly. This is deliberately an allowlist, not a denylist.
+2. **Unambiguous config by Stryker's own precedence.** Candidates are probed
+   in exactly @stryker-mutator/core 10's `SUPPORTED_CONFIG_FILE_NAMES` order
+   (`stryker.conf.json → stryker.conf.js → .mjs → .cjs → stryker.config.* →
+   dot variants`), and only the first existing file is evaluated — the same
+   file a real mutation run loads. TWO OR MORE candidates present is itself a
+   violation: a stale valid `.cjs` beside a broken `.js` replacement would
+   otherwise let the guard validate a file Stryker never reads.
+3. **Loadability under repo semantics.** The selected config is loaded exactly
+   as Stryker loads it (`.json` parsed; everything else through `import()`,
+   which gives CJS interop for `.cjs`; packages are `"type": "module"`, so
+   `.js` configs must be ESM — `file-system` deliberately ships `.cjs`). A
+   load failure is a violation carrying the underlying error.
+4. **Agreed reporter roster.** Values in `reporters` are STRYKER reporter
+   names; the supported set (`clear-text`, `html`, `json`, `progress`) is a
+   deliberate house roster, NOT a Vitest capability claim (Stryker built-ins
+   like `dots` are legal upstream — widening is a reviewed decision). A
+   NON-array `reporters` value is itself a violation, never coerced into
+   "nothing to validate" (NO SILENT FALLBACKS). Leaving `reporters` absent is
+   allowed: Stryker's defaults are inside the set. History: Vitest 4 removed
+   `basic` from @stryker-mutator/vitest-runner's supported reporters, which is
+   how the #2475 lane rotted — but that reporter name lives inside the vitest
+   runner plugin, so this check bounds the roster; it cannot itself see it.
+5. **Mutation Vitest wiring survives refactors.** `vitest.configFile` must
+   basename to `vitest.mutation.config.ts` and the referenced file must exist.
+
+Entrypoints follow the BST-836 shape: `main({ repoRoot })` anchors discovery,
+`directory` is honored as the same anchor so the generic entrypoint control
+harness drives it uniformly, and direct execution checks the real repo.
 
 ### TypeScript 7 CLI with the TypeScript 6 compatibility API (BST-1011)
 
@@ -1511,7 +2421,7 @@ Turbo 2.9's stable `query affected` was also evaluated but is not a CI planner.
 Against `origin/main..HEAD` with no package change it correctly returned zero;
 against the BST-1011 root/lockfile change it returned 48 package nodes including
 the workspace root, or 46 with `--tasks test`. That offers no saving over the
-Unit job's explicit `...[origin/$BASE_REF]` filters, cannot weaken the always-on
+Unit job's native affected selection, cannot weaken the always-on
 web/desktop smoke checks, and would create a second selection/reconciliation
 seam. `scripts/run-turbo-command.mjs` also appends `--cache-dir`, which run
 commands accept but `turbo query affected` rejects. Because no repository query
@@ -1532,13 +2442,59 @@ That test invokes Turbo's JavaScript entrypoint through `process.execPath`;
 do not execute the generated `turbo.cmd` shim directly, because Node 24 rejects
 batch files passed to `execFileSync` on Windows.
 
+### Worktree-scoped local Turbo caches (BST-1312)
+
+The bounded Turbo wrapper's default local cache remains outside the checkout,
+but it is scoped by the canonical Git worktree root under the platform cache
+home (`.../BrainStrike/turbo/worktrees/<name>-<path-hash>`). Package-level and
+root invocations in one worktree therefore share one cache and nested-run lock;
+different worktrees do not share local cache sidecars. Explicit
+`TURBO_CACHE_DIR` / `BRAINSTRIKE_TURBO_CACHE_DIR` values remain exact operator
+overrides and are not silently rewritten. Invocations outside a Git worktree
+must set one of those overrides; the wrapper fails loudly rather than silently
+returning to the unsafe machine-global default. Turbo's `--cwd` value, when
+present, owns worktree resolution rather than the wrapper process directory.
+
+This isolation is a correctness boundary for Turbo 2.10's restore manifests,
+not a response to `.tsbuildinfo` restoration or cache pruning. A deterministic
+two-worktree reproduction created different four-byte outputs with identical
+mtime, size, and mode. Both worktrees wrote the same HOME-level cache before
+one selected the other's task hash. Turbo's `<hash>-manifest.json` records only
+path plus size/mtime/mode and is stored beside the shared archive; it contains
+neither output bytes nor checkout identity. The second worktree therefore
+reported a cache hit while retaining the first worktree's wrong bytes. The
+25-GiB prune was below its cap and did not participate.
+
+Scoping deliberately gives up machine-local hits between worktrees because the
+metadata-only sidecar makes those hits unsafe. It preserves local hits across
+commands and branch changes within one worktree, and Turbo's independently
+configured remote cache remains shareable across worktrees and machines. It
+does not change Turbo's metadata-only identity inside one worktree: switching
+between two previously cached hashes can still retain same-size/same-mtime stale
+bytes in that one namespace. That residual, non-concurrent case is outside the
+cross-worktree failure fixed here and must not be described as content-safe.
+
+The scoping also confines the wrapper's post-run pruning and nested-run lock to
+the active worktree, so one interrupted or maintained lane cannot remove or
+block another lane's usable local entries. The 25-GiB limit consequently applies
+per active worktree, not machine-wide; removed worktrees and the pre-BST-1312
+top-level cache are not automatically collected. Operators should remove those
+abandoned directories as part of worktree/cache housekeeping. Automatic
+cross-namespace collection is intentionally deferred because deleting a
+namespace without an active-lane lease would reintroduce the cross-lane
+invalidation this boundary prevents. Do not collapse these directories back
+into one HOME-level cache unless Turbo's restore identity becomes content- or
+checkout-aware and the paired same-size/same-mtime concurrency regression proves
+the shared topology safe.
+
 ### Stale-dist pruning before non-cleaning tsc builds (2026-07-30 cache poisoning)
 
 tsc's incremental builder never deletes outputs whose sources are gone, and the
 nested Turbo run by apps/web + apps/desktop `prebuild`/`predev`
 (`scripts/run-turbo-command.mjs`) snapshots each package's whole `dist/**` into
-the machine-global cache (`~/Library/Caches/BrainStrike/turbo`). A branch
-switch that deletes sources therefore leaves orphaned compiled files in `dist`,
+the wrapper's cache (the machine-global `~/Library/Caches/BrainStrike/turbo` at
+the time of this incident; worktree-scoped after BST-1312). A branch switch that
+deletes sources therefore leaves orphaned compiled files in `dist`,
 and the next cache save immortalizes them: cold runs restore the poisoned
 archive verbatim even after local deletion, tripping `turbo boundaries`
 (2026-07-30 incident: 16 boundary issues, 125 poisoned archives purged).
@@ -1867,7 +2823,7 @@ period. Missing or malformed native Job Object support aborts Windows startup;
 there is no ancestry-walk fallback. Only after the owned tree is stopped may
 the launcher remove its temporary profile. Process-tree or profile cleanup
 failures are visible fatal errors with a non-zero exit, never warning-only
-cleanup. The `Native Windows` required check builds and exercises the native
+cleanup. The always-on `Native Windows` CI job builds and exercises the native
 addon with a late-writing orphan plus an unrelated-process survival assertion.
 
 #### Stale-profile sweep (abrupt-kill recovery)
@@ -1952,12 +2908,39 @@ running:
 
 ---
 
+## SHRINK-ONLY FILE BUDGETS (BST-1652)
+
+`packages/app-shell/src/__tests__/assistant-contract-boundary.test.ts` guards
+`assistant-ui-panel-wrapper.tsx` and its executable test with a budget that runs
+ONE WAY. This is a deliberate reversal, not an oversight, and it should not be
+softened back into a ceiling with headroom.
+
+The previous budget was a cap that got raised roughly twenty times, 1,500 →
+1,905, each raise justified in-file as "the wrapper only adds ONE hook call and
+ONE prop". Individually true; collectively it made the most-churned file in the
+repo the seam every assistant feature had to cross, and made crossing it free.
+An instrument that records growth is not a guard.
+
+The rule:
+
+- The recorded number is the file's CURRENT line count, never an allowance.
+  Growth past it fails. The fix for a failure is to put the code in a hook or a
+  module (`src/assistant-panel/` for panel-scoped logic), not to raise the number.
+- Shrinking more than `RE_BASELINE_SLACK` (40) below the number ALSO fails, with
+  a message naming the new number. Lower it in the same commit; recovered
+  headroom must not be bankable by the next feature.
+- Both directions must be able to fail. Verify that before trusting the budget —
+  a budget that can only pass is not evidence.
+
+Apply the same shape to any new file-size guard rather than reintroducing a cap.
+
 ## REACT DOCTOR (LINT + DEAD CODE)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
 pinned `0.9.11`) on every PR and on push to `main`. It supersedes running standalone knip in
 CI: React Doctor performs knip-style dead-code analysis (the bundled `deslop` engine) **and**
 its React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
+It uses `ubicloud-standard-2`; provider allocation has no GitHub fallback.
 Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`.
 
 Invariants (do not regress without updating this section, `doctor.config.ts`, and the doc):
@@ -1978,6 +2961,14 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   and rejects downgrade below the 0.8.2 fix. It also pins the exact reviewed version in
   `EXPECTED_REACT_DOCTOR_VERSION`, so a bump is a three-file change: root `package.json`,
   `.github/workflows/react-doctor.yml`, and that constant.
+- **Keep lint enabled when reading JSON coverage.** React Doctor's `analyzedFiles`,
+  `analyzedFileCount`, and `complete` fields describe its lint pass, not dead-code enumeration.
+  Passing `--no-lint` therefore reports zero analyzed files and `complete:false` even when the
+  command scans every project for dead code; that output is expected, not a repository config or
+  environment failure (BST-1142, verified against 0.9.11 on 2026-08-23 and upstream's
+  [JSON report contract](https://github.com/millionco/react-doctor/blob/main/docs/json-report.md)).
+  The root `react-doctor` script pins `--scope full` and deliberately omits `--no-lint`;
+  `scripts/__tests__/react-doctor-version-contract.test.mjs` guards both properties.
 - **0.9.11 activates four error-severity rules that 0.9.3 did not** (2026-08-15, BST-1273).
   Measured on the same tree, same 3366 scanned files: full-scan errors go 85 → 95 while total
   issues go 641 → 594. The additions are `react-hooks-js/todo` (×4), `react-doctor/
@@ -2041,10 +3032,12 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   entry, each appear **0 times** across `node_modules/react-doctor/dist/`, while real ids
   appear literally (`only-export-components` 12, `react-compiler-no-manual-memoization`
   10). Those four counts are byte-identical on 0.9.3 and 0.9.11. Neither has been
-  *empirically* confirmed dead: a local `npx react-doctor packages/db`
-  emits no findings summary at all, which is BST-1142 (react-doctor local runs returning
-  zero analyzed files). **Nothing was changed on grep evidence alone** — the override stays
-  until BST-1142 unblocks a real before/after. Note the manual-memoization protection does
+  *empirically* confirmed dead: a local `npx react-doctor packages/db` emitted no findings
+  summary, while BST-1142's separate full-repository JSON reproduction ran with `--no-lint`
+  and therefore reported zero lint coverage. Neither observation proves rule liveness.
+  **Nothing was changed on grep evidence alone** — the override stays until a separate
+  lint-enabled planted-violation control proves whether the rule is live. Note the
+  manual-memoization protection does
   still exist, just not via the engine the bullet above names: eslint-plugin-react-hooks'
   own `react-hooks/preserve-manual-memoization` is live, reporting 2 warnings, and is now
   tracked in `eslint-warning-baseline.json`.
@@ -2073,7 +3066,154 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
   without re-measuring both.
 
-Local: `pnpm run react-doctor` (full scan, telemetry off via config) ·
+### React Compiler bailouts are invisible — measure them (BST-1659)
+
+Both app bundles run the React Compiler through `oxc-transform-react` (Rust), enabled as
+`react({ compiler: ReactCompilerConfig })` in `apps/web/vite.config.mts` and
+`apps/desktop/vite.config.mts`. `compilationMode: 'infer'` is unchanged and is a non-goal to
+change. The Babel detour (`@rolldown/plugin-babel` + `reactCompilerPreset`) is gone from both
+apps; `@vitejs/plugin-react` ≥ 6.1.0 with the optional peer `oxc-transform-react` replaces it,
+and the same plugin now owns the JSX transform and Fast Refresh injection.
+
+- **oxc is not "preferred" — it is the only backend `react({ compiler })` has.** This matters
+  because `babel-plugin-react-compiler` and `@rolldown/plugin-babel` stay resolvable next to
+  `@vitejs/plugin-react` through workspace-root peer resolution even though both app manifests
+  dropped them, so "Babel is out of the app builds" needs proof rather than absence.
+  `createReactCompilerPlugin` in `@vitejs/plugin-react@6.1.1` contains a single
+  `await import('oxc-transform-react')` and no Babel branch; a missing package is
+  `this.error(...)`, a hard build failure, never a fallback. `reactCompilerPreset` (the Babel
+  path) is only reachable if a config calls it and feeds it to `@rolldown/plugin-babel` —
+  neither app does. Confirmed three ways on 2026-09-06: the plugin source above; the build's own
+  `PLUGIN_TIMINGS` block naming `vite:react-compiler transform (1656 calls)` with no
+  `@rolldown/plugin-babel` row; and by mutation — hiding `oxc-transform-react` from
+  `node_modules` and the plugin's peer directory, with `babel-plugin-react-compiler@1.0.0` left
+  in place, fails `vite build` with `React Compiler requires the optional 'oxc-transform-react'
+  package`. Re-run that mutation rather than trusting a version bump.
+- **Restore the `.vite` exclusion whenever `cacheDir` moves out of `node_modules`.**
+  `@vitejs/plugin-react` defaults to `exclude: /\/node_modules\//`, but both apps set
+  `cacheDir: <app>/.vite`, so the dep-optimizer output sits OUTSIDE `node_modules` and the
+  default would let the compiler and the Fast Refresh transform run over pre-bundled dependency
+  chunks in dev. Both configs pass `exclude: [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/]`,
+  which is what the removed `@rolldown/plugin-babel` pass carried. This is a dev-path
+  correctness guard: the production bundle is byte-identical with and without it (1283 cache
+  sentinels either way).
+- **What else the filter swap changed, and what it did not.** The compiler's eligible extension
+  set narrowed from `/\.(?:[jt]sx?|[cm][jt]s)(?:$|\?)/` (`@rolldown/plugin-babel`'s default) to
+  `/\.[tj]sx?$/`, dropping `.mjs`/`.cjs`/`.mts`/`.cts`; the only first-party module of that
+  shape in either app graph is a worker, so nothing was lost. `.ts` is NOT excluded — mapping
+  the built bundle's `react.memo_cache_sentinel` sites back through a `--sourcemap` build lands
+  on `.ts` modules (`packages/db/src/use-db.ts`, `packages/ui/src/hooks/use-copy-to-clipboard.ts`
+  and peers) at roughly the inventory's own 17% `.ts` share, so there is no category-level
+  `.ts` loss hiding under a net bundle-wide gain. The compiler's position in the pipeline did
+  NOT change either: `@rolldown/plugin-babel` and `vite:react-compiler` are both
+  `enforce: 'pre'`, and Vite orders every pre plugin ahead of the core `vite:oxc` JSX transform,
+  so both passes saw real JSX rather than `_jsx(...)` calls. Do not attribute the 978 → 1130
+  delta to a transform-ordering change.
+- **A bailout is silent in BOTH backends, and no build flag changes that.** `infer` skips any
+  function it cannot analyse and emits nothing. `oxc-transform-react` 0.148.0 returns only
+  *fatal* diagnostics in `TransformResult.errors`, which stay empty for an ordinary bailout, and
+  `@vitejs/plugin-react`'s `compiler.logDiagnostics` forwards exactly those same `errors` — so
+  turning it on does NOT surface bailouts. Do not cite it as bailout coverage.
+- **`scripts/react-compiler-inventory.mjs` is the measurement.** One command per backend:
+  `node scripts/react-compiler-inventory.mjs --backend <babel|oxc> --out <file.json>`, plus
+  `--diff <baseline.json> <candidate.json>`, which exits nonzero when a function that compiled
+  in the baseline no longer compiles. Run the diff before any compiler-toolchain change.
+  `scripts/__tests__/react-compiler-inventory.test.mjs` guards it under `pnpm test:scripts`.
+- **The instrument refuses to report a false green.** An unknown `--backend` is rejected before
+  the walk (it used to become one identical per-file failure, a written JSON and exit 0); an
+  inventory carrying ANY analysis failure is neither written nor diffed, because a file that
+  failed to parse is indistinguishable from a file with no compiled functions; and `--diff`
+  rejects a baseline stamped with an older `inventoryFormat`. Regenerate baselines after
+  touching the script rather than diffing against a stale one.
+- **Only a function with an identity on BOTH sides is compared.** The diff keys on
+  `file::name`, and the names come from the COMPILED OUTPUT, whose line numbers differ per
+  backend. Three kinds of record are marked `matchable: false`: one that cannot be named, one
+  sharing its name with another function in the same file, and one whose name does not appear
+  in the source at all (a name the backend synthesized — two backends need not spell it the
+  same way). Keying any of them surfaces one unchanged function as a regression AND a win.
+  Matchability is then judged across the comparison, not per side: a key ambiguous in either
+  inventory is dropped from both, because keeping the unambiguous side manufactures a win out
+  of the other side's collapse. Such records are reported as an explicit "outside this
+  comparison" count.
+  **Dropping a key is not the same as having nothing to say about it.** Per-key compiled
+  multiplicities are compared for every dropped key, and any key the candidate compiles fewer
+  times than the baseline is reported as an ambiguous coverage loss and fails the command —
+  otherwise a file that compiled `Row` twice and now compiles it never would print "0
+  regressed" and exit 0, which is the false green this instrument exists to refuse.
+  Both current inventories carry zero unmatchable records, so the numbers below are not
+  softened by any of it; the rules are what keep that checkable rather than assumed.
+- **The measurement is output-based, so it is identical across backends**: compile a module,
+  then record every function that received a `react/compiler-runtime` cache slot. Only the
+  Babel backend can also name the functions the compiler *attempted and failed*, with a reason,
+  because only it exposes a per-function `logger`. That is the sole reason
+  `babel-plugin-react-compiler` and `@babel/core` remain ROOT devDependencies; neither is in
+  either app's build any more. An oxc report therefore carries
+  `bailoutReasonsSupported: false` rather than an empty bailout list.
+- **Bailouts are grouped per FUNCTION, not per error site.** The compiler logs one
+  `CompileError` per failing site, so counting events inflates the total — 466 events over 258
+  functions at the time of measurement.
+- **Enable the JSX parser plugin only for `.tsx`/`.jsx`.** `<T>(x: T) => x` is a type-parameter
+  list in `.ts` and an unterminated JSX tag in `.tsx`; parsing every file as JSX silently drops
+  each `.ts` module holding a generic arrow (5 files when this was first run).
+
+Measured on 2026-09-06 over 2177 first-party source files (`apps/web/src`,
+`apps/desktop/src/renderer`, `packages/*/src`):
+
+| | Babel 1.0.0 | oxc 0.148.0 |
+| --- | --- | --- |
+| functions compiled | 978 | 1130 |
+| functions bailed | 258 | not reportable |
+| compiler pass, single-threaded | 11.6 s | 1.02 s |
+
+The migration diff was **0 regressions, 152 newly compiled**, with 0 records on either side
+that the diff could not identify. End to end in the `apps/web` bundle,
+`react.memo_cache_sentinel` sites went 1081 (Babel, measured before the migration) → 1283
+(`grep -ro 'react\.memo_cache_sentinel' apps/web/dist | wc -l` on the current tree). 106
+functions that Babel bailed on are still not memoized.
+
+- **Our largest components are NOT compiled, under either backend.** The eleven largest
+  first-party files each have their principal component or hook bailing:
+  `threads-panel.tsx::ThreadsPanel`, `workspace-collection-sync-provider.tsx::
+  WorkspaceCollectionSyncProvider`, `use-lazy-file-tree.ts::useLazyFileTree`,
+  `assistant-ui-panel.tsx::LocalRuntimeChat`,
+  `assistant-ui-panel-wrapper.tsx::AssistantUiPanelWrapper`, `tree-table.tsx::TreeTable` and
+  peers. Their hand-written `useMemo`/`useCallback` is the only memoization they have — which
+  is why `react-hooks/preserve-manual-memoization` matters and why
+  `react-compiler-no-manual-memoization` stays OFF (see above). Note this is per-function, not
+  per-file: `threads-panel.tsx` is 3415 lines and compiles 23 of its 25 attempted functions
+  while the top-level `ThreadsPanel` bails.
+- **The dominant bailout causes**, by remaining site count: destructuring defaults in an object
+  pattern (`{ a = 1 }`, 63), `try`/`finally` (37), `try` without `catch` (28), refs read during
+  render (24), `throw` inside `try` (14). Logical assignment (`??=`) accounts for only 4 sites,
+  in 4 functions — the repo has 64 logical-assignment occurrences across 48 files, but `infer`
+  never attempts the plain factory functions holding the other 60.
+- **This is why `eslint-warning-baseline.json` is a floor over the *analysable* subset, not
+  over the codebase.** A bailed function reports zero messages of any compiler-powered rule.
+  Extracting code out of one surfaces latent findings and reads as a CI regression while being
+  nothing of the sort (this cost a round-trip in BST-1652). Check the inventory before treating
+  a baseline increase as a real regression, and do not adjust the baseline speculatively.
+- **`??=` and `throw`-inside-`try` are not oxc-specific limitations.** Babel's React Compiler
+  1.0.0 rejects both identically, so neither was a migration risk; every function failing on
+  them failed before the migration too.
+
+Local dependency audit: run `pnpm knip` from the repository root after installing
+dependencies. The command builds `@brainstrike/platform-utils` and
+`@brainstrike/build-utils` through the bounded Turbo wrapper before Knip loads
+the Vite/Playwright configs, so absent
+`dist/` directories need no manual preparation; a failed build stops the audit,
+and an audit failure remains nonzero. `scripts/__tests__/knip-workflow.test.mjs`
+exercises that command ordering and both failure paths. The web-only
+`@brainstrike/mcp-app-host-ui` ignore documents its real CSS `@import`, which the
+workspace's TS/TSX project glob does not follow. Installed Knip 6.32.2 rejects
+workspace-level `rules` (including `exports: "warn"`), so the BST-1642 trial for
+`types`, `utils`, `logging`, `tokenization`, and `worker-runtime` has no warning
+counts; keep existing global severities until a version supporting scoped rules
+is deliberately adopted. App category registration is tested through each app's
+rendered settings navigation; settings-ui tests must not read either app's source
+without declaring those cross-package inputs in Turbo.
+
+Local: `pnpm run react-doctor` (lint-enabled full scan, telemetry off via config) ·
+`pnpm exec react-doctor . --no-supply-chain --scope full --json --no-cache` (fresh machine report) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·
 `npx react-doctor why <file>:<line>` (explain a rule).
 

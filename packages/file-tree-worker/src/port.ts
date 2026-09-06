@@ -19,7 +19,11 @@ import type {
 } from './types';
 
 // Handler type aliases for cleaner code
-type RequestLoadHandler = (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>;
+type RequestLoadHandler = (
+  requestId: string,
+  paths: string[],
+  abortSignal: AbortSignal
+) => Promise<BatchLoadResult[]>;
 type ProgressHandler = (loaded: number, total: number, currentPath: string) => void;
 type TreeSnapshotHandler = (tree: WorkerFileNode[], expandedPaths: string[]) => void;
 type ChildrenLoadedHandler = (path: string, children: WorkerFileNode[]) => void;
@@ -55,17 +59,34 @@ interface PendingOperation {
 async function handleRequestLoadMessage(
   msg: RequestLoadMessage,
   worker: Worker,
-  requestLoadHandler: RequestLoadHandler | null
+  requestLoadHandler: RequestLoadHandler | null,
+  activeRequestLoads: Map<string, AbortController>
 ): Promise<void> {
   if (!requestLoadHandler) {
     return;
   }
 
+  const { requestId } = msg.payload;
+  const previousController = activeRequestLoads.get(requestId);
+  previousController?.abort(new DOMException('Request load was superseded', 'AbortError'));
+  const abortController = new AbortController();
+  activeRequestLoads.set(requestId, abortController);
+
   try {
-    const results = await requestLoadHandler(msg.payload.requestId, msg.payload.paths);
-    sendLoadResults(worker, msg.payload.requestId, results);
+    const results = await requestLoadHandler(requestId, msg.payload.paths, abortController.signal);
+    if (activeRequestLoads.get(requestId) !== abortController) {
+      return;
+    }
+    sendLoadResults(worker, requestId, results);
   } catch (err) {
-    sendLoadErrors(worker, msg.payload.requestId, msg.payload.paths, err);
+    if (activeRequestLoads.get(requestId) !== abortController) {
+      return;
+    }
+    sendLoadErrors(worker, requestId, msg.payload.paths, err);
+  } finally {
+    if (activeRequestLoads.get(requestId) === abortController) {
+      activeRequestLoads.delete(requestId);
+    }
   }
 }
 
@@ -180,7 +201,11 @@ export interface FileTreeWorkerPort {
 
   /** Register handler for load requests from worker */
   onRequestLoad: (
-    handler: (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>
+    handler: (
+      requestId: string,
+      paths: string[],
+      abortSignal: AbortSignal
+    ) => Promise<BatchLoadResult[]>
   ) => () => void;
 
   /** Register handler for tree snapshots */
@@ -224,6 +249,14 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
   // Pending operation promise (used by expandAll and loadPaths)
   const pending: { operation: PendingOperation | null } = { operation: null };
+  const activeRequestLoads = new Map<string, AbortController>();
+
+  const abortActiveRequestLoads = (reason: DOMException): void => {
+    for (const controller of activeRequestLoads.values()) {
+      controller.abort(reason);
+    }
+    activeRequestLoads.clear();
+  };
 
   const rejectPendingOperation = (error: Error): void => {
     if (!pending.operation) {
@@ -243,6 +276,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     onFailure: (failure) => {
       errorHandler?.(failure.message);
       rejectPendingOperation(failure);
+      abortActiveRequestLoads(new DOMException('File tree worker runtime failed', 'AbortError'));
       removeMessageListener();
       runtime.dispose();
       worker.terminate();
@@ -259,6 +293,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
     if (pending.operation) {
       pending.operation.reject(new Error('Operation aborted by new request'));
+      abortActiveRequestLoads(new DOMException('Operation aborted by new request', 'AbortError'));
       // Worker transport preserves message order for a single port; operationId guards still drop
       // stale patches if the worker emits any before it observes this abort.
       transport.postMessage({
@@ -387,7 +422,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
         break;
 
       case 'requestLoad':
-        await handleRequestLoadMessage(msg, worker, requestLoadHandler);
+        await handleRequestLoadMessage(msg, worker, requestLoadHandler, activeRequestLoads);
         break;
 
       case 'progress':
@@ -447,6 +482,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
         pending.operation.reject(new Error('Operation aborted'));
         pending.operation = null;
       }
+      abortActiveRequestLoads(new DOMException('Operation aborted', 'AbortError'));
       runtime.throwIfFailed();
       transport.postMessage({
         type: 'abort',
@@ -598,6 +634,8 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     terminate() {
+      rejectPendingOperation(new Error('File tree worker port terminated'));
+      abortActiveRequestLoads(new DOMException('File tree worker port terminated', 'AbortError'));
       removeMessageListener();
       runtime.dispose();
       runtime.resetReady();

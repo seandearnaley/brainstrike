@@ -273,6 +273,68 @@ describe('lazy-tree-loader', () => {
       expect(result[0]!.rootFolderId).toBe('my-root');
     });
 
+    it('preserves the durable rootId when rebuilding a directory handle', async () => {
+      const adapter = createMockAdapter();
+      const durableHandle = {
+        kind: 'directory',
+        name: 'parent',
+        path: '/root/parent',
+        platform: 'electron',
+        rootId: 'outer-root-id',
+      } satisfies DirectoryHandle;
+      const parentNode = createDirectoryNode({
+        handle: durableHandle as unknown as FileSystemDirectoryHandle,
+        name: 'parent',
+        path: '/root/parent',
+      });
+
+      await loadDirectoryChildren(adapter, parentNode);
+
+      expect(adapter.readDirectory).toHaveBeenCalledWith(
+        expect.objectContaining({ rootId: 'outer-root-id' }),
+        expect.any(Object)
+      );
+    });
+
+    it('inherits the parent rootId when a child directory handle is unstamped', async () => {
+      const adapter = createMockAdapter();
+      const rootHandle = createDirectoryHandle({ rootId: 'outer-root-id' });
+      const parentNode = createDirectoryNode({
+        handle: {} as FileSystemDirectoryHandle,
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'folder-state-id',
+      });
+
+      await loadDirectoryChildren(adapter, parentNode, {
+        parentRootId: rootHandle.rootId,
+      });
+
+      expect(adapter.readDirectory).toHaveBeenCalledWith(
+        expect.objectContaining({ rootId: 'outer-root-id' }),
+        expect.any(Object)
+      );
+    });
+
+    it('throws instead of silently building a wrong-platform handle when the node handle is undefined', async () => {
+      const adapter = createMockAdapter();
+      const parentNode = createDirectoryNode({
+        handle: undefined as unknown as IFileNode['handle'],
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'folder-state-id',
+      });
+
+      // IFileNode.handle is a required field: a directory node without one
+      // is malformed input, not a shape to tolerate. Silently defaulting
+      // platform via detectPlatform(undefined) would build a plausible but
+      // wrong handle instead of surfacing the bug (NO SILENT FALLBACKS).
+      await expect(loadDirectoryChildren(adapter, parentNode, {})).rejects.toThrow(
+        'Directory node is missing its native handle: /root/parent'
+      );
+      expect(adapter.readDirectory).not.toHaveBeenCalled();
+    });
+
     it('throws for non-directory parent', async () => {
       const adapter = createMockAdapter([]);
       const fileNode = createFileNode();
@@ -512,6 +574,24 @@ describe('lazy-tree-loader', () => {
       expect(batches).toHaveLength(2);
       expect(batches[0]!.done).toBe(false);
       expect(batches[1]!.done).toBe(true);
+    });
+
+    it('throws instead of silently building a wrong-platform handle when the node handle is undefined', async () => {
+      const adapter = createMockAdapter();
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
+        onBatch([], { done: true, total: 0 });
+      });
+      const parentNode = createDirectoryNode({
+        handle: undefined as unknown as IFileNode['handle'],
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'folder-state-id',
+      });
+
+      await expect(
+        loadDirectoryChildrenStreaming(adapter, parentNode, vi.fn(), {})
+      ).rejects.toThrow('Directory node is missing its native handle: /root/parent');
+      expect(adapter.readDirectoryStreaming).not.toHaveBeenCalled();
     });
 
     it('throws for non-directory parent', async () => {

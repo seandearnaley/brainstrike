@@ -32,8 +32,21 @@ interface CancelablePromise<T> extends Promise<T> {
   cancel: ReturnType<typeof vi.fn>;
 }
 
+const broadcastChannelInstances: MockBroadcastChannel[] = [];
+
+class MockBroadcastChannel {
+  readonly close = vi.fn();
+  onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+  readonly postMessage = vi.fn();
+
+  emit(data: unknown): void {
+    this.onmessage?.({ data } as MessageEvent<unknown>);
+  }
+}
+
 function createCancelablePromise<T>(): {
   promise: CancelablePromise<T>;
+  reject: (error: unknown) => void;
   resolve: (value: T) => void;
 } {
   let resolve!: (value: T) => void;
@@ -43,16 +56,19 @@ function createCancelablePromise<T>(): {
     reject = rejectPromise;
   }) as CancelablePromise<T>;
   promise.cancel = vi.fn(() => reject(new Error('canceled')));
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
 describe('workerpool request error events', () => {
   beforeEach(() => {
+    broadcastChannelInstances.length = 0;
     vi.stubGlobal(
       'BroadcastChannel',
-      class {
-        readonly close = vi.fn();
-        onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+      class extends MockBroadcastChannel {
+        constructor() {
+          super();
+          broadcastChannelInstances.push(this);
+        }
       } as unknown as typeof BroadcastChannel
     );
     emitQueueTelemetryMock.mockReset();
@@ -111,5 +127,33 @@ describe('workerpool request error events', () => {
     expect(emitQueueTelemetryMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ event: 'complete', taskId: workerError.id })
     );
+  });
+
+  it('preserves an in-flight worker failure after control channels close', async () => {
+    const { promise, reject } = createCancelablePromise<QueueResult>();
+    poolExecMock.mockReturnValue(promise);
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter({
+      telemetry: {
+        recordBatch: vi.fn(),
+        recordFailure: vi.fn(),
+        recordPipelineCache: vi.fn(),
+        removeSource: vi.fn(),
+      },
+      workerUrl: '/worker.js',
+    });
+    const controller = new AbortController();
+    const addPromise = adapter.add(createTask('task-channel-closed'), {
+      signal: controller.signal,
+    });
+    await Promise.resolve();
+
+    broadcastChannelInstances[0]?.emit({ type: 'unsupported-telemetry' });
+    controller.abort();
+    reject(new Error('original worker failure'));
+
+    await expect(addPromise).rejects.toThrow('original worker failure');
+    expect(broadcastChannelInstances[1]?.close).toHaveBeenCalledTimes(1);
+    expect(broadcastChannelInstances[1]?.postMessage).not.toHaveBeenCalled();
   });
 });

@@ -14,11 +14,8 @@ import {
   subagentPersonasSelectors,
   useSubagentPersonasStore,
 } from '@brainstrike/app-state/stores/subagent-personas-store';
-import {
-  type AssistantPersonaListItem,
-  type AssistantPersonasListResult,
-  BUILT_IN_PERSONAS,
-} from '@brainstrike/assistant-contract';
+import { type AssistantPersonaListItem, BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract';
+import { resolveAssistantPersonasBridge } from '@brainstrike/assistant-contract/personas-bridge';
 import {
   Badge,
   Card,
@@ -31,18 +28,6 @@ import {
 } from '@brainstrike/ui';
 import { AlertTriangle, Layers } from 'lucide-react';
 import { useEffect, useState } from 'react';
-
-interface PersonasBridge {
-  list: () => Promise<AssistantPersonasListResult>;
-}
-
-function getPersonasBridge(): PersonasBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = (window as Window & { assistantPersonas?: PersonasBridge }).assistantPersonas;
-  return bridge ?? null;
-}
 
 const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.map((persona) => ({
   description: persona.description,
@@ -129,10 +114,10 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
   const [incompleteDirs, setIncompleteDirs] = useState<
     readonly { dir: string; reason: 'cap-reached' | 'listing-truncated' }[]
   >([]);
-  const hasBridge = getPersonasBridge() !== null;
+  const hasBridge = resolveAssistantPersonasBridge() !== null;
 
   useEffect(() => {
-    const bridge = getPersonasBridge();
+    const bridge = resolveAssistantPersonasBridge();
     if (!bridge) {
       return;
     }
@@ -196,7 +181,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
           <div className="space-y-1" data-testid="subagent-personas-incomplete">
             {incompleteDirs.map((entry) => (
               <p
-                className="flex items-center gap-1 text-amber-600 text-sm dark:text-amber-500"
+                className="flex items-center gap-1 text-sm text-warning"
                 key={`${entry.reason}:${entry.dir}`}
               >
                 <AlertTriangle className="size-3.5 shrink-0" />

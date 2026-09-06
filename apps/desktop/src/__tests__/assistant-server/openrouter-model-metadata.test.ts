@@ -1,3 +1,4 @@
+import { parseOpenRouterModelMetadataSnapshot } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import { createOpenRouterModelMetadataService } from '../../assistant-server/openrouter-model-metadata';
 
@@ -40,6 +41,90 @@ describe('OpenRouterModelMetadataService', () => {
         headers: { accept: 'application/json', authorization: 'Bearer secret-key' },
       })
     );
+  });
+
+  it('does not let live metadata widen a catalogued fixed route budget', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            architecture: {
+              input_modalities: ['text', 'image', 'video'],
+              output_modalities: ['text'],
+            },
+            context_length: 2_000_000,
+            id: 'qwen/qwen3.8-flash',
+            reasoning: {
+              default_effort: 'xhigh',
+              default_enabled: true,
+              mandatory: false,
+              supported_efforts: ['xhigh', 'medium', 'low'],
+              supports_max_tokens: true,
+            },
+            supported_parameters: [
+              'tools',
+              'tool_choice',
+              'reasoning',
+              'response_format',
+              'structured_outputs',
+              'max_tokens',
+            ],
+            top_provider: {
+              context_length: 2_000_000,
+              max_completion_tokens: 262_144,
+            },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const service = createOpenRouterModelMetadataService({ fetchImpl, now: () => 1000 });
+
+    await expect(service.get('qwen/qwen3.8-flash', 'secret-key')).resolves.toMatchObject({
+      freshness: 'live',
+      metadata: {
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-flash',
+        maxOutputTokens: 131_072,
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportedParameters: expect.arrayContaining([
+          'tools',
+          'tool_choice',
+          'response_format',
+          'structured_outputs',
+        ]),
+      },
+    });
+  });
+
+  it('keeps a catalog fallback output ceiling within a narrower live context', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            context_length: 65_536,
+            id: 'qwen/qwen3.8-flash',
+            supported_parameters: ['tools', 'reasoning', 'max_tokens'],
+            top_provider: { context_length: 65_536 },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const service = createOpenRouterModelMetadataService({ fetchImpl, now: () => 1000 });
+
+    const snapshot = await service.get('qwen/qwen3.8-flash', 'secret-key');
+
+    expect(snapshot.metadata).toMatchObject({
+      contextWindow: 65_536,
+      maxOutputTokens: 65_536,
+    });
+    expect(() => parseOpenRouterModelMetadataSnapshot(snapshot)).not.toThrow();
   });
 
   it('deduplicates concurrent refreshes', async () => {

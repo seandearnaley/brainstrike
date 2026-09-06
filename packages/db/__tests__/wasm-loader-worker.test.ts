@@ -29,7 +29,7 @@ async function waitForMockCallCount(mock: typeof pgliteWorkerCreate, count: numb
 }
 
 vi.mock('@electric-sql/pglite', () => ({
-  PGlite: pgliteConstructor,
+  PGlite: { create: (options: unknown) => Promise.resolve(new pgliteConstructor(options)) },
 }));
 
 vi.mock('@electric-sql/pglite-pgvector', () => ({

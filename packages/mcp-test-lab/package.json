@@ -1,0 +1,69 @@
+{
+  "name": "@brainstrike/mcp-test-lab",
+  "description": "Deterministic MCP protocol fixtures, faults, and verification evidence for Brainstrike tests",
+  "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/mcp-tasks-extension": "workspace:*",
+    "@modelcontextprotocol/client": "catalog:",
+    "@modelcontextprotocol/node": "catalog:",
+    "@modelcontextprotocol/server": "catalog:",
+    "entities": "7.0.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@modelcontextprotocol/conformance": "0.2.0-alpha.10",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./evidence": {
+      "types": "./dist/evidence.d.ts",
+      "default": "./dist/evidence.js"
+    },
+    "./faults": {
+      "types": "./dist/faults.d.ts",
+      "default": "./dist/faults.js"
+    },
+    "./lab": {
+      "types": "./dist/lab.d.ts",
+      "default": "./dist/lab.js"
+    },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "default": "./dist/runner.js"
+    },
+    "./scenario": {
+      "types": "./dist/scenario.d.ts",
+      "default": "./dist/scenario.js"
+    }
+  },
+  "files": [
+    "dist",
+    "fixtures"
+  ],
+  "private": true,
+  "scripts": {
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && node scripts/verify-built-package.mjs",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
+    "lint": "pnpm -w lint",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "verify": "pnpm --filter @brainstrike/mcp-tasks-extension build && pnpm run build && node dist/runner-cli.js"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts"
+}

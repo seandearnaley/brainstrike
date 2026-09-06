@@ -26,33 +26,44 @@ cleanupUnusedCatalogs: true
 # prune either), and a comment attached to an entry that is itself pruned has no
 # measured verdict — so keep rationale beside entries that stay.
 catalog:
+  '@ai-sdk/amazon-bedrock': 5.0.57
   '@anthropic-ai/sandbox-runtime': 0.0.73
+  # BST-1353: the AWS default credential chain (profiles, SSO, process creds,
+  # instance/container roles) behind Bedrock's `credentialProvider` seam.
+  # Node-only — imported ONLY beside the provider factory, never from the
+  # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
+  '@aws-sdk/credential-providers': 3.1111.0
   '@assistant-ui/react': '~0.15.13'
-  '@assistant-ui/react-data-stream': ^0.12.26
   '@assistant-ui/react-markdown': ^0.14.10
   '@assistant-ui/styles': ^0.3.7
+  # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
+  # implementation (eslint/prettier/lint-staged/globby all use it); already
+  # present transitively, promoted to a direct dep so the walk can rely on it.
   '@babel/core': ^8.0.1
-  '@babel/plugin-transform-runtime': ^8.0.1
-  '@babel/runtime': ^8.0.0
   '@electric-sql/pglite': 0.5.5
   '@electric-sql/pglite-pg_textsearch': 0.0.7
   '@electric-sql/pglite-pgvector': 0.0.6
   '@fontsource-variable/geist': ^5.3.0
   '@fontsource-variable/geist-mono': ^5.3.0
   '@huggingface/transformers': ^4.2.0
-  '@modelcontextprotocol/sdk': ^1.30.0
+  '@modelcontextprotocol/client': 2.0.0
+  '@modelcontextprotocol/core': 2.0.0
+  '@modelcontextprotocol/node': 2.0.0
+  '@modelcontextprotocol/server': 2.0.0
+  '@modelcontextprotocol/server-legacy': 2.0.0
   '@openrouter/ai-sdk-provider': 2.10.0
   '@parcel/watcher': ^2.6.0
-  '@playwright/test': ^1.62.1
+  '@playwright/test': ^1.63.0
   '@radix-ui/react-accordion': ^1.2.20
   '@radix-ui/react-checkbox': ^1.3.11
   '@radix-ui/react-dialog': ^1.1.23
   '@radix-ui/react-scroll-area': ^1.2.18
   '@radix-ui/react-tabs': ^1.1.21
   '@radix-ui/react-toast': ^1.2.23
-  '@rolldown/plugin-babel': ^0.2.3
   '@shikijs/langs': ^4.4.3
   '@shikijs/themes': ^4.4.3
+  '@smithy/eventstream-codec': ^4.5.2
+  '@smithy/util-utf8': ^4.5.2
   # LOCKSTEP: typescript-checker and vitest-runner peer-depend on
   # `@stryker-mutator/core` at an EXACT version ("10.0.0"), never a range, so the
   # `^` below is looser than what the plugins actually accept. Bump all four in
@@ -71,41 +82,46 @@ catalog:
   '@tanstack/react-virtual': ^3.14.9
   '@testing-library/dom': ^10.4.1
   '@testing-library/jest-dom': ^7.0.1
-  '@testing-library/react': ^16.3.2
-  '@testing-library/user-event': ^14.6.4
+  '@testing-library/react': ^16.3.3
+  '@testing-library/user-event': ^14.6.7
   '@types/node': ^24.13.3
   '@types/react': ^19.2.18
   '@types/react-dom': ^19.2.4
   '@typescript/native': 'npm:typescript@7.0.2'
   '@typescript/old': 'npm:typescript@6.0.3'
-  '@vitejs/plugin-react': ^6.0.5
+  '@vitejs/plugin-react': ^6.1.1
   '@vitest/browser-playwright': ^4.1.10
   '@vitest/coverage-v8': ^4.1.10
   '@vitest/ui': ^4.1.10
   bindings: 1.5.0
-  concurrently: ^10.0.4
+  concurrently: ^10.0.5
   drizzle-orm: 0.45.2
   electron: ^43.4.0
   esbuild: ^0.28.2
-  eslint-plugin-react-refresh: ^0.5.4
+  eslint-plugin-react-refresh: ^0.5.6
   fake-indexeddb: ^6.2.5
   glob: ^13.0.6
-  happy-dom: ^20.11.2
+  happy-dom: ^20.14.0
   idb: ^8.0.3
+  ignore: 7.0.5
   jsdom: 30.0.1
   jszip: ^3.10.1
-  knip: ^6.32.2
+  knip: ^6.34.0
   lucide-react: ^1.31.0
-  mermaid: ^11.16.0
-  minimatch: ^10.2.5
+  mermaid: ^11.17.1
+  minimatch: ^10.2.6
   node-addon-api: 8.9.2
-  node-gyp: 13.0.1
+  node-gyp: 13.0.2
   oxc-parser: ^0.144.0
+  # BST-1659: optional peer of @vitejs/plugin-react and the ONLY backend its
+  # `react({ compiler: <options> })` plugin has — it imports this package and hard-errors
+  # when it is missing. Both apps pass an options object rather than `true`.
+  oxc-transform-react: ^0.148.0
   pino: ^10.3.1
-  playwright: ^1.62.1
+  playwright: ^1.63.0
   react-hotkeys-hook: ^5.3.3
   react-resizable-panels: ^4.12.2
-  react-router-dom: ^7.18.1
+  react-router-dom: ^7.18.2
   react-shiki: ^0.11.1
   remark-gfm: ^4.0.1
   shiki: ^4.4.3
@@ -121,7 +137,7 @@ catalog:
   workerpool: ^10.0.3
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.0
-  zod: ^4.4.3
+  zod: ^4.5.4
   zustand: ^5.0.15
 overrides:
   react: ^19.2.8
@@ -276,3 +292,5 @@ minimumReleaseAge: 1440
 # justification by a month: its cleanup note pointed at a minimumReleaseAge floor
 # that was never configured, so nothing ever triggered the removal.
 minimumReleaseAgeExclude: []
+patchedDependencies:
+  '@mastra/core@1.59.0': patches/@mastra__core@1.59.0.patch

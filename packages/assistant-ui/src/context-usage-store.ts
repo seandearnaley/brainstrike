@@ -22,6 +22,21 @@ export interface ThreadTokenUsage {
 }
 
 interface ContextUsageState {
+  /**
+   * Marks a thread whose run has stopped streaming but whose durable row has
+   * not yet been absorbed by a refreshed cumulative (BST-1652 review). The
+   * reader hides a live sum for an idle thread, which is right for a run the
+   * user walked away from — but `isRunning` goes false at STREAM FINISH, while
+   * the writer deliberately holds the live sum until after the re-read. Without
+   * this marker the headline drops the whole run for that window and jumps back
+   * when the refresh lands, which is the exact dip the writer ordering exists
+   * to prevent. Set by the writer at settle start and cleared by
+   * `clearLiveRunUsage` — which is only half the guarantee: the writer must
+   * also release it structurally (`finally` plus a `catch` for a synchronous
+   * throw), because a marker that outlives its sum holds this gate open on an
+   * idle thread, which is worse than never having claimed it.
+   */
+  beginLiveRunUsageSettle: (threadId: string) => void;
   breakdownByThread: Record<string, AssistantContextBreakdownState>;
   clearBreakdown: (threadId: string) => void;
   clearLiveRunUsage: (threadId: string) => void;
@@ -37,10 +52,20 @@ interface ContextUsageState {
   recordBreakdown: (threadId: string, breakdown: AssistantContextBreakdownState) => void;
   recordLiveStepUsage: (threadId: string, step: ThreadTokenUsage) => void;
   recordUsage: (threadId: string, usage: ThreadTokenUsage) => void;
+  /** Threads between stream finish and the durable re-read. */
+  settlingRunUsageByThread: Record<string, true>;
   usageByThread: Record<string, ThreadTokenUsage>;
 }
 
 export const useContextUsageStore = create<ContextUsageState>((set) => ({
+  beginLiveRunUsageSettle: (threadId) =>
+    set((state) =>
+      state.settlingRunUsageByThread[threadId]
+        ? state
+        : {
+            settlingRunUsageByThread: { ...state.settlingRunUsageByThread, [threadId]: true },
+          }
+    ),
   breakdownByThread: {},
   // Drops a thread's stale breakdown WITHOUT touching its usage. Used when a
   // turn's transport structurally cannot emit a fresh breakdown (the
@@ -58,20 +83,26 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
     }),
   clearLiveRunUsage: (threadId) =>
     set((state) => {
-      if (!(threadId in state.liveRunUsageByThread)) {
+      const wasSettling = threadId in state.settlingRunUsageByThread;
+      if (!(threadId in state.liveRunUsageByThread || wasSettling)) {
         return state;
       }
+      // The settle marker exists only to keep this sum visible, so it is
+      // released here rather than by a second call a caller could forget.
       const { [threadId]: _removedLive, ...liveRest } = state.liveRunUsageByThread;
-      return { liveRunUsageByThread: liveRest };
+      const { [threadId]: _removedSettling, ...settlingRest } = state.settlingRunUsageByThread;
+      return { liveRunUsageByThread: liveRest, settlingRunUsageByThread: settlingRest };
     }),
   clearThread: (threadId) =>
     set((state) => {
       const { [threadId]: _removedUsage, ...usageRest } = state.usageByThread;
       const { [threadId]: _removedBreakdown, ...breakdownRest } = state.breakdownByThread;
       const { [threadId]: _removedLive, ...liveRest } = state.liveRunUsageByThread;
+      const { [threadId]: _removedSettling, ...settlingRest } = state.settlingRunUsageByThread;
       return {
         breakdownByThread: breakdownRest,
         liveRunUsageByThread: liveRest,
+        settlingRunUsageByThread: settlingRest,
         usageByThread: usageRest,
       };
     }),
@@ -118,6 +149,7 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
       usageByThread: { ...state.usageByThread, [threadId]: usage },
     }));
   },
+  settlingRunUsageByThread: {},
   usageByThread: {},
 }));
 
@@ -128,6 +160,7 @@ export function resetContextUsageStore(): void {
   useContextUsageStore.setState({
     breakdownByThread: {},
     liveRunUsageByThread: {},
+    settlingRunUsageByThread: {},
     usageByThread: {},
   });
 }

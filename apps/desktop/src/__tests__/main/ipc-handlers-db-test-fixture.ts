@@ -40,6 +40,7 @@ const {
   embeddingHostResetMock,
   embeddingHostStopMock,
   embeddingHostDestroyAndRestartMock,
+  storageClearMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = {
@@ -105,9 +106,12 @@ const {
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
   const loggerDebug = vi.fn();
-  const isCorruptionErrorMock = vi.fn(() => false);
+  // Matches the production isCorruptionError(error) signature so tests can
+  // install error-discriminating implementations.
+  const isCorruptionErrorMock = vi.fn((_error: unknown) => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
+  const storageClearMock = vi.fn(async () => undefined);
   const closeDatabaseMock = vi.fn();
   const resetDesktopApplicationDataMock = vi.fn(async () => ({
     deletedPaths: [],
@@ -193,6 +197,7 @@ const {
     parseManagedCacheInvalidationsArgsMock,
     resetDesktopApplicationDataMock,
     resetLocalDatabaseMock,
+    storageClearMock,
   };
 });
 
@@ -221,6 +226,7 @@ export {
   parseManagedCacheInvalidationsArgsMock,
   resetDesktopApplicationDataMock,
   resetLocalDatabaseMock,
+  storageClearMock,
 };
 
 vi.mock('@brainstrike/db', async () => {
@@ -316,7 +322,14 @@ vi.mock('electron', async () => {
       getAllDisplays: vi.fn(() => []),
       getPrimaryDisplay: vi.fn(() => ({ workAreaSize: { height: 1080, width: 1920 } })),
     },
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    session: {
+      defaultSession: {
+        on: vi.fn(),
+        setPermissionCheckHandler: vi.fn(),
+        setPermissionRequestHandler: vi.fn(),
+        webRequest: { onHeadersReceived: vi.fn() },
+      },
+    },
     shell: {
       openPath: vi.fn().mockResolvedValue(''),
       showItemInFolder: vi.fn(),
@@ -402,7 +415,7 @@ vi.mock('@brainstrike/file-system/electron', () => {
 vi.mock('@brainstrike/storage/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
+    Object.assign(this, { clear: storageClearMock });
   });
   return { ElectronStorageAdapter: MockAdapter };
 });

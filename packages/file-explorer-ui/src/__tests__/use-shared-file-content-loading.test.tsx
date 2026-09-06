@@ -1,16 +1,19 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { AdaptersProvider, INACCESSIBLE_CONTENT_PREFIX } from '@brainstrike/file-explorer-hooks';
 import {
   DEFAULT_MAX_FILE_SIZE,
+  type FileSystemAdapter,
+  type HandleCache,
   MockFileSystemAdapter,
   resetFileSizeConfig,
   setFileSizeConfig,
+  WebFileSystemAdapter,
 } from '@brainstrike/file-system';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
-import type { IFileNode } from '@brainstrike/types';
+import { BINARY_CONTENT_MESSAGE, type IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils';
 import type {
   FileContentReadResult,
@@ -46,7 +49,7 @@ function useTestHook(fileTree: IFileNode[]) {
   return { store, ...loading };
 }
 
-function createWrapper(adapter: MockFileSystemAdapter) {
+function createWrapper(adapter: FileSystemAdapter) {
   const storage = new MemoryStorageAdapter();
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return (
@@ -67,6 +70,21 @@ function attachHandleCache(adapter: MockFileSystemAdapter, handleCache: TestHand
       getHandleCache: () => TestHandleCache;
     }
   ).getHandleCache = () => handleCache;
+}
+
+function attachAbsolutePathRead(
+  adapter: MockFileSystemAdapter,
+  readFileByPath: (absolutePath: string) => Promise<string>
+): void {
+  (
+    adapter as unknown as {
+      readFileByAbsolutePath: (
+        absolutePath: string,
+        rootPath: string,
+        rootId: string
+      ) => Promise<string>;
+    }
+  ).readFileByAbsolutePath = (absolutePath) => readFileByPath(absolutePath);
 }
 
 describe('useSharedFileContentLoading - caching', () => {
@@ -124,7 +142,7 @@ describe('useSharedFileContentLoading - caching', () => {
     });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(findSpy).not.toHaveBeenCalled();
@@ -138,7 +156,7 @@ describe('useSharedFileContentLoading - caching', () => {
     findSpy.mockClear();
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(findSpy).not.toHaveBeenCalled();
@@ -199,7 +217,7 @@ describe('useSharedFileContentLoading - caching', () => {
     });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     act(() => {
@@ -214,7 +232,7 @@ describe('useSharedFileContentLoading - caching', () => {
     });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(findSpy).not.toHaveBeenCalled();
@@ -252,11 +270,13 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
-    expect(result.current.fileContents[compositeKey]).toBe('Error accessing file');
+    expect(result.current.fileContents[compositeKey]).toBe(
+      `${INACCESSIBLE_CONTENT_PREFIX} - Error accessing file`
+    );
     expect(result.current.error).toBeNull();
   });
 
@@ -273,7 +293,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     vi.mocked(createFileContentWorker).mockReturnValue(
       vi.fn().mockResolvedValue({
         [compositeKey]: {
-          message: 'Binary file - preview not available',
+          message: BINARY_CONTENT_MESSAGE,
           status: 'inaccessible',
         },
       })
@@ -283,11 +303,11 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
-    expect(result.current.fileContents[compositeKey]).toBe('Binary file - preview not available');
+    expect(result.current.fileContents[compositeKey]).toBe(BINARY_CONTENT_MESSAGE);
   });
 
   it('updates loadingFiles for concurrent loads', async () => {
@@ -347,7 +367,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     // Start loading
     let loadingPromise: Promise<void>;
     act(() => {
-      loadingPromise = result.current.handleFileContentLoading([key1, key2]);
+      loadingPromise = result.current.handleFileContentLoading([key1, key2], 'background');
     });
 
     // Check that files are initially in loading state
@@ -404,7 +424,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -426,12 +446,12 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
     expect(result.current.fileContents[compositeKey]).toMatch('File too large');
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
   });
 
   it('respects configured max file size when pre-checking known sizes', async () => {
@@ -455,7 +475,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -483,7 +503,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -518,7 +538,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
 
     await act(async () => {
-      const promise = result.current.handleFileContentLoading([compositeKey]);
+      const promise = result.current.handleFileContentLoading([compositeKey], 'background');
       vi.advanceTimersByTime(100);
       await promise;
       rerender();
@@ -557,7 +577,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       await vi.advanceTimersByTimeAsync(100);
       await loadPromise;
       rerender();
@@ -608,7 +628,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       await vi.advanceTimersByTimeAsync(100);
       await loadPromise;
       rerender();
@@ -616,7 +636,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(handleCache.getFileHandle).toHaveBeenCalledWith('root1', '/locked.txt');
     expect(cachedHandle.queryPermission).toHaveBeenCalledWith({ mode: 'read' });
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toMatch('permission required: /locked.txt');
   });
 
@@ -645,7 +665,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([indexedNode]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       await vi.advanceTimersByTimeAsync(100);
       await loadPromise;
       rerender();
@@ -653,11 +673,72 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(handleCache.getFileHandle).toHaveBeenCalledWith('root1', '/missing-locked.txt');
     expect(cachedHandle.queryPermission).toHaveBeenCalledWith({ mode: 'read' });
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toMatch(
       'permission required: /missing-locked.txt'
     );
     expect(result.current.fileContents[compositeKey]).not.toContain('File not found');
+  });
+
+  it('uses a cached web handle instead of treating readFileByPath as absolute-path authority', async () => {
+    vi.useFakeTimers();
+    const rootId = '11111111-0000-4000-8000-000000000011';
+    const path = '/cached-web.txt';
+    const compositeKey = encodeFileSelection(rootId, path);
+    const cachedHandle = {
+      kind: 'file',
+      name: 'cached-web.txt',
+      queryPermission: vi.fn(async () => 'granted' satisfies PermissionState),
+    } as unknown as FileSystemFileHandle;
+    const getFileHandle = vi.fn(async () => cachedHandle);
+    const handleCache = {
+      getFileHandle,
+      pruneOldHandles: vi.fn(async () => undefined),
+    } as unknown as HandleCache;
+    const adapter = new WebFileSystemAdapter({ handleCache });
+    const readFileByPath = vi.spyOn(adapter, 'readFileByPath');
+    const otherNode = createFileNode({ path: '/other.txt', rootFolderId: rootId });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockImplementation(async (requests: FileReadRequest[]) => ({
+      [compositeKey]: requests[0]?.handle
+        ? { content: 'cached web content', status: 'accessible' as const }
+        : { message: 'missing cached handle', status: 'inaccessible' as const },
+    }));
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
+    act(() => {
+      result.current.store.getState().setActiveRoots([
+        {
+          displayName: 'Project',
+          path: 'Project',
+          rootId,
+        },
+      ]);
+    });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
+      await vi.advanceTimersByTimeAsync(100);
+      await loadPromise;
+    });
+
+    expect(getFileHandle).toHaveBeenCalledExactlyOnceWith(rootId, path);
+    expect(cachedHandle.queryPermission).toHaveBeenCalledExactlyOnceWith({ mode: 'read' });
+    expect(mockWorker).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          compositeKey,
+          handle: expect.objectContaining({ _internal: cachedHandle, platform: 'web' }),
+          path,
+        }),
+      ],
+      expect.any(Function)
+    );
+    expect(readFileByPath).not.toHaveBeenCalled();
+    expect(result.current.fileContents[compositeKey]).toBe('cached web content');
   });
 
   it('rejects directory nodes before queueing worker reads', async () => {
@@ -674,11 +755,11 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([directoryNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toBe('Not a file: /folder');
   });
 
@@ -723,7 +804,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result } = renderHook(() => useTestHook(nodes), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading(keys);
+      await result.current.handleFileContentLoading(keys, 'background');
     });
 
     // All files should be loaded
@@ -742,7 +823,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result } = renderHook(() => useTestHook([]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([]);
+      await result.current.handleFileContentLoading([], 'background');
     });
 
     expect(result.current.isLoading).toBe(false);
@@ -750,20 +831,19 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('defers direct-path reads until the tree is initialized', async () => {
+  it('leaves an empty-tree read unloaded when mounted-root authority has not arrived yet', async () => {
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
-      .fn()
-      .mockResolvedValue('deferred-content') as unknown as MockFileSystemAdapter['readFile'];
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('deferred-content');
     (
       adapter as unknown as {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const compositeKey = encodeFileSelection('root1', '/deferred.txt');
-    const fileNode = createFileNode({ path: '/deferred.txt', rootFolderId: 'root1' });
-
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
     const mockWorker = vi.fn().mockResolvedValue({
       [compositeKey]: { content: 'deferred-content', status: 'accessible' },
@@ -771,47 +851,30 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
-    const { result, rerender } = renderHook(
-      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
-      {
-        initialProps: { tree: [] as IFileNode[] },
-        wrapper,
-      }
-    );
+    const { result } = renderHook(() => useTestHook([]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(mockWorker).not.toHaveBeenCalled();
     expect(readFileByPathSpy).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toBeUndefined();
-
-    await act(async () => {
-      rerender({ tree: [fileNode] });
-      await Promise.resolve();
-    });
-
-    expect(mockWorker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey })],
-      expect.any(Function)
-    );
-    expect(result.current.fileContents[compositeKey]).toBe('deferred-content');
   });
 
-  it('defers restored Electron tab loads until the file enters the tree', async () => {
+  it('keeps a restored Electron tab retryable while direct root identity is unavailable', async () => {
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
-      .fn()
-      .mockResolvedValue('should-not-be-used') as unknown as MockFileSystemAdapter['readFile'];
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('should-not-be-used');
     (
       adapter as unknown as {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });
-    const fileNode = createFileNode({ path: '/restored.txt', rootFolderId: 'root1' });
     const compositeKey = encodeFileSelection('root1', '/restored.txt');
 
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
@@ -826,33 +889,15 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
-    const { result, rerender } = renderHook(
-      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
-      {
-        initialProps: { tree: [otherNode] },
-        wrapper,
-      }
-    );
+    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(readFileByPathSpy).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toBeUndefined();
-
-    await act(async () => {
-      rerender({ tree: [otherNode, fileNode] });
-      await Promise.resolve();
-    });
-
-    expect(mockWorker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey })],
-      expect.any(Function)
-    );
-    expect(readFileByPathSpy).not.toHaveBeenCalled();
-    expect(result.current.fileContents[compositeKey]).toBe('restored-content');
   });
 
   it('reads selected absolute-root files by path when lazy tree children are not indexed yet', async () => {
@@ -866,9 +911,10 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
-    const rootFolderId = '/workspace/root';
-    const compositeKey = encodeFileSelection(rootFolderId, '/src/dynamic.ts');
+    const rootFolderId = '22222222-0000-4000-8000-000000000022';
+    const compositeKey = encodeFileSelection(rootFolderId, 'src/dynamic.ts');
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId });
 
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
@@ -896,15 +942,31 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     const wrapper = createWrapper(adapter);
     const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
+    act(() => {
+      result.current.store.getState().setActiveRoots([
+        {
+          displayName: 'root',
+          path: '/workspace/root',
+          rootId: rootFolderId,
+        },
+      ]);
+    });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       vi.advanceTimersByTime(100);
       await loadPromise;
     });
 
     expect(mockWorker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey, path: '/workspace/root/src/dynamic.ts' })],
+      [
+        expect.objectContaining({
+          absoluteRootId: rootFolderId,
+          absoluteRootPath: '/workspace/root',
+          compositeKey,
+          path: '/workspace/root/src/dynamic.ts',
+        }),
+      ],
       expect.any(Function)
     );
     expect(readFileByPathSpy).toHaveBeenCalledWith('/workspace/root/src/dynamic.ts');
@@ -934,6 +996,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const rootId = '11111111-0000-4000-8000-000000000011';
     const compositeKey = encodeFileSelection(rootId, '/workspace/root/src/restored.ts');
@@ -975,7 +1038,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     try {
       await act(async () => {
-        const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+        const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
         vi.advanceTimersByTime(100);
         await loadPromise;
       });
@@ -984,7 +1047,14 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     }
 
     expect(mockWorker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey, path: '/workspace/root/src/restored.ts' })],
+      [
+        expect.objectContaining({
+          absoluteRootId: rootId,
+          absoluteRootPath: '/workspace/root',
+          compositeKey,
+          path: '/workspace/root/src/restored.ts',
+        }),
+      ],
       expect.any(Function)
     );
     expect(readFileByPathSpy).toHaveBeenCalledWith('/workspace/root/src/restored.ts');
@@ -1000,17 +1070,18 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     );
   });
 
-  it('fails explicitly instead of falling back to direct-path reads when the tree never contains the file', async () => {
+  it('keeps a handleless file unloaded until durable direct-read authority arrives', async () => {
     vi.useFakeTimers();
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
-      .fn()
-      .mockResolvedValue('should-not-be-used') as unknown as MockFileSystemAdapter['readFile'];
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('should-not-be-used');
     (
       adapter as unknown as {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const compositeKey = encodeFileSelection('root1', '/missing.txt');
     const fileNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });
@@ -1020,42 +1091,17 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
-    const { result, rerender } = renderHook(
-      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
-      {
-        initialProps: { tree: [fileNode] },
-        wrapper,
-      }
-    );
+    const { result } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       vi.advanceTimersByTime(100);
       await loadPromise;
     });
 
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const nextTree = Array.from({ length: attempt + 2 }, (_, index) =>
-        createFileNode({ path: `/other-${index}.txt`, rootFolderId: 'root1' })
-      );
-
-      await act(async () => {
-        rerender({ tree: nextTree });
-        vi.advanceTimersByTime(100);
-        await Promise.resolve();
-      });
-    }
-
-    await act(async () => {
-      vi.runOnlyPendingTimers();
-      await Promise.resolve();
-    });
-
     expect(readFileByPathSpy).not.toHaveBeenCalled();
-    expect(mockWorker).toHaveBeenLastCalledWith([], expect.any(Function));
-    expect(result.current.fileContents[compositeKey]).toBe(
-      'File not found in file tree: /missing.txt'
-    );
+    expect(mockWorker).not.toHaveBeenCalled();
+    expect(result.current.fileContents[compositeKey]).toBeUndefined();
     vi.useRealTimers();
   });
 });
@@ -1119,7 +1165,7 @@ describe('useSharedFileContentLoading - cross-root import (Phase 6)', () => {
       });
 
       await act(async () => {
-        await result.current.handleFileContentLoading([keyA, keyB]);
+        await result.current.handleFileContentLoading([keyA, keyB], 'background');
       });
 
       expect(result.current.fileContents[keyA]).toBe('content of /a.ts');

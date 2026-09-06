@@ -2,6 +2,7 @@ import type { AssistantTaskItem } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
   buildContextBudgetNote,
+  buildCurrentDateNote,
   buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
@@ -150,7 +151,11 @@ describe('default assistant instructions', () => {
       toolDiscoveryEnabled: true,
     });
     expect(withDiscovery).toContain('search_tools');
-    expect(withDiscovery).toContain('detailed or refreshed workspace context');
+    expect(withDiscovery).toContain('list_available_tools');
+    expect(withDiscovery).toContain('not the complete catalog');
+    // This run's map registers NO workspace-context tools, so the derived
+    // family list must not advertise them (see the capability-coverage suite).
+    expect(withDiscovery).not.toContain('workspace context and tapestry');
     expect(withDiscovery).not.toContain('open workspace roots and focused context');
     expect(withDiscovery).not.toContain('web, skills, or embeddings');
     expect(withDiscovery).toContain(
@@ -159,6 +164,7 @@ describe('default assistant instructions', () => {
 
     const withoutDiscovery = buildDefaultInstructions(toolNameMap);
     expect(withoutDiscovery).not.toContain('search_tools');
+    expect(withoutDiscovery).not.toContain('list_available_tools');
   });
 
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
@@ -410,6 +416,25 @@ describe('parallel tool-call guidance', () => {
     );
 
     expect(instructions).toContain('Batch independent reads, searches, or commands into one turn.');
+    // No discovery installed for this run, so the exemption must NOT appear:
+    // naming search_tools here would advertise a tool the run does not have.
+    expect(instructions).not.toContain('search_tools');
+  });
+
+  it('exempts search_tools from batching ONLY when discovery is installed', () => {
+    // "Batch independent reads, searches, or commands into one turn" is a
+    // plausible proximate cause of the observed waste — a model scanning for
+    // permission to batch reads "searches" as covering search_tools. The
+    // exemption rides THIS line rather than only the discovery line ~15
+    // instructions away, because a caveat the model has to go looking for is
+    // one it will not apply.
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile']]),
+      { toolDiscoveryEnabled: true }
+    );
+    const batchLine =
+      instructions.split('\n').find((line) => line.startsWith('Batch independent')) ?? '';
+    expect(batchLine).toContain('never search_tools');
   });
 
   it('omits next-step parallelism when no read, search, or command tool is registered', () => {
@@ -589,5 +614,291 @@ describe('buildContextBudgetNote', () => {
 
   it('returns null without a budget', () => {
     expect(buildContextBudgetNote(undefined)).toBeNull();
+  });
+});
+
+describe('buildCurrentDateNote', () => {
+  it('states the LOCAL calendar day, not UTC', () => {
+    // Brainstrike is local-first: the process clock IS the user's clock. Using
+    // toISOString() would state tomorrow's date to anyone east of UTC in their
+    // early morning and yesterday's to anyone west of it in their evening —
+    // wrong for a meaningful slice of every day, and wrong in the direction
+    // that makes "is this document stale?" unanswerable.
+    const now = new Date(2026, 7, 23, 23, 30);
+    expect(buildCurrentDateNote(now)).toContain('2026-08-23');
+    expect(buildCurrentDateNote(now)).toContain('Sunday');
+  });
+
+  it('carries no clock time, so it stays stable across a session', () => {
+    // The note sits in the CACHED half of the instructions
+    // (composeCacheAwareInstructions' stableText). A timestamp would invalidate
+    // the cached prefix on every single turn; a date changes at most once a day.
+    const morning = buildCurrentDateNote(new Date(2026, 7, 23, 0, 1));
+    const evening = buildCurrentDateNote(new Date(2026, 7, 23, 23, 59));
+    expect(morning).toBe(evening);
+    expect(morning).not.toMatch(/\d{2}:\d{2}/);
+  });
+
+  it('tells the model its training cutoff is not today', () => {
+    // The point is not the string. Without it the model silently substitutes
+    // its own guess: an earlier run wrote a fabricated date into DURABLE
+    // memory, three days off, having reasoned "today's date is unknown".
+    expect(buildCurrentDateNote(new Date(2026, 7, 23, 12)).toLowerCase()).toContain('training');
+  });
+});
+
+describe('tool-discovery guidance', () => {
+  const toolNameMap = new Map([
+    ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
+    ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
+  ]);
+
+  it('states when a discovered match becomes callable', () => {
+    // Observed waste: the model batched search_tools with two delegations that
+    // ran ~15 minutes each. The search itself resolved in 753ms, but its result
+    // is not callable until the NEXT turn, so the tool it found sat unusable
+    // for the whole delegation and the model searched again afterwards — three
+    // search_tools calls to locate one tool the user had named explicitly.
+    //
+    // The actionable half of that fix rides the BATCHING line (see the parallel
+    // tool-call suite); stating it twice would just spend prompt budget saying
+    // the same thing.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    expect(line).toContain('same response');
+  });
+
+  it('defines "next turn" as the next step of the SAME response, never a later user message', () => {
+    // Field failure (2026-09-02, live Linear proof): search_tools loaded
+    // linear.save_issue, the loaded definition WAS in the very next step, and
+    // the model still ended its reply with "I'll create the Linear issue once
+    // the ticket integration finishes loading" — finishReason `stop`, no
+    // tools/call ever sent. Mastra's own result copy says the match is
+    // available "on your next turn"; in chat vocabulary a turn is a user
+    // message, so the model waited for one. The instructions must pin the
+    // meaning and forbid ending the reply to wait.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    expect(line).toContain('"next turn"');
+    expect(line).toContain('not a later user message');
+    expect(line).toContain('never end your reply to wait');
+    // Review of #2912: the clause must not be absolute — a zero-match search
+    // needs a stated exit, or "keep going and call them" invites a call to a
+    // tool that does not exist.
+    expect(line).toContain('If the search finds nothing');
+  });
+});
+
+describe('tool-discovery guidance', () => {
+  const toolNameMap = new Map([
+    ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
+    ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
+  ]);
+
+  it('warns that a search batched with slow work wastes the discovery', () => {
+    // Observed waste: the model batched search_tools with two delegations that
+    // ran ~15 minutes each. The search itself resolved in 753ms, but its result
+    // is not callable until the NEXT turn, so the tool it found sat unusable
+    // for the whole delegation and the model searched again afterwards — three
+    // search_tools calls to locate one tool the user had named explicitly.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    // Asserts the two facts the model has to act on, not one phrasing of them:
+    // WHEN a match becomes callable, and what that rules out.
+    expect(text).toMatch(/NEXT turn/);
+    expect(text).toMatch(/long-running/);
+  });
+
+  it('says nothing about discovery when the catalog is not installed', () => {
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: false });
+    expect(text).not.toContain('search_tools');
+  });
+});
+
+describe('tool-discovery capability coverage', () => {
+  const toolNameMap = new Map([
+    ['brainstrike_executeCommand', 'brainstrike.executeCommand'],
+    ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
+  ]);
+
+  const fullToolNameMap = async () => {
+    const { isSkillNativeToolId, NATIVE_TOOL_DEFAULTS } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    const deferredIds = Object.entries(NATIVE_TOOL_DEFAULTS)
+      .filter(([id, defaults]) => defaults.loadingTier !== 'critical' && !isSkillNativeToolId(id))
+      .map(([id]) => id);
+    const map = new Map(toolNameMap);
+    for (const id of deferredIds) {
+      map.set(id.replace(/[^a-zA-Z0-9_-]/g, '_'), id);
+    }
+    return { deferredIds, map };
+  };
+
+  // Field failure (2026-08-23): the user asked for "the canvas tool"; the run
+  // deferred brainstrike.manageCanvas behind search_tools, but the discovery
+  // line's hand-written family list never mentioned canvas — so the model
+  // declared the tool nonexistent and never searched. Same run: a skill's
+  // activation named brainstrike.runSkillScript (also deferred), the model
+  // checked its visible tools, and worked around via executeCommand.
+  //
+  // The drift detector: every native tool the runtime would DEFER
+  // (loadingTier !== 'critical', skill ids force-cored — the exact rule in
+  // resolveToolDiscoverySurface) must belong to a family in
+  // deferred-capability-families.ts, and every family whose tools are eligible
+  // must be named on the discovery line. A deferred tool added without a
+  // family fails HERE, not in the field as a "tool does not exist"
+  // hallucination.
+  it('maps every runtime-deferred native tool to a capability family', async () => {
+    const { deferredIds } = await fullToolNameMap();
+    const { DEFERRED_CAPABILITY_FAMILIES } = await import('../deferred-capability-families');
+    expect(deferredIds.length).toBeGreaterThan(0);
+    const covered = new Set(DEFERRED_CAPABILITY_FAMILIES.flatMap((family) => [...family.ids]));
+    for (const id of deferredIds) {
+      expect(
+        covered.has(id),
+        `deferred tool ${id} belongs to no capability family — add it to deferred-capability-families.ts`
+      ).toBe(true);
+    }
+  });
+
+  it('names every ELIGIBLE family on the discovery line, given the full tool surface', async () => {
+    const { map } = await fullToolNameMap();
+    const { DEFERRED_CAPABILITY_FAMILIES } = await import('../deferred-capability-families');
+    const text = buildDefaultInstructions(map, { toolDiscoveryEnabled: true });
+    const discoveryLine =
+      text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    for (const family of DEFERRED_CAPABILITY_FAMILIES) {
+      expect(
+        discoveryLine,
+        `discovery line does not name available family "${family.phrase}"`
+      ).toContain(family.phrase);
+    }
+  });
+
+  it('omits families whose tools are NOT eligible for the run (web surface)', async () => {
+    // Review of #2625: an unconditional list advertised canvas documents,
+    // Python, browser pages, command sessions, diagnostics, DB self-query and
+    // skill scripts to WEB runs whose eligible set excludes those tools
+    // (WEB_NATIVE_TOOL_IDS) — the model would burn a turn searching for a
+    // capability that can never load. The list must derive from the run.
+    const { map } = await fullToolNameMap();
+    const { WEB_NATIVE_TOOL_IDS } = await import('@brainstrike/assistant-contract');
+    const webIds = new Set<string>(WEB_NATIVE_TOOL_IDS);
+    const webMap = new Map([...map].filter(([, originalId]) => webIds.has(originalId)));
+    const text = buildDefaultInstructions(webMap, { toolDiscoveryEnabled: true });
+    const discoveryLine =
+      text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    for (const phrase of [
+      'canvas documents',
+      'Python',
+      'browser pages',
+      'command sessions',
+      'diagnostics',
+      'DB self-query',
+      'skill scripts',
+    ]) {
+      expect(
+        discoveryLine,
+        `web surface must not advertise unavailable family "${phrase}"`
+      ).not.toContain(phrase);
+    }
+    // The families web DOES have stay advertised.
+    expect(discoveryLine).toContain('embedding search');
+    expect(discoveryLine).toContain('workspace context and tapestry');
+  });
+
+  it('tells the model that a tool NAMED but not loaded is reachable via search_tools', () => {
+    // The prompt-vs-surface contradiction: toolNameMap covers ALL eligible
+    // tools, so the instructions can name a tool (e.g. run_skill_script) that
+    // is not in the model's callable list. Without this sentence the model
+    // resolves the contradiction by declaring the tool nonexistent.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    expect(line.toLowerCase()).toContain('not loaded');
+  });
+});
+describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
+  // The hand-written ModelFacingToolNames interface had fallen EIGHT tools
+  // behind the catalog: a new tool got no slot, so no instruction could ever
+  // name it, and nothing failed. The slot map is now DERIVED from NATIVE_TOOLS.
+  const FORMERLY_MISSING = [
+    'brainstrike.inspectCommandSessions',
+    'brainstrike.listWorktrees',
+    'brainstrike.manageCommandSession',
+    'brainstrike.manageWorktree',
+    'brainstrike.queryDiagnostics',
+    'brainstrike.querySelf',
+    'brainstrike.readToolOutputArtifact',
+    'brainstrike.runPython',
+  ] as const;
+
+  it('resolves a model-facing name slot for every catalog id, including the eight that were missing', async () => {
+    const { NATIVE_TOOL_ID, NATIVE_TOOL_IDS } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    const { resolveModelFacingToolNames } = await import('../default-instructions');
+    const toolNameMap = new Map(
+      NATIVE_TOOL_IDS.map((id) => [id.replace(/[^a-zA-Z0-9_-]/g, '_'), id] as const)
+    );
+    const names = resolveModelFacingToolNames(toolNameMap);
+    for (const [key, id] of Object.entries(NATIVE_TOOL_ID)) {
+      expect(names[key as keyof typeof names], `${key} → ${id}`).toBe(
+        id.replace(/[^a-zA-Z0-9_-]/g, '_')
+      );
+    }
+    for (const id of FORMERLY_MISSING) {
+      expect(Object.values(names)).toContain(id.replace(/[^a-zA-Z0-9_-]/g, '_'));
+    }
+    expect(Object.keys(names)).toHaveLength(NATIVE_TOOL_IDS.length);
+  });
+
+  it('composes a definition-declared instruction into the prompt only when that tool is registered', async () => {
+    const { defineNativeTool, providerCompatibleInputSchema } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    const { z } = await import('zod');
+    const { composeNativeToolInstructions } = await import('../default-instructions');
+    const probe = defineNativeTool({
+      defaults: {
+        category: 'retrieval',
+        estimatedTokens: 1,
+        loadingTier: 'deferred',
+        requiresApproval: false,
+        riskCategory: 'read',
+      },
+      description: 'probe',
+      discovery: { family: 'diagnostics', namespace: 'database' },
+      id: 'brainstrike.instructionProbe',
+      inputSchema: providerCompatibleInputSchema(z.object({}).strict()),
+      instruction: (names) =>
+        `Use ${names.self} after ${names.of('brainstrike.grepSearch') ?? 'a search'}.`,
+      kind: 'desktop',
+      returns: 'probe',
+      surfaces: ['desktop'],
+    });
+
+    expect(
+      composeNativeToolInstructions(
+        [probe],
+        new Map([
+          ['brainstrike_instructionProbe', 'brainstrike.instructionProbe'],
+          ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
+        ])
+      )
+    ).toEqual(['Use brainstrike_instructionProbe after brainstrike_grepSearch.']);
+    // Not registered this run → no line, never a line naming a missing verb.
+    expect(composeNativeToolInstructions([probe], new Map())).toEqual([]);
+    // A hook naming an id outside the catalog is a bug, not "unregistered".
+    const typo = defineNativeTool({
+      ...probe,
+      id: 'brainstrike.instructionTypo',
+      instruction: (names) => `${names.of('brainstrike.doesNotExist')}`,
+    });
+    expect(() =>
+      composeNativeToolInstructions(
+        [typo],
+        new Map([['brainstrike_instructionTypo', 'brainstrike.instructionTypo']])
+      )
+    ).toThrow(/not a native tool id/);
   });
 });

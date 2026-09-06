@@ -13,6 +13,11 @@ import { Check, ChevronDown, FolderGit2, FolderTree, GitBranch, RefreshCw } from
 import type { ComponentPropsWithRef, ReactElement } from 'react';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { useGitInventory } from '../changes/use-git-inventory';
+import {
+  buildBranchSwitchModel,
+  DIRTY_REASON,
+  deriveBranchSwitchDirty,
+} from './branch-switch-model';
 import type { GitRepository, GitStatus, GitWorktreeSummary } from './git-bridge';
 
 interface GitWorkbenchHeaderProps {
@@ -497,31 +502,58 @@ export function GitWorkbenchHeader({
         <DropdownMenuContent align="start" className="w-72">
           <DropdownMenuLabel>Local branches</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {repository.scope === 'workspace' ? (
-            <div className="px-2 py-2 text-muted-foreground text-xs">
-              Open the repository root to switch branches.
-            </div>
-          ) : (
-            repository.branches.map((branch) => (
-              <DropdownMenuItem
-                disabled={branch.current || branch.worktreePath !== null}
-                key={branch.name}
-                // Worktree-affecting mutation: switching a branch changes this
-                // worktree's `branch`/`head`, which the dropdown reads out of
-                // the inventory. Refresh it after the switch lands so the next
-                // open does not describe the pre-switch topology.
-                onSelect={() => {
-                  void switchBranch(branch.name).then(() => refreshInventory());
-                }}
-              >
-                {branch.current ? <Check aria-hidden="true" /> : <span className="size-4" />}
-                <span className="min-w-0 flex-1 truncate">{branch.name}</span>
-                {branch.worktreePath && !branch.current ? (
-                  <span className="text-[10px] text-muted-foreground">in worktree</span>
+          {(() => {
+            const model = buildBranchSwitchModel({
+              branches: repository.branches,
+              dirty: deriveBranchSwitchDirty(status),
+              query: '',
+              scope: repository.scope,
+            });
+            if (model.scopeReason) {
+              return (
+                <div className="px-2 py-2 text-muted-foreground text-xs">{model.scopeReason}</div>
+              );
+            }
+            return (
+              <>
+                {model.dirty ? (
+                  <div
+                    className="px-2 py-1.5 text-muted-foreground text-xs"
+                    data-testid="git-workbench-branch-dirty-reason"
+                  >
+                    {DIRTY_REASON}
+                  </div>
                 ) : null}
-              </DropdownMenuItem>
-            ))
-          )}
+                {model.rows.map((row) => (
+                  <DropdownMenuItem
+                    disabled={!row.switchable}
+                    key={row.name}
+                    // Worktree-affecting mutation: switching a branch changes this
+                    // worktree's `branch`/`head`, which the dropdown reads out of
+                    // the inventory. Refresh it after the switch lands so the next
+                    // open does not describe the pre-switch topology.
+                    onSelect={() => {
+                      void switchBranch(row.name).then(() => refreshInventory());
+                    }}
+                    title={row.disabledReason ?? undefined}
+                  >
+                    {row.current ? <Check aria-hidden="true" /> : <span className="size-4" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{row.name}</span>
+                      {row.worktreeName ? (
+                        <span
+                          className="mt-0.5 block whitespace-normal text-[10px] text-muted-foreground"
+                          data-testid="git-workbench-branch-disabled-reason"
+                        >
+                          {row.disabledReason}
+                        </span>
+                      ) : null}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </>
+            );
+          })()}
         </DropdownMenuContent>
       </DropdownMenu>
 

@@ -97,6 +97,26 @@ import { migration095AssistantThreadWorkspaces } from './095-assistant-thread-wo
 import { migration096OpenRouterQwen3827B } from './096-openrouter-qwen-3-8-27b.js';
 import { migration097OpenRouterQwen38TwoPointFourT } from './097-openrouter-qwen-3-8-2-4t-a95b.js';
 import { migration098OpenRouterQwen38Max } from './098-openrouter-qwen-3-8-max.js';
+import { migration099OpenRouterNemotron35Lightning } from './099-openrouter-nemotron-3-5-lightning.js';
+import { migration100OpenRouterGrok46 } from './100-openrouter-grok-4-6.js';
+import { migration101AmazonBedrock } from './101-amazon-bedrock.js';
+import { migration102AmazonNova2Lite } from './102-amazon-nova-2-lite.js';
+import { migration103OpenAiCodex } from './103-openai-codex.js';
+import { migration104GoogleGemini37Flash } from './104-google-gemini-3-7-flash.js';
+import { migration105EmbeddingJobInputHash } from './105-embedding-job-input-hash.js';
+import { migration106OpenRouterMuseSpark12 } from './106-openrouter-muse-spark-1-2.js';
+import { migration107OpenRouterOxAlpha } from './107-openrouter-ox-alpha.js';
+import { migration108OpenRouterGlm53 } from './108-openrouter-glm-5-3.js';
+import { migration109Worktrees } from './109-worktrees.js';
+import { migration110ForgePrCache } from './110-forge-pr-cache.js';
+import { migration111RootsWorktreeKind } from './111-roots-worktree-kind.js';
+import { migration112WorktreeSetupReason } from './112-worktree-setup-reason.js';
+import { migration113OpenRouterQwen38Flash } from './113-openrouter-qwen-3-8-flash.js';
+import { migration114McpTasks } from './114-mcp-tasks.js';
+import { migration115McpTaskAuthority } from './115-mcp-task-authority.js';
+import { migration116AnthropicClaudeOpus5 } from './116-anthropic-claude-opus-5.js';
+import { migration117MastraMemorySchema } from './117-mastra-memory-schema.js';
+import { migration118AssistantThreadRuns } from './118-assistant-thread-runs.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -200,6 +220,26 @@ export const migrations: Migration[] = [
   migration096OpenRouterQwen3827B,
   migration097OpenRouterQwen38TwoPointFourT,
   migration098OpenRouterQwen38Max,
+  migration099OpenRouterNemotron35Lightning,
+  migration100OpenRouterGrok46,
+  migration101AmazonBedrock,
+  migration102AmazonNova2Lite,
+  migration103OpenAiCodex,
+  migration104GoogleGemini37Flash,
+  migration105EmbeddingJobInputHash,
+  migration106OpenRouterMuseSpark12,
+  migration107OpenRouterOxAlpha,
+  migration108OpenRouterGlm53,
+  migration109Worktrees,
+  migration110ForgePrCache,
+  migration111RootsWorktreeKind,
+  migration112WorktreeSetupReason,
+  migration113OpenRouterQwen38Flash,
+  migration114McpTasks,
+  migration115McpTaskAuthority,
+  migration116AnthropicClaudeOpus5,
+  migration117MastraMemorySchema,
+  migration118AssistantThreadRuns,
 ];
 
 // Export base migrations (without chunks table) for test environments

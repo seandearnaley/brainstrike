@@ -40,6 +40,7 @@ import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
 import { extractPrimaryArg, summarizeResult } from './tool-summaries';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
+import { useToolCallProgressLabel } from './use-tool-call-progress';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 type ToolStatus = ToolFallbackProps['status'];
@@ -253,15 +254,16 @@ function extractResolvedRootName(result: ToolResult): string | undefined {
  * - Success: shows result summary; details available behind the expander
  * - Error: shows the error message inline in red
  */
-export const ToolFallback: ToolCallMessagePartComponent = ({
-  toolCallId,
-  toolName,
-  args,
-  argsText,
-  result,
-  isError: isErrorResult = false,
-  status,
-}) => {
+export const ToolFallback: ToolCallMessagePartComponent = (props) => {
+  const {
+    toolCallId,
+    toolName,
+    args,
+    argsText,
+    result,
+    isError: isErrorResult = false,
+    status,
+  } = props;
   const { detailLevel } = useAssistantDetailLevel();
   const policy = resolveToolDisplayPolicy(detailLevel);
   const durationMs = useToolDurationMs(toolCallId);
@@ -290,6 +292,10 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const statusText = STATUS_LABELS[displayStatus];
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
+  // BST-849: while the model streams a large tool input the card must visibly
+  // move — received bytes off the raw (live) `argsText`, elapsed off the part
+  // timing — or a two-minute file write reads exactly like a hung run.
+  const { argsStreaming, label: progressLabel } = useToolCallProgressLabel(props, isRunning);
   const errorMessage = resolveErrorMessage(status, result, isErrorResult);
   const showDetails =
     policy.showDetailsExpander && !isRunning && (Boolean(displayArgsText) || hasResult);
@@ -345,21 +351,13 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
             </span>
           ) : null}
         </span>
-        {isRunning ? (
-          <AssistantThinkingIndicator
-            className="shrink-0 text-xs"
-            markClassName="size-3.5"
-            textClassName="truncate"
-          />
-        ) : null}
-        {!isRunning && durationLabel ? (
-          <span
-            className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
-            title="Execution time"
-          >
-            {durationLabel}
-          </span>
-        ) : null}
+        <ToolRunTiming
+          argsStreaming={argsStreaming}
+          durationLabel={durationLabel}
+          isRunning={isRunning}
+          progressLabel={progressLabel}
+        />
+
         {resultSummary ? (
           <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
             {resultSummary}
@@ -415,6 +413,48 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 };
 
 ToolFallback.displayName = 'ToolFallback';
+
+/**
+ * The header's timing slot: the live progress label while the call runs
+ * (BST-849), the measured execution time once it has finished.
+ */
+function ToolRunTiming({
+  argsStreaming,
+  durationLabel,
+  isRunning,
+  progressLabel,
+}: {
+  argsStreaming: boolean;
+  durationLabel: string | undefined;
+  isRunning: boolean;
+  progressLabel: string;
+}): ReactNode {
+  if (isRunning) {
+    return (
+      <AssistantThinkingIndicator
+        // Shrinkable, unlike the settled duration: a label such as
+        // "Receiving input · 999.9 KB · 9m 59s" must truncate in a narrow
+        // pane rather than squeeze the tool name out of its slot.
+        className="min-w-0 max-w-[60%] shrink text-xs tabular-nums"
+        data-args-streaming={argsStreaming ? 'true' : undefined}
+        label={progressLabel}
+        markClassName="size-3.5"
+        textClassName="truncate"
+      />
+    );
+  }
+  if (!durationLabel) {
+    return null;
+  }
+  return (
+    <span
+      className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
+      title="Execution time"
+    >
+      {durationLabel}
+    </span>
+  );
+}
 
 /**
  * Structured run_python result region (BST-1070). Split out of ToolFallback

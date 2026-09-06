@@ -31,6 +31,20 @@
       "import": "./dist/embedding.worker.js",
       "require": "./dist/embedding.worker.cjs"
     },
+    "./pipeline-cache-controller": {
+      "types": "./dist/pipeline-cache-controller.d.ts",
+      "import": "./dist/pipeline-cache-controller.js",
+      "require": "./dist/pipeline-cache-controller.cjs"
+    },
+    "./test-runtime-bootstrap": {
+      "types": "./dist/test-runtime-bootstrap.d.ts",
+      "import": "./dist/test-runtime-bootstrap.js",
+      "require": "./dist/test-runtime-bootstrap.cjs"
+    },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "import": "./src/testing.ts"
+    },
     "./vite": {
       "types": "./src/vite.ts",
       "import": "./src/vite.ts"
@@ -47,13 +61,17 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --config ./tsup.config.ts --watch",
     "lint": "pnpm -w lint",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
+    "test:browser": "vitest run --project browser",
     "test:webgpu-memory": "VITEST_RUN_WEBGPU_MEMORY=true vitest run --project browser test/webgpu-memory-growth.browser.test.ts",
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/embedding.worker.cjs",
+    "./dist/embedding.worker.js"
+  ],
   "turbo": {
     "outputs": [
       "dist/**"

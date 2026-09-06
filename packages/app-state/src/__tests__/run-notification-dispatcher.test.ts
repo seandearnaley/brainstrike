@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRunNotificationDispatcher } from '../notifications/run-notification-dispatcher';
 import type { AssistantNotificationFocusState } from '../notifications/should-notify';
+import type { NotificationEventToggles } from '../stores/notification-preferences-store';
 
 const baseSettings = {
-  events: { runFailed: true, runFinished: true, toolApprovalRequired: true },
+  events: allEventsOn(),
   masterEnabled: true,
 };
 
@@ -50,6 +51,24 @@ function createHarness(overrides?: {
     notificationFactory,
     notificationInstances,
   };
+}
+
+function allEventsOn(): NotificationEventToggles {
+  return {
+    prChecks: true,
+    prOpened: true,
+    runFailed: true,
+    runFinished: true,
+    toolApprovalRequired: true,
+  };
+}
+
+function createTestDispatcher(overrides: {
+  events: NotificationEventToggles;
+  masterEnabled: boolean;
+}) {
+  const harness = createHarness({ settings: overrides });
+  return { dispatcher: harness.dispatcher, notifications: harness.constructed };
 }
 
 describe('createRunNotificationDispatcher', () => {
@@ -201,5 +220,50 @@ describe('createRunNotificationDispatcher', () => {
     harness.dispatcher.dispatch({ kind: 'runFinished', runId: 'run-1' });
 
     expect(harness.notificationFactory).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('forge notifications', () => {
+  it('notifies once per observation key for an opened pull request', () => {
+    const { dispatcher, notifications } = createTestDispatcher({
+      events: { ...allEventsOn(), prOpened: true },
+      masterEnabled: true,
+    });
+    dispatcher.dispatch({ kind: 'prOpened', observationKey: 'r/b/sha1', prNumber: 42 });
+    dispatcher.dispatch({ kind: 'prOpened', observationKey: 'r/b/sha1', prNumber: 42 });
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.options?.body).toBe('Opened pull request #42.');
+  });
+
+  it('re-notifies when a new head produces a new observation key', () => {
+    const { dispatcher, notifications } = createTestDispatcher({
+      events: { ...allEventsOn(), prChecks: true },
+      masterEnabled: true,
+    });
+    dispatcher.dispatch({
+      checksOutcome: 'failing',
+      kind: 'prChecks',
+      observationKey: 'r/b/sha1',
+      prNumber: 42,
+    });
+    dispatcher.dispatch({
+      checksOutcome: 'passing',
+      kind: 'prChecks',
+      observationKey: 'r/b/sha2',
+      prNumber: 42,
+    });
+    expect(notifications.map((entry) => entry.options?.body)).toEqual([
+      'Checks failed on pull request #42.',
+      'Checks passed on pull request #42.',
+    ]);
+  });
+
+  it('respects the per-kind toggle', () => {
+    const { dispatcher, notifications } = createTestDispatcher({
+      events: { ...allEventsOn(), prOpened: false },
+      masterEnabled: true,
+    });
+    dispatcher.dispatch({ kind: 'prOpened', observationKey: 'r/b/sha1', prNumber: 42 });
+    expect(notifications).toHaveLength(0);
   });
 });

@@ -23,6 +23,7 @@ import { createLogger } from '@brainstrike/logging';
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { readHandleCache } from './adapter-with-handle-cache.js';
 import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useTabFileRestoration');
@@ -43,6 +44,29 @@ interface CircuitBreakerState {
 /** Circuit breaker configuration */
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Number of failures before opening
 const CIRCUIT_BREAKER_RESET_MS = 30_000; // Time before attempting to close circuit
+
+const FILE_HANDLE_CACHE_METHODS = [
+  'getFileHandle',
+  'removeFileHandle',
+] as const satisfies readonly (keyof FileHandleCache)[];
+type UncoveredFileHandleCacheMethod = Exclude<
+  keyof FileHandleCache,
+  (typeof FILE_HANDLE_CACHE_METHODS)[number]
+>;
+const FILE_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE: UncoveredFileHandleCacheMethod extends never
+  ? true
+  : never = true;
+
+function isFileHandleCache(value: unknown): value is FileHandleCache {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    FILE_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE &&
+    FILE_HANDLE_CACHE_METHODS.every((method) => typeof candidate[method] === 'function')
+  );
+}
 
 /**
  * Concurrency limiter with circuit breaker pattern.
@@ -255,23 +279,6 @@ export interface UseTabFileRestorationReturn {
   tabStatuses: Map<string, TabFileStatus>;
 }
 
-/** Shape of file system adapter with handle cache access */
-interface WebAdapterWithCache {
-  getHandleCache?: () => FileHandleCache;
-}
-
-/**
- * Type guard to check if an adapter has the getHandleCache method.
- * Uses proper runtime checks with unknown intermediate type.
- */
-function hasGetHandleCache(adapter: unknown): adapter is WebAdapterWithCache {
-  if (typeof adapter !== 'object' || adapter === null) {
-    return false;
-  }
-  const candidate = adapter as Record<string, unknown>;
-  return typeof candidate['getHandleCache'] === 'function';
-}
-
 /** Shape of file system adapter with exists method (Electron) */
 interface AdapterWithExists {
   exists: (path: string) => Promise<boolean>;
@@ -449,10 +456,7 @@ export function useTabFileRestoration(
     if (platform !== 'web') {
       return null;
     }
-    if (!hasGetHandleCache(fileSystemAdapter)) {
-      return null;
-    }
-    return fileSystemAdapter.getHandleCache?.() ?? null;
+    return readHandleCache(fileSystemAdapter, isFileHandleCache);
   }, [fileSystemAdapter, platform]);
 
   // Handle Electron restoration

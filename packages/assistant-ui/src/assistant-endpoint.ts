@@ -1,17 +1,7 @@
-import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import { ASSISTANT_AUTH_HEADER_NAME, getAssistantBridge } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 
 export const assistantEndpointLogger = createLogger('AssistantEndpoint');
-
-declare global {
-  interface Window {
-    assistant?: {
-      getAuth?: () => Promise<{ token: string; url: string } | { startupError: string } | null>;
-      getUrl?: () => Promise<string>;
-      url?: string;
-    };
-  }
-}
 
 export interface AssistantEndpoint {
   api: string;
@@ -24,7 +14,7 @@ const toApiUrl = (base: string): string => `${base.replace(/\/+$/, '')}/assistan
 export function resolveDesktopAssistantBaseUrl(api: string): string | undefined {
   if (
     typeof window === 'undefined' ||
-    !window.assistant ||
+    !getAssistantBridge() ||
     !(api.startsWith('http://') || api.startsWith('https://'))
   ) {
     return;
@@ -46,7 +36,7 @@ export async function resolveAssistantEndpoint(): Promise<AssistantEndpoint | un
   if (typeof window === 'undefined') {
     return;
   }
-  const bridge = window.assistant;
+  const bridge = getAssistantBridge();
   if (!bridge) {
     return;
   }

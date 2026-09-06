@@ -60,6 +60,12 @@ export {
 } from './follow-up-queue-store';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
+  McpTaskBridgeProvider,
+  type McpTaskBridgeProviderProps,
+} from './mcp-task-bridge-context';
+export { McpTaskStatusCard, type McpTaskStatusCardProps } from './mcp-task-status-card';
+export { McpTaskToolResult, type McpTaskToolResultProps } from './mcp-task-tool-result';
+export {
   MessageRewindAction,
   REWIND_ACTION_LABEL,
   RewindComposerBridge,
@@ -88,3 +94,32 @@ export {
   useToolApprovalGrants,
 } from './tool-approval-grant-context';
 export * from './tool-fallback';
+export {
+  ToolResultRendererProvider,
+  type ToolResultRendererProviderProps,
+} from './tool-result-renderer-context';
+export { useMcpTaskBridge } from './use-mcp-task-bridge';
+export {
+  type ToolResultRenderer,
+  ToolResultRendererContext,
+  type ToolResultRendererProps,
+  useToolResultRenderers,
+} from './use-tool-result-renderers';
+export { PrChip, type WorkspaceBarForge } from './workspace-bar/pr-chip';
+export {
+  WorkspaceBar,
+  type WorkspaceBarBaseRefOption,
+  type WorkspaceBarBranchMenu,
+  type WorkspaceBarBranchRow,
+  type WorkspaceBarCheckout,
+  type WorkspaceBarCreateWorktreeRequest,
+  type WorkspaceBarMode,
+  type WorkspaceBarProps,
+  type WorkspaceBarRecentRoot,
+  type WorkspaceBarRepositorySetupConsent,
+  type WorkspaceBarReveal,
+  type WorkspaceBarRoot,
+  type WorkspaceBarWorktreeOption,
+  type WorkspaceBarWorktreePicker,
+  type WorkspaceBarWorktreeSummary,
+} from './workspace-bar/workspace-bar';

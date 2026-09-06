@@ -26,6 +26,11 @@
  * per-file); a spec wires them up by returning the exported mock modules below.
  */
 import { ReadableStream } from 'node:stream/web';
+import {
+  type McpHostJsonValue,
+  type McpHostPort,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import { expect } from 'vitest';
 import { MastraAgentError, type MastraAgentErrorCode } from '../../mastra/mastra-agent-error';
 
@@ -33,6 +38,8 @@ export interface MockMastraAgentInstance {
   approveToolCallCalls: unknown[];
   config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
   declineToolCallCalls: unknown[];
+  generateTitleFromUserMessageCalls: unknown[];
+  getModelCalls: unknown[];
   registeredMastra?: unknown;
   resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }>;
   streamCalls: Array<{ input: unknown; options: unknown }>;
@@ -52,27 +59,180 @@ export interface MockSuspendedRun {
   }>;
 }
 
-export type MockMcpToolsets = Record<string, Record<string, { description: string; id: string }>>;
+export type MockMcpToolsets = Record<
+  string,
+  Record<string, { _meta?: Record<string, McpHostJsonValue>; description: string; id: string }>
+>;
 
 export const agentInstances: MockMastraAgentInstance[] = [];
 export const mcpInstances: unknown[] = [];
 export const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
 
 let mcpToolsets: MockMcpToolsets = {};
+let mcpDiscoveryFailures: Record<string, string> = {};
+let mockMessageList: unknown;
+let streamFailure: { call: number; error: Error } | undefined;
 let streamPartDelayMs = 0;
+/** Error to surface AFTER N parts have streamed (mid-iteration, not at construction). */
+let streamPartFailure: { afterParts: number; error: Error } | undefined;
 let streamParts: unknown[] = [];
+let titleGenerationHandler:
+  | ((options: unknown, call: number) => Promise<string | undefined> | string | undefined)
+  | undefined;
+let titleGenerationResults: Array<string | undefined | Error | Promise<string | undefined>> = [];
+let titleModel: Error | object | undefined;
+/**
+ * Per-`stream()`-call part overrides, keyed by 1-based call number on the
+ * agent instance (same numbering as `setStreamFailure`). Lets a multi-attempt
+ * test give attempt 1 and attempt 2 DIFFERENT streams — e.g. an empty first
+ * response recovered by a real second one — where the global `streamParts`
+ * would replay the same parts on every attempt.
+ */
+const streamPartsForCall = new Map<number, unknown[]>();
 let suspendedRuns: MockSuspendedRun[] = [];
+
+export const mcpHost: McpHostPort = {
+  close: async () => ({
+    callbacksClosed: 0,
+    childProcessesClosed: 0,
+    clientsClosed: 0,
+    failures: [],
+    loopbackPortsClosed: 0,
+    probesClosed: 0,
+    requestsSettled: 0,
+    subscriptionsClosed: 0,
+  }),
+  // Required by McpHostPort. No agent test drives server control through this
+  // harness, so it throws rather than returning an empty snapshot that would
+  // read as "control succeeded, zero servers".
+  control: async () => {
+    throw new Error('mastra-stream-harness does not mock MCP server control');
+  },
+  invoke: async (operation) => {
+    const toolset = mcpToolsets[operation.configuredServerId];
+    if (!toolset) {
+      throw new Error(`unknown MCP server: ${operation.configuredServerId}`);
+    }
+    if (operation.type === 'tools/list') {
+      const discoveryFailure = mcpDiscoveryFailures[operation.configuredServerId];
+      if (discoveryFailure) {
+        throw new Error(discoveryFailure);
+      }
+      return {
+        result: {
+          tools: Object.entries(toolset).map(([name, tool]) => ({
+            ...(tool._meta ? { _meta: tool._meta } : {}),
+            description: tool.description,
+            inputSchema: { additionalProperties: true, type: 'object' as const },
+            name,
+          })),
+        },
+        type: operation.type,
+      };
+    }
+    if (operation.type === 'tools/call') {
+      return {
+        result: { content: [{ text: 'mock MCP output', type: 'text' as const }] },
+        type: operation.type,
+      };
+    }
+    // Every other operation THROWS rather than returning a tool-call-shaped
+    // result. The previous `type: operation.type` spread claimed to answer
+    // prompts/*, resources/* and completion/complete with `content`, which the
+    // McpHostOperationResult discriminated union does not allow — a fixture
+    // silently returning the wrong shape for an operation it does not model.
+    // No agent test drives those through this harness; the HTTP-client protocol
+    // specs use their own fetch mocks.
+    throw new Error(`mastra-stream-harness does not mock MCP operation: ${operation.type}`);
+  },
+  replaceConfig: async () => ({ revision: 0, servers: [] }),
+  snapshot: () => ({
+    revision: 1,
+    servers: Object.keys(mcpToolsets).map((name) => ({
+      configuredProtocol: 'legacy',
+      configuredServerId: parseConfiguredMcpServerId(name),
+      generation: 1,
+      state: 'disconnected',
+      transport: 'stdio',
+    })),
+  }),
+  watch: () => {
+    const lease = { closeCalls: 0 };
+    mcpInstances.push(lease);
+    return () => {
+      lease.closeCalls += 1;
+    };
+  },
+};
 
 export function setMockStreamParts(parts: unknown[]): void {
   streamParts = [...parts];
+}
+
+export function setMockTitleGenerationResults(
+  results: Array<string | undefined | Error | Promise<string | undefined>>
+): void {
+  titleGenerationResults = [...results];
+}
+
+export function setMockTitleGenerationHandler(
+  handler:
+    | ((options: unknown, call: number) => Promise<string | undefined> | string | undefined)
+    | undefined
+): void {
+  titleGenerationHandler = handler;
+}
+
+export function setMockTitleModel(model: Error | object | undefined): void {
+  titleModel = model;
+}
+
+export function setMockStreamPartsForCall(call: number, parts: unknown[]): void {
+  streamPartsForCall.set(call, [...parts]);
+}
+
+export function setMockMessageList(messageList: unknown): void {
+  mockMessageList = messageList;
+}
+
+export function setStreamFailure(call: number, error: Error): void {
+  streamFailure = { call, error };
 }
 
 export function setStreamPartDelayMs(delayMs: number): void {
   streamPartDelayMs = delayMs;
 }
 
+/**
+ * Fail the stream MID-ITERATION, after `afterParts` parts have been delivered.
+ *
+ * Distinct from {@link setStreamFailure}, which rejects the `agent.stream()`
+ * call itself so no iterator is ever produced. Cases about an error escaping
+ * WHILE consuming a stream need this one: with the construction failure the
+ * consumer loop never runs, so any "and nothing downstream was emitted"
+ * assertion passes trivially.
+ *
+ * Added because a test wanted exactly this and, lacking a seam, borrowed an
+ * unrelated validation throw as its vehicle — which then broke when that
+ * validation stopped throwing.
+ */
+export function setStreamPartFailure(afterParts: number, error: Error): void {
+  streamPartFailure = { afterParts, error };
+}
+
 export function setMcpToolsets(toolsets: MockMcpToolsets): void {
   mcpToolsets = toolsets;
+}
+
+/**
+ * Make one configured server's `tools/list` throw (BST-1602). The server stays
+ * in `snapshot()` — it IS configured — but contributes nothing, which is
+ * exactly the per-server discovery failure `collectCombinedTools` reports as a
+ * `scope: 'server'` skip. Its own seam rather than a borrowed throw: see the
+ * setStreamPartFailure note above.
+ */
+export function setMcpDiscoveryFailure(serverName: string, message: string): void {
+  mcpDiscoveryFailures = { ...mcpDiscoveryFailures, [serverName]: message };
 }
 
 export function setSuspendedRuns(runs: MockSuspendedRun[]): void {
@@ -129,6 +289,7 @@ export function resetMastraStreamHarness(): void {
   agentInstances.length = 0;
   mastraInstances.length = 0;
   mcpInstances.length = 0;
+  mcpDiscoveryFailures = {};
   // Every field goes through its setter, including this reset. The header
   // above advertises each as module-private behind an explicit setter; a
   // direct assignment here would silently bypass any validation or logging a
@@ -138,26 +299,49 @@ export function resetMastraStreamHarness(): void {
       'remote tool': { description: 'remote', id: 'remote tool' },
     },
   });
+  setMockMessageList(undefined);
   setMockStreamParts([]);
+  setMockTitleGenerationHandler(undefined);
+  setMockTitleGenerationResults([]);
+  setMockTitleModel(undefined);
+  streamPartsForCall.clear();
+  streamFailure = undefined;
+  streamPartFailure = undefined;
   setStreamPartDelayMs(0);
   setSuspendedRuns(defaultSuspendedRuns());
 }
 
-function createMockMastraOutput() {
+function createMockMastraOutput(parts: readonly unknown[] = streamParts) {
   let cancelled = false;
   const stream = new ReadableStream({
     cancel() {
       cancelled = true;
     },
     async start(controller) {
-      for (const part of streamParts) {
+      let delivered = 0;
+      for (const part of parts) {
         if (streamPartDelayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, streamPartDelayMs));
         }
         if (cancelled) {
           return;
         }
+        if (streamPartFailure && delivered === streamPartFailure.afterParts) {
+          // Yield first: `controller.error()` DISCARDS whatever is still
+          // queued, so erroring in the same synchronous run as the enqueues
+          // would deliver NOTHING and quietly turn a mid-stream case into a
+          // failed-to-start one.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          controller.error(streamPartFailure.error);
+          return;
+        }
         controller.enqueue(part);
+        delivered += 1;
+      }
+      if (streamPartFailure && delivered === streamPartFailure.afterParts) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        controller.error(streamPartFailure.error);
+        return;
       }
       if (!cancelled) {
         controller.close();
@@ -166,6 +350,7 @@ function createMockMastraOutput() {
   });
   return {
     fullStream: stream,
+    ...(mockMessageList ? { messageList: mockMessageList } : {}),
   } as { fullStream: ReadableStream<unknown> };
 }
 
@@ -230,7 +415,7 @@ export const anthropicSdkMock = {
 
 /** Mock module for `@ai-sdk/google`. */
 export const googleSdkMock = {
-  createGoogleGenerativeAI: () => (modelId: string) => ({ modelId, provider: 'google' }),
+  createGoogle: () => (modelId: string) => ({ modelId, provider: 'google' }),
 };
 
 /** Mock module for `@mastra/core/agent`. */
@@ -239,6 +424,8 @@ export const mastraAgentModuleMock = {
     config: { memory?: unknown; tools: Record<string, unknown> };
     approveToolCallCalls: unknown[] = [];
     declineToolCallCalls: unknown[] = [];
+    generateTitleFromUserMessageCalls: unknown[] = [];
+    getModelCalls: unknown[] = [];
     registeredMastra?: unknown;
     resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }> = [];
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
@@ -282,7 +469,10 @@ export const mastraAgentModuleMock = {
 
     async stream(input: unknown, options: unknown) {
       this.streamCalls.push({ input, options });
-      return createMockMastraOutput();
+      if (streamFailure?.call === this.streamCalls.length) {
+        throw streamFailure.error;
+      }
+      return createMockMastraOutput(streamPartsForCall.get(this.streamCalls.length) ?? streamParts);
     }
 
     async approveToolCall(options: unknown) {
@@ -293,6 +483,26 @@ export const mastraAgentModuleMock = {
     async declineToolCall(options: unknown) {
       this.declineToolCallCalls.push(options);
       return createMockMastraOutput();
+    }
+
+    async generateTitleFromUserMessage(options: unknown) {
+      this.generateTitleFromUserMessageCalls.push(options);
+      if (titleGenerationHandler) {
+        return await titleGenerationHandler(options, this.generateTitleFromUserMessageCalls.length);
+      }
+      const result = titleGenerationResults.shift();
+      if (result instanceof Error) {
+        throw result;
+      }
+      return await result;
+    }
+
+    getModel(options?: unknown) {
+      this.getModelCalls.push(options);
+      if (titleModel instanceof Error) {
+        throw titleModel;
+      }
+      return titleModel ?? this.model;
     }
 
     listSuspendedRuns() {
@@ -358,6 +568,7 @@ export const explicitStdioMcpClientModuleMock = {
     async listTools() {
       return {
         tools: Object.entries(mcpToolsets[this.options.name] ?? {}).map(([name, tool]) => ({
+          ...(tool._meta ? { _meta: tool._meta } : {}),
           description: tool.description,
           inputSchema: { additionalProperties: true, type: 'object' },
           name,

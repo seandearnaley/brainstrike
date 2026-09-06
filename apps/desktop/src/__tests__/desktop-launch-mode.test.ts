@@ -12,6 +12,20 @@ describe('resolveDesktopRendererLaunchMode', () => {
     ).toBe('built');
   });
 
+  it('honours an explicit built mode when unpackaged (pnpm start), for the visible window and hidden hosts alike', () => {
+    // Regression: hidden hosts once branched on `app.isPackaged || --test-mode`
+    // on their own and ignored this flag, pointing `pnpm start`'s hosts at a
+    // dev server that wasn't running. Launch mode is now resolved ONCE here
+    // (via `main.ts` → `DesktopRendererTarget`) for every consumer.
+    expect(
+      resolveDesktopRendererLaunchMode({
+        argv: ['electron', '.', '--brainstrike-desktop-launch-mode=built'],
+        isPackaged: false,
+        isTestMode: true,
+      })
+    ).toBe('built');
+  });
+
   it('uses explicit dev-server mode when requested', () => {
     expect(
       resolveDesktopRendererLaunchMode({

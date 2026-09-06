@@ -3,6 +3,7 @@
   "description": "Headless context action system: targets, actions, registry, capability gating",
   "version": "0.1.0",
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@vitest/coverage-v8": "catalog:",

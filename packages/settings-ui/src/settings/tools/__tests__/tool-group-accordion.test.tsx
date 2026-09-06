@@ -113,8 +113,22 @@ vi.mock('@brainstrike/ui', () => ({
 
 // Mock lucide-react icons
 vi.mock('lucide-react', () => ({
-  Circle: ({ className }: { className?: string }) => (
-    <span className={className} data-testid="status-indicator" />
+  // Forwards `data-testid` and `aria-label` instead of inventing its own id.
+  // The old mock hardcoded `data-testid="status-indicator"` and DISCARDED what
+  // the component passed, so no test here could ever catch a testid or
+  // accessible-name regression — and a reviewer reasonably read the component's
+  // real id as a mismatch (PR #2945 review).
+  Circle: ({
+    className,
+    children,
+    ...rest
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+  }) => (
+    <span className={className} {...rest}>
+      {children}
+    </span>
   ),
   MoreVertical: () => <span data-testid="more-icon" />,
   RefreshCw: () => <span data-testid="refresh-icon" />,
@@ -206,7 +220,7 @@ describe('ToolGroupAccordion', () => {
         </ToolGroupAccordion>
       );
 
-      const indicators = screen.getAllByTestId('status-indicator');
+      const indicators = screen.getAllByTestId('mcp-status-indicator');
       // Should have green indicator for connected status
       expect(indicators[0]).toHaveClass('fill-green-500');
     });
@@ -226,7 +240,7 @@ describe('ToolGroupAccordion', () => {
         </ToolGroupAccordion>
       );
 
-      const indicators = screen.getAllByTestId('status-indicator');
+      const indicators = screen.getAllByTestId('mcp-status-indicator');
       // Should have yellow/amber indicator for connecting status
       expect(indicators[0]).toHaveClass('fill-yellow-500');
     });
@@ -246,7 +260,7 @@ describe('ToolGroupAccordion', () => {
         </ToolGroupAccordion>
       );
 
-      const indicators = screen.getAllByTestId('status-indicator');
+      const indicators = screen.getAllByTestId('mcp-status-indicator');
       // Should have muted indicator for disconnected status
       expect(indicators[0]).toHaveClass('fill-muted-foreground');
     });
@@ -267,7 +281,7 @@ describe('ToolGroupAccordion', () => {
         </ToolGroupAccordion>
       );
 
-      const indicators = screen.getAllByTestId('status-indicator');
+      const indicators = screen.getAllByTestId('mcp-status-indicator');
       // Should have red/destructive indicator for error status
       expect(indicators[0]).toHaveClass('fill-destructive');
       expect(screen.getByText('Connection failed')).toBeInTheDocument();
@@ -451,6 +465,81 @@ describe('ToolGroupAccordion', () => {
 
       const badge = screen.getByText('12/12 enabled').closest('[data-testid="badge"]');
       expect(badge).toHaveAttribute('data-variant', 'default');
+    });
+  });
+
+  describe('tools-availability indicator (BST-1603)', () => {
+    const mcpProps = {
+      ...defaultProps,
+      connectionStatus: 'connected' as McpConnectionStatus,
+      id: 'mcp-alpha',
+      label: 'alpha',
+      source: 'mcp' as const,
+    };
+
+    it('shows GREEN for a connected server whose tools loaded', () => {
+      render(
+        <ToolGroupAccordion {...mcpProps} toolsAvailability="available">
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      expect(screen.getByTestId('mcp-status-indicator')).toHaveClass('fill-green-500');
+    });
+
+    it('shows the WARNING token, not the connecting yellow, when the tool list failed', () => {
+      // Deliberately distinct from `fill-yellow-500`, which already means
+      // connecting/authorizing. Reusing it would collapse "still working, wait"
+      // into "settled and empty" — the one distinction this indicator draws.
+      render(
+        <ToolGroupAccordion {...mcpProps} toolsAvailability="tools-unavailable">
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      const indicator = screen.getByTestId('mcp-status-indicator');
+      expect(indicator).toHaveClass('fill-warning');
+      expect(indicator).not.toHaveClass('fill-yellow-500');
+      expect(indicator).not.toHaveClass('fill-green-500');
+    });
+
+    it('carries the meaning in an accessible name, not colour alone', () => {
+      // A fill class is invisible to screen readers and to anyone with a
+      // colour-vision deficiency, and asserting one in E2E is exactly as
+      // fragile as the "row says Connected" signal this replaces.
+      render(
+        <ToolGroupAccordion {...mcpProps} toolsAvailability="tools-unavailable">
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      const indicator = screen.getByTestId('mcp-status-indicator');
+      expect(indicator).toHaveAttribute('aria-label', 'Connected, tools unavailable');
+      expect(indicator).toHaveAttribute('data-tools-availability', 'tools-unavailable');
+    });
+
+    it('stays GREEN and unlabelled when tools are available', () => {
+      // The healthy dot must stay decorative — an accessible name on every
+      // server would be noise in the accessibility tree.
+      render(
+        <ToolGroupAccordion {...mcpProps} toolsAvailability="available">
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      const indicator = screen.getByTestId('mcp-status-indicator');
+      expect(indicator).not.toHaveAttribute('aria-label');
+      expect(indicator).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('stays GREEN when availability is unknown, rather than crying wolf', () => {
+      render(
+        <ToolGroupAccordion {...mcpProps}>
+          <div />
+        </ToolGroupAccordion>
+      );
+
+      expect(screen.getByTestId('mcp-status-indicator')).toHaveClass('fill-green-500');
     });
   });
 });

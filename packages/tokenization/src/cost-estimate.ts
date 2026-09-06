@@ -1,8 +1,9 @@
 /**
  * Per-million-token pricing for a single model (USD). Mirrors the
  * `pricing` field on the static provider registry's LLM model definitions.
- * Omit / pass `undefined` for models with unknown or keyless ($0) pricing —
- * unknown pricing must render "cost unavailable", never $0.
+ * Omit / pass `undefined` for unknown pricing and local/keyless models with no
+ * billing surface. Explicit zeroes are reserved for reviewed hosted routes that
+ * current provider evidence identifies as free; unknown stays "cost unavailable."
  */
 export interface ModelTokenPricing {
   /** USD per 1M prompt-cache READ tokens (Anthropic: 0.1× the input rate). */

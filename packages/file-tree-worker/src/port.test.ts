@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createFileTreeWorkerPort } from './port';
 import type {
+  BatchLoadResult,
   FlattenedNode,
   MainToWorkerMessage,
   WorkerFileNode,
@@ -65,6 +66,17 @@ const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
 };
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
 
 const createDirectoryNode = (path: string): WorkerFileNode => ({
   depth: 1,
@@ -308,6 +320,108 @@ describe('createFileTreeWorkerPort', () => {
     });
   });
 
+  it('aborts an active renderer load and suppresses its late correlated result', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const readGate = createDeferred<BatchLoadResult[]>();
+    const requestStarted = createDeferred<void>();
+    let requestSignal: AbortSignal | undefined;
+
+    port.onRequestLoad(async (_requestId, _paths, ...args: [AbortSignal?]) => {
+      requestSignal = args[0];
+      requestStarted.resolve();
+      return readGate.promise;
+    });
+
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/root/dir'], requestId: 'req-late' },
+      type: 'requestLoad',
+    });
+    await requestStarted.promise;
+
+    port.abort();
+    expect(requestSignal?.aborted).toBe(true);
+
+    readGate.resolve([
+      {
+        children: [createDirectoryNode('/root/dir/stale')],
+        path: '/root/dir',
+      },
+    ]);
+    await flushMicrotasks();
+
+    expect(worker.postedMessages).not.toContainEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({ requestId: 'req-late' }),
+        type: 'loadResult',
+      })
+    );
+  });
+
+  it('removes a settled renderer load controller from abort ownership', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    let settledSignal: AbortSignal | undefined;
+
+    port.onRequestLoad(async (_requestId, _paths, ...args: [AbortSignal?]) => {
+      settledSignal = args[0];
+      return [];
+    });
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/root/dir'], requestId: 'req-settled' },
+      type: 'requestLoad',
+    });
+    await flushMicrotasks();
+
+    expect(settledSignal?.aborted).toBe(false);
+    port.abort();
+    expect(settledSignal?.aborted).toBe(false);
+  });
+
+  it('aborts an active renderer load when a newer bulk operation takes the worker slot', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const readGate = createDeferred<BatchLoadResult[]>();
+    const requestStarted = createDeferred<void>();
+    let requestSignal: AbortSignal | undefined;
+
+    port.onRequestLoad(async (_requestId, _paths, signal) => {
+      requestSignal = signal;
+      requestStarted.resolve();
+      return readGate.promise;
+    });
+    const displacedOperation = port.loadPaths(['/root/dir']);
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/root/dir'], requestId: 'req-displaced' },
+      type: 'requestLoad',
+    });
+    await requestStarted.promise;
+
+    const activeOperation = port.loadPaths(['/root/other']);
+    await expect(displacedOperation).rejects.toThrow('Operation aborted by new request');
+    expect(requestSignal?.aborted).toBe(true);
+
+    readGate.resolve([
+      {
+        children: [createDirectoryNode('/root/dir/stale')],
+        path: '/root/dir',
+      },
+    ]);
+    await flushMicrotasks();
+    expect(worker.postedMessages).not.toContainEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({ requestId: 'req-displaced' }),
+        type: 'loadResult',
+      })
+    );
+
+    port.abort();
+    await expect(activeOperation).rejects.toThrow('Operation aborted');
+  });
+
   it('resolves and rejects long-running operations correctly', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
@@ -489,13 +603,49 @@ describe('createFileTreeWorkerPort', () => {
     await expect(pending).rejects.toThrow('global worker failure');
   });
 
-  it('removes listeners and terminates the worker', () => {
+  it('settles active work before removing listeners and terminating the worker', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
     const onProgress = vi.fn();
+    const readGate = createDeferred<BatchLoadResult[]>();
+    const requestStarted = createDeferred<void>();
+    let requestSignal: AbortSignal | undefined;
+    let operationSettlement:
+      | { status: 'pending' }
+      | { status: 'fulfilled' }
+      | { error: unknown; status: 'rejected' } = { status: 'pending' };
+
     port.onProgress(onProgress);
+    port.onRequestLoad(async (_requestId, _paths, signal) => {
+      requestSignal = signal;
+      requestStarted.resolve();
+      return readGate.promise;
+    });
+
+    const activeOperation = port.loadPaths(['/root/a']);
+    void activeOperation.then(
+      () => {
+        operationSettlement = { status: 'fulfilled' };
+      },
+      (error: unknown) => {
+        operationSettlement = { error, status: 'rejected' };
+      }
+    );
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/root/a'], requestId: 'req-terminate' },
+      type: 'requestLoad',
+    });
+    await requestStarted.promise;
 
     port.terminate();
+    await flushMicrotasks();
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(operationSettlement).toEqual({
+      error: expect.objectContaining({ message: 'File tree worker port terminated' }),
+      status: 'rejected',
+    });
     expect(worker.terminated).toBe(true);
 
     worker.emit({
@@ -504,5 +654,19 @@ describe('createFileTreeWorkerPort', () => {
       type: 'progress',
     });
     expect(onProgress).not.toHaveBeenCalled();
+
+    readGate.resolve([
+      {
+        children: [createDirectoryNode('/root/a/late')],
+        path: '/root/a',
+      },
+    ]);
+    await flushMicrotasks();
+    expect(worker.postedMessages).not.toContainEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({ requestId: 'req-terminate' }),
+        type: 'loadResult',
+      })
+    );
   });
 });

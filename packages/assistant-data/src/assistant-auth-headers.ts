@@ -1,8 +1,10 @@
-import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_AUTH_HEADER_NAME,
+  type AssistantBridge,
+  getAssistantBridge,
+} from '@brainstrike/assistant-contract';
 
-export interface AssistantAuthBridge {
-  getAuth?: () => Promise<{ token: string; url: string } | { startupError: string } | null>;
-}
+export type AssistantAuthBridge = Pick<AssistantBridge, 'getAuth'>;
 
 /**
  * Resolves the auth headers every assistant-server request must carry. The
@@ -15,7 +17,7 @@ export async function resolveAssistantAuthHeaders(): Promise<Record<string, stri
     return {};
   }
 
-  const bridge = (window as unknown as { assistant?: AssistantAuthBridge }).assistant;
+  const bridge = getAssistantBridge();
   if (bridge && typeof bridge.getAuth === 'function') {
     try {
       const auth = await bridge.getAuth();

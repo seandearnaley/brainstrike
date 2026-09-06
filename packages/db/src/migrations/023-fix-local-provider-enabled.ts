@@ -15,6 +15,7 @@ export const migration023FixLocalProviderEnabled: Migration = {
     -- Revert to disabled state (though this is not the intended final state)
     UPDATE providers SET is_enabled = false WHERE id = 'local';
   `,
+  ledgerKey: 'custom-023-fix-local-provider-enabled',
   name: 'fix_local_provider_enabled',
   up: `
     -- Enable the 'local' provider (was supposed to inherit is_enabled from 'transformers')
