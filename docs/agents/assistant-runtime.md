@@ -2507,7 +2507,8 @@ notices, REUSING the (already restart-safe, stateless)
 untouched. Unified since BST-1084 — the previous "non-approval pauses are
 tolerated + skipped" behavior is GONE, and with it the silent stranding path
 that blocked run_python's Gate B. Flow:
-- `listSuspendedMastraRuns(filter, options)` (`agent-streaming.ts`) wraps
+- `listSuspendedMastraRuns(filter, options)` (`suspended-run-discovery.ts`,
+  moved out of `agent-streaming.ts` by BST-1649) wraps
   `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
   returns `{ approvals, suspends }`: approval-gated calls
   (`requiresApproval === true`) and non-approval `suspend()` pauses

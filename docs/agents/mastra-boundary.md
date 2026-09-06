@@ -410,7 +410,7 @@ telemetry. Neither replaces the other.**
 
 `mastra_workflow_snapshot` (`packages/agent/src/pglite-mastra-memory/workflows-store.ts:208`)
 is written on suspend and read on resume — plus pending-approval discovery
-(`agent-streaming.ts`, the pending-approval / suspended-run discovery helpers),
+(`suspended-run-discovery.ts`, moved out of `agent-streaming.ts` by BST-1649),
 which is still the resume path. Nothing else
 reads it: no analytics, no UI, no history view. Mastra's own guidance is to store
 references rather than payloads, and `pruneSnapshot` must be pure and JSON-safe

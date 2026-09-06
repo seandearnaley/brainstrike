@@ -56,9 +56,10 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   };
 });
 
-const { listSuspendedMastraRuns, streamMastraAgent, streamMastraToolApprovalAction } = await import(
+const { streamMastraAgent, streamMastraToolApprovalAction } = await import(
   '../mastra/agent-streaming'
 );
+const { listSuspendedMastraRuns } = await import('../mastra/suspended-run-discovery');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { LlmHostChatModel } = await import('../providers/local/llm-host-chat-model');
 const { GEMMA4_E2B_MODEL_ID } = await import('../providers/local/local-model-specs');

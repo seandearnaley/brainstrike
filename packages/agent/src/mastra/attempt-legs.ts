@@ -30,7 +30,6 @@ import { convertMessagesToMastra, type MastraAgentRuntime } from './agent-runtim
 import {
   type ResumedApprovalToolCall,
   type ResumedToolCallStart,
-  resolveDiscoveredApprovalToolName,
   streamAttemptChunks,
 } from './agent-streaming';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
@@ -40,6 +39,7 @@ import type { PermissionAskToolMetadata } from './permission-tool-gate';
 import { computePromptBreakdown } from './prompt-breakdown';
 import { type ApprovalGate, buildStreamOptions } from './runtime-assembly/stream-options';
 import { createDelegationOutcomeCapture } from './subagent-delegation';
+import { resolveDiscoveredApprovalToolName } from './suspended-run-discovery';
 import { createDelegationUsageCapture, type ToolLifecycleState } from './tool-lifecycle-processors';
 import {
   type AgentStreamOptions,
