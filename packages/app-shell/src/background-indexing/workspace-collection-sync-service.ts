@@ -268,9 +268,31 @@ export class WorkspaceCollectionSyncService {
     }
   }
 
+  /**
+   * Deliberate stop — pause, disable, or a restart that must not overlap the
+   * previous pass. Aborts the renderer-side loop AND cancels the host-owned
+   * backfill this service enqueued.
+   */
   async cancel(): Promise<void> {
     this.runId += 1;
     await this.resetActiveWork({ cancelTrackedBackfill: true });
+  }
+
+  /**
+   * The requester is going away (BST-1654). A `source: 'background-indexing'`
+   * backfill is owned by the host runtime, not by the React tree that asked for
+   * it, so tearing that tree down must release only what is local: the
+   * in-flight renderer loop and this service's progress subscription. The
+   * durable run keeps going and is re-attached by the next `sync()` via
+   * `selectRecoverableBackgroundBackfill`.
+   *
+   * Using `cancel()` here is what silently killed a user's backfill on
+   * navigation — and, because the owning effect's cleanup also re-runs on
+   * service-identity churn, on ordinary dependency changes too.
+   */
+  async detach(): Promise<void> {
+    this.runId += 1;
+    await this.resetActiveWork({ cancelTrackedBackfill: false });
   }
 
   private isCancelled(runId: number): boolean {

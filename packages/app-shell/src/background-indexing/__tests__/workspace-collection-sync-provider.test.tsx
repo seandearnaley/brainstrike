@@ -2865,10 +2865,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
-  it('surfaces cancel failures from provider cleanup', async () => {
-    const cancelSpy = vi
-      .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
-      .mockRejectedValueOnce(new Error('Synthetic cancel failure'));
+  it('surfaces detach failures from provider cleanup', async () => {
+    const detachSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'detach')
+      .mockRejectedValueOnce(new Error('Synthetic detach failure'));
 
     try {
       runEnhancedImportMock.mockImplementationOnce(
@@ -2886,13 +2886,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() =>
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
           expect.objectContaining({
-            lastError: 'Synthetic cancel failure',
+            lastError: 'Synthetic detach failure',
             state: 'error',
           })
         )
       );
     } finally {
-      cancelSpy.mockRestore();
+      detachSpy.mockRestore();
     }
   });
 
@@ -3988,6 +3988,35 @@ describe('WorkspaceCollectionSyncProvider', () => {
     } finally {
       syncSpy.mockRestore();
     }
+  });
+
+  // BST-1654: a `source: 'background-indexing'` backfill is owned by the host
+  // runtime, not by the React tree that requested it. Tearing the provider down
+  // (navigation, or plain service-identity churn re-running the teardown
+  // effect) must only detach this renderer's progress subscription — it must
+  // NOT cancel the durable run, which is what silently killed a user's backfill
+  // mid-flight.
+  it('leaves an in-flight background-indexing backfill running when the provider unmounts', async () => {
+    const { unmount } = render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(enqueueBackfillMock).toHaveBeenCalledWith(
+        '00000000-0000-0000-0000-000000000101',
+        expect.objectContaining({ source: 'background-indexing' })
+      )
+    );
+
+    unmount();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    });
+
+    expect(cancelBackfillMock).not.toHaveBeenCalled();
   });
 
   it('calls service.sync exactly once with the legacy single-handle request shape when only one handle is active', async () => {

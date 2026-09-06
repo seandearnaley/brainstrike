@@ -1698,7 +1698,7 @@ export function WorkspaceCollectionSyncProvider({
       // the error/blocked transition set below (BST-1257) — logging here too
       // recorded every incident twice under different scopes.
       // Focused path read live via ref (BST-1268): a focus-only change must
-      // not change this callback's identity — the unmount-cancel effect and
+      // not change this callback's identity — the teardown-detach effect and
       // triggerSync both depend on it.
       const activeRootPath = rootDirectoryHandleRef.current?.path ?? null;
       if (isWorkspaceIndexBlockedError(error)) {
@@ -3141,11 +3141,16 @@ export function WorkspaceCollectionSyncProvider({
     triggerSync({ mode: 'full' }, { restartActive: true });
   }, [backgroundWorkSnapshot, triggerSync]);
 
+  // Teardown detaches, it does not cancel (BST-1654). This cleanup runs on
+  // unmount AND on every `service` identity change, so cancelling here tied the
+  // lifetime of a host-owned `source: 'background-indexing'` run to a React
+  // memo dependency list. The renderer-side loop still stops; the durable
+  // backfill survives and the next sync re-attaches to it.
   useEffect(
     () => () => {
       invalidateActiveSyncLoopFromEffect();
-      void service?.cancel().catch((error) => {
-        reportAsyncError('cancel', error);
+      void service?.detach().catch((error) => {
+        reportAsyncError('detach', error);
       });
     },
     [reportAsyncError, service]
@@ -3181,9 +3186,11 @@ export function WorkspaceCollectionSyncProvider({
     [managedCollectionId]
   );
 
-  // Recovery point for a backfill killed while the window was hidden (e.g. a
-  // top-level navigation mid-backfill): re-sync on return to visibility so the
-  // 0-changes coverage check can re-enqueue any missing embedding work.
+  // Recovery point for renderer-side work lost while the window was hidden (a
+  // hard reload tearing down the page mid-run): re-sync on return to visibility
+  // so the 0-changes coverage check can re-enqueue any missing embedding work.
+  // An ordinary unmount detaches instead of cancelling (BST-1654), so this is
+  // no longer the only thing standing between a user and a dead backfill.
   useResyncOnReturnToVisibility(triggerSync);
 
   return (

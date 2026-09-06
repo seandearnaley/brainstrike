@@ -4177,4 +4177,70 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.fileRecordRepository.listManagedCacheEntryMetadata).not.toHaveBeenCalled();
     expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
   });
+
+  // BST-1654: teardown ownership. `cancel()` is a deliberate stop (pause,
+  // disable, restart) and must kill the host run. `detach()` is a requester
+  // going away — it must release this renderer's local work and progress
+  // subscription while the durable `source: 'background-indexing'` run keeps
+  // going.
+  describe('detach()', () => {
+    function createBackfillDeps(unsubscribeProgress: () => void) {
+      return createDeps({
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+          })),
+        },
+        subscribeToBackfillProgress: vi.fn(() => unsubscribeProgress),
+      });
+    }
+
+    async function syncOnce(service: WorkspaceCollectionSyncService): Promise<void> {
+      await service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+    }
+
+    it('releases the tracked backfill without cancelling the host run', async () => {
+      const unsubscribeProgress = vi.fn();
+      const deps = createBackfillDeps(unsubscribeProgress);
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await syncOnce(service);
+      expect(deps.enqueueBackfill).toHaveBeenCalledWith(
+        'set-1',
+        expect.objectContaining({ source: 'background-indexing' })
+      );
+
+      await service.detach();
+
+      expect(deps.cancelBackfill).not.toHaveBeenCalled();
+      expect(unsubscribeProgress).toHaveBeenCalledTimes(1);
+    });
+
+    it('is idempotent and leaves no tracked backfill for a later cancel to kill', async () => {
+      const deps = createBackfillDeps(vi.fn());
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await syncOnce(service);
+      await service.detach();
+      await service.detach();
+      await service.cancel();
+
+      expect(deps.cancelBackfill).not.toHaveBeenCalled();
+    });
+
+    it('still cancels the host run for an explicit cancel()', async () => {
+      const deps = createBackfillDeps(vi.fn());
+      const service = new WorkspaceCollectionSyncService(deps);
+
+      await syncOnce(service);
+      await service.cancel();
+
+      expect(deps.cancelBackfill).toHaveBeenCalledWith('set-1');
+    });
+  });
 });
