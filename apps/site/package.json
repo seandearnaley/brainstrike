@@ -27,12 +27,13 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitest/coverage-v8": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
