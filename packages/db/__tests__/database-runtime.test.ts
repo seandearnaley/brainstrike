@@ -60,7 +60,16 @@ interface FakeTransportOptions {
   }>;
   readonly hardReset?: () => Promise<boolean>;
   readonly kind?: DatabaseTransportKind;
-  readonly open?: (context: DatabaseTransportOpenContext) => Promise<DbConnectionSnapshot | null>;
+  /**
+   * `markConnected` models the point the real direct transport registers its
+   * connection — BEFORE `migrate()` runs. Calling it splits the two BST-1329
+   * dispose windows apart: called ⇒ the runtime owns the close, not called ⇒
+   * the transport must close what it built once it sees `isDisposed()`.
+   */
+  readonly open?: (
+    context: DatabaseTransportOpenContext,
+    markConnected: () => void
+  ) => Promise<DbConnectionSnapshot | null>;
   /** `false` models a transport that owns no closable local connection (IPC). */
   readonly ownsConnection?: boolean;
   readonly purgeAndClose?: () => Promise<void>;
@@ -112,20 +121,25 @@ function createFakeTransport(calls: string[], options: FakeTransportOptions = {}
     kind,
     open: async (context) => {
       calls.push(`${kind}:open`);
-      const snapshot = options.open
-        ? await options.open(context)
-        : await Promise.resolve(CONNECTED_SNAPSHOT);
-      if (snapshot) {
+      const markConnected = () => {
         connected = true;
+      };
+      if (!options.open) {
+        markConnected();
+        return await Promise.resolve(CONNECTED_SNAPSHOT);
+      }
+      const snapshot = await options.open(context, markConnected);
+      if (!snapshot) {
+        connected = false;
       }
       return snapshot;
     },
     purgeAndClose: async () => {
       calls.push(`${kind}:purgeAndClose`);
-      connected = false;
       if (options.purgeAndClose) {
         await options.purgeAndClose();
       }
+      connected = false;
     },
   };
 }
@@ -309,6 +323,7 @@ describe('createDatabaseRuntime', () => {
       await runtime.factoryReset();
 
       expect(calls).toEqual([
+        'pglite-direct:hardReset',
         'registry:seal',
         'registry:unsubscribeAll',
         'live:unsubscribe',
@@ -338,7 +353,8 @@ describe('createDatabaseRuntime', () => {
         setTimeout(resolve, 25);
       });
       expect(settled).toBe(false);
-      expect(calls).toEqual([]);
+      expect(calls).not.toContain('pglite-direct:purgeAndClose');
+      expect(calls).not.toContain('registry:seal');
 
       pending.resolve();
       await inFlight;
@@ -372,7 +388,7 @@ describe('createDatabaseRuntime', () => {
 
         expect(resetError).toBeInstanceOf(Error);
         expect((resetError as Error).message).toMatch(/did not become idle/u);
-        expect(calls).toEqual(['registry:unseal']);
+        expect(calls).toEqual(['pglite-direct:hardReset', 'registry:unseal']);
         expect(runtime.getState().vectorEnabled).toBe(true);
       } finally {
         vi.useRealTimers();
@@ -442,7 +458,10 @@ describe('createDatabaseRuntime', () => {
     it('BST-1329: joins the in-flight initialize, drains, THEN closes', async () => {
       const opened = createDeferred();
       const { calls, runtime } = createHarness({
-        open: async () => {
+        open: async (_context, markConnected) => {
+          // The real direct transport registers its connection BEFORE
+          // `migrate()` runs; this is that window.
+          markConnected();
           await opened.promise;
           return CONNECTED_SNAPSHOT;
         },

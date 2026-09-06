@@ -728,7 +728,7 @@ ALL SIX:
 
 Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 `db-ipc.ts`, direct-PGlite `clearViaPGlite`, and direct-PGlite factory reset's
-`purgeTablesTx` in `db-provider.tsx`.
+`purgeTablesTx` in `pglite-direct-transport.ts`.
 
 **The SET those three lists clear is owned by the reset-table registry**
 (`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
@@ -823,8 +823,9 @@ instead of raising, and skip the `DELETE` when absent (BST-558 review).
 
 There is now exactly ONE clear helper per side and both probe: desktop
 `clearOptionalRelation` (`apps/desktop/src/ipc-domains/db-ipc.ts`) and renderer
-`clearRelationIfPresent` (`packages/db/src/db-provider.tsx`, used by BOTH
-`clearViaPGlite` and `purgeTablesTx`). Every call site is therefore safe by
+`clearRelationIfPresent` (`packages/db/src/pglite-direct-transport.ts`, used by
+BOTH the transport's `clearAllData` — the old `clearViaPGlite` — and
+`purgeTablesTx`). Every call site is therefore safe by
 construction rather than by the coincidence that its table happens to be created
 by an already-run numbered migration. Do not reintroduce a delete-and-tolerate
 variant alongside them.
@@ -850,7 +851,7 @@ PERMANENT SILENT SKIP — no error, no warn, only a `logger.debug`. Verified by
 control: renaming `TABLE_WORKFLOW_SNAPSHOT` in the contract while the reset path
 held an unpinned literal left a suspended-run row alive through a full clear
 (`expected 1 to be +0`). Both production sites (desktop `db-ipc.ts` and renderer
-`db-provider.tsx`) import the canonical exports.
+`pglite-direct-transport.ts`) import the canonical exports.
 
 The renderer used to hold a pinned local literal instead, because that import
 reordered bundle chunk init and killed the app at startup. That is FIXED at the
@@ -866,12 +867,14 @@ chunk has evaluated by then. `packages/assistant-data/src/assistant-memory-repos
 used to build its bootstrap DDL in a module-scope template literal interpolating
 `MASTRA_MEMORY_TABLES.threads`; adding ONE unrelated static import of
 `@brainstrike/assistant-contract/mastra-memory-schema` to `db-provider.tsx`
+(the renderer reset code lived there until BST-1653 moved it into
+`pglite-direct-transport.ts`, where the same rule applies)
 reordered chunk init and the renderer died at startup with `Cannot read
 properties of undefined (reading 'threads')` — measured on PR #1978, commit
 `df953a2a8` green and `3e8d1b7fd` red. The failure is not always loud: a
 property access throws, but a bare interpolation such as `${MASTRA_VECTOR_TABLE}`
-splices the literal string `undefined` into the DDL, and in `db-provider.tsx` an
-undefined table name would make `to_regclass('undefined')` return NULL — the
+splices the literal string `undefined` into the DDL, and in the renderer reset
+paths an undefined table name would make `to_regclass('undefined')` return NULL — the
 permanent silent skip described above. Build SQL inside the function that
 executes it (`buildAssistantThreadRunsSchemaSql`,
 `buildMastraVectorSchemaSql`).
@@ -1554,7 +1557,7 @@ so one `purge()` call can return up to 1000 and may still leave a backlog.
 **Factory reset**: new persistence under this table must stay wired in BOTH
 paths — desktop `db-ipc.ts` `OptionalRelationTable` list
 (`clearOptionalRelation(tx, 'brainstrike_diagnostic_events')`) and web
-`db-provider.tsx`'s direct-PGlite reset table list. Both currently include
+`pglite-direct-transport.ts`'s reset table lists. Both currently include
 `brainstrike_diagnostic_events`.
 
 **Debug bundle**: `packages/app-shell/src/diagnostics/debug-bundle.ts`
