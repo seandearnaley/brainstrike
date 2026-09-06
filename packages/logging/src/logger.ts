@@ -5,6 +5,7 @@ import type {
   TransportTargetOptions,
 } from 'pino';
 import pino from 'pino';
+import { logSerializers } from './log-serializers.js';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {
@@ -493,18 +494,7 @@ function createRootLogger(): PinoLogger {
   const baseOptions: LoggerOptions = {
     base: resolveBaseBindings(internalConfig),
     level: resolvedLevel,
-    serializers: {
-      // Redact sensitive fields
-      apiKey: () => '[REDACTED]',
-      authorization: () => '[REDACTED]',
-      cookie: () => '[REDACTED]',
-      err: pino.stdSerializers.err,
-      password: () => '[REDACTED]',
-      req: pino.stdSerializers.req,
-      res: pino.stdSerializers.res,
-      secret: () => '[REDACTED]',
-      token: () => '[REDACTED]',
-    },
+    serializers: logSerializers,
     timestamp: internalConfig.includeTimestamp ? pino.stdTimeFunctions.isoTime : false,
   };
 
@@ -945,6 +935,7 @@ export const __loggerTesting = {
   isRootTransportEnabled: () => ensureRootLogger().isLevelEnabled(currentLevel),
   normalizePinoLogArgs,
   sanitizeBrowserConsoleValue,
+  serializers: logSerializers,
   writePinoLog,
 };
 
