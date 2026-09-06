@@ -203,6 +203,66 @@ test('diffInventories drops records it cannot identify instead of inventing a ke
   assert.deepEqual(diff.unmatchable, { baseline: 3, candidate: 3 });
 });
 
+const DUPLICATE_NAME_FIXTURE = `
+import { useState } from 'react';
+
+export function makeFirst() {
+  function Row({ items }) {
+    const [n] = useState(0);
+    return <li>{items.join(',')}{n}</li>;
+  }
+  return Row;
+}
+
+export function makeSecond() {
+  function Row({ items }) {
+    const [n] = useState(0);
+    return <li>{items.join('-')}{n}</li>;
+  }
+  return Row;
+}
+`;
+
+test('two functions sharing a name in one file are marked unmatchable at the source', () => {
+  // Repeated local names (`Row`, `run`, `onDrop`) are ordinary. Both compile, both key to
+  // `file::Row`, and one silently shadows the other unless the producer says so.
+  for (const backend of BACKENDS) {
+    const report = inventorySource({
+      backend,
+      filename: '/repo/dup.jsx',
+      source: DUPLICATE_NAME_FIXTURE,
+    });
+    const rows = report.functions.filter((entry) => entry.name === 'Row');
+
+    assert.equal(rows.length, 2, `${backend} must record both same-named functions`);
+    for (const row of rows) {
+      assert.equal(row.status, 'compiled');
+      assert.equal(row.ambiguousName, true, `${backend} must flag the shared name`);
+      assert.equal(row.matchable, false, `${backend} must not offer a shared name as a key`);
+    }
+  }
+});
+
+test('a duplicated key is dropped even when the record claims to be matchable', () => {
+  // The diff never trusts the producer's flag alone: an inventory written by an older or
+  // buggy producer must not be able to hide a loss. Baseline compiles `Twin` twice and the
+  // candidate only once — folding them onto one key reports "unchanged" and loses the other.
+  const baseline = inventory('babel', [
+    { file: 'a.tsx', line: 20, matchable: true, name: 'Twin', status: 'compiled' },
+    { file: 'a.tsx', line: 40, matchable: true, name: 'Twin', status: 'compiled' },
+  ]);
+  const candidate = inventory('oxc', [
+    { file: 'a.tsx', line: 20, matchable: true, name: 'Twin', status: 'compiled' },
+  ]);
+
+  const diff = diffInventories(baseline, candidate);
+
+  assert.equal(diff.unchanged, 0, 'a shared key must never be reported as an unchanged pair');
+  assert.deepEqual(diff.regressions, []);
+  assert.deepEqual(diff.wins, []);
+  assert.deepEqual(diff.unmatchable, { baseline: 2, candidate: 1 });
+});
+
 test('diffInventories refuses an inventory written by an older script', () => {
   const stale = { backend: 'babel', failures: [], functions: [] };
   assert.throws(

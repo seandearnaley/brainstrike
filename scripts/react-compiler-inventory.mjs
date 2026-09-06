@@ -531,6 +531,7 @@ function compiledKeys(inventory) {
   }
 
   const keys = new Map();
+  const unmatchableKeys = new Set();
   let unmatchable = 0;
   for (const entry of inventory.functions) {
     if (entry.status !== 'compiled') {
@@ -538,12 +539,33 @@ function compiledKeys(inventory) {
     }
     const key = `${entry.file}::${entry.name}`;
     if (!entry.matchable || occurrences.get(key) > 1) {
+      unmatchableKeys.add(key);
       unmatchable += 1;
       continue;
     }
     keys.set(key, entry);
   }
-  return { keys, unmatchable };
+  return { keys, unmatchable, unmatchableKeys };
+}
+
+/**
+ * Matchability is a property of the comparison, not of one side of it. A name that is
+ * ambiguous in the baseline and unique in the candidate still has no pair: keeping the
+ * unique side manufactures a win out of the other side's collapse (and a regression in
+ * the mirror case). Drop such keys from both sides and count them as unmatchable there.
+ */
+function dropKeysAmbiguousOnEitherSide(before, after) {
+  let baseline = before.unmatchable;
+  let candidate = after.unmatchable;
+  for (const key of new Set([...before.unmatchableKeys, ...after.unmatchableKeys])) {
+    if (before.keys.delete(key)) {
+      baseline += 1;
+    }
+    if (after.keys.delete(key)) {
+      candidate += 1;
+    }
+  }
+  return { baseline, candidate };
 }
 
 /** Regressions are functions that compiled in `baseline` and no longer compile in `candidate`. */
@@ -553,6 +575,7 @@ export function diffInventories(baseline, candidate) {
 
   const before = compiledKeys(baseline);
   const after = compiledKeys(candidate);
+  const unmatchable = dropKeysAmbiguousOnEitherSide(before, after);
 
   const regressions = [];
   const wins = [];
@@ -584,7 +607,7 @@ export function diffInventories(baseline, candidate) {
     regressions,
     stillBailed,
     unchanged,
-    unmatchable: { baseline: before.unmatchable, candidate: after.unmatchable },
+    unmatchable,
     wins,
   };
 }
