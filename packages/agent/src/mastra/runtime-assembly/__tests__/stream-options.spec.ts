@@ -221,6 +221,84 @@ describe('buildStreamOptions per-leg parity (BST-1649)', () => {
     expect(actual.delegation).toBeDefined();
   });
 
+  /**
+   * BST-1649 review finding 2, second half: the per-leg parity cases run on a
+   * `{ provider: 'anthropic' }` fixture, and several fragments return `{}` for
+   * it. A fragment that contributes nothing is a fragment the whole-object
+   * comparison cannot see — deleting
+   * `...buildGenerationProviderOptionsOption(runtimeData)` from
+   * `buildStreamOptions` left the entire suite green, because both sides were
+   * spreading the same empty object.
+   *
+   * This case runs the comparison on a fixture where every data-valued fragment
+   * yields a distinguishable key, and attributes each key to the fragment that
+   * produced it before comparing. Pinning only the merged key SET would let the
+   * vacuity return by another door: a fragment could regress to `{}` while
+   * another grew the key it lost, and the set would still match. What the
+   * assertions defend against is implementation drift — a fragment's shape
+   * changing under a fixture that no longer satisfies it — not edits to this
+   * literal, which is local to this block.
+   *
+   * The closure-valued fragments (`experimental_generateMessageId`,
+   * `delegation`) contribute nothing for THIS input, which is what lets the
+   * comparison be a whole-object `toEqual`; a fixture that made either appear
+   * would need `objectContaining`, since a fresh closure never equals another.
+   */
+  it.each(['approval', 'initial', 'resume'] as const)(
+    'compares an object every data-valued fragment actually contributes to (%s leg)',
+    (leg) => {
+      const runtimeData = {
+        agentLoop: { inputTokenLimit: 4096, maxSteps: 7 },
+        modelSettings: { temperature: 0.3 },
+        provider: 'anthropic',
+        providerOptions: { anthropic: { thinking: { budgetTokens: 1024, type: 'enabled' } } },
+      } satisfies Partial<RuntimeData> as RuntimeData;
+      const runtime = makeRuntime();
+      const abortSignal = new AbortController().signal;
+      const memoryOption = { resource: 'thread-1', thread: 'thread-1' };
+
+      // Each fragment must own its key. A merged-set assertion cannot tell a
+      // fragment that went empty from one whose key another fragment now supplies.
+      expect(
+        Object.keys(
+          buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter)
+        ).sort()
+      ).toEqual(['inputProcessors', 'maxSteps']);
+      expect(Object.keys(buildModelSettingsOption(runtimeData))).toEqual(['modelSettings']);
+      expect(Object.keys(buildGenerationProviderOptionsOption(runtimeData))).toEqual([
+        'providerOptions',
+      ]);
+
+      const expected = {
+        ...buildToolLoopOptions(
+          runtimeData,
+          runtime.toolSearchProcessor,
+          runtime.toolHistoryFilter
+        ),
+        abortSignal,
+        memory: memoryOption,
+        ...buildModelSettingsOption(runtimeData),
+        ...buildGenerationProviderOptionsOption(runtimeData),
+      };
+
+      const actual = buildStreamOptions({
+        abortSignal,
+        delegationOutcomes: undefined,
+        delegationUsage: undefined,
+        leg,
+        memoryOption,
+        requireToolApproval: undefined,
+        runtime,
+        runtimeData,
+      });
+
+      // Every leg composes the same data-valued fragments; only `requireToolApproval`
+      // is leg-dependent, and it is absent here. A composition that ever went
+      // leg-dependent would surface as one parameterisation failing.
+      expect(actual).toEqual(expected);
+    }
+  );
+
   it('builds no delegation config when delegationUsage is absent', () => {
     const createDelegationConfigSpy = vi.spyOn(subagentDelegation, 'createDelegationConfig');
     const runtime = makeRuntime();
